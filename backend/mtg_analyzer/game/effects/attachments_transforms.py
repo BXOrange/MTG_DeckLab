@@ -1210,8 +1210,13 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
         self, tapped: bool = False, source: Optional["GameObject"] = None, attacking: bool = False,
         extra_counters: Optional[dict[str, Any]] = None,
         attach_to_previous: bool = False,
+        face_choice: bool = False,
     ):
         super().__init__(source)
+        #: "…return this card from your graveyard to the battlefield **face up or face down**." (Deathmist Raptor) —
+        #: the controller picks (`RulesEngine._request_return_face_choice`); a card with no morph can only return
+        #: face up, so no question is asked for it.
+        self.face_choice = bool(face_choice)
         self.tapped = tapped
         self.attach_to_previous = bool(attach_to_previous)
         self.target = None
@@ -1236,6 +1241,11 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
                 return  # RULE 303.4i / 603.7c: an invalid or new host prevents entry.
         destination = "battlefield_tapped" if self.tapped else "battlefield"
         controller_id = (context.resolving_controller_id or self.source.controller_id) if host is not None else None
+        from .. import face_down  # function-scoped: face_down is imported by the rules mixins above this package
+
+        if self.face_choice and face_down.cast_face_down_kind(self.source):
+            context.engine._request_return_face_choice(self.source, destination)
+            return
         context.return_from_graveyard(self.source, destination, attach_to=host, controller_id=controller_id)
         if self.extra_counters:
             context.add_counters(

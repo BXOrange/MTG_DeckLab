@@ -9,6 +9,8 @@ from . import keen_duelist  # noqa: F401
 from . import kellan_the_kid  # noqa: F401
 from . import kenrith_s_transformation  # noqa: F401
 from . import kethis_the_hidden_hand  # noqa: F401
+from . import kheru_spellsnatcher  # noqa: F401
+from . import kianne_corrupted_memory  # noqa: F401
 from . import kiki_jiki_mirror_breaker  # noqa: F401
 from . import killian_decisive_mentor  # noqa: F401
 from . import killian_ink_duelist  # noqa: F401

@@ -423,6 +423,8 @@ EffectRegistry.register(
         amount=p.get("amount", 0), player=p.get("player"), target_kind=p.get("target_kind"),
         count_selector=p.get("count_selector"),
         count_selector_multiplier=int(p.get("count_selector_multiplier", 1) or 1),
+        life_from_target_creature=p.get("life_from_target_creature"),
+        target_creature_kind=p.get("target_creature_kind"),
     ),
 )
 EffectRegistry.register(
@@ -639,7 +641,7 @@ EffectRegistry.register(
     # "Exchange target opponent's life total with ~'s toughness." (Tree of
     # Perdition) — hand-authored singleton, see the effect's docstring.
     "exchange_life_total_with_toughness",
-    lambda p: ExchangeLifeTotalWithToughnessEffect(),
+    lambda p: ExchangeLifeTotalWithToughnessEffect(player_scope=str(p.get("player", "opponent"))),
 )
 EffectRegistry.register(
     # PAR-30 (RULE 701.10 residue, Juxtapose) — see JuxtaposeEffect.
@@ -696,6 +698,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "spell"),
         tap_lands_empty_pool_if_unpaid=bool(p.get("tap_lands_empty_pool_if_unpaid", False)),
         exile_then_cast_free=bool(p.get("exile_then_cast_free", False)),  # Transcendent Dragon
+        exile_standing_free_cast=bool(p.get("exile_standing_free_cast", False)),  # Kheru Spellsnatcher
     ),
 )
 EffectRegistry.register(
@@ -1554,6 +1557,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         moved_pool=bool(p.get("moved_pool", False)),
         then_effects=p.get("then_effects"),
+        face_down_as=p.get("face_down_as"),
         positional_top_creature=bool(p.get("positional_top_creature", False)),
         unless_flag=p.get("unless_flag"),
         attacking=bool(p.get("attacking", False)),
@@ -1568,7 +1572,10 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "return_creatures_total_mana_value",
-    lambda p: ReturnCreatureCardsWithTotalMVEffect(budget=p.get("budget", 0)),
+    lambda p: ReturnCreatureCardsWithTotalMVEffect(
+        budget=p.get("budget", 0), measure=str(p.get("measure", "mana_value")),
+        own_graveyard=bool(p.get("own_graveyard", False)),
+    ),
 )
 EffectRegistry.register(
     "add_mana",  # a spell's own bare "Add {B}{B}{B}." body (RULE 106.4, Dark Ritual)
@@ -2260,6 +2267,30 @@ EffectRegistry.register(
         player_selector=str(p.get("player_selector", "controller")),
         require_untapped=bool(p.get("require_untapped", False)),
         else_effects=p.get("else_effects"),
+        count_amount=p.get("count_amount"),
+    ),
+)
+EffectRegistry.register(
+    # Expel the Interlopers — see `ChooseNumberThenEffect`.
+    "choose_number_then",
+    lambda p: ChooseNumberThenEffect(
+        minimum=int(p.get("min", 0)), maximum=int(p.get("max", 10)), effects=p.get("then"),
+    ),
+)
+EffectRegistry.register(
+    # Slaughter the Strong — see `SlaughterTheStrongEffect`.
+    "slaughter_the_strong",
+    lambda p: SlaughterTheStrongEffect(
+        budget=int(p.get("budget", 4)), stage=str(p.get("stage", "choose")),
+        player_ids=p.get("player_ids"), kept_ids=p.get("kept_ids"),
+    ),
+)
+EffectRegistry.register(
+    # Disorienting Choice — see `DisorientingChoiceEffect`.
+    "disorienting_choice",
+    lambda p: DisorientingChoiceEffect(
+        stage=str(p.get("stage", "choose")), player_ids=p.get("player_ids"), chosen_ids=p.get("chosen_ids"),
+        pending_ids=p.get("pending_ids"),
     ),
 )
 EffectRegistry.register(
@@ -2815,6 +2846,7 @@ EffectRegistry.register(
         kind_options=p.get("kind_options"),
         choose_one=bool(p.get("choose_one", False)),
         group_other=bool(p.get("group_other", False)),
+        per_recipient_stat=p.get("per_recipient_stat"),
     ),
 )
 EffectRegistry.register(
@@ -3205,6 +3237,7 @@ EffectRegistry.register(
         tapped=bool(p.get("tapped", False)), attacking=bool(p.get("attacking", False)),
         extra_counters=p.get("extra_counters"),
         attach_to_previous=bool(p.get("attach_to_previous", False)),
+        face_choice=bool(p.get("face_choice", False)),
     ),
 )
 EffectRegistry.register(
@@ -4156,8 +4189,38 @@ EffectRegistry.register(
             "defender_scope": p.get("defender_scope", "player"),
             "attacker_filter": p.get("attacker_filter"),
             "amount_per_attacker_counter": p.get("amount_per_attacker_counter"),
+            # RULE 613.6 gate ("As long as ~ is untapped, creatures can't attack you unless…", Archangel of
+            # Tithes) — read by `continuous.attack_tax_per_creature_for`; it used to be dropped here.
+            **({"active_if": dict(p["active_if"])} if isinstance(p.get("active_if"), dict) else {}),
         }
     ),
+)
+EffectRegistry.register(
+    # "…creatures can't block unless their controller pays {N} for each of
+    # those creatures." (Archangel of Tithes) — RULE 509.1c block tax, the
+    # mirror of ``attack_tax``. Marker static read live by
+    # `combat_mixin.declare_blockers` via `continuous.block_tax_per_creature`;
+    # a creature of *any* controller is taxed, so ``amount`` is per blocker
+    # and the gate (``active_if``, e.g. "as long as ~ is attacking") is the
+    # only scope.
+    "block_tax",
+    lambda p: StaticAbility(
+        "block_tax", affects="self", params={
+            "amount": int(p.get("amount", 0)),
+            **({"active_if": dict(p["active_if"])} if isinstance(p.get("active_if"), dict) else {}),
+        }
+    ),
+)
+EffectRegistry.register(
+    # RULE 104.3b: "You can't lose the game and your opponents can't win the game." (Herald of Eternal Dawn) —
+    # two marker statics read live by `RulesEngine._loss_prevented`/`_player_loses` and `player_wins`
+    # (`continuous.player_cant_lose` / `player_cant_win`); the Platinum Angel family.
+    "cant_lose_game",
+    lambda p: StaticAbility("cant_lose_game", affects="self", params={}),
+)
+EffectRegistry.register(
+    "opponents_cant_win",
+    lambda p: StaticAbility("opponents_cant_win", affects="self", params={}),
 )
 EffectRegistry.register(
     # "Each creature that's enchanted by an Aura you control can't attack you

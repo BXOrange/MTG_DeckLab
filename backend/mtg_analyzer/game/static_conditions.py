@@ -147,12 +147,16 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # single-selector count.
         "control_permanent_of_each_color",
         "control_named",  # + ``name`` — "as long as you control a <card>"
+        # "…only if you control three or more lands with the same name." (Endless Atlas) — the largest group of
+        # same-named permanents of one card type ``card_type`` the controller controls reaches ``min``.
+        "control_same_name_at_least",
         # "as long as an opponent has N or more cards in their graveyard" —
         # `control_count`'s opponent-scoped sibling: true when *any one*
         # opponent satisfies it, which is what "an opponent" means.
         "opponent_count",  # + ``selector``/``min``/``max``
         # -- The controller's own resources.
         "life_at_least",  # + ``amount``
+        "life_over_starting_at_least",  # + ``amount`` — RULE 103.4, "N life more than your starting life total"
         "life_at_most",
         # "as long as an opponent has N or less life" (Bloodghast, PAR-60) —
         # true when any one opponent satisfies it. + ``amount``.
@@ -494,6 +498,10 @@ def _within(n: int, condition: dict[str, Any], default_min: Optional[int] = None
     if minimum is not None and n < int(minimum):
         return False
     if maximum is not None and n > int(maximum):
+        return False
+    # "as long as ~'s power is even / odd" (Kianne, Corrupted Memory) — zero is even (RULE 107.1c-adjacent).
+    parity = condition.get("parity")
+    if parity is not None and n % 2 != (0 if parity == "even" else 1):
         return False
     return True
 
@@ -906,6 +914,16 @@ def condition_holds(
         if maximum is not None and n > int(maximum):
             return False
         return True
+    if kind == "control_same_name_at_least":
+        if controller_id is None:
+            return False
+        wanted = str(condition.get("card_type", "land")).lower()
+        names: dict[str, int] = {}
+        for o in state.permanents():
+            if o.controller_id != controller_id or wanted not in (o.card.type_line or "").lower().split("—")[0]:
+                continue
+            names[o.name] = names.get(o.name, 0) + 1
+        return max(names.values(), default=0) >= int(condition.get("min", 1))
     if kind == "control_legendary_subtype":
         # "as long as you control a legendary Assassin" (Brotherhood Spy and
         # the like) — a live board read, like `control_count` above.
@@ -1039,6 +1057,11 @@ def condition_holds(
         return False
     if kind == "life_at_least":
         return int(getattr(player, "life", 0)) >= int(condition.get("amount", 0))
+    if kind == "life_over_starting_at_least":
+        # "As long as you have at least 7 life more than your starting life total" (Righteous Valkyrie).
+        return int(getattr(player, "life", 0)) - int(getattr(player, "starting_life", 0)) >= int(
+            condition.get("amount", 0)
+        )
     if kind == "life_at_most":
         return int(getattr(player, "life", 0)) <= int(condition.get("amount", 0))
     if kind == "opponent_life_at_most":

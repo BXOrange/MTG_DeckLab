@@ -8,9 +8,11 @@ from . import fallen_ideal  # noqa: F401
 from . import fandaniel_telophoroi_ascian  # noqa: F401
 from . import farewell  # noqa: F401
 from . import farmer_cotton  # noqa: F401
+from . import fateful_absence  # noqa: F401
 from . import fateful_tempest  # noqa: F401
 from . import feed_the_swarm  # noqa: F401
 from . import fell_the_mighty  # noqa: F401
+from . import felothar_the_steadfast  # noqa: F401
 from . import feral_appetite  # noqa: F401
 from . import ferrafor_young_yew  # noqa: F401
 from . import fertile_ground  # noqa: F401

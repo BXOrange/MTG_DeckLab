@@ -1250,8 +1250,12 @@ class ChooseObjectsEffect(GameEffect):
         pool_player_selector: str = "chooser",
         pool_zones: Optional[list[str]] = None,
         mana_value_less_than_trigger: bool = False,
+        count_amount: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
+        #: An `effect_amounts` operand measured as this resolves, replacing ``count`` — "untap up to X lands, where X
+        #: is the greatest power among those creatures" (Shriekwood Devourer).
+        self.count_amount = count_amount
         #: Serialized specs applied when nothing gets picked — an empty candidate pool included ("return a
         #: creature you control to its owner's hand, **then** destroy all creatures" with no creature to
         #: return, Time Wipe): `then` is skipped in that case, so the unconditional tail rides both.
@@ -1320,13 +1324,180 @@ class ChooseObjectsEffect(GameEffect):
             and not (self.exclude_self and obj is self.source)
             and not (self.require_untapped and obj.tapped)
         ]
+        count = len(candidates) if self.count == "all" else self.count
+        if self.count_amount is not None:
+            from .. import effect_amounts  # function-scoped: effect_amounts imports this package
+
+            count = effect_amounts.amount_of(self.count_amount, context, self.source, targets)
         context.choose_objects(
-            player, candidates, self.action, count=len(candidates) if self.count == "all" else self.count,
+            player, candidates, self.action, count=count,
             optional=self.optional, prompt=self.prompt, source=self.source,
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
             else_specs=self.else_effects, then_that_many=self.then_that_many,
             distinct_card_types=self.distinct_card_types,
         )
+
+
+class DisorientingChoiceEffect(GameEffect):
+    """Disorienting Choice — "For each opponent, choose up to one target artifact or enchantment that player controls.
+    For each permanent chosen this way, its controller may exile it. Then if one or more of the chosen permanents are
+    still on the battlefield, you search your library for up to that many land cards, put them onto the battlefield
+    tapped, then shuffle."
+
+    A three-stage continuation over the general chooser (`ChoosePlayerObjectsEffect`'s idiom — one `pending_choice` at
+    a time, the remainder carried as serialized data on the choice): ``choose`` asks the spell's controller for one
+    artifact/enchantment per opponent in turn order; ``exile`` offers each chosen permanent's controller a "may
+    exile it"; ``search`` counts the chosen permanents still on the battlefield and fetches that many lands.
+    **Simplification:** the choice is made as the spell resolves (an untargeted pick, so hexproof/protection do not stop
+    it), not as a RULE 115 target at cast time.
+    """
+
+    def __init__(self, stage: str = "choose", player_ids=None, chosen_ids=None, pending_ids=None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.stage = stage
+        self.player_ids = player_ids
+        self.chosen_ids: list[Any] = []
+        for item in chosen_ids or []:
+            self.chosen_ids.extend(item if isinstance(item, list) else [item])
+        self.pending_ids = list(pending_ids) if pending_ids is not None else None
+
+    def _next(self, context: "GameContext", **params: Any) -> None:
+        context.engine._apply_effect_specs(
+            [{"type": "disorienting_choice", "params": params}], self.source,
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        state = context.state
+        if self.stage == "choose":
+            remaining = self.player_ids
+            if remaining is None:
+                remaining = [p.id for p in state.living_players_apnap() if p.id != controller.id]
+            if not remaining:
+                self._next(context, stage="exile", chosen_ids=list(self.chosen_ids))
+                return
+            opponent = state.player_by_id(remaining[0])
+            candidates = [
+                o for o in (state.permanents_controlled_by(opponent.id) if opponent else [])
+                if o.card.is_artifact or o.card.is_enchantment
+            ]
+            declined = {"player_ids": remaining[1:], "chosen_ids": list(self.chosen_ids)}
+            if not candidates:
+                self._next(context, stage="choose", **declined)
+                return
+            picked = {"player_ids": remaining[1:], "chosen_ids": self.chosen_ids + [{"kind": "chosen_instance_ids"}]}
+            context.choose_objects(
+                controller, candidates, "select_referent", count=1, optional=True, source=self.source,
+                then_specs=[{"type": "disorienting_choice", "params": {"stage": "choose", **picked}}],
+                else_specs=[{"type": "disorienting_choice", "params": {"stage": "choose", **declined}}],
+                prompt=f"Artefakt oder Verzauberung von {opponent.name} wählen",
+            )
+            return
+        if self.stage == "exile":
+            pending = list(self.chosen_ids) if self.pending_ids is None else list(self.pending_ids)
+            while pending:
+                permanent = state.find_object(pending.pop(0))
+                if permanent is None or permanent.zone != Zone.BATTLEFIELD:
+                    continue
+                rest = {"stage": "exile", "chosen_ids": list(self.chosen_ids), "pending_ids": list(pending)}
+                owner = state.player_by_id(permanent.controller_id)
+                context.choose_objects(
+                    owner, [permanent], "exile", count=1, optional=True, source=self.source,
+                    then_specs=[{"type": "disorienting_choice", "params": rest}],
+                    else_specs=[{"type": "disorienting_choice", "params": rest}],
+                    prompt=f"{permanent.name} ins Exil schicken?",
+                )
+                return
+            self._next(context, stage="search", chosen_ids=list(self.chosen_ids))
+            return
+        remaining_count = sum(
+            1 for iid in self.chosen_ids
+            if (o := state.find_object(iid)) is not None and o.zone == Zone.BATTLEFIELD
+        )
+        if remaining_count:
+            context.engine._apply_effect_specs([{"type": "search", "params": {
+                "criteria": {"type": "land"}, "destination": "battlefield_tapped", "count": remaining_count,
+            }}], self.source)
+
+
+class ChooseNumberThenEffect(GameEffect):
+    """"Choose a number between 0 and 10. `<effect>` … the chosen number" (Expel the Interlopers) — a resolution-time
+    pending choice (`RulesEngine._request_number_choice`) whose answer binds the ``"x"`` sentinel of ``effects`` (the
+    serialized body, `_substitute_x_specs`) before they run. Options are the whole range so the board shows buttons."""
+
+    def __init__(self, minimum: int = 0, maximum: int = 10, effects: Optional[list[dict[str, Any]]] = None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.minimum = int(minimum)
+        self.maximum = int(maximum)
+        #: The serialized body — deliberately not named ``effects`` (composite nodes' own attribute, which the stack
+        #: resolver walks for targets).
+        self.then_specs = [dict(spec) for spec in (effects or [])]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine._request_number_choice(player, self.minimum, self.maximum, self.then_specs, self.source)
+
+
+class SlaughterTheStrongEffect(GameEffect):
+    """"Each player chooses any number of creatures they control with total power ``budget`` or less, then sacrifices
+    all other creatures they control." (Slaughter the Strong, RULE 101.4)
+
+    Players choose in turn order (APNAP), one `pending_choice` at a time — an optional multi-pick over their own
+    creatures whose summed power may not pass the budget (`_request_choose_objects`'s ``total_power_budget``); the
+    remainder rides as serialized data on the choice (`DisorientingChoiceEffect`'s idiom). Only once every player has
+    chosen are all the unchosen creatures sacrificed together (RULE 608.2e)."""
+
+    def __init__(self, budget: int = 4, stage: str = "choose", player_ids=None, kept_ids=None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.budget = int(budget)
+        self.stage = stage
+        self.player_ids = player_ids
+        self.kept_ids: list[Any] = []
+        for item in kept_ids or []:
+            self.kept_ids.extend(item if isinstance(item, list) else [item])
+
+    def _continue(self, context: "GameContext", **params: Any) -> None:
+        context.engine._apply_effect_specs(
+            [{"type": "slaughter_the_strong", "params": {"budget": self.budget, **params}}], self.source,
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        state = context.state
+        if self.stage == "choose":
+            remaining = self.player_ids
+            if remaining is None:
+                remaining = [p.id for p in state.living_players_apnap()]
+            if not remaining:
+                self._continue(context, stage="sacrifice", kept_ids=list(self.kept_ids))
+                return
+            player = state.player_by_id(remaining[0])
+            mine = [o for o in state.permanents_controlled_by(player.id) if o.is_creature]
+            declined = {"stage": "choose", "player_ids": remaining[1:], "kept_ids": list(self.kept_ids)}
+            if not mine:
+                self._continue(context, **declined)
+                return
+            picked = {**declined, "kept_ids": self.kept_ids + [{"kind": "chosen_instance_ids"}]}
+            context.engine._request_choose_objects(
+                player, mine, "select_referent", count=len(mine), optional=True, source=self.source,
+                prompt=f"Kreaturen behalten (Gesamtstärke höchstens {self.budget})",
+                total_power_budget=self.budget,
+                then_specs=[{"type": "slaughter_the_strong", "params": {"budget": self.budget, **picked}}],
+                else_specs=[{"type": "slaughter_the_strong", "params": {"budget": self.budget, **declined}}],
+            )
+            return
+        kept = set(self.kept_ids)
+        doomed = [o for o in list(state.permanents()) if o.is_creature and o.instance_id not in kept]
+        with state.simultaneous():
+            for obj in doomed:
+                context.engine.note_sacrificed(self.source, obj)
+                context.engine.put_into_graveyard(obj)
 
 
 class ChoosePlayerObjectsEffect(GameEffect):

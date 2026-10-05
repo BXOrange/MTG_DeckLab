@@ -21,6 +21,7 @@ from . import elvish_guidance  # noqa: F401
 from . import elvish_harbinger  # noqa: F401
 from . import elvish_warmaster  # noqa: F401
 from . import embercleave  # noqa: F401
+from . import emeria_shepherd  # noqa: F401
 from . import emeria_the_sky_ruin  # noqa: F401
 from . import emet_selch_of_the_third_seat  # noqa: F401
 from . import emiel_the_blessed  # noqa: F401
@@ -28,6 +29,7 @@ from . import empowered_autogenerator  # noqa: F401
 from . import emrakul_the_promised_end  # noqa: F401
 from . import emry_lurker_of_the_loch  # noqa: F401
 from . import encroaching_wastes  # noqa: F401
+from . import endless_atlas  # noqa: F401
 from . import endurance  # noqa: F401
 from . import enduring_vitality  # noqa: F401
 from . import enraging_licid  # noqa: F401
@@ -48,10 +50,13 @@ from . import evercoat_ursine  # noqa: F401
 from . import everlasting_torment  # noqa: F401
 from . import evolving_wilds  # noqa: F401
 from . import excava_the_risen_past  # noqa: F401
+from . import exemplar_of_light  # noqa: F401
 from . import exhume  # noqa: F401
 from . import expansion_algorithm  # noqa: F401
 from . import expansion_explosion  # noqa: F401
+from . import expel_the_interlopers  # noqa: F401
 from . import experimental_confectioner  # noqa: F401
+from . import experimental_lab_staff_room  # noqa: F401
 from . import explorer_s_scope  # noqa: F401
 from . import expressive_iteration  # noqa: F401
 from . import eye_of_ugin  # noqa: F401

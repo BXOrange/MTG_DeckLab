@@ -115,6 +115,8 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return obj.card.is_planeswalker
     if what == "battle":
         return obj.card.is_battle
+    if what == "face_down":
+        return bool(obj.face_down)  # "a face-down permanent you control" (Primordial Mist)
     if what == "nontoken_creature":
         # RULE 111.8/701.17: "each player sacrifices a nontoken creature of
         # their choice" (Accursed Marauder/Liliana, Dreadhorde General's own

@@ -622,7 +622,7 @@ class StateBasedActionsMixin:
         return any(
             isinstance(e, WinConditionEffect) and e.prevents_loss()
             for e in player.player_effects
-        )
+        ) or continuous.player_cant_lose(self.state, player)  # RULE 104.3b standing static (Herald of Eternal Dawn)
     def _player_loses(self, player: Player, reason: str) -> None:
         """A player loses the game — RULE 104.2/104.3, however it happened
         (a state-based loss such as 0 life/poison/empty library, a
@@ -639,6 +639,10 @@ class StateBasedActionsMixin:
         left the game is over anyway, so the board is simply left standing
         for the end-of-match review and the sweep never runs.
         """
+        # RULE 104.3b: "You can't lose the game" also stops an effect-driven loss ("target player loses the game"),
+        # but never a concession (RULE 104.3a). The state-based paths have already checked `_loss_prevented`.
+        if reason != "conceded" and self._loss_prevented(player):
+            return
         player.has_lost = True
         player.loss_reason = reason
         self.state.fire_event(
@@ -717,6 +721,8 @@ class StateBasedActionsMixin:
         A solo (1-player) match has no "other player" to lose, so the
         win/game-over state is set directly instead.
         """
+        if continuous.player_cant_win(self.state, player):
+            return  # RULE 104.3b: "your opponents can't win the game" (Herald of Eternal Dawn)
         for other in list(self.state.living_players()):
             if other is not player:
                 self._player_loses(other, "opponent_won")

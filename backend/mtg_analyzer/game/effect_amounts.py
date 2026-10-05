@@ -156,6 +156,8 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "moved_count",  # + optional ``card_type``
         # The larger of two measurements — ``left`` / ``right`` are themselves amounts.
         "greater_of",
+        # "the difference between that creature's power and its toughness" (Jaws of Defeat) — |left - right|.
+        "abs_diff",
         # RULE 706.3a: this resolution's most recent `RollDieEffect` total
         # (`GameContext.die_result`) — "…where X is the result." (Growth
         # Spurt, PAR-80). MEC-90's own missing half of the dice subsystem.
@@ -273,6 +275,14 @@ def _base(
                 context.state, controller_id,
                 selector if isinstance(selector, dict) else str(selector), source=reference,
             ) or 0
+        )
+
+    if kind == "abs_diff":
+        # "…the difference between that creature's power and its toughness." (Jaws of Defeat) — RULE 107.1, the
+        # non-negative difference of two measurements.
+        return abs(
+            amount_of(amount.get("left"), context, source, targets)
+            - amount_of(amount.get("right"), context, source, targets)
         )
 
     if kind == "targets_count":

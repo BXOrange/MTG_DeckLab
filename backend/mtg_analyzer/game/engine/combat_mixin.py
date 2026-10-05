@@ -1211,6 +1211,23 @@ class CombatMixin:
             if lone is not None and combat.combat_restrictions(lone, "cant_block_alone"):
                 raise ValueError(f"{lone.name} can't block alone")
 
+        # RULE 509.1c block tax ("creatures can't block unless their controller
+        # pays {1} for each of those creatures" — Archangel of Tithes): paid
+        # up front, auto-tapping like the attack tax, before any block locks
+        # in. Per newly declared blocker, so an additive second call only
+        # pays for its own blockers.
+        block_tax = continuous.block_tax_per_creature(self.state) * len(resolved)
+        if block_tax > 0:
+            tax_cost = ManaCost.parse(f"{{{block_tax}}}")
+            if not player.mana_pool.can_pay(tax_cost):
+                try:
+                    self.auto_tap_for(player, cost=tax_cost)
+                except ValueError:
+                    raise ValueError(f"cannot pay the {{{block_tax}}} block tax to declare these blockers")
+            if not player.mana_pool.can_pay(tax_cost):
+                raise ValueError(f"cannot pay the {{{block_tax}}} block tax to declare these blockers")
+            player.mana_pool.pay(tax_cost)
+
         # RULE 702.130/702.45/702.23 (afflict/bushido/rampage): capture, before
         # any mutation, which attackers are transitioning from unblocked to
         # blocked this call — BECOMES_BLOCKED fires once per such attacker,

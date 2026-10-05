@@ -168,6 +168,12 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             )
             if bool(value) != has_legend:
                 return False
+        elif key == "own_turn_after":
+            # "You can't cast this spell during your first, second, or third turns of the game." (Serra Avenger) —
+            # forbidden only while it is the caster's own turn and they have begun at most ``value`` of them.
+            active = getattr(state, "active_player", None)
+            if active is not None and active.id == controller_id and active.turns_taken <= int(value):
+                return False
         elif key == "control_land_type":
             # "If you control a Swamp, you may pay 4 life rather than pay
             # this spell's mana cost." (RULE 118.9, Snuff Out) — the

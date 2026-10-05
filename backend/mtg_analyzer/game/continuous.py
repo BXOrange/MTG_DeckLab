@@ -1432,6 +1432,29 @@ def count_selector(
             return 0
         player = state.player_by_id(controller_id)
         return player.life if player is not None else 0
+    if selector == "cards_in_your_hand":
+        # "…where X is the number of cards in your hand." (Baldin, Century Herdmaster)
+        player = state.player_by_id(controller_id) if controller_id is not None else None
+        return len(player.hand) if player is not None else 0
+    if selector == "total_toughness_other_creatures_you_control":
+        # "…where X is the total toughness of other creatures you control." (Towering Titan) — read as it
+        # enters, so ``source`` is not yet on the battlefield and "other" is free; excluded anyway for a live read.
+        return sum(
+            max(0, int(o.toughness or 0)) for o in bf
+            if o.is_creature and o.controller_id == controller_id and o is not source
+        )
+    if selector == "opponents_with_more_cards_in_hand":
+        # "…once for each opponent who has more cards in hand than you." (Wojek Investigator) — a count of
+        # players, not objects: every other living player whose hand is larger than ``controller_id``'s.
+        if controller_id is None:
+            return 0
+        mine = state.player_by_id(controller_id)
+        if mine is None:
+            return 0
+        return sum(
+            1 for p in state.players
+            if p.id != controller_id and not p.has_lost and len(p.hand) > len(mine.hand)
+        )
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector.startswith("greatest_") and selector.endswith("_you_control") and "_among_" in selector:
@@ -3619,7 +3642,8 @@ def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_i
     amount = ability.params.get("generic", 0)
     per = ability.params.get("per")
     if per:
-        amount *= count_selector(state, controller_id, per)
+        # ``source`` lets a self-referential selector ("for each +1/+1 counter on this creature") read its own permanent.
+        amount *= count_selector(state, controller_id, per, ability.source)
     return -amount if ability.params.get("increase") else amount
 
 
@@ -3812,8 +3836,11 @@ def cost_reduction_for(
             # "Creature spells you cast of the chosen type cost {1} less to cast." (Herald's Horn) — the type
             # picked as the source entered (`GameObject.chosen_type`); nothing chosen discounts nothing.
             spell_subtype = getattr(ability.source, "chosen_type", None) or "none_chosen"
-        if spell_subtype and (obj is None or not has_subtype(obj, str(spell_subtype))):
-            continue
+        if spell_subtype:
+            # A list ORs its subtypes ("Angel spells and Human spells you cast…", Herald of War).
+            wanted = spell_subtype if isinstance(spell_subtype, (list, tuple)) else [spell_subtype]
+            if obj is None or not any(has_subtype(obj, str(w)) for w in wanted):
+                continue
         # "Legendary spells you cast cost {1} less to cast." (Kethis, the Hidden Hand) — RULE 205.4.
         if ability.params.get("spell_legendary") and (obj is None or not getattr(obj.card, "is_legendary", False)):
             continue
@@ -4028,6 +4055,12 @@ def attack_tax_per_creature_for(
         if getattr(ability.source, "controller_id", None) != defending_player_id:
             continue
         params = ability.params or {}
+        # RULE 613.6 gate ("As long as ~ is untapped, …" — Archangel of Tithes).
+        gate = params.get("active_if")
+        if gate and not static_conditions.condition_holds(
+            gate, state, ability.source, getattr(ability.source, "controller_id", None)
+        ):
+            continue
         scope = str(params.get("defender_scope", "player"))
         if defender_kind != "player" and not (
             defender_kind == "planeswalker" and scope == "player_or_planeswalker"
@@ -4058,6 +4091,27 @@ def attack_tax_per_creature_for(
     return total
 
 
+def block_tax_per_creature(state: "GameState") -> int:
+    """RULE 509.1c — "creatures can't block unless their controller pays {N}
+    for each of those creatures" (Archangel of Tithes while attacking).
+    Returns the total {N} charged **per declared blocking creature** by every
+    ``block_tax`` static whose ``active_if`` gate holds; a creature of any
+    controller is taxed. `combat_mixin.declare_blockers` multiplies this by
+    the creatures being declared and pays the sum before the block locks in."""
+    total = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "block_tax":
+            continue
+        params = ability.params or {}
+        gate = params.get("active_if")
+        if gate and not static_conditions.condition_holds(
+            gate, state, ability.source, getattr(ability.source, "controller_id", None)
+        ):
+            continue
+        total += int(params.get("amount", 0))
+    return total
+
+
 def _defender_attack_ban_matches(
     state: "GameState", attacker: Any, static_source: Any, filt: dict[str, Any]
 ) -> bool:
@@ -4070,6 +4124,13 @@ def _defender_attack_ban_matches(
     subtype = filt.get("subtype")
     if subtype and not has_subtype(attacker, str(subtype)):
         return False
+    keyword = filt.get("keyword")
+    if keyword:
+        # "Creatures with flying can't attack you or planeswalkers you control." (Sandwurm Convergence)
+        from . import combat  # function-scoped: combat imports this module
+
+        if not combat.has(attacker, str(keyword)):
+            return False
     counter_kind = filt.get("has_counter_kind")
     counters = getattr(attacker, "counters", {}) or {}
     if counter_kind and int(counters.get(counter_kind, 0)) <= 0:
@@ -5319,6 +5380,35 @@ def hand_size_modifier_for(state: "GameState", player: "Player") -> int:
     return modifier
 
 
+def player_cant_lose(state: "GameState", player: "Player") -> bool:
+    """RULE 104.3b — a standing "You can't lose the game" static (Herald of Eternal Dawn) controlled by ``player``.
+    Conceding (RULE 104.3a) is exempt and never asks."""
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cant_lose_game" or getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        gate = ability.params.get("active_if")
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, player.id):
+            continue
+        return True
+    return False
+
+
+def player_cant_win(state: "GameState", player: "Player") -> bool:
+    """RULE 104.3b — a standing "Your opponents can't win the game" static controlled by someone other than
+    ``player`` (Herald of Eternal Dawn)."""
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "opponents_cant_win":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is None or controller_id == player.id:
+            continue
+        gate = ability.params.get("active_if")
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, controller_id):
+            continue
+        return True
+    return False
+
+
 def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
     """Whether RULE 704.5j (the legend rule) is switched off for permanents
     ``player`` controls right now ("The 'legend rule' doesn't apply to
@@ -5861,7 +5951,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
-     "damage_prevention_prohibition", "global_wither", "attack_tax", "player_hexproof",
+     "damage_prevention_prohibition", "global_wither", "attack_tax", "block_tax", "cant_lose_game", "opponents_cant_win", "player_hexproof",
      "mana_wildcard", "retain_mana", "entry_counters_self"}
 )
 

@@ -49,6 +49,7 @@ from . import priest_of_forgotten_gods  # noqa: F401
 from . import primal_vigor  # noqa: F401
 from . import primary_research  # noqa: F401
 from . import primo_the_unbounded  # noqa: F401
+from . import primordial_mist  # noqa: F401
 from . import prismari_pianist  # noqa: F401
 from . import prismatic_circle  # noqa: F401
 from . import prismatic_ward  # noqa: F401

@@ -1,6 +1,7 @@
 """Hand-authored card entries whose name starts with 'b' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import back_from_the_brink  # noqa: F401
 from . import backdraft_hellkite  # noqa: F401
+from . import baldin_century_herdmaster  # noqa: F401
 from . import balthier_and_fran  # noqa: F401
 from . import bane_of_progress  # noqa: F401
 from . import banquet_guests  # noqa: F401
@@ -17,6 +18,7 @@ from . import bello_bard_of_the_brambles  # noqa: F401
 from . import bellowing_aegisaur  # noqa: F401
 from . import benevolent_hydra  # noqa: F401
 from . import beseech_the_mirror  # noqa: F401
+from . import betor_ancestor_s_voice  # noqa: F401
 from . import bident_of_thassa  # noqa: F401
 from . import big_apple_3_a_m  # noqa: F401
 from . import bilbo_birthday_celebrant  # noqa: F401

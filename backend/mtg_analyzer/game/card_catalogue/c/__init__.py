@@ -3,6 +3,7 @@ from . import cabal_ritual  # noqa: F401
 from . import call_for_unity  # noqa: F401
 from . import call_of_the_ring  # noqa: F401
 from . import calming_licid  # noqa: F401
+from . import canopy_gargantuan  # noqa: F401
 from . import captain_sisay  # noqa: F401
 from . import carpet_of_flowers  # noqa: F401
 from . import case_of_the_ransacked_lab  # noqa: F401
@@ -52,6 +53,7 @@ from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401
 from . import coiling_oracle  # noqa: F401
+from . import colfenor_s_urn  # noqa: F401
 from . import colossus_hammer  # noqa: F401
 from . import combat_calligrapher  # noqa: F401
 from . import combat_celebrant  # noqa: F401
@@ -92,6 +94,7 @@ from . import crypt_incursion  # noqa: F401
 from . import crystal_shard  # noqa: F401
 from . import culling_ritual  # noqa: F401
 from . import cultural_exchange  # noqa: F401
+from . import curator_beastie  # noqa: F401
 from . import currency_converter  # noqa: F401
 from . import curse_of_opulence  # noqa: F401
 from . import curse_of_the_swine  # noqa: F401

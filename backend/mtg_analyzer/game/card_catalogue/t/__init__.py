@@ -45,12 +45,14 @@ from . import the_one_ring  # noqa: F401
 from . import the_reaper_king_no_more  # noqa: F401
 from . import the_wandering_emperor  # noqa: F401
 from . import the_wise_mothman  # noqa: F401
+from . import they_came_from_the_pipes  # noqa: F401
 from . import thickest_in_the_thicket  # noqa: F401
 from . import thought_lash  # noqa: F401
 from . import thrasios_triton_hero  # noqa: F401
 from . import threefold_thunderhulk  # noqa: F401
 from . import throne_of_the_god_pharaoh  # noqa: F401
 from . import thunderclap_drake  # noqa: F401
+from . import thunderfoot_baloth  # noqa: F401
 from . import thundermane_dragon  # noqa: F401
 from . import tibalt_s_trickery  # noqa: F401
 from . import tifa_martial_artist  # noqa: F401
@@ -58,6 +60,7 @@ from . import time_wipe  # noqa: F401
 from . import timely_ward  # noqa: F401
 from . import timetwister  # noqa: F401
 from . import tinder_wall  # noqa: F401
+from . import tip_the_scales  # noqa: F401
 from . import tireless_provisioner  # noqa: F401
 from . import titan_of_industry  # noqa: F401
 from . import titanic_brawl  # noqa: F401
@@ -71,6 +74,7 @@ from . import torch_breath  # noqa: F401
 from . import torch_the_tower  # noqa: F401
 from . import torch_the_witness  # noqa: F401
 from . import touch_the_spirit_realm  # noqa: F401
+from . import towering_titan  # noqa: F401
 from . import toxic_deluge  # noqa: F401
 from . import tragic_arrogance  # noqa: F401
 from . import transcendent_dragon  # noqa: F401
@@ -82,6 +86,7 @@ from . import trapjaw_tyrant  # noqa: F401
 from . import traumatic_revelation  # noqa: F401
 from . import treasure_vault  # noqa: F401
 from . import tree_of_perdition  # noqa: F401
+from . import tree_of_redemption  # noqa: F401
 from . import treebeard_gracious_host  # noqa: F401
 from . import trickbind  # noqa: F401
 from . import trinisphere  # noqa: F401

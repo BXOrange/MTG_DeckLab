@@ -60,6 +60,11 @@ CAST_KINDS: frozenset[str] = frozenset({"morph", "disguise"})
 PUT_KINDS: frozenset[str] = frozenset({"manifest", "cloak"})
 FACE_DOWN_KINDS: frozenset[str] = CAST_KINDS | PUT_KINDS
 
+#: A permanent that is face down *as a land* — "return it to the battlefield face down … It's a Forest land." (Yedora,
+#: Grave Gardener): the card keeps no other types or abilities, it cannot be turned face up (it has no morph/manifest
+#: route, RULE 708.7) and is not a creature. Keyed by the kind name, valued by the land's basic subtype.
+LAND_KINDS: dict[str, str] = {"forest_land": "Forest"}
+
 #: The kinds whose face-down permanent has ward {2} (RULE 702.168a disguise,
 #: RULE 701.58a cloak) — the one characteristic difference between the two
 #: pairs of variants.
@@ -83,6 +88,18 @@ def face_down_card(kind: str = "morph") -> Card:
     stays 0 — RULE 708.2a's "no mana cost" means mana value 0, which is
     what every "mana value N or less" check must see.
     """
+    land_subtype = LAND_KINDS.get(kind)
+    if land_subtype is not None:
+        # RULE 305.6: a basic land type brings its own `{T}: Add` mana ability (`mana_abilities._derived_basic_mana_options`).
+        return Card(
+            id=FACE_DOWN_CARD_ID,
+            name=FACE_DOWN_NAME,
+            type_line=f"Land — {land_subtype}",
+            mana_cost_string="",
+            converted_mana_cost=0,
+            is_land=True,
+            oracle_text="",
+        )
     return Card(
         id=FACE_DOWN_CARD_ID,
         name=FACE_DOWN_NAME,

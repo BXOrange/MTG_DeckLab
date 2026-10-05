@@ -42,6 +42,13 @@ class Player:
         self.id = id
         self.name = name or id
         self.life = life
+        #: The life total this player started the game with (RULE 103.4) — "N life more than your starting life
+        #: total" (Righteous Valkyrie, Speaker of the Heavens) reads it.
+        self.starting_life = life
+        #: How many turns this player has begun (RULE 500.1 — the count "your first, second, or third turns of the game"
+        #: (Serra Avenger) reads). Bumped by `GameEngine.begin_turn`; `GameState.sync_turn_nr` raises it for a board
+        #: set outright (Replay).
+        self.turns_taken = 0
         #: Poison counters (RULE 122.1, RULE 704.5c): a player with 10 or more
         #: loses the game as a state-based action. Tracked as a plain int so it
         #: deep-copies with the player for rewind and serializes to the UI.
@@ -302,6 +309,9 @@ class Player:
             "has_lost": self.has_lost,
             "loss_reason": self.loss_reason,
             "commander_damage": {str(k): v for k, v in self.commander_damage.items()},
+            # RULE 903.8: casts from the command zone are public; the tax is
+            # {2} per previous cast. Lets a client price its own commander.
+            "commander_casts": {str(k): v for k, v in self.commander_casts.items()},
             "emblems": [e.to_dict() for e in self.emblems],
             # RULE 309: the dungeon card in this player's command zone (with
             # their venture marker's current room), and every dungeon they

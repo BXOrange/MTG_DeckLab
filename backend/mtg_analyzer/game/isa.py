@@ -795,6 +795,9 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "destroy_controller_may_search_basic_land": "601.2b",
     "destroy_unless_pay": "118.3",
     "discard_or_lose_life": "701.9",
+    "disorienting_choice": "608.2e",
+    "choose_number_then": "601.2b",
+    "slaughter_the_strong": "608.2e",
     "exile_opponents_graveyards_impulsive_cast": "601.2b",
     "exile_own_graveyard_cards": "601.2b",
     "exile_top_from_each_player_cast_free": "601.2b",
@@ -864,7 +867,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
 #: never executed. Composition operators do not apply to them.
 _STATIC_TYPES: frozenset[str] = frozenset({
     "grant_blitz", "blitz_cost_reduction", "blitz_graveyard_permission",
-    "activation_prohibition", "anthem", "attack_tax", "cant_attack_defender",
+    "activation_prohibition", "anthem", "attack_tax", "block_tax", "cant_attack_defender", "cant_lose_game", "opponents_cant_win",
     "cant_be_countered", "cast_limit", "cast_prohibition", "color_change",
     "combat_restriction", "commander_damage_multiplier", "cost_reduction", "cost_restriction",
     "damage_cant_be_prevented", "disable_damage_prevention", "draw_limit",

@@ -14,6 +14,7 @@ from . import raph_leo_sibling_rivals  # noqa: F401
 from . import raphael_ninja_destroyer  # noqa: F401
 from . import rapid_augmenter  # noqa: F401
 from . import rapid_hybridization  # noqa: F401
+from . import rashmi_eternities_crafter  # noqa: F401
 from . import reality_scramble  # noqa: F401
 from . import reality_shift  # noqa: F401
 from . import realmwalker  # noqa: F401
@@ -34,6 +35,7 @@ from . import restless_cottage  # noqa: F401
 from . import restless_spire  # noqa: F401
 from . import return_of_the_wildspeaker  # noqa: F401
 from . import return_the_favor  # noqa: F401
+from . import reunion_of_the_house  # noqa: F401
 from . import reverse_damage  # noqa: F401
 from . import revitalizing_repast  # noqa: F401
 from . import rhonas_s_monument  # noqa: F401
@@ -42,6 +44,7 @@ from . import rhystic_study  # noqa: F401
 from . import ribtruss_roaster  # noqa: F401
 from . import riftstone_portal  # noqa: F401
 from . import righteous_aura  # noqa: F401
+from . import righteous_valkyrie  # noqa: F401
 from . import rings_of_brighthearth  # noqa: F401
 from . import rionya_fire_dancer  # noqa: F401
 from . import riot_control  # noqa: F401

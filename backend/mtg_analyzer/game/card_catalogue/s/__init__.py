@@ -10,6 +10,7 @@ from . import samwise_gamgee  # noqa: F401
 from . import sanctifier_en_vec  # noqa: F401
 from . import sanctum_guardian  # noqa: F401
 from . import sanctum_prelate  # noqa: F401
+from . import sandwurm_convergence  # noqa: F401
 from . import sapling_nursery  # noqa: F401
 from . import saradoc_master_of_buckland  # noqa: F401
 from . import sarkhan_dragon_ascendant  # noqa: F401
@@ -23,6 +24,7 @@ from . import scourge_of_the_throne  # noqa: F401
 from . import scouring_swarm  # noqa: F401
 from . import scrawling_crawler  # noqa: F401
 from . import scriv_the_obligator  # noqa: F401
+from . import scroll_of_fate  # noqa: F401
 from . import scroll_rack  # noqa: F401
 from . import seasoned_tactician  # noqa: F401
 from . import secret_of_bloodbending  # noqa: F401
@@ -31,7 +33,10 @@ from . import selfless_safewright  # noqa: F401
 from . import selvala_explorer_returned  # noqa: F401
 from . import selvala_heart_of_the_wilds  # noqa: F401
 from . import sensei_s_divining_top  # noqa: F401
+from . import sephara_sky_s_blade  # noqa: F401
 from . import serah_farron  # noqa: F401
+from . import seraph_of_the_sword  # noqa: F401
+from . import serra_avenger  # noqa: F401
 from . import serra_paragon  # noqa: F401
 from . import sevinne_s_reclamation  # noqa: F401
 from . import shadowbane  # noqa: F401
@@ -50,6 +55,8 @@ from . import shigeki_jukai_visionary  # noqa: F401
 from . import shiko_and_narset_unified  # noqa: F401
 from . import shimmer_myr  # noqa: F401
 from . import shire_shirriff  # noqa: F401
+from . import shriekwood_devourer  # noqa: F401
+from . import sidar_kondo_of_jamuraa  # noqa: F401
 from . import sigarda_font_of_blessings  # noqa: F401
 from . import sigarda_s_aid  # noqa: F401
 from . import sign_in_blood  # noqa: F401
@@ -62,6 +69,7 @@ from . import sink_into_stupor  # noqa: F401
 from . import siren_s_ruse  # noqa: F401
 from . import sisay_weatherlight_captain  # noqa: F401
 from . import skyclave_apparition  # noqa: F401
+from . import slaughter_the_strong  # noqa: F401
 from . import slithermuse  # noqa: F401
 from . import sm_agol_helpful_guide  # noqa: F401
 from . import smite_the_deathless  # noqa: F401
@@ -79,6 +87,7 @@ from . import soul_guide_lantern  # noqa: F401
 from . import soul_partition  # noqa: F401
 from . import soulless_jailer  # noqa: F401
 from . import spark_double  # noqa: F401
+from . import speaker_of_the_heavens  # noqa: F401
 from . import spellseeker  # noqa: F401
 from . import spellskite  # noqa: F401
 from . import spirit_mantle  # noqa: F401
@@ -91,6 +100,7 @@ from . import springheart_nantuko  # noqa: F401
 from . import springleaf_parade  # noqa: F401
 from . import squee_the_immortal  # noqa: F401
 from . import sram_senior_edificer  # noqa: F401
+from . import staff_of_compleation  # noqa: F401
 from . import staff_of_the_storyteller  # noqa: F401
 from . import stalwart_speartail  # noqa: F401
 from . import stangg_echo_warrior  # noqa: F401

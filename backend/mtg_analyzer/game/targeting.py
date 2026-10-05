@@ -1691,6 +1691,11 @@ def _legal_targets_for(
         # "…with mana value X or less, where X is ~'s power." (Guardian
         # Scalelord, PAR-60) — the ability's own source, read live.
         spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+    if spec.max_mana_value == "life_lost_this_turn":
+        # "…with mana value less than or equal to the amount of life you lost this turn" (Betor, Ancestor's Voice).
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        spec = replace(spec, max_mana_value=_count_selector(state, controller_id, "life_lost_this_turn"))
     if spec.max_mana_value == "trigger_damage_amount":
         # "…with mana value X or less, where X is the amount of damage ~
         # dealt to that player." (Venerable Warsinger, PAR-60) — the firing

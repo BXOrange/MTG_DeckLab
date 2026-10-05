@@ -268,6 +268,10 @@ class ExileEffect(GameEffect):
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
                 context.exile(target)
+                if self.track_exiled_with and self.source is not None:
+                    # "…if three or more cards have been exiled with ~" (Colfenor's Urn) — the trigger-subject
+                    # sibling of the targeted branch's tracking below.
+                    self.source.exiled_with_ids.append(target.instance_id)
                 # RULE 608.2's "it"/"that card" referent — a following clause
                 # ("If you do, … create a token that's a copy of **that
                 # card**." — The Master, Gallifrey's End) names what this

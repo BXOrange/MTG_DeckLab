@@ -948,6 +948,7 @@ class DamageDeathMixin:
         controller_id: Optional[str] = None,
         transformed: bool = False,
         attach_to: Optional[GameObject] = None,
+        face_down_kind: Optional[str] = None,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -991,6 +992,9 @@ class DamageDeathMixin:
         # inspect characteristics and continuous effects are applied.
         if transformed and destination in ("battlefield", "battlefield_tapped"):
             self.transform_permanent(obj)
+        if face_down_kind is not None and destination in ("battlefield", "battlefield_tapped"):
+            # RULE 708.3: it enters face down, so its own abilities never exist to trigger (Yedora, Grave Gardener).
+            self.turn_face_down(obj, face_down_kind)
         if controller_id is not None and destination in ("battlefield", "battlefield_tapped"):
             obj.controller_id = controller_id
             self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
@@ -1003,6 +1007,30 @@ class DamageDeathMixin:
             # followed by a return at all).
             obj.controller_id = owner.id
             self._put_searched_card(owner, obj, destination)
+    def _request_return_face_choice(self, obj: GameObject, destination: str = "battlefield") -> None:
+        """"…return this card from your graveyard to the battlefield face up or face down." (Deathmist Raptor, RULE
+        708.4) — ask ``obj``'s owner which; `_resume_return_face_choice` does the return."""
+        self.open_choice({
+            "kind": "return_face_choice",
+            "player_id": obj.owner_id,
+            "prompt": f"{obj.name}: offen oder verdeckt zurückbringen?",
+            "options": [
+                {"id": "face_up", "label": "Offen"},
+                {"id": "face_down", "label": "Verdeckt"},
+            ],
+            "instance_id": obj.instance_id,
+            "destination": destination,
+        })
+
+    @continuations.choice("return_face_choice", answer=continuations.ANSWER_STR, rule="708.4")
+    def _resume_return_face_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a pending `return_face_choice` — mandatory, a missing answer means face up (RULE 708.4)."""
+        obj = self._object_by_instance_id(choice["instance_id"])
+        if obj is None or obj.zone != Zone.GRAVEYARD:
+            return  # it moved while the question was open (RULE 400.7)
+        kind = face_down.cast_face_down_kind(obj) if answer == "face_down" else None
+        self.return_from_graveyard(obj, choice.get("destination", "battlefield"), face_down_kind=kind)
+
     def return_dies_as_new_permanent(
         self,
         obj: GameObject,

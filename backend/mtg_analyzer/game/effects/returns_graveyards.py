@@ -589,9 +589,13 @@ class ReturnFromGraveyardEffect(GameEffect):
         previous_subject: bool = False,
         moved_pool: bool = False,
         then_effects: Optional[list[dict[str, Any]]] = None,
+        face_down_as: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…return it to the battlefield **face down** … It's a Forest land." (Yedora, Grave Gardener) — a
+        #: `face_down.LAND_KINDS` name the object is turned face down as before it enters (RULE 708.3).
+        self.face_down_as = face_down_as
         #: "Put **those cards** onto the battlefield under your control." (Afterlife from the Loam) — the cards an
         #: earlier clause chose (`GameContext.previous_targets`) that are still in a graveyard; no target of its own.
         self.previous_subject = bool(previous_subject)
@@ -782,7 +786,10 @@ class ReturnFromGraveyardEffect(GameEffect):
             "battlefield_tapped" if self.tapped and self.destination == "battlefield"
             else self.destination
         )
-        context.return_from_graveyard(target, destination, controller_id=controller_id)
+        context.return_from_graveyard(
+            target, destination, controller_id=controller_id,
+            face_down_kind=self.face_down_as if self.destination == "battlefield" else None,
+        )
         if self.destination == "battlefield":
             # RULE 400.7: the object's `instance_id` stays stable across
             # the zone change (see `GameObject.reset_as_new_object`'s own
@@ -970,8 +977,8 @@ class ReturnFromGraveyardEffect(GameEffect):
                 else (context.trigger_event or {}).get(self.trigger_subject_key)
             )
             target = context.state.find_object(obj_id) if obj_id is not None else None
-            if target is None:
-                return
+            if target is None or getattr(target, "zone", None) != Zone.GRAVEYARD:
+                return  # the card must still be in a graveyard (RULE 400.7: otherwise it is a new object)
             self._apply_one(context, target)
             return
         if self.count_selector or self.target_spec.effective_count != 1:
@@ -995,22 +1002,39 @@ class ReturnFromGraveyardEffect(GameEffect):
 
 
 class ReturnCreatureCardsWithTotalMVEffect(GameEffect):
-    """Ancient Brass Dragon's any-number graveyard return (RULE 701.3)."""
+    """Ancient Brass Dragon's any-number graveyard return (RULE 701.3).
 
-    def __init__(self, budget: int = 0, source: Optional["GameObject"] = None) -> None:
+    ``measure="power"`` budgets the picked cards' total *power* instead of their total mana value, and
+    ``own_graveyard`` limits the pool to the controller's graveyard — "return any number of target creature cards
+    with total power 10 or less from your graveyard to the battlefield" (Reunion of the House). **Simplification:** a
+    choice at resolution rather than RULE 115 targets chosen as the spell is cast.
+    """
+
+    def __init__(
+        self, budget: int = 0, source: Optional["GameObject"] = None,
+        measure: str = "mana_value", own_graveyard: bool = False,
+    ) -> None:
         super().__init__(source)
         self.budget = int(budget)
+        self.measure = measure if measure in ("mana_value", "power") else "mana_value"
+        self.own_graveyard = bool(own_graveyard)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None or self.budget < 0:
             return
-        candidates = [obj for owner in context.state.living_players() for obj in owner.graveyard if obj.card.is_creature]
+        owners = [player] if self.own_graveyard else list(context.state.living_players())
+        candidates = [obj for owner in owners for obj in owner.graveyard if obj.card.is_creature]
+        is_power = self.measure == "power"
         context.engine._request_choose_objects(
             player, candidates, "return_from_graveyard", count=len(candidates), optional=True,
-            prompt=f"Kreaturenkarten mit Gesamtmanawert bis {self.budget} zurückbringen",
+            prompt=(
+                f"Kreaturenkarten mit Gesamtstärke bis {self.budget} zurückbringen" if is_power
+                else f"Kreaturenkarten mit Gesamtmanawert bis {self.budget} zurückbringen"
+            ),
             source=self.source, control_recipient_id=player.id,
-            total_mana_value_budget=self.budget,
+            total_mana_value_budget=None if is_power else self.budget,
+            total_power_budget=self.budget if is_power else None,
         )
 
 

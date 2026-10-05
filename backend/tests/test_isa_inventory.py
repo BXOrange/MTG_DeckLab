@@ -258,7 +258,11 @@ class TestBacklogSizes:
         # Hideaway adds one reviewed adapter to the shared immediate-play
         # frame: it preserves linked identities and ordinary cast choices
         # under RULE 607.3/608.2g (tests/test_hideaway_lands.py).
-        assert n <= 92, f"continuation types grew to {n}"
+        # Disorienting Choice (Jump Scare!) adds one: a three-stage choose/exile/search continuation over the
+        # same `choose_objects` frames (`ChoosePlayerObjectsEffect`'s idiom), 92 -> 93.
+        # Abzan Armor adds two more over the same frames: `choose_number_then` (a resolution-time "choose a number",
+        # Expel the Interlopers) and `slaughter_the_strong` (a per-player power-budget partition), 93 -> 95.
+        assert n <= 95, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

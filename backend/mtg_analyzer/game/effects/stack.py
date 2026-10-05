@@ -36,9 +36,14 @@ class CounterSpellEffect(GameEffect):
         target_kind: str = "spell",
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_then_cast_free: bool = False,
+        exile_standing_free_cast: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…exile it instead of putting it into its owner's graveyard. You may cast that card without paying its mana
+        #: cost **for as long as it remains exiled**." (Kheru Spellsnatcher) — the standing, never turn-swept
+        #: sibling of ``exile_then_cast_free``: `GameState.exile_cast_condition` + `free_cast_instance_ids`.
+        self.exile_standing_free_cast = bool(exile_standing_free_cast)
         #: "…If that spell is countered this way, exile it instead of putting it into its owner's
         #: graveyard, then you may cast it without paying its mana cost." (Transcendent Dragon) —
         #: the offer goes through RULE 608.2g's resolution play (the cascade route).
@@ -136,12 +141,17 @@ class CounterSpellEffect(GameEffect):
                 target, unless_pays=unless_pays, source=self.source,
                 suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
                 tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
-                exile_instead=self.exile_then_cast_free,
+                exile_instead=self.exile_then_cast_free or self.exile_standing_free_cast,
             )
             if self.exile_then_cast_free and countered_obj is not None and countered_obj.zone == Zone.EXILE:
                 caster = _controller_of(self.source, context)
                 if caster is not None:
                     context.engine._request_resolution_play(caster, [countered_obj], only_spells=True)
+            if self.exile_standing_free_cast and countered_obj is not None and countered_obj.zone == Zone.EXILE:
+                caster = _controller_of(self.source, context)
+                if caster is not None:
+                    context.state.exile_cast_condition[countered_obj.instance_id] = (caster.id, {})
+                    context.state.free_cast_instance_ids.add(countered_obj.instance_id)
 
 
 class CounterAbilityEffect(GameEffect):

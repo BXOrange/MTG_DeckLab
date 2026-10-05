@@ -574,6 +574,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "nontoken",
         # RULE 701.15b goaded / RULE 708.2 face-down (PAR-119).
         "goaded", "face_down",
+        # "face-up nontoken creatures you control" (Whisperwood Elemental) — the complement of ``face_down``.
+        "face_up",
         # Engine-internal only — never produced by the oracle-text parser
         # (which can't know a specific game object's id), only computed at
         # resolve time by `GrantCombatRestrictionEffect`'s ``restrict_to_source``
@@ -758,7 +760,11 @@ def matches_object_filter(
     if keyword_any and not any(has(obj, str(k)) for k in keyword_any):
         return False
     without = filt.get("without_keyword")
-    if without is not None and has(obj, str(without)):
+    if isinstance(without, (list, tuple)):
+        # "creatures … without flying or reach" (Sidar Kondo of Jamuraa) — none of the listed keywords.
+        if any(has(obj, str(k)) for k in without):
+            return False
+    elif without is not None and has(obj, str(without)):
         return False
     subtype = filt.get("subtype")
     if subtype is not None and not _has_subtype(obj, str(subtype)):
@@ -839,6 +845,8 @@ def matches_object_filter(
     if filt.get("goaded") and not is_goaded(obj):
         return False
     if filt.get("face_down") and not getattr(obj, "face_down", False):
+        return False
+    if filt.get("face_up") and getattr(obj, "face_down", False):
         return False
     # "exchange control of two target **nonlegendary** creatures" (RULE
     # 205.4a, PAR-30 — Djinn of Infinite Deceits) — reads `Card.is_legendary`

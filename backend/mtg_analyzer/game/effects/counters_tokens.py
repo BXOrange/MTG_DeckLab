@@ -130,8 +130,13 @@ class AddCountersEffect(GameEffect):
         kind_options: Optional[list[dict[str, Any]]] = None,
         choose_one: bool = False,
         group_other: bool = False,
+        per_recipient_stat: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "…put a number of +1/+1 counters on each other creature you control equal to **that creature's**
+        #: toughness." (Canopy Gargantuan) — with ``group``: each member gets its *own* ``toughness``/``power``
+        #: (read before any counters are placed, so the amounts are simultaneous) instead of ``amount``.
+        self.per_recipient_stat = per_recipient_stat if per_recipient_stat in ("power", "toughness") else None
         #: "put a +1/+1 counter on each **other** Dragon you control" — ``group`` minus this effect's own
         #: source (RULE 109.5), which the structured selector grammar has no spelling for.
         self.group_other = bool(group_other)
@@ -351,6 +356,19 @@ class AddCountersEffect(GameEffect):
             return
         if self.target_spec is not None:
             target = targets[0] if targets else None
+        elif self.group is not None and self.per_recipient_stat:
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            members = list(group_selector_objects(
+                context.state, getattr(self.source, "controller_id", None), self.group, src=self.source,
+            ))
+            if self.group_other:
+                members = [o for o in members if o is not self.source]
+            shares = [(o, int(getattr(o, self.per_recipient_stat, 0) or 0)) for o in members]
+            for one, share in shares:
+                if share > 0:
+                    context.add_counters(one, share, self.kind, source=self.source)
+            return
         elif self.group is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 

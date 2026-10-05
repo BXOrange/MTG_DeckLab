@@ -847,9 +847,11 @@ class GameContext:
         controller_id: Optional[str] = None,
         transformed: bool = False,
         attach_to: Optional["GameObject"] = None,
+        face_down_kind: Optional[str] = None,
     ) -> None:
         self.engine.return_from_graveyard(
-            target, destination, controller_id=controller_id, transformed=transformed, attach_to=attach_to
+            target, destination, controller_id=controller_id, transformed=transformed, attach_to=attach_to,
+            face_down_kind=face_down_kind,
         )
 
     def blink(self, target: "GameObject", controller: Optional["Player"] = None, tapped: bool = False) -> None:

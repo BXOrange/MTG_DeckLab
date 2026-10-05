@@ -15,8 +15,10 @@ from . import daze  # noqa: F401
 from . import dazzling_reflection  # noqa: F401
 from . import deadeye_navigator  # noqa: F401
 from . import deadly_brew  # noqa: F401
+from . import deathmist_raptor  # noqa: F401
 from . import decimate  # noqa: F401
 from . import deepglow_skate  # noqa: F401
+from . import defy_death  # noqa: F401
 from . import depthshaker_titan  # noqa: F401
 from . import deekah_fractal_theorist  # noqa: F401
 from . import defense_grid  # noqa: F401
@@ -45,6 +47,7 @@ from . import dionus_elvish_archdruid  # noqa: F401
 from . import dirgur_focusmage  # noqa: F401
 from . import disciple_of_bolas  # noqa: F401
 from . import dismantling_wave  # noqa: F401
+from . import disorienting_choice  # noqa: F401
 from . import dispatch  # noqa: F401
 from . import display_of_power  # noqa: F401
 from . import distant_melody  # noqa: F401

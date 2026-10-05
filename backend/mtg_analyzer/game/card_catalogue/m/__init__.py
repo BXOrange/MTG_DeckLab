@@ -41,6 +41,7 @@ from . import merchant_of_venom  # noqa: F401
 from . import meren_of_clan_nel_toth  # noqa: F401
 from . import meriadoc_brandybuck  # noqa: F401
 from . import merry_warden_of_isengard  # noqa: F401
+from . import metallic_mimic  # noqa: F401
 from . import mezzio_mugger  # noqa: F401
 from . import mesmeric_orb  # noqa: F401
 from . import midnight_banshee  # noqa: F401

@@ -191,12 +191,22 @@ class GainLifeEffect(GameEffect):
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
         count_selector_multiplier: int = 1,
+        life_from_target_creature: Optional[str] = None,
+        target_creature_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         #: How much: a number or an `effect_amounts` operand ("you gain that much life", "gain
         #: life equal to its power" — El-Hajjâj, Bottle Golems, Angelic Chorus).
         self.amount = amount
         self.player = player
+        #: "You gain life equal to the power of target creature you control." (Wall of Reverence) — the RULE 115
+        #: target is a *creature* (``target_creature_kind``), the recipient stays the controller, and the amount
+        #: is that creature's ``power``/``toughness`` (``life_from_target_creature``).
+        self.life_from_target_creature = (
+            life_from_target_creature if life_from_target_creature in ("power", "toughness") else None
+        )
+        if target_creature_kind is not None:
+            target_kind = target_creature_kind
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.count_selector = count_selector
         #: "…you gain 2 life for each creature in your party." (Shepherd of
@@ -210,6 +220,15 @@ class GainLifeEffect(GameEffect):
         return "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.life_from_target_creature:
+            creature = (targets or [None])[0]
+            gainer = _controller_of(self.source, context)
+            if creature is None or gainer is None:
+                return
+            amount = int(getattr(creature, self.life_from_target_creature, 0) or 0)
+            if amount > 0:
+                context.gain_life(gainer, amount)
+            return
         player = self._resolve_target_or_controller(context, targets, explicit=self.player)
 
         def _from_count_selector() -> int:
@@ -1245,13 +1264,16 @@ class ExchangeLifeTotalWithToughnessEffect(GameEffect):
       happens at all (ruling 3).
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, player_scope: str = "opponent") -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind="opponent")
+        #: ``"you"`` — "Exchange **your** life total with ~'s toughness." (Tree of Redemption): no target, the
+        #: controller's own life.
+        self.player_scope = player_scope
+        self.target_spec = TargetSpec(kind="opponent") if player_scope == "opponent" else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         picks = list(targets or [])
-        player = picks[0] if picks else None
+        player = _controller_of(self.source, context) if self.player_scope == "you" else (picks[0] if picks else None)
         src = self.source
         if player is None or src is None:
             return

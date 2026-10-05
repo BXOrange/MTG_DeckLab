@@ -1447,6 +1447,33 @@ class MiscSystemsMixin:
             else:
                 self._apply_effect_specs(specs, pending["source"], targets=[facing])
         self._advance_villainous_choice()
+    def _request_number_choice(
+        self, player: Player, minimum: int, maximum: int, effect_specs: list[dict], source: Optional[GameObject],
+    ) -> None:
+        """"Choose a number between ``minimum`` and ``maximum``" at resolution (RULE 601.2b-style, Expel the
+        Interlopers): the answer binds the ``"x"`` sentinel of ``effect_specs`` (`_resume_number_choice`)."""
+        self.open_choice({
+            "kind": "choose_number_resolve",
+            "player_id": player.id,
+            "prompt": f"Zahl zwischen {minimum} und {maximum} wählen",
+            "options": [{"id": str(n), "label": str(n)} for n in range(int(minimum), int(maximum) + 1)],
+            "then_specs": [dict(spec) for spec in effect_specs],
+            "source_id": getattr(source, "instance_id", None),
+        })
+
+    @continuations.choice("choose_number_resolve", answer=continuations.ANSWER_STR, rule="601.2b")
+    def _resume_number_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a pending `choose_number_resolve`: mandatory, so a missing/unparseable answer is the lowest number."""
+        valid = [int(o["id"]) for o in choice["options"]]
+        try:
+            number = int(str(answer))
+        except (TypeError, ValueError):
+            number = valid[0] if valid else 0
+        if number not in valid and valid:
+            number = valid[0]
+        source = self._object_by_instance_id(choice.get("source_id"))
+        self._apply_effect_specs(_substitute_x_specs(list(choice.get("then_specs") or []), number), source)
+
     def _apply_effect_specs(
         self,
         effect_specs: list[dict],
@@ -3408,6 +3435,11 @@ class MiscSystemsMixin:
             # A hand pick the owner puts into their own library (Painful/Agonizing Memories, Lost Hours).
             "hand_to_library_top", "hand_to_library_third",
             "turn_face_up",  # Zimone — RULE 708.8 by an effect
+            # "{T}: Manifest a card from your hand." (Scroll of Fate) — a hand pick put onto the battlefield face down
+            # (RULE 701.40a: manifesting "a card" is not limited to the library's top).
+            "manifest_from_hand",
+            # "Exile a face-down permanent you control face up: You may play that card this turn." (Primordial Mist)
+            "exile_face_down_for_play",
             # RULE 702.110a/b: an exploit ability's optional sacrifice — a sacrifice that also fires `EXPLOITS`.
             "exploit",
             # Quandrix Command mode 4 ("target player shuffles up to three
@@ -3568,6 +3600,7 @@ class MiscSystemsMixin:
         total_mana_value_budget: Optional[int] = None,
         then_that_many: Optional[dict] = None,
         distinct_card_types: bool = False,
+        total_power_budget: Optional[int] = None,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -3676,6 +3709,10 @@ class MiscSystemsMixin:
             pool = [obj for obj in pool if int(
                 getattr(obj.card, "converted_mana_cost", 0) or 0
             ) <= int(total_mana_value_budget)]
+        if total_power_budget is not None:
+            # "…any number of creatures … with total power 4 or less" (Slaughter the Strong, Reunion of the House):
+            # the picked objects' summed power may not exceed the budget, so only objects that still fit are offered.
+            pool = [obj for obj in pool if int(self._power_for_budget(obj)) <= int(total_power_budget)]
         if not pool or count <= 0:
             # Nothing to choose ⇒ "you didn't choose" — run the else branch
             # (Traumatic Revelation's "If you don't, incubate 3." when the
@@ -3723,7 +3760,16 @@ class MiscSystemsMixin:
             total_mana_value_budget=total_mana_value_budget,
             then_that_many=then_that_many,
             distinct_card_types=distinct_card_types,
+            total_power_budget=total_power_budget,
         ))
+    @staticmethod
+    def _power_for_budget(obj: GameObject) -> int:
+        """An object's power as a "total power N or less" budget counts it: the derived power on the battlefield,
+        the printed power for a card in a graveyard (RULE 208 — a card off the battlefield has only printed values)."""
+        if obj.zone == Zone.BATTLEFIELD:
+            return max(0, int(obj.power or 0))
+        printed = getattr(obj.card, "power", None)
+        return max(0, int(printed)) if isinstance(printed, int) or str(printed or "").lstrip("-").isdigit() else 0
     def _apply_choose_objects_tail(
         self,
         source: Optional[GameObject],
@@ -3793,6 +3839,7 @@ class MiscSystemsMixin:
         total_mana_value_budget: Optional[int] = None,
         then_that_many: Optional[dict] = None,
         distinct_card_types: bool = False,
+        total_power_budget: Optional[int] = None,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -3855,6 +3902,7 @@ class MiscSystemsMixin:
             "rest_destination": rest_destination,
             "decline_leaves_untouched": decline_leaves_untouched,
             "total_mana_value_budget": total_mana_value_budget,
+            "total_power_budget": total_power_budget,
             "distinct_card_types": bool(distinct_card_types),
             "then_that_many": dict(then_that_many) if then_that_many else None,
         }
@@ -3919,6 +3967,14 @@ class MiscSystemsMixin:
                 obj for obj in remaining_pool
                 if int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= int(budget) - spent
             ]
+        power_budget = choice.get("total_power_budget")
+        if power_budget is not None:
+            spent_power = sum(
+                self._power_for_budget(o) for o in (self._object_by_instance_id(i) for i in picked) if o is not None
+            )
+            remaining_pool = [
+                obj for obj in remaining_pool if self._power_for_budget(obj) <= int(power_budget) - spent_power
+            ]
         if choice.get("distinct_card_types"):
             remaining_pool = [o for o in remaining_pool if _distinct_card_type_assignment(
                 picked_card_types + [_card_type_words(o)]
@@ -3970,6 +4026,7 @@ class MiscSystemsMixin:
             total_mana_value_budget=choice.get("total_mana_value_budget"),
             then_that_many=choice.get("then_that_many"),
             distinct_card_types=bool(choice.get("distinct_card_types")),
+            total_power_budget=choice.get("total_power_budget"),
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["commander_taken"] = commander_taken
@@ -4317,6 +4374,22 @@ class MiscSystemsMixin:
             )
         elif action == "turn_face_up":
             self.turn_face_up(obj)
+        elif action == "manifest_from_hand":
+            if obj in player.hand:
+                player.remove_from_zone(obj, Zone.HAND)
+                obj.controller_id = player.id
+                # RULE 708.3: turned face down before it enters, so its own ETB abilities never trigger.
+                self.turn_face_down(obj, "manifest")
+                self._put_searched_card(player, obj, "battlefield")
+        elif action == "exile_face_down_for_play":
+            # The permanent is exiled face up (RULE 708.9 — leaving the battlefield reveals it), then its controller
+            # may play that card this turn (the same-turn-only exile play permission).
+            self.exile(obj)
+            if obj.zone == Zone.EXILE:
+                self._grant_temp_play_permission(
+                    obj, player, source.name if source is not None else None,
+                    same_turn_only=True, mana_wildcard=None,
+                )
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source

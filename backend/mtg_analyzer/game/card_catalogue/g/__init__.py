@@ -18,6 +18,7 @@ from . import ghost_quarter  # noqa: F401
 from . import ghostfire_slice  # noqa: F401
 from . import ghostly_flicker  # noqa: F401
 from . import ghoulish_impetus  # noqa: F401
+from . import giada_font_of_hope  # noqa: F401
 from . import gift_of_immortality  # noqa: F401
 from . import gifts_ungiven  # noqa: F401
 from . import giggling_skitterspike  # noqa: F401
@@ -56,6 +57,7 @@ from . import grim_hireling  # noqa: F401
 from . import grinding_station  # noqa: F401
 from . import grothama_all_devouring  # noqa: F401
 from . import groundskeeper  # noqa: F401
+from . import growing_dread  # noqa: F401
 from . import guardian_of_faith  # noqa: F401
 from . import guardian_project  # noqa: F401
 from . import guardian_scalelord  # noqa: F401

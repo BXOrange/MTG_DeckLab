@@ -1,4 +1,8 @@
 """Hand-authored card entries whose name starts with 'w' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import wakestone_gargoyle  # noqa: F401
+from . import walking_bulwark  # noqa: F401
+from . import wall_of_limbs  # noqa: F401
+from . import wall_of_reverence  # noqa: F401
 from . import wandering_archaic  # noqa: F401
 from . import war_room  # noqa: F401
 from . import water_tribe_rallier  # noqa: F401
@@ -10,6 +14,7 @@ from . import welcome_the_dead  # noqa: F401
 from . import welcome_to_the_fold  # noqa: F401
 from . import wheel_of_fortune  # noqa: F401
 from . import wheel_of_misfortune  # noqa: F401
+from . import whisperwood_elemental  # noqa: F401
 from . import wick_the_whorled_mind  # noqa: F401
 from . import wickersmith_s_tools  # noqa: F401
 from . import wild_growth  # noqa: F401
@@ -27,6 +32,7 @@ from . import witch_s_mark  # noqa: F401
 from . import witherbloom_command  # noqa: F401
 from . import within_range  # noqa: F401
 from . import woe_strider  # noqa: F401
+from . import wojek_investigator  # noqa: F401
 from . import wonder  # noqa: F401
 from . import word_of_command  # noqa: F401
 from . import worldgorger_dragon  # noqa: F401

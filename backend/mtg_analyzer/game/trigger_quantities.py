@@ -32,6 +32,8 @@ def capture_attackers(event: Any, context: Any, spec: dict, source: Any) -> Any:
     """
     attackers = matching_attackers(event, context, spec, source)
     captured = event.copy_with(matching_attacker_count=len(attackers),
-                               matching_attacker_ids=[obj.instance_id for obj in attackers])
+                               matching_attacker_ids=[obj.instance_id for obj in attackers],
+                               # "where X is the greatest power among those creatures" (Shriekwood Devourer)
+                               matching_attacker_greatest_power=max((obj.power or 0 for obj in attackers), default=0))
     captured.turn = event.turn
     return captured
