@@ -52,8 +52,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-149` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-150`**; next free `MEC`: **`MEC-111`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-150` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-151`**; next free `MEC`: **`MEC-111`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -121,6 +121,16 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   quoted ability (48 cards, only 5 SOLO — Dack Fayden, Liliana the Last Hope, Tezzeret Artifice Master,
   A-Saheeli, The Capitoline Triad; the rest are blocked by other planeswalker abilities). Decision open: which
   of these earn a handler; the emblem case is weak on SOLO yield.
+- **PAR-150 · Multi-target ("up to N", "up to X") for gain control, goad, counter and keyword grants.** The
+  single-target forms are `MODELED`; the plural forms stay `UNMODELED` because those handlers don't opt into
+  `_MULTI_TARGET_QUANTIFIER` (destroy/exile/tap/untap/return/counters/damage/pump/can't-block already do;
+  `TargetSpec.count`/`count_max`/`count_selector` are effect-agnostic, so the open part is each effect's
+  `count`/`target_count` param and slicing). Measured at PARSER_VERSION 611, SOLO blockers: gain control "up to
+  N target creatures" (4: Hideous Taskmaster, Jace Ingenious Mind-Mage, Rangers of Ithilien, The Super Hero
+  Civil War), per-opponent "goad up to 1" (2: Havoc Eater, Sontaran General), "up to N/X target creatures
+  gain `<keyword>`" (3: Invisible Force Field, Mogis's Marauder, Voyager Drake), "counter up to N target spells
+  [and/or abilities]" (5: Double Negative, Katara's Reversal, Repel Intruders, Repulsive Mutation, Tishana's
+  Tidebinder). Verify with `engine_bench.py`, not parse verdicts.
 
 ## MEC — Game mechanic
 
