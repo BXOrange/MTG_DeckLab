@@ -142,11 +142,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## VIS — Visuals
 
-- **VIS-12 · "End the turn" → "Pass the turn" and agreed shortcuts.** Research customary
-  multiplayer shortcuts and propose/implement explicit player agreement to advance to the end step
-  or through beginning phases, preserving interruption opportunities, triggers and an update after
-  every game action; use the same flow in Solo against bots.
-- **VIS-8 · Keyboard shortcuts.** docs/05 PART 9.
+- **VIS-8 · Keyboard shortcuts.** docs/05 PART 9 (Space/Enter/E for pass and yield already exist).
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
 - **VIS-10 · Responsive/mobile layout** — only checked at desktop width.

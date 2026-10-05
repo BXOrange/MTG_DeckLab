@@ -386,6 +386,9 @@ class TestPriority:
             "player_id": "ann",
             "passed": [],
             "timer_seconds": 20.0,
+            "yields": {},
+            "stops": {},
+            "next_step": "draw",
         }
 
     def test_passing_hands_priority_to_the_next_player_in_turn_order(self):

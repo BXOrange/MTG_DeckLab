@@ -25,6 +25,8 @@ import {
   getBotSpeedMs,
   getShowOpponentHand,
   getCompactView,
+  getStopsPref,
+  setStopsPref,
   saveSettings,
 } from './settings.js';
 import { t, tPlural } from './i18n.js';
@@ -390,38 +392,23 @@ export function createGameBoardView(opts = {}) {
     return true;
   }
 
-  // --- "End the turn" (speed-up, deliberate) ------------------------------
-  //: Armed by the priority holder's own banner button. Once armed, every
-  //: priority window this client holds for the rest of *this* turn
-  //: auto-passes via `pass_priority` — unlike `skipEmptyArmed`, completely
-  //: independent of what `legal_actions` offers: the whole point is "I have
-  //: nothing left I want to do this turn, stop asking". It never answers a
-  //: `pending_choice` or a turn-based action (declare attackers/blockers) —
-  //: neither goes through `pass_priority`, so this can't silently skip one.
-  //: Armed for exactly the turn it was clicked on (`endTurnAtTurnNumber`,
-  //: `GameState.internal_turn.number` — RULE 500.1's per-player count, so it never
-  //: bleeds into anyone else's turn); self-disarms once the turn actually
-  //: moves past that, and on any genuine board interaction (the same
-  //: "you're clearly still deciding" signal the countdown listens to —
-  //: `cancelAutoPassForThisWindow`).
-  let endTurnArmed = false;
-  let endTurnAtTurnNumber = null;
+  // --- "Pass this turn" / "Skip to end step" (VIS-12) -----------------------
+  //: A one-shot *yield* lives on the server (`GameSession._yields`, shown to
+  //: everyone as `view.priority.yields`): "Pass this turn" (an opponent's
+  //: turn) has the server pass this seat's priority windows until that turn
+  //: ends, "Skip to end step" (your own turn) up to the end step; either
+  //: stops passing the moment another player has a spell or ability on
+  //: the stack to respond to. Nothing is armed client-side any more, so a
+  //: reload, a second tab and a Solo bot's reply all see the same state.
+  //: Whether this session's saved stops were already offered to the server
+  //: (reset per game), and whether the rail's stops panel is expanded.
+  let stopsSynced = false;
+  let stopsPanelOpen = false;
 
-  /** Whether "End the turn" should force-pass the window held right now. */
-  function endTurnActiveHere() {
-    if (!endTurnArmed) return false;
-    if (!interactivePriority() || !hasPriority()) return false;
-    const s = view?.state;
-    if (!s) return false;
-    const internalTurn = s.internal_turn.number;
-    if (internalTurn !== endTurnAtTurnNumber) {
-      // The armed turn is over — nothing left to fast-forward.
-      endTurnArmed = false;
-      endTurnAtTurnNumber = null;
-      return false;
-    }
-    if (s.game_over || s.pending_choice || busy) return false;
-    return true;
+  /** The yield this seat has armed (`turn`/`end_step`), or null. */
+  function myYield() {
+    const seat = actingSeat();
+    return (seat && view?.priority?.yields?.[seat]) || null;
   }
 
   /** A key identifying the current priority window (see `autoPassWindowKey`). */
@@ -452,17 +439,17 @@ export function createGameBoardView(opts = {}) {
 
   /** (Re)start the countdown if this is a new window and it's armed. */
   function syncAutoPass() {
+    syncStopsPref();
     // The countdown length is a server setting (per-table overridable);
     // pick it up fresh from every view.
     autoPassSeconds = serverTimerSeconds();
     const windowKey = priorityWindowKey();
     // Skipping wins over the countdown — a window with no options at all
-    // shouldn't cost anyone three seconds of watching a timer, and "End the
-    // turn" (once armed) forces a pass no matter what's on offer. Fired at
+    // shouldn't cost anyone three seconds of watching a timer. Fired at
     // most once per window (`skipAttemptedForKey`) — see that field's
     // comment for why a second, third, … attempt against an unchanged
     // window is a bug, not extra safety.
-    if ((skipEmptyArmed() || endTurnActiveHere()) && windowKey !== skipAttemptedForKey) {
+    if (skipEmptyArmed() && windowKey !== skipAttemptedForKey) {
       skipAttemptedForKey = windowKey;
       stopAutoPass();
       act({ type: 'pass_priority' });
@@ -507,14 +494,6 @@ export function createGameBoardView(opts = {}) {
 
   /** The player is doing something — don't pass out from under them. */
   function cancelAutoPassForThisWindow() {
-    // A genuine board interaction always cancels "End the turn" too — the
-    // player is clearly deciding again, not fast-forwarding past this turn.
-    // Checked unconditionally (not gated by the early return below, which
-    // is about the *countdown* specifically): "End the turn" force-passes
-    // through `syncAutoPass` without ever starting `autoPassTimer`, so that
-    // guard would otherwise never fire here.
-    endTurnArmed = false;
-    endTurnAtTurnNumber = null;
     if (autoPassTimer === null && !autoPassCancelled) return;
     autoPassCancelled = true;
     stopAutoPass();
@@ -932,8 +911,7 @@ export function createGameBoardView(opts = {}) {
     // session, not on every repaint.
     if (isNewSession) {
       resolvedGhosts = [];
-      endTurnArmed = false;
-      endTurnAtTurnNumber = null;
+      stopsSynced = false;
       document.dispatchEvent(new CustomEvent('mtg-game-started'));
       gameEndAnnounced = false;
     }
@@ -1249,6 +1227,7 @@ export function createGameBoardView(opts = {}) {
           </div>
 
           ${railTimerHtml()}
+          ${railStopsHtml()}
 
           ${railStackHtml(s)}
 
@@ -1487,20 +1466,46 @@ export function createGameBoardView(opts = {}) {
   // Still a data attribute rather than an id so `wire()` can bind however
   // many the page ends up with.
   function passButtonHtml(disabled, extraClass = '') {
-    const label = view.state.stack.length > 0 ? t('bd.ctrl.passResolve') : t('bd.ctrl.pass');
-    return `<button type="button" class="primary${extraClass}" data-pass-priority ${disabled ? 'disabled' : ''}>${label}</button>`;
+    // With an empty stack, say where passing leads ("To combat →") rather
+    // than a bare "Pass"; with something on it, passing resolves it.
+    const next = view.priority?.next_step;
+    const toNext = next ? t(`bd.ctrl.passTo.${next}`) : '';
+    const label = view.state.stack.length > 0
+      ? t('bd.ctrl.passResolve')
+      : (toNext && toNext !== `bd.ctrl.passTo.${next}` ? toNext : t('bd.ctrl.pass'));
+    return `<button type="button" class="primary${extraClass}" data-pass-priority title="${escapeAttr(t('bd.ctrl.passTitle'))}" ${disabled ? 'disabled' : ''}>${label}</button>`;
   }
 
   // Empty priority windows are already skipped automatically and
   // unconditionally (`skipEmptyArmed`/`syncAutoPass`), so there is no manual
-  // button for *that* any more. This one is different: it force-passes
-  // every window for the rest of the turn regardless of what's on offer
-  // (`endTurnActiveHere`) — a deliberate speed-up for a player who's decided
-  // they have nothing left they want to do this turn, on this client's own
-  // banner right next to "Passen". (Goldfisch's `#gf-next-decision` is
-  // unrelated — a server-side fast-forward over whole *steps*, solo only.)
-  function endTurnButtonHtml(disabled, extraClass = '') {
-    return `<button type="button" class="gf-end-turn${extraClass}" data-end-turn title="${escapeAttr(t('bd.ctrl.endTurnTitle'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.endTurn')}</button>`;
+  // button for *that*. These are the deliberate speed-ups (VIS-12), offered
+  // next to "Passen": "Pass this turn" (opponents' turns only) and "Skip to
+  // end step" (your own turn only) arm a server-side yield; while one is
+  // armed it is replaced by a single cancel button, which — unlike the pass button — works
+  // without priority, because a yielding seat is passed for and so rarely
+  // holds it. (Goldfisch's `#gf-next-decision` is unrelated — a server-side
+  // fast-forward over whole *steps*, solo only.)
+  function yieldButtonsHtml(disabled, extraClass = '') {
+    const armed = myYield();
+    if (armed) {
+      const label = armed === 'end_step' ? t('bd.ctrl.yieldEndStepActive') : t('bd.ctrl.yieldTurnActive');
+      return `<button type="button" class="gf-yield gf-yield-active${extraClass}" data-yield="clear" title="${escapeAttr(t('bd.ctrl.yieldCancelTitle'))}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+    }
+    const s = view.state;
+    if (!view.perspective) return '';
+    if (s.active_player_id !== actingSeat()) {
+      return `<button type="button" class="gf-yield${extraClass}" data-yield="turn" title="${escapeAttr(t('bd.ctrl.passTurnTitle'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.passTurn')}</button>`;
+    }
+    if (s.current_step === 'end') return '';
+    return `<button type="button" class="gf-yield${extraClass}" data-yield="end_step" title="${escapeAttr(t('bd.ctrl.skipToEndTitle'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.skipToEnd')}</button>`;
+  }
+
+  // VIS-12: a seat that has armed a yield is visibly passing its turn.
+  function yieldBadgeHtml(playerId) {
+    const mode = view.priority?.yields?.[playerId];
+    if (!mode) return '';
+    const label = mode === 'end_step' ? t('bd.badge.yieldEndStep') : t('bd.badge.yieldTurn');
+    return `<span class="gf-yield-badge">${escapeHtml(label)}</span>`;
   }
 
   // The priority indicator on a player's banner (`playerBoardHtml`): a bare
@@ -1666,8 +1671,8 @@ export function createGameBoardView(opts = {}) {
       : !interactivePriority()
         ? takebackBtn
         : isMe
-          ? `${priorityBadgeHtml(holdsPriority, true, p.name)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${endTurnButtonHtml(priorityDisabled, ' gf-banner-end-turn')}${takebackBtn}`
-          : priorityBadgeHtml(holdsPriority, false, p.name);
+          ? `${priorityBadgeHtml(holdsPriority, true, p.name)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${yieldButtonsHtml(busy || !!pending, ' gf-banner-yield')}${takebackBtn}`
+          : `${priorityBadgeHtml(holdsPriority, false, p.name)}${yieldBadgeHtml(p.id)}`;
     // Folding an opponent away is only offered at a pod-sized table — with
     // one opponent there is nothing to scroll past.
     const opponents = s.players.filter((o) => !o.is_dummy && o.id !== seatId).length;
@@ -2123,15 +2128,11 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-pass-priority]').forEach((el) => {
       el.addEventListener('click', () => act({ type: 'pass_priority' }));
     });
-    // "End the turn": arm the force-pass for the rest of *this* turn
-    // (`endTurnActiveHere`), then let `syncAutoPass` act on it immediately —
-    // the window held right now gets passed too, not just the ones after it.
-    root.querySelector('[data-end-turn]')?.addEventListener('click', () => {
-      endTurnArmed = true;
-      endTurnAtTurnNumber = view?.state?.internal_turn?.number ?? null;
-      autoPassCancelled = false;
-      syncAutoPass();
+    // VIS-12: arm/cancel a server-side yield (`set_yield`).
+    root.querySelectorAll('[data-yield]').forEach((el) => {
+      el.addEventListener('click', () => act({ type: 'set_yield', mode: el.dataset.yield }));
     });
+    wireStopsPanel();
     // Interrupt the rail countdown for this window (same effect as touching
     // the board — the player is clearly still deciding).
     root.querySelector('[data-timer-interrupt]')?.addEventListener('click', () => {
@@ -2839,6 +2840,103 @@ export function createGameBoardView(opts = {}) {
         <button type="button" class="gf-rail-timer-stop" data-timer-interrupt ${off ? 'disabled' : ''}>${escapeHtml(t('bd.rail.timerInterrupt'))}</button>
       </div>`;
   }
+
+  //: VIS-12: the steps a seat can be stopped at — the server's `STOP_STEPS`
+  //: (`services/game_session.py`) — and the two that can't be unticked on your
+  //: own turn (both main phases: that is where you act at all).
+  const STOP_STEPS = [
+    'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers',
+    'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end',
+  ];
+  const ALWAYS_STOP_OWN_TURN = ['main1', 'main2'];
+
+  /** This seat's standing stops: the server's, else "everywhere". */
+  function currentStops() {
+    const seat = view?.perspective;
+    return view?.priority?.stops?.[seat] || { own: [...STOP_STEPS], opponent: [...STOP_STEPS] };
+  }
+
+  /** Offer the saved stops to the server once per game (never over its own). */
+  function syncStopsPref() {
+    if (stopsSynced || busy || !interactivePriority() || !view.perspective) return;
+    stopsSynced = true;
+    if (view.priority.stops?.[view.perspective]) return;
+    const pref = getStopsPref();
+    if (pref) act({ type: 'set_stops', own: pref.own, opponent: pref.opponent });
+  }
+
+  // The stops panel, in the rail: for each step, whether *you* want to be
+  // asked on your own turn / on everyone else's. A step without a stop is
+  // passed for you when the stack is empty; anything another player puts on
+  // the stack always reaches you regardless. A seat's armed yield is public
+  // (`yieldBadgeHtml` on its banner), so the table sees who is passing.
+  function railStopsHtml() {
+    if (!interactivePriority() || !view.perspective || view.state.game_over) return '';
+    const stops = currentStops();
+    const rows = STOP_STEPS.map((step) => {
+      const own = stops.own.includes(step);
+      const opp = stops.opponent.includes(step);
+      const locked = ALWAYS_STOP_OWN_TURN.includes(step);
+      return `<tr>
+        <td>${escapeHtml(STEP_LABELS[step] || step)}</td>
+        <td><input type="checkbox" data-stop="own" data-step="${step}" ${own ? 'checked' : ''} ${locked || busy ? 'disabled' : ''}></td>
+        <td><input type="checkbox" data-stop="opponent" data-step="${step}" ${opp ? 'checked' : ''} ${busy ? 'disabled' : ''}></td>
+      </tr>`;
+    }).join('');
+    return `
+      <details class="gf-rail-stops" data-stops-panel ${stopsPanelOpen ? 'open' : ''}>
+        <summary>${escapeHtml(t('bd.rail.stopsHeading'))}</summary>
+        <p class="gf-rail-stops-help">${escapeHtml(t('bd.rail.stopsHelp'))}</p>
+        <table>
+          <thead><tr><th></th><th>${escapeHtml(t('bd.rail.stopsOwn'))}</th><th>${escapeHtml(t('bd.rail.stopsOpponent'))}</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>`;
+  }
+
+  function wireStopsPanel() {
+    const panel = root.querySelector('[data-stops-panel]');
+    if (!panel) return;
+    panel.addEventListener('toggle', () => { stopsPanelOpen = panel.open; });
+    panel.querySelectorAll('input[data-stop]').forEach((box) => {
+      box.addEventListener('change', () => {
+        const next = { own: [], opponent: [] };
+        panel.querySelectorAll('input[data-stop]:checked').forEach((c) => {
+          next[c.dataset.stop].push(c.dataset.step);
+        });
+        setStopsPref(next);
+        act({ type: 'set_stops', own: next.own, opponent: next.opponent });
+      });
+    });
+  }
+
+  // VIS-12 keyboard shortcuts, after Arena/MTGO: Space passes priority (Arena
+  // Space / MTGO F2), Enter passes this (opponent's) turn (Arena Enter / MTGO
+  // F4 — a yield that still stops for anything an opponent puts on the
+  // stack), E skips to the end step of your own turn. Ignored while typing, with a modifier held, on a focused
+  // control (it handles its own Enter/Space) and for a board that isn't the
+  // one on screen (each tab keeps its own).
+  function onShortcutKey(event) {
+    if (!sessionId || !view || !root?.isConnected || root.offsetParent === null) return;
+    if (!interactivePriority() || busy || view.state.game_over || view.state.pending_choice) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    const el = event.target;
+    if (el instanceof Element && el.closest('input, textarea, select, button, a, summary, [contenteditable]')) return;
+    if (document.querySelector('dialog[open]')) return;
+    if (event.key === ' ') {
+      if (!hasPriority()) return;
+      event.preventDefault();
+      act({ type: 'pass_priority' });
+      return;
+    }
+    const ownTurn = view.state.active_player_id === actingSeat();
+    const mode = event.key === 'Enter' ? 'turn' : event.key.toLowerCase() === 'e' ? 'end_step' : null;
+    if (!mode || myYield() || (mode === 'turn') === ownTurn) return; // Enter: opponents' turns, E: yours
+    if (mode === 'end_step' && view.state.current_step === 'end') return;
+    event.preventDefault();
+    act({ type: 'set_yield', mode });
+  }
+  document.addEventListener('keydown', onShortcutKey);
 
   // The stack, in the rail — always rendered (every mode), so it stays
   // visible what is going onto the stack. Each entry is a mini card view
@@ -4125,8 +4223,6 @@ export function createGameBoardView(opts = {}) {
   function stop() {
     stopAutoPass();
     autoPassWindowKey = null;
-    endTurnArmed = false;
-    endTurnAtTurnNumber = null;
     sessionId = null;
     if (root) delete root.dataset.bugReportSession;
     view = null;

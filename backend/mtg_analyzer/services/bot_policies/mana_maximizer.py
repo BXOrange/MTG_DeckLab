@@ -34,6 +34,10 @@ class ManaMaximizerBot(Bot):
     label = "Mana-Bot"
     description = "Spielt Länder und tappt jede Manaquelle voll aus, castet aber nichts und greift nie an."
 
+    def can_pass_turn(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+        # Casts nothing and acts only in its own main phases.
+        return True
+
     def play(
         self, view: dict[str, Any], actions: list[dict[str, Any]]
     ) -> Optional[dict[str, Any]]:

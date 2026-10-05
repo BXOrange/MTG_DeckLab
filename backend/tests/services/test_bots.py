@@ -21,6 +21,7 @@ from mtg_analyzer.services.bots import (
     GoldfishBot,
     GreedyBot,
     ManaMaximizerBot,
+    SmartBot,
     _one_bot_action,
     bot_catalogue,
     create_bot,
@@ -583,7 +584,10 @@ class TestCommanderZoneChoice:
             )
             if board_commander is not None:
                 break
-            if run_bots(session, bots):
+            # One action at a time: a longer run could play the whole game
+            # past the commander's arrival (yielding bots take fewer
+            # actions per turn, so the action cap no longer stops it early).
+            if run_bots(session, bots, max_actions=1):
                 continue
             holder = state.priority_player
             if holder is None or holder.id != "bob":
@@ -752,3 +756,49 @@ class TestPlayingFair:
             session, {"ann": Spinner("ann"), "bob": Spinner("bob")}, max_actions=5
         )
         assert moved is True
+
+
+class TestPassThisTurn:
+    """VIS-12: a bot accepts "Pass this turn" when its policy says it would
+    pass every remaining window — and the server still hands it priority for
+    an opponent's spell or ability."""
+
+    def _human_turn(self, bot_cls):
+        session = make_game()
+        keep(session, "ann", "bob")
+        bots = {"bob": bot_cls("bob")}
+        state = session.engine.state
+        assert state.priority_player.id == "ann"  # Ann (the "human") is on the play
+        return session, bots, state
+
+    @pytest.mark.parametrize("bot_cls", [GoldfishBot, GreedyBot, SmartBot, ManaMaximizerBot])
+    def test_it_arms_the_yield_at_the_first_window_and_skips_the_rest(self, bot_cls):
+        session, bots, state = self._human_turn(bot_cls)
+        seen = []
+        while state.internal_turn.number == 1:
+            session.apply_action({"type": "pass_priority"}, actor_id="ann")
+            run_bots(session, bots)
+            seen.append(state.priority_player.id if state.priority_player else None)
+        # Bob never held priority again after arming: Ann drove every window.
+        assert set(seen[:-1]) == {"ann"}
+        assert "set_yield" in session.move_log
+        assert state.internal_turn.number == 2  # the yield ended with the turn
+
+    def test_an_unknown_policy_never_arms_it(self):
+        session, bots, state = self._human_turn(Bot)
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        run_bots(session, bots)
+        assert "set_yield" not in session.move_log
+        assert session.view(perspective="ann")["priority"]["yields"] == {}
+
+    def test_an_opponent_spell_still_reaches_the_bot(self):
+        from mtg_analyzer.models.game.game_state import StackItem
+
+        session, bots, state = self._human_turn(GoldfishBot)
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        run_bots(session, bots)
+        assert session.view(perspective="ann")["priority"]["yields"] == {"bob": "turn"}
+        state.stack.append(StackItem("ability", "ann", effects=[]))
+        state.priority_passed.clear()
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        assert state.priority_player.id == "bob"

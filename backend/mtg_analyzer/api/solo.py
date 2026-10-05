@@ -204,7 +204,9 @@ def _advance_solo_bots(session: GameSession) -> dict[str, Any]:
     """Expose every bot move separately; never pass for the human seat.
 
     RULE 117.3d: human priority stays with the human until their board
-    submits a pass, just as at a Multiplayer table.
+    submits a pass, just as at a Multiplayer table — except for what the
+    human armed themselves (VIS-12: a yield, or a step with no stop), which
+    `GameSession` passes for them as it does at any shared table.
     """
     run_bots(session, getattr(session, "_solo_bots", {}), max_actions=1)
     return _solo_view(session)

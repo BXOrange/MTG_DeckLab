@@ -59,6 +59,11 @@ class GreedyBot(Bot):
     #: Never offered to itself, in this order of preference.
     _IGNORED = ("pass_priority", "advance_step", "set_skip_untap", "activate_hand_mana")
 
+    def can_pass_turn(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+        # `play` below returns nothing off its own turn (it never holds mana
+        # for an instant), so every window of an opponent's turn is a pass.
+        return True
+
     def play(
         self, view: dict[str, Any], actions: list[dict[str, Any]]
     ) -> Optional[dict[str, Any]]:

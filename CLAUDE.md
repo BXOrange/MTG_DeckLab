@@ -171,15 +171,22 @@ length is a **server** setting, not a cookie:
 `config.MULTIPLAYER_SPELL_TIMER_SECONDS` (`MTG_MULTIPLAYER_SPELL_TIMER`,
 default 20s, 0 = off), per-table overridable by the host in Setup
 (`LobbyGame.spell_timer_seconds`, carried to the board on
-`view()["priority"]["timer_seconds"]`). A manual **"End the turn"** button
-next to "Passen" is the deliberate opposite of that suppression: click it
-and every priority window this client holds — main phases and combat
-included — auto-passes for the rest of the current turn regardless of what
-`legal_actions` offers (`endTurnActiveHere`), a speed-up for a player who's
-decided they have nothing left they want to do this turn. It self-disarms
-once that turn ends or on any real board interaction, and never touches a
-`pending_choice` or a turn-based action (declare attackers/blockers) —
-neither goes through `pass_priority`.
+`view()["priority"]["timer_seconds"]`). **"Pass this turn" / "Skip to end step"** (VIS-12) are the deliberate opposite
+of that suppression, and live on the **server**: `set_yield` arms a one-shot
+yield (`GameSession._yields`, shown to everyone as `view()["priority"]["yields"]`)
+and `_auto_pass_followups` (next to the RULE 720 controller auto-pass, so it
+works in Solo too) passes the seat's priority windows — for the rest of an
+*opponent's* turn (`turn`, "Pass this turn") or, on your own turn, up to the end
+step (`end_step`) — regardless of what `legal_actions` offers. It never
+passes with another player's spell/ability on the stack, never answers a
+`pending_choice`, is cancelled by any real action of that seat or a take-back, and
+needs no priority to arm/cancel. `set_stops` keeps a seat's standing **stops**
+(per step, own turn vs. opponents' turns; main phases locked on your own): a step
+without one is passed for that seat on an empty stack. Both are opt-in per seat —
+a seat with neither is passed for never, exactly as before. Board: yield buttons
+on your own banner, a Stops panel in the rail (saved in a cookie, re-sent per
+game), the board's "Pass" button names where passing leads ("To combat →",
+from `view()["priority"]["next_step"]` = `GameEngine.next_priority_step`), keys Space = pass, Enter = pass this turn (opponents' turns), E = skip to end step (your turn).
 
 **Bots (UC5, `services/bots.py`)** fill a seat at such a table — they are
 players, not a mode. The load-bearing rule is that a bot plays through the
@@ -223,7 +230,12 @@ and card naming through a parameterized `free_text` choice offer. Other combos
 are assembly priorities, not guaranteed executable winning lines. Repeatable
 abilities require visible progress and are capped at 64 uses per ability/turn;
 this memory survives lobby bot rebuilds and clears on restart. See
-[Smart Bot design and sources](docs/Reference/SMART_BOT.md). Bots have no
+[Smart Bot design and sources](docs/Reference/SMART_BOT.md). A bot accepts "Pass this turn" too (VIS-12): `Bot.decide` posts `set_yield` on
+an opponent's turn when its policy's `can_pass_turn` says every empty-stack window
+would be a pass (Goldfish/Greedy/Mana-Maximizer always; Smart unless its own Oracle
+trigger is up; AI only when the LLM has nothing to weigh) — the server still hands it
+priority for any opponent stack item, so counters/removal keep working, and Solo
+stops spending one bot tick per window. Bots have no
 loop of their own: `run_bots(session, bots)` is called after each human
 action, right after `lobby.start()` (so a bot keeps its opening hand before
 the humans see the mulligan screen), and once a second by the sweeper —

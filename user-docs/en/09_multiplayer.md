@@ -263,9 +263,28 @@ a countdown runs next to the badge and passes for you when it reaches
   drag or tap anything and the number is struck through and the countdown
   is over. It can't pass out from under you while you're thinking.
 - The timer is normally **for the windows where you are responding on
-  another player's turn**. Your own turn stays under your control, but a
-  manual **End the turn** button can force immediate auto-pass for the rest
-  of the turn if you want to speed things up.
+  another player's turn**. Your own turn stays under your control.
+
+#### Passing the turn faster
+
+Next to **Pass**, one button speeds things up on each kind of turn:
+
+- **Pass this turn** (key **Enter**) appears on an *opponent's* turn and
+  passes every priority window you hold until that turn ends.
+- **Skip to end step** (key **E**) appears on *your own* turn and passes up
+  to the end step, where you get priority again.
+
+Either one stops passing for you the moment an opponent puts a spell or
+ability on the stack, so you can still respond; once it resolves, passing
+carries on. Doing anything yourself, or pressing the button now labelled
+*… — cancel*, ends it. The other players see a small *⏩ passing this turn*
+badge on your banner. Bots accept it too when they have nothing they would do. **Space** passes priority once; the **Pass** button always says where passing leads (for example *To combat →*).
+
+The **Stops** panel in the left rail sets where you want to be asked: one
+column for your own turn, one for everyone else's. A step you un-tick is
+passed for you whenever the stack is empty (anything an opponent casts still
+reaches you). Both main phases always stay on during your own turn. Your
+choice is remembered in this browser. Solo against bots works the same way.
 
 The host can override the table timer. The profile tab still stores the
 browser's comfort toggles, and the board also exposes the same controls so

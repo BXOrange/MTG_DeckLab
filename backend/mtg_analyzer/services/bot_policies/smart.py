@@ -227,6 +227,15 @@ class SmartBot(GreedyBot):
                    and (s.get('source') or {}).get('name') == "Thassa's Oracle"
                    for s in view['state'].get('stack', []))
 
+    def can_pass_turn(self, view, actions):
+        # Off its own turn `play` below only ever acts against something on
+        # the stack (a counter or removal aimed at an opponent's object), and
+        # the server never passes over an opponent's stack item — so with an
+        # empty stack every window is a pass. The one exception is its own
+        # Thassa's Oracle trigger, which is the bot's own stack item and so
+        # would be passed over too.
+        return not self._oracle_trigger(view)
+
     def play(self, view, actions):
         actions = [a for a in actions if a['type'] not in self._IGNORED and not a.get('locked')]
         attacks = [a for a in actions if a['type'] == 'attack']

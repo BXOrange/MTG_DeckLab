@@ -5486,8 +5486,7 @@ textarea {
   flex-wrap: wrap;
 }
 
-.gf-banner-pass,
-.gf-banner-end-turn {
+.gf-banner-pass {
   padding: 0.25rem 0.7rem;
   font-size: 0.82rem;
 }
@@ -5584,3 +5583,51 @@ textarea {
 .bug-report-dialog textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 .bug-report-dialog input { width: 6rem; }
 .bug-report-buttons { display: flex; justify-content: flex-end; gap: .6rem; }
+
+/* VIS-12: yield buttons, the armed-yield badge and the rail's stops panel. */
+.gf-banner-yield {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.gf-yield-active {
+  font-weight: 600;
+}
+
+.gf-yield-badge {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.gf-rail-stops {
+  font-size: 0.8rem;
+}
+
+.gf-rail-stops summary {
+  cursor: pointer;
+}
+
+.gf-rail-stops-help {
+  margin: 0.3rem 0;
+  opacity: 0.75;
+}
+
+.gf-rail-stops table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gf-rail-stops th {
+  font-weight: 500;
+  text-align: center;
+}
+
+.gf-rail-stops td:first-child {
+  text-align: left;
+}
+
+.gf-rail-stops td {
+  padding: 0.1rem 0.2rem;
+  text-align: center;
+}

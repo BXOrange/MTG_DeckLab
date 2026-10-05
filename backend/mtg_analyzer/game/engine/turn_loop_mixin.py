@@ -325,6 +325,23 @@ class TurnLoopMixin:
     def step_cursor(self) -> int:
         """How far through the current turn's steps we are (for snapshots)."""
         return self._cursor
+    def next_priority_step(self) -> str:
+        """The name of the next step in which anyone will get priority, or
+        ``"next_turn"`` once this turn has none left (VIS-12: what the
+        board's "Pass" button says comes next).
+
+        Reads the scheduled steps only: untap/cleanup give nobody priority
+        (RULE 502.3/514.3) and a combat phase already marked skipped is
+        passed over, but a skip that is still only *pending* (a "skip your
+        next combat" not yet consumed) or an extra combat not yet queued
+        into the list can't be known here.
+        """
+        for phase, step in self._turn_steps[self._cursor:]:
+            if getattr(phase, "skipped", False) or not step.gives_priority:
+                continue
+            return step.name
+        return "next_turn"
+
     def resume_at(self, cursor: int) -> None:
         """Restore the stepping position after a state was swapped in (undo).
 

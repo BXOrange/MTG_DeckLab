@@ -16,6 +16,10 @@ const PASS_TIMER_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const BOT_SPEED_MS_COOKIE = 'mtg_bot_speed_ms';
 const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
 const COMPACT_VIEW_COOKIE = 'mtg_compact_view';
+//: VIS-12: the player's standing priority stops (`{own: [...], opponent:
+//: [...]}` step names), re-sent to the server once per game — the server
+//: keeps them per game, this is only so they needn't be set again each time.
+const PRIORITY_STOPS_COOKIE = 'mtg_priority_stops';
 //: PLR-13 + "Player Settings" defaults for a *newly created* multiplayer
 //: table (Profil tab) — applied once, right after `POST /api/multiplayer/games`
 //: (see multiplayerView.js's createGame), not read by the engine itself.
@@ -143,6 +147,22 @@ export function getBotSpeedMs() {
   if (raw === null) return DEFAULT_BOT_SPEED_MS;
   const value = Number(raw);
   return BOT_SPEED_MS_OPTIONS.includes(value) ? value : DEFAULT_BOT_SPEED_MS;
+}
+
+/** VIS-12: the saved standing stops, or null when none were ever set. */
+export function getStopsPref() {
+  try {
+    const parsed = JSON.parse(getCookie(PRIORITY_STOPS_COOKIE) || 'null');
+    return Array.isArray(parsed?.own) && Array.isArray(parsed?.opponent)
+      ? { own: parsed.own, opponent: parsed.opponent }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setStopsPref(stops) {
+  setCookie(PRIORITY_STOPS_COOKIE, JSON.stringify({ own: stops.own, opponent: stops.opponent }), COOKIE_MAX_AGE_DAYS);
 }
 
 //: Seats a newly created table opens with, absent a saved preference —

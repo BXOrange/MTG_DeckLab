@@ -89,6 +89,25 @@ REPLAY = "replay"
 #: people usually wants.
 MULLIGAN_STYLES = ("london", "next7", "vancouver", "none")
 
+#: VIS-12: the one-shot priority yields a seat can arm. ``turn`` = "Pass this
+#: turn", on an opponent's turn (pass every window until that turn ends);
+#: ``end_step`` = "Skip to end step", on the seat's own turn (pass until the
+#: end step, then hold priority there). ``clear`` disarms.
+YIELD_MODES = ("turn", "end_step", "clear")
+
+#: VIS-12: the steps a seat can ask to be stopped at (RULE 117.3 — every step
+#: that gives priority except untap/cleanup, which give nobody any). A seat's
+#: stops are kept separately for its own turn and for everyone else's.
+STOP_STEPS = (
+    "upkeep", "draw", "main1", "begin_combat", "declare_attackers",
+    "declare_blockers", "combat_damage", "end_combat", "main2", "end",
+)
+
+#: Steps a seat cannot un-stop on its *own* turn: both main phases are where
+#: land plays, casts and ability activations happen, so a seat that skipped
+#: them could never act on its own turn at all.
+ALWAYS_STOP_OWN_TURN = ("main1", "main2")
+
 
 class GameActionError(Exception):
     """An action was illegal or malformed for the current game state."""
@@ -547,6 +566,15 @@ class GameSession:
         #: Whether the first RULE 117 priority window is still owed because a
         #: setup-time choice (a Vancouver scry) was open when setup finished.
         self._priority_window_pending = False
+        #: VIS-12: per-seat one-shot yields, ``{player_id: {"mode", "turn"}}``
+        #: (``turn`` is `GameState.internal_turn.number` it was armed on, so a
+        #: yield can never bleed into a later turn). Session state, not game
+        #: state: a restore (take-back/rewind) drops them.
+        self._yields: dict[str, dict[str, Any]] = {}
+        #: VIS-12: per-seat standing stops, ``{player_id: {"own": [...],
+        #: "opponent": [...]}}``. A seat with no entry is stopped everywhere
+        #: (the pre-VIS-12 behaviour); see `_yield_wants_pass`.
+        self._stops: dict[str, dict[str, list[str]]] = {}
 
     # -- Snapshot / restore --------------------------------------------
 
@@ -597,6 +625,7 @@ class GameSession:
         self._pending_scries.clear()
         self._pending_opening_hand.clear()
         self._priority_window_pending = False
+        self._yields.clear()
 
     @property
     def can_rewind(self) -> bool:
@@ -714,6 +743,12 @@ class GameSession:
                 self.table_feed.emote(actor, action.get("emote"), self.engine.state.turn_nr)
             except ValueError as exc:
                 raise GameActionError(str(exc)) from exc
+            return self.view()
+        if action["type"] == "set_stops":
+            # A standing preference, like an emote: legal at any time, from
+            # any seat, and not a game action (no undo entry, no log line).
+            self._set_stops(actor, action)
+            self._auto_pass_followups()
             return self.view()
         # "Next decision" is a fast-forward, but it must remain a sequence of
         # ordinary steps — each a real, separately snapshotted/logged
@@ -943,7 +978,7 @@ class GameSession:
         if (
             self.interactive_priority
             and not resolution_play
-            and kind not in ("declare_blockers", "choose", "decline")
+            and kind not in ("declare_blockers", "choose", "decline", "set_yield")
             and state.priority_player is not None
             and active is not state.priority_player
         ):
@@ -965,6 +1000,10 @@ class GameSession:
         handler = self._ACTION_HANDLERS.get(kind)
         if handler is None:
             raise GameActionError(f"unknown action type: {kind!r}")
+        if kind not in ("pass_priority", "set_yield", "declare_blockers"):
+            # VIS-12: acting for real means the seat is deciding again, not
+            # fast-forwarding — the same signal the board's countdown uses.
+            self._yields.pop(active.id, None)
         handler(self, action, active)
 
     def _dispatch_choose(self, action: dict[str, Any], active: Player) -> None:
@@ -994,6 +1033,36 @@ class GameSession:
             self._pass_priority(active)
         else:
             self.engine.pass_priority()
+
+    def _dispatch_set_yield(self, action: dict[str, Any], active: Player) -> None:
+        """VIS-12: arm or disarm this seat's one-shot yield.
+
+        ``turn`` ("Pass this turn") is for an *opponent's* turn: every window
+        this seat holds until that turn ends is passed for it. ``end_step``
+        ("Skip to end step") is for the seat's *own* turn: pass up to the end
+        step, then hold priority there. Only in a shared game (a solo session
+        has no priority windows to pass). Takes effect immediately:
+        `_auto_pass_followups` passes the window held right now, and every one
+        after it, until a reason to stop turns up (see `_yield_wants_pass`).
+        """
+        if not self.interactive_priority:
+            raise ValueError("yielding needs a shared game")
+        mode = action.get("mode")
+        if mode not in YIELD_MODES:
+            raise ValueError(f"unknown yield mode: {mode!r}")
+        if mode == "clear":
+            self._yields.pop(active.id, None)
+            return
+        state = self.engine.state
+        own_turn = active is state.active_player
+        if mode == "turn" and own_turn:
+            raise ValueError("you can only pass an opponent's turn")
+        if mode == "end_step" and not own_turn:
+            raise ValueError("you can only skip to the end step on your own turn")
+        if mode == "end_step" and state.current_step == "end":
+            raise ValueError("already in the end step")
+        self._yields[active.id] = {"mode": mode, "turn": state.internal_turn.number}
+        self._auto_pass_followups()
 
     def _dispatch_auto_turn(self, action: dict[str, Any], active: Player) -> None:
         self._auto_turn()
@@ -1263,6 +1332,7 @@ class GameSession:
         "declare_attackers": _dispatch_declare_attackers,
         "declare_blockers": _dispatch_declare_blockers,
         "ninjutsu": _dispatch_ninjutsu,
+        "set_yield": _dispatch_set_yield,
     }
 
     # -- Replay editing (mode == REPLAY) -------------------------
@@ -1717,11 +1787,72 @@ class GameSession:
 
         resolved = self.engine.pass_priority(player)
         if resolved or not completes_round or not stack_was_empty:
-            self._auto_pass_turn_controllers()
+            self._auto_pass_followups()
             return
         # Everyone passed on an empty stack → the step ends.
         self._advance_to_priority_window()
+        self._auto_pass_followups()
+
+    def _auto_pass_followups(self) -> None:
+        """Server-side passes owed to whoever holds priority now: a RULE 720
+        turn controller's own seat, then a seat that yielded (VIS-12)."""
         self._auto_pass_turn_controllers()
+        self._auto_pass_yielding()
+
+    def _auto_pass_yielding(self) -> None:
+        """VIS-12: pass for the priority holder if it asked to skip this
+        window (a one-shot yield, or a step it has no stop at). Recurses
+        through `_pass_priority`, like `_auto_pass_turn_controllers`, so a
+        pass that completes the round still ends the step — and the next
+        window is examined in turn. Only ever a seat's own opt-in: with no
+        yield armed and no custom stops, nothing here fires."""
+        state = self.engine.state
+        holder = state.priority_player
+        if holder is None or not self._setup_complete or not self._yield_wants_pass(holder):
+            return
+        self._pass_priority(holder)
+
+    def _yield_wants_pass(self, player: Player) -> bool:
+        """Whether ``player``'s current priority window should be passed for
+        them. Never while a choice is pending or the game is over, and never
+        with another player's spell/ability on the stack — that is exactly the
+        response window a yield must not swallow."""
+        state = self.engine.state
+        if state.game_over or state.pending_choice:
+            return False
+        if any(item.controller_id != player.id for item in state.stack):
+            return False
+        is_own_turn = state.active_player is player
+        armed = self._yields.get(player.id)
+        if armed is not None and armed["turn"] != state.internal_turn.number:
+            del self._yields[player.id]  # the armed turn is over
+            armed = None
+        if armed is not None:
+            if armed["mode"] == "end_step" and state.current_step == "end":
+                del self._yields[player.id]  # arrived: hold priority here
+            else:
+                return True
+        stops = self._stops.get(player.id)
+        if stops is None:
+            return False
+        return state.current_step not in stops["own" if is_own_turn else "opponent"]
+
+    def _set_stops(self, player: Player, action: dict[str, Any]) -> None:
+        """VIS-12: replace ``player``'s standing stops. Unknown step names are
+        refused; the main phases stay on for the seat's own turn."""
+        if not self.interactive_priority:
+            raise GameActionError("stops need a shared game")
+        normalized: dict[str, list[str]] = {}
+        for side in ("own", "opponent"):
+            raw = action.get(side)
+            if not isinstance(raw, (list, tuple)):
+                raise GameActionError(f"stops need a {side!r} list")
+            unknown = [step for step in raw if step not in STOP_STEPS]
+            if unknown:
+                raise GameActionError(f"unknown step(s): {', '.join(map(str, unknown))}")
+            steps = set(raw) | (set(ALWAYS_STOP_OWN_TURN) if side == "own" else set())
+            normalized[side] = [step for step in STOP_STEPS if step in steps]
+        self._stops[player.id] = normalized
 
     def _auto_pass_turn_controllers(self) -> None:
         """MEC-51 (RULE 720): while a player controls the *active* player's
@@ -2266,6 +2397,18 @@ class GameSession:
                 # the same client code covers solo modes too, though only an
                 # `interactive` one ever actually runs it.
                 "timer_seconds": self.spell_timer_seconds,
+                # VIS-12: every seat's armed yield and standing stops, public
+                # on purpose — the table sees who is passing the turn and
+                # where each player asked to be stopped.
+                "yields": {
+                    pid: y["mode"]
+                    for pid, y in self._yields.items()
+                    if y["turn"] == self.engine.state.internal_turn.number
+                },
+                "stops": {pid: dict(s) for pid, s in self._stops.items()},
+                # VIS-12: the next step anyone will get priority in, so the
+                # "Pass" button can say where passing leads.
+                "next_step": self.engine.next_priority_step(),
             },
             "setup": {
                 "complete": self._setup_complete,

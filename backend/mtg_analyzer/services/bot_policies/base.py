@@ -70,9 +70,44 @@ class Bot:
                 return {"type": "declare_blockers", "assignments": assignments}
         if not self.has_priority(view):
             return None
+        # VIS-12: a bot accepts "Pass this turn" exactly as a human can arm
+        # it — through the same `set_yield` action — but only when its own
+        # policy says it would pass every remaining window of this turn.
+        if self.wants_turn_yield(view, actions):
+            return {"type": "set_yield", "mode": "turn"}
         return self.play(view, [a for a in actions if a["type"] != "declare_blockers"])
 
     # -- Policy hooks --------------------------------------------------
+
+    def can_pass_turn(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+        """VIS-12 heuristic gate: would this bot pass every remaining
+        priority window of the opponent's turn it is looking at?
+
+        Answering yes lets it arm "Pass this turn" (`set_yield`), which skips
+        its remaining windows — and the one-bot-action-per-poll tick each
+        would cost in Solo — while the server still hands it priority the
+        moment another player has a spell or ability on the stack
+        (`GameSession._yield_wants_pass`). So the question is only about
+        windows with an *empty* stack. Default: no — an unknown policy never
+        gives up windows it might want; each subclass states its own.
+        """
+        return False
+
+    def wants_turn_yield(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+        """Whether to arm "Pass this turn" now. Read off the bot's own
+        (redacted) view only, like everything else it does: a shared game, an
+        opponent's turn, nothing armed yet, an empty stack and no pending
+        choice — then the policy's `can_pass_turn` decides. The server
+        validates the action anyway."""
+        priority = view.get("priority") or {}
+        state = view["state"]
+        if not priority.get("interactive") or self.is_active(view):
+            return False
+        if (priority.get("yields") or {}).get(self.player_id):
+            return False
+        if state.get("stack") or state.get("game_over") or view.get("pending_choice"):
+            return False
+        return self.can_pass_turn(view, actions)
 
     def setup(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> dict[str, Any]:
         """RULE 103.4: no bot mulligans — it keeps whatever it was dealt.

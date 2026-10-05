@@ -21,6 +21,10 @@ class GoldfishBot(Bot):
     label = "Goldfisch-Bot"
     description = "Spielt nur Länder und passt sonst immer."
 
+    def can_pass_turn(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+        # Never responds to anything, and only ever acts on its own turn.
+        return True
+
     def play(
         self, view: dict[str, Any], actions: list[dict[str, Any]]
     ) -> Optional[dict[str, Any]]:

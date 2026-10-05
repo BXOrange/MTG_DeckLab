@@ -80,6 +80,19 @@ class AIBot(SmartBot):
         self.status = statuses.setdefault(self.player_id, {})
         session._bot_status = statuses
 
+    #: Offer kinds `decide` puts in front of the LLM (everything else is a
+    #: forced or mechanical move).
+    _LLM_OFFER_TYPES = ('choose', 'play_land', 'cast_spell', 'activate_ability', 'attack')
+
+    def can_pass_turn(self, view, actions):
+        # While the LLM has anything real to weigh in a window, it decides
+        # that window itself; only when every window would be a plain pass
+        # (no cast/activate/land/attack on offer) does the Smart policy's
+        # answer apply.
+        if any(a['type'] in self._LLM_OFFER_TYPES and not a.get('locked') for a in actions):
+            return False
+        return super().can_pass_turn(view, actions)
+
     def _fallback(self, view, actions, message):
         self.waiting = False
         self.status.update(status='fallback', message=message)

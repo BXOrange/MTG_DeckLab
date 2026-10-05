@@ -271,8 +271,30 @@ du irgendwo klickst, wird die Zahl durchgestrichen und der Countdown ist
 vorbei. Er kann dir also nicht mitten im Überlegen dazwischenfunken.
 - Normalerweise läuft er in den **Fenstern, in denen du auf dem Zug eines
   anderen reagierst**. Dein eigener Zug bleibt unter deiner Kontrolle,
-  aber mit dem Knopf **Ende des Zuges** kannst du für den Rest des Zuges
-  sofort weiterlaufen lassen, wenn du das Tempo erhöhen willst.
+  aber mit **Pass this turn** kannst du das Tempo erhöhen (siehe unten).
+
+#### Den Zug schneller durchspielen
+
+Neben **Passen** gibt es je nach Zug einen Knopf, der das Tempo erhöht:
+
+- **Pass this turn** (Taste **Eingabe**) erscheint in einem *gegnerischen*
+  Zug und passt jedes Prioritätsfenster, das du bis zu dessen Ende hältst.
+- **Skip to end step** (Taste **E**) erscheint in *deinem eigenen* Zug und
+  passt bis zum Endschritt, in dem du wieder Priorität bekommst.
+
+Beides hört auf zu passen, sobald ein Gegner einen Zauber oder eine
+Fähigkeit auf den Stapel legt — du kannst also weiter reagieren; nach der
+Auflösung geht das Passen weiter. Eine eigene Aktion oder der Knopf *… —
+abbrechen* beendet es. Die anderen Spieler sehen ein kleines Abzeichen
+*⏩ passt diesen Zug* auf deinem Banner. Mit der **Leertaste** passt du
+einmal die Priorität; der Knopf **Passen** nennt immer, wohin das Passen führt (z. B. *Zum Kampf →*). Bots nehmen es ebenfalls an, wenn sie nichts vorhaben.
+
+Im Panel **Haltepunkte** in der linken Leiste legst du fest, wo du gefragt
+werden willst: eine Spalte für deinen Zug, eine für die Züge der anderen.
+Ein abgewählter Schritt wird bei leerem Stapel für dich gepasst (was ein
+Gegner wirkt, erreicht dich trotzdem). Beide Hauptphasen bleiben in deinem
+Zug immer aktiv. Deine Wahl wird im Browser gespeichert. Solo gegen Bots
+funktioniert genauso.
 
 Der Host kann den Tisch-Timer überschreiben. Im Profil bleiben die
 Browser-Komfort-Schalter erhalten, und das Board zeigt dieselben

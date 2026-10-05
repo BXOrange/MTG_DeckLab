@@ -289,6 +289,53 @@ def test_bot_turn_preserves_human_pass_only_windows(env):
     assert saw_pass_only_window
 
 
+def _to_bots_turn(client, sid, view):
+    """Pass the human's turn away until a bot's turn begins."""
+    for _ in range(120):
+        if view["state"]["active_player_id"] != SOLO_HUMAN_ID:
+            return view
+        if view["state"]["priority_player_id"] == SOLO_HUMAN_ID:
+            view = client.post(f"/api/solo/{sid}/action", json={"type": "pass_priority"}).json()
+        else:
+            view = client.get(f"/api/solo/{sid}").json()
+    raise AssertionError("never reached the bot's turn")
+
+
+def test_passing_this_turn_yields_the_humans_windows_but_not_the_bots_actions(env):
+    """VIS-12: an armed yield is the one case the server passes for the
+    human — and every bot action is still exposed one request at a time."""
+    client, decks = env["client"], env["decks"]
+    deck = _legal_deck(decks)
+    view = _start(client, deck.id).json()
+    sid = _session_id(view)
+    view = client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}).json()
+    view = _to_bots_turn(client, sid, view)
+    bots_turn = view["state"]["internal_turn"]["number"]
+    view = client.post(f"/api/solo/{sid}/action", json={"type": "set_yield", "mode": "turn"}).json()
+    assert view["priority"]["yields"] == {SOLO_HUMAN_ID: "turn"}
+
+    for _ in range(80):
+        if view["state"]["internal_turn"]["number"] > bots_turn:
+            break
+        # The bot's turn is its own, and the human is passed for throughout.
+        assert view["state"]["priority_player_id"] != SOLO_HUMAN_ID
+        before = len(view["move_log"])
+        view = client.get(f"/api/solo/{sid}").json()
+        assert len(view["move_log"]) <= before + 1
+    assert view["state"]["internal_turn"]["number"] > bots_turn
+    assert view["priority"]["yields"] == {}
+
+
+def test_passing_this_turn_is_refused_on_the_humans_own_turn(env):
+    client, decks = env["client"], env["decks"]
+    deck = _legal_deck(decks)
+    view = _start(client, deck.id).json()
+    sid = _session_id(view)
+    client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
+    res = client.post(f"/api/solo/{sid}/action", json={"type": "set_yield", "mode": "turn"})
+    assert res.status_code == 400
+
+
 # -- concede / restart / lifecycle ------------------------------------------
 
 

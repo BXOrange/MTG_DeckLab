@@ -578,6 +578,9 @@ class TestStartingAndPlaying:
             "player_id": ann,
             "passed": [],
             "timer_seconds": 20,
+            "yields": {},
+            "stops": {},
+            "next_step": "draw",
         }
 
         # Bob doesn't hold priority, so he can't pass it (RULE 117.1).
