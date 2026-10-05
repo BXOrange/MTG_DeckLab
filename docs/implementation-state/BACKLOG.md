@@ -53,7 +53,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-149` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-150`**; next free `MEC`: **`MEC-111`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-12`**. A new engine primitive found along the way files
+  > **`PAR-150`**; next free `MEC`: **`MEC-111`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-13`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -142,6 +142,10 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## VIS — Visuals
 
+- **VIS-12 · "End the turn" → "Pass the turn" and agreed shortcuts.** Research customary
+  multiplayer shortcuts and propose/implement explicit player agreement to advance to the end step
+  or through beginning phases, preserving interruption opportunities, triggers and an update after
+  every game action; use the same flow in Solo against bots.
 - **VIS-8 · Keyboard shortcuts.** docs/05 PART 9.
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
