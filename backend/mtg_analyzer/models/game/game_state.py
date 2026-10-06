@@ -696,6 +696,8 @@ class GameState:
         #: lockstep with `temp_play_permissions` at cleanup otherwise
         #: (`GameEngine._step_cleanup`).
         self.free_cast_instance_ids: set[int] = set()
+        #: Kefka, Dancing Mad: free-cast cards whose owner loses life equal to their mana value once cast this way.
+        self.free_cast_owner_loses_life_ids: set[int] = set()
 
         #: "…exile the top card of each player's library, then you may
         #: cast any number of spells from among those cards without

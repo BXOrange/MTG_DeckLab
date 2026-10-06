@@ -460,6 +460,14 @@ _INSTRUCTION_TYPES: dict[str, str] = {
 #: of turn" grant is one operation with a different keyword operand.
 _ALIAS_TYPES: dict[str, str] = {
     "destroy_same_name": "destroy",
+    "exile_same_name_tokens": "exile",
+    "mill_each_player_may_cast_milled": "mill",
+    "coin_of_fate_split": "move_object",
+    "cast_exiled_with_source": "cast",
+    "mark_event_log": "set_status",
+    "discarded_this_way_riders": "discard",
+    "exile_random_graveyard_cards_cast_free": "exile",
+    "exile_instant_sorcery_from_each_graveyard": "exile",
     "add_counters_to_trigger_damaged_player": "put_counter",
     "add_player_counters": "put_counter",
     # Garnet, Princess of Alexandria's own +1/+1 payoff tail (PAR-67) — a

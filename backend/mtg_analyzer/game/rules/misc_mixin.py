@@ -3403,6 +3403,14 @@ class MiscSystemsMixin:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
         self.state.monarch_id = player.id
+        # "…until an opponent becomes the monarch" (Palace Jailer): the exiler's creature comes back under its owner's
+        # control once a *different* player takes the crown.
+        for holder in self.state.players:
+            for obj in list(holder.exile):
+                exiler = getattr(obj, "exiled_until_opponent_monarch_of", None)
+                if exiler is not None and exiler != player.id:
+                    obj.exiled_until_opponent_monarch_of = None
+                    self.return_from_graveyard(obj, "battlefield")
 
     def start_engines(self, player: Player) -> None:
         """RULE 702.179a/c: ``player``'s speed becomes 1 if they currently

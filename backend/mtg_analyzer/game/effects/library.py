@@ -1834,8 +1834,20 @@ class DigUntilEffect(GameEffect):
         digger: str = "controller",
         caster: str = "digger",
         source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        hit_rider: Optional[str] = None,
+        uncast_hit: str = "library_bottom",
     ) -> None:
         super().__init__(source)
+        #: "**Target opponent** exiles cards from the top of their library until …" (Strago and Relm): the dug player
+        #: is a RULE 115 target (``digger="facing"`` reads it).
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: ``"haste_sacrifice"`` — "if you cast a creature spell this way, it gains haste and 'at the beginning of the
+        #: end step, sacrifice this creature'" (Strago and Relm).
+        self.hit_rider = hit_rider
+        #: What happens at the end step to a ``cast_free_window`` hit that was not cast: ``"library_bottom"`` (the
+        #: Possibility Storm family) or ``"stay"`` — it just remains exiled (Strago and Relm).
+        self.uncast_hit = uncast_hit
         self.criteria = criteria
         self.hit_destination = hit_destination
         self.rest_destination = rest_destination
@@ -1867,6 +1879,8 @@ class DigUntilEffect(GameEffect):
             rest_destination=self.rest_destination,
             pre_exile=self.pre_exile,
             caster=caster,
+            hit_rider=self.hit_rider,
+            uncast_hit=self.uncast_hit,
         )
 
 

@@ -634,9 +634,16 @@ class ReturnFromGraveyardEffect(GameEffect):
         face_down_as: Optional[str] = None,
         at_random: Optional[int] = None,
         else_destination: Optional[str] = None,
+        pick_mode: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: Who chooses from whose graveyard, one opponent at a time in turn order (RULE 101.4):
+        #: ``"controller_from_each_opponent"`` — "for each opponent, you may put up to one target creature card from
+        #: that player's graveyard onto the battlefield under your control" (Sepulchral Primordial); and
+        #: ``"each_opponent_from_yours"`` — "each opponent chooses a creature card in your graveyard that hasn't been
+        #: chosen. Return each card chosen this way … under your control" (Rejoin the Fight).
+        self.pick_mode = pick_mode if pick_mode in ("controller_from_each_opponent", "each_opponent_from_yours") else None
         #: "return two creature cards **at random** from your graveyard to the battlefield" (Moldgraf Monstrosity) /
         #: "choose a card at random in your graveyard" (Deadbridge Chant) — RULE 706's untargeted random pick: this
         #: many cards (fewer if the graveyard has fewer) matching ``target_kind`` in the controller's graveyard are
@@ -795,7 +802,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         self._pool_spec = spec
         self.target_spec = None if (
             self.pick or self.each_player_pick or self.players is not None or self.previous_subject
-            or self.at_random is not None
+            or self.at_random is not None or self.pick_mode is not None
         ) else spec
 
     @property
@@ -870,6 +877,15 @@ class ReturnFromGraveyardEffect(GameEffect):
     #: A resumed continuation's remaining players (see `_pick_each_in_order`) — runtime state, never a spec param.
     _remaining_players: Optional[list[Any]] = None
 
+    def _opponents_in_turn_order(self, context: GameContext) -> list[Any]:
+        """The controller's opponents starting with the next one in turn order (RULE 101.4)."""
+        controller = _controller_of(self.source, context)
+        living = list(context.state.living_players())
+        if controller is None or controller not in living:
+            return [p for p in living if p is not controller]
+        start = living.index(controller)
+        return [p for p in living[start + 1:] + living[:start]]
+
     def _pick_each_in_order(self, context: GameContext, players: list[Any]) -> None:
         """`each_player_pick` — one player's choice at a time (`SacrificeEffect._sacrifice_each_in_order`'s idiom:
         the game state holds one `pending_choice`, so once a prompt opens the remaining players are parked on
@@ -879,15 +895,22 @@ class ReturnFromGraveyardEffect(GameEffect):
         state = context.state
         kind = self._kind or "graveyard_creature"
         action = "return_from_graveyard_tapped" if self.tapped else "return_from_graveyard"
+        controller = _controller_of(self.source, context)
         for i, player in enumerate(players):
-            candidates = [o for o in player.graveyard if graveyard_card_matches(kind, o)]
-            if not candidates:
+            if self.pick_mode == "controller_from_each_opponent":
+                pool_owner, chooser, optional = player, controller, True
+            elif self.pick_mode == "each_opponent_from_yours":
+                pool_owner, chooser, optional = controller, player, False
+            else:
+                pool_owner, chooser, optional = player, player, False
+            candidates = [o for o in pool_owner.graveyard if graveyard_card_matches(kind, o)]
+            if not candidates or chooser is None:
                 continue
             before = getattr(state, "pending_choice", None)
             context.engine._request_choose_objects(
-                player, candidates, action, count=1, optional=False,
+                chooser, candidates, action, count=1, optional=optional,
                 prompt="Karte aus dem Friedhof zurückbringen", source=self.source,
-                control_recipient_id=(getattr(_controller_of(self.source, context), "id", None)
+                control_recipient_id=(getattr(controller, "id", None)
                                       if self.under_your_control else player.id),
             )
             opened = getattr(state, "pending_choice", None)
@@ -993,6 +1016,9 @@ class ReturnFromGraveyardEffect(GameEffect):
             return
         if self._remaining_players is not None:
             self._pick_each_in_order(context, self._remaining_players)
+            return
+        if self.pick_mode is not None:
+            self._pick_each_in_order(context, self._opponents_in_turn_order(context))
             return
         if self.each_player_pick:
             self._pick_each_in_order(context, list(context.state.living_players()))

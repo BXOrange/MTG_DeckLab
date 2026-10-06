@@ -721,6 +721,15 @@ class GameObject:
         #: `ReturnLinkedExileEffect` on this object's own leaves-battlefield
         #: trigger. ``None`` when nothing is currently linked.
         self.linked_exile_id: Optional[int] = None
+        #: "Exile target creature an opponent controls until an opponent becomes the monarch." (Palace Jailer) — the
+        #: exiler's player id; `RulesEngine.become_monarch` returns the card when someone else takes the crown.
+        self.exiled_until_opponent_monarch_of: Optional[str] = None
+        #: Edgar, Master Machinist's "that artifact enters tapped" — set when cast through such a graveyard grant.
+        self.enters_tapped_from_cast_grant: bool = False
+        #: Strago and Relm: a creature cast through the dig's free-cast window gains haste and is sacrificed at the end step.
+        self.granted_haste_sacrifice: bool = False
+        #: Coin of Fate: the instance ids of the cards its cost exiled from the graveyard (read by the resolving effect).
+        self.last_cost_exiled_ids: list[int] = []
         #: Every card one remembering exile took, when it took more than one
         #: ("for each opponent, exile up to one target … until ~ leaves the
         #: battlefield" — PAR-130). `linked_exile_id` keeps naming the last of
@@ -1517,6 +1526,10 @@ class GameObject:
         self.last_unattached_from_id = None
         self.control_change_until_eot = None
         self.linked_exile_id = None
+        self.exiled_until_opponent_monarch_of = None
+        self.enters_tapped_from_cast_grant = False
+        self.granted_haste_sacrifice = False
+        self.last_cost_exiled_ids = []
         self.linked_exile_ids = []
         self.haunting_instance_id = None
         self.exile_after_free_cast = False

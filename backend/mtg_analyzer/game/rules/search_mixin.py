@@ -2866,6 +2866,8 @@ class SearchMixin:
         rest_destination: str = "exile",
         pre_exile: int = 0,
         caster: Optional[Player] = None,
+        hit_rider: Optional[str] = None,
+        uncast_hit: str = "library_bottom",
     ) -> Optional[GameObject]:
         """Reveal cards from the top of ``player``'s library until one
         matches ``criteria``; put it at ``hit_destination`` and everything
@@ -2897,7 +2899,7 @@ class SearchMixin:
             self.exile(player.library[-1])
         matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
         if matched is not None and hit_destination != "exile":
-            self._place_dig_hit(player, matched, hit_destination, caster=caster)
+            self._place_dig_hit(player, matched, hit_destination, caster=caster, hit_rider=hit_rider, uncast_hit=uncast_hit)
         rest_ids = [o.instance_id for o in revealed if o is not matched]
         if rest_destination == "library_bottom_random":
             self._bottom_remaining(player, rest_ids)
@@ -2930,7 +2932,7 @@ class SearchMixin:
             player.graveyard.append(obj)
     def _place_dig_hit(
         self, player: Player, obj: GameObject, destination: str,
-        caster: Optional[Player] = None,
+        caster: Optional[Player] = None, hit_rider: Optional[str] = None, uncast_hit: str = "library_bottom",
     ) -> None:
         """Move a `dig_until` hit out of exile to its destination.
 
@@ -2950,15 +2952,18 @@ class SearchMixin:
             # delayed half below performs the printed "if they don't cast
             # it" fallback at the next end step.
             self.grant_free_cast_window_from_exile(obj, caster=caster)
-            self.state.delayed_triggers.append(
-                DelayedTrigger(
-                    controller_id=(caster or player).id,
-                    step="end",
-                    scope="any",
-                    effects=[ReturnUncastExiledEffect(obj, destination="library_bottom")],
-                    description=f"{obj.name}: unter die Bibliothek, falls nicht gewirkt",
+            if hit_rider == "haste_sacrifice" and obj.card.is_creature:
+                obj.granted_haste_sacrifice = True  # consumed when the spell enters (`_resolve_permanent_spell`)
+            if uncast_hit == "library_bottom":
+                self.state.delayed_triggers.append(
+                    DelayedTrigger(
+                        controller_id=(caster or player).id,
+                        step="end",
+                        scope="any",
+                        effects=[ReturnUncastExiledEffect(obj, destination="library_bottom")],
+                        description=f"{obj.name}: unter die Bibliothek, falls nicht gewirkt",
+                    )
                 )
-            )
             return
         player.remove_from_zone(obj, Zone.EXILE)
         if destination in ("battlefield", "battlefield_tapped"):

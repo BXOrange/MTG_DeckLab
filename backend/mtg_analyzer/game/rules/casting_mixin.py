@@ -57,6 +57,7 @@ from ..effects.core import (
     DrawCardEffect,
     LoseLifeEffect,
     ReturnUncastExiledEffect,
+    SacrificeSelfEffect,
     SacrificeSpecificEffect,
     TheRingTemptsYouEffect,
     GameContext,
@@ -905,6 +906,10 @@ class CastingResolutionMixin:
         continuous.consume_next_spell_cost_reductions(self.state, player.id, obj)
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)
+            if obj.instance_id in self.state.free_cast_owner_loses_life_ids:
+                # "…each player who owns a spell you cast this way loses life equal to its mana value." (Kefka)
+                self.state.free_cast_owner_loses_life_ids.discard(obj.instance_id)
+                self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.card.converted_mana_cost or 0))
             self.state.free_cast_ignore_timing_instance_ids.discard(obj.instance_id)
             self._consume_free_cast_type_slot(obj)  # Aminatou's Augury: one cast per nonland card type
         # RULE 601.2b: remember the announced X on the object itself (not
@@ -2193,7 +2198,7 @@ class CastingResolutionMixin:
             # Manglehorn/Dauntless Dismantler/Archon of Emeria-shaped).
             obj.tapped = card_registry.enters_tapped(obj.card) or continuous.enters_tapped_from_static(
                 self.state, obj
-            )
+            ) or bool(getattr(obj, "enters_tapped_from_cast_grant", False))
             if obj.tapped and continuous.enters_untapped_from_static(self.state, obj):
                 obj.tapped = False  # a land entering by an effect, under Horizon Explorer
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
@@ -2272,6 +2277,20 @@ class CastingResolutionMixin:
                 obj.granted_suspend_haste = False
                 if obj in self.state.permanents():
                     obj.temp_keywords.add("haste")
+            if getattr(obj, "granted_haste_sacrifice", False):
+                # "…it gains haste and 'at the beginning of the end step, sacrifice this creature'" (Strago and Relm).
+                obj.granted_haste_sacrifice = False
+                if obj in self.state.permanents():
+                    obj.temp_keywords.add("haste")
+                    self.state.delayed_triggers.append(
+                        DelayedTrigger(
+                            controller_id=obj.controller_id,
+                            step="end",
+                            scope="any",
+                            effects=[SacrificeSelfEffect(source=obj)],
+                            description=f"{obj.name}: im Endsegment opfern",
+                        )
+                    )
             if getattr(obj, "cast_via_dash", False):
                 # RULE 702.109c/d (PAR-26): a creature cast for its dash
                 # cost gains haste and is returned to its owner's hand at

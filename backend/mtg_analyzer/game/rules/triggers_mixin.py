@@ -1404,6 +1404,9 @@ class TriggerCollectionMixin:
                 self._pending_trigger_queue = queue
                 self._pending_trigger_event = event
                 self.open_choice(self._trigger_mode_choice(ability))
+                if getattr(ability, "modes_random", False):
+                    # "choose one at random": the engine answers its own mode prompt.
+                    self.resolve_pending_choice(str(self.random_choice(list(range(len(ability.modes))))))
                 return
             if not self._place_or_pause_trigger(ability, ability.effects, queue, event=event):
                 return

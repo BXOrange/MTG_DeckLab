@@ -704,8 +704,16 @@ class GraveyardCastPermissionEffect(GameEffect):
         plays_lands: bool = False,
         sacrifice_type: Optional[str] = None,
         exile_graveyard_cards: int = 0,
+        arrived_not_from_battlefield_this_turn: bool = False,
+        enters_tapped: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…from among cards in your graveyard that were put there from anywhere other than the battlefield this
+        #: turn." (Banon) — only a card whose arrival in the graveyard this turn (a ``PUT_INTO_GRAVEYARD`` event)
+        #: did not come from the battlefield.
+        self.arrived_not_from_battlefield_this_turn = bool(arrived_not_from_battlefield_this_turn)
+        #: "If you cast a spell this way, that artifact enters tapped." (Edgar) — the cast permanent enters tapped.
+        self.enters_tapped = bool(enters_tapped)
         #: "…by exiling three other cards from your graveyard in addition to paying its other costs." (Kotis,
         #: Sibsig Champion) — an additional cost of casting through this grant: the other cards in the caster's
         #: graveyard it takes (RULE 601.2h). Documented simplification: the engine picks the cards (the oldest

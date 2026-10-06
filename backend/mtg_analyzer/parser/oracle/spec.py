@@ -931,6 +931,10 @@ class AbilitySpec:
             raise SpecValidationError(
                 "'modes' optional (RULE 700.2's 'choose up to one') requires a plain choose-one block"
             )
+        if self.modes.get("random") and (
+            self.modes.get("or_both") or self.modes.get("at_least") or self.modes.get("optional") or choose != 1
+        ):
+            raise SpecValidationError("'modes' random ('choose one at random') requires a plain choose-one block")
         entwine = self.modes.get("entwine")
         if entwine is not None:
             # RULE 702.42a: Entwine is an *additional* cost that upgrades the

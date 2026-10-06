@@ -1004,6 +1004,7 @@ EffectRegistry.register(
         selector=p.get("selector"),
         filter=p.get("filter"),
         remember=bool(p.get("remember", False)),
+        until_opponent_monarch=bool(p.get("until_opponent_monarch", False)),
         creature_filter=p.get("creature_filter"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
@@ -1595,6 +1596,7 @@ EffectRegistry.register(
         controller_target_active=bool(p.get("controller_target_active", False)),
         at_random=p.get("at_random"),
         else_destination=p.get("else_destination"),
+        pick_mode=p.get("pick_mode"),
     ),
 )
 EffectRegistry.register(
@@ -2120,6 +2122,9 @@ EffectRegistry.register(
         pre_exile=int(p.get("pre_exile", 0) or 0),
         digger=str(p.get("digger", "controller")),
         caster=str(p.get("caster", "digger")),
+        target_kind=p.get("target_kind"),
+        hit_rider=p.get("hit_rider"),
+        uncast_hit=str(p.get("uncast_hit", "library_bottom")),
     ),
 )
 EffectRegistry.register(
@@ -3062,6 +3067,8 @@ EffectRegistry.register(
         plays_lands=bool(p.get("plays_lands", False)),  # Titania, Nature's Force: lands matching ``spell_criteria``
         exile_graveyard_cards=int(p.get("exile_graveyard_cards", 0) or 0),
         instant_sorcery_only=bool(p.get("instant_sorcery_only", False)),  # Lier: standing flashback
+        arrived_not_from_battlefield_this_turn=bool(p.get("arrived_not_from_battlefield_this_turn", False)),  # Banon
+        enters_tapped=bool(p.get("enters_tapped", False)),  # Edgar
     ),
 )
 EffectRegistry.register(

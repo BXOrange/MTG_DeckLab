@@ -1770,6 +1770,7 @@ class TriggeredAbility(GameEffect):
         modes_repeatable: bool = False,
         modes_exhaust_per_turn: bool = False,
         modes_optional: bool = False,
+        modes_random: bool = False,
         modes_override: Optional[dict[str, Any]] = None,
         reflexive: bool = False,
         mana_ability: bool = False,
@@ -1858,6 +1859,9 @@ class TriggeredAbility(GameEffect):
         #: (`modes_or_both`, 1 or 2) shapes; only meaningful with
         #: ``modes_choose == 1`` and neither of those other two set.
         self.modes_optional = modes_optional
+        #: "choose one **at random**" (Umaro, Raging Yeti): the mode is picked by the engine as the trigger is put on
+        #: the stack, not by its controller.
+        self.modes_random = modes_random
         self.modes_override = modes_override
         #: RULE 603.3d "that permanent/spell": the ability's single targeting
         #: effect acts on *the exact object that fired the triggering event*

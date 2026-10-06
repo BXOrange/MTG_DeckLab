@@ -604,6 +604,11 @@ class CastingMixin:
             or (obj in player.graveyard and blitz is None and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
+                # "…you may cast a spell from among those cards" (Locke) — cards milled into *any* graveyard.
+                obj.zone == Zone.GRAVEYARD
+                and self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+            )
+            or (
                 # Hildibrand Manderville: a temporary permission to cast the Adventure half from the graveyard.
                 obj in player.graveyard
                 and obj.instance_id in self.state.temp_play_adventure_only
@@ -2323,6 +2328,8 @@ class CastingMixin:
                 if graveyard_grant is not None and graveyard_grant.exile_if_would_be_put_into_graveyard
                 else None
             )
+            # Edgar: "that artifact enters tapped" — reassigned every cast, like the flag above.
+            obj.enters_tapped_from_cast_grant = bool(graveyard_grant is not None and graveyard_grant.enters_tapped)
             # RULE 702.138b: Escape's own "exile N other cards from your
             # graveyard" cost, paid as part of casting (like any other
             # additional cost) now that ``obj`` itself has left the

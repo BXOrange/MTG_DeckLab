@@ -1466,8 +1466,10 @@ class ActivationMixin:
                         self.rules.discard_specific(card, cause=source)
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
         if exile_count:
+            source.last_cost_exiled_ids = []
             for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost):
                 self.rules.exile(victim)
+                source.last_cost_exiled_ids.append(victim.instance_id)
         if cost.discard_self:
             instance_id, controller_id, name = source.instance_id, player.id, source.name
             self.rules.discard_specific(source, cause=source)

@@ -1841,6 +1841,9 @@ class SacrificeEffect(GameEffect):
             player = context.state.player_by_id(controller_id) if controller_id is not None else None
         if player is None and self.selector == "defending_player":
             player = _defending_player_of(self.source, context)
+        if player is None and self.selector == "active_player":
+            # "At the beginning of each opponent's end step, that player …" (Archfiend of Depravity) — whose turn it is.
+            player = context.state.active_player
         if player is None:
             return
         self._sacrifice_one(context, player)

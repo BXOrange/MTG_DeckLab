@@ -81,6 +81,19 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
     return grants
 
 
+def _arrived_not_from_battlefield_this_turn(player: "Player", state: "GameState", card: "Card") -> bool:
+    """Whether ``card`` (in ``player``'s graveyard) was put there this turn from a zone other than the battlefield —
+    the turn's ``PUT_INTO_GRAVEYARD`` arrivals, read off the event log (Banon)."""
+    obj = next((o for o in player.graveyard if o.card is card), None)
+    if obj is None:
+        return False
+    return any(
+        event.type == "PUT_INTO_GRAVEYARD" and event.get("instance_id") == obj.instance_id
+        and event.get("from_zone") != "battlefield"
+        for event in state.events_this_turn()
+    )
+
+
 def graveyard_cast_grant_for(
     player: "Player", state: "GameState", card: "Card"
 ) -> Optional[GraveyardCastPermissionEffect]:
@@ -110,6 +123,8 @@ def graveyard_cast_grant_for(
         if effect.max_mana_value is not None and card.converted_mana_cost > effect.max_mana_value:
             continue
         if effect.spell_criteria and not card_query.matches(card, effect.spell_criteria):
+            continue
+        if effect.arrived_not_from_battlefield_this_turn and not _arrived_not_from_battlefield_this_turn(player, state, card):
             continue
         if effect.per_permanent_type and permanent_types(card) <= getattr(effect.source, "graveyard_cast_types_this_turn", set()):
             continue

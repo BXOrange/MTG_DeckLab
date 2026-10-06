@@ -5,7 +5,7 @@ from ...models.game.events import EventType
 from ...models.game.game_object import Zone
 from ..targeting import TargetSpec
 from .core import GameEffect, EffectRegistry, _apply_effects_partitioned
-from .core import DestroyEffect
+from .core import DestroyEffect, _controller_of
 
 
 class DestroySameNameEffect(GameEffect):
@@ -71,7 +71,30 @@ class DestroyAndHalfCopiesEffect(GameEffect):
         )
 
 
+class ExileSameNameTokensEffect(GameEffect):
+    """"Exile target nonland permanent an opponent controls and all tokens that player controls with the same name as
+    that permanent." (Legions to Ashes) — RULE 608.2: the name and the controller are fixed from the target as the spell
+    resolves; the target itself is exiled even if it is not a token."""
+
+    def __init__(self, target_kind='nonland_permanent_you_dont_control', source=None):
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context, targets=None):
+        if not targets:
+            return
+        target = targets[0]
+        name, controller_id = target.name, target.controller_id
+        victims = [target] + [
+            obj for obj in context.state.permanents()
+            if obj is not target and obj.is_token and obj.name == name and obj.controller_id == controller_id
+        ]
+        for obj in victims:
+            context.exile(obj)
+
+
 EffectRegistry.register('destroy_same_name', lambda p: DestroySameNameEffect(p.get('target_kind', 'nonland_permanent')))
+EffectRegistry.register('exile_same_name_tokens', lambda p: ExileSameNameTokensEffect(p.get('target_kind', 'nonland_permanent_you_dont_control')))
 EffectRegistry.register('destroy_and_half_copies', lambda p: DestroyAndHalfCopiesEffect())
 
 
@@ -192,3 +215,165 @@ EffectRegistry.register('mill_recover_permanent_subtype_bonus', lambda p: MillRe
 EffectRegistry.register('repeat_food_exile_process', lambda p: RepeatPaidProcessEffect())
 
 EffectRegistry.register('exile_graveyard_then_repeat_food', lambda p: _ExileGraveyardAndRepeatEffect())
+
+
+# --- PLAY-ALL (Revival Trance): graveyard / discard riders -----------------------------------------------------------
+
+
+class MarkEventLogEffect(GameEffect):
+    """Remember how long the event log is now, on the source (``window_event_mark``) — the start of a "this way" window
+    a later `DiscardedThisWayRidersEffect` reads (Mog, Moogle Warrior)."""
+
+    def apply(self, context, targets=None):
+        if self.source is not None:
+            self.source.window_event_mark = len(context.state.event_log)
+
+
+class DiscardedThisWayRidersEffect(GameEffect):
+    """"If a creature card was discarded this way, `<creature effects>`. Then if a noncreature card was discarded this way,
+    `<noncreature effects>`." (Mog, Moogle Warrior) — reads the ``DISCARD_CARD`` events logged since the source's
+    `MarkEventLogEffect` window opened (RULE 608.2: "this way" is exactly the discards of the effect before it), then runs the
+    matching serialized effect lists in printed order."""
+
+    def __init__(self, creature_effects=None, noncreature_effects=None, source=None):
+        super().__init__(source)
+        self.creature_specs = list(creature_effects or [])
+        self.noncreature_specs = list(noncreature_effects or [])
+
+    def apply(self, context, targets=None):
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+
+        mark = int(getattr(self.source, "window_event_mark", 0) or 0)
+        discards = [e for e in context.state.event_log[mark:] if e.type == EventType.DISCARD_CARD]
+        creature = any("creature" in (e.get("object_types") or ()) for e in discards)
+        noncreature = any("creature" not in (e.get("object_types") or ()) for e in discards)
+        for flag, specs in ((creature, self.creature_specs), (noncreature, self.noncreature_specs)):
+            if not flag or not specs:
+                continue
+            for effect in build_effects(
+                [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in specs], self.source,
+            ):
+                effect.apply(context, None)
+
+
+class CoinOfFateSplitEffect(GameEffect):
+    """"An opponent chooses one of the exiled cards. You put that card on the bottom of your library and return the other
+    to the battlefield tapped. You become the monarch." (Coin of Fate) — the two creature cards the ability's cost exiled
+    (`GameObject.last_cost_exiled_ids`). **Simplification:** the opponent's choice is made for them as the one that is worst
+    for you — the card with the greater mana value goes to the bottom, the cheaper one returns."""
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        ids = list(getattr(self.source, "last_cost_exiled_ids", None) or [])
+        self.source.last_cost_exiled_ids = []
+        cards = [o for o in (context.state.find_object(i) for i in ids) if o is not None and o.zone == Zone.EXILE]
+        if cards:
+            cards.sort(key=lambda o: int(o.card.converted_mana_cost or 0))
+            for bottomed in cards[1:]:
+                owner = context.state.player_by_id(bottomed.owner_id)
+                owner.remove_from_zone(bottomed, Zone.EXILE)
+                bottomed.zone = Zone.LIBRARY
+                owner.library.insert(0, bottomed)  # the bottom (index 0 — see Player.library)
+            context.return_from_graveyard(cards[0], "battlefield_tapped")
+        context.engine.become_monarch(player)
+
+
+class ExileRandomGraveyardCardsCastFreeEffect(GameEffect):
+    """"Exile a card at random from each opponent's graveyard. You may cast any number of spells from among cards exiled
+    this way without paying their mana costs. Then each player who owns a spell you cast this way loses life equal to its
+    mana value." (Kefka, Dancing Mad) — each exiled nonland card gets a free-cast window for this effect's controller (the
+    Etali shape) and is marked so its owner loses life equal to its mana value when it is actually cast
+    (`GameState.free_cast_owner_loses_life_ids`)."""
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        for opponent in [p for p in context.state.living_players() if p.id != player.id]:
+            if not opponent.graveyard:
+                continue
+            card = context.engine.random_choice(list(opponent.graveyard))
+            context.exile(card)
+            if card.card.is_land:
+                continue
+            context.engine.grant_free_cast_window_from_exile(card, caster=player)
+            context.state.free_cast_owner_loses_life_ids.add(card.instance_id)
+
+
+class MillEachPlayerMayCastMilledEffect(GameEffect):
+    """"Each player mills a card. If a land card was milled this way, create a Treasure token. Until end of turn, you may
+    cast a spell from among those cards." (Locke, Treasure Hunter) — one mill per living player; any milled land gives the
+    controller one Treasure; every milled nonland card may be cast by the controller from its graveyard this turn
+    (`GameState.temp_graveyard_cast_permissions`), paying its costs normally."""
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        milled = []
+        for p in list(context.state.living_players_apnap()):
+            before = len(p.graveyard)
+            context.mill(p, 1)
+            milled.extend(p.graveyard[before:])
+        if any(o.card.is_land for o in milled):
+            from ...parser.oracle.spec import EffectSpec
+            from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+
+            for effect in build_effects([EffectSpec("create_token", {"token_name": "Treasure", "count": 1})], self.source):
+                effect.apply(context, None)
+        for o in milled:
+            if not o.card.is_land:
+                context.state.temp_graveyard_cast_permissions[o.instance_id] = player.id
+
+
+class ExileInstantSorceryFromEachGraveyardEffect(GameEffect):
+    """"Exile an instant or sorcery card from each graveyard." (Summon: Esper Valigarmanda, chapter I) — the exiled cards are
+    remembered as exiled with the source Saga (`exiled_with_ids`). **Simplification:** the most recently added matching card
+    of each graveyard is taken rather than offering a choice."""
+
+    def apply(self, context, targets=None):
+        for p in list(context.state.players):
+            card = next((o for o in reversed(p.graveyard) if o.card.is_instant or o.card.is_sorcery), None)
+            if card is None:
+                continue
+            context.exile(card)
+            if self.source is not None:
+                self.source.exiled_with_ids.append(card.instance_id)
+
+
+class CastExiledWithSourceEffect(GameEffect):
+    """"You may cast an instant or sorcery card exiled with this Saga, and mana of any type can be spent to cast that
+    spell." (Summon: Esper Valigarmanda, chapters II–IV) — a this-turn cast permission, with mana of any type, over every
+    instant/sorcery card the source exiled and still has in exile. **Simplification:** the window lasts the rest of the turn
+    rather than ending when the chapter ability finishes resolving."""
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        for instance_id in list(getattr(self.source, "exiled_with_ids", None) or []):
+            obj = context.state.find_object(instance_id)
+            if obj is None or obj.zone != Zone.EXILE or not (obj.card.is_instant or obj.card.is_sorcery):
+                continue
+            context.engine._grant_temp_play_permission(
+                obj, player, self.source.name, same_turn_only=True, mana_wildcard="type",
+            )
+
+
+EffectRegistry.register("mark_event_log", lambda p: MarkEventLogEffect())
+EffectRegistry.register(
+    "discarded_this_way_riders",
+    lambda p: DiscardedThisWayRidersEffect(
+        creature_effects=p.get("creature_effects"), noncreature_effects=p.get("noncreature_effects"),
+    ),
+)
+EffectRegistry.register("coin_of_fate_split", lambda p: CoinOfFateSplitEffect())
+EffectRegistry.register("exile_random_graveyard_cards_cast_free", lambda p: ExileRandomGraveyardCardsCastFreeEffect())
+EffectRegistry.register("mill_each_player_may_cast_milled", lambda p: MillEachPlayerMayCastMilledEffect())
+EffectRegistry.register(
+    "exile_instant_sorcery_from_each_graveyard", lambda p: ExileInstantSorceryFromEachGraveyardEffect(),
+)
+EffectRegistry.register("cast_exiled_with_source", lambda p: CastExiledWithSourceEffect())

@@ -68,6 +68,7 @@ class ExileEffect(GameEffect):
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         remember: bool = False,
+        until_opponent_monarch: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         distinct_controllers: bool = False,
         track_exiled_with: bool = False,
@@ -115,6 +116,8 @@ class ExileEffect(GameEffect):
         self.filter = filter
         self.remember = remember
         self.track_exiled_with = track_exiled_with
+        #: "…until an opponent becomes the monarch" (Palace Jailer): the exiled card is stamped with the exiler.
+        self.until_opponent_monarch = bool(until_opponent_monarch)
         #: "airbend up to one other target creature **or spell**" (Aang,
         #: Swift Savior — RULE 701.65 applied to a spell). A chosen target
         #: that is currently a spell on the stack is exiled *off the stack*
@@ -355,6 +358,8 @@ class ExileEffect(GameEffect):
         just-exiled object may carry — shared by the RULE 115 targeted branch
         and the ``trigger_subject`` one (Monk Gyatso's "airbend that
         creature")."""
+        if self.until_opponent_monarch:
+            target.exiled_until_opponent_monarch_of = getattr(self.source, "controller_id", None)
         if self.grant_free_cast_window:
             context.engine.grant_free_cast_window_from_exile(target)
         if self.grant_owner_play_permission:
