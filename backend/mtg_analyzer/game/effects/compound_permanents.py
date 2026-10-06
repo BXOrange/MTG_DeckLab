@@ -248,13 +248,13 @@ class DiscardedThisWayRidersEffect(GameEffect):
         discards = [e for e in context.state.event_log[mark:] if e.type == EventType.DISCARD_CARD]
         creature = any("creature" in (e.get("object_types") or ()) for e in discards)
         noncreature = any("creature" not in (e.get("object_types") or ()) for e in discards)
-        for flag, specs in ((creature, self.creature_specs), (noncreature, self.noncreature_specs)):
-            if not flag or not specs:
-                continue
-            for effect in build_effects(
-                [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in specs], self.source,
-            ):
-                effect.apply(context, None)
+        specs = [*self.creature_specs] if creature else []
+        if noncreature:
+            specs.extend(self.noncreature_specs)
+        _apply_effects_partitioned(
+            build_effects([EffectSpec.from_dict(d) for d in specs], self.source),
+            context, None, None, source=self.source,
+        )
 
 
 class CoinOfFateSplitEffect(GameEffect):
@@ -299,7 +299,7 @@ class ExileRandomGraveyardCardsCastFreeEffect(GameEffect):
             context.exile(card)
             if card.card.is_land:
                 continue
-            context.engine.grant_free_cast_window_from_exile(card, caster=player)
+            context.engine.grant_free_cast_window_from_exile(card, caster=player, ignore_timing=True)
             context.state.free_cast_owner_loses_life_ids.add(card.instance_id)
 
 
@@ -313,20 +313,42 @@ class MillEachPlayerMayCastMilledEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        milled = []
-        for p in list(context.state.living_players_apnap()):
-            before = len(p.graveyard)
-            context.mill(p, 1)
-            milled.extend(p.graveyard[before:])
-        if any(o.card.is_land for o in milled):
-            from ...parser.oracle.spec import EffectSpec
-            from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        effects = [_MillOnePlayerEffect(p.id, self.source)
+                   for p in context.state.living_players_apnap()]
+        effects.append(_GrantMilledSpellWindowEffect(len(context.state.event_log), self.source))
+        _apply_effects_partitioned(effects, context, None, None, source=self.source)
 
-            for effect in build_effects([EffectSpec("create_token", {"token_name": "Treasure", "count": 1})], self.source):
-                effect.apply(context, None)
-        for o in milled:
-            if not o.card.is_land:
-                context.state.temp_graveyard_cast_permissions[o.instance_id] = player.id
+
+class _MillOnePlayerEffect(GameEffect):
+    def __init__(self, player_id, source):
+        super().__init__(source)
+        self.player_id = player_id
+
+    def apply(self, context, targets=None):
+        context.mill(context.state.player_by_id(self.player_id), 1)
+
+
+class _GrantMilledSpellWindowEffect(GameEffect):
+    def __init__(self, history_start, source):
+        super().__init__(source)
+        self.history_start = history_start
+
+    def apply(self, context, targets=None):
+        from .core import CreateTokenEffect
+        player = _controller_of(self.source, context)
+        snapshots = [card
+                     for event in context.state.event_log[self.history_start:]
+                     if event.type == EventType.CARDS_MILLED
+                     for card in event.get('cards', [])]
+        ids = frozenset(c['instance_id'] for c in snapshots
+                        if 'land' not in c.get('object_types', []))
+        for iid in ids:
+            obj = context.state.find_object(iid)
+            if obj is not None and obj.zone == Zone.GRAVEYARD:
+                context.state.temp_graveyard_cast_permissions[iid] = player.id
+                context.state.temp_graveyard_cast_permission_groups[iid] = ids
+        if any('land' in c.get('object_types', []) for c in snapshots):
+            CreateTokenEffect(token_name='Treasure', count=1, source=self.source).apply(context)
 
 
 class ExileInstantSorceryFromEachGraveyardEffect(GameEffect):
@@ -377,3 +399,31 @@ EffectRegistry.register(
     "exile_instant_sorcery_from_each_graveyard", lambda p: ExileInstantSorceryFromEachGraveyardEffect(),
 )
 EffectRegistry.register("cast_exiled_with_source", lambda p: CastExiledWithSourceEffect())
+
+
+class ExileOpponentGraveyardsCopyCreatureEffect(GameEffect):
+    """Exile opponents' graveyards and make an artifact-only copy of a creature.
+
+    The draft's explicit simplification selects the greatest mana value,
+    rather than opening the printed reflexive optional target choice.
+    """
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        candidates = []
+        for opponent in context.state.living_players_apnap():
+            if opponent.id == player.id:
+                continue
+            for obj in list(opponent.graveyard):
+                context.exile(obj)
+                if obj.card.is_creature and obj.zone == Zone.EXILE:
+                    candidates.append(obj)
+        if candidates:
+            obj = max(candidates, key=lambda o: int(o.card.converted_mana_cost or 0))
+            copy = obj.card.as_copy(only_types=['Artifact'])
+            context.created_objects.extend(context.create_token(player.id, copy, 1) or [])
+
+
+EffectRegistry.register('exile_opponent_graveyards_copy_creature', lambda p: ExileOpponentGraveyardsCopyCreatureEffect())

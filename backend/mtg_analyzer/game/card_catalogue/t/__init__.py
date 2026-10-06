@@ -122,3 +122,4 @@ from . import tablet_of_the_guilds  # noqa: F401
 from . import teferi_who_slows_the_sunset  # noqa: F401
 from . import the_water_crystal  # noqa: F401
 from . import tezzeret_cruel_captain  # noqa: F401
+from . import the_warring_triad  # noqa: F401

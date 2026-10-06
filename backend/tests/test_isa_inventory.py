@@ -287,4 +287,7 @@ class TestBacklogSizes:
         # Shorikai Vehicles adds two bookkeeping types: `crewed_event` (RULE 702.122e's "becomes crewed" event) and
         # `transfer_exiled_with_to_created` (Mechtitan Core's exiled-with link), 59 -> 61. Endless Punishment adds
         # `exile_self_with_counters` (Suspended Sentence's "Exile ~ with three time counters on it"), 61 -> 62.
-        assert n <= 62, f"one-card specials grew to {n}"
+        # Revival Trance adds the reviewed cross-zone artifact-only copy adapter
+        # for Espers to Magicite. Its documented automatic selection remains a
+        # card-specific limitation; the copy itself uses Card.as_copy's type mask.
+        assert n <= 63, f"one-card specials grew to {n}"

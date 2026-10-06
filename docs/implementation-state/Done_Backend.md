@@ -458,6 +458,20 @@ expire at cleanup, and are consumed when the card leaves the graveyard.
 Conditional exile permissions can cover lands and spells linked to an active
 source; turn and event-history gates are checked when a card is played or cast.
 
+Standing graveyard grants support `arrived_not_from_battlefield_this_turn`,
+checked against the current turn's graveyard-arrival events, and an
+`enters_tapped` rider when that grant pays for a cast. Temporary permissions
+can authorize cards in opponents' graveyards and surface those casts in the
+UI/Bot legal-action list; a linked group grants one spell
+from the whole milled batch, survives source removal, and expires at cleanup.
+The mill sequence and subsequent discard/token/counter riders suspend across
+replacement choices. `return_from_graveyard.pick_mode` supports a controller
+picking from each opponent's graveyard or each opponent picking a distinct card
+from the controller's graveyard, starting after the controller in turn order.
+`exile.until_opponent_monarch` persists after its source leaves and returns the
+card when an opponent takes the crown. These paths have real cast, entry,
+combat, choice and cleanup tests in `test_revival_trance_deck.py`.
+
 ### Effect system foundation
 
 - **What:** Core effect hierarchy — `GameEffect`, `StaticEffect`, `TriggeredAbility`, `ReplacementEffect`, `ActivatedAbility`, `WinConditionEffect` — plus a `GameContext` f…
@@ -646,6 +660,11 @@ source; turn and event-history gates are checked when a card is played or cast.
 - **What:** `RulesEngine.random_int`/`random_choice`/`coin_flip` draw off `GameState`'s own `(rng_seed, rng_counter)` pair, so randomness survives clone/undo/rewind determi…
 - **Files:** `game/rules_engine.py`, `models/game_state.py`
 
+Triggered `modes["random"]` now resolve through the canonical choice dispatcher:
+the engine samples the mode, then opens any target choice that mode requires.
+All three branches are exercised in `test_revival_trance_deck.py`; random modes
+introduce no second answer protocol.
+
 ### RULE 400.7 "new object" identity reset (blink / return from graveyard)
 
 - **What:** New `GameObject.reset_as_new_object()` is the single shared fix point clearing counters, attachment linkage, control/copy state, cast-time flags, combat state,…
@@ -831,6 +850,11 @@ source; turn and event-history gates are checked when a card is played or cast.
 - **Radiant Lotus (hand-authored, `card_catalogue/r/radiant_lotus.py`):** "sacrifice one or more artifacts" is Grim Hireling's announced-X sacrifice cost (`costs.SACRIFICE_COUNT_X`), so "each artifact sacrificed" is X. `AddManaEffect` gained `any_amount_multiplier` (3 × X of one chosen colour) and `recipient="target_player"`; `"any_amount"` joined `casting_mixin._X_MAGNITUDE_ATTRS` (both substitution loops now read that one tuple). Simplification: X = 0 is not refused (the printed "one or more" minimum) — it only lets the Lotus be tapped for nothing.
 - **Files:** `game/effects/life_sacrifice.py`, `game/effects/registry.py`, `game/effects/choices_actions.py`, `game/rules/misc_mixin.py`, `game/rules/casting_mixin.py`, `game/isa.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py`; test `test_mec103_sacrifice_that_many.py`.
 
+The registry also accepts `measure="mana_value"`, feeding the existing
+before-sacrifice mana-value snapshot into the payoff instead of the chosen
+count. This avoids a card-specific sacrifice/draw/life-loss fusion.
+Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
+
 ### ENG-2: Interactive Sacrifice Choice for `SacrificeEffect`
 
 - **What:** RULE 701.17's "player sacrifices N permanents matching `<type>`" (Annihilator) now funnels through `request_choose_objects` instead of auto-picking the first ma…
@@ -891,6 +915,16 @@ source; turn and event-history gates are checked when a card is played or cast.
 
 - **What:** The cascade/discover dig generalized with a predicate and both destinations as parameters, plus a `not_name` key on card-query criteria.
 - **Files:** `game/rules_engine.py`
+
+`dig_until` also accepts a targeted opponent as the digger, a distinct caster,
+and a creature hit rider that grants turn-scoped haste and a one-shot end-step
+sacrifice. `uncast_hit="stay"` leaves an unused hit in exile. Armed free-cast
+windows are accepted by the explicit `free=True` cast path as well as the
+ordinary zero-cost path; owner-life-loss markers are consumed by either.
+End-step grants can opt into `ignore_timing=True`, so creatures and sorceries
+remain castable in that step. The same-turn window remains the documented
+resolution-timing simplification.
+Tests: `test_revival_trance_deck.py`.
 
 ### Repeat-until-a-predicate loop (Helm of Obedience)
 

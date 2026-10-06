@@ -1134,6 +1134,9 @@ class CastingResolutionMixin:
         # than ``free``, since a *paid* cast can also come to 0 (see
         # `EventType.SPELL_CAST`).
         obj.mana_spent_to_cast = 0
+        if obj.instance_id in self.state.free_cast_owner_loses_life_ids:
+            self.state.free_cast_owner_loses_life_ids.discard(obj.instance_id)
+            self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.card.converted_mana_cost or 0))
         item = StackItem(
             kind="spell",
             controller_id=player.id,

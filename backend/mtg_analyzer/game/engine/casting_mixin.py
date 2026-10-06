@@ -896,9 +896,10 @@ class CastingMixin:
                 free_cast_condition is not None
                 and condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state)
             )
-            if not condition_ok and not continuous.has_standing_free_cast_permission(
+            if (obj.instance_id not in self.state.free_cast_instance_ids and not condition_ok
+                    and not continuous.has_standing_free_cast_permission(
                 self.state, player, card, obj
-            ):
+            )):
                 return False
         elif alt_cost:
             alt_cast_cost = getattr(obj, "alt_cast_cost", None) or continuous.granted_alt_cast_cost_for(
@@ -2053,6 +2054,7 @@ class CastingMixin:
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.
+            milled_group = self.state.temp_graveyard_cast_permission_groups.get(obj.instance_id, frozenset())
             from_command = obj.is_commander and obj in player.command
             # RULE 702.34a: likewise read *before* the cast moves the card
             # off the graveyard — only a Flashback cast is exiled instead of
@@ -2309,6 +2311,9 @@ class CastingMixin:
             # this same turn clears it.
             obj.cast_via_escape = graveyard_keyword == "escape"
             self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
+            for iid in milled_group:
+                self.state.temp_graveyard_cast_permissions.pop(iid, None)
+                self.state.temp_graveyard_cast_permission_groups.pop(iid, None)
             if obj.instance_id in self.state.cast_lock_instance_ids:
                 # "If you do, you can't cast additional spells this turn." (Conduit of Worlds)
                 self.state.cast_lock_instance_ids.discard(obj.instance_id)

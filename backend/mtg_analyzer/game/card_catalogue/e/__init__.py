@@ -71,3 +71,5 @@ from . import estinien_varlineau  # noqa: F401
 from . import eye_of_nidhogg  # noqa: F401
 from . import enchanter_s_bane  # noqa: F401
 from . import eldrazi_confluence  # noqa: F401
+from . import edgar_master_machinist  # noqa: F401
+from . import espers_to_magicite  # noqa: F401

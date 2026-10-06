@@ -9,19 +9,15 @@ def _celes_rune_knight() -> list[AbilitySpec]:
     """When this creature enters, discard any number of cards, then draw that many cards plus one.
     Whenever one or more other creatures you control enter, if one or more of them entered from a graveyard or was cast from a graveyard, put a +1/+1 counter on each creature you control.
 
-    — PLAY-ALL (Revival Trance). The enters trigger is a `seq`: `discard_chosen_then` (any number of cards, the draw bound to
-    how many were discarded) and then the extra draw (so it also happens when nothing is discarded). The second ability is
+    — PLAY-ALL (Revival Trance). The enters trigger uses `discard` with a bounded up-to-any hand choice and its actual-discard draw rider,
+    followed by the extra draw (so it also happens when nothing is discarded). The second ability is
     Kotis's batch trigger (``from_zone_or_cast_from: graveyard``) over a group `add_counters`.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("seq", {"effects": [
-                {"type": "discard_chosen_then", "params": {
-                    "what": "permanent", "effects": [{"type": "draw", "params": {"count": "x"}}],
-                }},
-                {"type": "draw", "params": {"count": 1}},
-            ]})],
+            [EffectSpec("discard", {"count_max": 10000, "then_draw_discarded": True}),
+             EffectSpec("draw", {"count": 1})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
         AbilitySpec(

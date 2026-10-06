@@ -12,6 +12,8 @@ def _kefka_dancing_mad() -> list[AbilitySpec]:
     — PLAY-ALL (Revival Trance). The indestructible line is the parser's (`grant_keyword`, ``active_if: your_turn``). The new `exile_random_graveyard_cards_cast_free`: one random card per opponent, a free-cast
     window for you on each nonland one (the Etali shape), and a marker that makes its owner lose life equal to its mana value
     when it is actually cast (`GameState.free_cast_owner_loses_life_ids`).
+    **Simplification:** free casts use a turn-long window (including non-instant spells in the end step),
+    with life loss after each cast rather than one during-resolution casting sequence.
     """
     return [
         AbilitySpec(

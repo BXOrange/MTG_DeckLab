@@ -670,7 +670,10 @@ for the upstream contract and limits.
 - **Abilities** — activated (incl. loyalty `[±N]`/`[-X]`), triggered, RULE
   616 replacement effects; interactive ordering and interactive
   target / "you may" choices; RULE 603.7 delayed triggers; RULE 608.2
-  suspended resolutions.
+  suspended resolutions. Random triggered modes use the same choice dispatcher
+  before their target selection. Graveyard grants can require a current-turn
+  arrival from outside the battlefield and make a cast permanent enter tapped;
+  temporary grants can offer one spell from a shared batch in any graveyard.
 - **One-shot effect library** — damage, draw, discard, destroy, counter,
   search/tutor, mill, exile, tap, counters, pump, scry/surveil, token
   creation, copy, cascade/discover, proliferate, fight, board wipes, and

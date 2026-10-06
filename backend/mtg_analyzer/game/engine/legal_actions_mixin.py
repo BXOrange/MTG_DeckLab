@@ -1117,6 +1117,17 @@ class LegalActionsMixin:
             if self.can_play_land(player, obj):
                 actions.append(self._land_action(obj))
 
+        # A temporary single-spell grant may name a card in another player's
+        # public graveyard (Locke). Only that explicit holder gets an offer;
+        # the normal can_cast/cost/target checks remain the authority.
+        for other in self.state.players:
+            if other is player:
+                continue
+            for obj in list(other.graveyard):
+                if (self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+                        and self._castable_now_or_via_potential(player, obj)):
+                    self._offer_cast(actions, player, obj)
+
         if player.library:
             # Oracle of Mul Daya/Glarb, Calamity's Augur-shaped: a permanent
             # may grant playing lands and/or casting spells straight off the

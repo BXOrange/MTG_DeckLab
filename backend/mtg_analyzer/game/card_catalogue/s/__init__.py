@@ -180,3 +180,10 @@ from . import shabraz_the_skyshark  # noqa: F401
 from . import sphinx_of_the_revelation  # noqa: F401
 from . import starfield_shepherd  # noqa: F401
 from . import scouts_warning  # noqa: F401
+from . import sepulchral_primordial  # noqa: F401
+from . import setzer_wandering_gambler  # noqa: F401
+from . import shadow_mysterious_assassin  # noqa: F401
+from . import siegfried_famed_swordsman  # noqa: F401
+from . import snort  # noqa: F401
+from . import strago_and_relm  # noqa: F401
+from . import summon_esper_valigarmanda  # noqa: F401

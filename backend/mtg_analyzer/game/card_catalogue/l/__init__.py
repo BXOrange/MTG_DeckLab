@@ -47,3 +47,5 @@ from . import lord_of_the_accursed
 from . import lost_monarch_of_ifnir
 from . import lord_of_the_undead
 from . import lightning_runner  # noqa: F401
+from . import legions_to_ashes  # noqa: F401
+from . import locke_treasure_hunter  # noqa: F401

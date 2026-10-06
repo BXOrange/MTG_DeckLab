@@ -942,6 +942,7 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: ISA. Value names the card (or family) each was written for. This list
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
+    "exile_opponent_graveyards_copy_creature": "Espers to Magicite",
     "living_death": "Living Death's three simultaneous zone-change batches",
     # Bookkeeping, not a rules action: records that an ability's action was performed this turn so its
     # "Do this only once each turn." gate (`action_unused_this_turn`) can refuse a second one (PAR-135).

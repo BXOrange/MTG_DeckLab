@@ -1881,7 +1881,7 @@ EffectRegistry.register(
         trigger=list(p.get("trigger") or []),
         optional=bool(p.get("optional", True)),
         exclude_self=bool(p.get("exclude_self", False)),
-        measure=p.get("measure") if p.get("measure") in ("power",) else None,
+        measure=p.get("measure") if p.get("measure") in ("power", "mana_value") else None,
     ),
 )
 EffectRegistry.register(
