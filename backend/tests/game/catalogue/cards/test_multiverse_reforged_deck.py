@@ -19,8 +19,71 @@ def _game(players=2, library=10):
     return engine
 
 
+#: Printed data for cards newer than the committed-in-CI test cache seed (resolved from the cache when present).
+_SYNTH_CARDS = {
+    "Jace, Multiverse Architect": dict(
+        type_line="Legendary Planeswalker — Jace", mana_cost_string="{1}{W}{U}{B}{R}", cmc=5, loyalty=4,
+        oracle_text="At the beginning of combat on each opponent's turn, they may pay {2}. If they don't, creatures they "
+                    "control can't attack Jaces you control this turn.\n+1: Draw two cards, then put a card from your hand "
+                    "on the bottom of your library.\n−3: Exile another target planeswalker or creature you control. Reveal "
+                    "cards from the top of your library until you reveal a creature or planeswalker card. Put that card onto "
+                    "the battlefield and the rest on the bottom of your library in a random order.\nJace, Multiverse "
+                    "Architect can be your commander."),
+    "The Ur-Sphinx": dict(
+        type_line="Legendary Creature — Sphinx Avatar", mana_cost_string="{6}{W}{U}{B}", cmc=9, power=6, toughness=6,
+        keywords=["Flying"],
+        oracle_text="Eminence — As long as The Ur-Sphinx is in the command zone or on the battlefield, other Sphinx spells "
+                    "you cast cost {1} less to cast.\nFlying\nWhenever one or more Sphinxes you control attack, each player "
+                    "mills that many cards. For each player, you may cast a card that player milled this way without paying "
+                    "its mana cost."),
+    "Venser, Fervent Forger": dict(
+        type_line="Legendary Creature — Human Sorcerer", mana_cost_string="{4}{R}{R}", cmc=6, power=4, toughness=4,
+        keywords=["Flash"],
+        oracle_text="Flash\nWhen Venser enters, choose one —\n• Copy target instant or sorcery spell an opponent controls "
+                    "twice. You may choose new targets for the copies.\n• Create two tokens that are copies of target "
+                    "permanent an opponent controls. They gain haste. At the beginning of the next end step, sacrifice them."),
+    "Plan for All Outcomes": dict(
+        type_line="Enchantment", mana_cost_string="{3}{U}", cmc=4,
+        oracle_text="When this enchantment enters, the owner of up to one other target nonland permanent puts it on their "
+                    "choice of the top or bottom of their library.\nWhenever you cast your first noncreature spell each "
+                    "turn, empower Jace 1. (Put a loyalty counter on a Jace token you control. If you don't control one, "
+                    "first create a blue Jace planeswalker token with \"[−1]: Surveil 1\" and \"[−3]: Draw a card.\")"),
+    "Jhoira, Weatherlight Corsair": dict(
+        type_line="Legendary Creature — Human Pirate", mana_cost_string="{4}{B}{B}", cmc=6, power=4, toughness=4,
+        oracle_text="Whenever Jhoira enters or attacks, target opponent reveals cards from the top of their library until "
+                    "they reveal a historic permanent card. You put that card onto the battlefield under your control and "
+                    "lose life equal to that permanent's mana value. That player puts the rest of the revealed cards on the "
+                    "bottom of their library in a random order. (Artifacts, legendaries, and Sagas are historic.)"),
+    "Teferi's Reproach": dict(
+        type_line="Instant", mana_cost_string="{2}{W}", cmc=3,
+        oracle_text="Choose target opponent. Until that player's next turn, they gain protection from everything and their "
+                    "life total can't change. All nonland permanents they control phase out. (While they're phased out, "
+                    "they're treated as though they don't exist. They phase in before that player untaps during their next "
+                    "untap step.)\nExile Teferi's Reproach."),
+    "Omnath, Locus of the Void": dict(
+        type_line="Legendary Creature — Elemental", mana_cost_string="{7}", cmc=7, power=7, toughness=7,
+        oracle_text="Omnath gets +1/+1 for each unspent mana you have.\nIf you would lose unspent mana, that mana becomes "
+                    "colorless instead.\nLandfall — Whenever a land you control enters, add {C}{C}."),
+    "Tamiyo, Upriser Crowned": dict(
+        type_line="Legendary Creature — Moonfolk Warrior", mana_cost_string="{4}{R}{W}", cmc=6, power=3, toughness=5,
+        keywords=["Flying", "Haste", "Double strike"],
+        oracle_text="Flying, double strike, haste\nWhen Tamiyo enters, you become the monarch.\nWhenever one or more "
+                    "creatures deal combat damage to you while you're the monarch, tap those creatures and put a stun "
+                    "counter on each of them."),
+}
+
+
+def _synth_card(name):
+    kw = dict(_SYNTH_CARDS[name])
+    type_line = kw.pop("type_line")
+    return Card(id=name, name=name, type_line=type_line, converted_mana_cost=kw.pop("cmc"),
+                is_creature="Creature" in type_line, is_land="Land" in type_line,
+                is_instant="Instant" in type_line, is_sorcery="Sorcery" in type_line,
+                is_legendary="Legendary" in type_line, **kw)
+
+
 def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
-    card = CardDatabase(DB_PATH).get_card(name)
+    card = CardDatabase(DB_PATH).get_card(name) or (_synth_card(name) if name in _SYNTH_CARDS else None)
     if name == 'Ginger, Queen of Sweets':
         card = Card(id='ginger', name=name, type_line='Legendary Artifact Creature — Food Noble',
                     is_creature=True, power=6, toughness=4, mana_cost_string='{6}',
@@ -552,3 +615,344 @@ def test_fact_or_fiction_choice_survives_session_rewind():
     session.apply_action({'type': 'choose', 'option_id': 'first'}, actor_id='p1')
     assert [o.name for o in e.state.player_by_id('p1').hand] == ['Undo card 2']
     assert len(e.state.player_by_id('p1').library) == 10
+
+
+def test_tamiyo_stuns_creatures_that_hit_the_monarch():
+    engine = _game()
+    _card(engine, "Tamiyo, Upriser Crowned")
+    me = engine.state.player_by_id("p1")
+    engine.state.monarch_id = "p1"
+    attacker = _filler(engine, "Bear", power=2, toughness=2, player="p2")
+    engine.rules.deal_damage(me, 2, source=attacker, combat=True)
+    engine.resolve_until_stable()
+    assert attacker.tapped and attacker.counters.get("stun") == 1
+
+
+def test_tamiyo_ignores_damage_when_not_the_monarch():
+    engine = _game()
+    _card(engine, "Tamiyo, Upriser Crowned")
+    me = engine.state.player_by_id("p1")
+    engine.state.monarch_id = "p2"
+    attacker = _filler(engine, "Bear", power=2, toughness=2, player="p2")
+    engine.rules.deal_damage(me, 2, source=attacker, combat=True)
+    engine.resolve_until_stable()
+    assert not attacker.tapped and not attacker.counters.get("stun")
+
+
+def test_omnath_grows_with_unspent_mana_and_keeps_it_as_colorless():
+    engine = _game()
+    omnath = _card(engine, "Omnath, Locus of the Void")
+    me = engine.state.player_by_id("p1")
+    base, base_toughness = omnath.power, omnath.toughness
+    me.mana_pool.add_many({"R": 2, "U": 1})
+    engine.recompute_continuous_effects()
+    assert omnath.power == base + 3 and omnath.toughness == base_toughness + 3
+    continuous.empty_mana_pool(engine.state, me)
+    assert me.mana_pool.total() == 3 and me.mana_pool.pool["C"] == 3 and me.mana_pool.pool["R"] == 0
+
+
+def test_omnath_landfall_adds_two_colorless():
+    engine = _game()
+    _card(engine, "Omnath, Locus of the Void")
+    land = _filler(engine, "Forest", type_line="Basic Land — Forest", zone=Zone.HAND)
+    land.zone = Zone.BATTLEFIELD
+    engine.state.player_by_id("p1").hand[:] = []
+    engine.state.add_to_battlefield(land)
+    _enter(engine, land)
+    assert engine.state.player_by_id("p1").mana_pool.pool["C"] == 2
+
+
+def test_without_omnath_unspent_mana_still_empties():
+    engine = _game()
+    me = engine.state.player_by_id("p1")
+    me.mana_pool.add("R", 2)
+    continuous.empty_mana_pool(engine.state, me)
+    assert me.mana_pool.total() == 0
+
+
+def test_teferis_reproach_shields_and_phases_out_the_opponents_nonland_permanents():
+    engine = _game()
+    reproach = _card(engine, "Teferi's Reproach", zone=Zone.HAND)
+    bear = _filler(engine, "Bear", power=2, toughness=2, player="p2")
+    land = _filler(engine, "Island", type_line="Basic Land — Island", player="p2")
+    mine = _filler(engine, "Mine", power=1, toughness=1)
+    opp = engine.state.player_by_id("p2")
+    _cast(engine, reproach, RICH, targets=[opp])
+    assert bear.phased_out and not land.phased_out and not mine.phased_out
+    life = opp.life
+    engine.rules.deal_damage(opp, 3, source=mine)
+    engine.rules.gain_life(opp, 5)
+    assert opp.life == life
+    assert reproach.zone == Zone.EXILE
+
+
+def test_serras_emissary_protects_you_and_your_creatures_from_the_chosen_type():
+    engine = _game()
+    emissary = _card(engine, "Serra's Emissary", zone=Zone.HAND)
+    mine = _filler(engine, "Mine", power=1, toughness=1)
+    theirs = _filler(engine, "Theirs", power=3, toughness=3, player="p2")
+    _cast(engine, emissary, RICH)
+    assert engine.state.pending_choice["kind"] == "choose_card_type"
+    engine.resolve_pending_choice("creatures")
+    engine.resolve_until_stable()
+    assert emissary.chosen_type == "creatures"
+    me = engine.state.player_by_id("p1")
+    life = me.life
+    engine.rules.deal_damage(me, 3, source=theirs, combat=True)
+    assert me.life == life
+    engine.rules.deal_damage(mine, 3, source=theirs, combat=True)
+    assert mine.damage_marked == 0
+    other = engine.state.player_by_id("p2")
+    engine.rules.deal_damage(other, 3, source=mine)
+    assert other.life == 17
+
+
+def test_serras_emissary_noncreature_choice_leaves_creature_damage_alone():
+    engine = _game()
+    emissary = _card(engine, "Serra's Emissary", zone=Zone.HAND)
+    theirs = _filler(engine, "Theirs", power=3, toughness=3, player="p2")
+    _cast(engine, emissary, RICH)
+    engine.resolve_pending_choice("artifacts")
+    engine.resolve_until_stable()
+    me = engine.state.player_by_id("p1")
+    engine.rules.deal_damage(me, 3, source=theirs, combat=True)
+    assert me.life == 17
+
+
+def _stack_library(engine, player, *cards):
+    """Put ``cards`` on top of ``player``'s library; the first listed ends up deepest, the last on top."""
+    p = engine.state.player_by_id(player)
+    for obj in cards:
+        p.library[:] = [o for o in p.library if o is not obj]
+        obj.zone = Zone.LIBRARY
+        p.library.append(obj)
+
+
+def test_mass_polymorph_exiles_your_creatures_and_reveals_that_many():
+    engine = _game()
+    poly = _card(engine, "Mass Polymorph", zone=Zone.HAND)
+    _filler(engine, "Old A", power=1, toughness=1)
+    _filler(engine, "Old B", power=1, toughness=1)
+    top_a = _filler(engine, "New A", power=2, toughness=2, zone=Zone.LIBRARY)
+    top_b = _filler(engine, "New B", power=2, toughness=2, zone=Zone.LIBRARY)
+    top_c = _filler(engine, "New C", power=2, toughness=2, zone=Zone.LIBRARY)
+    land = _filler(engine, "Skipped", type_line="Basic Land — Forest", zone=Zone.LIBRARY)
+    _stack_library(engine, "p1", top_c, land, top_b, top_a)
+    _cast(engine, poly, RICH)
+    names = sorted(o.name for o in engine.state.battlefield if o.controller_id == "p1")
+    assert names == ["New A", "New B"]
+    me = engine.state.player_by_id("p1")
+    assert top_c in me.library and land in me.library
+    assert {o.name for o in engine.state.player_by_id("p1").exile} >= {"Old A", "Old B"}
+
+
+def test_synthetic_destiny_reveals_at_the_next_end_step():
+    engine = _game()
+    destiny = _card(engine, "Synthetic Destiny", zone=Zone.HAND)
+    _filler(engine, "Old A", power=1, toughness=1)
+    new_a = _filler(engine, "New A", power=2, toughness=2, zone=Zone.LIBRARY)
+    _stack_library(engine, "p1", new_a)
+    _cast(engine, destiny, RICH)
+    assert not [o for o in engine.state.battlefield if o.controller_id == "p1"]
+    _step(engine, "end")
+    assert [o.name for o in engine.state.battlefield if o.controller_id == "p1"] == ["New A"]
+
+
+def test_proteus_staff_swaps_a_creature_for_the_top_creature_of_its_controller():
+    engine = _game()
+    staff = _card(engine, "Proteus Staff")
+    victim = _filler(engine, "Victim", power=5, toughness=5, player="p2")
+    replacement = _filler(engine, "Replacement", power=1, toughness=1, player="p2", zone=Zone.LIBRARY)
+    junk = _filler(engine, "Junk", type_line="Basic Land — Forest", player="p2", zone=Zone.LIBRARY)
+    _stack_library(engine, "p2", replacement, junk)
+    engine.state.player_by_id("p1").mana_pool.add_many({"U": 1, "C": 2})
+    _activate(engine, staff, 0, targets=[victim])
+    opp = engine.state.player_by_id("p2")
+    assert [o.name for o in engine.state.battlefield if o.controller_id == "p2"] == ["Replacement"]
+    assert victim in opp.library and opp.library[0] in (victim, junk) and staff.tapped
+
+
+def test_jhoira_steals_the_first_historic_permanent_and_pays_its_mana_value():
+    engine = _game()
+    rock = _filler(engine, "Rock", type_line="Artifact", mv=3, player="p2", zone=Zone.LIBRARY)
+    land = _filler(engine, "Plain Land", type_line="Basic Land — Forest", player="p2", zone=Zone.LIBRARY)
+    bear = _filler(engine, "Under", power=1, toughness=1, player="p2", zone=Zone.LIBRARY)
+    _stack_library(engine, "p2", rock, bear, land)
+    _put_on_battlefield(engine, "Jhoira, Weatherlight Corsair")
+    _answer(engine)
+    me = engine.state.player_by_id("p1")
+    assert me.life == 17
+    stolen = [o for o in engine.state.battlefield if o.name == "Rock"]
+    assert stolen and stolen[0].controller_id == "p1"
+    opp = engine.state.player_by_id("p2")
+    assert land in opp.library and bear in opp.library
+
+
+def test_plan_for_all_outcomes_lets_the_owner_pick_top_or_bottom():
+    engine = _game()
+    plan = _card(engine, "Plan for All Outcomes", zone=Zone.HAND)
+    victim = _filler(engine, "Victim", power=4, toughness=4, player="p2")
+    _cast(engine, plan, RICH)
+    choice = engine.state.pending_choice
+    assert choice["kind"] == "trigger_target"
+    engine.resolve_pending_choice(next(str(o["id"]) for o in choice["options"] if "Victim" in str(o.get("label"))))
+    choice = engine.state.pending_choice
+    assert choice["kind"] == "library_position" and choice["player_id"] == "p2"
+    engine.resolve_pending_choice("bottom")
+    opp = engine.state.player_by_id("p2")
+    assert victim not in engine.state.battlefield and opp.library[0] is victim
+
+
+def test_plan_for_all_outcomes_empowers_jace_on_the_first_noncreature_spell_only():
+    engine = _game()
+    _card(engine, "Plan for All Outcomes")
+    first = _filler(engine, "Spell One", type_line="Instant", zone=Zone.HAND)
+    second = _filler(engine, "Spell Two", type_line="Instant", zone=Zone.HAND)
+    for spell in (first, second):
+        engine.state.current_phase, engine.state.current_step = "main", "main1"
+        engine.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", controller_id="p1",
+                                          instance_id=spell.instance_id, object=spell.name, card_types=["instant"]))
+        engine.resolve_until_stable()
+        _answer(engine)
+    jaces = [o for o in engine.state.battlefield if "jace" in o.card.name.lower()]
+    assert len(jaces) == 1
+
+
+def test_occult_epiphany_draws_discards_and_makes_a_spirit_per_card_type():
+    engine = _game()
+    epiphany = _card(engine, "Occult Epiphany", zone=Zone.HAND)
+    me = engine.state.player_by_id("p1")
+    hand_land = _filler(engine, "Hand Land", type_line="Basic Land — Forest", zone=Zone.HAND)
+    hand_art = _filler(engine, "Hand Rock", type_line="Artifact Creature — Golem", power=1, toughness=1, zone=Zone.HAND)
+    _stack_library(engine, "p1")
+    engine.state.current_phase, engine.state.current_step = "main", "main1"
+    me.mana_pool.add_many({"U": 3})
+    engine.cast_spell(me, epiphany, x=2)
+    engine.resolve_until_stable()
+    _answer(engine, lambda c: next((str(o["id"]) for o in c["options"] if o.get("label") in ("Hand Land", "Hand Rock")), None))
+    _answer(engine, lambda c: next((str(o["id"]) for o in c["options"] if o.get("label") in ("Hand Land", "Hand Rock")), None))
+    spirits = [o for o in engine.state.battlefield if o.name == "Spirit" and o.controller_id == "p1"]
+    discarded = [o for o in me.graveyard if o.name in ("Hand Land", "Hand Rock")]
+    assert len(discarded) == 2
+    assert len(spirits) == 3  # land + artifact + creature
+
+
+def test_venser_copies_an_opponents_permanent_twice_and_sacrifices_the_copies():
+    engine = _game()
+    target = _filler(engine, "Their Bear", power=2, toughness=2, player="p2")
+    _put_on_battlefield(engine, "Venser, Fervent Forger")
+    _answer(engine, lambda c: next((str(o["id"]) for o in c["options"] if "ermanent" in str(o.get("label"))), None))
+    _answer(engine, lambda c: next((str(o["id"]) for o in c["options"] if "Their Bear" in str(o.get("label"))), None))
+    copies = [o for o in engine.state.battlefield if o.name == "Their Bear" and o.controller_id == "p1"]
+    assert len(copies) == 2 and all(o.is_token for o in copies)
+    _step(engine, "end")
+    assert not [o for o in engine.state.battlefield if o.name == "Their Bear" and o.controller_id == "p1"]
+    assert target in engine.state.battlefield
+
+
+def test_venser_copies_an_opponents_spell_twice():
+    engine = _game()
+    bolt = _card(engine, "Lightning Bolt", player="p2", zone=Zone.HAND)
+    victim = _filler(engine, "Victim", power=1, toughness=20, player="p1")
+    p2 = engine.state.player_by_id("p2")
+    engine.state.current_phase, engine.state.current_step = "main", "main1"
+    p2.mana_pool.add("R", 1)
+    engine.cast_spell(p2, bolt, targets=[victim])
+    assert bolt in [i.obj for i in engine.state.stack if getattr(i, "obj", None) is not None]
+    _put_on_battlefield(engine, "Venser, Fervent Forger")
+    _answer(engine, lambda c: next((str(o["id"]) for o in c["options"] if "opy target" in str(o.get("label"))), None))
+    _answer(engine, lambda c: next((str(o["id"]) for o in c["options"] if "Lightning Bolt" in str(o.get("label"))), None))
+    engine.resolve_until_stable()
+    assert victim.damage_marked == 9  # the Bolt and its two copies
+
+
+def test_ur_sphinx_eminence_discounts_other_sphinx_spells_from_the_command_zone():
+    engine = _game()
+    sphinx = _card(engine, "The Ur-Sphinx", zone=Zone.COMMAND)
+    other = _filler(engine, "Other Sphinx", type_line="Creature — Sphinx", mv=4, zone=Zone.HAND)
+    human = _filler(engine, "Human", type_line="Creature — Human", mv=4, zone=Zone.HAND)
+    me = engine.state.player_by_id("p1")
+    assert continuous.cost_reduction_for(engine.state, me, other)[0] == 1
+    assert continuous.cost_reduction_for(engine.state, me, human)[0] == 0
+    assert continuous.cost_reduction_for(engine.state, me, sphinx)[0] == 0  # "other" Sphinx spells only
+
+
+def test_ur_sphinx_attack_mills_each_player_and_offers_a_free_cast_per_player():
+    engine = _game()
+    sphinx = _card(engine, "The Ur-Sphinx")
+    sphinx.card.keywords = list(sphinx.card.keywords)
+    _filler(engine, "Mine A", type_line="Creature — Bear", mv=3, power=1, toughness=1, zone=Zone.LIBRARY)
+    their = _filler(engine, "Theirs A", type_line="Sorcery", mv=5, player="p2", zone=Zone.LIBRARY)
+    mine = next(o for o in engine.state.player_by_id("p1").library if o.name == "Mine A")
+    _stack_library(engine, "p1", mine)
+    _stack_library(engine, "p2", their)
+    engine.state.fire_event(GameEvent(EventType.ATTACKERS_DECLARED, player_id="p1", controller_id="p1",
+                                      attacker_ids=[sphinx.instance_id], count=1))
+    engine.resolve_until_stable()
+    _answer(engine)
+    assert mine.zone == Zone.GRAVEYARD and their.zone == Zone.GRAVEYARD
+    assert engine.state.free_cast_instance_ids >= {mine.instance_id, their.instance_id}
+    assert engine.state.temp_graveyard_cast_permissions[their.instance_id] == "p1"
+    engine.state.current_phase, engine.state.current_step = "main", "main1"
+    engine.cast_spell(engine.state.player_by_id("p1"), their)  # no mana in the pool: cast for free from the graveyard
+    engine.resolve_until_stable()
+    assert their.instance_id not in engine.state.free_cast_instance_ids
+    assert their.zone != Zone.GRAVEYARD or their in engine.state.player_by_id("p2").graveyard
+
+
+def test_jace_plus_one_draws_two_and_bottoms_a_chosen_card():
+    engine = _game()
+    jace = _card(engine, "Jace, Multiverse Architect")
+    me = engine.state.player_by_id("p1")
+    keep = _filler(engine, "Keep", zone=Zone.HAND)
+    put_away = _filler(engine, "Put Away", zone=Zone.HAND)
+    _activate(engine, jace, 0)
+    options = engine.state.pending_choice["options"]
+    pick = next(str(o["id"]) for o in options if o.get("label") == "Put Away")
+    engine.resolve_pending_choice(pick)
+    assert put_away in me.library and me.library[0] is put_away
+    assert keep in me.hand and len(me.hand) == 3  # Keep + two drawn - the bottomed card
+    assert jace.counters.get("loyalty") == 5
+
+
+def test_jace_minus_three_swaps_a_creature_for_the_next_creature_or_planeswalker():
+    engine = _game()
+    jace = _card(engine, "Jace, Multiverse Architect")
+    old = _filler(engine, "Old", power=1, toughness=1)
+    new = _filler(engine, "New", power=3, toughness=3, zone=Zone.LIBRARY)
+    land = _filler(engine, "Skip", type_line="Basic Land — Forest", zone=Zone.LIBRARY)
+    _stack_library(engine, "p1", new, land)
+    _activate(engine, jace, 1, targets=[old])
+    assert old.zone == Zone.EXILE
+    assert [o.name for o in engine.state.battlefield if o.name in ("New", "Old")] == ["New"]
+    assert land in engine.state.player_by_id("p1").library
+    assert jace.counters.get("loyalty") == 1
+
+
+def _begin_combat_on_p2s_turn(engine):
+    engine.state.active_player_index = 1
+    engine.state.current_step = "begin_combat"
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="begin_combat", player_id="p2", controller_id="p2"))
+    engine.resolve_until_stable()
+
+
+def test_jace_bars_attacks_on_jaces_when_the_active_opponent_cannot_pay():
+    engine = _game()
+    jace = _card(engine, "Jace, Multiverse Architect")
+    _begin_combat_on_p2s_turn(engine)
+    defenders = engine.legal_defenders_for(engine.state.player_by_id("p2"))
+    assert all(d.get("instance_id") != jace.instance_id for d in defenders)
+    assert any(d["kind"] == "player" and d["id"] == "p1" for d in defenders)
+
+
+def test_jace_lets_the_active_opponent_pay_two_to_keep_attacking_jaces():
+    engine = _game()
+    jace = _card(engine, "Jace, Multiverse Architect")
+    engine.state.player_by_id("p2").mana_pool.add("C", 2)
+    _begin_combat_on_p2s_turn(engine)
+    choice = engine.state.pending_choice
+    assert choice is not None and choice["player_id"] == "p2"
+    engine.resolve_pending_choice("pay")
+    engine.resolve_until_stable()
+    defenders = engine.legal_defenders_for(engine.state.player_by_id("p2"))
+    assert any(d.get("instance_id") == jace.instance_id for d in defenders)

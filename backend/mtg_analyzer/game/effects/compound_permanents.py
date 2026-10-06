@@ -257,6 +257,37 @@ class DiscardedThisWayRidersEffect(GameEffect):
         )
 
 
+class TokensPerDiscardedCardTypeEffect(GameEffect):
+    """"Create a 1/1 white Spirit creature token with flying for each card type among cards discarded this way." (Occult
+    Epiphany) — the distinct RULE 205.2a card types over the ``DISCARD_CARD`` events logged since the source's
+    `MarkEventLogEffect` window opened (the same "this way" window `DiscardedThisWayRidersEffect` reads), then one
+    ``create_token`` of ``token`` params with that count."""
+
+    #: Card types a "for each card type" count looks at; the discard event's ``object_types`` also carries
+    #: supertypes and the always-added "permanent" word, which are not card types.
+    _CARD_TYPES = frozenset({
+        "artifact", "battle", "creature", "enchantment", "instant", "kindred", "land", "planeswalker", "sorcery",
+    })
+
+    def __init__(self, token=None, source=None):
+        super().__init__(source)
+        self.token = dict(token or {})
+
+    def apply(self, context, targets=None):
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+
+        mark = int(getattr(self.source, "window_event_mark", 0) or 0)
+        types: set[str] = set()
+        for event in context.state.event_log[mark:]:
+            if event.type == EventType.DISCARD_CARD:
+                types |= {str(t).lower() for t in (event.get("object_types") or ())} & self._CARD_TYPES
+        if not types:
+            return
+        spec = EffectSpec("create_token", {**self.token, "count": len(types)})
+        _apply_effects_partitioned(build_effects([spec], self.source), context, None, None, source=self.source)
+
+
 class CoinOfFateSplitEffect(GameEffect):
     """"An opponent chooses one of the exiled cards. You put that card on the bottom of your library and return the other
     to the battlefield tapped. You become the monarch." (Coin of Fate) — the two creature cards the ability's cost exiled
@@ -351,6 +382,55 @@ class _GrantMilledSpellWindowEffect(GameEffect):
             CreateTokenEffect(token_name='Treasure', count=1, source=self.source).apply(context)
 
 
+class MillAttackersEachPlayerCastFreeEffect(GameEffect):
+    """"Whenever one or more Sphinxes you control attack, each player mills that many cards. For each player, you may cast a
+    card that player milled this way without paying its mana cost." (The Ur-Sphinx)
+
+    "That many" is the number of declared attackers of ``subtype`` in the firing `ATTACKERS_DECLARED` event. Each player
+    mills in APNAP order; then, per player, every nonland card *they* milled this way gets a free-cast permission from the
+    graveyard for the controller, grouped so casting one of a player's cards ends the offer for the rest of that player's
+    (RULE 601.2a: "a card"). **Simplification:** the window lasts the rest of the turn rather than only while the ability
+    resolves."""
+
+    def __init__(self, subtype: str = "sphinx", source=None):
+        super().__init__(source)
+        self.subtype = str(subtype).lower()
+
+    def apply(self, context, targets=None):
+        from ..continuous import has_subtype
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        event = context.trigger_event or {}
+        count = 0
+        for iid in event.get("attacker_ids") or []:
+            attacker = context.state.find_object(iid)
+            if attacker is not None and has_subtype(attacker, self.subtype):
+                count += 1
+        if count <= 0:
+            return
+        start = len(context.state.event_log)
+        for p in context.state.living_players_apnap():
+            context.mill(p, count)
+        milled: dict[str, set[int]] = {}
+        for logged in context.state.event_log[start:]:
+            if logged.type != EventType.CARDS_MILLED:
+                continue
+            for card in logged.get("cards", []):
+                if "land" in card.get("object_types", []):
+                    continue
+                milled.setdefault(logged.get("player_id"), set()).add(card["instance_id"])
+        for ids in milled.values():
+            group = frozenset(ids)
+            for iid in ids:
+                obj = context.state.find_object(iid)
+                if obj is not None and obj.zone == Zone.GRAVEYARD:
+                    context.state.temp_graveyard_cast_permissions[iid] = player.id
+                    context.state.temp_graveyard_cast_permission_groups[iid] = group
+                    context.state.free_cast_instance_ids.add(iid)
+
+
 class ExileInstantSorceryFromEachGraveyardEffect(GameEffect):
     """"Exile an instant or sorcery card from each graveyard." (Summon: Esper Valigarmanda, chapter I) — the exiled cards are
     remembered as exiled with the source Saga (`exiled_with_ids`). **Simplification:** the most recently added matching card
@@ -391,6 +471,12 @@ EffectRegistry.register(
     lambda p: DiscardedThisWayRidersEffect(
         creature_effects=p.get("creature_effects"), noncreature_effects=p.get("noncreature_effects"),
     ),
+)
+EffectRegistry.register(
+    "tokens_per_discarded_card_type", lambda p: TokensPerDiscardedCardTypeEffect(token=p.get("token")),
+)
+EffectRegistry.register(
+    "mill_attackers_each_player_cast_free", lambda p: MillAttackersEachPlayerCastFreeEffect(subtype=p.get("subtype", "sphinx")),
 )
 EffectRegistry.register("coin_of_fate_split", lambda p: CoinOfFateSplitEffect())
 EffectRegistry.register("exile_random_graveyard_cards_cast_free", lambda p: ExileRandomGraveyardCardsCastFreeEffect())

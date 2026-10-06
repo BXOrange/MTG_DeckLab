@@ -141,6 +141,35 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Exile all creatures you control, then reveal … until you reveal that many creature cards …" (Mass Polymorph;
+    # ``delayed`` is Synthetic Destiny's next-end-step form)
+    "exile_creatures_reveal_that_many",
+    lambda p: ExileCreaturesRevealThatManyEffect(delayed=bool(p.get("delayed", False))),
+)
+EffectRegistry.register(
+    # "Exile/bottom target X. [Its controller / you] reveal(s) until a <type> card; put it onto the battlefield, the rest
+    # on the bottom." (Jace, Multiverse Architect; Proteus Staff)
+    "replace_target_with_revealed",
+    lambda p: ReplaceTargetWithRevealedEffect(
+        target_kind=p.get("target_kind", "creature"), removal=p.get("removal", "exile"),
+        revealer=p.get("revealer", "controller"), criteria=p.get("criteria"),
+    ),
+)
+EffectRegistry.register(
+    # "The owner of up to one other target nonland permanent puts it on their choice of the top or bottom of their library."
+    # (Plan for All Outcomes)
+    "owner_puts_on_top_or_bottom",
+    lambda p: OwnerChoosesLibraryPositionEffect(
+        target_kind=p.get("target_kind", "nonland_permanent"), optional=bool(p.get("optional", True)),
+    ),
+)
+EffectRegistry.register(
+    # "Target opponent reveals … until they reveal a <criteria> card. You put that card onto the battlefield under your
+    # control and lose life equal to its mana value. …" (Jhoira, Weatherlight Corsair)
+    "reveal_opponent_library_steal",
+    lambda p: RevealOpponentLibraryStealEffect(criteria=p.get("criteria")),
+)
+EffectRegistry.register(
     # "Reveal the top X cards. Put all land cards onto the battlefield
     # tapped … Spell mastery — … untap those lands." (Animist's Awakening)
     "animists_awakening",
@@ -336,6 +365,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "put_hand_card_on_bottom_then_draw",  # "you may put a card from your hand on the bottom of your library. If you do, draw a card." (Volcanic Spite)
     lambda p: PutHandCardOnBottomThenDrawEffect(player=p.get("player")),
+)
+EffectRegistry.register(
+    "choose_hand_card_to_library_bottom",  # "Put a card from your hand on the bottom of your library." (Jace, Multiverse Architect)
+    lambda p: ChooseHandCardToLibraryBottomEffect(),
 )
 EffectRegistry.register(
     "reveal_hand_choose_discard",  # Duress/Thoughtseize/Coercion-shaped
@@ -889,6 +922,12 @@ EffectRegistry.register(
     lambda p: StaticAbility("retain_mana", affects="self", params={"colors": list(p.get("colors") or [])}),
 )
 EffectRegistry.register(
+    # "If you would lose unspent mana, that mana becomes colorless instead." (Omnath, Locus of the Void) — a standing
+    # replacement read by `continuous.empty_mana_pool` as each step ends.
+    "unspent_mana_colorless",
+    lambda p: StaticAbility("unspent_mana_colorless", affects="self", params={}),
+)
+EffectRegistry.register(
     "behold_then",  # "You may behold a Dragon. If you do, …" (Sarkhan, Dragon Ascendant)
     lambda p: BeholdThenEffect(quality=p.get("quality", "Dragon"), effects=p.get("effects")),
 )
@@ -1189,6 +1228,12 @@ EffectRegistry.register(
     # "no target_spec, sees the shared list" idiom `ConditionalEffect` uses).
     "prevent_attacking_player_this_turn",
     lambda p: PreventAttackingPlayerThisTurnEffect(reversed=bool(p.get("reversed", False))),
+)
+EffectRegistry.register(
+    # "Creatures they control can't attack Jaces you control this turn." (Jace, Multiverse Architect) — "they" is the
+    # decliner of the pay-or flow it follows.
+    "prevent_attacking_planeswalkers_this_turn",
+    lambda p: PreventAttackingPlaneswalkersThisTurnEffect(subtype=str(p.get("subtype", "jace"))),
 )
 EffectRegistry.register(
     "return_linked_exile",
@@ -2224,7 +2269,9 @@ EffectRegistry.register(
     # RULE 702.26b + 611.2b: "all permanents you control phase out", plus
     # the life lock and protection from everything (Teferi's Protection).
     "phase_out_all_you_control",
-    lambda p: PhaseOutAllYouControlEffect(),
+    lambda p: PhaseOutAllYouControlEffect(
+        target_kind=p.get("target_kind"), nonland_only=bool(p.get("nonland_only", False)),
+    ),
 )
 EffectRegistry.register(
     # "return another permanent you control that shares a permanent type
@@ -2781,6 +2828,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "choose_creature_type_on_enter",  # "As ~ enters, choose a creature type." (RULE 601.2b)
     lambda p: ChooseCreatureTypeReplacement(),
+)
+EffectRegistry.register(
+    "choose_card_type_on_enter",  # "As ~ enters, choose a card type." (RULE 601.2b, Serra's Emissary)
+    lambda p: ChooseCardTypeReplacement(),
 )
 EffectRegistry.register(
     "choose_color_on_enter",  # "As ~ enters, choose a color." (RULE 601.2b)
@@ -3675,6 +3726,9 @@ EffectRegistry.register(
             "protection_from_chosen_type": bool(
                 p.get("protection_from_chosen_type", False)
             ),
+            # "You and creatures you control have protection from …" (Serra's Emissary) — the controller half; a player
+            # carries no text of its own, so `continuous.player_static_protections` reads it for `RulesEngine.deal_damage`.
+            "protects_controller": bool(p.get("protects_controller", False)),
             # "…protection from each color that's not in your commander's
             # color identity." (Commander's Plate, MEC-43) — the complement
             # of `continuous.commander_color_identity`, read fresh every
@@ -4474,6 +4528,10 @@ EffectRegistry.register(
             **({"spell_type": p["spell_type"]} if p.get("spell_type") else {}),
             # Emet-Selch: only a spell cast from the caster's graveyard.
             **({"from_graveyard": True} if p.get("from_graveyard") else {}),
+            # The Ur-Sphinx's Eminence: functions from the command zone too (`continuous._battlefield_static_abilities`),
+            # and "other" spells excludes the source itself.
+            **({"from_command_zone": True} if p.get("from_command_zone") else {}),
+            **({"other_spells": True} if p.get("other_spells") else {}),
             # Cloud Key: the type is the one chosen as the source entered (`chosen_mode`).
             **({"spell_type_from_source_mode": True} if p.get("spell_type_from_source_mode") else {}),
             # "Red spells you cast cost {1} less to cast." (the Medallion

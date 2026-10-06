@@ -1955,6 +1955,21 @@ class PutHandCardsOnTopEffect(GameEffect):
         context.put_hand_cards_on_top(player, self.count)
 
 
+class ChooseHandCardToLibraryBottomEffect(GameEffect):
+    """"Put a card from your hand on the bottom of your library." (Jace, Multiverse Architect's +1, after its draw) — the
+    controller picks which card (a real RULE 701.20-adjacent choice, through the shared object chooser); an empty hand does
+    nothing, a single card is put without a prompt."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or not player.hand:
+            return
+        context.engine._request_choose_objects(
+            player, list(player.hand), "hand_to_library_bottom", count=1, source=self.source,
+            prompt="Wähle eine Handkarte, die unter die Bibliothek kommt",
+        )
+
+
 class PutHandCardOnBottomThenDrawEffect(GameEffect):
     """"You may put a card from your hand on the bottom of your library. If
     you do, draw a card." (Volcanic Spite) — see `RulesEngine.put_hand_card_

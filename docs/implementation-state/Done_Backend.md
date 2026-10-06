@@ -1065,6 +1065,21 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 - **What:** `GrantSearchProhibitedEffect`/`RulesEngine.request_search`'s guard (RULE 701.19a: a prohibited player instructed to search simply doesn't) and `GrantSkipExtraTu…
 - **Files:** `game/effects/core.py`, `game/engine/turn_loop_mixin.py`.
 
+### Reveal-until swaps, opponent-library steals, and owner library-position choices (PLAY-ALL, Multiverse Reforged)
+
+`exile_creatures_reveal_that_many` exiles the controller's creatures (tokens included), reads the count once and runs
+`reveal_until_matching` for that many creature cards, shuffling the rest back (Mass Polymorph); with `delayed` the count is baked
+into a RULE 603.7 end-step trigger (Synthetic Destiny). `replace_target_with_revealed` removes a target (`exile` or `bottom`) and
+makes the controller or the target's controller reveal until a card matching a `card_query` (Jace's −3, Proteus Staff).
+`reveal_opponent_library_steal` takes the hit from an opponent's library under the controller's control and charges its mana
+value (Jhoira). `owner_puts_on_top_or_bottom` opens a `library_position` choice for the target's *owner* (RULE 401.4, Plan for All
+Outcomes). `choose_hand_card_to_library_bottom` is a real hand pick (`hand_to_library_bottom` chooser action).
+`tokens_per_discarded_card_type` counts distinct card types among `DISCARD_CARD` events since a `mark_event_log` window (Occult
+Epiphany). Target kind `another_creature_or_planeswalker_you_control` is the planeswalker sibling of the creature-or-land frame.
+`choose_card_type_on_enter` (RULE 601.2b) stores the plural protection-quality word on `GameObject.chosen_type`; Kindred is not
+offered. Trigger gate `is_nth_noncreature_spell_cast_this_turn` is the noncreature sibling of the nth-spell head.
+Regressions: `tests/game/catalogue/cards/test_multiverse_reforged_deck.py`.
+
 ## Targeting
 
 ### Structural target frames — `kind` decomposed (ENG-34, `14_` S0b)
@@ -2198,6 +2213,18 @@ Copies use the existing spell-copy primitive and do not count as casts.
 - **What:** `type_change`'s new `pt_selector="mana_value"` plus a new `"noncreature_artifact"` target kind for "becomes an artifact creature with power/toughness equal to i…
 - **Files:** `game/continuous.py`, `game/targeting.py`, `game/rules_engine.py`.
 
+### Eminence, unspent mana and player protection from standing statics (PLAY-ALL, Multiverse Reforged)
+
+`cost_reduction` accepts `from_command_zone` (an Eminence ability collected from the command zone by
+`continuous._battlefield_static_abilities`, RULE 112.6; only the marked ability functions there) and `other_spells` (the source's
+own spell is excluded), used by The Ur-Sphinx. `unspent_mana_colorless` (Omnath, Locus of the Void) is read by
+`continuous.empty_mana_pool`: unrestricted mana that would empty stays as colourless; `unspent_mana_you_have` is the matching
+`count_selector`. `grant_protection_static` takes `protects_controller`; `continuous.player_static_protections` feeds
+`RulesEngine.deal_damage` so a player's protection from a standing grant prevents damage (`combat.protection_qualities_cover` is
+the shared matching split out of `is_protected_from`). `phase_out_all_you_control` can target another player and spare lands
+(Teferi's Reproach). A Sphinx-attack `mill_attackers_each_player_cast_free` grants one free graveyard cast per milled player
+group; the free-cast flag expires with the turn's graveyard permissions.
+
 ## Combat
 
 ### PAR-79 — "Can't be blocked this turn" broad recognition (closed)
@@ -2316,6 +2343,13 @@ Copies use the existing spell-copy primitive and do not count as casts.
 
 - **What:** New `even_mana_value` filter key on `matches_object_filter`/`cast_prohibited` plus `cant_block_self_filtered` combat-restriction kind — the first restriction th…
 - **Files:** `game/combat.py`, `game/continuous.py`.
+
+### Attack bars against planeswalkers of a subtype (PLAY-ALL, Multiverse Reforged)
+
+`GameState.no_attack_planeswalker_subtypes_this_turn` records `(attacking player, defending player, subtype)` triples written by
+`prevent_attacking_planeswalkers_this_turn` (Jace, Multiverse Architect, after the active opponent declines to pay {2});
+`GameEngine.legal_defenders_for` omits matching planeswalkers and cleanup clears the set. `each_player_pay_or` gained the
+`active_player` scope so only the player whose turn it is gets the pay-or prompt.
 
 ## Casting & Costs
 

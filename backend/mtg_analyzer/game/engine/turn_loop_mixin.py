@@ -893,6 +893,7 @@ class TurnLoopMixin:
         # "You can't attack that player this turn." (Call for Aid) — RULE
         # 514.2, a state-level "this turn" bar rather than a per-object one.
         self.state.no_attack_pairs_this_turn.clear()
+        self.state.no_attack_planeswalker_subtypes_this_turn.clear()
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         # RULE 514.2 analogue: an unused (or partially-spent) turn-scoped
@@ -1021,6 +1022,8 @@ class TurnLoopMixin:
         self.state.next_spell_flash_grants.clear()
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
+        # A free-cast flag granted alongside a graveyard permission (The Ur-Sphinx) expires with it.
+        self.state.free_cast_instance_ids.difference_update(self.state.temp_graveyard_cast_permissions)
         self.state.temp_graveyard_cast_permissions.clear()
         self.state.temp_graveyard_cast_permission_groups.clear()
         self.state.cast_lock_instance_ids.clear()

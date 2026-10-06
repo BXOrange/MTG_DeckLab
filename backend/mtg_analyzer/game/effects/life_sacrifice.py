@@ -2512,6 +2512,7 @@ class EachPlayerPayOrEffect(GameEffect):
         #: same as `PayCostThenEffect`'s own knob, since the plain regex
         #: cost parser AND-combines its fragments.
         self.sacrifice_or_discard = bool(sacrifice_or_discard)
+        #: ``"active_player"`` asks only the player whose turn it is (Jace, Multiverse Architect's "they may pay {2}").
         #: "…**for each opponent**, `<effect>` unless that player
         #: `<pays>`." (MEC-43, Acererak the Archlich) — ``"each_player"``
         #: (default, every existing caller's shape) asks every living

@@ -4043,6 +4043,20 @@ class ChooseBasicLandTypeReplacement(GameEffect):
         return None  # consulted by RulesEngine._offer_enter_choices, not applied
 
 
+class ChooseCardTypeReplacement(GameEffect):
+    """"As ~ enters, choose a card type." (RULE 601.2b — Serra's Emissary) — the card-type sibling of
+    `ChooseCreatureTypeReplacement`. Stamps `GameObject.chosen_type` with the *plural quality word*
+    (``"artifacts"``, ``"creatures"``, …) that `combat.protections_of_text`/`_quality_matches_type` already speak, so
+    ``protection_from_chosen_type`` reads it unchanged."""
+
+    def __init__(self, description: str = "") -> None:
+        super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
 class ChooseColorReplacement(GameEffect):
     """"As ~ enters, choose a color." — the colour sibling of
     `ChooseCreatureTypeReplacement`; see its docstring. Stamps

@@ -49,6 +49,7 @@ from ..effects.core import (
     RemoveCounterOrSacrificeEffect,
     SoulbondPairEffect,
     ChooseBasicLandTypeReplacement,
+    ChooseCardTypeReplacement,
     ChooseCardNameReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
@@ -2007,6 +2008,17 @@ def _trigger_condition(
             return total == n
 
         predicates.append(_nth_spell_ok)
+
+    # "Whenever you cast your **first noncreature spell each turn**, …" (Plan for All Outcomes) — the noncreature sibling of
+    # ``is_nth_spell_cast_this_turn``, over the event-derived `GameState.noncreature_spells_cast_this_turn` tally.
+    nth_noncreature = trigger.get("is_nth_noncreature_spell_cast_this_turn")
+    if nth_noncreature is not None:
+        n_nc = int(nth_noncreature)
+
+        def _nth_noncreature_ok(event: Any, context: Any, n=n_nc) -> bool:
+            return context.state.noncreature_spells_cast_this_turn.get(event.get("player_id"), 0) == n
+
+        predicates.append(_nth_noncreature_ok)
 
     # "Whenever you cast your **first instant or sorcery spell each turn**, …" (Baral and Kari Zev) —
     # the per-type sibling of ``is_nth_spell_cast_this_turn`` above, over `GameState.
@@ -4661,6 +4673,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                         ChooseColorReplacement,
                         ChooseNamedModeReplacement,
                         ChooseBasicLandTypeReplacement,
+                        ChooseCardTypeReplacement,
                         ChooseCardNameReplacement,
                         ChooseEnterCounterReplacement,
                         ChooseNumberReplacement,

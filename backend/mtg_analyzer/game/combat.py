@@ -133,6 +133,7 @@ _CARD_TYPE_PROTECTIONS: dict[str, str] = {
     "lands": "is_land",
     "instants": "is_instant",
     "sorceries": "is_sorcery",
+    "battles": "is_battle",
 }
 
 
@@ -1290,6 +1291,13 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
         | frozenset(getattr(obj, "temp_protections", None) or set())
         | frozenset(getattr(obj, "granted_protections", None) or set())
     )
+    return protection_qualities_cover(quals, source)
+
+
+def protection_qualities_cover(quals: "frozenset[str] | set[str]", source: "GameObject") -> bool:
+    """Whether any protection quality in ``quals`` (RULE 702.16) describes ``source`` — `is_protected_from`'s matching,
+    split out so a *player's* protection (Serra's Emissary's "You … have protection from the chosen card type"), which
+    lives on a standing static rather than on the player's own text, is judged by the very same rules."""
     if not quals:
         return False
     if "everything" in quals:

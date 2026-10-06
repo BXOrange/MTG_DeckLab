@@ -273,7 +273,11 @@ class TestBacklogSizes:
         # and Tezzeret's counter/animation sequences remain composed atoms.
         # A generic revealed-pile split/take adapter adds one reviewed continuation:
         # it retains library identities and lets distinct players divide and take piles.
-        assert n <= 102, f"continuation types grew to {n}"
+        # Multiverse Reforged adds three reviewed player-choice adapters over the existing choice frames:
+        # `choose_card_type_on_enter` (the card-type sibling of the creature-type/colour enter choices, Serra's
+        # Emissary), `choose_hand_card_to_library_bottom` (a `choose_objects` hand pick, Jace's +1) and
+        # `owner_puts_on_top_or_bottom` (the target's owner chooses the library end, Plan for All Outcomes), 102 -> 105.
+        assert n <= 105, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

@@ -464,6 +464,13 @@ _ALIAS_TYPES: dict[str, str] = {
     "destroy_same_name": "destroy",
     "exile_same_name_tokens": "exile",
     "mill_each_player_may_cast_milled": "mill",
+    # Multiverse Reforged (PLAY-ALL): one-card-family aliases over the instruction their body is built on.
+    "mill_attackers_each_player_cast_free": "mill",
+    "exile_creatures_reveal_that_many": "exile",
+    "replace_target_with_revealed": "exile",
+    "reveal_opponent_library_steal": "reveal",
+    "tokens_per_discarded_card_type": "create",
+    "prevent_attacking_planeswalkers_this_turn": "create_continuous_effect",
     "coin_of_fate_split": "move_object",
     "cast_exiled_with_source": "cast",
     "mark_event_log": "set_status",
@@ -806,6 +813,9 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "choose_card_name_on_enter": "601.2b",
     "choose_color_on_enter": "601.2b",
     "choose_creature_type_on_enter": "601.2b",
+    "choose_card_type_on_enter": "601.2b",
+    "choose_hand_card_to_library_bottom": "601.2b",
+    "owner_puts_on_top_or_bottom": "401.4",
     "choose_enter_counter": "614.1",
     "choose_named_mode": "700.2",
     "choose_number_on_enter": "601.2b",
@@ -909,7 +919,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     # `self_cost_reduction_for`. `EffectRegistry.register` builds a
     # `StaticAbility` for it.
     "exile_discount_cost",
-    "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana",
+    "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana", "unspent_mana_colorless",
     "counter_placement_prohibition",
     "enters_with_counters_count",
     "free_cast_permission", "goaded", "grant_any_color_for_activation",

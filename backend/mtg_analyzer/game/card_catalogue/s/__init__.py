@@ -38,6 +38,7 @@ from . import serah_farron  # noqa: F401
 from . import seraph_of_the_sword  # noqa: F401
 from . import serra_avenger  # noqa: F401
 from . import serra_paragon  # noqa: F401
+from . import serra_s_emissary  # noqa: F401
 from . import sevinne_s_reclamation  # noqa: F401
 from . import shadowbane  # noqa: F401
 from . import shadrix_silverquill  # noqa: F401
@@ -143,6 +144,7 @@ from . import sword_of_truth_and_justice  # noqa: F401
 from . import swords_to_plowshares  # noqa: F401
 from . import sygg_river_cutthroat  # noqa: F401
 from . import sylvan_library  # noqa: F401
+from . import synthetic_destiny  # noqa: F401
 from . import syphon_mind  # noqa: F401
 from . import szarel_genesis_shepherd  # noqa: F401
 

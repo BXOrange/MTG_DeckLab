@@ -84,6 +84,18 @@ class LegalActionsMixin:
         """
         requirements = requirements_with_targets(self.state, player.id, obj)
         return all_requirements_satisfiable(requirements)
+    def _planeswalker_attack_barred(self, player: Player, planeswalker: GameObject) -> bool:
+        """"Creatures they control can't attack Jaces you control this turn." (Jace, Multiverse Architect) — RULE 508.1a: a
+        ``(attacker, defending player, subtype)`` bar recorded in `GameState.no_attack_planeswalker_subtypes_this_turn`."""
+        bars = self.state.no_attack_planeswalker_subtypes_this_turn
+        if not bars:
+            return False
+        subtypes = continuous.derived_subtype_words(planeswalker)
+        return any(
+            attacker == player.id and defender == planeswalker.controller_id and subtype in subtypes
+            for attacker, defender, subtype in bars
+        )
+
     def legal_defenders_for(self, player: Player) -> list[dict[str, Any]]:
         """Who ``player``'s creatures may attack (RULE 508.1a).
 
@@ -100,7 +112,7 @@ class LegalActionsMixin:
                 continue
             defenders.append({"kind": "player", "id": other.id, "label": other.name})
         for obj in self.state.battlefield:
-            if obj.controller_id != player.id and obj.is_planeswalker:
+            if obj.controller_id != player.id and obj.is_planeswalker and not self._planeswalker_attack_barred(player, obj):
                 defenders.append(
                     {"kind": "planeswalker", "instance_id": obj.instance_id, "label": obj.name}
                 )

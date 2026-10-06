@@ -204,6 +204,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "another target creature or land you control" (Saryth, the Viper's
         # Fang) — the source-excluding sibling of the entry above.
         "another_creature_or_land_you_control",
+        # "another target planeswalker or creature you control" (Jace, Multiverse Architect's −3) — the planeswalker
+        # sibling of the entry above.
+        "another_creature_or_planeswalker_you_control",
         # "two target artifacts, creatures, and/or lands you control" (Ghostly
         # Flicker) — the three-type union sibling of the entries above.
         "artifact_creature_or_land_you_control",
@@ -698,6 +701,8 @@ class TargetSpec:
             "player_other_than_event_player": "anderer Spieler",
             "other_vehicle_you_control": "anderes Fahrzeug unter deiner Kontrolle",
             "another_creature_or_land_you_control": "andere Kreatur oder Land unter deiner Kontrolle",
+            "another_creature_or_planeswalker_you_control":
+                "andere Kreatur oder Planeswalker unter deiner Kontrolle",
             "artifact_creature_or_land_you_control": "Artefakt, Kreatur oder Land unter deiner Kontrolle",
             "permanent_you_own": "Permanent, das du besitzt",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
@@ -1346,6 +1351,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "vehicle": TargetFrame("vehicle", exclude_source=False),
     "other_vehicle_you_control": TargetFrame("vehicle", SCOPE_YOU),
     "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
+    "another_creature_or_planeswalker_you_control": TargetFrame("creature_or_planeswalker", SCOPE_YOU),
     "artifact_creature_or_land_you_control": TargetFrame(
         "artifact_creature_or_land", SCOPE_YOU, exclude_source=False),
     "artifact_or_enchantment": TargetFrame("artifact_or_enchantment"),

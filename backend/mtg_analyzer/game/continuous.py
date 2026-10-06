@@ -883,6 +883,13 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
             for ab in getattr(obj, "static_effects", []):
                 if isinstance(ab, StaticAbility) and ab.params.get("from_graveyard"):
                     abilities.append(ab)
+    # RULE 112.6 — an Eminence ability ("As long as ~ is in the command zone or on the battlefield, …", The Ur-Sphinx)
+    # functions from the command zone; only the ``from_command_zone``-marked ability does, same isolation as above.
+    for player in state.players:
+        for obj in player.command:
+            for ab in getattr(obj, "static_effects", []):
+                if isinstance(ab, StaticAbility) and ab.params.get("from_command_zone"):
+                    abilities.append(ab)
     # RULE 611: continuous effects created by a *resolving* spell or ability
     # rather than printed on a permanent ("Until your next turn, creatures you
     # control get +1/+1"). They live on the state (`GameState.
@@ -1472,6 +1479,10 @@ def count_selector(
             return 0
         player = state.player_by_id(controller_id)
         return player.life if player is not None else 0
+    if selector == "unspent_mana_you_have":
+        # "…for each unspent mana you have." (Omnath, Locus of the Void) — every mana in the pool, restricted lots included.
+        player = state.player_by_id(controller_id) if controller_id is not None else None
+        return player.mana_pool.total() if player is not None else 0
     if selector == "cards_in_your_hand":
         # "…where X is the number of cards in your hand." (Baldin, Century Herdmaster)
         player = state.player_by_id(controller_id) if controller_id is not None else None
@@ -2267,6 +2278,22 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
         if controller_id is not None:
             identity = commander_color_identity(state, controller_id)
             quals |= (VALID_COLORS - identity)
+    return quals
+
+
+def player_static_protections(state: "GameState", player: "Player") -> set[str]:
+    """RULE 702.16 qualities ``player`` has from standing grants ("You and creatures you control have protection from the
+    chosen card type", Serra's Emissary) — a ``grant_protection_static`` carrying ``protects_controller``. A player has no
+    text of its own, so `RulesEngine.deal_damage` asks this instead of `combat.is_protected_from` (damage being the one
+    DEBT letter a player is subject to in this model)."""
+    quals: set[str] = set()
+    for ability in _battlefield_static_abilities(state):
+        if (
+            ability.layer == "ability"
+            and ability.params.get("protects_controller")
+            and getattr(ability.source, "controller_id", None) == player.id
+        ):
+            quals |= _protection_qualities(ability, state)
     return quals
 
 
@@ -3910,6 +3937,9 @@ def cost_reduction_for(
             wanted = spell_subtype if isinstance(spell_subtype, (list, tuple)) else [spell_subtype]
             if obj is None or not any(has_subtype(obj, str(w)) for w in wanted):
                 continue
+        # "**Other** Sphinx spells you cast cost {1} less to cast." (The Ur-Sphinx) — never the ability's own source.
+        if ability.params.get("other_spells") and obj is not None and obj is ability.source:
+            continue
         # "Legendary spells you cast cost {1} less to cast." (Kethis, the Hidden Hand) — RULE 205.4.
         if ability.params.get("spell_legendary") and (obj is None or not getattr(obj.card, "is_legendary", False)):
             continue
@@ -6127,7 +6157,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
      "damage_prevention_prohibition", "global_wither", "attack_tax", "block_tax", "cant_lose_game", "opponents_cant_win", "player_hexproof",
-     "mana_wildcard", "retain_mana", "entry_counters_self", "counter_placement_prohibition"}
+     "mana_wildcard", "retain_mana", "unspent_mana_colorless", "entry_counters_self", "counter_placement_prohibition"}
 )
 
 
@@ -6149,9 +6179,21 @@ def empty_mana_pool(state: "GameState", player: "Player", expire: tuple[str, ...
     keep = {
         c: n for c, n in pool.pool.items() if n and (colors is None or c.upper() in colors)
     } if colors != set() else {}
+    # RULE 614.1 — "If you would lose unspent mana, that mana becomes colorless instead." (Omnath, Locus of the Void):
+    # what would be lost (the unrestricted mana not kept above) stays in the pool as colourless. Restricted lots empty as ever.
+    to_colorless = any(
+        ability.layer == "unspent_mana_colorless" and getattr(ability.source, "controller_id", None) == player.id
+        for ability in _battlefield_static_abilities(state)
+    )
+    before = dict(pool.pool)
     pool.empty(expire=expire)
+    lost_to_colorless = (
+        sum(n - pool.pool.get(c, 0) for c, n in before.items() if n and c not in keep) if to_colorless else 0
+    )
     for color, amount in keep.items():
         pool.add(color, amount)
+    if lost_to_colorless:
+        pool.add("C", lost_to_colorless)
 
 
 #: A `combat_restriction` entry → the one-line description the board's

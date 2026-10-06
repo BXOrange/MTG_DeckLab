@@ -960,6 +960,9 @@ class GameState:
         #: (offer-time, with no defender yet, stays permissive); cleared at
         #: cleanup (RULE 514.2).
         self.no_attack_pairs_this_turn: set[tuple[str, str]] = set()
+        #: ``(attacking player id, defending player id, planeswalker subtype)`` — "creatures they control can't attack
+        #: Jaces you control this turn" (Jace, Multiverse Architect); swept at cleanup with `no_attack_pairs_this_turn`.
+        self.no_attack_planeswalker_subtypes_this_turn: set[tuple[str, str, str]] = set()
         #: Whether each player has already had "the first one they draw in
         #: [their] draw step" this draw step (MEC-32 — Notion Thief/Chains
         #: of Mephistopheles's shared exemption clause). Reset to ``False``

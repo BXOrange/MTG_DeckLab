@@ -29,6 +29,7 @@ from . import phyrexian_revoker  # noqa: F401
 from . import pilgrim_of_justice  # noqa: F401
 from . import pilgrim_of_virtue  # noqa: F401
 from . import pithing_needle  # noqa: F401
+from . import plan_for_all_outcomes  # noqa: F401
 from . import planetary_annihilation  # noqa: F401
 from . import plargg_and_nassari  # noqa: F401
 from . import play_with_fire  # noqa: F401
@@ -60,6 +61,7 @@ from . import promise_of_loyalty  # noqa: F401
 from . import prosperous_bandit  # noqa: F401
 from . import protean_hulk  # noqa: F401
 from . import protective_sphere  # noqa: F401
+from . import proteus_staff  # noqa: F401
 from . import psychic_transfer  # noqa: F401
 from . import puca_s_covenant  # noqa: F401
 from . import pugnacious_hammerskull  # noqa: F401

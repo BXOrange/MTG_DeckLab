@@ -1436,6 +1436,26 @@ class PreventAttackingPlayerThisTurnEffect(GameEffect):
         context.state.no_attack_pairs_this_turn.add((controller.id, them_id))
 
 
+class PreventAttackingPlaneswalkersThisTurnEffect(GameEffect):
+    """"Creatures they control can't attack Jaces you control this turn." (Jace, Multiverse Architect, after its owner's
+    opponent declines to pay {2}) — RULE 508.1a, for the rest of the turn. "They" is the shared target the pay-or flow threads
+    through (`each_player_pay_or`, ``effect_targets="decliner"``); "you" is this ability's controller. Records the
+    ``(they, you, subtype)`` bar on `GameState.no_attack_planeswalker_subtypes_this_turn`, which
+    `GameEngine.legal_defenders_for` honours, swept at cleanup."""
+
+    def __init__(self, subtype: str = "jace", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = None
+        self.subtype = str(subtype).lower()
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        decliner_id = getattr((targets or [None])[0], "id", None)
+        if controller is None or decliner_id is None:
+            return
+        context.state.no_attack_planeswalker_subtypes_this_turn.add((decliner_id, controller.id, self.subtype))
+
+
 class GainControlBySourceEffect(GameEffect):
     """"An opponent gains control of ~." (RULE 701.10-adjacent — Wishclaw
     Talisman-shaped: an activated ability that hands its own permanent away

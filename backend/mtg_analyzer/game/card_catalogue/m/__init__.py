@@ -26,6 +26,7 @@ from . import martial_coup  # noqa: F401
 from . import martial_impetus  # noqa: F401
 from . import martyr_s_cause  # noqa: F401
 from . import mass_of_mysteries  # noqa: F401
+from . import mass_polymorph  # noqa: F401
 from . import massacre_girl_known_killer  # noqa: F401
 from . import master_chef  # noqa: F401
 from . import master_of_the_hunt  # noqa: F401

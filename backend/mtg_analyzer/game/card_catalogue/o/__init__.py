@@ -1,6 +1,7 @@
 """Hand-authored card entries whose name starts with 'o' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import ob_nixilis_the_fallen  # noqa: F401
 from . import obstinate_baloth  # noqa: F401
+from . import occult_epiphany  # noqa: F401
 from . import octomancer  # noqa: F401
 from . import of_herbs_and_stewed_rabbit  # noqa: F401
 from . import oft_nabbed_goat  # noqa: F401
@@ -10,6 +11,7 @@ from . import ojer_taq_deepest_foundation_temple_of_civilization  # noqa: F401
 from . import oko_thief_of_crowns  # noqa: F401
 from . import omen_machine  # noqa: F401
 from . import omnath_locus_of_the_roil  # noqa: F401
+from . import omnath_locus_of_the_void  # noqa: F401
 from . import opal_eye_konda_s_yojimbo  # noqa: F401
 from . import open_the_armory  # noqa: F401
 from . import open_the_way  # noqa: F401

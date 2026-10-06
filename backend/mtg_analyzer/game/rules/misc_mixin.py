@@ -741,6 +741,26 @@ class MiscSystemsMixin:
                 obj.zone = Zone.LIBRARY
                 player.library.append(obj)
         self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
+    def _request_library_position(self, owner: Player, obj: GameObject) -> None:
+        """"The owner of … puts it on their choice of the top or bottom of their library." (Plan for All Outcomes) — the
+        owner, not the ability's controller, chooses; the permanent stays where it is until the answer arrives."""
+        self.open_choice({
+            "kind": "library_position",
+            "player_id": owner.id,
+            "instance_id": obj.instance_id,
+            "prompt": f"{obj.name}: oben oder unten auf die Bibliothek legen?",
+            "options": [
+                {"id": "top", "label": "Oben auf die Bibliothek"},
+                {"id": "bottom", "label": "Unter die Bibliothek"},
+            ],
+        })
+    @continuations.choice("library_position", answer=continuations.ANSWER_STR, decline="top", rule="401.4")
+    def _resume_library_position(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a pending `library_position` choice (RULE 401.4: the owner decides top or bottom); a missing or invalid
+        answer is the top, the safer default for the owner."""
+        obj = self.state.find_object(choice["instance_id"])
+        if obj is not None:
+            self.return_to_library(obj, "bottom" if answer == "bottom" else "top")
     def _request_each_player_pay_or(
         self,
         cost: "ActivationCost",
@@ -787,6 +807,9 @@ class MiscSystemsMixin:
             for i in range(n)
             if not self.state.players[(start + i) % n].has_lost
             and (scope != "each_opponent" or self.state.players[(start + i) % n].id != controller_id)
+            # "At the beginning of combat on each opponent's turn, **they** may pay {2}." (Jace, Multiverse Architect) —
+            # only the active player is asked.
+            and (scope != "active_player" or (start + i) % n == start)
         ]
         self._pending_each_player_pay_or = {
             "remaining_ids": order,
@@ -3487,7 +3510,7 @@ class MiscSystemsMixin:
             "free_cast_exile",
             "library_to_hand", "sacrifice_for_descendants_fury",
             # A hand pick the owner puts into their own library (Painful/Agonizing Memories, Lost Hours).
-            "hand_to_library_top", "hand_to_library_third",
+            "hand_to_library_top", "hand_to_library_third", "hand_to_library_bottom",
             "turn_face_up",  # Zimone — RULE 708.8 by an effect
             # "{T}: Manifest a card from your hand." (Scroll of Fate) — a hand pick put onto the battlefield face down
             # (RULE 701.40a: manifesting "a card" is not limited to the library's top).
@@ -4229,6 +4252,9 @@ class MiscSystemsMixin:
             self.discard_specific(obj, cause=source)
             if connive and not is_land and source is not None:
                 self.add_counters(source, 1, kind="+1/+1", source=source)
+        elif action == "hand_to_library_bottom":
+            # Jace, Multiverse Architect's +1: the chooser's own hand card goes to the bottom of its owner's library.
+            self.return_to_library(obj, "bottom")
         elif action in ("hand_to_library_top", "hand_to_library_third"):
             # Painful Memories / Agonizing Memories / Lost Hours: the hand's owner puts the chosen card into their own
             # library (RULE 401.7 for "third from the top"); ``player`` here is the chooser, who need not own it.

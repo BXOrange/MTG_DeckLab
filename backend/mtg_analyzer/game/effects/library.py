@@ -1303,15 +1303,25 @@ class PhaseOutAllYouControlEffect(GameEffect):
     point of Teferi's Protection as a board-preserving answer.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, target_kind: Optional[str] = None, nonland_only: bool = False, source: Optional["GameObject"] = None,
+    ) -> None:
         super().__init__(source)
+        #: "Choose target opponent. Until that player's next turn, they gain protection from everything and their
+        #: life total can't change. All nonland permanents they control phase out." (Teferi's Reproach) — the same
+        #: effect aimed at a chosen player instead of the controller, over nonland permanents only.
+        self.nonland_only = bool(nonland_only)
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
+        if self.target_spec is not None:
+            player = targets[0] if targets else None
+        else:
+            player = _controller_of(self.source, context)
         if player is None:
             return
         for obj in list(context.state.battlefield):
-            if obj.controller_id == player.id:
+            if obj.controller_id == player.id and not (self.nonland_only and obj.is_land):
                 obj.phased_out = True
         shield = PlayerShieldEffect(
             life_locked=True,

@@ -35,7 +35,7 @@ from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
-from ..combat import has_infect, has_wither, is_protected_from, toxic_value
+from ..combat import has_infect, has_wither, is_protected_from, protection_qualities_cover, toxic_value
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from ..effects.core import (
@@ -285,6 +285,11 @@ class DamageDeathMixin:
         # source is actually known (an unattributed/sourceless damage event
         # can't match "controlled by that player" either way).
         if is_player and source is not None and self._player_protected_from_source_controller(target, source):
+            return
+        # RULE 702.16e: "you … have protection from <quality>" off a standing static (Serra's Emissary).
+        if is_player and source is not None and protection_qualities_cover(
+            continuous.player_static_protections(self.state, target), source
+        ):
             return
         target_id = target.id if is_player else target.instance_id
         event = GameEvent(

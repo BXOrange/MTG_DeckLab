@@ -46,6 +46,7 @@ from ..effects.core import (
     BecomeMonarchEffect,
     CantBeCounteredEffect,
     ChooseBasicLandTypeReplacement,
+    ChooseCardTypeReplacement,
     ChooseCardNameReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
@@ -220,6 +221,12 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 #: offer" case, since any of the five is always a legal, meaningful choice
 #: regardless of what's actually on the board.
 _BASIC_LAND_TYPE_OPTIONS: list[str] = ["Plains", "Island", "Swamp", "Mountain", "Forest"]
+#: RULE 205.2a card types a "choose a card type" pick offers, as the protection-quality word each answer is stored as
+#: (`combat._CARD_TYPE_PROTECTIONS`'s vocabulary; "creatures" is `is_protected_from`'s own branch).
+_CARD_TYPE_OPTIONS: list[tuple[str, str]] = [
+    ("artifacts", "Artifact"), ("battles", "Battle"), ("creatures", "Creature"), ("enchantments", "Enchantment"),
+    ("instants", "Instant"), ("lands", "Land"), ("planeswalkers", "Planeswalker"), ("sorceries", "Sorcery"),
+]
 
 
 
@@ -2659,6 +2666,10 @@ class CastingResolutionMixin:
             kind = "choose_creature_type"
             prompt = "Kreaturentyp wählen"
             options = [{"id": t, "label": t} for t in _creature_type_options(self.state, obj.controller_id)]
+        elif isinstance(effect, ChooseCardTypeReplacement):
+            kind = "choose_card_type"
+            prompt = "Kartentyp wählen"
+            options = [{"id": quality, "label": label} for quality, label in _CARD_TYPE_OPTIONS]
         elif isinstance(effect, ChooseBasicLandTypeReplacement):
             kind = "choose_basic_land_type"
             prompt = "Standard-Landtyp wählen"
@@ -2736,7 +2747,7 @@ class CastingResolutionMixin:
         })
     @continuations.choice(
         "choose_creature_type", "choose_color", "choose_named_mode",
-        "choose_basic_land_type", "choose_card_name", "choose_number", "choose_opponent_on_enter",
+        "choose_basic_land_type", "choose_card_type", "choose_card_name", "choose_number", "choose_opponent_on_enter",
         "choose_enter_counter",
         answer=continuations.ANSWER_STR,
         rule="601.2b",
@@ -2784,7 +2795,7 @@ class CastingResolutionMixin:
                 str(options[0]["id"]) if options else None
             )
         if obj is not None and chosen is not None:
-            if choice["kind"] in ("choose_creature_type", "choose_basic_land_type"):
+            if choice["kind"] in ("choose_creature_type", "choose_basic_land_type", "choose_card_type"):
                 obj.chosen_type = chosen
             elif choice["kind"] == "choose_named_mode":
                 obj.chosen_mode = chosen

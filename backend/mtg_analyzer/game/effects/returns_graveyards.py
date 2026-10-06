@@ -1274,6 +1274,160 @@ class RevealUntilMatchingEffect(GameEffect):
             )
 
 
+class ExileCreaturesRevealThatManyEffect(GameEffect):
+    """"Exile all creatures you control, then reveal cards from the top of your library until you reveal that many
+    creature cards. Put all creature cards revealed this way onto the battlefield, then shuffle the rest of the revealed
+    cards into your library." (Mass Polymorph) — and, with ``delayed``, "Exile all creatures you control. At the beginning
+    of the next end step, reveal … that many creature cards, …" (Synthetic Destiny).
+
+    The count is read once, as the creatures are exiled (tokens included — they are creatures you control), and is baked
+    into the reveal: immediately, or into a RULE 603.7 delayed trigger armed for the next end step
+    (`CreateDelayedTriggerEffect`), which keeps the number after the spell has left the stack.
+    """
+
+    def __init__(self, delayed: bool = False, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.delayed = bool(delayed)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        mine = [o for o in context.state.battlefield if o.controller_id == player.id and o.is_creature]
+        for obj in mine:
+            context.exile(obj)
+        count = len(mine)
+        if count <= 0:
+            return
+        reveal = {"type": "reveal_until", "params": {
+            "criteria": {"type": "Creature"}, "count": count,
+            "hit_destination": "battlefield", "rest_destination": "library_shuffled",
+        }}
+        if not self.delayed:
+            context.engine.reveal_until_matching(
+                player, reveal["params"]["criteria"], count=count, hit_destination="battlefield",
+                rest_destination="library_shuffled",
+            )
+            return
+        CreateDelayedTriggerEffect(
+            step="end", scope="any", effects=[reveal], source=self.source,
+            description=f"Synthetic Destiny: bis zu {count} Kreaturenkarten aufdecken und ins Spiel bringen",
+        ).apply(context, None)
+
+
+class ReplaceTargetWithRevealedEffect(GameEffect):
+    """"Exile another target planeswalker or creature you control. Reveal cards from the top of your library until you
+    reveal a creature or planeswalker card. Put that card onto the battlefield and the rest on the bottom of your library
+    in a random order." (Jace, Multiverse Architect's −3) / "Put target creature on the bottom of its owner's library. That
+    creature's controller reveals cards from the top of their library until they reveal a creature card. The player puts
+    that card onto the battlefield and the rest on the bottom of their library in any order." (Proteus Staff).
+
+    ``removal`` is how the target leaves (``"exile"`` or ``"bottom"`` of its owner's library); ``revealer`` is who reveals
+    (``"controller"`` of this ability, or the ``"target_controller"`` as it was before the target left). ``criteria`` is a
+    `card_query` dict. **Simplification:** "in any order" is the random bottom order.
+    """
+
+    def __init__(
+        self, target_kind: str = "creature", removal: str = "exile", revealer: str = "controller",
+        criteria: Any = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.removal = removal if removal in ("exile", "bottom") else "exile"
+        self.revealer = revealer if revealer in ("controller", "target_controller") else "controller"
+        self.criteria = criteria if criteria is not None else {"type": "Creature"}
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        revealer_id = target.controller_id if self.revealer == "target_controller" else getattr(
+            self.source, "controller_id", None
+        )
+        if self.removal == "bottom":
+            context.return_to_library(target, "bottom")
+        else:
+            context.exile(target)
+        try:
+            revealer = context.state.player_by_id(revealer_id)
+        except (KeyError, ValueError):
+            return
+        context.engine.reveal_until_matching(
+            revealer, self.criteria, count=1, hit_destination="battlefield", rest_destination="library_bottom_random",
+        )
+
+
+class RevealOpponentLibraryStealEffect(GameEffect):
+    """"Target opponent reveals cards from the top of their library until they reveal a historic permanent card. You put
+    that card onto the battlefield under your control and lose life equal to that permanent's mana value. That player
+    puts the rest of the revealed cards on the bottom of their library in a random order." (Jhoira, Weatherlight Corsair)
+
+    The hit is taken from the *opponent's* library but enters under this ability's controller (RULE 110.2); the life loss
+    reads the card's mana value as it was revealed. **Simplification:** the rest go to the bottom in random order rather
+    than an order the opponent picks.
+    """
+
+    def __init__(self, criteria: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.criteria = criteria if criteria is not None else {}
+        self.target_spec = TargetSpec(kind="opponent")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        import random
+
+        from ...models.cards import card_query
+
+        opponent = targets[0] if targets else None
+        me = _controller_of(self.source, context)
+        if opponent is None or me is None:
+            return
+        revealed: list[Any] = []
+        hit = None
+        while opponent.library and hit is None:
+            obj = opponent.library.pop()
+            revealed.append(obj)
+            context.state.fire_event(
+                GameEvent(EventType.REVEAL, player_id=opponent.id, object=obj.name,
+                          instance_id=obj.instance_id, from_zone="library")
+            )
+            if card_query.matches(obj.card, self.criteria):
+                hit = obj
+        rest = [o for o in revealed if o is not hit]
+        random.shuffle(rest)
+        for obj in rest:
+            obj.zone = Zone.LIBRARY
+            opponent.library.insert(0, obj)
+        if hit is None:
+            return
+        hit.controller_id = me.id
+        context.engine._put_searched_card(me, hit, "battlefield")
+        mana_value = int(getattr(hit.card, "converted_mana_cost", 0) or 0)
+        if mana_value > 0:
+            context.lose_life(me, mana_value)
+
+
+class OwnerChoosesLibraryPositionEffect(GameEffect):
+    """"The owner of up to one other target nonland permanent puts it on their choice of the top or bottom of their
+    library." (Plan for All Outcomes) — RULE 401.4 puts the decision with the target's *owner*, so a one-option
+    `library_position` choice is opened for them (`RulesEngine._request_library_position`)."""
+
+    def __init__(
+        self, target_kind: str = "nonland_permanent", optional: bool = True, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        try:
+            owner = context.state.player_by_id(target.owner_id)
+        except (KeyError, ValueError):
+            return
+        context.engine._request_library_position(owner, target)
+
+
 class ExpressiveIterationEffect(GameEffect):
     """"Look at the top three cards of your library. Put one of them into
     your hand, put one of them on the bottom of your library, and exile one

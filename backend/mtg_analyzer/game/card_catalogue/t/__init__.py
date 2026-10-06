@@ -6,6 +6,7 @@ from . import talion_the_kindly_lord  # noqa: F401
 from . import talon_gates_of_madara  # noqa: F401
 from . import tam_mindful_first_year  # noqa: F401
 from . import tamiyo_field_researcher  # noqa: F401
+from . import tamiyo_upriser_crowned  # noqa: F401
 from . import tanazir_quandrix  # noqa: F401
 from . import tangle_wire  # noqa: F401
 from . import tangleweave_armor  # noqa: F401
@@ -16,6 +17,7 @@ from . import tear_asunder  # noqa: F401
 from . import tectonic_giant  # noqa: F401
 from . import teferi_master_of_time  # noqa: F401
 from . import teferi_s_protection  # noqa: F401
+from . import teferi_s_reproach  # noqa: F401
 from . import teferi_s_time_twist  # noqa: F401
 from . import teferi_time_raveler  # noqa: F401
 from . import tekuthal_inquiry_dominus  # noqa: F401
@@ -43,6 +45,7 @@ from . import the_master_gallifrey_s_end  # noqa: F401
 from . import the_mycosynth_gardens  # noqa: F401
 from . import the_one_ring  # noqa: F401
 from . import the_reaper_king_no_more  # noqa: F401
+from . import the_ur_sphinx  # noqa: F401
 from . import the_wandering_emperor  # noqa: F401
 from . import the_wise_mothman  # noqa: F401
 from . import they_came_from_the_pipes  # noqa: F401
