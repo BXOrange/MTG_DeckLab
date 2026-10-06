@@ -2052,6 +2052,9 @@ def _trigger_condition(
     # off `SPELL_CAST`'s own ``mana_spent`` (`GameObject.mana_spent_to_cast`,
     # already 0 for a free-cast/alt-cost spell — `RulesEngine.cast_spell`'s
     # own ``free_cast``/alt-cost branches never bump it).
+    if trigger.get("spell_no_colored_mana_spent"):
+        predicates.append(lambda event, context: not event.get("colors_spent"))
+
     if trigger.get("spell_no_mana_spent"):
         def _spell_no_mana_ok(event: Any, context: Any) -> bool:
             return not event.get("mana_spent")

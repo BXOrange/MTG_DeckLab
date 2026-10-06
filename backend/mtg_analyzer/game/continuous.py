@@ -3820,6 +3820,10 @@ def cost_reduction_for(
                     continue
             elif not _spell_targets_hit(targets, if_targets, state, ability.source):
                 continue
+        if ability.params.get("card_name_from_source"):
+            chosen = getattr(ability.source, "chosen_card_name", None)
+            if not chosen or obj is None or obj.card.name != chosen:
+                continue
         spell_type = ability.params.get("spell_type")
         if ability.params.get("spell_type_from_source_mode"):
             # Cloud Key's "spells you cast of the chosen type": the card type picked as it entered
@@ -4738,6 +4742,11 @@ def activation_prohibited(
             continue
         if is_mana_ability and ability.params.get("except_mana_abilities"):
             continue
+        player_id = ability.params.get("player_id")
+        if player_id is not None:
+            if source.controller_id == player_id:
+                return True
+            continue
         if source in affected_objects(state, ability):
             return True
     return False
@@ -4966,6 +4975,11 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             ability.params
         )
         if gate and not static_conditions.condition_holds(gate, state, ability.source, controller_id):
+            continue
+        if ability.params.get("player_id") is not None and ability.params["player_id"] != player.id:
+            continue
+        spell_types = ability.params.get("spell_types")
+        if spell_types and not any(getattr(card, f"is_{word}", False) for word in spell_types):
             continue
         scope = ability.params.get("scope", "opponents")
         if scope == "opponents" and player.id in (None, controller_id):

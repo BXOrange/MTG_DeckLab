@@ -82,3 +82,6 @@ from . import prodigy_s_prototype  # noqa: F401
 from . import peacewalker_colossus  # noqa: F401
 from . import persistent_constrictor  # noqa: F401
 from . import protection_magic  # noqa: F401
+from . import portable_hole  # noqa: F401
+from . import petrified_hamlet  # noqa: F401
+from . import paladin_class  # noqa: F401

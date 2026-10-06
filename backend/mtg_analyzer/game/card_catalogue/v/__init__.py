@@ -35,3 +35,4 @@ from . import vizier_of_many_faces
 from . import vile_mutilator  # noqa: F401
 from . import valgavoth_harrower_of_souls  # noqa: F401
 from . import vial_smasher_the_fierce  # noqa: F401
+from . import void_mirror  # noqa: F401

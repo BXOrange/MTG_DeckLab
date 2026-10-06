@@ -864,6 +864,7 @@ class GameState:
         #: very next call rolls straight into the next turn's untap. Plain
         #: board state — deep-copies with `clone`.
         self.end_turn_requested: bool = False
+        self.end_combat_requested: bool = False
 
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of
@@ -997,6 +998,7 @@ class GameState:
         #: equals the *current* internal turn, so this needs no cleanup-step
         #: bookkeeping (it simply stops matching once the turn advances,
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
+        self.next_spell_flash_grants: list[dict[str, Any]] = []
         self.temp_flash_until_turn: dict[str, int] = {}
         #: PAR-124: "You may cast **sorcery** spells this turn as though
         #: they had flash." (Complete the Circuit) — the type-scoped sibling

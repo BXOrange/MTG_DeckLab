@@ -2789,14 +2789,16 @@ class ScryEffect(GameEffect):
         self,
         count: Any = 1,
         source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         #: How many: a number or an `effect_amounts` operand ("Scry X, where X is the number of
         #: creatures in your party" — Cascade Seer).
         self.count = count
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
+        player = targets[0] if self.target_spec is not None and targets else _controller_of(self.source, context)
         if player is None:
             return
         context.scry(player, self._measured(self.count, context, targets), source=self.source)
@@ -2932,7 +2934,7 @@ class LookTopSelectEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is not None:
             context.look_top_select(
-                player, self.count, self.select_count, self.rest_destination,
+                player, self._measured(self.count, context, targets), self.select_count, self.rest_destination,
                 self.rest_order, select_optional=self.select_optional,
                 select_filter=self.select_filter,
             )

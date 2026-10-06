@@ -76,3 +76,6 @@ from . import grist_the_hunger_tide  # noqa: F401
 from . import grab_the_prize  # noqa: F401
 from . import gold_forged_thopteryx  # noqa: F401
 from . import guide_of_souls  # noqa: F401
+from . import get_lost  # noqa: F401
+from . import gleaming_splendor  # noqa: F401
+from . import gideon_of_the_trials  # noqa: F401

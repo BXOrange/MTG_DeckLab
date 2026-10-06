@@ -267,7 +267,11 @@ class TestBacklogSizes:
         # for Spirit-Sister's Call), 95 -> 97.
         # Death Toll adds one: `exile_selected_then_return_one` (Winter, Cynical Opportunist — judge a selected graveyard
         # set, exile it, then choose the permanent card that returns with a finality counter), 97 -> 98.
-        assert n <= 98, f"continuation types grew to {n}"
+        # Sans Soleil adds three reviewed adapters over existing suspension/entry
+        # frames: sacrifice-source/rider, revealed-creature recipients, and
+        # hand exile with turn-scoped play/draw plus delayed return. Scry/draw
+        # and Tezzeret's counter/animation sequences remain composed atoms.
+        assert n <= 101, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

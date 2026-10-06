@@ -1281,7 +1281,7 @@ EffectRegistry.register(
     # Borne Upon a Wind (unrestricted) / Complete the Circuit ("sorcery
     # spells", PAR-124's ``card_types`` narrowing).
     "grant_flash_until_eot",
-    lambda p: GrantFlashUntilEndOfTurnEffect(card_types=p.get("card_types")),
+    lambda p: GrantFlashUntilEndOfTurnEffect(card_types=p.get("card_types"), next_only=bool(p.get("next_only", False))),
 )
 EffectRegistry.register(
     "become_saddled", lambda p: BecomeSaddledEffect(),  # Guardian Sunmare's own "Saddle N"
@@ -2965,7 +2965,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "scry", lambda p: ScryEffect(
-        count=p.get("count", p.get("amount", 1)),
+        count=p.get("count", p.get("amount", 1)), target_kind=p.get("target_kind"),
     )
 )
 EffectRegistry.register(
@@ -4295,11 +4295,11 @@ EffectRegistry.register(
     # two marker statics read live by `RulesEngine._loss_prevented`/`_player_loses` and `player_wins`
     # (`continuous.player_cant_lose` / `player_cant_win`); the Platinum Angel family.
     "cant_lose_game",
-    lambda p: StaticAbility("cant_lose_game", affects="self", params={}),
+    lambda p: StaticAbility("cant_lose_game", affects="self", params={**_selectors(p)}),
 )
 EffectRegistry.register(
     "opponents_cant_win",
-    lambda p: StaticAbility("opponents_cant_win", affects="self", params={}),
+    lambda p: StaticAbility("opponents_cant_win", affects="self", params={**_selectors(p)}),
 )
 EffectRegistry.register(
     # "Each creature that's enchanted by an Aura you control can't attack you
@@ -4453,6 +4453,7 @@ EffectRegistry.register(
         affects=p.get("affects", "your_spells"),
         params={
             "generic": p.get("generic", 1),
+            **({"card_name_from_source": True} if p.get("card_name_from_source") else {}),
             **({"colored": p["colored"]} if p.get("colored") else {}),
             "increase": bool(p.get("increase", False)),
             # Delve/Affinity-shaped "{N} less for each <count_selector>"
@@ -4605,6 +4606,7 @@ EffectRegistry.register(
             # prohibition covers mana abilities too, which is what makes Null
             # Rod stop an artifact's "{T}: Add {C}".
             "except_mana_abilities": bool(p.get("except_mana_abilities", False)),
+            **({"player_id": p["player_id"]} if p.get("player_id") else {}),
             **_selectors(p),
         },
     ),
@@ -4713,6 +4715,8 @@ EffectRegistry.register(
             # live off `GameObject.chosen_mode` (`continuous.
             # cast_prohibited`'s own ``type_from_source_mode`` gate).
             "type_from_source_mode": bool(p.get("type_from_source_mode", False)),
+            **({"player_id": p["player_id"]} if p.get("player_id") else {}),
+            **({"spell_types": list(p["spell_types"])} if p.get("spell_types") else {}),
             **_selectors(p),
         },
     ),

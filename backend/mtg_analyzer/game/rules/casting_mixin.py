@@ -837,6 +837,7 @@ class CastingResolutionMixin:
         free_cast = (obj.instance_id in self.state.free_cast_instance_ids
                      and self.state.resolution_play_choice is None)
         source_mana_spent = {}
+        obj.colors_spent_to_cast = frozenset()
         obj.mana_spent_to_cast_treasure = 0
         obj.mana_spent_to_cast_creature = 0
         if free_cast:
@@ -901,6 +902,11 @@ class CastingResolutionMixin:
             obj.mana_spent_to_cast_treasure = source_mana_spent.get("treasure", 0)
             obj.mana_spent_to_cast_creature = source_mana_spent.get("creature", 0)
         self.lose_life(player, life_spent, cause="cost")
+        self.state.next_spell_flash_grants = [
+            g for g in self.state.next_spell_flash_grants
+            if not (g['player_id'] == player.id and g['turn'] == self.state.internal_turn.number
+                    and (not g['card_types'] or set(g['card_types']) & obj.type_words))
+        ]
         # "The next spell you cast this turn costs {N} less" is used up by
         # this cast, whether or not the discount mattered (RULE 601.2f).
         continuous.consume_next_spell_cost_reductions(self.state, player.id, obj)
@@ -973,6 +979,7 @@ class CastingResolutionMixin:
                 EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 mana_spent=obj.mana_spent_to_cast,
+                colors_spent=sorted(obj.colors_spent_to_cast),
                 creature_mana_spent=getattr(obj, "mana_spent_to_cast_creature", 0) or 0,
                 mana_spent_by_source=source_mana_spent,
                 from_hand=from_hand,

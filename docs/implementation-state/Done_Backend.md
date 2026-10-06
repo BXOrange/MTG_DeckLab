@@ -181,6 +181,11 @@ The World Shaper regression checks the counter immediately after activation.
 - **What:** `GameObject.mana_spent_to_cast` plus a `SPELL_CAST` event `mana_spent` key distinguish "cast for an alternative/reduced cost of {0}" (still a paid cast) from th…
 - **Files:** `game/game_engine.py`, `models/events.py`
 
+Paid casts also stamp the actual WUBRG colours used (including mana spent on
+generic costs) onto `SPELL_CAST.colors_spent`. The binder's
+`spell_no_colored_mana_spent` gate distinguishes colourless/free payments
+from coloured payments; coverage is in `test_sans_soleil_deck.py`.
+
 ### Triggered mana ability (RULE 605.1b/605.4)
 
 - **What:** `TriggeredAbility.mana_ability` resolves off-stack the instant it fires, so mana from an ability triggered off another mana ability is spendable within the same…
@@ -965,6 +970,15 @@ source; turn and event-history gates are checked when a card is played or cast.
 
 - **What:** `GameState.end_turn_requested` + `GameEngine.advance_step`'s drain — a `RulesEngine` effect can't reach the turn-loop cursor directly, so `end_the_turn` exiles…
 - **Files:** `models/game_state.py`, `game/engine/turn_loop_mixin.py`, `game/rules_engine.py`.
+
+### End the combat phase (RULE 724.2)
+
+`end_combat_phase` exiles the stack and the resolving spell, clears combat
+assignments and queued triggers, expires combat-duration effects, and requests
+that the turn loop skip the current combat's remaining steps. A separately
+scheduled additional combat is preserved; end-of-combat triggers are skipped.
+The authored cast-timing metadata accepts `phase="combat"`.
+Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 
 ### Mass Board-Wipe Damage Selectors (Opponents + Their Permanents)
 
@@ -2380,6 +2394,13 @@ Copies use the existing spell-copy primitive and do not count as casts.
 - **Files:** `game/continuous.py`
 - **Why:** That evaluation-against-the-casting-player property is exactly why it can't be expressed as a layer value.
 
+Turn-scoped grants can pin a target `player_id` on `cast_prohibition` and
+`activation_prohibition`; `spell_types` narrows the cast ban, and the existing
+mana-ability exemption remains effective. Named-card cost taxes share
+`card_name_from_source` with activation prohibitions. Conditional can't-lose
+and opponents-can't-win statics retain their `active_if` gate in emblems.
+Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
+
 ### History-scoped cast restriction (Hope of Ghirapur)
 
 - **What:** `GameState.combat_damage_to_players_this_turn` and the `player_dealt_combat_damage_by_source` target kind answer a "history" question no live board state can an…
@@ -3056,6 +3077,14 @@ of their reminder text or catalogue entry.
 - **What:** RULE 702.92/702.112 went from recognized-only to real behavior: a Living Weapon's ETB now creates and self-attaches a germ token (`LivingWeaponEffect`, one atom…
 - **Files:** `game/binding/core.py`
 
+### Next-spell flash permission
+
+`grant_flash_until_eot` accepts `next_only` with a card-type filter. The first
+matching cast consumes the grant even if ordinary timing would already allow
+it; unrelated spells leave it available, and cleanup removes unused grants.
+This shares the existing flash timing check and snapshot state rather than
+granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
+
 ### RULE 702.8b Flash Gates Cast Timing
 
 - **What:** `GameEngine.can_cast`'s sorcery-speed timing check now actually consults the Flash keyword (`sorcery_speed = not (card.is_instant or combat.has(obj, "flash"))`)…
@@ -3494,7 +3523,21 @@ of their reminder text or catalogue entry.
 - **Files:** `game/rules_engine.py`, `game/ability_catalogue.py`
 - **Why:** A multi-typed permanent kept by one type's cut can still be swept by another type's cut in this model — real rules let the same permanent count as the kept pick…
 
+### Resumable linked resolution sequences
+
+Source-sacrifice riders suspend across replacement choices and require a
+successful sacrifice by the resolving controller. Revealed creatures use the
+existing copy/name entry choosers before distinct-opponent recipient choices.
+Hand-exile play grants reuse face-down viewers, mana-type permissions,
+turn-scoped owner-draw triggers and delayed batch returns. These are three
+reviewed adapters over existing continuation frames; no new one-card-special
+or fusion types were added. Targeted scry/draw and conditional untap/counter
+or counter/animation remain composed existing operations.
+Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
+
 ### `look_top_select` (Game Engine / Turn Loop & Actions)
+
+The look count also accepts an `effect_amounts` operand measured at resolution.
 
 - **What:** `RulesEngine.look_top_select`/`LookTopSelectEffect` — "Look at the top N cards.
 - **Files:** `game/rules/search_mixin.py`, `parser/oracle/segmenter.py`

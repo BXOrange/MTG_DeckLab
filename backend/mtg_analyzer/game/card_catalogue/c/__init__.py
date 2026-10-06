@@ -125,3 +125,5 @@ from . import cramped_vents_access_maze  # noqa: F401
 from . import carrion_grub  # noqa: F401
 from . import cemetery_tampering  # noqa: F401
 from . import convert_to_slime  # noqa: F401
+from . import calamitys_wake  # noqa: F401
+from . import charitable_levy  # noqa: F401

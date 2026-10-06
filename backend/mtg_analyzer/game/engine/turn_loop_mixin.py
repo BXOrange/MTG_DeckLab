@@ -381,6 +381,14 @@ class TurnLoopMixin:
         # effect that requested it) can see `_turn_steps`/`_cursor`.
         while self.state.pending_extra_combats:
             self.insert_additional_combat_phase(self.state.pending_extra_combats.pop(0))
+        ended_combat = self.state.end_combat_requested
+        if ended_combat:
+            self.state.end_combat_requested = False
+            # RULE 724.2d: skip this phase's remaining steps. A separately
+            # scheduled additional combat is the next phase and must still run.
+            phase = self._turn_steps[max(0, self._cursor - 1)][0] if self._turn_steps else None
+            while self._cursor < len(self._turn_steps) and self._turn_steps[self._cursor][0] is phase:
+                self._cursor += 1
         if self.state.end_turn_requested:
             # RULE 500-adjacent "end the turn" (Day's Undoing) — the
             # reminder text's own "discard down to your maximum hand size.
@@ -402,14 +410,14 @@ class TurnLoopMixin:
                 self.state.current_step = "cleanup"
                 self.state.priority_player_index = None
                 return ("ending", "cleanup")
-        if self.state.current_step == "declare_attackers":
+        if not ended_combat and self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
             self._enforce_goad_requirements()
             self._enforce_must_attack_player()
             self._enforce_attack_alone_restrictions()
             self._fire_player_attacked_events()
             self._fire_attacks_alone_event()
-        if self.state.current_step == "declare_blockers":
+        if not ended_combat and self.state.current_step == "declare_blockers":
             self._enforce_block_requirements()
             self._fire_unblocked_events()
         if not self._turn_steps or self._cursor >= len(self._turn_steps):
@@ -898,6 +906,7 @@ class TurnLoopMixin:
                 player.player_effects = [
                     e for e in player.player_effects
                     if not getattr(e, "damage_prevention_shield", False)
+                    or getattr(e, "until_next_turn_of", None) is not None
                 ]
             # Same "this turn" expiry (RULE 119.3/611.2a), for
             # `RulesEngine.prevent_life_gain_this_turn`'s (Roiling Vortex)
@@ -1009,6 +1018,7 @@ class TurnLoopMixin:
         # RULE 514.2: MEC-24's targeted "gains flashback until end of turn"
         # grant is a flat per-turn expiry (unlike `temp_play_permissions`'
         # own "until your next turn" survival above) — cleared unconditionally.
+        self.state.next_spell_flash_grants.clear()
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
         self.state.temp_graveyard_cast_permissions.clear()

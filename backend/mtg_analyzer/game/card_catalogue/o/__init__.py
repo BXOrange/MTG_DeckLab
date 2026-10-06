@@ -30,3 +30,4 @@ from . import oversold_cemetery
 from . import observed_stasis  # noqa: F401
 from . import one_with_the_multiverse  # noqa: F401
 from . import old_stickfingers  # noqa: F401
+from . import orims_chant  # noqa: F401

@@ -651,6 +651,8 @@ for the upstream contract and limits.
 - **Turn structure** — full turn/phase/step loop, the stack, RULE 117
   priority (opt-in per session, played out for real in multiplayer), the
   RULE 704 state-based-action pass, all agreed-on mulligan procedures.
+  RULE 724.2's `end_combat_phase` skips the current combat's remaining steps
+  while preserving any separately scheduled additional combat.
 - **Mana** — the whole model (generic/colour/colourless/hybrid/mono-hybrid/
   Phyrexian/{X}), RULE 605.3a spend restrictions, "any combination of
   colours", hand-zone mana abilities, triggered mana abilities.
@@ -662,6 +664,9 @@ for the upstream contract and limits.
   shape); RULE 613.6 conditional statics and RULE 611 durations as two
   general systems (`game/static_conditions.py`, `game/durations.py`);
   attachment (Aura/Equipment/Fortify/Reconfigure).
+  Turn-scoped cast/activation restrictions can pin a target player; named-card
+  cost taxes share the existing `card_name_from_source` selector. Temporary
+  flash permissions support a type-filtered next-spell grant, consumed at cast.
 - **Abilities** — activated (incl. loyalty `[±N]`/`[-X]`), triggered, RULE
   616 replacement effects; interactive ordering and interactive
   target / "you may" choices; RULE 603.7 delayed triggers; RULE 608.2

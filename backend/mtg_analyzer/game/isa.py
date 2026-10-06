@@ -236,6 +236,7 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("lose_game", "104.3", ROLE_AGENT),
         _ins("take_extra_turn", "500.7", ROLE_AGENT, ROLE_AMOUNT),
         _ins("end_the_turn", "724", ROLE_AGENT),
+        _ins("end_combat_phase", "724.2", ROLE_AGENT),
         _ins("skip_step", "500.8", ROLE_AGENT, ROLE_PATIENT),
         _ins("create_continuous_effect", "611", ROLE_PATIENT, ROLE_DURATION,
              note="a resolving instruction creating a RULE 611 continuous "
@@ -392,6 +393,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "draw": "draw",
     "earthbend": "earthbend",
     "end_the_turn": "end_the_turn",
+    "end_combat_phase": "end_combat_phase",
     "endure": "endure",
     "exchange_control": "exchange",
     "exile": "exile",
@@ -486,6 +488,11 @@ _ALIAS_TYPES: dict[str, str] = {
     "remove_from_combat": "set_status",  # RULE 506.4 — Observed Stasis
     "become_saddled": "set_status",
     "become_solved": "set_status",
+    "remember_card_name": "set_status",
+    "pump_attacker_per_other_attacker": "create_continuous_effect",
+    "prevent_source_damage_until_next_turn": "create_continuous_effect",
+    "return_exiled_batch_to_hand": "move_object",
+    "restrict_target_player_this_turn": "create_continuous_effect",
     "bounce_own_land_from_trigger": "move_object",
     "cant_block_this_turn": "create_continuous_effect",
     "cant_be_regenerated": "create_continuous_effect",
@@ -774,6 +781,9 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    "sacrifice_source_then": "616",
+    "reveal_creatures_give_opponents": "608.2d",
+    "exile_hand_may_play_owner_draws": "603.7",
     "choose_player_on_enter": "614.12",
     # Aminatou's Augury (the optional land) and Spirit-Sister's Call (the optional sacrifice) suspend on a resolution choice.
     "aminatous_augury": "608.2d",

@@ -695,7 +695,9 @@ class CastingMixin:
             return False
         restriction = getattr(obj, "cast_timing_restriction", None)
         if restriction is not None:
-            if self.state.current_step != restriction.get("step"):
+            if restriction.get("phase") and self.state.current_phase != restriction["phase"]:
+                return False
+            if restriction.get("step") and self.state.current_step != restriction["step"]:
                 return False
             if restriction.get("opponents_turn") and self.state.active_player is player:
                 return False
@@ -731,6 +733,11 @@ class CastingMixin:
         # TurnEffect`), independent of any keyword/condition on the object
         # itself.
         has_temp_flash = self.state.temp_flash_until_turn.get(player.id) == self.state.internal_turn.number
+        has_temp_flash |= any(
+            g['player_id'] == player.id and g['turn'] == self.state.internal_turn.number
+            and (not g['card_types'] or set(g['card_types']) & obj.type_words)
+            for g in self.state.next_spell_flash_grants
+        )
         # PAR-124: "You may cast sorcery spells this turn as though they
         # had flash." (Complete the Circuit) — the type-scoped sibling of
         # the blanket grant just above (`GameState.temp_flash_until_turn_

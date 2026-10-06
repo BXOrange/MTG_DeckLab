@@ -89,3 +89,4 @@ from . import rakdos_lord_of_riots  # noqa: F401
 from . import resplendent_angel  # noqa: F401
 from . import restoration_magic  # noqa: F401
 from . import riverchurn_monument  # noqa: F401
+from . import reprieve  # noqa: F401

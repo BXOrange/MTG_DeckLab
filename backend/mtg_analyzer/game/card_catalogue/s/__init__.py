@@ -179,3 +179,4 @@ from . import suspended_sentence  # noqa: F401
 from . import shabraz_the_skyshark  # noqa: F401
 from . import sphinx_of_the_revelation  # noqa: F401
 from . import starfield_shepherd  # noqa: F401
+from . import scouts_warning  # noqa: F401

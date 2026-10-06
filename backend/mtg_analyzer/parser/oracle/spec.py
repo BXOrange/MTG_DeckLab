@@ -1117,6 +1117,7 @@ class AbilitySpec:
     def _validate_cast_timing_restriction(self) -> None:
         """Validate PAR-35's deliberately closed combat-window restriction."""
         if self.cast_timing_restriction not in (
+            {"phase": "combat"},
             {"step": "declare_attackers", "controller_attacked": True},
             # "Cast this spell only during the declare blockers step on an opponent's turn." (Illusionist's Gambit)
             {"step": "declare_blockers", "opponents_turn": True},

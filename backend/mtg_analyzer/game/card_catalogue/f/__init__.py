@@ -59,3 +59,4 @@ from . import forgotten_creation
 from . import fear_of_sleep_paralysis  # noqa: F401
 from . import florian_voldaren_scion  # noqa: F401
 from . import fear_of_burning_alive  # noqa: F401
+from . import fomori_vault  # noqa: F401
