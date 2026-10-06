@@ -383,8 +383,12 @@ class OptionalEffect(_CompositeEffect):
         prompt: str = "",
         player: Any = "you",
         source: Optional[GameObject] = None,
+        else_effects: Optional[list[Any]] = None,
     ) -> None:
         super().__init__(effects, source)
+        #: "…may sacrifice it. **If they don't**, ~ deals 5 damage to that player." (Star Athlete, Enchanter's Bane) — the body
+        #: that runs when the question is declined; carried on the pending choice like ``effect_specs``.
+        self.else_specs = _as_spec_dicts(else_effects)
         self.prompt = str(prompt or "")
         #: Who is asked. "you" (the ability's controller) is every printed
         #: "you may"; ``"target"`` is "target player may …"; a
@@ -404,7 +408,7 @@ class OptionalEffect(_CompositeEffect):
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if not self.inner_specs:
+        if not self.inner_specs and not self.else_specs:
             return
         referent_subject_id = None
         if self.player == "target":
@@ -473,6 +477,7 @@ class OptionalEffect(_CompositeEffect):
                 {"id": "decline", "label": "Nein"},
             ],
             "effect_specs": [dict(spec) for spec in self.inner_specs],
+            "else_specs": [dict(spec) for spec in self.else_specs],
             "source_id": getattr(self.source, "instance_id", None),
             # RULE 601.2c: the targets were fixed when the ability went on the
             # stack (see `target_specs` above), but the body does not run until
@@ -685,6 +690,7 @@ EffectRegistry.register(
         effects=p.get("effects"),
         prompt=p.get("prompt", ""),
         player=p.get("player", "you"),
+        else_effects=p.get("else_effects"),
     ),
 )
 EffectRegistry.register(

@@ -678,8 +678,12 @@ class ImprintEffect(GameEffect):
         include_card_type: Optional[str] = None,
         max_mana_value: Optional[int] = None,
         source: Optional["GameObject"] = None,
+        pool: str = "hand",
     ) -> None:
         super().__init__(source)
+        #: ``"graveyards"`` — "exile a creature card from **a graveyard**" (Dermotaxi): the candidates are matching cards in
+        #: every player's graveyard rather than the controller's hand.
+        self.pool = pool if pool in ("hand", "graveyards") else "hand"
         self.optional = optional
         self.exclude_card_types = [str(t).lower() for t in (exclude_card_types or [])]
         self.include_card_type = str(include_card_type).lower() if include_card_type else None
@@ -692,15 +696,19 @@ class ImprintEffect(GameEffect):
         player = _controller_of(source, context)
         if player is None:
             return
+        pool = (
+            [obj for owner in context.state.players for obj in owner.graveyard] if self.pool == "graveyards" else player.hand
+        )
         candidates = [
-            obj for obj in player.hand
+            obj for obj in pool
             if not any(getattr(obj.card, f"is_{t}", False) for t in self.exclude_card_types)
             and (self.include_card_type is None or getattr(obj.card, f"is_{self.include_card_type}", False))
             and (self.max_mana_value is None or obj.card.converted_mana_cost <= self.max_mana_value)
         ]
         context.engine._request_choose_objects(
             player, candidates, "exile", count=1, optional=self.optional,
-            prompt=f"{source.name}: Karte aus der Hand exilieren?",
+            prompt=(f"{source.name}: Karte aus einem Friedhof exilieren" if self.pool == "graveyards"
+                    else f"{source.name}: Karte aus der Hand exilieren?"),
             source=source, remember=True,
         )
 
@@ -1915,9 +1923,13 @@ class ReturnAllExiledWithEffect(GameEffect):
 
     def __init__(
         self, counter_if_creature: Optional[dict[str, Any]] = None, source: Optional["GameObject"] = None,
+        tapped: bool = False,
     ) -> None:
         super().__init__(source)
         self.counter_if_creature = dict(counter_if_creature or {}) or None
+        #: "…return all cards exiled with this Vehicle except this card to the battlefield **tapped** under their owners'
+        #: control." (Mechtitan Core)
+        self.tapped = bool(tapped)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
@@ -1931,7 +1943,7 @@ class ReturnAllExiledWithEffect(GameEffect):
             if self.counter_if_creature:
                 kind = str(self.counter_if_creature.get("kind", "+1/+1"))
                 card_obj.entry_bonus_creature_counters[kind] = int(self.counter_if_creature.get("count", 1))
-            context.return_from_graveyard(card_obj, "battlefield")
+            context.return_from_graveyard(card_obj, "battlefield_tapped" if self.tapped else "battlefield")
 
 
 class CreateTokenForLinkedExileEffect(GameEffect):
@@ -3018,6 +3030,58 @@ class ReturnCreaturesByPowerParityEffect(GameEffect):
             if (int(obj.power or 0) % 2 == 1) == want_odd:
                 context.return_to_hand(obj)
 
+
+
+class BecomeCopyOfImprintedUntilEndOfTurnEffect(GameEffect):
+    """"Until end of turn, ~ becomes a copy of the exiled card, except it's a Vehicle artifact in addition to its other types."
+    (Dermotaxi) — the Imprint payoff: this permanent copies the card it exiled (`GameObject.linked_exile_id`, RULE 707.2) until
+    cleanup restores it (`RulesEngine.become_copy_until_end_of_turn`, RULE 514.2). Nothing happens without an imprinted card."""
+
+    def __init__(self, add_types: Optional[list[str]] = None, add_subtypes: Optional[list[str]] = None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.add_types = list(add_types or [])
+        self.add_subtypes = list(add_subtypes or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        imprinted = context.state.find_object(getattr(source, "linked_exile_id", None)) if source is not None else None
+        if source is None or imprinted is None or imprinted is source:
+            return
+        context.become_copy_until_end_of_turn(source, imprinted, self.add_types or None, self.add_subtypes or None)
+
+
+class TransferExiledWithToCreatedEffect(GameEffect):
+    """Hand the cards this source exiled (`GameObject.exiled_with_ids`, RULE 607.2a) to the token(s) the earlier clause of this
+    resolution created, so *their* "return all cards exiled with ~" leaves-the-battlefield ability finds them (Mechtitan Core's
+    Mechtitan: "return all cards exiled with this Vehicle except this card")."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        ids = list(getattr(source, "exiled_with_ids", None) or [])
+        for token in list(getattr(context, "created_objects", None) or []):
+            token.exiled_with_ids = list(ids)
+
+
+class ExileSelfWithCountersEffect(GameEffect):
+    """"Exile ~ with three time counters on it." (Suspended Sentence — a resolving instant/sorcery exiles *itself* instead of going to the
+    graveyard, `RulesEngine._resolve_spell_post`'s "an effect already moved it" branch honouring it.) With its printed Suspend, the
+    time counters then run the card's own suspend upkeep trigger (RULE 702.62a)."""
+
+    def __init__(self, kind: str = "time", count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.kind = str(kind)
+        self.count = max(0, int(count))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        context.exile(source)
+        if source.zone == Zone.EXILE:
+            source.add_counters(self.kind, self.count)
 
 
 register(globals())

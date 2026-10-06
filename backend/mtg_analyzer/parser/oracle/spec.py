@@ -328,6 +328,8 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # "You can't cast this spell during your first, second, or third turns of the game." (Serra Avenger) — the
         # value N is how many of the caster's own turns forbid it; holds on every other turn.
         "own_turn_after",
+        # "You can't cast this spell unless an opponent lost life this turn." (Rakdos, Lord of Riots) — a plain boolean gate.
+        "opponent_lost_life_this_turn",
     }
 )
 

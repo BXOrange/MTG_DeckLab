@@ -78,3 +78,6 @@ from . import peema_aether_seer  # noqa: F401
 from . import pia_nalaar_chief_mechanic  # noqa: F401
 from . import papalymo_totolymo  # noqa: F401
 from . import phenomenon_investigators  # noqa: F401
+from . import prodigy_s_prototype  # noqa: F401
+from . import peacewalker_colossus  # noqa: F401
+from . import persistent_constrictor  # noqa: F401

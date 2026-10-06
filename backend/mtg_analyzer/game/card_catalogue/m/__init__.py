@@ -90,3 +90,12 @@ from . import mosswort_bridge
 from . import mutilate
 from . import midnight_clock  # noqa: F401
 from . import moldgraf_monstrosity  # noqa: F401
+from . import mobile_garrison  # noqa: F401
+from . import mech_hangar  # noqa: F401
+from . import mobilizer_mech  # noqa: F401
+from . import mutavault  # noqa: F401
+from . import mechtitan_core  # noqa: F401
+from . import mechtitan  # noqa: F401
+from . import mask_of_griselbrand  # noqa: F401
+from . import massacre_girl  # noqa: F401
+from . import mogis_god_of_slaughter  # noqa: F401

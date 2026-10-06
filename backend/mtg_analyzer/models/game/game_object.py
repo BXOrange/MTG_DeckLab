@@ -361,6 +361,9 @@ class GameObject:
         #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
         self.sacrificed_cost_mana_value: Optional[int] = None
         self.sacrificed_cost_card_types: list[str] = []
+        #: The card types of the card(s) discarded as this spell's additional cost ("If the discarded card wasn't a land card", Grab the
+        #: Prize) — stamped by `GameEngine._pay_additional_cast_cost`, read by `effect_conditions`' ``discarded_cost_card_is``.
+        self.discarded_cost_card_types: list[str] = []
         self.sacrificed_cost_was_suspected: bool = False
         #: The *power* sibling of the field above (MEC-43, Altar of
         #: Dementia: "Sacrifice a creature: target player mills cards equal
@@ -1456,6 +1459,7 @@ class GameObject:
         self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None
         self.sacrificed_cost_card_types = []
+        self.discarded_cost_card_types = []
         self.sacrificed_cost_was_suspected = False
         self.sacrificed_cost_power = None
         self.station_tapped_power = None

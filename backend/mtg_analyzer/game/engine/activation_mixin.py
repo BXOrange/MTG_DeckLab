@@ -16,6 +16,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+import re
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -625,7 +626,7 @@ class ActivationMixin:
         if cost.saddle_power:
             # RULE 702.171a (Guardian Sunmare, MEC-40) — identical pool
             # shape to `crew_power` just above, reusing the same resolver.
-            if self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices) is None:
+            if self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices, crewing=False) is None:
                 return False
         if cost.station:
             # RULE 702.184a: "Tap another untapped creature you control" —
@@ -651,6 +652,12 @@ class ActivationMixin:
                     return False
                 count = x
             if self._resolve_sacrifice_count(player, count, subtype, tap_choices, source) is None:
+                return False
+        if cost.exile_others:
+            # Mechtitan Core: "Exile ~ and four other artifact creatures and/or Vehicles you control" — the picks reuse
+            # `tap_choices` (as `sacrifice_count` does); the source itself is never one of them.
+            count, word = cost.exile_others
+            if self._resolve_sacrifice_count(player, count, word, tap_choices, source) is None:
                 return False
         if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
             return False
@@ -727,6 +734,17 @@ class ActivationMixin:
         pool = [obj for obj in self._tap_others_pool(player, source, subtype)
                 if not (exclude_source and obj is source)]
         return self._resolve_pool_cost(pool, count, chosen_ids)
+    #: "This token crews Vehicles as though its power were 2 greater." (the Pilot token) — RULE 702.122a's crew total
+    #: counts the creature's power plus this bonus. Read off the creature's own rules text.
+    _CREW_BONUS_RE = re.compile(r"crews vehicles as though its power were (\d+) greater", re.IGNORECASE)
+
+    @classmethod
+    def _crew_power_of(cls, obj: GameObject) -> int:
+        """What ``obj`` contributes toward a Crew N cost: its power, plus any "crews Vehicles as though its power were
+        N greater" bonus (RULE 702.122a)."""
+        match = cls._CREW_BONUS_RE.search(getattr(obj.card, "oracle_text", "") or "")
+        return max(0, obj.power or 0) + (int(match.group(1)) if match else 0)
+
     def _crew_pool(self, player: Player, source: GameObject) -> list[GameObject]:
         """Every untapped creature ``player`` controls other than ``source``
         itself — RULE 702.122a's "any number of **other** untapped creatures
@@ -750,7 +768,7 @@ class ActivationMixin:
         return {
             "power_required": cost.crew_power,
             "options": [
-                {"instance_id": o.instance_id, "name": o.name, "power": o.power or 0}
+                {"instance_id": o.instance_id, "name": o.name, "power": self._crew_power_of(o)}
                 for o in pool
             ],
         }
@@ -760,6 +778,7 @@ class ActivationMixin:
         source: GameObject,
         power_required: int,
         chosen_ids: Optional[list[Any]],
+        crewing: bool = True,
     ) -> Optional[list[GameObject]]:
         """The creatures to actually tap for a `crew_power` cost (RULE
         702.122a's "total power N or greater") — an "any number from a
@@ -775,6 +794,8 @@ class ActivationMixin:
         so an automated caller doesn't tap more of the board than it has to.
         """
         pool = self._crew_pool(player, source)
+        # A Pilot's "crews Vehicles as though its power were 2 greater" applies to Crew only, not to Saddle.
+        power_of = self._crew_power_of if crewing else (lambda o: o.power or 0)
         by_id = {o.instance_id: o for o in pool}
         if chosen_ids is not None:
             chosen: list[GameObject] = []
@@ -784,17 +805,17 @@ class ActivationMixin:
                     return None
                 seen.add(iid)
                 chosen.append(by_id[iid])
-            if sum(o.power or 0 for o in chosen) < power_required:
+            if sum(power_of(o) for o in chosen) < power_required:
                 return None
             return chosen
-        ranked = sorted(pool, key=lambda o: o.power or 0, reverse=True)
+        ranked = sorted(pool, key=power_of, reverse=True)
         auto_chosen: list[GameObject] = []
         total = 0
         for o in ranked:
             if total >= power_required:
                 break
             auto_chosen.append(o)
-            total += o.power or 0
+            total += power_of(o)
         return auto_chosen if total >= power_required else None
     def _station_cost_choice(self, player: Player, source: GameObject, cost: "ActivationCost") -> dict[str, Any]:
         """The offer-time UI shape for a `station` cost (RULE 702.184a): an
@@ -1277,7 +1298,7 @@ class ActivationMixin:
             # mechanics as ``crew_power`` just above; no "saddled_by"
             # bookkeeping equivalent to `crewed_by_ids` since no printed
             # card asks "who saddled it".
-            for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices) or []:
+            for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices, crewing=False) or []:
                 self.rules.set_tapped(obj, True)
         if cost.station:
             # RULE 702.184a: tap the chosen creature, then remember its
@@ -1336,6 +1357,11 @@ class ActivationMixin:
             # (`Player.counters["energy"]`), same generic dict "rad"/
             # "poison" already use.
             self.rules.add_player_counters(player, -cost.pay_energy, "energy")
+        if cost.exile_others:
+            count, word = cost.exile_others
+            for obj in self._resolve_sacrifice_count(player, count, word, tap_choices, source) or []:
+                self.rules.exile(obj)
+                source.exiled_with_ids.append(obj.instance_id)  # RULE 607.2a: "exiled with this Vehicle"
         if cost.exile_self:
             # RULE 602.2b: exiled as the cost is paid; the ability still
             # resolves, reading ~'s last-known information (RULE 608.2h).

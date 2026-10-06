@@ -645,6 +645,9 @@ class TurnLoopMixin:
                     and not continuous.has_no_untap_static(self.state, obj)
                 ):
                     self.rules.set_tapped(obj, False)
+        #: How many of the active player's permanents actually untapped in this step — carried on the UNTAP event for
+        #: "whenever you untap one or more permanents during your untap step" (The Millennium Calendar).
+        untapped_count = 0
         for obj in self.state.permanents_controlled_by(active.id):
             if skip_whole_step or self.rules.should_skip_step(
                 active, "untap_permanents"
@@ -674,7 +677,9 @@ class TurnLoopMixin:
                 # like any other untap route — RULE 603.2's "whenever a
                 # permanent becomes untapped" fires during the untap step
                 # too (confirmed by Mesmeric Orb's own real-card ruling).
+                was_tapped = obj.tapped
                 self.rules.set_tapped(obj, False)
+                untapped_count += int(was_tapped and not obj.tapped)
                 for i, cap in enumerate(untap_caps):
                     if continuous.matches_untap_cap_filter(obj, cap):
                         cap_counts[i] += 1
@@ -711,7 +716,7 @@ class TurnLoopMixin:
             obj.times_attacked_this_turn = 0
         for pl in self.state.players:
             pl.speed_increased_this_turn = False
-        self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
+        self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id, permanents_untapped=untapped_count))
         # RULE 731.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.
         self.rules.apply_day_night_turn_check()

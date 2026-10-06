@@ -67,6 +67,7 @@ EffectRegistry.register(
         recipient_subject=p.get("recipient_subject"),
         unpreventable=bool(p.get("unpreventable", False)),
         dealer_event_key=p.get("dealer_event_key"),
+        dealer_subject=p.get("dealer_subject"),
     ),
 )
 EffectRegistry.register(
@@ -1069,7 +1070,12 @@ EffectRegistry.register(
         exclude_card_types=p.get("exclude_card_types"),
         include_card_type=p.get("include_card_type"),
         max_mana_value=p.get("max_mana_value"),
+        pool=p.get("pool", "hand"),
     ),
+)
+EffectRegistry.register(
+    "become_copy_of_imprinted_until_eot",  # Dermotaxi
+    lambda p: BecomeCopyOfImprintedUntilEndOfTurnEffect(add_types=p.get("add_types"), add_subtypes=p.get("add_subtypes")),
 )
 EffectRegistry.register(
     # "You may copy the exiled card. If you do, you may cast the copy
@@ -1211,7 +1217,12 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "return_all_exiled_with",
-    lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature")),
+    lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature"), tapped=bool(p.get("tapped", False))),
+)
+EffectRegistry.register("transfer_exiled_with_to_created", lambda p: TransferExiledWithToCreatedEffect())  # Mechtitan Core
+EffectRegistry.register(  # "Exile ~ with three time counters on it." (Suspended Sentence)
+    "exile_self_with_counters",
+    lambda p: ExileSelfWithCountersEffect(kind=str(p.get("kind", "time")), count=int(p.get("count", 1) or 1)),
 )
 EffectRegistry.register(
     "exile_any_number_you_control",
@@ -1954,6 +1965,7 @@ EffectRegistry.register(
     "return_specific_to_hand",
     lambda p: ReturnSpecificToHandEffect(objects=[]),
 )
+EffectRegistry.register("crewed_event", lambda p: CrewedEventEffect())  # RULE 702.122e — a Vehicle becomes crewed
 EffectRegistry.register(
     # "…exile any number of cards from your graveyard with four or more card types among them. If you do, put a
     # permanent card from among them onto the battlefield with a finality counter on it." (Winter, Cynical Opportunist)
@@ -2328,6 +2340,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)), card_types_any=p.get("card_types_any"),
         declined_ids=p.get("declined_ids"), else_effects=p.get("else_effects"),
         permanent_filter=p.get("permanent_filter"), else_simultaneous=bool(p.get("else_simultaneous", False)),
+        start_with_next_opponent=bool(p.get("start_with_next_opponent", False)),
     ),
 )
 EffectRegistry.register(
@@ -3187,6 +3200,7 @@ EffectRegistry.register(
         each_player=bool(p.get("each_player", False)),  # Mezzio Mugger
         mana_wildcard=p.get("mana_wildcard"),
         library_of=p.get("library_of"),  # Grenzo, Havoc Raiser: "that player's library"
+        rest_to_bottom=bool(p.get("rest_to_bottom", False)),  # Florian, Voldaren Scion
     ),
 )
 EffectRegistry.register(
@@ -3654,6 +3668,11 @@ EffectRegistry.register(
             # pass the same way the two ``chosen_*`` branches above are.
             "protection_from_colors_not_in_commanders_identity": bool(
                 p.get("protection_from_colors_not_in_commanders_identity", False)
+            ),
+            # "Artifacts you control have protection from each mana value among artifacts you control." (Rebbec,
+            # Architect of Ascension) — one ``mv:N`` quality per distinct mana value, re-read every pass.
+            "protection_from_mana_values_among_artifacts": bool(
+                p.get("protection_from_mana_values_among_artifacts", False)
             ),
             # RULE 702.16n/p: "This effect doesn't remove this Aura." —
             # exempts the *granting* object's own attachment from RULE

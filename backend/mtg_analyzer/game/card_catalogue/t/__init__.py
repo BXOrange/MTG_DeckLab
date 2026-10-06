@@ -114,3 +114,7 @@ from . import telling_time  # noqa: F401
 from . import the_eldest_reborn  # noqa: F401
 from . import the_master_of_keys  # noqa: F401
 from . import titania_nature_s_force  # noqa: F401
+from . import the_wanderer  # noqa: F401
+from . import the_millennium_calendar  # noqa: F401
+from . import theater_of_horrors  # noqa: F401
+from . import the_lord_of_pain  # noqa: F401

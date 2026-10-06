@@ -1339,6 +1339,13 @@ def count_selector(
             return 0
         lost = getattr(state, "life_lost_this_turn", None) or {}
         return int(lost.get(controller_id, 0) or 0)
+    if selector == "opponents_life_lost_this_turn":
+        # "…where X is the total amount of life your opponents lost this turn." (Florian, Voldaren Scion; Rakdos, Lord of
+        # Riots' "for each 1 life your opponents have lost this turn") — RULE 119.3, summed over every opponent.
+        if controller_id is None:
+            return 0
+        lost = getattr(state, "life_lost_this_turn", None) or {}
+        return sum(int(lost.get(p.id, 0) or 0) for p in state.players if p.id != controller_id)
     if selector == "players_who_lost_life_this_turn":
         # "…for each player who lost life this turn." (Reaper's Scythe) — event-derived (`life_lost_this_turn`).
         lost = getattr(state, "life_lost_this_turn", None) or {}
@@ -2231,6 +2238,14 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
         chosen_type = getattr(ability.source, "chosen_type", None)
         if chosen_type:
             quals.add(str(chosen_type).lower())
+    if ability.params.get("protection_from_mana_values_among_artifacts"):
+        # RULE 702.16a: "protection from each mana value among artifacts you control" is one protection per distinct
+        # mana value; `combat._quality_matches_type` matches a ``mv:N`` quality against the source's mana value.
+        controller_id = getattr(ability.source, "controller_id", None)
+        quals |= {
+            f"mv:{int(getattr(o.card, 'converted_mana_cost', 0) or 0)}"
+            for o in state.battlefield if o.controller_id == controller_id and o.card.is_artifact
+        }
     if ability.params.get("protection_from_colors_not_in_commanders_identity"):
         controller_id = getattr(ability.source, "controller_id", None)
         if controller_id is not None:
@@ -2639,6 +2654,11 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
         for obj in affected_objects(state, ability):
             if pt_selector == "mana_value":
                 obj_power = obj_toughness = getattr(obj.card, "converted_mana_cost", 0) or 0
+            elif pt_selector == "vehicle":
+                # "Target Vehicle becomes an artifact creature until end of turn." (Mech Hangar, Peacewalker Colossus)
+                # — RULE 301.7: it has the printed Vehicle P/T of *whichever* Vehicle was chosen.
+                obj_power = getattr(obj.card, "vehicle_power", None)
+                obj_toughness = getattr(obj.card, "vehicle_toughness", None)
             else:
                 obj_power, obj_toughness = power, toughness
             # RULE 613.7b: `abilities` is already timestamp-sorted, so a

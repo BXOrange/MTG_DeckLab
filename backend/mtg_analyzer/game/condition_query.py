@@ -174,6 +174,13 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             active = getattr(state, "active_player", None)
             if active is not None and active.id == controller_id and active.turns_taken <= int(value):
                 return False
+        elif key == "opponent_lost_life_this_turn":
+            # "You can't cast Rakdos unless an opponent lost life this turn." — RULE 119.3, derived from this turn's events.
+            lost = getattr(state, "life_lost_this_turn", None) or {}
+            if bool(value) != any(
+                int(lost.get(p.id, 0) or 0) > 0 for p in getattr(state, "players", []) if p.id != controller_id
+            ):
+                return False
         elif key == "control_land_type":
             # "If you control a Swamp, you may pay 4 life rather than pay
             # this spell's mana cost." (RULE 118.9, Snuff Out) — the

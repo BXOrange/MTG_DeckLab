@@ -1238,6 +1238,9 @@ def _quality_matches_type(quality: str, card: "Card") -> bool:
     attr = _CARD_TYPE_PROTECTIONS.get(quality)
     if attr is not None:
         return bool(getattr(card, attr, False))
+    if quality.startswith("mv:"):
+        # "protection from each mana value among artifacts you control" (Rebbec) — the source's printed mana value.
+        return quality[3:].isdigit() and int(getattr(card, "converted_mana_cost", 0) or 0) == int(quality[3:])
     singular = quality[:-1] if quality.endswith("s") else quality
     if not singular:
         return False

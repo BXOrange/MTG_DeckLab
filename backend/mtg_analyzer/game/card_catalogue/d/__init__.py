@@ -89,3 +89,5 @@ from . import dream_eater  # noqa: F401
 from . import deluge_of_doom  # noqa: F401
 from . import deadbridge_chant  # noqa: F401
 from . import demonic_covenant  # noqa: F401
+from . import digsite_engineer  # noqa: F401
+from . import dermotaxi  # noqa: F401

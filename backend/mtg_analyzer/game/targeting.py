@@ -195,6 +195,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "creature_or_land_you_control",
         # "target creature or Vehicle you control" (Roaring Earth).
         "creature_or_vehicle_you_control",
+        # "target Vehicle" / "another target Vehicle you control" (Mech Hangar, Peacewalker Colossus, Mobilizer Mech).
+        "vehicle",
+        "other_vehicle_you_control",
+        # "choose another target player" under a spell-cast trigger (The Lord of Pain): any living player except the one
+        # who cast the spell (the firing event's ``player_id``).
+        "player_other_than_event_player",
         # "another target creature or land you control" (Saryth, the Viper's
         # Fang) — the source-excluding sibling of the entry above.
         "another_creature_or_land_you_control",
@@ -688,6 +694,9 @@ class TargetSpec:
             "creature_or_enchantment_you_control": "Kreatur oder Verzauberung unter deiner Kontrolle",
             "creature_or_land_you_control": "Kreatur oder Land unter deiner Kontrolle",
             "creature_or_vehicle_you_control": "Kreatur oder Fahrzeug unter deiner Kontrolle",
+            "vehicle": "Fahrzeug",
+            "player_other_than_event_player": "anderer Spieler",
+            "other_vehicle_you_control": "anderes Fahrzeug unter deiner Kontrolle",
             "another_creature_or_land_you_control": "andere Kreatur oder Land unter deiner Kontrolle",
             "artifact_creature_or_land_you_control": "Artefakt, Kreatur oder Land unter deiner Kontrolle",
             "permanent_you_own": "Permanent, das du besitzt",
@@ -1185,6 +1194,7 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     # land sibling of `creature_or_enchantment` just above.
     "creature_or_land": lambda o: o.is_creature or o.is_land,
     "creature_or_vehicle": lambda o: o.is_creature or "vehicle" in o.card.type_line.lower(),
+    "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
     "human_or_artifact": lambda o: bool(o.card.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
     "artifact_creature_or_land": lambda o: o.is_creature or o.is_land or o.card.is_artifact,
     "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
@@ -1333,6 +1343,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "creature_or_land", SCOPE_YOU, exclude_source=False),
     "creature_or_vehicle_you_control": TargetFrame(
         "creature_or_vehicle", SCOPE_YOU, exclude_source=False),
+    "vehicle": TargetFrame("vehicle", exclude_source=False),
+    "other_vehicle_you_control": TargetFrame("vehicle", SCOPE_YOU),
     "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
     "artifact_creature_or_land_you_control": TargetFrame(
         "artifact_creature_or_land", SCOPE_YOU, exclude_source=False),
@@ -2043,6 +2055,14 @@ def _legal_targets_for(
             if o.is_creature and o is not source and _targetable_by(o, source)
         ]
         return spells + creatures
+    if kind == "player_other_than_event_player":
+        # The Lord of Pain: "choose another target player" — a living player other than the one the firing event names.
+        excluded = (trigger_event or {}).get("player_id") if trigger_event else None
+        return [
+            {"player_id": p.id, "name": p.name}
+            for p in state.living_players()
+            if p.id != excluded
+        ]
     if kind == "opponent":
         # "target opponent" — a living player besides this ability's own
         # controller. Purely a player list, so it stays a branch; its

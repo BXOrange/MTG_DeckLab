@@ -1645,4 +1645,18 @@ class PhaseOutEffect(GameEffect):
 
 
 
+class CrewedEventEffect(GameEffect):
+    """RULE 702.122e: the Vehicle "becomes crewed" — fires `EventType.CREWED` for the Crew ability's source once its
+    "becomes an artifact creature" grant has resolved, so "Whenever this Vehicle becomes crewed" triggers (Mobilizer Mech)
+    have an event to read."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None or source.zone != Zone.BATTLEFIELD:
+            return
+        context.fire_event(
+            GameEvent(EventType.CREWED, instance_id=source.instance_id, controller_id=source.controller_id, object=source.name)
+        )
+
+
 register(globals())

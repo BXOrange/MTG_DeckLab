@@ -387,8 +387,13 @@ class ImpulsiveDrawEffect(GameEffect):
         each_player: bool = False,
         mana_wildcard: Optional[str] = None,
         library_of: Optional[str] = None,
+        rest_to_bottom: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Look at the top X cards of your library. Exile one of those cards and put the rest on the bottom of your library
+        #: in a random order. You may play the exiled card this turn." (Florian, Voldaren Scion) — with ``choose_one``, the
+        #: cards not picked go back to the bottom at random instead of staying exiled.
+        self.rest_to_bottom = bool(rest_to_bottom)
         #: ``"that_player"``: exile from the library of the player the firing trigger names ("Exile the top
         #: card of **that player's** library", Grenzo, Havoc Raiser — the damaged player of a
         #: `DAMAGE`/`CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event, `targeting.trigger_player_antecedent`).
@@ -457,6 +462,8 @@ class ImpulsiveDrawEffect(GameEffect):
                 permission_player, exiled,
                 "grant_temp_play_same_turn" if self.same_turn_only else "grant_temp_play_next_turn",
                 count=1, optional=False, prompt="Wähle eine Karte", source=self.source,
+                rest_ids=[o.instance_id for o in exiled] if self.rest_to_bottom else None,
+                rest_destination="library_bottom_random" if self.rest_to_bottom else None,
             )
         # MEC-58: seed `created_objects` (the "the tokens"/"that card"
         # RULE 608.2 referent idiom this file already uses in several

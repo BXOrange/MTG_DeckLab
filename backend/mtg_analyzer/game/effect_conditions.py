@@ -142,6 +142,8 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
         "milled_land_this_way",
+        # Grab the Prize — the card discarded as this spell's additional cost had the card type ``card_type``.
+        "discarded_cost_card_is",
         # Demonic Covenant — two of the cards this resolution's mill moved have exactly the same set of card types.
         "milled_cards_share_all_types",
         # Grist, the Hunger Tide — a card this resolution's mill moved has the creature subtype ``subtype``
@@ -374,6 +376,11 @@ def _context_holds(
     if kind == "already_exerted":
         event = getattr(context, "trigger_event", None) or {}
         return bool(event.get("already_exerted"))
+
+    if kind == "discarded_cost_card_is":
+        if source is None:
+            return None
+        return str(condition.get("card_type", "")).lower() in (getattr(source, "discarded_cost_card_types", None) or [])
 
     if kind == "milled_land_this_way":
         milled = getattr(context, "milled_objects", None)

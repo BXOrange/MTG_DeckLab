@@ -35,3 +35,6 @@ from . import kutzil_malamet_exemplar  # noqa: F401
 from . import kwain_itinerant_meddler  # noqa: F401
 from . import kalitas_traitor_of_ghet
 from . import krile_baldesion  # noqa: F401
+from . import kotori_pilot_prodigy  # noqa: F401
+from . import kederekt_parasite  # noqa: F401
+from . import kardur_doomscourge  # noqa: F401

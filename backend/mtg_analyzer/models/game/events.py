@@ -382,6 +382,9 @@ class EventType:
     #: ``spell_controller_id`` is the countered spell's controller, ``spell`` its name.
     SPELL_COUNTERED = "SPELL_COUNTERED"
     LAND_PLAYED = "LAND_PLAYED"
+    #: RULE 702.122e: a Vehicle "becomes crewed" when its Crew ability resolves (Mobilizer Mech). ``instance_id`` is the Vehicle,
+    #: ``controller_id`` its controller; fired by `CrewedEventEffect`, the last effect of every Crew ability.
+    CREWED = "CREWED"
     #: RULE 702.28c: a card was cycled (its Cycling cost paid, discarding
     #: it — `ActivationCost.is_cycling` distinguishes this from Channel's
     #: own, unrelated ``discard_self`` cost). What a "When you cycle this

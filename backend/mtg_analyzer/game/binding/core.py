@@ -63,6 +63,7 @@ from ..effects.core import (
     GameEffect,
     GetCityBlessingEffect,
     GiftGiveEffect,
+    CrewedEventEffect,
     GrantUntilEffect,
     HauntEffect,
     LivingWeaponEffect,
@@ -2703,6 +2704,20 @@ def _trigger_condition(
 
         predicates.append(_not_their_turn)
 
+    if trigger.get("controllers_turn"):
+        # "Whenever an opponent loses life for the first time during **each of their turns**" (Valgavoth) — the mirror of
+        # ``not_controllers_turn``: the event's player must be the active player.
+        controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+
+        def _their_turn(event: Any, context: Any, ckey=controller_key) -> bool:
+            state = getattr(context, "state", None)
+            if state is None:
+                return False
+            actor = event.get(ckey)
+            return actor is not None and actor == state.active_player.id
+
+        predicates.append(_their_turn)
+
     chapters = trigger.get("chapter")
     if chapters:
         chapter_set = frozenset(chapters)
@@ -3594,7 +3609,8 @@ def _crew_activated_ability(
             duration="end_of_turn",
             target_kind=None,
             source=obj,
-        )
+        ),
+        CrewedEventEffect(source=obj),  # RULE 702.122e: "becomes crewed" (Mobilizer Mech)
     ]
     return ActivatedAbility(
         effects=effects,

@@ -83,3 +83,6 @@ from . import razorlash_transmogrant
 from . import rampaging_aetherhood  # noqa: F401
 from . import reaper_s_scythe  # noqa: F401
 from . import rendmaw_creaking_nest  # noqa: F401
+from . import reckoner_bankbuster  # noqa: F401
+from . import rebbec_architect_of_ascension  # noqa: F401
+from . import rakdos_lord_of_riots  # noqa: F401

@@ -168,3 +168,11 @@ from . import saheeli_sublime_artificer  # noqa: F401
 from . import summon_good_king_mog_xii  # noqa: F401
 from . import secret_arcade_dusty_parlor  # noqa: F401
 from . import spirit_sister_s_call  # noqa: F401
+from . import smuggler_s_copter  # noqa: F401
+from . import surgehacker_mech  # noqa: F401
+from . import shorikai_genesis_engine  # noqa: F401
+from . import syr_konrad_the_grim  # noqa: F401
+from . import star_athlete  # noqa: F401
+from . import sadistic_shell_game  # noqa: F401
+from . import spiked_corridor_torture_pit  # noqa: F401
+from . import suspended_sentence  # noqa: F401

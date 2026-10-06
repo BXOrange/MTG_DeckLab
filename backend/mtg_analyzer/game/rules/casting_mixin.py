@@ -1725,17 +1725,16 @@ class CastingResolutionMixin:
     def _resume_composite_optional(self, choice: dict[str, Any], accepted: bool = False) -> None:
         """Answer an ``optional`` composition node (ENG-37, RULE 601.2b).
 
-        Declining does nothing at all, which is what "you may" means — there
-        is no "if you don't" branch here; a card printing one spells it as an
-        ``if_else`` around the same question.
+        Declining does nothing at all, which is what "you may" means — unless the
+        node carries ``else_effects`` ("…may sacrifice it. If they don't, ~ deals
+        5 damage to that player." — Star Athlete, Enchanter's Bane), which run in
+        that case instead.
 
         The body runs through `_apply_effects_partitioned`, not a plain
         `apply` loop, so a body that itself opens a choice parks the rest of
         itself the same way it would have at the top level.
         """
-        if not accepted:
-            return
-        specs = choice.get("effect_specs") or []
+        specs = (choice.get("effect_specs") if accepted else choice.get("else_specs")) or []
         if not specs:
             return
         source = self.state.find_object(choice.get("source_id"))             if choice.get("source_id") is not None else None

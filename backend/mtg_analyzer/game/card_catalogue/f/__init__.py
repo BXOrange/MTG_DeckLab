@@ -57,3 +57,5 @@ from . import fable_of_the_mirror_breaker
 from . import first_responder
 from . import forgotten_creation
 from . import fear_of_sleep_paralysis  # noqa: F401
+from . import florian_voldaren_scion  # noqa: F401
+from . import fear_of_burning_alive  # noqa: F401

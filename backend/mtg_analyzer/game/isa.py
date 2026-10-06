@@ -472,6 +472,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "unattach": "attach",
     "attacker_creates_attacking_token": "create",
     "become_copy_until_eot": "copy_object",
+    "become_copy_of_imprinted_until_eot": "copy_object",  # Dermotaxi — the copied object is the Imprint-exiled card
     "become_copy_of_target_until_eot": "copy_object",
     "become_prepared": "set_status",
     "remove_from_combat": "set_status",  # RULE 506.4 — Observed Stasis
@@ -769,6 +770,8 @@ _CONTINUATION_TYPES: dict[str, str] = {
     # Aminatou's Augury (the optional land) and Spirit-Sister's Call (the optional sacrifice) suspend on a resolution choice.
     "aminatous_augury": "608.2d",
     "sacrifice_shared_type_to_return": "608.2d",
+    # Winter, Cynical Opportunist: judges the selected set, exiles it and asks which permanent card returns with a finality counter.
+    "exile_selected_then_return_one": "608.2d",
     "sacrifice_to_return_targets": "608.2d",
     "destroy_and_half_copies": "616",
     "mill_recover_permanent_subtype_bonus": "601.2b",
@@ -926,6 +929,11 @@ _SPECIAL_TYPES: dict[str, str] = {
     # "Do this only once each turn." gate (`action_unused_this_turn`) can refuse a second one (PAR-135).
     "action_stamp": "\"Do this only once each turn\" (Ondu Spiritdancer family)",
     "abstract_performance": "Abstract Performance",
+    # Bookkeeping events/links with no rules action of their own: RULE 702.122e "becomes crewed" (Mobilizer Mech) and
+    # RULE 607.2a's exiled-with link handed to a created token (Mechtitan Core).
+    "crewed_event": "Vehicle becomes crewed (RULE 702.122e)",
+    "transfer_exiled_with_to_created": "Mechtitan Core",
+    "exile_self_with_counters": "Suspended Sentence",
     "advanced_reconstruction_l1": "Advanced Reconstruction",
     "animists_awakening": "Animist's Awakening",
     "back_from_the_brink": "Back from the Brink",

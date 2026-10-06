@@ -45,7 +45,7 @@ class PreventCombatDamageDealtEffect(GameEffect):
 #: PAR-128: RULE 109.5's "each other creature" — every creature but this
 #: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s
 #: power-damage effect shares and does not iterate.
-_DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({"each_other_creature", "attacked_object"})
+_DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({"each_other_creature", "attacked_object", "random_opponent"})
 
 
 class DealDamageEffect(GameEffect):
@@ -97,8 +97,12 @@ class DealDamageEffect(GameEffect):
         recipient_subject: Optional[str] = None,
         unpreventable: bool = False,
         dealer_event_key: Optional[str] = None,
+        dealer_subject: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: ``"previous_target"`` — "**target enchantment** deals damage equal to its mana value to its controller"
+        #: (Enchanter's Bane): the object an earlier clause targeted is the damage's source, not this ability's.
+        self.dealer_subject = dealer_subject
         self._base_amount = amount
         #: "The damage can't be prevented." (Combust, RULE 615.6) — this one
         #: instance ignores prevention shields. Implemented by flipping the
@@ -425,6 +429,17 @@ class DealDamageEffect(GameEffect):
                 self._base_amount = operand
 
     def _apply_with_dealer(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.dealer_subject == "previous_target":
+            dealer = context.previous_targets[0] if context.previous_targets else None
+            if dealer is None:
+                return
+            original = self.source
+            self.source = dealer
+            try:
+                self._apply_from(context, targets)
+            finally:
+                self.source = original
+            return
         if self.dealer_event_key is None:
             self._apply_from(context, targets)
             return
@@ -695,6 +710,14 @@ class DealDamageEffect(GameEffect):
             for obj in list(context.state.battlefield):
                 if obj.is_creature and getattr(obj, "blocking", None) == src_id:
                     context.deal_damage(obj, amount, self.source)
+            return
+        if self.selector == "random_opponent":
+            # "choose an opponent at random. ~ deals damage equal to that spell's mana value to that player" (Vial Smasher
+            # the Fierce) — RULE 706's reproducible pick among the controller's living opponents.
+            opponents = [p for p in context.state.living_players() if p.id != controller_id]
+            victim = context.engine.random_choice(opponents)
+            if victim is not None:
+                context.deal_damage(victim, amount, self.source)
             return
         if self.selector == "event_player":
             # "whenever a player casts a spell, ~ deals 2 damage to that

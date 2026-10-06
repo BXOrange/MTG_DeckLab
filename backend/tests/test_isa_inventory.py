@@ -265,7 +265,9 @@ class TestBacklogSizes:
         # Miracle Worker adds two over the same chooser frames: `aminatous_augury` (exile eight, an optional land, a
         # free cast per nonland card type) and `sacrifice_shared_type_to_return` (Victimize's sacrifice/return linkage
         # for Spirit-Sister's Call), 95 -> 97.
-        assert n <= 97, f"continuation types grew to {n}"
+        # Death Toll adds one: `exile_selected_then_return_one` (Winter, Cynical Opportunist — judge a selected graveyard
+        # set, exile it, then choose the permanent card that returns with a finality counter), 97 -> 98.
+        assert n <= 98, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.
@@ -278,4 +280,7 @@ class TestBacklogSizes:
         # than an `INSTRUCTIONS` entry — examined, not a stray.
         n = len(isa.types_classified(isa.Classification.SPECIAL))
         # Living Death tracks its exile batch across three simultaneous actions.
-        assert n <= 59, f"one-card specials grew to {n}"
+        # Shorikai Vehicles adds two bookkeeping types: `crewed_event` (RULE 702.122e's "becomes crewed" event) and
+        # `transfer_exiled_with_to_created` (Mechtitan Core's exiled-with link), 59 -> 61. Endless Punishment adds
+        # `exile_self_with_counters` (Suspended Sentence's "Exile ~ with three time counters on it"), 61 -> 62.
+        assert n <= 62, f"one-card specials grew to {n}"

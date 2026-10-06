@@ -2593,6 +2593,8 @@ class CastingMixin:
                 chosen = self._resolve_discard_cost(
                     player, discard_count, discard_choices, exclude=obj
                 )
+                # "If the discarded card wasn't a land card" (Grab the Prize): remember what was discarded before it moves.
+                obj.discarded_cost_card_types = sorted({t for card in chosen or [] for t in continuous.card_types_of(card)})
                 with self.state.simultaneous():  # RULE 603.2c: one cost, one event
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=obj)

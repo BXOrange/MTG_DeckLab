@@ -1563,8 +1563,11 @@ class ChoosePlayerObjectsEffect(GameEffect):
     def __init__(self, player_ids=None, chosen_ids=None, then_that_many=None, source=None,
                  player_scope="you_and_defending", action="discard_or_sacrifice", optional=False,
                  card_types_any=None, declined_ids=None, else_effects=None, permanent_filter=None,
-                 else_simultaneous=False):
+                 else_simultaneous=False, start_with_next_opponent=False):
         super().__init__(source)
+        #: "Starting with the next opponent in turn order, each player chooses …" (Sadistic Shell Game) — the seat after the
+        #: controller chooses first and the controller last, instead of the usual APNAP order from the active player.
+        self.start_with_next_opponent = bool(start_with_next_opponent)
         self.player_ids = player_ids
         self.chosen_ids = []
         for item in chosen_ids or []:
@@ -1588,7 +1591,13 @@ class ChoosePlayerObjectsEffect(GameEffect):
         if self.player_ids is None:
             defender = _defending_player_of(self.source, context)
             wanted = {controller.id, getattr(defender, "id", None)}
-            remaining = [p.id for p in context.state.living_players_apnap()
+            seats = context.state.living_players_apnap()
+            if self.start_with_next_opponent:
+                # Rotate so the controller is last: the next living seat after them is first.
+                index = next((i for i, p in enumerate(seats) if p.id == controller.id), None)
+                if index is not None:
+                    seats = seats[index + 1:] + seats[:index + 1]
+            remaining = [p.id for p in seats
                          if (self.player_scope == "each_player" or
                              (p.id != controller.id if self.player_scope == "each_opponent" else p.id in wanted))]
         else:
@@ -1613,7 +1622,8 @@ class ChoosePlayerObjectsEffect(GameEffect):
                       "then_that_many": self.then_that_many, "player_scope": self.player_scope,
                       "action": self.action, "optional": self.optional, "card_types_any": self.card_types_any,
                       "declined_ids": self.declined_ids, "else_effects": self.else_effects,
-                      "permanent_filter": self.permanent_filter, "else_simultaneous": self.else_simultaneous}
+                      "permanent_filter": self.permanent_filter, "else_simultaneous": self.else_simultaneous,
+                      "start_with_next_opponent": self.start_with_next_opponent}
             declined = {"type": "choose_player_objects", "params": {
                 **params, "declined_ids": self.declined_ids + [player.id],
             }}

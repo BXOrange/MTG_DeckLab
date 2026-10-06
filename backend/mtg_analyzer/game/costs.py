@@ -364,6 +364,11 @@ class ActivationCost:
     #: "Exile ~" as a battlefield activation cost (RULE 602.2b) — the
     #: permanent goes to exile as the cost is paid.
     exile_self: bool = False
+    #: "Exile ~ and four other artifact creatures and/or Vehicles you control" (Mechtitan Core) — ``(count, permanent word)`` of
+    #: *other* permanents the controller exiles as the cost is paid (RULE 602.2b), picked from the `sacrifice_count`-style pool
+    #: (`GameEngine._sacrifice_count_pool`, so the word may be a compound like ``other_artifact_creature_or_vehicle``). They are
+    #: recorded on the source's `GameObject.exiled_with_ids` (RULE 607.2a).
+    exile_others: Optional[tuple[int, str]] = None
     #: "Spend only mana of the chosen color to activate this ability" (Throne
     #: of Eldraine's second ability, RULE 601.2b/106.6) — a colour-lock on
     #: *this ability's own* mana cost (as opposed to a spend restriction on
@@ -634,6 +639,7 @@ class ActivationCost:
             or self.add_counters_cost
             or self.exile_self_from_hand
             or self.exile_self
+            or self.exile_others
             or self.return_to_hand
             or self.return_to_hand_count
             or self.sacrifice_filter
@@ -731,6 +737,9 @@ class ActivationCost:
             parts.append("Exile this card from your hand")
         if self.exile_self:
             parts.append("Exile ~")
+        if self.exile_others:
+            count, word = self.exile_others
+            parts.append(f"Exile {count} other {_permanent_phrase(word)}(s)")
         if self.return_to_hand:
             parts.append(f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
         if self.return_to_hand_count:
@@ -792,6 +801,7 @@ class ActivationCost:
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
             "exile_self": self.exile_self,
+            "exile_others": list(self.exile_others) if self.exile_others else None,
             "return_to_hand": self.return_to_hand,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
             "sacrifice_filter": dict(self.sacrifice_filter) if self.sacrifice_filter else None,
@@ -938,6 +948,9 @@ def parse_activation_cost(
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "exile_self" in cost:
         parsed.exile_self = bool(cost["exile_self"])
+    if cost.get("exile_others"):
+        count, word = cost["exile_others"]
+        parsed.exile_others = (int(count), str(word))
     if "spend_only_chosen_color" in cost:
         parsed.spend_only_chosen_color = bool(cost["spend_only_chosen_color"])
     if "any_player_may_activate" in cost:

@@ -31,8 +31,8 @@ IRREDUCIBLE_KINDS = frozenset({
     # attachment legality (equip/fortify/reconfigure/enchant) off the
     # source's own parametric keywords
     "permanent",
-    # plain player lists
-    "player", "opponent",
+    # plain player lists ("another target player": every player but the one the firing event names — The Lord of Pain)
+    "player", "opponent", "player_other_than_event_player",
     # a per-turn damage record, not the board
     "player_dealt_combat_damage_by_source",
     # "any target" — the RULE 115.1 union of creature/planeswalker/battle
@@ -199,8 +199,10 @@ class TestDispatchIsStructural:
         # family): it wants every player, not `with_opponents`' opponents-only
         # union, and its type predicate reads `spec.creature_filter`'s subtype
         # at call time rather than being one of `_FRAME_TYPE_PREDICATES`'
-        # fixed lambdas — neither fits `TargetFrame`'s shape.
-        assert branches <= 15, (
+        # fixed lambdas — neither fits `TargetFrame`'s shape. Bumped 15 -> 16 for `player_other_than_event_player`
+        # (The Lord of Pain): a plain player list whose exclusion is read off the firing event, so — like
+        # `opponent` — it cannot be a battlefield frame.
+        assert branches <= 16, (
             f"{branches} name branches left in legal_targets; the frame "
             f"dispatch was supposed to absorb them"
         )

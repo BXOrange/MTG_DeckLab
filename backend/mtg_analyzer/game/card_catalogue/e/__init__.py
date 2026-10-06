@@ -69,3 +69,4 @@ from . import eshki_temur_s_roar
 from . import endless_ranks_of_the_dead
 from . import estinien_varlineau  # noqa: F401
 from . import eye_of_nidhogg  # noqa: F401
+from . import enchanter_s_bane  # noqa: F401
