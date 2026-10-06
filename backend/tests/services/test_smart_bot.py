@@ -291,3 +291,163 @@ def test_sacrifice_choice_preserves_combo_piece_and_uses_fodder():
     v['pending_choice'] = {'kind': 'choose_objects', 'action': 'sacrifice'}
     answers = [{'type': 'choose', 'option_id': str(i), 'instance_id': i} for i in (1, 2)]
     assert b.answer_choice(v, answers)['instance_id'] == 2
+
+
+# -- BUG-3: combo pieces / commander were never cast ------------------------
+
+KINNAN_COST = '{G}{U}'
+
+
+def kinnan_bot(*extra):
+    b = SmartBot('ann')
+    kinnan = spell('Kinnan', 'Whenever you tap a nonland permanent for mana, add one mana.',
+                   KINNAN_COST, 2, 'Legendary Creature — Human Druid', {'G', 'U'})
+    b.strategy = build_strategy([land(), *extra], [kinnan], [])
+    return b
+
+
+def petal_actions():
+    """Soporific Springs ({U}) and Lotus Petal (any colour, sacrificed)."""
+    petal = [{'index': i, 'mana': {c: 1}} for i, c in enumerate('WUBRG')]
+    return [{'type': 'tap_for_mana', 'instance_id': 10, 'name': 'Springs', 'ability_index': 0,
+             'cost_label': '{T}', 'options': [{'index': 0, 'mana': {'U': 1}}]},
+            {'type': 'tap_for_mana', 'instance_id': 11, 'name': 'Lotus Petal', 'ability_index': 0,
+             'cost_label': '{T}, Sacrifice ~', 'options': petal}]
+
+
+def kinnan_view(variations, casts=None):
+    v = view(command=[obj(1, 'Kinnan')], board=[obj(10, 'Springs'), obj(11, 'Lotus Petal')])
+    v['mana_potential'] = {'ann': {'open': {'U': 2, 'G': 1}, 'variations': variations}}
+    if casts is not None:
+        v['state']['players'][0]['commander_casts'] = casts
+    return v
+
+
+def test_commander_unlocked_by_sacrifice_mana_the_engine_does_not_offer():
+    b = kinnan_bot()
+    v = kinnan_view([{'mana': {'U': 1, 'G': 1}, 'total': 2}])
+    tap = b.play(v, petal_actions())
+    # The scarcest missing colour (G) comes from the Petal, not from the land.
+    assert (tap['type'], tap['instance_id'], tap['option_index']) == ('tap_for_mana', 11, 4)
+    # One unlock per card and turn: an unexpected refusal cannot burn sources.
+    assert b.play(v, petal_actions()) is None
+
+
+def test_commander_not_unlocked_when_unaffordable_or_taxed():
+    b = kinnan_bot()
+    assert b.play(kinnan_view([{'mana': {'U': 2}, 'total': 2}]), petal_actions()) is None
+    taxed = kinnan_view([{'mana': {'U': 1, 'G': 1}, 'total': 2}], casts={'1': 1})
+    assert kinnan_bot().play(taxed, petal_actions()) is None  # {G}{U} + {2} tax needs 4 mana
+
+
+def test_offered_commander_is_cast_instead_of_tapping_a_source():
+    b = kinnan_bot()
+    v = kinnan_view([{'mana': {'U': 1, 'G': 1}, 'total': 2}])
+    cast = {'type': 'cast_spell', 'instance_id': 1, 'mana_value': 2}
+    assert b.play(v, [cast, *petal_actions()])['type'] == 'cast_spell'
+
+
+def test_one_shot_mana_is_not_wasted_on_a_non_key_card():
+    b = kinnan_bot(spell('Bear', cost='{G}', identity={'G'}, types='Creature'))
+    v = kinnan_view([{'mana': {'U': 1, 'G': 1}, 'total': 2}])
+    v['state']['players'][0]['command'] = []
+    v['state']['players'][0]['hand'] = [obj(2, 'Bear')]
+    assert b.play(v, petal_actions()) is None
+
+
+def test_hand_mana_source_can_unlock_a_key_permanent():
+    b = kinnan_bot()
+    v = kinnan_view([{'mana': {'U': 1, 'G': 1}, 'total': 2}])
+    guide = {'type': 'activate_hand_mana', 'instance_id': 12, 'name': 'Elvish Spirit Guide',
+             'ability_index': 0, 'cost_label': 'Exile from hand',
+             'options': [{'index': 0, 'mana': {'G': 1}}]}
+    acts = [petal_actions()[0], guide]
+    assert b.play(v, acts)['type'] == 'activate_hand_mana'
+
+
+def shock_choice(life=40, hand=True):
+    v = view(hand=[obj(1, 'Bear')] if hand else [])
+    v['state']['players'][0]['life'] = life
+    v['pending_choice'] = {'kind': 'land_tapped'}
+    return v, [{'type': 'choose', 'option_id': 'pay'}, {'type': 'decline'}]
+
+
+def test_shock_land_is_paid_for_only_when_the_mana_is_needed_and_life_allows():
+    b = bot()
+    v, answers = shock_choice()
+    assert b.answer_choice(v, answers)['option_id'] == 'pay'
+    v, answers = shock_choice(life=8)
+    assert b.answer_choice(v, answers)['type'] == 'decline'
+    v, answers = shock_choice(hand=False)
+    assert b.answer_choice(v, answers)['type'] == 'decline'
+
+
+def test_reveal_land_always_reveals():
+    v = view(); v['pending_choice'] = {'kind': 'land_tapped_reveal'}
+    answers = [{'type': 'choose', 'option_id': 'reveal'}, {'type': 'decline'}]
+    assert bot().answer_choice(v, answers)['option_id'] == 'reveal'
+
+
+def test_mox_diamond_discards_a_land_instead_of_losing_itself():
+    v = view(hand=[obj(5, 'Forest'), obj(6, 'Island')])
+    v['pending_choice'] = {'kind': 'enter_or_graveyard'}
+    answers = [{'type': 'choose', 'option_id': '5', 'instance_id': 5},
+               {'type': 'choose', 'option_id': '6', 'instance_id': 6}, {'type': 'decline'}]
+    assert bot().answer_choice(v, answers)['type'] == 'choose'
+
+
+def test_mox_diamond_is_cast_only_with_a_land_to_spare():
+    mox = spell('Mox Diamond', 'If Mox Diamond would enter the battlefield, you may discard a land card instead.',
+                '{0}', 0, 'Artifact', set())
+    b = SmartBot('ann')
+    b.strategy = build_strategy([mox, land()], [], [])
+    cast = [{'type': 'cast_spell', 'instance_id': 1, 'mana_value': 0}]
+    assert b.play(view(hand=[obj(1, 'Mox Diamond')]), cast) is None
+    spare = view(hand=[obj(1, 'Mox Diamond'), obj(2, 'Forest', is_land=True), obj(3, 'Forest', is_land=True)])
+    assert b.play(spare, cast)['instance_id'] == 1
+
+
+def mulligan_view(hand):
+    v = view(hand=hand)
+    v['setup'] = {'complete': False, 'mulligan_count': 0}
+    return v
+
+
+def test_mulligan_counts_cheap_mana_sources_not_only_lands():
+    sol = spell('Sol Ring', 'T: Add {C}{C}.', '{1}', 1, 'Artifact', set())
+    b = SmartBot('ann')
+    b.strategy = build_strategy([land(), sol, bear('Bear')], [], [])
+    actions = [{'type': 'mulligan'}, {'type': 'keep_hand', 'bottom_count': 0}]
+    forest = lambda i: obj(i, 'Forest', is_land=True)
+    keep_hand = [forest(1), obj(2, 'Sol Ring')] + [obj(i, 'Bear') for i in range(3, 8)]
+    assert b.setup(mulligan_view(keep_hand), actions)['type'] == 'keep_hand'
+    no_sources = [forest(1)] + [obj(i, 'Bear') for i in range(3, 9)]
+    assert b.setup(mulligan_view(no_sources), actions)['type'] == 'mulligan'
+    no_land = [obj(2, 'Sol Ring')] + [obj(i, 'Bear') for i in range(3, 9)]
+    assert b.setup(mulligan_view(no_land), actions)['type'] == 'mulligan'
+
+
+def test_fetch_land_is_not_a_tutor_and_does_not_outscore_a_combo_piece():
+    fetch = Card(id='Strand', name='Flooded Strand', type_line='Land', is_land=True,
+                 oracle_text='{T}, Pay 1 life, Sacrifice Flooded Strand: Search your library for a Plains or Island card.')
+    strategy = build_strategy([fetch], [], combo())
+    assert 'tutor' not in strategy.cards['flooded strand'].roles
+
+
+def test_land_mana_ability_is_not_activated_for_nothing():
+    grove = Card(id='Grove', name='Waterlogged Grove', type_line='Land', is_land=True,
+                 oracle_text='{T}, Pay 1 life: Add {G} or {U}.')
+    b = SmartBot('ann')
+    b.strategy = build_strategy([grove], [], [])
+    v = view(board=[obj(1, 'Waterlogged Grove', is_land=True)])
+    assert b.play(v, [{'type': 'activate_ability', 'instance_id': 1, 'ability_index': 0}]) is None
+
+
+def test_cost_requirements_and_public_commander_casts():
+    from collections import Counter
+    from mtg_analyzer.models.game.player import Player
+    from mtg_analyzer.services.bot_strategy import cost_requirements
+    assert cost_requirements('{2}{G}{U}{X}') == (Counter({'G': 1, 'U': 1}), 2)
+    assert cost_requirements('{G/U}{C}') == (Counter({'C': 1}), 1)
+    player = Player('ann'); player.commander_casts[7] = 2
+    assert player.to_dict()['commander_casts'] == {'7': 2}

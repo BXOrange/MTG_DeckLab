@@ -41,6 +41,26 @@ lethal damage. Repeatable activations require visible resource/board progress
 and have a 64-use per-ability/turn ceiling, retained across lobby bot rebuilds
 and cleared on restart.
 
+## Mana the engine does not offer
+
+The engine offers `cast_spell` only when plain untapped sources can pay;
+auto-tap never spends sacrifice or hand-exile sources (Lotus Petal, Treasures,
+Elvish Spirit Guide) although the view's mana potential counts them. For a
+combo piece or the commander (a permanent) that is payable *with* them but
+not offered, Smart Bot first puts the scarcest missing colour into the pool
+with a manual `tap_for_mana` / `activate_hand_mana`, then casts it on the next
+call — at most once per card and turn, so an unexpected refusal cannot burn
+sources. Commander tax comes from the public `commander_casts` count on the
+player view (RULE 903.8). Other spells never trigger this.
+
+Entry choices follow the same need-based logic: a shock land is paid for when
+the hand or command zone holds something to cast and life is above a floor
+(`SHOCK_LIFE_FLOOR`), a "reveal a card" land always reveals, Mox Diamond is
+only cast with a spare land (and discards the land needed least). The
+mulligan counts lands plus cheap mana rocks/rituals, and lands are never
+tutors (a fetch land no longer earns the tutor bonus). A land's own mana
+ability is not activated for its own sake; spells auto-tap it.
+
 ## Concrete winning sequence and limits
 
 Thassa's Oracle + Demonic Consultation is recognized from the included cards

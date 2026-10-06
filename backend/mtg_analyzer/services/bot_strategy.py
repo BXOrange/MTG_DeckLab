@@ -20,6 +20,29 @@ def normalize(name: str) -> str:
     return ' '.join(name.casefold().split())
 
 
+#: Coloured (and colourless) mana symbols a printed cost can require.
+COST_COLOURS = 'WUBRGC'
+
+
+def cost_requirements(cost: str) -> tuple[Counter, int]:
+    """``({colour: pips}, generic)`` of a printed cost such as ``{2}{G}{U}``.
+
+    ``{X}`` counts as 0 and any other symbol (hybrid, Phyrexian, snow) as one
+    generic mana: a cheap lower bound that only ever errs towards "payable",
+    which is what a pre-check before the engine's own validation needs.
+    """
+    pips: Counter = Counter()
+    generic = 0
+    for symbol in re.findall(r'\{([^}]*)\}', cost or ''):
+        if symbol in COST_COLOURS:
+            pips[symbol] += 1
+        elif symbol.isdigit():
+            generic += int(symbol)
+        elif symbol != 'X':
+            generic += 1
+    return pips, generic
+
+
 ROLE_PATTERNS = {
     'ramp': r'add (?:\{|.*mana)|search your library for .*land',
     'draw': r'draw (?:a|two|three|four|x|\d+) cards?',
@@ -49,10 +72,15 @@ class CardPlan:
     @classmethod
     def from_card(cls, card: Any) -> 'CardPlan':
         text = (card.oracle_text or '').casefold()
+        types = card.type_line.casefold()
+        roles = frozenset(role for role, pattern in ROLE_PATTERNS.items() if re.search(pattern, text))
+        if 'land' in types:
+            # A fetch land searches the library but is not a tutor: the role
+            # would add the tutor bonus to every land activation and discard.
+            roles -= {'tutor'}
         return cls(card.name, text, card.mana_cost_string or '',
                    float(card.converted_mana_cost or 0), frozenset(card.color_identity or ()),
-                   card.type_line.casefold(),
-                   frozenset(role for role, pattern in ROLE_PATTERNS.items() if re.search(pattern, text)))
+                   types, roles)
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,22 @@ from typing import Any, Optional
 
 from .greedy import GreedyBot
 
+#: Fewest mana sources (lands + cheap mana rocks/rituals) an opening hand needs.
+MIN_OPENING_SOURCES = 2
+#: More lands than this in the opening hand is a flood, not a keep.
+MAX_OPENING_LANDS = 5
+#: A mana rock/ritual costing at most this much counts as an opening mana
+#: source (Sol Ring, Moxen, Lotus Petal, Elves); judgement call — a 3-drop
+#: rock does not rescue a hand that cannot cast anything on turn 2.
+CHEAP_MANA_MAX_VALUE = 2
+#: Below this life total a shock land stays tapped instead of costing 2 life
+#: (judgement call: roughly the point where a Commander table can punish it).
+SHOCK_LIFE_FLOOR = 10
+#: Lands on the battlefield from which Mox Diamond may cost the next land drop.
+MOX_DIAMOND_BOARD_LANDS = 3
+#: Types worth burning a one-shot mana source on (targets are not a concern).
+PERMANENT_TYPES = frozenset({'creature', 'artifact', 'enchantment', 'planeswalker'})
+
 
 class SmartBot(GreedyBot):
     """Bounded, deck-aware heuristic policy using only the client view.
@@ -126,7 +142,11 @@ class SmartBot(GreedyBot):
     def setup(self, view, actions):
         hand = self._mine(view).get('hand', [])
         lands = sum(o.get('is_land', False) for o in hand)
-        if ((lands < 2 or lands > 5) and view['setup'].get('mulligan_count', 0) < 2
+        # Cheap rocks/rituals are mana too: a land plus Sol Ring is a keep,
+        # while a hand of only spells is not.
+        sources = lands + sum(1 for o in hand if self._cheap_mana(o))
+        if ((lands < 1 or sources < MIN_OPENING_SOURCES or lands > MAX_OPENING_LANDS)
+                and view['setup'].get('mulligan_count', 0) < 2
                 and any(a['type'] == 'mulligan' for a in actions)):
             return {'type': 'mulligan'}
         count = next(a for a in actions if a['type'] == 'keep_hand').get('bottom_count', 0)
@@ -136,9 +156,39 @@ class SmartBot(GreedyBot):
                          -10 if o.get('is_land') and lands > 3 else self._card_value(view, o)))
         return {'type': 'keep_hand', 'bottom_instance_ids': [o['instance_id'] for o in ranked[:count]]}
 
+    def _cheap_mana(self, obj):
+        from mtg_analyzer.services.bot_strategy import normalize
+        plan = self.strategy.cards.get(normalize(obj.get('name') or ''))
+        return bool(plan and 'land' not in plan.types and 'ramp' in plan.roles
+                    and plan.mana_value <= CHEAP_MANA_MAX_VALUE)
+
+    def _wants_untapped_land(self, view):
+        # Paying life for an untapped entry only matters when something can
+        # be cast with the mana this turn.
+        me = self._mine(view)
+        has_spell = any(not o.get('is_land') for o in me.get('hand', [])) or bool(me.get('command'))
+        return has_spell and me.get('life', 40) > SHOCK_LIFE_FLOOR
+
     def answer_choice(self, view, answers):
         kind = (view.get('pending_choice') or {}).get('kind', '')
         choices = [a for a in answers if a['type'] == 'choose']
+        # RULE 614.1 enters-tapped options: a shock land is paid for when the
+        # mana is needed this turn, a "reveal a card" land always reveals
+        # (free), and Mox Diamond discards the land it needs least (a Mox
+        # that is declined is simply lost).
+        if kind == 'land_tapped' and self._wants_untapped_land(view):
+            pay = next((a for a in choices if a.get('option_id') == 'pay'), None)
+            if pay:
+                return pay
+        if kind == 'land_tapped_reveal':
+            reveal = next((a for a in choices if a.get('option_id') == 'reveal'), None)
+            if reveal:
+                return reveal
+        if kind == 'enter_or_graveyard':
+            lands = [a for a in choices if a.get('option_id') != 'decline']
+            if lands:
+                return min(lands, key=lambda a: (self._colour_need(view, self._plan(view, a))
+                                                 if self._plan(view, a) else 0))
         if kind == 'name_card' and choices and self._oracle_trigger(view):
             from collections import Counter
             from mtg_analyzer.services.bot_strategy import normalize
@@ -238,6 +288,7 @@ class SmartBot(GreedyBot):
         return not self._oracle_trigger(view)
 
     def play(self, view, actions):
+        offered_actions = actions
         actions = [a for a in actions if a['type'] not in self._IGNORED and not a.get('locked')]
         attacks = [a for a in actions if a['type'] == 'attack']
         if attacks:
@@ -279,6 +330,14 @@ class SmartBot(GreedyBot):
                                  for branch in summary.get('variations', []))
                 if not consultation_in_hand or not affordable:
                     continue  # wait until the complete win line is affordable
+            if plan and 'you may discard a land card instead' in plan.text:
+                # Mox Diamond costs a land card: only worth it with a spare
+                # one in hand, or once the board already has lands to spare.
+                hand_lands = sum(o.get('is_land', False) for o in self._mine(view).get('hand', []))
+                board_lands = sum(o.get('is_land', False) for o in state.get('battlefield', [])
+                                  if o.get('controller_id') == self.player_id)
+                if hand_lands < 1 or (hand_lands < 2 and board_lands < MOX_DIAMOND_BOARD_LANDS):
+                    continue
             if counter:
                 if not stack or self._stack_controller(stack[-1]) == self.player_id:
                     continue
@@ -317,6 +376,9 @@ class SmartBot(GreedyBot):
                 obj = self._object(view, a)
                 if a.get('attach_kind') and obj.get('attached_to'):
                     continue
+                if (obj.get('is_land') and 'add ' in text and 'search your library' not in text
+                        and 'becomes' not in text):
+                    continue  # a land's mana ability: spells auto-tap it, tapping it now only wastes the mana
                 turn = state.get('internal_turn', {}).get('number', 0)
                 key = (turn, self._signature(a))
                 if self._ability_uses.get(key, 0) >= 64 or self._activation_position(view, a) in self._ability_positions:
@@ -340,6 +402,10 @@ class SmartBot(GreedyBot):
                     if not complete:
                         continue
             candidates.append((score, built, a))
+        if main:
+            unlock = self._unlock_tap(view, offered_actions, max((c[0] for c in candidates), default=0))
+            if unlock is not None:
+                return unlock
         if not candidates:
             return None  # preserve mana instead of tapping it without a purpose
         _, built, offer = max(candidates, key=lambda item: item[0])
@@ -349,6 +415,64 @@ class SmartBot(GreedyBot):
             self._ability_uses[key] = self._ability_uses.get(key, 0) + 1
             self._ability_positions.add(self._activation_position(view, offer))
         return built
+
+    def _unlock_tap(self, view, actions, best_score):
+        """Tap a sacrifice / hand-exile mana source so a key permanent becomes castable.
+
+        The engine only offers ``cast_spell`` when plain untapped sources can
+        pay (never a Lotus Petal, Treasure or Spirit Guide), although the
+        view's mana potential counts them. A combo piece or commander that is
+        payable with them but not offered is therefore unlocked by putting
+        that mana into the pool first; the next call then sees the cast offer.
+        Once per card and turn, so an unexpected refusal cannot burn sources.
+        """
+        from mtg_analyzer.services.bot_strategy import cost_requirements, normalize
+        sources = [a for a in actions if a['type'] == 'activate_hand_mana' or (
+            a['type'] == 'tap_for_mana' and 'sacrifice' in str(a.get('cost_label', '')).casefold())]
+        if not sources:
+            return None
+        me = self._mine(view)
+        summary = view.get('mana_potential', {}).get(self.player_id, {})
+        pool = self.my_pool(view)
+        offered = {a.get('instance_id') for a in actions if a['type'] == 'cast_spell'}
+        turn = view['state'].get('internal_turn', {}).get('number', 0)
+        taxes = me.get('commander_casts') or {}
+        command_ids = {o.get('instance_id') for o in me.get('command', [])}
+        best = None
+        for obj in me.get('hand', []) + me.get('command', []):
+            plan = self.strategy.cards.get(normalize(obj.get('name') or ''))
+            if (not plan or obj.get('instance_id') in offered or 'land' in plan.types
+                    or not PERMANENT_TYPES & set(plan.types.split())
+                    or not (self._combo_piece(plan.name) or normalize(plan.name) in self.strategy.commanders)
+                    or self._ability_uses.get((turn, ('unlock', plan.name)), 0)):
+                continue
+            pips, generic = cost_requirements(plan.cost)
+            if obj.get('instance_id') in command_ids:
+                generic += 2 * taxes.get(str(obj['instance_id']), 0)
+            need = sum(pips.values()) + generic
+            payable = any(all(v['mana'].get(c, 0) + pool.get(c, 0) >= n for c, n in pips.items())
+                          and sum(v['mana'].values()) + sum(pool.values()) >= need
+                          for v in summary.get('variations', []))
+            if not payable:
+                continue
+            value = self._card_value(view, {'instance_id': obj['instance_id'], 'name': obj['name']})
+            if value > best_score and (best is None or value > best[0]):
+                best = (value, plan, pips)
+        if best is None:
+            return None
+        _, plan, pips = best
+        self._ability_uses[(turn, ('unlock', plan.name))] = 1
+        scarcity = summary.get('open', {})
+        # Supply the scarcest colour the card needs and the pool lacks.
+        wanted = sorted((c for c, n in pips.items() if pool.get(c, 0) < n), key=lambda c: scarcity.get(c, 0))
+        for source in sources:
+            options = source.get('options') or []
+            for colour in wanted or ['']:
+                option = next((o for o in options if colour in o['mana'] or not colour), None)
+                if option is not None:
+                    return {'type': source['type'], 'instance_id': source['instance_id'],
+                            'ability_index': source.get('ability_index', 0), 'option_index': option['index']}
+        return None
 
     def _activation_position(self, view, offer):
         import json
