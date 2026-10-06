@@ -21,10 +21,8 @@ def _depthshaker_titan() -> list[AbilitySpec]:
     (`create_delayed_trigger` capturing ``previous_targets`` — Determined
     Iteration's shape). The lord grants trample and haste to every artifact
     creature you control, itself included.
-    **Documented simplification: melee is not granted.** RULE 702.121 melee has
-    no engine support at all (no keyword trigger, no "opponents attacked this
-    combat" count) and a *granted* one would also need a granted-keyword trigger
-    path like undying's; that is a keyword mechanic of its own, not a card file.
+    Melee is collected from the completed attack declaration (RULE 702.121),
+    including when dynamically granted to artifact creatures.
     """
     return [
         AbilitySpec(
@@ -47,7 +45,7 @@ def _depthshaker_titan() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control", "card_type": "artifact", "keywords": ["trample", "haste"],
+                "affects": "creatures_you_control", "card_type": "artifact", "keywords": ["melee", "trample", "haste"],
             })],
         ),
     ]

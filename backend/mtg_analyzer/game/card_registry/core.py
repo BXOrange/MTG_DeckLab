@@ -131,6 +131,9 @@ def specs_for(card: Any) -> list[AbilitySpec]:
     """
     name = (getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
+    if getattr(card, "is_split", False) and getattr(card, "back_name", "") and "//" in name:
+        # RULE 709.3/709.4: the printed card exposes its front half until a fused face is selected.
+        factory = _REGISTRY.get(name.split("//")[0].strip(), factory)
     # A DFC/MDFC/split card's ``name`` is the combined "Front // Back"; a
     # registration keyed on the (castable) front face's own name should still
     # match (e.g. Shatterskull Smashing, whose back is a land). Fall back to

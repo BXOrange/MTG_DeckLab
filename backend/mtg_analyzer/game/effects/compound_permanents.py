@@ -119,9 +119,10 @@ EffectRegistry.register('sacrifice_permanent_or_discard', lambda p: SacrificePer
 
 
 class _RecoverMilledPermanentEffect(GameEffect):
-    def __init__(self, history_start, source=None):
+    def __init__(self, history_start, source=None, destination="hand"):
         super().__init__(source)
         self.history_start = history_start
+        self.destination = destination
 
     def _milled(self, context):
         from .core import _controller_of
@@ -141,7 +142,8 @@ class _RecoverMilledPermanentEffect(GameEffect):
                       and set(obj.type_words) & permanent_types]
         context.choose_objects(
             _controller_of(self.source, context), candidates,
-            'return_from_graveyard_to_hand', optional=True, source=self.source,
+            'return_from_graveyard_to_hand' if self.destination == 'hand' else 'return_from_graveyard',
+            optional=True, source=self.source,
         )
 
 
@@ -303,11 +305,9 @@ class DamageOpponentsByDiscardedManaValueEffect(GameEffect):
                 continue
             discarded = context.state.find_object(event.get("instance_id"))
             mana_value = int(getattr(getattr(discarded, "card", None), "converted_mana_cost", 0) or 0)
-            if mana_value <= 0:
-                continue
-            for opponent in context.state.living_players():
-                if opponent.id != player.id:
-                    context.deal_damage(opponent, mana_value, self.source)
+            context.enqueue_reflexive_trigger([
+                {"type": "damage", "params": {"amount": mana_value, "selector": "each_opponent"}},
+            ], self.source)
 
 
 class CoinOfFateSplitEffect(GameEffect):
@@ -567,3 +567,44 @@ class ReturnCapturedGraveyardCardEffect(GameEffect):
 
 
 EffectRegistry.register('return_captured_graveyard_card', lambda p: ReturnCapturedGraveyardCardEffect())
+
+
+class SacrificeAttachedDrawPowerEffect(GameEffect):
+    """RULE 608.2h: choose to sacrifice the damage dealer, then draw its saved power."""
+
+    def apply(self, context, targets=None):
+        obj = context.state.find_object((context.trigger_event or {}).get('source_id'))
+        player = _controller_of(self.source, context)
+        if (obj is None or obj not in context.state.battlefield or obj.controller_id != player.id
+                or obj.cant_be_sacrificed_this_turn):
+            return
+        context.choose_objects(player, [obj], 'sacrifice', optional=True, source=self.source,
+                               prompt='Kreatur opfern und Karten ziehen?',
+                               then_specs=[{'type': 'draw', 'params': {'count': max(0, obj.power or 0)}}])
+
+
+class MillRecoverPermanentEffect(GameEffect):
+    """Mill a fixed number and choose a permanent from that exact mill batch."""
+
+    def __init__(self, count=4, destination='battlefield', source=None):
+        super().__init__(source)
+        self.count, self.destination = count, destination
+
+    def apply(self, context, targets=None):
+        from .core import MillEffect
+        _apply_effects_partitioned([
+            MillEffect(count=self.count, source=self.source),
+            _RecoverMilledPermanentEffect(len(context.state.event_log), self.source, self.destination),
+        ], context, None, None, source=self.source)
+
+
+class SacrificePreviousDealerEffect(GameEffect):
+    def apply(self, context, targets=None):
+        obj = context.previous_targets[0] if context.previous_targets else None
+        if obj is not None and obj in context.state.battlefield and obj.controller_id == _controller_of(self.source, context).id:
+            context.engine.put_into_graveyard(obj)
+
+
+EffectRegistry.register('sacrifice_attached_draw_power', lambda p: SacrificeAttachedDrawPowerEffect())
+EffectRegistry.register('mill_recover_permanent', lambda p: MillRecoverPermanentEffect(p.get('count', 4), p.get('destination', 'battlefield')))
+EffectRegistry.register('sacrifice_previous_dealer', lambda p: SacrificePreviousDealerEffect())

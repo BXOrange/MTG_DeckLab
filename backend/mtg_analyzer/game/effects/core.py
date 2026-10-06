@@ -1397,6 +1397,8 @@ def _apply_effects_partitioned(
     context.resolution_target_groups = target_groups
     try:
         for position, effect in enumerate(effects):
+            # RULE 613: continuous effects apply between instructions; this does not run SBAs.
+            context.recompute()
             if source is not None and effect.source is None:
                 effect.source = source
             specs = effect.target_specs

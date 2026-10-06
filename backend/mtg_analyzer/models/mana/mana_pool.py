@@ -77,6 +77,11 @@ def kept_mana_expiring_at(step_name: str) -> tuple[str, ...]:
 _FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
 
 
+def _source_kind_matches(actual: Optional[str], required: str) -> bool:
+    """An artifact creature's mana satisfies either source-type restriction."""
+    return actual == required or (actual == "artifact_creature" and required in {"artifact", "creature"})
+
+
 class ManaPool:
     """Available mana for one player during the current step/phase."""
 
@@ -271,7 +276,9 @@ class ManaPool:
         # combine on any real card, so this ignores ``usable_lots`` entirely
         # rather than guessing how they'd interact.
         if require_source_kind is not None:
-            return dict(self.pool_by_source.get(require_source_kind, {}))
+            return {mana_type: sum(bucket.get(mana_type, 0) for kind, bucket in self.pool_by_source.items()
+                                   if _source_kind_matches(kind, require_source_kind))
+                    for mana_type in MANA_TYPES}
         merged = dict(self.pool)
         for lot in usable_lots:
             for mana_type, amount in lot["amounts"].items():
@@ -376,15 +383,14 @@ class ManaPool:
         stable order, purely to keep the totals consistent."""
         if amount <= 0:
             return
-        if require_source_kind is not None:
-            bucket = self.pool_by_source.get(require_source_kind)
-            if bucket is not None:
-                bucket[mana_type] = max(0, bucket.get(mana_type, 0) - amount)
-            return
         remaining = amount
-        buckets = [self.pool_by_source.get(None)] + [
-            b for k, b in self.pool_by_source.items() if k is not None
-        ]
+        if require_source_kind is not None:
+            buckets = [bucket for kind, bucket in self.pool_by_source.items()
+                       if _source_kind_matches(kind, require_source_kind)]
+        else:
+            buckets = [self.pool_by_source.get(None)] + [
+                b for k, b in self.pool_by_source.items() if k is not None
+            ]
         for bucket in buckets:
             if remaining <= 0 or bucket is None:
                 continue
@@ -439,7 +445,7 @@ class ManaPool:
             if amount <= 0:
                 break
             if require_source_kind is not None:
-                available = self.pool_by_source.get(require_source_kind, {}).get(mana_type, 0)
+                available = self._merged_available([], require_source_kind).get(mana_type, 0)
             else:
                 available = self.pool[mana_type] + sum(
                     lot["amounts"].get(mana_type, 0) for lot in usable_lots

@@ -44,6 +44,7 @@ from . import animate_dead  # noqa: F401
 from . import animist_s_awakening  # noqa: F401
 from . import ao_the_dawn_sky  # noqa: F401
 from . import aphotic_wisps  # noqa: F401
+from . import april_o_neil_live_on_the_scene  # noqa: F401
 from . import arachnogenesis  # noqa: F401
 from . import arcane_denial  # noqa: F401
 from . import arcane_lighthouse  # noqa: F401

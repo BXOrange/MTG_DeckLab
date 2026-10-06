@@ -16,10 +16,8 @@ def _resourceful_defense() -> list[AbilitySpec]:
     intervening "if it had counters", read off the event's RULE 603.10a
     snapshot); the body is the existing `transfer_event_counters` (PAR-120:
     every kind from the departed object's snapshot onto the chosen permanent). The ability is
-    `move_counters` (Nexus Mentality's ``move_all_kinds``). **Documented
-    simplification:** "any number of counters" moves *all* of them, every kind —
-    there is no per-counter chooser (the same all-or-one tier as Forgotten
-    Ancient's all-onto-one).
+    `move_counters` with an interactive counter selection. The controller
+    chooses any subset of available counter kinds and counts, including none.
     """
     return [
         AbilitySpec(
@@ -36,7 +34,7 @@ def _resourceful_defense() -> list[AbilitySpec]:
             [EffectSpec("move_counters", {
                 "source_target_kind": "permanent_you_control",
                 "dest_target_kind": "permanent_you_control",
-                "move_all_kinds": True,
+                "any_number": True,
             })],
             cost={"mana": "{4}{W}"},
         ),

@@ -277,7 +277,9 @@ class TestBacklogSizes:
         # `choose_card_type_on_enter` (the card-type sibling of the creature-type/colour enter choices, Serra's
         # Emissary), `choose_hand_card_to_library_bottom` (a `choose_objects` hand pick, Jace's +1) and
         # `owner_puts_on_top_or_bottom` (the target's owner chooses the library end, Plan for All Outcomes), 102 -> 105.
-        assert n <= 105, f"continuation types grew to {n}"
+        # Turtle Power adds two reviewed adapters over existing choose_objects frames:
+        # mill/recover-to-battlefield and optional host sacrifice/draw with saved power.
+        assert n <= 107, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

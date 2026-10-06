@@ -66,3 +66,5 @@ from . import fomori_vault  # noqa: F401
 from . import flayer_of_the_hatebound  # noqa: F401
 from . import fatehold_charm  # noqa: F401
 from . import fact_or_fiction  # noqa: F401
+from . import fast_forward  # noqa: F401
+from . import foot_chopper  # noqa: F401

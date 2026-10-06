@@ -11,7 +11,7 @@ def _dancer_s_chakrams() -> list[AbilitySpec]:
 
     — PLAY-ALL (Scions & Spellcraft). Job select and Equip are keywords. The static is the parser's anthem/lifelink/
     Performer plus Scion of Halaster's `grant_static_ability` for the quoted anthem: the equipped creature carries an anthem
-    and lifelink over ``commander_creatures_you_own`` excluding itself.
+    and lifelink over commanders the equipped creature's controller controls, excluding itself.
     """
     return [
         AbilitySpec(
@@ -24,10 +24,10 @@ def _dancer_s_chakrams() -> list[AbilitySpec]:
                     "affects": "attached_permanent",
                     "static_specs": [
                         {"type": "anthem", "params": {
-                            "affects": "commander_creatures_you_own", "power": 2, "toughness": 2, "exclude_self": True,
+                            "affects": "permanents_you_control", "object_filter": {"is_commander": True}, "power": 2, "toughness": 2, "exclude_self": True,
                         }},
                         {"type": "grant_keyword", "params": {
-                            "affects": "commander_creatures_you_own", "keywords": ["lifelink"], "exclude_self": True,
+                            "affects": "permanents_you_control", "object_filter": {"is_commander": True}, "keywords": ["lifelink"], "exclude_self": True,
                         }},
                     ],
                 }),

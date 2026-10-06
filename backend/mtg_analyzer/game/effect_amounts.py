@@ -159,6 +159,8 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # How many cards a preceding zone-change moved, optionally only those of one card type —
         # "for each creature card put into a graveyard this way" (Dread Summons).
         "moved_count",  # + optional ``card_type``
+        "created_count",  # actual preceding creations/exiles in this resolution
+        "damaged_creatures_since_mark",  # actual damage after mark_event_log
         # The larger of two measurements — ``left`` / ``right`` are themselves amounts.
         "greater_of",
         # "the difference between that creature's power and its toughness" (Jaws of Defeat) — |left - right|.
@@ -340,6 +342,14 @@ def _base(
                 total += int(getattr(obj, characteristic, 0) or 0)
         return total
 
+    if kind == "damaged_creatures_since_mark":
+        start = getattr(source, "window_event_mark", len(context.state.event_log))
+        return len({e.get("target_id") for e in context.state.event_log[start:]
+                    if e.type == "DAMAGE" and e.get("target_is_creature")
+                    and e.get("source_id") == getattr(source, "instance_id", None)
+                    and e.get("amount", 0) > 0})
+    if kind == "created_count":
+        return len(context.created_objects)
     if kind == "moved_count":
         wanted = str(amount.get("card_type") or "").lower()
         return sum(

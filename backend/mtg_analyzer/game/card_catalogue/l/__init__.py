@@ -52,3 +52,5 @@ from . import lord_of_the_undead
 from . import lightning_runner  # noqa: F401
 from . import legions_to_ashes  # noqa: F401
 from . import locke_treasure_hunter  # noqa: F401
+from . import level_up  # noqa: F401
+from . import lita_little_orphan_amphibian  # noqa: F401

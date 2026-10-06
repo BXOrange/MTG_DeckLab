@@ -1607,7 +1607,7 @@ def _legal_from_frame(
             continue
         if frame.apply_creature_filter and spec.creature_filter and not (
             frame.creature_filter_creatures_only and not obj.is_creature
-        ) and not _creature_matches_filter(obj, spec.creature_filter, state=state):
+        ) and not _creature_matches_filter(obj, spec.creature_filter, reference=source, state=state):
             continue
         descriptor = {"instance_id": obj.instance_id, "name": obj.name}
         if frame.emit_controller:
@@ -1750,6 +1750,9 @@ def _legal_targets_for(
         # "…with mana value X or less, where X is ~'s power." (Guardian
         # Scalelord, PAR-60) — the ability's own source, read live.
         spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+    if spec.max_mana_value == "counters_on_permanents_you_control":
+        from .continuous import count_selector
+        spec = replace(spec, max_mana_value=count_selector(state, controller_id, spec.max_mana_value))
     if spec.max_mana_value == "life_lost_this_turn":
         # "…with mana value less than or equal to the amount of life you lost this turn" (Betor, Ancestor's Voice).
         from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module

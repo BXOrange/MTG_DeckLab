@@ -368,6 +368,7 @@ def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     creature_only = bool(params.get("creature_only", False))
     to_opponent_only = bool(params.get("to_opponent_only", False))
     multiplier = int(params.get("multiplier", 2))
+    source_filter = params.get("source_filter")
     effect = ReplacementEffect(
         event_type=EventType.DAMAGE,
         replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
@@ -385,6 +386,11 @@ def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         if your_sources_only:
             src = effect.source
             if src is None or event.get("source_controller_id") != src.controller_id:
+                return False
+        if source_filter:
+            from ..combat import matches_object_filter
+            dealer = context.state.find_object(event.get("source_id"))
+            if dealer is None or not matches_object_filter(dealer, source_filter, state=context.state):
                 return False
         if to_opponent_only:
             src = effect.source

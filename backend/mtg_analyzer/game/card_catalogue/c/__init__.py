@@ -8,6 +8,7 @@ from . import canopy_gargantuan  # noqa: F401
 from . import captain_sisay  # noqa: F401
 from . import carpet_of_flowers  # noqa: F401
 from . import case_of_the_ransacked_lab  # noqa: F401
+from . import casey_jones_back_alley_brute  # noqa: F401
 from . import casualties_of_war  # noqa: F401
 from . import cathartic_pyre  # noqa: F401
 from . import cathartic_reunion  # noqa: F401
@@ -60,6 +61,7 @@ from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401
 from . import coiling_oracle  # noqa: F401
+from . import coin_of_mastery  # noqa: F401
 from . import colfenor_s_urn  # noqa: F401
 from . import collective_effort  # noqa: F401
 from . import colossus_hammer  # noqa: F401
@@ -138,3 +140,4 @@ from . import calamitys_wake  # noqa: F401
 from . import charitable_levy  # noqa: F401
 from . import celes_rune_knight  # noqa: F401
 from . import coin_of_fate  # noqa: F401
+from . import continue_card  # noqa: F401

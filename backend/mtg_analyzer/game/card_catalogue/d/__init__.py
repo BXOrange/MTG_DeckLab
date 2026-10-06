@@ -41,6 +41,7 @@ from . import destiny_spinner  # noqa: F401
 from . import desynchronization  # noqa: F401
 from . import determined_iteration  # noqa: F401
 from . import dihada_binder_of_wills  # noqa: F401
+from . import dimension_x_pizzasaur  # noqa: F401
 from . import dina_essence_brewer  # noqa: F401
 from . import dina_soul_steeper  # noqa: F401
 from . import dionus_elvish_archdruid  # noqa: F401
@@ -94,3 +95,5 @@ from . import dermotaxi  # noqa: F401
 from . import disruptor_flute  # noqa: F401
 from . import dack_fayden_helping_hand  # noqa: F401
 from . import darksteel_angel  # noqa: F401
+from . import double_jump_flying_kick  # noqa: F401
+from . import double_jump  # noqa: F401

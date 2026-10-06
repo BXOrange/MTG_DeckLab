@@ -2943,6 +2943,7 @@ class DamageEqualToPowerEffect(GameEffect):
         source: Optional["GameObject"] = None,
         dealer_group: Optional[str] = None,
         excess_to_controller_if_trample: bool = False,
+        distinct: bool = False,
     ) -> None:
         super().__init__(source)
         #: "If the creature you control has trample, excess damage is dealt to that creature's
@@ -2969,7 +2970,7 @@ class DamageEqualToPowerEffect(GameEffect):
         if need_dealer_target:
             specs.append(TargetSpec(kind=dealer_kind, optional=dealer_optional))
         if not to_self and self.selector is None and target_kind is not None and self.dealer_group is None:
-            specs.append(TargetSpec(kind=target_kind, optional=optional))
+            specs.append(TargetSpec(kind=target_kind, optional=optional, distinct_from_others=distinct))
         if specs:
             self.target_spec = specs[0]
             self.extra_target_specs = tuple(specs[1:])
@@ -3002,6 +3003,14 @@ class DamageEqualToPowerEffect(GameEffect):
             dealer = next(chosen, None)
         if dealer is None:
             return
+        if self.dealer_kind not in _IMPLICIT_FIGHT_SUBJECTS:
+            # RULE 608.2b: a targeted dealer must remain a legal battlefield target;
+            # only an implicit source (for example a dies trigger) can use last-known power.
+            from ..targeting import legal_targets
+            controller_id = _controller_of(self.source, context).id
+            legal = legal_targets(context.state, controller_id, self.target_spec, self.source)
+            if getattr(dealer, "instance_id", None) not in {entry.get("instance_id") for entry in legal}:
+                return
         amount = dealer.power or 0
         if amount <= 0:
             return

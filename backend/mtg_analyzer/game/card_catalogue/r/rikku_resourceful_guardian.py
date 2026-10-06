@@ -12,7 +12,7 @@ def _rikku_resourceful_guardian() -> list[AbilitySpec]:
     — PLAY-ALL (Counter Blitz). The trigger is the Hapatra `COUNTER` shape (``by_you``) whose body is `unblockable` aimed at the recipient
     through `trigger_subject_referent` (the COUNTER event's ``target_id``). **Simplification:** the creature can't be blocked at all this
     turn (when the recipient is an opponent's creature it was never blockable by creatures *you* control anyway). Steal is Nesting
-    Grounds' `move_counters` from a creature an opponent controls onto one you control (the first counter kind).
+    Grounds' `move_counters` from a creature an opponent controls onto one you control (the controller chooses the counter kind).
     """
     return [
         AbilitySpec(
@@ -25,7 +25,7 @@ def _rikku_resourceful_guardian() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("move_counters", {
-                "source_target_kind": "creature_you_dont_control", "dest_target_kind": "creature_you_control",
+                "source_target_kind": "creature_you_dont_control", "choose_kind": True, "dest_target_kind": "creature_you_control",
             })],
             cost={"text": "{1}, {T}", "sorcery_speed_only": True},
         ),

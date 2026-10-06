@@ -407,8 +407,8 @@ def test_cait_sith_exiles_the_top_card_and_pumps_for_its_mana_value():
     top = filler(engine, "Top Spell", type_line="Sorcery", mv=3, zone=Zone.LIBRARY)
     stack_library(engine, "p1", top)
     step(engine, "begin_combat")
-    engine.resolve_pending_choice(pick_label("Cait")(engine.state.pending_choice))  # the pump's target
-    engine.resolve_pending_choice("decline")  # scry: keep the rest on top
+    engine.resolve_pending_choice("decline")  # scry first: keep the rest on top
+    engine.resolve_pending_choice(pick_label("Cait")(engine.state.pending_choice))  # reflexive pump target
     assert top.zone == Zone.EXILE
     assert cait.power == 3 + 3
 

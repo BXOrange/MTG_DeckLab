@@ -83,6 +83,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-62: Raid's player-scoped declaration history, not Boast's
         # source-only flag.
         "you_attacked_this_turn",
+        "any_player_at_half_starting_life",
         # PAR-28: RULE 702.169b/719.3b Solved — "As long as this Case is
         # solved, …" (and its activate-/trigger-only siblings). A permanent
         # designation that persists until the Case leaves the battlefield.
@@ -662,6 +663,8 @@ def condition_holds(
         return bool(getattr(subject, "attacking", False))
     if kind == "source_attacked_this_turn":  # PAR-28 RULE 702.142a
         return bool(getattr(subject, "attacked_this_turn", False))
+    if kind == "any_player_at_half_starting_life":
+        return any(p.life * 2 <= p.starting_life for p in state.living_players())
     if kind == "you_attacked_this_turn":  # PAR-62 / RULE 508.1a (Raid)
         return controller_id in (getattr(state, "players_attacked_this_turn", None) or set())
     if kind == "source_solved":  # PAR-28 RULE 702.169b / 719.3b

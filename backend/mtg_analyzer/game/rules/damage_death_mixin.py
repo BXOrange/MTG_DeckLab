@@ -2234,6 +2234,7 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.DIES,
+                    graveyard_incarnation=obj.zone_incarnation + 1,
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,

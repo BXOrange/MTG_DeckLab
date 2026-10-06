@@ -13,7 +13,7 @@ def _summon_kujata() -> list[AbilitySpec]:
     Trample, haste
 
     — PLAY-ALL (Limit Break). Trample and haste are keywords. I is `damage` over up to two target creatures; II is `cant_block_this_turn` over up to three; III is Mog's ``mark_event_log`` window around `discard` +
-    `draw` followed by the new `damage_opponents_by_discarded_mana_value` (the discarded card's mana value to each opponent). **Simplification:** the damage is part of the chapter, not a separate reflexive trigger.
+    `draw` followed by the new `damage_opponents_by_discarded_mana_value` (the discarded card's mana value to each opponent). The damage is a separate reflexive trigger, queued only for an actual discard.
     """
     return [
         AbilitySpec(

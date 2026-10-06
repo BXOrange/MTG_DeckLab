@@ -68,6 +68,7 @@ EffectRegistry.register(
         unpreventable=bool(p.get("unpreventable", False)),
         dealer_event_key=p.get("dealer_event_key"),
         dealer_subject=p.get("dealer_subject"),
+        per_player=p.get("per_player"),
     ),
 )
 EffectRegistry.register(
@@ -1885,6 +1886,7 @@ EffectRegistry.register(
         to_self=bool(p.get("to_self", False)),
         dealer_group=p.get("dealer_group"),
         excess_to_controller_if_trample=bool(p.get("excess_to_controller_if_trample", False)),
+        distinct=bool(p.get("distinct", False)),
     ),
 )
 EffectRegistry.register(
@@ -2943,6 +2945,8 @@ EffectRegistry.register(
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
         set_name=p.get("set_name"),
         previous_subject=bool(p.get("previous_subject", False)),
+        optional=bool(p.get("optional", False)),
+        retain_trigger_index=p.get("retain_trigger_index"),
     ),
 )
 EffectRegistry.register(
@@ -3003,6 +3007,7 @@ EffectRegistry.register(
         group_other=bool(p.get("group_other", False)),
         per_recipient_stat=p.get("per_recipient_stat"),
         group_player=p.get("group_player"),
+        trigger_contributors=p.get("trigger_contributors", False),
     ),
 )
 EffectRegistry.register(
@@ -3243,6 +3248,8 @@ EffectRegistry.register(
         extra_temp_keywords=p.get("extra_temp_keywords"),
         creature_filter=p.get("creature_filter"),
         legendary=bool(p.get("legendary", False)),
+        max_mana_value=p.get("max_mana_value"),
+        other_opponents=bool(p.get("other_opponents", False)),
     ),
 )
 EffectRegistry.register(
@@ -3517,6 +3524,8 @@ EffectRegistry.register(
         dest_target_kind=p.get("dest_target_kind", "permanent"),
         count=int(p.get("count", 1) or 1),
         move_all_kinds=bool(p.get("move_all_kinds", False)),
+        any_number=bool(p.get("any_number", False)),
+        choose_kind=bool(p.get("choose_kind", False)),
     ),
 )
 EffectRegistry.register(
@@ -4173,6 +4182,7 @@ EffectRegistry.register(
             # Runadi: "creature spell you *cast* with mana value 5 or greater … X additional counters,
             # where X is its mana value minus 4".
             **({"cast_only": True} if p.get("cast_only") else {}),
+            **({"count_per_artifact_mana": True} if p.get("count_per_artifact_mana") else {}),
             **({"min_mana_value": int(p["min_mana_value"])} if p.get("min_mana_value") is not None else {}),
             **({"count_mana_value_minus": int(p["count_mana_value_minus"])}
                if p.get("count_mana_value_minus") is not None else {}),

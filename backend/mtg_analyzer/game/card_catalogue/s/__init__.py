@@ -200,3 +200,7 @@ from . import snort  # noqa: F401
 from . import strago_and_relm  # noqa: F401
 from . import summon_esper_valigarmanda  # noqa: F401
 from . import skrelv_s_hive  # noqa: F401
+from . import swift_demise  # noqa: F401
+from . import shredder_shadow_master  # noqa: F401
+from . import shellshock  # noqa: F401
+from . import special_move  # noqa: F401

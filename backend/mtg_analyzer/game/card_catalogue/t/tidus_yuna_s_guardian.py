@@ -10,14 +10,14 @@ def _tidus_yuna_s_guardian() -> list[AbilitySpec]:
     Cheer — Whenever one or more creatures you control with counters on them deal combat damage to a player, you may draw a card and proliferate. Do this only once each turn.
 
     — PLAY-ALL (Counter Blitz). The combat trigger is Nesting Grounds' `move_counters` over two creatures you control (optional trigger;
-    **simplification** shared with it: the counter kind is the first one by iteration order). Cheer is the parser's own claim (the
+    the controller chooses the counter kind when several are available). Cheer is the parser's own claim (the
     batch `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` head, `draw` + `proliferate` + the once-per-turn marker).
     """
     return [
         AbilitySpec(
             "triggered",
             [EffectSpec("move_counters", {
-                "source_target_kind": "creature_you_control", "dest_target_kind": "creature_you_control",
+                "source_target_kind": "creature_you_control", "choose_kind": True, "dest_target_kind": "creature_you_control",
             })],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"}, "phase_relation": "you"},
             optional=True,

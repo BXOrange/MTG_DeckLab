@@ -827,10 +827,10 @@ def restriction_predicate_for_activation(source: Any, has_x: bool = False) -> Ca
 #: PAR-19: "spend only mana produced by Treasures/basic lands/creatures to
 #: cast `<spell>`." (Security Rhox/Imperiosaur/Myr Superion) — the closed
 #: vocabulary `mana_source_kind_for` classifies a tapped permanent into,
-#: matching `ManaPool.pool_by_source`'s own bucket keys 1:1. Only the three
-#: kinds real cards actually print; an unrecognised source stays untagged
+#: matching `ManaPool.pool_by_source`'s own bucket keys 1:1. The relevant
+#: kinds and the artifact/creature intersection; an unrecognised source stays untagged
 #: (``None``, the "no known/relevant origin" bucket) rather than guessed.
-MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creature"})
+MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creature", "artifact", "artifact_creature"})
 
 
 def mana_source_kind_for(source: Any) -> Optional[str]:
@@ -842,6 +842,12 @@ def mana_source_kind_for(source: Any) -> Optional[str]:
         return "treasure"
     if getattr(card, "is_land", False) and "basic" in (getattr(card, "type_line", "") or "").lower():
         return "basic_land"
+    types = getattr(source, "type_words", None)
+    if ("artifact" in types if types is not None else getattr(card, "is_artifact", False)):
+        if getattr(source, "is_creature", getattr(card, "is_creature", False)):
+            return "artifact_creature"
+        # "mana from an artifact source" (Coin of Mastery) — a non-Treasure artifact (a Treasure is "treasure" above; both are artifacts).
+        return "artifact"
     if getattr(card, "is_creature", False):
         return "creature"
     return None

@@ -115,7 +115,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: choice against would be a guess baked into a whitelisted vocabulary.
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
-     "chosen", "entering", "trigger_subject", "self", "event_player", "counter_recipient", "revealed",
+     "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
      "attacked_player", "first_drawn_this_turn", "chosen_player",
      "enchanted_player"}
 )
@@ -250,6 +250,9 @@ def subject_of(
         # "Choose an opponent. You and **that player** each draw three cards." — the player a
         # `_request_choose_player` clause stamped on the source (`GameObject.chosen_player_id`).
         return _player_by_id(context, getattr(source, "chosen_player_id", None))
+    if of == "damaged_player":
+        event = getattr(context, "trigger_event", None) or {}
+        return _player_by_id(context, event.get("target_id")) if event.get("is_player") else None
     if of == "event_player":
         # The player the firing event itself names (whoever cast the spell / drew the card).
         event = getattr(context, "trigger_event", None) or {}

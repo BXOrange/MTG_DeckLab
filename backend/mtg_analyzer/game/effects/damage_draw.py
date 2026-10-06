@@ -98,6 +98,7 @@ class DealDamageEffect(GameEffect):
         unpreventable: bool = False,
         dealer_event_key: Optional[str] = None,
         dealer_subject: Optional[str] = None,
+        per_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         #: ``"previous_target"`` — "**target enchantment** deals damage equal to its mana value to its controller"
@@ -286,7 +287,7 @@ class DealDamageEffect(GameEffect):
             # up to N target X" (Volcanic Salvo-shaped) — the full amount
             # applies to *every* chosen target, not divided among them.
             self.target_spec = TargetSpec(
-                kind=target_kind, optional=optional, count=count, count_max=count_max,
+                kind=target_kind, optional=optional, count=count, count_max=count_max, per_player=per_player,
                 colors=tuple(colors) if colors else None,
                 # RULE 115/601.2c power/toughness/keyword quality filter —
                 # "target creature with flying"/"…with power 4 or greater"
@@ -531,7 +532,7 @@ class DealDamageEffect(GameEffect):
                 if player is not None:
                     context.deal_damage(player, self._amount_for(obj, context), self.source)
             return
-        chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+        chosen = _chosen_targets(targets, len(targets or []) if self.target_spec.per_player else self.target_spec.effective_count, self.target)
         if self.divided:
             override = self.each_target_if_mana_color_spent or {}
             paid = getattr(self.source, "mana_by_color_spent_to_cast", None) or {}

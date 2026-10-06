@@ -57,7 +57,7 @@ COMBAT_KEYWORDS: frozenset[str] = frozenset(
         "haste",
         "indestructible",
         "protection",
-        "dethrone",
+        "dethrone", "melee",
         "infect",
         "wither",
         # RULE 702.19: no bare reminder-text keyword line to match on real
@@ -572,7 +572,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
         # "each creature dealt damage this turn" (Inflame) — RULE 514.2: marked damage persists to cleanup.
-        "damaged_this_turn",
+        "damaged_this_turn", "died_this_turn", "attacking_you",
         "even_mana_value",
         # RULE 700.9 "modified creatures you control" (PAR-134).
         "modified",
@@ -805,6 +805,12 @@ def matches_object_filter(
     _is_blocking = bool(blocking_attacker_ids(obj))
     if filt.get("blocking") and not _is_blocking:
         return False
+    if filt.get("attacking_you") and not (
+        obj.attacking and reference is not None
+        and (obj.combat_defender or {}).get("kind") == "player"
+        and (obj.combat_defender or {}).get("id") == reference.controller_id
+    ):
+        return False
     if filt.get("attacking_or_blocking") and not (
         getattr(obj, "attacking", False) or _is_blocking
     ):
@@ -818,10 +824,22 @@ def matches_object_filter(
     # the chosen target's tap state, a boolean flag like `attacking` above.
     if filt.get("tapped") is not None and bool(getattr(obj, "tapped", False)) != bool(filt["tapped"]):
         return False
-    if filt.get("damaged_this_turn") is not None and (
-        int(getattr(obj, "damage_marked", 0) or 0) > 0
-    ) != bool(filt["damaged_this_turn"]):
-        return False
+    if filt.get("died_this_turn") is not None:
+        died = state is not None and any(
+            e.type == "DIES" and e.get("instance_id") == obj.instance_id
+            and e.get("graveyard_incarnation") == obj.zone_incarnation
+            for e in state.events_this_turn()
+        )
+        if bool(died) != bool(filt["died_this_turn"]):
+            return False
+    if filt.get("damaged_this_turn") is not None:
+        damaged = state is not None and any(
+            e.type == "DAMAGE" and e.get("target_id") == obj.instance_id
+            and not e.get("is_player") and int(e.get("amount", 0) or 0) > 0
+            for e in state.events_this_turn()
+        )
+        if (bool(damaged) if state is not None else int(obj.damage_marked or 0) > 0) != bool(filt["damaged_this_turn"]):
+            return False
     # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
     # target of this Equip cost must be a commander (RULE 903.4).
     # ``False`` is the negation — "any target that isn't a commander" (PAR-135, Lozhan).

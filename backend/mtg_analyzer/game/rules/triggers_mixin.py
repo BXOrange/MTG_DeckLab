@@ -323,6 +323,18 @@ class TriggerCollectionMixin:
         controlled by the active player rather than following a
         designation, so no lookup is needed beyond `state.active_player`.
         """
+        if event.type == EventType.ATTACKERS_DECLARED:
+            from ..effects.core import PumpEffect
+            amount = len(set(event.get("defending_player_ids") or []))
+            for iid in event.get("attacker_ids") or []:
+                attacker = self.state.find_object(iid)
+                if attacker is not None and combat.has(attacker, "melee"):
+                    ability = TriggeredAbility(
+                        trigger_event=EventType.ATTACKERS_DECLARED,
+                        effects=[PumpEffect(power=amount, toughness=amount, target_kind=None, source=attacker)],
+                        controller_id=attacker.controller_id, source=attacker, description="Melee",
+                    )
+                    self.pending_triggers.append((ability, event))  # RULE 702.121
         monarch = self.state.player_by_id(self.state.monarch_id) if self.state.monarch_id else None
         if monarch is not None and not monarch.has_lost:
             # "At the beginning of the monarch's end step, that player draws

@@ -139,6 +139,14 @@ and controller decisions, preserving library identities across rewind.
 Counter placement prohibitions use ordinary static groups and also guard
 entry counters (including the entrant's own abilities, RULE 614.12).
 Numeric keywords are recognized by object-filter and condition predicates.
+Objects retain a stable instance ID plus a monotonic `zone_incarnation`
+for identifying a particular zone stay (RULE 400.7).
+Counter moves can prompt for a kind or an arbitrary subset; a prohibited
+placement leaves the source counters intact (RULE 122.5). Melee uses the
+completed attack declaration and includes dynamically granted instances.
+Spell mana provenance preserves artifact-creature membership in both types.
+Continuous characteristics are recomputed between resolving instructions,
+without running state-based actions inside a resolution (RULE 613/704).
 
 **Cleanup discards** (RULE 514.1) use the shared pending-choice card picker.
 The active player selects excess hand cards before damage and temporary effects

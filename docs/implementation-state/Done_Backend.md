@@ -186,6 +186,12 @@ generic costs) onto `SPELL_CAST.colors_spent`. The binder's
 `spell_no_colored_mana_spent` gate distinguishes colourless/free payments
 from coloured payments; coverage is in `test_sans_soleil_deck.py`.
 
+Artifact-source mana is tracked independently for entry-counter bonuses,
+including Treasures and artifact creatures. The `artifact_creature` provenance
+bucket satisfies both artifact and creature restrictions without double-counting
+mana or breaking creature-only payment. `extra_etb_counter` supports
+`count_per_artifact_mana`. Regressions: `test_turtle_power_deck.py`.
+
 ### Triggered mana ability (RULE 605.1b/605.4)
 
 - **What:** `TriggeredAbility.mana_ability` resolves off-stack the instant it fires, so mana from an ability triggered off another mana ability is spendable within the same…
@@ -1094,6 +1100,12 @@ Other shared pieces: `entry_counters_self` can strip counters from artifacts/cre
 irreducible `legal_targets` branch); the frame dispatch now passes `state` to creature filters (so `entered_this_turn` works on a frame, e.g.
 `commander_entered_this_turn`). Per-card limitations are in the card modules; tests: `tests/game/catalogue/cards/test_counter_blitz_deck.py`.
 
+`move_counters` additionally supports `any_number` and `choose_kind`, using a
+shared resumable `move_counter_selection` choice. Counts are collected before
+removal/placement; a destination counter prohibition prevents removal (RULE
+122.5). Creature target filters receive the ability source, enabling the
+`attacking_you` filter. Regressions: `test_play_all_correctness.py`.
+
 ### Equipment, activation costs and standing permissions (PLAY-ALL, Limit Break)
 
 Equipment: the parser's equip keyword regex skips "Equip legendary creature {N}" (PARSER_VERSION 612), so the plain `Equip {M}` ability keeps its own cost and the legendary
@@ -1508,6 +1520,21 @@ to every gathered target. Foretell cards read "cast from exile" as the `foretold
 - **Files:** `models/game/events.py` (`WOULD_DISCARD`), `game/effects/
 
 ## Triggered Abilities & Trigger Ordering
+
+### Resolution sequencing and reflexive trigger precision
+
+Continuous effects recompute between instructions while SBAs wait until the
+resolution ends. Split cards can register front and fused specs separately;
+selecting Fuse binds both halves in printed order. Copy exceptions can retain
+one original trigger without accumulating abilities from previous copies
+(`retain_trigger_index`, RULE 707.9). Damage instructions support
+per-player target rounds; `damaged_creatures_since_mark` counts actual creature
+damage events for later token creation, including prevention/redirect handling.
+`created_count` gates a reflexive payoff on an actual preceding exile. Targeted
+damage dealers are revalidated before using their power; implicit sources can
+still use last-known information. Batch
+attack payoffs can use a single declaration trigger and per-opponent iteration.
+Regressions: `test_turtle_power_deck.py`, `test_play_all_correctness.py`.
 
 ### Storm triggers and cast-time spell counts (RULE 702.40)
 
@@ -2254,6 +2281,14 @@ group; the free-cast flag expires with the turn's graveyard permissions.
 
 ## Combat
 
+### Melee from completed attack declarations (RULE 702.121)
+
+Melee is collected from `ATTACKERS_DECLARED`, after all attackers and defenders
+are known. Printed and dynamically granted melee use the same controller-owned
+trigger. Its pump counts distinct opponents attacked by creatures. Forced attack
+defenders are also reflected in `legal_actions` so clients and bots receive
+valid offers. Regressions: `test_play_all_correctness.py`.
+
 ### PAR-79 — "Can't be blocked this turn" broad recognition (closed)
 
 - **What:** `UnblockableEffect`/the `"unblockable"` `EffectRegistry` key
@@ -2778,6 +2813,14 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 - **Files:** `game/costs.py`, `game/engine/activation_mixin.py`, `game/rules_engine.py`, `game/mana_potential.py`.
 
 ## Counters
+
+### Batch-contributor and attached-host counter placement
+
+`add_counters` can apply to filtered combat-damage contributors or an Aura's
+attached host without announcing a target. `max_mana_value` target bounds can
+measure counters among controlled permanents. `died_this_turn` filters graveyard
+cards by their current death incarnation, excluding milling and later zone
+changes. Regressions: `test_turtle_power_deck.py`.
 
 ### Counter placement prohibitions (RULE 101.2 / 122)
 

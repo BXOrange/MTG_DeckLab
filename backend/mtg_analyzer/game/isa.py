@@ -737,6 +737,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # Killing Wave's own per-creature "unless" iteration item — already
     # selected by the surrounding untargeted loop, no fresh target/choice.
     "sacrifice_target": "sacrifice",
+    "sacrifice_previous_dealer": "sacrifice",
     "sacrifice_chosen_then": "sacrifice",
     "discard_chosen_then": "discard",
     # The subject's controller sacrifices a permanent of their own choosing —
@@ -812,6 +813,8 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "sacrifice_to_return_targets": "608.2d",
     "destroy_and_half_copies": "616",
     "mill_recover_permanent_subtype_bonus": "601.2b",
+    "mill_recover_permanent": "601.2b",
+    "sacrifice_attached_draw_power": "601.2b",
     "repeat_food_exile_process": "118.3",
     "exile_graveyard_then_repeat_food": "118.3",
     "sacrifice_permanent_or_discard": "701.17",

@@ -30,7 +30,9 @@ from . import herald_of_war  # noqa: F401
 from . import herald_s_horn  # noqa: F401
 from . import hermit_druid  # noqa: F401
 from . import hero_s_heirloom  # noqa: F401
+from . import heroes_in_a_half_shell  # noqa: F401
 from . import high_perfect_morcant  # noqa: F401
+from . import high_score  # noqa: F401
 from . import hit_the_mother_lode  # noqa: F401
 from . import hoarding_broodlord  # noqa: F401
 from . import hofri_ghostforge  # noqa: F401
@@ -56,3 +58,5 @@ from . import hildibrand_manderville_gentleman_s_rise  # noqa: F401
 from . import hall_of_heliod_s_generosity  # noqa: F401
 from . import honor_the_fallen  # noqa: F401
 from . import hope_estheim  # noqa: F401
+from . import here_comes_a_new_hero  # noqa: F401
+from . import hidden_hideout  # noqa: F401

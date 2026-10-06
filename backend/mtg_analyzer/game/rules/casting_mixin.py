@@ -867,6 +867,7 @@ class CastingResolutionMixin:
         obj.colors_spent_to_cast = frozenset()
         obj.mana_spent_to_cast_treasure = 0
         obj.mana_spent_to_cast_creature = 0
+        obj.mana_spent_to_cast_artifact = 0
         if free_cast:
             life_spent = 0
         else:
@@ -927,7 +928,9 @@ class CastingResolutionMixin:
                 for kind in sources_before.keys() | player.mana_pool.last_payment_by_kind.keys()
             }
             obj.mana_spent_to_cast_treasure = source_mana_spent.get("treasure", 0)
-            obj.mana_spent_to_cast_creature = source_mana_spent.get("creature", 0)
+            obj.mana_spent_to_cast_creature = source_mana_spent.get("creature", 0) + source_mana_spent.get("artifact_creature", 0)
+            # Every artifact source, Treasures included (Coin of Mastery's "for each mana from an artifact source spent to cast it").
+            obj.mana_spent_to_cast_artifact = source_mana_spent.get("treasure", 0) + source_mana_spent.get("artifact", 0) + source_mana_spent.get("artifact_creature", 0)
         self.lose_life(player, life_spent, cause="cost")
         self.state.next_spell_flash_grants = [
             g for g in self.state.next_spell_flash_grants

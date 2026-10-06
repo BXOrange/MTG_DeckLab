@@ -1191,6 +1191,12 @@ class LegalActionsMixin:
                         allowed = [index for index, defender in enumerate(defenders)
                                    if self._can_attack(player, obj, self._defending_player(defender),
                                                        defender_kind=defender.get("kind", "player"))]
+                    forced = getattr(obj, "must_attack_player_id", None)
+                    if forced is not None:
+                        allowed = [i for i in allowed if defenders[i].get("kind") == "player"
+                                   and defenders[i].get("id") == forced]
+                    if forced is not None and not allowed:
+                        continue
                     actions.append(
                         {
                             "type": "attack",

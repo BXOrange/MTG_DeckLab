@@ -210,6 +210,9 @@ class GameObject:
         self.mana_spent_to_cast_treasure: int = 0
         #: Mana from creature-sourced mana abilities spent on this spell's cast (Inga and Esika).
         self.mana_spent_to_cast_creature: int = 0
+        self.mana_spent_to_cast_artifact: int = 0
+        #: Copy exceptions retaining one printed trigger (RULE 707.9).
+        self.retained_copy_triggers: dict[str, list[Any]] = {}
         #: The same fact for this permanent's most recent activation (Jetmir's
         #: Fixer) — stamped at payment like `counters_removed_as_cost`.
         self.mana_spent_to_activate_treasure: int = 0
@@ -489,7 +492,9 @@ class GameObject:
         #: Who currently controls the object; defaults to its owner
         #: (RULE 108.4). Control can change but ownership can't.
         self.controller_id = controller_id or owner_id
-        self.zone = zone
+        self._zone = zone
+        #: RULE 400.7: monotonic incarnation across every zone assignment; instance_id stays stable.
+        self.zone_incarnation: int = 0
         #: Whether this in-play object is a token (RULE 111). Stored, not
         #: derived from `card.is_token`, because a *token copy* of a real card
         #: carries a nontoken card definition yet is still a token — and the
@@ -1469,6 +1474,8 @@ class GameObject:
         self.mana_spent_to_cast_snow = 0
         self.mana_spent_to_cast_treasure = 0
         self.mana_spent_to_cast_creature = 0
+        self.mana_spent_to_cast_artifact = 0
+        self.retained_copy_triggers = {}
         self.mana_spent_to_activate_treasure = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
@@ -1636,6 +1643,16 @@ class GameObject:
         return self.card.oracle_text or ""
 
     # -- Delegated characteristics (read from the printed card) ---------
+
+    @property
+    def zone(self) -> Zone:
+        return self._zone
+
+    @zone.setter
+    def zone(self, value: Zone) -> None:
+        if value != self._zone:
+            self.zone_incarnation += 1
+        self._zone = value
 
     @property
     def name(self) -> str:

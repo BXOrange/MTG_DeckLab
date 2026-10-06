@@ -9,10 +9,9 @@ def _within_range() -> list[AbilitySpec]:
     """When this enchantment enters, create two 1/1 red Warrior creature tokens.
     Whenever you attack, each opponent loses life equal to the number of creatures attacking them.
 
-    — Within Range. `PLAYER_ATTACKED` fires once per defending player with ``count`` = the creatures of the
-    attacker attacking *that player* (not a planeswalker), so one trigger per attacked opponent makes exactly
-    that opponent lose ``count`` life; an opponent no creature attacks loses 0 either way. The only visible
-    difference from the printed single trigger is one stack object per attacked opponent.
+    — Within Range. One ATTACKERS_DECLARED trigger for the whole attack declaration.
+    On resolution each opponent loses life equal to the creatures currently attacking them;
+    attackers aimed at their planeswalkers do not count.
     """
     return [
         AbilitySpec(
@@ -25,11 +24,13 @@ def _within_range() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("lose_life", {
-                "amount": {"kind": "trigger_event", "field": "count"},
-                "player": {"of": "attacked_player"},
-            })],
-            trigger={"event": EventType.PLAYER_ATTACKED, "condition": {"subject": "you"}},
+            [EffectSpec("for_each", {"over": {"players": "each_opponent"}, "effects": [
+                {"type": "lose_life", "params": {
+                    "amount": {"kind": "count_selector", "selector": "creatures_attacking_you", "of": "target"},
+                    "player": {"of": "target"},
+                }},
+            ]})],
+            trigger={"event": EventType.ATTACKERS_DECLARED, "condition": {"subject": "you"}},
         ),
     ]
 

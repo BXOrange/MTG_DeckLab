@@ -1825,6 +1825,16 @@ def count_selector(
         return max(
             (int(o.power or 0) for o in bf if o.is_creature and o.controller_id == controller_id), default=0,
         )
+    if selector == "opponents_you_attacked_this_turn":
+        return len({e.get("defending_player_id") for e in state.events_this_turn()
+                    if e.type == "ATTACKS" and e.get("declared") and e.get("player_id") == controller_id
+                    and e.get("defender_kind") == "player" and e.get("defending_player_id") != controller_id})
+    if selector == "counters_on_permanents_you_control":
+        # "…the number of counters among permanents you control" (Dimension X Pizzasaur) — every kind, every permanent.
+        return sum(
+            sum(v for v in (getattr(o, "counters", None) or {}).values() if v and v > 0)
+            for o in bf if o.controller_id == controller_id
+        )
     if selector == "counters_on_creatures_you_control":
         # "…the number of counters among creatures you control" (Maester Seymour's Monstrosity X) — every kind.
         return sum(
@@ -5348,6 +5358,9 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
         selector = ability.params.get("count_selector")
         if selector:
             amount = count_selector(state, controller_id, selector if isinstance(selector, dict) else str(selector), source)
+        elif ability.params.get("count_per_artifact_mana"):
+            # "…an additional +1/+1 counter on it for each mana from an artifact source spent to cast it." (Coin of Mastery)
+            amount = int(getattr(obj, "mana_spent_to_cast_artifact", 0) or 0)
         elif ability.params.get("count_mana_value_minus") is not None:
             amount = max(0, mana_value - int(ability.params["count_mana_value_minus"]))
         else:

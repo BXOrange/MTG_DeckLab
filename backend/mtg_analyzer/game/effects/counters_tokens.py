@@ -132,8 +132,13 @@ class AddCountersEffect(GameEffect):
         group_other: bool = False,
         per_recipient_stat: Optional[str] = None,
         group_player: Optional[str] = None,
+        trigger_contributors: Any = False,
     ) -> None:
         super().__init__(source)
+        #: "…put a +1/+1 counter on **each of those creatures**" (Heroes in a Half Shell) — the creatures a batch combat-damage event named
+        #: (`CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER.contributor_ids`); a dict narrows them by the trigger's own per-creature object filter
+        #: (the event lists every creature that connected, not only those the head counts).
+        self.trigger_contributors = trigger_contributors if isinstance(trigger_contributors, dict) else bool(trigger_contributors)
         #: "Put a +1/+1 counter on **each creature target player controls**." (Collective Effort) — ``group`` written for "you"
         #: and evaluated for the player this effect targets (``"player"``/``"opponent"``, RULE 115), `PumpEffect.group_player`'s shape.
         self.group_player = group_player if group_player in ("player", "opponent") else None
@@ -232,7 +237,9 @@ class AddCountersEffect(GameEffect):
         self.creature_filter = creature_filter
         if self.group_player is not None and group is not None and target_kind is None:
             self.target_spec = TargetSpec(kind=self.group_player)
-        if self.selector is None and target_kind is not None:
+        #: "When this Aura enters, put a +1/+1 counter on **enchanted creature**." (Level Up) — the host this Aura is attached to, not a target.
+        self.attached_host = target_kind == "attached_permanent"
+        if self.selector is None and target_kind is not None and not self.attached_host:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 creature_filter=creature_filter,
@@ -309,6 +316,25 @@ class AddCountersEffect(GameEffect):
                 if self.creature_filter and not combat.matches_object_filter(
                     obj, self.creature_filter, state=context.state
                 ):
+                    continue
+                context.add_counters(obj, amount, self.kind, source=self.source)
+            return
+        if self.attached_host:
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            if host is not None and amount > 0:
+                context.add_counters(host, amount, self.kind, source=self.source)
+            return
+        if self.trigger_contributors:
+            event = context.trigger_event or {}
+            from .. import combat  # local: combat imports effects lazily
+
+            member_filter = self.trigger_contributors if isinstance(self.trigger_contributors, dict) else None
+            for iid in event.get("contributor_ids") or []:
+                obj = context.state.find_object(iid)
+                if obj is None or obj not in context.state.battlefield or amount <= 0:
+                    continue
+                if member_filter and not combat.matches_object_filter(obj, member_filter, reference=self.source, state=context.state):
                     continue
                 context.add_counters(obj, amount, self.kind, source=self.source)
             return
@@ -2102,6 +2128,8 @@ class MoveCountersEffect(GameEffect):
         count: int = 1,
         source: Optional["GameObject"] = None,
         move_all_kinds: bool = False,
+        any_number: bool = False,
+        choose_kind: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = int(count)
@@ -2109,6 +2137,7 @@ class MoveCountersEffect(GameEffect):
         #: (Nexus Mentality, PAR-60) — every counter of every kind, not just
         #: ``count`` of the first kind.
         self.move_all_kinds = bool(move_all_kinds)
+        self.any_number, self.choose_kind = bool(any_number), bool(choose_kind)
         self.target_spec = TargetSpec(kind=source_target_kind)
         self.extra_target_specs = (TargetSpec(kind=dest_target_kind, distinct_from_others=True),)
 
@@ -2117,6 +2146,16 @@ class MoveCountersEffect(GameEffect):
         src = picks[0] if picks else None
         dst = picks[1] if len(picks) > 1 else None
         if src is None or dst is None or src is dst:
+            return
+        available = {k: n for k, n in src.counters.items() if n > 0}
+        if self.any_number or (self.choose_kind and len(available) > 1):
+            _offer_counter_move(context.engine, {
+                "kind": "move_counter_selection", "player_id": _controller_of(self.source, context).id,
+                "source_id": getattr(self.source, "instance_id", None),
+                "from_id": src.instance_id, "to_id": dst.instance_id,
+                "available": available, "selected": {},
+                "limit": None if self.any_number else self.count,
+            })
             return
         if self.move_all_kinds:
             for kind, n in list((src.counters or {}).items()):
@@ -2233,7 +2272,10 @@ class DoubleCountersOnTargetEffect(GameEffect):
                     self._double_on(context, o)
             return
         if self.mode == "previous_subject":
-            for o in list(getattr(context, "previous_targets", []) or []):
+            previous = list(getattr(context, "previous_targets", []) or [])
+            # "Whenever this creature attacks, double the number of +1/+1 counters on **it**." (Big Mother Mouser, Level Up) — with no earlier
+            # clause to refer back to, "it" is the ability's own source.
+            for o in previous or ([self.source] if self.source is not None else []):
                 self._double_on(context, o)
             return
         for target in list(targets or []):
@@ -3615,9 +3657,12 @@ class CopyPermanentEffect(GameEffect):
         extra_temp_keywords: Optional[list[str]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         legendary: bool = False,
+        max_mana_value: Any = None,
+        other_opponents: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
+        self.other_opponents = bool(other_opponents)
         #: "…a copy of target artifact, except **it's legendary**" (Adagia) — the copy gains the Legendary
         #: supertype (RULE 205.4a); applied to the made token, so `Card.as_copy` needs no new parameter.
         self.legendary = bool(legendary)
@@ -3731,12 +3776,25 @@ class CopyPermanentEffect(GameEffect):
         self.target_spec = (
             TargetSpec(
                 kind=target_kind, count=target_count, count_max=target_count_max, optional=target_optional,
-                creature_filter=self.creature_filter,
+                creature_filter=self.creature_filter, max_mana_value=max_mana_value,
             )
             if target_kind is not None and not self._attached_mode else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.other_opponents:
+            controller_id = _controller_of(self.source, context).id
+            defending = (context.trigger_event or {}).get("defending_player_id")
+            for opponent in context.state.living_players():
+                if opponent.id in (controller_id, defending):
+                    continue
+                copies = context.copy_permanent(controller_id, self.source, not_legendary=self.not_legendary)
+                for obj in copies:
+                    obj.tapped = self.enter_tapped
+                    if self.enter_attacking:
+                        context.engine.put_onto_battlefield_attacking(obj, {"kind": "player", "id": opponent.id})
+                context.created_objects.extend(copies)
+            return
         if (
             self.target_spec is not None and not self._attached_mode
             and self.target_spec.effective_count != 1
@@ -4241,6 +4299,8 @@ class _BecomeCopyBase(GameEffect):
         exact_mana_value: Optional[Any] = None,
         set_name: Optional[str] = None,
         previous_subject: bool = False,
+        optional: bool = False,
+        retain_trigger_index: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -4252,13 +4312,14 @@ class _BecomeCopyBase(GameEffect):
         self.set_name = str(set_name) if set_name else None
         # ``exact_mana_value`` ("with mana value X", The Mycosynth Gardens): an int or the "x" sentinel.
         self.target_spec = (
-            None if self.previous_subject else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value)
+            None if self.previous_subject else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value, optional=optional)
         )
         self.add_types = list(add_types or [])
         self.add_subtypes = list(add_subtypes or [])
         self.add_keywords = list(add_keywords or [])
         self.not_legendary = bool(not_legendary)
         self.keep_own_abilities = bool(keep_own_abilities)
+        self.retain_trigger_index = retain_trigger_index
 
     def _become(self, context: GameContext, do_copy: Any, target: Any) -> None:
         obj = self.source
@@ -4267,6 +4328,13 @@ class _BecomeCopyBase(GameEffect):
              list(obj.activated_abilities), list(obj.replacement_effects)]
             if self.keep_own_abilities else None
         )
+        if self.retain_trigger_index is not None:
+            key = self.set_name or obj.name
+            if key not in obj.retained_copy_triggers:
+                original = list(obj.triggered_abilities)
+                index = int(self.retain_trigger_index)
+                obj.retained_copy_triggers[key] = original[index:index + 1]
+            own = [list(obj.retained_copy_triggers[key]), [], [], []]
         do_copy(
             obj, target, self.add_types or None, self.add_subtypes or None,
             add_keywords=self.add_keywords or None, not_legendary=self.not_legendary,
@@ -4371,6 +4439,47 @@ class SetCopyTargetEffect(GameEffect):
             return
         context.set_copy_target(self.source, target)
 
+
+
+from ..continuations import choice as _choice
+
+
+def _offer_counter_move(rules, payload):
+    options = [{"id": str(i), "label": kind} for i, (kind, n) in enumerate(payload["available"].items())
+               if n > payload["selected"].get(kind, 0)]
+    if payload["limit"] is None or not options:
+        options.append({"id": "done", "label": "Fertig"})
+    rules.open_choice({**payload, "prompt": "Welche Marken verschieben?", "options": options})
+
+
+@_choice("move_counter_selection", rule="122.5")
+def _resume_counter_move(rules, payload, answer):
+    keys = list(payload["available"])
+    if answer != "done":
+        try:
+            kind = keys[int(answer)]
+        except (TypeError, ValueError, IndexError):
+            raise ValueError("Ungültige Markenauswahl")
+        selected = payload["selected"]
+        if selected.get(kind, 0) >= payload["available"][kind]:
+            raise ValueError("Keine weitere Marke dieser Art")
+        selected[kind] = selected.get(kind, 0) + 1
+        if payload["limit"] is None or sum(selected.values()) < payload["limit"]:
+            _offer_counter_move(rules, payload)
+            return
+    elif payload["limit"] is not None and sum(payload["selected"].values()) < payload["limit"]:
+        raise ValueError("Eine Marke muss ausgewählt werden")
+    src, dst = rules.state.find_object(payload["from_id"]), rules.state.find_object(payload["to_id"])
+    if src not in rules.state.battlefield or dst not in rules.state.battlefield:
+        return
+    from .. import continuous
+    source = rules.state.find_object(payload.get("source_id"))
+    with rules.state.simultaneous():
+        for kind, n in payload["selected"].items():
+            moved = min(n, src.counters.get(kind, 0))
+            if moved > 0 and not continuous.counters_prohibited_for(rules.state, dst, kind):
+                rules.add_counters(src, -moved, kind, source=source)
+                rules.add_counters(dst, moved, kind, source=source)
 
 
 register(globals())

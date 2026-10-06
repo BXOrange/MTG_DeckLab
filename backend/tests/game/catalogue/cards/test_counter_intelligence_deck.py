@@ -511,6 +511,8 @@ def test_resourceful_defense_ability_moves_every_counter_between_two_permanents(
     p1.mana_pool.add_many({"W": 1, "C": 4})
     engine.activate_ability(p1, defense, 0, targets=[bear, keeper])
     engine.resolve_until_stable()
+    from tests.support.deck_batch import answer
+    answer(engine)  # choose every counter, then finish the optional selection
     assert keeper.counters == {"+1/+1": 3, "charge": 1}
     assert not any(bear.counters.values())
 
