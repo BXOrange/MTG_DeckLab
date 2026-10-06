@@ -675,6 +675,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_dying_subject_to_battlefield": "move_object",
     "return_from_graveyard": "move_object",
     "return_remembered_graveyard_cards": "move_object",
+    "return_captured_graveyard_card": "move_object",
     "return_linked_exile": "move_object",
     "return_self_from_graveyard": "move_object",
     "return_self_from_graveyard_to_hand": "move_object",
@@ -781,6 +782,7 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    "reveal_split_piles": "608.2d",
     "sacrifice_source_then": "616",
     "reveal_creatures_give_opponents": "608.2d",
     "exile_hand_may_play_owner_draws": "603.7",
@@ -908,6 +910,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     # `StaticAbility` for it.
     "exile_discount_cost",
     "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana",
+    "counter_placement_prohibition",
     "enters_with_counters_count",
     "free_cast_permission", "goaded", "grant_any_color_for_activation",
     "grant_graveyard_to_library_replacement",

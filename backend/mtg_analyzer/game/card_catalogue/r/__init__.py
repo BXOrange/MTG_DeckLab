@@ -92,3 +92,4 @@ from . import riverchurn_monument  # noqa: F401
 from . import reprieve  # noqa: F401
 from . import rejoin_the_fight  # noqa: F401
 from . import rise_of_the_dark_realms  # noqa: F401
+from . import restless_anchorage  # noqa: F401

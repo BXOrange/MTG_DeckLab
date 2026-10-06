@@ -93,3 +93,6 @@ from . import angel_of_destiny  # noqa: F401
 from . import abeyance  # noqa: F401
 from . import apple_of_eden_isu_relic  # noqa: F401
 from . import archfiend_of_depravity  # noqa: F401
+from . import archfiend_of_despair  # noqa: F401
+from . import archon_of_cruelty  # noqa: F401
+from . import avacyn_angel_of_horror  # noqa: F401

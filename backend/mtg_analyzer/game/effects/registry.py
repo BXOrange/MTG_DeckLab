@@ -2316,6 +2316,7 @@ EffectRegistry.register(
         require_untapped=bool(p.get("require_untapped", False)),
         else_effects=p.get("else_effects"),
         count_amount=p.get("count_amount"),
+        target_kind=p.get("target_kind"),
     ),
 )
 EffectRegistry.register(
@@ -4300,6 +4301,11 @@ EffectRegistry.register(
 EffectRegistry.register(
     "opponents_cant_win",
     lambda p: StaticAbility("opponents_cant_win", affects="self", params={**_selectors(p)}),
+)
+EffectRegistry.register(
+    "counter_placement_prohibition",
+    lambda p: StaticAbility("counter_placement_prohibition", affects=p.get("affects", "self"),
+        params={**_selectors(p), "counter_kind": p.get("counter_kind", "all")}),
 )
 EffectRegistry.register(
     # "Each creature that's enchanted by an Aura you control can't attack you

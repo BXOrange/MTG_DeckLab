@@ -1613,8 +1613,9 @@ class SacrificeAnyNumberDrawLoseScaledEffect(GameEffect):
 
     Reuses the Eventide's Shadow idiom (`RemoveCountersFromAmongThenDraw
     LoseLifeEffect`): an optional multi-pick `_request_choose_objects`
-    (action ``sacrifice``) plus a queued ``then_specs`` tail that reads a
-    before/after graveyard-size delta to learn how many were sacrificed.
+    (action ``sacrifice``) with a ``then_that_many``
+    picked-count continuation to learn how many were sacrificed, including
+    tokens and creatures whose destination is replaced with exile.
 
     Documented simplifications: the additional cost is paid at *resolution*
     rather than at announcement (RULE 601.2b), and "copy this spell for each
@@ -1636,14 +1637,13 @@ class SacrificeAnyNumberDrawLoseScaledEffect(GameEffect):
         ]
         if not creatures:
             return
-        before = len(player.graveyard)
         context.engine._request_choose_objects(
             player, creatures, "sacrifice", count=len(creatures), optional=True,
             source=self.source, prompt="Opfere beliebig viele Kreaturen",
-            then_specs=[{
-                "type": "sacrifice_count_draw_lose",
-                "params": {"player_id": player.id, "before": before},
-            }],
+            then_that_many={"effects": [
+                {"type": "draw", "params": {"count": "x"}},
+                {"type": "lose_life", "params": {"amount": "x"}},
+            ]},
         )
 
 
@@ -1666,7 +1666,7 @@ class SacrificeCountDrawLoseTailEffect(GameEffect):
             player = context.state.player_by_id(self.player_id)
         except (KeyError, ValueError):
             return
-        n = len(player.graveyard) - self.before
+        n = len(player.graveyard) - self.before - (1 if self.source in player.graveyard else 0)
         if n > 0:
             context.draw(player, n)
             context.lose_life(player, n)

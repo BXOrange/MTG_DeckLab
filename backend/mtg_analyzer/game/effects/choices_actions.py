@@ -1312,8 +1312,11 @@ class ChooseObjectsEffect(GameEffect):
         pool_zones: Optional[list[str]] = None,
         mana_value_less_than_trigger: bool = False,
         count_amount: Optional[dict[str, Any]] = None,
+        target_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        # RULE 115: only an explicitly targeted chooser announces a player target.
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
         #: An `effect_amounts` operand measured as this resolves, replacing ``count`` — "untap up to X lands, where X
         #: is the greatest power among those creatures" (Shriekwood Devourer).
         self.count_amount = count_amount
@@ -1348,7 +1351,9 @@ class ChooseObjectsEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..rules_engine import _matches_permanent_type
 
-        if self.player_selector == "active_player":
+        if self.player_selector == "target":
+            player = targets[0] if targets else None
+        elif self.player_selector == "active_player":
             player = context.state.active_player
         else:
             player = _controller_of(self.source, context)
@@ -1370,8 +1375,8 @@ class ChooseObjectsEffect(GameEffect):
                     if obj.owner_id == player.id]
         elif self.pool_zone == "battlefield":
             pool = context.state.permanents_controlled_by(pool_player.id) if pool_player else []
-        elif self.pool_zone == "graveyard":
-            pool = pool_player.graveyard if pool_player else []
+        elif self.pool_zone in {"graveyard", "hand"}:
+            pool = getattr(pool_player, self.pool_zone) if pool_player else []
         else:
             raise ValueError(f"Unknown choice pool zone: {self.pool_zone}")
         candidates = [

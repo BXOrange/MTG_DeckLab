@@ -504,6 +504,10 @@ class ManaCountersMixin:
             _place(amount)
             return
 
+        # RULE 101.2: prohibited counters are never placed or announced.
+        if continuous.counters_prohibited_for(self.state, obj, kind):
+            return
+
         event = GameEvent(
             EventType.COUNTER,
             target_id=obj.instance_id,
@@ -524,6 +528,8 @@ class ManaCountersMixin:
 
         def _finish(resolved: Optional[GameEvent]) -> None:
             if resolved is None:
+                return
+            if continuous.counters_prohibited_for(self.state, obj, resolved.get("kind", kind)):
                 return
             _place(resolved.get("amount", amount))
             # "Whenever a -1/-1 counter is put on a creature, …" (Flourishing

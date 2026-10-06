@@ -129,6 +129,17 @@ damage. Noncombat damage instructions emit a `DAMAGE` batch; the trigger
 counts distinct opponents, so Kediss copying Malcolm's damage yields Treasures
 for the other opponents as well. See `tests/test_malcolm_noncombat_damage.py`.
 
+**Object choices** (`effects/choices_actions.py`, `choose_objects`) support
+hand-only pools and targeted player choosers. `then_that_many` counts selected
+sacrifices directly, including tokens; graveyard size is not a reliable count. Delayed
+`return_captured_graveyard_card` uses the captured graveyard incarnation and
+ability controller; leaving and re-entering the graveyard breaks the link.
+`effects/piles.py` offers public revealed-card piles with separate opponent
+and controller decisions, preserving library identities across rewind.
+Counter placement prohibitions use ordinary static groups and also guard
+entry counters (including the entrant's own abilities, RULE 614.12).
+Numeric keywords are recognized by object-filter and condition predicates.
+
 **Cleanup discards** (RULE 514.1) use the shared pending-choice card picker.
 The active player selects excess hand cards before damage and temporary effects
 are cleared; shared-game advancement pauses and resumes after the last pick.

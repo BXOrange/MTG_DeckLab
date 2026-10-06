@@ -278,7 +278,16 @@ def _creature_subtypes(obj: "GameObject") -> set[str]:
 
 
 def has(obj: "GameObject", keyword: str) -> bool:
-    return keyword in _obj_keywords(obj)
+    if keyword in _obj_keywords(obj):
+        return True
+    if (getattr(obj, "loses_all_abilities", False)
+            or keyword in getattr(obj, "removed_keywords", ())
+            or keyword in getattr(obj, "temp_removed_keywords", ())):
+        return False
+    # RULE 702: number-bearing abilities (e.g. toxic) are still keywords,
+    # even though they are stored separately from combat's flag keywords.
+    getter = getattr(obj, "parametric_keyword_value", None)
+    return callable(getter) and getter(keyword) is not None
 
 
 def has_flying(obj: "GameObject") -> bool:

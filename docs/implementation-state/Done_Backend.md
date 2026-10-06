@@ -320,6 +320,12 @@ opponent's most recent turn.
 
 ### Mixed-zone choices and delayed attached returns
 
+Delayed `return_captured_graveyard_card` effects retain the graveyard
+incarnation captured by `create_delayed_trigger` and return under the delayed
+ability's controller. A card that leaves and re-enters the graveyard is no
+longer eligible (RULE 400.7 / 603.7c). The effect looks up current state by
+instance ID before applying the captured incarnation check.
+
 `choose_objects` accepts an owned-card pool across hand and command zones,
 with `mana_value_less_than_trigger` using the DIES event's last-known mana
 value. The shared measurement handles face-down, transformed and melded
@@ -387,6 +393,18 @@ target/modal cast controls inside the choice. The primitive is tested in
 entry choice before offering the remaining cards; no nested spell resolves
 between those choices.
 
+### Public revealed-card piles (RULE 608.2d)
+
+`reveal_split_piles` reveals library cards without moving them, lets the
+controller choose the dividing opponent at larger tables, then lets that
+opponent form two piles (including empty piles). The controller chooses
+one pile for the hand and the other moves to the graveyard through the
+ordinary replacement-aware move. Hand placement is not a draw.
+Serialized choices retain the card identities across session rewind.
+The adapter is registered with the continuation and ISA inventories;
+gameplay and rewind regressions live in
+`tests/game/catalogue/cards/test_multiverse_reforged_deck.py`.
+
 ### Choices representing different card types (RULE 205.2a–b)
 
 `distinct_card_types` accepts selected cards whenever each can represent a
@@ -402,6 +420,15 @@ identity after source removal. Serialized follow-up effects retain their
 conditions, so a departed source does not receive battlefield-only counters.
 
 ### Measured choices and battlefield exit state
+
+`choose_objects` supports a hand-only pool and an explicitly targeted player
+as chooser (`player_selector="target"`, `target_kind`). Targeted sacrifice
+and subsequent discard choices complete before the remaining resolution
+instructions. Pick-count follow-ups measure sacrifices directly, including
+tokens, instead of relying on graveyard growth; the resolving spell and
+unrelated zone changes cannot inflate the count.
+Gameplay regressions: `tests/game/catalogue/cards/test_multiverse_reforged_deck.py`
+and `tests/game/catalogue/cards/test_plumb_the_forbidden.py`.
 
 `choose_objects.then_that_many` measures a chosen creature's power before
 returning it to hand, or its mana value before sacrificing it. The mana-value
@@ -2690,6 +2717,22 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 - **Files:** `game/costs.py`, `game/engine/activation_mixin.py`, `game/rules_engine.py`, `game/mana_potential.py`.
 
 ## Counters
+
+### Counter placement prohibitions (RULE 101.2 / 122)
+
+`counter_placement_prohibition` is a standing static rule modification over
+ordinary affected-object groups. Positive placements check it before
+replacement processing and before the placement completes; prohibited
+placements emit no COUNTER event. Existing counters can still be removed.
+Entry counters use the same prohibition, including the entrant's own
+abilities evaluated through a read-only hypothetical battlefield view
+(RULE 614.12). Fixed entry, entry bonuses, granted entry and as-enters counter
+choices all use the guarded placement helper.
+
+The combat/object-filter and static-condition keyword predicates also
+recognize numeric keywords such as toxic, honoring ability removal.
+Gameplay regressions are in
+`tests/game/catalogue/cards/test_multiverse_reforged_deck.py`.
 
 ### "Enters with N counters" replacement effect (RULE 614.1-style)
 

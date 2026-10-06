@@ -187,3 +187,4 @@ from . import siegfried_famed_swordsman  # noqa: F401
 from . import snort  # noqa: F401
 from . import strago_and_relm  # noqa: F401
 from . import summon_esper_valigarmanda  # noqa: F401
+from . import skrelv_s_hive  # noqa: F401

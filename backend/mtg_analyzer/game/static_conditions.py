@@ -755,9 +755,9 @@ def condition_holds(
     if kind == "has_keyword":
         if subject is None or not hasattr(subject, "instance_id"):
             return False
-        from .combat import _obj_keywords  # local: combat imports this module
+        from .combat import has  # local: combat imports this module
 
-        return str(condition.get("keyword", "")).lower() in {str(k).lower() for k in _obj_keywords(subject)}
+        return has(subject, str(condition.get("keyword", "")).lower())
     if kind == "entered_this_turn":
         entered = getattr(subject, "turn_entered", None)
         return entered is not None and entered == state.internal_turn.number

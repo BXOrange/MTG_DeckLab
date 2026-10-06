@@ -1522,6 +1522,12 @@ class GameState:
         ``fire_event`` (the event here is what actually happened), and
         triggered abilities are queued by subscribers.
         """
+        entry_events = getattr(self, "_deferred_entry_events", None)
+        if entry_events is not None and event.type in (
+            EventType.ENTERS_BATTLEFIELD, EventType.SAGA_CHAPTER, EventType.CLASS_LEVEL,
+        ):
+            entry_events.append(event)
+            return event
         event.turn = self.internal_turn.number
         if event.type == EventType.ENTERS_BATTLEFIELD and "is_token" not in event.data:
             # The history reads whether a permanent was a token (Gyome), and the entering

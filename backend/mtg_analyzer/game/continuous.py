@@ -5462,6 +5462,26 @@ def hand_size_modifier_for(state: "GameState", player: "Player") -> int:
     return modifier
 
 
+def counters_prohibited_for(state: "GameState", obj: "GameObject", kind: str, *, as_enters: bool = False) -> bool:
+    """RULE 101.2 / 122: a standing prohibition overrides counter placement.
+
+    Entry counters consult the permanent's own abilities as if it were on
+    the battlefield (RULE 614.12). A shallow, read-only evaluation view keeps
+    the ordinary group selectors without adding the entrant to real state.
+    """
+    view = state
+    if as_enters and obj not in state.battlefield:
+        view = copy.copy(state)
+        view.battlefield = [*state.battlefield, obj]
+    for ability in _battlefield_static_abilities(view):
+        if (ability.layer == "counter_placement_prohibition"
+                and ability.params.get("counter_kind") in (kind, "all")
+                and not getattr(ability.source, "loses_all_abilities", False)
+                and obj in affected_objects(view, ability)):
+            return True
+    return False
+
+
 def player_cant_lose(state: "GameState", player: "Player") -> bool:
     """RULE 104.3b — a standing "You can't lose the game" static (Herald of Eternal Dawn) controlled by ``player``.
     Conceding (RULE 104.3a) is exempt and never asks."""
@@ -6107,7 +6127,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
      "damage_prevention_prohibition", "global_wither", "attack_tax", "block_tax", "cant_lose_game", "opponents_cant_win", "player_hexproof",
-     "mana_wildcard", "retain_mana", "entry_counters_self"}
+     "mana_wildcard", "retain_mana", "entry_counters_self", "counter_placement_prohibition"}
 )
 
 

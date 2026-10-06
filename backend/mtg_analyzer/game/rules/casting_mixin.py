@@ -319,6 +319,12 @@ def _controls_check_type(state: Any, controller_id: Optional[str], types: list[s
 class CastingResolutionMixin:
     """Casting a spell onto the stack and resolving it, incl. RULE 614.1 entry-tapped/counters and every ETB interactive choice."""
 
+    def _add_entry_counters(self, obj: GameObject, kind: str, amount: int) -> None:
+        # RULE 614.12 / 101.2: an entrant's own counter prohibition also applies.
+        if amount > 0 and continuous.counters_prohibited_for(self.state, obj, kind, as_enters=True):
+            return
+        obj.add_counters(kind, amount)
+
     def _apply_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
         counters on it, read off its printed text.
@@ -338,11 +344,11 @@ class CastingResolutionMixin:
         for kind, keyword in (("fade", "fading"), ("time", "vanishing")):
             param = (getattr(obj, "parametric_keywords", None) or {}).get(keyword)
             if param and int(param.get("n", 0) or 0) > 0:
-                obj.add_counters(kind, int(param["n"]))
+                self._add_entry_counters(obj, kind, int(param["n"]))
 
         # RULE 702.156a Ravenous: "enters with X +1/+1 counters on it" (X is the announced {X}).
         if "ravenous" in (getattr(obj, "intrinsic_keywords", None) or ()) and x_paid > 0:
-            obj.add_counters("+1/+1", x_paid)
+            self._add_entry_counters(obj, "+1/+1", x_paid)
         # "…enters with a number of +1/+1 counters equal to 1 plus the number of other creatures you control." (Boss's
         # Chauffeur) — a self static counted as the permanent enters (it is not on the battlefield yet, so "other" is free).
         for ability in getattr(obj, "static_effects", None) or ():
@@ -352,7 +358,7 @@ class CastingResolutionMixin:
                 self.state, obj.controller_id, ability.params.get("count_selector", ""), source=obj,
             )
             if amount > 0:
-                obj.add_counters(str(ability.params.get("kind", "+1/+1")), amount)
+                self._add_entry_counters(obj, str(ability.params.get("kind", "+1/+1")), amount)
 
         if obj.entry_bonus_creature_counters:
             if obj.is_creature:
@@ -362,7 +368,7 @@ class CastingResolutionMixin:
         if obj.entry_bonus_counters:
             for kind, amount in obj.entry_bonus_counters.items():
                 if amount > 0:
-                    obj.add_counters(kind, amount)
+                    self._add_entry_counters(obj, kind, amount)
             obj.entry_bonus_counters = {}
         if obj.gains_sunburst:
             # RULE 702.43a Sunburst *granted* to a spell (Lux Artillery): a +1/+1 counter per colour of
@@ -371,7 +377,7 @@ class CastingResolutionMixin:
             obj.gains_sunburst = False
             spent = len(getattr(obj, "colors_spent_to_cast", None) or ())
             if spent > 0:
-                obj.add_counters("+1/+1" if obj.is_creature else "charge", spent)
+                self._add_entry_counters(obj, "+1/+1" if obj.is_creature else "charge", spent)
 
         condition = card_registry.entry_counters(obj.card)
         if condition is None:
@@ -466,11 +472,11 @@ class CastingResolutionMixin:
         else:
             amount = x_paid if condition["is_x"] else condition["count"]
         if amount > 0:
-            obj.add_counters(condition["counter_type"], amount)
+            self._add_entry_counters(obj, condition["counter_type"], amount)
         # "~ enters with a +1/+1 counter and a flying counter on it." — the
         # compound's remaining counters, placed together with the first.
         for extra in condition.get("extra_counters", ()):
-            obj.add_counters(extra["counter_type"], extra["count"])
+            self._add_entry_counters(obj, extra["counter_type"], extra["count"])
 
     def _apply_granted_entry_counters(self, obj: GameObject) -> None:
         """MEC-56: any live ``extra_etb_counter`` static's contribution
@@ -481,7 +487,7 @@ class CastingResolutionMixin:
         """
         for kind, amount in continuous.extra_etb_counters_for(self.state, obj).items():
             if amount > 0:
-                obj.add_counters(kind, amount)
+                self._add_entry_counters(obj, kind, amount)
 
     def enter_land_tapped(self, obj: GameObject) -> None:
         """Resolve ``obj``'s RULE 614.1 tapped-entry as it's played.
@@ -2791,7 +2797,7 @@ class CastingResolutionMixin:
             elif choice["kind"] == "choose_enter_counter":
                 picked = effect.options[int(chosen)] if effect is not None else None
                 if picked is not None:
-                    obj.add_counters(picked["kind"], picked["count"])
+                    self._add_entry_counters(obj, picked["kind"], picked["count"])
             else:
                 obj.chosen_color = obj.chosen_color or chosen
                 obj.chosen_colors.append(chosen)

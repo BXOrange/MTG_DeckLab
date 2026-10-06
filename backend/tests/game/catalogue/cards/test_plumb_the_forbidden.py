@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mtg_analyzer.game.card_registry import _REGISTRY, is_registered, specs_for
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
@@ -73,3 +75,35 @@ def test_scaled_tail_reads_graveyard_delta():
     eng.resolve_until_stable()
     assert len(p1.hand) == 2
     assert p1.life == 18
+
+
+@pytest.mark.parametrize("sacrifices", [0, 1, 2])
+@pytest.mark.parametrize("tokens", [False, True])
+def test_cast_plumb_counts_only_picks_after_spell_enters_graveyard(sacrifices, tokens):
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
+    eng.advance_step()
+    eng.state.current_phase, eng.state.current_step = "main", "main1"
+    p = eng.state.player_by_id("p1")
+    _lib(p, 10)
+    src = GameObject(Card(id="plumb-cost", name="Plumb the Forbidden", type_line="Instant",
+                          is_instant=True, mana_cost_string="{1}{B}", mana_cost={"generic": 1, "B": 1}),
+                     owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(src)
+    p.add_to_zone(src, Zone.HAND)
+    victims = []
+    for i in range(2):
+        obj = GameObject(Card(id=f"victim-{i}", name=f"Victim {i}", type_line="Creature",
+                              is_creature=True, power=2, toughness=2), owner_id="p1", zone=Zone.BATTLEFIELD, is_token=tokens)
+        eng.state.add_to_battlefield(obj)
+        victims.append(obj)
+    p.mana_pool.add_many({"B": 1, "C": 1})
+    eng.cast_spell(p, src)
+    eng.resolve_until_stable()
+    assert src in p.graveyard
+    for victim in victims[:sacrifices]:
+        eng.resolve_pending_choice(str(victim.instance_id))
+    if eng.state.pending_choice:
+        eng.resolve_pending_choice("decline")
+    assert len(p.hand) == 1 + sacrifices and p.life == 19 - sacrifices
+    assert all(v.zone == Zone.BATTLEFIELD for v in victims[sacrifices:])

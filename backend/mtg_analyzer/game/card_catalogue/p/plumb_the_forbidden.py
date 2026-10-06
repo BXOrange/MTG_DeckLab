@@ -8,7 +8,7 @@ from ...card_registry.core import register
 # Plumb the Forbidden (sacrifice one or more -> scaled draw/lose)
 # ===========================================================================
 # New `sacrifice_any_number_draw_lose_scaled` effect — the Eventide's Shadow
-# sacrifice-choose + graveyard-delta-tail idiom. Documented simplification:
+# sacrifice-choose + picked-count continuation. Documented simplification:
 # "copy this spell for each creature sacrificed" is modeled as its net
 # effect (one extra draw + 1 life loss per creature), not real stack copies.
 

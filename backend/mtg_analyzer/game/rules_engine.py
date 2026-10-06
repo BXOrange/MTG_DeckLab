@@ -530,7 +530,13 @@ class RulesEngine(
             # registry covers every kind the engine can open.
             raise ValueError(f"no continuation registered for choice kind {kind!r}")
         self.state.pending_choice = None
+        if choice.get("battlefield_batch"):
+            from .effects.battlefield_batches import restore_batch_runtime
+            restore_batch_runtime(self, choice)
         handler.func(self, choice, continuations.coerce_answer(handler, answer))
+        if choice.get("battlefield_batch"):
+            from .effects.battlefield_batches import resume_battlefield_batch
+            resume_battlefield_batch(self, choice)
 
     @staticmethod
     def mana_cost_of(card: Card) -> ManaCost:

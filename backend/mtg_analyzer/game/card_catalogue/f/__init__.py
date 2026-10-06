@@ -61,3 +61,5 @@ from . import florian_voldaren_scion  # noqa: F401
 from . import fear_of_burning_alive  # noqa: F401
 from . import fomori_vault  # noqa: F401
 from . import flayer_of_the_hatebound  # noqa: F401
+from . import fatehold_charm  # noqa: F401
+from . import fact_or_fiction  # noqa: F401

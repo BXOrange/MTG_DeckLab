@@ -80,3 +80,4 @@ from . import get_lost  # noqa: F401
 from . import gleaming_splendor  # noqa: F401
 from . import gideon_of_the_trials  # noqa: F401
 from . import gogo_mysterious_mime  # noqa: F401
+from . import ginger_queen_of_sweets  # noqa: F401

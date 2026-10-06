@@ -271,7 +271,9 @@ class TestBacklogSizes:
         # frames: sacrifice-source/rider, revealed-creature recipients, and
         # hand exile with turn-scoped play/draw plus delayed return. Scry/draw
         # and Tezzeret's counter/animation sequences remain composed atoms.
-        assert n <= 101, f"continuation types grew to {n}"
+        # A generic revealed-pile split/take adapter adds one reviewed continuation:
+        # it retains library identities and lets distinct players divide and take piles.
+        assert n <= 102, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

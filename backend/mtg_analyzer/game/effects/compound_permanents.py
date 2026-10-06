@@ -427,3 +427,32 @@ class ExileOpponentGraveyardsCopyCreatureEffect(GameEffect):
 
 
 EffectRegistry.register('exile_opponent_graveyards_copy_creature', lambda p: ExileOpponentGraveyardsCopyCreatureEffect())
+
+
+class ReturnCapturedGraveyardCardEffect(GameEffect):
+    """RULE 400.7 / 603.7c: return the captured graveyard incarnation.
+
+    CreateDelayedTriggerEffect stamps the target, zone and incarnation when
+    the delayed trigger is created. Leaving and re-entering the graveyard
+    breaks that link, even though this engine retains the instance ID.
+    """
+
+    def __init__(self, source=None):
+        super().__init__(source)
+        self.target = None
+        self._captured_target_incarnation = None
+        self._captured_target_zone = None
+
+    def apply(self, context, targets=None):
+        iid = getattr(self.target, 'instance_id', None)
+        obj = context.state.find_object(iid) if iid is not None else None
+        if (obj is None or obj.zone != Zone.GRAVEYARD
+                or self._captured_target_zone != Zone.GRAVEYARD
+                or obj.hideaway_incarnation != self._captured_target_incarnation):
+            return
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.return_from_graveyard(obj, controller_id=player.id)
+
+
+EffectRegistry.register('return_captured_graveyard_card', lambda p: ReturnCapturedGraveyardCardEffect())
