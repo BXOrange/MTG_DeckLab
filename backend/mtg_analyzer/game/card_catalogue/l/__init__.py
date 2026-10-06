@@ -34,12 +34,14 @@ from . import llawan_cephalid_empress  # noqa: F401
 from . import loamcrafter_faun  # noqa: F401
 from . import lobelia_defender_of_bag_end  # noqa: F401
 from . import loot_exuberant_explorer  # noqa: F401
+from . import lord_jyscal_guado  # noqa: F401
 from . import lore_drakkis  # noqa: F401
 from . import lorehold_archivist  # noqa: F401
 from . import lorehold_charm  # noqa: F401
 from . import lotus_field  # noqa: F401
 from . import loxodon_smiter  # noqa: F401
 from . import lukka_coppercoat_outcast  # noqa: F401
+from . import lulu_stern_guardian  # noqa: F401
 from . import lurrus_of_the_dream_den  # noqa: F401
 from . import lux_artillery  # noqa: F401
 from . import living_death

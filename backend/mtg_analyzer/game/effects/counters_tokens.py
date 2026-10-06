@@ -131,8 +131,12 @@ class AddCountersEffect(GameEffect):
         choose_one: bool = False,
         group_other: bool = False,
         per_recipient_stat: Optional[str] = None,
+        group_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "Put a +1/+1 counter on **each creature target player controls**." (Collective Effort) — ``group`` written for "you"
+        #: and evaluated for the player this effect targets (``"player"``/``"opponent"``, RULE 115), `PumpEffect.group_player`'s shape.
+        self.group_player = group_player if group_player in ("player", "opponent") else None
         #: "…put a number of +1/+1 counters on each other creature you control equal to **that creature's**
         #: toughness." (Canopy Gargantuan) — with ``group``: each member gets its *own* ``toughness``/``power``
         #: (read before any counters are placed, so the amounts are simultaneous) instead of ``amount``.
@@ -226,6 +230,8 @@ class AddCountersEffect(GameEffect):
         #: the RULE 115 target, evaluated against the ability's own source as
         #: the ``reference`` (`targeting._creature_matches_filter`). PAR-24.
         self.creature_filter = creature_filter
+        if self.group_player is not None and group is not None and target_kind is None:
+            self.target_spec = TargetSpec(kind=self.group_player)
         if self.selector is None and target_kind is not None:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
@@ -305,6 +311,15 @@ class AddCountersEffect(GameEffect):
                 ):
                     continue
                 context.add_counters(obj, amount, self.kind, source=self.source)
+            return
+        if self.group_player is not None and self.group is not None:
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            chosen = targets[0] if targets else None
+            if chosen is None or getattr(chosen, "instance_id", None) is not None or amount <= 0:
+                return  # the player target is gone / illegal: nothing to scope the group to
+            for one in list(group_selector_objects(context.state, chosen.id, self.group, src=self.source)):
+                context.add_counters(one, amount, self.kind, source=self.source)
             return
         if self.target_spec is not None and (
             self.target_spec.count_selector or self.target_spec.effective_count != 1
@@ -1680,6 +1695,26 @@ class ClassLevelEffect(GameEffect):
                 chapter=self.level,
             )
         )
+
+
+class AddCounterMatchingTypeEffect(GameEffect):
+    """"Put a +1/+1 counter on it if it's a creature and a loyalty counter on it if it's a planeswalker." (Forge of Heroes) — one
+    counter on the chosen permanent per type it has (a planeswalker creature gets both)."""
+
+    def __init__(self, target_kind: str = "commander_entered_this_turn", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(
+            kind=target_kind, creature_filter={"is_commander": True, "entered_this_turn": True},
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        if target.is_creature:
+            context.add_counters(target, 1, "+1/+1", source=self.source)
+        if target.is_planeswalker:
+            context.add_counters(target, 1, "loyalty", source=self.source)
 
 
 class ProliferateEffect(GameEffect):
@@ -4181,14 +4216,20 @@ class _BecomeCopyBase(GameEffect):
         keep_own_abilities: bool = False,
         exact_mana_value: Optional[Any] = None,
         set_name: Optional[str] = None,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…tap target creature an opponent controls. Then you may have ~ become a copy of **that creature**" (Kimahri,
+        #: Valiant Guardian) — the creature an earlier clause chose (`GameContext.previous_targets`), not a target of its own.
+        self.previous_subject = bool(previous_subject)
         #: "…except its name is ~" (Sarkhan, Soul Aflame) — the copy keeps this name; applied after the copied
         #: card's abilities are bound, since binding is keyed by the copied name (as `EnterAsCopyReplacement`).
         self.set_name = str(set_name) if set_name else None
         # ``exact_mana_value`` ("with mana value X", The Mycosynth Gardens): an int or the "x" sentinel.
-        self.target_spec = TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value)
+        self.target_spec = (
+            None if self.previous_subject else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value)
+        )
         self.add_types = list(add_types or [])
         self.add_subtypes = list(add_subtypes or [])
         self.add_keywords = list(add_keywords or [])
@@ -4270,7 +4311,11 @@ class BecomeCopyPermanentEffect(_BecomeCopyBase):
     this does *not* revert at cleanup — `RulesEngine.become_copy`."""
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
+        if self.previous_subject:
+            previous = list(context.previous_targets or [])
+            target = previous[0] if previous else None
+        else:
+            target = (targets[0] if targets else None) or self.target
         if target is None or self.source is None or target is self.source:
             return
         self._become(context, context.become_copy, target)

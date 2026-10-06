@@ -47,6 +47,8 @@ IRREDUCIBLE_KINDS = frozenset({
     # the stack, not the battlefield
     "spell", "spell_you_control", "spell_you_dont_control", "ability", "spell_or_ability",
     "spell_or_creature", "spell_or_nonland_permanent_you_dont_control",
+    # the stack, the battlefield and every graveyard at once (Endless Detour) — no single zone for a frame to read
+    "spell_nonland_permanent_or_graveyard_card",
 })
 
 
@@ -202,7 +204,9 @@ class TestDispatchIsStructural:
         # fixed lambdas — neither fits `TargetFrame`'s shape. Bumped 15 -> 16 for `player_other_than_event_player`
         # (The Lord of Pain): a plain player list whose exclusion is read off the firing event, so — like
         # `opponent` — it cannot be a battlefield frame.
-        assert branches <= 16, (
+        # Bumped 16 -> 17 for `spell_nonland_permanent_or_graveyard_card` (Endless Detour): one target spanning the stack, the
+        # battlefield and every graveyard, so it can be neither a battlefield frame nor a graveyard-family kind.
+        assert branches <= 17, (
             f"{branches} name branches left in legal_targets; the frame "
             f"dispatch was supposed to absorb them"
         )

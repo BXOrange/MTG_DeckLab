@@ -8,6 +8,7 @@ from . import rain_of_filth  # noqa: F401
 from . import ral_monsoon_mage  # noqa: F401
 from . import ram_through  # noqa: F401
 from . import ramos_dragon_engine  # noqa: F401
+from . import rampant_rejuvenator  # noqa: F401
 from . import ranger_captain_of_eos  # noqa: F401
 from . import rapacious_guest  # noqa: F401
 from . import raph_leo_sibling_rivals  # noqa: F401
@@ -45,6 +46,7 @@ from . import ribtruss_roaster  # noqa: F401
 from . import riftstone_portal  # noqa: F401
 from . import righteous_aura  # noqa: F401
 from . import righteous_valkyrie  # noqa: F401
+from . import rikku_resourceful_guardian  # noqa: F401
 from . import rings_of_brighthearth  # noqa: F401
 from . import rionya_fire_dancer  # noqa: F401
 from . import riot_control  # noqa: F401

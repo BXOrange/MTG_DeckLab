@@ -141,6 +141,23 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Each opponent chooses a creature with the greatest mana value among creatures they control. Return those creatures to their
+    # owners' hands." (Summon: Valefor)
+    "each_opponent_returns_greatest_mv_creature",
+    lambda p: EachOpponentReturnsGreatestManaValueCreatureEffect(),
+)
+EffectRegistry.register(
+    # "You may exile target creature card from a graveyard. If you do, create a 1/1 white Spirit … +1/+1 counter if its mana value is 4 or
+    # greater." (Summoner's Sending)
+    "exile_creature_card_make_spirit",
+    lambda p: ExileCreatureCardMakeSpiritEffect(min_mana_value_for_counter=int(p.get("min_mana_value_for_counter", 4))),
+)
+EffectRegistry.register(
+    # "…return that card to its owner's hand." under a turn-scoped DIES trigger (Together Forever)
+    "return_trigger_subject_to_hand",
+    lambda p: ReturnTriggerSubjectToHandEffect(),
+)
+EffectRegistry.register(
     # "Exile all creatures you control, then reveal … until you reveal that many creature cards …" (Mass Polymorph;
     # ``delayed`` is Synthetic Destiny's next-end-step form)
     "exile_creatures_reveal_that_many",
@@ -944,6 +961,9 @@ EffectRegistry.register(
         # A named selector, or a structured ``{zone, of, filter}`` one (Diregraf Colossus's Zombie cards in
         # your graveyard) — `continuous.count_selector` takes both.
         "count_selector": p["count_selector"] if isinstance(p.get("count_selector"), dict) else str(p.get("count_selector", "")),
+        # Sin, Unending Cataclysm: strip counters from a scope of permanents as it enters; X = ``multiplier`` × counters removed.
+        **({"remove_counters_scope": str(p["remove_counters_scope"])} if p.get("remove_counters_scope") else {}),
+        "multiplier": int(p.get("multiplier", 1)),
     }),
 )
 EffectRegistry.register(
@@ -1722,6 +1742,7 @@ EffectRegistry.register(
         description=p.get("description", ""),
         target_kind=p.get("target_kind"),
         previous_subject=bool(p.get("previous_subject", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -2303,6 +2324,7 @@ EffectRegistry.register(
         miss_effect_specs=p.get("miss_effect_specs"),
         zones=p.get("zones"),
         max_mana_value_from_trigger=p.get("max_mana_value_from_trigger"),
+        then_effects=p.get("then_effects"),
     ),
 )
 EffectRegistry.register(
@@ -2905,6 +2927,7 @@ EffectRegistry.register(
         not_legendary=bool(p.get("not_legendary", False)),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
         set_name=p.get("set_name"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -2964,6 +2987,7 @@ EffectRegistry.register(
         choose_one=bool(p.get("choose_one", False)),
         group_other=bool(p.get("group_other", False)),
         per_recipient_stat=p.get("per_recipient_stat"),
+        group_player=p.get("group_player"),
     ),
 )
 EffectRegistry.register(
@@ -3429,6 +3453,11 @@ EffectRegistry.register(
 )
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register("proliferate", lambda p: ProliferateEffect(times=p.get("times", 1)))
+EffectRegistry.register(
+    # "Put a +1/+1 counter on it if it's a creature and a loyalty counter on it if it's a planeswalker." (Forge of Heroes)
+    "add_counter_matching_type",
+    lambda p: AddCounterMatchingTypeEffect(target_kind=p.get("target_kind", "commander_entered_this_turn")),
+)
 EffectRegistry.register(
     # "remove all counters from target permanent" / "remove all counters
     # from all permanents" (RULE 122 — Vampire Hexmage/Oblivion Stone/

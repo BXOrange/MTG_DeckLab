@@ -1,5 +1,6 @@
 """Hand-authored card entries whose name starts with 'm' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import machine_god_s_effigy  # noqa: F401
+from . import maester_seymour  # noqa: F401
 from . import magda_brazen_outlaw  # noqa: F401
 from . import magda_the_hoardmaster  # noqa: F401
 from . import malakir_rebirth  # noqa: F401

@@ -58,6 +58,7 @@ from . import thunderclap_drake  # noqa: F401
 from . import thunderfoot_baloth  # noqa: F401
 from . import thundermane_dragon  # noqa: F401
 from . import tibalt_s_trickery  # noqa: F401
+from . import tidus_yuna_s_guardian  # noqa: F401
 from . import tifa_martial_artist  # noqa: F401
 from . import time_wipe  # noqa: F401
 from . import timely_ward  # noqa: F401
@@ -69,6 +70,7 @@ from . import titan_of_industry  # noqa: F401
 from . import titanic_brawl  # noqa: F401
 from . import tithe_taker  # noqa: F401
 from . import tocasia_s_welcome  # noqa: F401
+from . import together_forever  # noqa: F401
 from . import tomik_wielder_of_law  # noqa: F401
 from . import too_evil_to_stay_dead  # noqa: F401
 from . import tooth_and_nail  # noqa: F401
@@ -94,6 +96,7 @@ from . import treebeard_gracious_host  # noqa: F401
 from . import trickbind  # noqa: F401
 from . import trinisphere  # noqa: F401
 from . import triskaidekaphile  # noqa: F401
+from . import tromell_seymour_s_butler  # noqa: F401
 from . import trystan_callous_cultivator  # noqa: F401
 from . import turn_inside_out  # noqa: F401
 from . import turf_war  # noqa: F401

@@ -361,9 +361,23 @@ class CastingResolutionMixin:
         for ability in getattr(obj, "static_effects", None) or ():
             if getattr(ability, "layer", None) != "entry_counters_self":
                 continue
-            amount = int(ability.params.get("base", 0)) + continuous.count_selector(
-                self.state, obj.controller_id, ability.params.get("count_selector", ""), source=obj,
-            )
+            removed = 0
+            if ability.params.get("remove_counters_scope") == "artifacts_creatures_enchantments":
+                # "As Sin enters, remove all counters from any number of artifacts, creatures, and enchantments. Sin enters with X
+                # +1/+1 counters, where X is twice the number of counters removed this way." — **simplification:** every such
+                # permanent loses its counters (the "any number" choice is taken as "all").
+                for other in list(self.state.battlefield):
+                    if other is obj or not (other.card.is_artifact or other.is_creature or other.card.is_enchantment):
+                        continue
+                    for kind, n in list((other.counters or {}).items()):
+                        if n and n > 0:
+                            self.add_counters(other, -n, kind, source=obj)
+                            removed += n
+            amount = int(ability.params.get("base", 0)) + int(ability.params.get("multiplier", 1)) * (removed + (
+                continuous.count_selector(
+                    self.state, obj.controller_id, ability.params.get("count_selector", ""), source=obj,
+                ) if ability.params.get("count_selector") else 0
+            ))
             if amount > 0:
                 self._add_entry_counters(obj, str(ability.params.get("kind", "+1/+1")), amount)
 

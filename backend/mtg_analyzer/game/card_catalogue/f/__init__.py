@@ -17,6 +17,7 @@ from . import feral_appetite  # noqa: F401
 from . import ferrafor_young_yew  # noqa: F401
 from . import fertile_ground  # noqa: F401
 from . import fiery_emancipation  # noqa: F401
+from . import fight_rigging  # noqa: F401
 from . import fighter_class  # noqa: F401
 from . import filth  # noqa: F401
 from . import final_act  # noqa: F401
@@ -34,6 +35,7 @@ from . import flesh_duplicate  # noqa: F401
 from . import flourishing_defenses  # noqa: F401
 from . import flowering_of_the_white_tree  # noqa: F401
 from . import foggy_swamp_visions  # noqa: F401
+from . import forge_of_heroes  # noqa: F401
 from . import formless_genesis  # noqa: F401
 from . import forbidden_orchard  # noqa: F401
 from . import force_of_negation  # noqa: F401

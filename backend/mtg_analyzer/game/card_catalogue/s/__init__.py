@@ -18,6 +18,7 @@ from . import saryth_the_viper_s_fang  # noqa: F401
 from . import scab_clan_berserker  # noqa: F401
 from . import scavenger_grounds  # noqa: F401
 from . import scheming_fence  # noqa: F401
+from . import scholar_of_new_horizons  # noqa: F401
 from . import scholar_of_the_lost_trove  # noqa: F401
 from . import scion_of_halaster  # noqa: F401
 from . import scourge_of_the_throne  # noqa: F401
@@ -66,6 +67,7 @@ from . import silkguard  # noqa: F401
 from . import silverclad_ferocidons  # noqa: F401
 from . import simian_sling  # noqa: F401
 from . import simic_ascendancy  # noqa: F401
+from . import sin_unending_cataclysm  # noqa: F401
 from . import sink_into_stupor  # noqa: F401
 from . import siren_s_ruse  # noqa: F401
 from . import sisay_weatherlight_captain  # noqa: F401
@@ -124,7 +126,12 @@ from . import struggle_for_project_purity  # noqa: F401
 from . import stuffy_doll  # noqa: F401
 from . import subterfuge  # noqa: F401
 from . import sudden_substitution  # noqa: F401
+from . import summon_ixion  # noqa: F401
+from . import summon_magus_sisters  # noqa: F401
+from . import summon_valefor  # noqa: F401
+from . import summon_yojimbo  # noqa: F401
 from . import summoner_s_pact  # noqa: F401
+from . import summoner_s_sending  # noqa: F401
 from . import sun_crowned_hunters  # noqa: F401
 from . import sun_titan  # noqa: F401
 from . import sunbird_s_invocation  # noqa: F401

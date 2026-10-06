@@ -1650,9 +1650,13 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         zones: Optional[list[str]] = None,
         source: Optional["GameObject"] = None,
         max_mana_value_from_trigger: Optional[str] = None,
+        then_effects: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
+        #: "…put a creature card **and/or** a land card from your hand onto the battlefield." (Yuna's Decision) — the next pick, run once
+        #: this one is answered (placed *or* declined), since two choices opened in one resolution would overwrite each other.
+        self.then_effects = list(then_effects or [])
         self.count = count
         self.tapped = tapped
         #: "…a permanent card with mana value less than or equal to **that damage**…" (Broodcaller Scourge) —
@@ -1723,7 +1727,8 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         count = int(getattr(self.source, "x_paid", 0) or 0) if self.count == "x" else self.count
         context._request_search(
             player, criteria, destination, count, optional=True, zones=list(self.zones),
-            then_specs_if_none=self.miss_effect_specs or None, source=self.source,
+            then_specs_if_none=(self.miss_effect_specs + self.then_effects) or None, source=self.source,
+            then_specs=self.then_effects or None,
         )
 
 

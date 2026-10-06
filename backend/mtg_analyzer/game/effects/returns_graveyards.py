@@ -1419,6 +1419,8 @@ class OwnerChoosesLibraryPositionEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = targets[0] if targets else None
+        if getattr(target, "kind", None) == "spell" and getattr(target, "obj", None) is not None:
+            target = target.obj  # a spell target is its `StackItem`
         if target is None:
             return
         try:
@@ -1426,6 +1428,74 @@ class OwnerChoosesLibraryPositionEffect(GameEffect):
         except (KeyError, ValueError):
             return
         context.engine._request_library_position(owner, target)
+
+
+class ExileCreatureCardMakeSpiritEffect(GameEffect):
+    """"You may exile target creature card from a graveyard. If you do, create a 1/1 white Spirit creature token with flying. Put a +1/+1
+    counter on it if the exiled card's mana value is 4 or greater." (Summoner's Sending) — an optional target in any graveyard; the Spirit
+    (and its counter, at ``min_mana_value_for_counter``) only if the exile actually happened ("if you do")."""
+
+    def __init__(self, min_mana_value_for_counter: int = 4, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.min_mana_value_for_counter = int(min_mana_value_for_counter)
+        self.target_spec = TargetSpec(kind="any_graveyard_creature", optional=True)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        mana_value = int(getattr(target.card, "converted_mana_cost", 0) or 0)
+        context.exile(target)
+        if target.zone != Zone.EXILE:
+            return
+        params: dict[str, Any] = {
+            "count": 1, "power": 1, "toughness": 1, "colors": ["W"], "subtypes": ["Spirit"], "keywords": ["flying"],
+            "token_name": "Spirit",
+        }
+        if mana_value >= self.min_mana_value_for_counter:
+            params["extra_counters"] = {"kind": "+1/+1", "count": 1}
+        _apply_effects_partitioned(
+            build_effects([EffectSpec("create_token", params)], self.source), context, None, None, source=self.source,
+        )
+
+
+class EachOpponentReturnsGreatestManaValueCreatureEffect(GameEffect):
+    """"Each opponent chooses a creature with the greatest mana value among creatures they control. Return those creatures to their owners'
+    hands." (Summon: Valefor, chapter I) — per opponent, one creature among those tied for the greatest mana value. **Simplification:** the
+    tie is broken for the opponent in their favour (the lowest power goes back), since the opponent chooses."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        me = _controller_of(self.source, context)
+        if me is None:
+            return
+        chosen: list[Any] = []
+        for player in context.state.living_players():
+            if player.id == me.id:
+                continue
+            creatures = [o for o in context.state.battlefield if o.is_creature and o.controller_id == player.id]
+            if not creatures:
+                continue
+            top = max(int(getattr(o.card, "converted_mana_cost", 0) or 0) for o in creatures)
+            tied = [o for o in creatures if int(getattr(o.card, "converted_mana_cost", 0) or 0) == top]
+            chosen.append(min(tied, key=lambda o: ((o.power or 0), o.instance_id)))
+        for obj in chosen:
+            context.return_to_hand(obj)
+
+
+class ReturnTriggerSubjectToHandEffect(GameEffect):
+    """"When that creature dies this turn, return that card to its owner's hand." (Together Forever) — the card the firing DIES event
+    names (a turn-scoped trigger bound to the spell/ability, so it cannot read ``source``), moved from its owner's graveyard to their
+    hand. Does nothing if the card has left the graveyard again (RULE 400.7: it would be a new object)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event or {}
+        obj = context.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(obj, "hand")
 
 
 class ExpressiveIterationEffect(GameEffect):

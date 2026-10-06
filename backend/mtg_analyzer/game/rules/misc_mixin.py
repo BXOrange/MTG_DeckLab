@@ -759,8 +759,13 @@ class MiscSystemsMixin:
         """Answer a pending `library_position` choice (RULE 401.4: the owner decides top or bottom); a missing or invalid
         answer is the top, the safer default for the owner."""
         obj = self.state.find_object(choice["instance_id"])
-        if obj is not None:
-            self.return_to_library(obj, "bottom" if answer == "bottom" else "top")
+        if obj is None:
+            return
+        position = "bottom" if answer == "bottom" else "top"
+        if obj.zone == Zone.STACK:
+            self.move_spell_off_stack(obj, f"library_{position}")  # Endless Detour's spell target
+        else:
+            self.return_to_library(obj, position)
     def _request_each_player_pay_or(
         self,
         cost: "ActivationCost",
@@ -4952,6 +4957,15 @@ class MiscSystemsMixin:
             obj.zone = Zone.EXILE
             if not obj.is_token:
                 owner.add_to_zone(obj, Zone.EXILE)
+            return True
+        if destination in ("library_top", "library_bottom"):
+            # "…puts it on their choice of the top or bottom of their library." (Endless Detour) — a copy/token has
+            # nowhere to go (above); a card goes to its owner's library.
+            obj.zone = Zone.LIBRARY
+            if destination == "library_bottom":
+                owner.library.insert(0, obj)
+            else:
+                owner.library.append(obj)
             return True
         obj.zone = Zone.HAND
         owner.add_to_zone(obj, Zone.HAND)

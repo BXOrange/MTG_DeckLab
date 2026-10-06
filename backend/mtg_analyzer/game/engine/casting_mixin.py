@@ -310,6 +310,22 @@ class CastingMixin:
         if not param or not param.get("cost"):
             return None
         return ManaCost.parse(str(param["cost"]))
+    @staticmethod
+    def _escalate_tap_count(obj: GameObject, mode: Any) -> int:
+        """RULE 702.120 Escalate—"Tap an untapped creature you control": how many creatures a chosen mode *combination* taps
+        (one per mode beyond the first); 0 for a card without that cost or a single mode."""
+        if not getattr(obj, "spell_modes_escalate_tap", False) or not isinstance(mode, (list, tuple)):
+            return 0
+        return max(0, len(mode) - 1)
+
+    def _escalate_tap_candidates(self, player: Player) -> list[GameObject]:
+        """Untapped creatures ``player`` controls that could pay an Escalate tap, least valuable (lowest power) first.
+        Summoning sickness does not matter: the cost is not a {T} ability of the creature."""
+        return sorted(
+            (o for o in self.state.permanents() if o.controller_id == player.id and o.is_creature and not o.tapped),
+            key=lambda o: (o.power or 0, o.instance_id),
+        )
+
     def _modal_extra_cost(self, obj: GameObject, mode: Any) -> Optional["ManaCost"]:
         """RULE 702.172a Spree / RULE 702.120 Escalate (MEC-31): the extra
         mana a chosen mode *combination* costs on top of the spell's own
@@ -571,6 +587,9 @@ class CastingMixin:
             return False
         if player.id in self.state.no_more_spells_this_turn:
             return False  # Conduit of Worlds: "you can't cast additional spells this turn"
+        taps = self._escalate_tap_count(obj, mode)
+        if taps and len(self._escalate_tap_candidates(player)) < taps:
+            return False  # Collective Effort: not enough untapped creatures to pay the Escalate cost
         if help_pay and self._help_pay_keyword(obj) is None:
             # RULE 702.51/702.66/702.126 (PAR-23): the "cast using Convoke/
             # Delve/Improvise" offer is illegal for a spell that has none of
@@ -2113,6 +2132,10 @@ class CastingMixin:
             # other additional-cost flag (kicker_count, buyback_paid,
             # bargained, …) stays where it is — nothing reads *those*
             # before resolution, so there's no ordering bug to fix there.
+            # RULE 702.120: Escalate—"Tap an untapped creature you control" for each mode beyond the first (Collective Effort).
+            # **Simplification:** the creatures are chosen automatically (lowest power first).
+            for creature in self._escalate_tap_candidates(player)[: self._escalate_tap_count(obj, mode)]:
+                self.rules.set_tapped(creature, True, reason="escalate")
             obj.teamwork_paid = False
             if teamwork:
                 selected = self._teamwork_selection(player, obj, teamwork_choices)

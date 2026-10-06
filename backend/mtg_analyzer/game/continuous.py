@@ -1494,6 +1494,14 @@ def count_selector(
             max(0, int(o.toughness or 0)) for o in bf
             if o.is_creature and o.controller_id == controller_id and o is not source
         )
+    if selector == "opponents_controlling_creature_power_4_or_greater":
+        # "…the number of opponents who control a creature with power 4 or greater." (Summon: Yojimbo IV)
+        return sum(
+            1 for p in state.living_players()
+            if p.id != controller_id and any(
+                o.is_creature and o.controller_id == p.id and (o.power or 0) >= 4 for o in bf
+            )
+        )
     if selector == "opponents_with_more_cards_in_hand":
         # "…once for each opponent who has more cards in hand than you." (Wojek Investigator) — a count of
         # players, not objects: every other living player whose hand is larger than ``controller_id``'s.
@@ -1797,6 +1805,12 @@ def count_selector(
     if selector.startswith("permanents_you_control_of_subtype_"):
         subtype = selector[len("permanents_you_control_of_subtype_"):]
         return sum(1 for o in bf if o.controller_id == controller_id and _has_subtype(o, subtype))
+    if selector == "counters_on_creatures_you_control":
+        # "…the number of counters among creatures you control" (Maester Seymour's Monstrosity X) — every kind.
+        return sum(
+            sum(v for v in (getattr(o, "counters", None) or {}).values() if v and v > 0)
+            for o in bf if o.is_creature and o.controller_id == controller_id
+        )
     if selector == "plus_one_counters_on_creatures_you_control":
         return sum(
             int(getattr(o, "plus_one_counters", 0) or 0)

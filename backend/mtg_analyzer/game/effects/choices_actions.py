@@ -610,6 +610,7 @@ class CreateTurnTriggerEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         previous_subject: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.trigger = dict(trigger or {})
@@ -617,7 +618,10 @@ class CreateTurnTriggerEffect(GameEffect):
         self.optional = bool(optional)
         self.once = bool(once)
         self.description = str(description)
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
+        #: ``creature_filter`` narrows the chosen target ("target creature **with a counter on it**", Together Forever).
+        self.target_spec = (
+            TargetSpec(kind=target_kind, creature_filter=creature_filter) if target_kind else None
+        )
         #: PAR-102: "Target creature gets +2/+0 until end of turn. When **that creature** dies this
         #: turn, draw a card." — the trigger's subject is whatever the *preceding clause* chose
         #: (`GameContext.previous_targets`), not a target of its own.

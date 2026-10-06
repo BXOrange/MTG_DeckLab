@@ -470,6 +470,11 @@ _ALIAS_TYPES: dict[str, str] = {
     "replace_target_with_revealed": "exile",
     "reveal_opponent_library_steal": "reveal",
     "tokens_per_discarded_card_type": "create",
+    # Counter Blitz (PLAY-ALL).
+    "add_counter_matching_type": "put_counter",
+    "each_opponent_returns_greatest_mv_creature": "move_object",
+    "exile_creature_card_make_spirit": "exile",
+    "return_trigger_subject_to_hand": "move_object",
     "prevent_attacking_planeswalkers_this_turn": "create_continuous_effect",
     "coin_of_fate_split": "move_object",
     "cast_exiled_with_source": "cast",

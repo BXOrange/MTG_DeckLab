@@ -1556,16 +1556,21 @@ def _trigger_condition(
         # exact-match loop below.
         by_you = bool(filt.get("by_you"))
         player_or_planeswalker = bool(filt.get("player_or_planeswalker"))
+        # ``recipient_not_you`` (Generous Patron — "counters on a creature **you don't control**"): the counters'
+        # recipient is controlled by someone other than this ability's controller.
+        recipient_not_you = bool(filt.get("recipient_not_you"))
         exact = {
             k: v for k, v in dict(filt).items()
-            if k not in ("by_you", "player_or_planeswalker")
+            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you")
         }
 
         def _filter_ok(
             event: Any, context: Any, f=exact, want_by_you=by_you,
-            want_player_or_planeswalker=player_or_planeswalker,
+            want_player_or_planeswalker=player_or_planeswalker, want_not_you=recipient_not_you,
         ) -> bool:
             if not all(event.get(k) == v for k, v in f.items()):
+                return False
+            if want_not_you and event.get("recipient_controller_id") == getattr(source, "controller_id", None):
                 return False
             if want_player_or_planeswalker and not event.get("is_player"):
                 target_id = event.get("target_id")
@@ -4441,6 +4446,9 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     obj.spell_modes_at_least = bool(modes.get("at_least", False))
     obj.spell_modes_repeatable = bool(modes.get("repeatable", False))
     obj.spell_modes_override = modes.get("override")
+    # RULE 702.120 Escalate with a non-mana cost: "Escalate—Tap an untapped creature you control." (Collective Effort) — one creature
+    # tapped per mode chosen beyond the first (`GameEngine._escalate_tap_count`).
+    obj.spell_modes_escalate_tap = bool(modes.get("escalate_tap_creature", False))
     # RULE 702.42a Entwine: the raw mana cost that upgrades "choose one" to
     # "choose all". Read by `GameEngine._entwine_cost` — the "both" offer it
     # unlocks is priced (and lockable), unlike ``spell_modes_or_both``'s.

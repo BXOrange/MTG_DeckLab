@@ -1,5 +1,6 @@
 """Hand-authored card entries whose name starts with 'w' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import wakestone_gargoyle  # noqa: F401
+from . import wakka_devoted_guardian  # noqa: F401
 from . import walking_bulwark  # noqa: F401
 from . import wall_of_limbs  # noqa: F401
 from . import wall_of_reverence  # noqa: F401

@@ -7,3 +7,4 @@ from . import yawgmoth_s_will  # noqa: F401
 from . import yedora_grave_gardener  # noqa: F401
 from . import yeva_nature_s_herald  # noqa: F401
 from . import you_compleat_me  # noqa: F401
+from . import yuna_s_decision  # noqa: F401

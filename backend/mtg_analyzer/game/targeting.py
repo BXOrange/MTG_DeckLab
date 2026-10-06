@@ -288,6 +288,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.
         "spell_or_nonland_permanent_you_dont_control",
+        # "target spell, nonland permanent, or card in a graveyard" (Endless Detour) — the unscoped three-way union.
+        "spell_nonland_permanent_or_graveyard_card",
+        # "target commander that entered this turn" (Forge of Heroes) — a commander on the battlefield that arrived this turn.
+        "commander_entered_this_turn",
+        # "target artifact, enchantment, or tapped creature an opponent controls" (Summon: Yojimbo)
+        "artifact_enchantment_or_tapped_creature_you_dont_control",
         # "target spell or creature" (Unsubstantiate, MEC-43).
         "spell_or_creature",
         # "target spell you don't control" (Hullbreaker Horror) — the
@@ -728,6 +734,11 @@ class TargetSpec:
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
             "spell_or_creature": "Zauberspruch oder Kreatur",
+            "commander_entered_this_turn": "Commander, der in diesem Zug ins Spiel kam",
+            "artifact_enchantment_or_tapped_creature_you_dont_control":
+                "Artefakt, Verzauberung oder getappte Kreatur eines Gegners",
+            "spell_nonland_permanent_or_graveyard_card":
+                "Zauberspruch, nichtländliche bleibende Karte oder Karte in einem Friedhof",
             "artifact_creature_or_enchantment": "Artefakt, Kreatur oder Verzauberung",
             "artifact_enchantment_or_nonbasic_land":
                 "Artefakt, Verzauberung oder nichtgrundlegendes Land",
@@ -1198,6 +1209,10 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     # "target creature or land you control" (PAR-124, Vengeant Earth) — the
     # land sibling of `creature_or_enchantment` just above.
     "creature_or_land": lambda o: o.is_creature or o.is_land,
+    # "target artifact, enchantment, or tapped creature an opponent controls" (Summon: Yojimbo).
+    "artifact_enchantment_or_tapped_creature": lambda o: (
+        bool(o.card.is_artifact) or bool(o.card.is_enchantment) or (o.is_creature and bool(o.tapped))
+    ),
     "creature_or_vehicle": lambda o: o.is_creature or "vehicle" in o.card.type_line.lower(),
     "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
     "human_or_artifact": lambda o: bool(o.card.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
@@ -1251,6 +1266,12 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "permanent_you_control": TargetFrame(
         "permanent", SCOPE_YOU, apply_color=True, apply_max_mana_value=True,
         emit_controller=True),
+    # Summon: Yojimbo's chapter I; the tapped-creature half is the predicate's.
+    "artifact_enchantment_or_tapped_creature_you_dont_control": TargetFrame(
+        "artifact_enchantment_or_tapped_creature", SCOPE_NOT_YOU_STRICT),
+    # "target commander that entered this turn" (Forge of Heroes) — any permanent; the effect narrows it with a
+    # ``creature_filter`` of ``{"is_commander": True, "entered_this_turn": True}`` (`combat.matches_object_filter`).
+    "commander_entered_this_turn": TargetFrame("permanent", exclude_source=False, apply_creature_filter=True),
     "permanent_you_dont_control": TargetFrame(
         "permanent", SCOPE_NOT_YOU_STRICT, apply_color=True,
         apply_max_mana_value=True, emit_controller=True),
@@ -1573,7 +1594,7 @@ def _legal_from_frame(
             continue
         if frame.apply_creature_filter and spec.creature_filter and not (
             frame.creature_filter_creatures_only and not obj.is_creature
-        ) and not _creature_matches_filter(obj, spec.creature_filter):
+        ) and not _creature_matches_filter(obj, spec.creature_filter, state=state):
             continue
         descriptor = {"instance_id": obj.instance_id, "name": obj.name}
         if frame.emit_controller:
@@ -2045,6 +2066,22 @@ def _legal_targets_for(
             and _targetable_by(o, source)
         ]
         return spells + permanents
+    if kind == "spell_nonland_permanent_or_graveyard_card":
+        spells = [
+            {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
+            for item in state.stack
+            if item.kind == "spell" and item.obj is not None and item.obj is not source
+        ]
+        permanents = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if not o.is_land and o is not source and _targetable_by(o, source)
+        ]
+        graveyard = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for p in state.players for o in p.graveyard
+        ]
+        return spells + permanents + graveyard
     if kind == "spell_or_creature":
         # "Return target spell or creature to its owner's hand."
         # (Unsubstantiate, MEC-43) — the same two-branches-concatenated

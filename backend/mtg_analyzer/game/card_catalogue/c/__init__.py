@@ -29,6 +29,7 @@ from . import chandra_s_incinerator  # noqa: F401
 from . import chaos_warp  # noqa: F401
 from . import charm_peddler  # noqa: F401
 from . import cho_arrim_alchemist  # noqa: F401
+from . import chocobo_knights  # noqa: F401
 from . import chocobo_racetrack  # noqa: F401
 from . import chromatic_orrery  # noqa: F401
 from . import chrome_mox  # noqa: F401
@@ -54,6 +55,7 @@ from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401
 from . import coiling_oracle  # noqa: F401
 from . import colfenor_s_urn  # noqa: F401
+from . import collective_effort  # noqa: F401
 from . import colossus_hammer  # noqa: F401
 from . import combat_calligrapher  # noqa: F401
 from . import combat_celebrant  # noqa: F401

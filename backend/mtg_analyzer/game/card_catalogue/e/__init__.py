@@ -30,6 +30,7 @@ from . import emrakul_the_promised_end  # noqa: F401
 from . import emry_lurker_of_the_loch  # noqa: F401
 from . import encroaching_wastes  # noqa: F401
 from . import endless_atlas  # noqa: F401
+from . import endless_detour  # noqa: F401
 from . import endurance  # noqa: F401
 from . import enduring_vitality  # noqa: F401
 from . import enraging_licid  # noqa: F401

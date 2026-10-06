@@ -108,6 +108,8 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # it", "…for each charge counter on ~". Reads `GameObject.counters`
         # directly (counters aren't a continuous effect), scoped by ``of``.
         "counters",  # + ``counter`` (the counter's name), ``of``
+        # "…for each kind of counter on it" (Blitzball Stadium): how many distinct counter kinds the referent has.
+        "counter_kinds",  # + ``of``
         # Every kind of counter among creatures controlled by a player.
         "counters_among_creatures",  # + ``of`` (a player referent)
         # Every counter among a named group of the controller's permanents (+ ``scope``, a key of
@@ -374,6 +376,9 @@ def _base(
         ):
             counters = event.get("counters")
         return int(counters.get(counter, 0) or 0)
+
+    if kind == "counter_kinds":
+        return sum(1 for v in (getattr(subject, "counters", None) or {}).values() if v and v > 0)
 
     if kind == "counters_among_creatures":
         player_id = getattr(subject, "id", None)

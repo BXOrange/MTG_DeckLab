@@ -248,6 +248,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # creature this turn, …" (Lasting Tarfire) — `GameState.
         # counter_placed_on_creature_this_turn`, a set of causer ids.
         "you_placed_counter_on_creature_this_turn",
+        # "…if a counter was put on ~ this turn" (Wakka, Devoted Guardian) — a positive `COUNTER` event whose recipient is the
+        # ability's own source, from the turn's event history.
+        "counter_put_on_source_this_turn",
         # MEC-60 (Acolyte of Bahamut): "The first `<subtype>` spell you cast
         # each turn costs `{N}` less to cast." + ``subtype`` — a
         # `cost_reduction` ``active_if`` gate, true only while `controller_
@@ -1199,6 +1202,12 @@ def condition_holds(
         # COUNTER event's causer (``source_controller_id``) ids.
         seen = getattr(state, "counter_placed_on_creature_this_turn", None) or set()
         return controller_id in seen
+    if kind == "counter_put_on_source_this_turn":
+        source_id = getattr(source, "instance_id", None)
+        return source_id is not None and any(
+            e.type == "COUNTER" and e.get("target_id") == source_id and (e.get("amount") or 0) > 0
+            for e in state.events_this_turn()
+        )
     if kind == "first_legendary_creature_spell_this_turn":
         counts = getattr(state, "spell_type_cast_counts_this_turn", None) or {}
         return (counts.get(controller_id, {}) or {}).get("legendary_creature", 0) == 0

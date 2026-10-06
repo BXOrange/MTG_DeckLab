@@ -1080,6 +1080,20 @@ Epiphany). Target kind `another_creature_or_planeswalker_you_control` is the pla
 offered. Trigger gate `is_nth_noncreature_spell_cast_this_turn` is the noncreature sibling of the nth-spell head.
 Regressions: `tests/game/catalogue/cards/test_multiverse_reforged_deck.py`.
 
+### Counter-matters primitives (PLAY-ALL, Counter Blitz)
+
+`recipient_not_you` (a `COUNTER` filter key beside `by_you`) and the `counter_put_on_source_this_turn` condition read the counter-placement event
+history; `counter_kinds` (an `effect_amounts` kind) and the `counters_on_creatures_you_control` count selector measure counters.
+`add_counters` gained `group_player` ("each creature target player controls"), `become_copy_permanent` a `previous_subject` referent,
+`create_turn_trigger` a `creature_filter` for its chosen creature, and `put_from_hand_onto_battlefield` `then_effects` (a chained second pick, since two
+choices opened in one resolution overwrite each other). Escalate with a non-mana cost (`modes["escalate_tap_creature"]`, Collective Effort) taps one
+creature per mode beyond the first in `GameEngine.cast_spell` (`can_cast` requires them; the creatures are chosen automatically, lowest power first).
+Other shared pieces: `entry_counters_self` can strip counters from artifacts/creatures/enchantments as the permanent enters (`remove_counters_scope`,
+`multiplier`, Sin, Unending Cataclysm); `move_spell_off_stack` can put a spell on a library (`library_top`/`library_bottom`, Endless Detour's
+`spell_nonland_permanent_or_graveyard_card` target kind, whose union spans the stack, battlefield and every graveyard and so stays an
+irreducible `legal_targets` branch); the frame dispatch now passes `state` to creature filters (so `entered_this_turn` works on a frame, e.g.
+`commander_entered_this_turn`). Per-card limitations are in the card modules; tests: `tests/game/catalogue/cards/test_counter_blitz_deck.py`.
+
 ## Targeting
 
 ### Structural target frames — `kind` decomposed (ENG-34, `14_` S0b)
