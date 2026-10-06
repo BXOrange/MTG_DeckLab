@@ -2155,6 +2155,11 @@ class DamageDeathMixin:
         if getattr(obj, "_graveyard_to_library_replacement", False):
             self.return_to_library(obj, "top")
             return
+        # RULE 122.1h: a finality counter makes "if this permanent would be put into a graveyard from the battlefield,
+        # exile it instead" — a single replacement however many counters there are (Winter, Cynical Opportunist).
+        if obj in self.state.battlefield and (getattr(obj, "counters", None) or {}).get("finality", 0) > 0:
+            self.exile(obj)
+            return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
 

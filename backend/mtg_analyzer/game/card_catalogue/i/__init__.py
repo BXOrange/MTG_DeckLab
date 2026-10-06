@@ -36,3 +36,5 @@ from . import isochron_scepter  # noqa: F401
 
 from . import insatiable_frugivore
 from . import industrial_advancement
+from . import inscription_of_abundance  # noqa: F401
+from . import into_the_pit  # noqa: F401

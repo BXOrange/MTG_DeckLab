@@ -1579,6 +1579,8 @@ EffectRegistry.register(
         previous_pool=bool(p.get("previous_pool", False)),
         controller_target_kind=p.get("controller_target_kind"),
         controller_target_active=bool(p.get("controller_target_active", False)),
+        at_random=p.get("at_random"),
+        else_destination=p.get("else_destination"),
     ),
 )
 EffectRegistry.register(
@@ -1953,10 +1955,19 @@ EffectRegistry.register(
     lambda p: ReturnSpecificToHandEffect(objects=[]),
 )
 EffectRegistry.register(
+    # "…exile any number of cards from your graveyard with four or more card types among them. If you do, put a
+    # permanent card from among them onto the battlefield with a finality counter on it." (Winter, Cynical Opportunist)
+    "exile_selected_then_return_one",
+    lambda p: ExileSelectedThenReturnOneEffect(
+        instance_ids=p.get("instance_ids") if isinstance(p.get("instance_ids"), list) else [],
+        min_card_types=int(p.get("min_card_types", 4) or 4),
+    ),
+)
+EffectRegistry.register(
     # "Choose an opponent at random that ~ didn't attack during your last combat. ~ attacks that player this
     # combat if able. If you can't choose an opponent this way, tap ~." (Territorial Hellkite)
     "force_attack_unattacked_opponent",
-    lambda p: ForceAttackUnattackedOpponentEffect(),
+    lambda p: ForceAttackUnattackedOpponentEffect(avoid_last_attacked=bool(p.get("avoid_last_attacked", True))),
 )
 EffectRegistry.register(
     # "Return it to the command zone at the beginning of the next end step." (Hellkite Courser) — the
@@ -3015,6 +3026,7 @@ EffectRegistry.register(
         land_criteria=p.get("land_criteria"),
         once_each_turn=bool(p.get("once_each_turn", False)),
         active_if=_top_library_gate(p),
+        sacrifice_type=p.get("sacrifice_type"),
     ),
 )
 EffectRegistry.register(
@@ -3029,6 +3041,7 @@ EffectRegistry.register(
         spell_criteria=p.get("spell_criteria"),
         active_if=_top_library_gate(p),
         sacrifice_type=p.get("sacrifice_type"),
+        plays_lands=bool(p.get("plays_lands", False)),  # Titania, Nature's Force: lands matching ``spell_criteria``
         exile_graveyard_cards=int(p.get("exile_graveyard_cards", 0) or 0),
         instant_sorcery_only=bool(p.get("instant_sorcery_only", False)),  # Lier: standing flashback
     ),

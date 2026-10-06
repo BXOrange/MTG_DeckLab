@@ -19,6 +19,10 @@ def matching_attackers(event: Any, context: Any, spec: dict, source: Any) -> lis
         obj = state.find_object(iid)
         if obj is None or (spec.get("other") and iid == source_id):
             continue
+        # "Whenever one or more Demons you control attack **a player**" (Demonic Covenant) — RULE 508.1b: an attacker
+        # attacking a planeswalker or battle doesn't count.
+        if spec.get("defender") == "player" and (getattr(obj, "combat_defender", None) or {}).get("kind") != "player":
+            continue
         if matches_object_filter(obj, spec.get("filter"), reference=source, state=state):
             result.append(obj)
     return result

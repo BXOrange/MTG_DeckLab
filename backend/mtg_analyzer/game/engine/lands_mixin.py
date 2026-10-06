@@ -64,6 +64,7 @@ from ..top_library import (
     may_play_land_from_top_of_library,
     record_top_library_use,
     top_library_life_payment_required,
+    top_library_sacrifice_type,
 )
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
@@ -348,6 +349,19 @@ class LandsMixin:
         `game/top_library.py`). Only ever called for ``player.library[-1]``
         (the top); a card any deeper in the library is never castable."""
         return may_cast_spell_from_top_of_library(player, self.state, obj.card)
+    def _top_library_sacrifice_victim(
+        self, player: Player, obj: GameObject, card: Optional["Card"] = None, chosen_id: Optional[int] = None,
+    ) -> "tuple[bool, Optional[GameObject]]":
+        """``(required, victim)`` — whether casting ``obj`` from the top of the library demands a sacrifice
+        (Into the Pit, RULE 601.2b) and the permanent that would pay it (``chosen_id``'s pick, else the first legal
+        one; ``None`` when nothing can be sacrificed, which makes the cast illegal)."""
+        if not (player.library and obj is player.library[-1]):
+            return False, None
+        what = top_library_sacrifice_type(player, self.state, card or obj.card)
+        if not what:
+            return False, None
+        return True, self._sacrifice_candidate(player, obj, what, chosen_id=chosen_id)
+
     def _top_library_life_payment(
         self, player: Player, obj: GameObject, card: Optional["Card"] = None
     ) -> bool:

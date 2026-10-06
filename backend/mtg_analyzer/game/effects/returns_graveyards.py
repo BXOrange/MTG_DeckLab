@@ -632,9 +632,19 @@ class ReturnFromGraveyardEffect(GameEffect):
         moved_pool: bool = False,
         then_effects: Optional[list[dict[str, Any]]] = None,
         face_down_as: Optional[str] = None,
+        at_random: Optional[int] = None,
+        else_destination: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "return two creature cards **at random** from your graveyard to the battlefield" (Moldgraf Monstrosity) /
+        #: "choose a card at random in your graveyard" (Deadbridge Chant) — RULE 706's untargeted random pick: this
+        #: many cards (fewer if the graveyard has fewer) matching ``target_kind`` in the controller's graveyard are
+        #: drawn with the engine's reproducible `random_choice`; no player chooses and nothing is targeted.
+        self.at_random = max(0, int(at_random)) if at_random is not None else None
+        #: With ``at_random``: where a drawn card that is *not* a creature card goes ("If it's a creature card, put it
+        #: onto the battlefield. Otherwise, put it into your hand.") — ``destination`` stays the creature branch.
+        self.else_destination = else_destination if else_destination in self._DESTINATIONS else None
         #: "…return it to the battlefield **face down** … It's a Forest land." (Yedora, Grave Gardener) — a
         #: `face_down.LAND_KINDS` name the object is turned face down as before it enters (RULE 708.3).
         self.face_down_as = face_down_as
@@ -785,6 +795,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         self._pool_spec = spec
         self.target_spec = None if (
             self.pick or self.each_player_pick or self.players is not None or self.previous_subject
+            or self.at_random is not None
         ) else spec
 
     @property
@@ -891,6 +902,32 @@ class ReturnFromGraveyardEffect(GameEffect):
                 })
                 return
 
+    def _return_at_random(self, context: GameContext) -> None:
+        """`at_random` — draw ``at_random`` distinct matching cards from the controller's graveyard (RULE 706) and
+        return each, one after another, to ``destination`` (or ``else_destination`` for a non-creature card)."""
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        kind = self._kind or "graveyard_creature"
+        pool = [o for o in player.graveyard if graveyard_card_matches(kind, o)]
+        drawn: list[Any] = []
+        for _ in range(self.at_random or 0):
+            if not pool:
+                break
+            card = context.engine.random_choice(pool)
+            pool.remove(card)
+            drawn.append(card)
+        original = self.destination
+        try:
+            for card in drawn:
+                if self.else_destination and not card.card.is_creature:
+                    self.destination = self.else_destination
+                else:
+                    self.destination = original
+                self._apply_one(context, card)
+        finally:
+            self.destination = original
+
     def _request_pick(self, context: GameContext) -> None:
         """An untargeted "return a `<type>` card from your graveyard" — the controller chooses one."""
         player = _controller_of(self.source, context)
@@ -959,6 +996,9 @@ class ReturnFromGraveyardEffect(GameEffect):
             return
         if self.each_player_pick:
             self._pick_each_in_order(context, list(context.state.living_players()))
+            return
+        if self.at_random is not None:
+            self._return_at_random(context)
             return
         if self.positional_top_creature:
             player = _controller_of(self.source, context)

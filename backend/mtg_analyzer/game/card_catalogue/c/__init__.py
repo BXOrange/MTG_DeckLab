@@ -122,3 +122,6 @@ from . import confiscation_coup  # noqa: F401
 from . import champions_from_beyond  # noqa: F401
 from . import circle_of_power  # noqa: F401
 from . import cramped_vents_access_maze  # noqa: F401
+from . import carrion_grub  # noqa: F401
+from . import cemetery_tampering  # noqa: F401
+from . import convert_to_slime  # noqa: F401

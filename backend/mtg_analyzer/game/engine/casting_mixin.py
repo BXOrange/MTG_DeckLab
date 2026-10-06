@@ -958,6 +958,9 @@ class CastingMixin:
             if self._graveyard_sacrifice_payment(player, obj, grant, graveyard_sacrifice_choice,
                                                    sacrifice_choice, pay_additional) is None:
                 return False
+        required, victim = self._top_library_sacrifice_victim(player, obj, card, graveyard_sacrifice_choice)
+        if required and victim is None:
+            return False  # Into the Pit: nothing to sacrifice for the top-of-library cast (RULE 601.2b)
         if grant is not None and grant.exile_graveyard_cards and (
             len([o for o in player.graveyard if o is not obj]) < grant.exile_graveyard_cards
         ):
@@ -2065,7 +2068,9 @@ class CastingMixin:
                     sacrifice_choice = printed_victim.instance_id
             # PAR-105: a "once each turn" top-of-library grant is spent by this cast — read while the card
             # is still the top card.
+            top_library_victim = None
             if bool(player.library) and obj is player.library[-1]:
+                _, top_library_victim = self._top_library_sacrifice_victim(player, obj, None, graveyard_sacrifice_choice)
                 record_top_library_use(player, self.state, obj.card)
             # MEC-44: RULE 601.3a — remembered once, here, since whether a
             # sorcery could have been cast depends on the board at THIS
@@ -2204,6 +2209,9 @@ class CastingMixin:
                     # RULE 601.2h: this mandatory permission cost is independent
                     # of the spell's own optional/mandatory additional costs.
                     self.rules.put_into_graveyard(graveyard_victim)
+                if top_library_victim is not None:
+                    # Into the Pit: the same independence for a top-of-library permission's sacrifice.
+                    self.rules.put_into_graveyard(top_library_victim)
                 for exiled_card in graveyard_exile_victims:
                     self.rules.exile(exiled_card)
             # RULE 601.2b (PAR-30): record whether the additional cost was

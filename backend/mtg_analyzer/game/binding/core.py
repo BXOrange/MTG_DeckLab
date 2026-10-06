@@ -1642,6 +1642,21 @@ def _trigger_condition(
 
         predicates.append(_spell_type_ok)
 
+    # "Whenever you play a card with two or more card types" (Rendmaw, Creaking Nest) — RULE 205.2a: the distinct card
+    # types of the played land / cast spell, found live by the event's ``instance_id`` (`SPELL_CAST` and `LAND_PLAYED`
+    # both stamp it); supertypes and the synthetic "permanent" marker are not card types.
+    min_card_types = trigger.get("min_card_types")
+    if min_card_types:
+        def _min_card_types_ok(event: Any, context: Any, wanted=int(min_card_types)) -> bool:
+            from ..continuous import card_types_of  # function-scoped: continuous imports this package's siblings
+
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            obj = state.find_object(instance_id) if state is not None and instance_id is not None else None
+            return obj is not None and len(card_types_of(obj)) >= wanted
+
+        predicates.append(_min_card_types_ok)
+
     # "Whenever you cast a **noncreature** spell, …" (Young Pyromancer/
     # Shark Typhoon-shaped) — the negated sibling of `spell_card_types`
     # just above: RULE 603.1 excludes one main type rather than naming

@@ -89,3 +89,4 @@ from . import maskwood_nexus
 from . import mosswort_bridge
 from . import mutilate
 from . import midnight_clock  # noqa: F401
+from . import moldgraf_monstrosity  # noqa: F401

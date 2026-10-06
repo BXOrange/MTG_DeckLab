@@ -142,6 +142,11 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
         "milled_land_this_way",
+        # Demonic Covenant — two of the cards this resolution's mill moved have exactly the same set of card types.
+        "milled_cards_share_all_types",
+        # Grist, the Hunger Tide — a card this resolution's mill moved has the creature subtype ``subtype``
+        # (``name: "source"``: a card named like the source counts too, for "isn't on the battlefield, it's an Insect").
+        "milled_subtype_this_way",
         "source_cast_via_flashback",
         # Cemetery Gatekeeper — the played land/cast spell the firing event
         # names, against the card this source remembered exiling
@@ -373,6 +378,29 @@ def _context_holds(
     if kind == "milled_land_this_way":
         milled = getattr(context, "milled_objects", None)
         return None if milled is None else any(bool(getattr(obj, "is_land", False)) for obj in milled)
+
+    if kind == "milled_cards_share_all_types":
+        # "If two cards that share all their card types were milled this way" (Demonic Covenant) — RULE 205.2a card
+        # types only (a Legendary Creature and a Creature share all of theirs), any pair among the milled cards.
+        from .continuous import card_types_of  # function-scoped: continuous imports this package
+
+        milled = getattr(context, "milled_objects", None)
+        if milled is None:
+            return None
+        type_sets = [frozenset(card_types_of(obj)) for obj in milled]
+        return any(type_sets[i] == type_sets[j] for i in range(len(type_sets)) for j in range(i + 1, len(type_sets)))
+
+    if kind == "milled_subtype_this_way":
+        milled = getattr(context, "milled_objects", None)
+        if milled is None:
+            return None
+        subtype = str(condition.get("subtype", "")).lower()
+        own_name = getattr(source, "name", None) if condition.get("name") == "source" else None
+        return any(
+            subtype in (obj.card.type_line or "").lower().split("—")[-1].split()
+            or (own_name is not None and obj.name == own_name)
+            for obj in milled
+        )
 
     if kind == "source_cast_via_flashback":
         return None if source is None else bool(getattr(source, "cast_via_flashback", False))

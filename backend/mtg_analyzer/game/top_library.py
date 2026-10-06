@@ -171,3 +171,15 @@ def top_library_life_payment_required(player: "Player", state: "GameState", card
         g.life_payment and _grant_permits_cast(g, card)
         for g in active_top_library_grants(player, state)
     )
+
+
+def top_library_sacrifice_type(player: "Player", state: "GameState", card: "Card") -> Optional[str]:
+    """The permanent type a cast of ``card`` from the top of the library must sacrifice as an additional cost
+    (Into the Pit's "by sacrificing a nonland permanent"), or ``None`` when no sacrifice is required.
+
+    Grants OR together, so a permitting grant with no sacrifice requirement wins — the player is never made to
+    pay a cost a free grant already covers."""
+    permitting = [g for g in active_top_library_grants(player, state) if _grant_permits_cast(g, card)]
+    if not permitting or any(not g.sacrifice_type for g in permitting):
+        return None
+    return permitting[0].sacrifice_type

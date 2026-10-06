@@ -2816,7 +2816,14 @@ class ForceAttackUnattackedOpponentEffect(GameEffect):
     player becomes the source's `must_attack_player_id`, enforced as the attack is declared
     (`CombatMixin._enforce_must_attack_player`) and dropped when combat ends; with no candidate the source
     is tapped instead.
+
+    ``avoid_last_attacked=False`` is Ursine Monstrosity's plain "choose an opponent at random. ~ attacks that player
+    this combat if able": every living opponent is a candidate and there is no tap fallback.
     """
+
+    def __init__(self, source: Optional["GameObject"] = None, avoid_last_attacked: bool = True) -> None:
+        super().__init__(source)
+        self.avoid_last_attacked = bool(avoid_last_attacked)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
@@ -2825,10 +2832,11 @@ class ForceAttackUnattackedOpponentEffect(GameEffect):
             return
         candidates = [
             p for p in context.state.living_players()
-            if p.id != controller.id and p.id not in source.last_combat_attacked_ids
+            if p.id != controller.id and (not self.avoid_last_attacked or p.id not in source.last_combat_attacked_ids)
         ]
         if not candidates:
-            context.engine.set_tapped(source, True)
+            if self.avoid_last_attacked:
+                context.engine.set_tapped(source, True)
             return
         source.must_attack_player_id = context.engine.random_choice(candidates).id
 
@@ -3596,4 +3604,46 @@ class LoseGameEffect(GameEffect):
         if player is not None:
             context.lose_game(player, self.reason)
 
+class ExileSelectedThenReturnOneEffect(GameEffect):
+    """"You may exile any number of cards from your graveyard with four or more card types among them. If you do, put
+    a permanent card from among them onto the battlefield with a finality counter on it." (Winter, Cynical
+    Opportunist) — the half after the selection.
+
+    The selection itself is `choose_objects` with ``action="select_only"``: it changes nothing, so a set whose
+    legality depends on *all* of its members (``min_card_types`` distinct card types, RULE 205.2a) is judged here,
+    once, rather than pick by pick. ``instance_ids`` is the chosen set (`{"kind": "chosen_instance_ids"}` in the
+    ``then`` specs). A set that falls short does nothing — the cards stay in the graveyard. Otherwise every card is
+    exiled and the controller picks one *permanent* card among them (always one: four card types cannot all be
+    instant/sorcery) to enter the battlefield with a finality counter (`return_from_exile_finality`).
+    """
+
+    def __init__(self, instance_ids: Optional[list[int]] = None, min_card_types: int = 4,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.instance_ids = [int(i) for i in (instance_ids or []) if isinstance(i, int)]
+        self.min_card_types = int(min_card_types)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import continuous  # function-scoped: continuous imports this package
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        cards = [o for o in player.graveyard if o.instance_id in set(self.instance_ids)]
+        types: set[str] = set()
+        for obj in cards:
+            types |= continuous.card_types_of(obj)
+        if len(types) < self.min_card_types:
+            return
+        with context.state.simultaneous():
+            for obj in cards:
+                context.exile(obj)
+        permanents = [o for o in cards if o.zone == Zone.EXILE and not (o.card.is_instant or o.card.is_sorcery)]
+        context.engine._request_choose_objects(
+            player, permanents, "return_from_exile_finality", count=1, optional=False,
+            prompt="Permanente Karte mit Endgültigkeitsmarke ins Spiel bringen", source=self.source,
+        )
+
+
 register(globals())
+

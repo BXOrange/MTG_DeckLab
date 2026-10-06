@@ -86,3 +86,6 @@ from . import dancer_s_chakrams  # noqa: F401
 from . import demolition_field  # noqa: F401
 from . import demon_of_fate_s_design  # noqa: F401
 from . import dream_eater  # noqa: F401
+from . import deluge_of_doom  # noqa: F401
+from . import deadbridge_chant  # noqa: F401
+from . import demonic_covenant  # noqa: F401

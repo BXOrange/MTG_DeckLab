@@ -3462,6 +3462,10 @@ class MiscSystemsMixin:
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
             "grant_perpetual_blitz",  # MEC-109: chosen hand card retains blitz.
+            # Winter, Cynical Opportunist: a pure selection (the picked cards are acted on afterwards, together, by the
+            # ``then`` effect — a set whose legality depends on *all* picks can't be applied pick by pick), and the
+            # exile-zone pick that becomes a permanent with a finality counter (RULE 122.1h).
+            "select_only", "return_from_exile_finality",
             "tap", "untap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
             # RULE 702.26: "those permanents phase out" (Ripples of Potential).
             "phase_out",
@@ -4116,6 +4120,16 @@ class MiscSystemsMixin:
         control_recipient_id: Optional[str] = None,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
+        if action == "select_only":
+            return
+        if action == "return_from_exile_finality":
+            # "…put a permanent card from among them onto the battlefield with a finality counter on it." (Winter,
+            # Cynical Opportunist) — the exiled card enters under its owner's... the chooser's control, RULE 400.7.
+            self._remove_from_current_zone(player, obj)
+            self._put_searched_card(player, obj, "battlefield")
+            obj.controller_id = player.id
+            self.add_counters(obj, 1, "finality")
+            return
         if action == "tap":
             self.set_tapped(obj, True)
         elif action == "phase_out":

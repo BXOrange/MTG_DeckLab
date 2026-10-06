@@ -46,3 +46,7 @@ from . import weathered_sentinels
 from . import whirlwing_stormbrood
 from . import wizened_mentor
 from . import witch_s_cottage
+from . import whispersilk_cloak  # noqa: F401
+from . import whip_of_erebos  # noqa: F401
+from . import winter_cynical_opportunist  # noqa: F401
+from . import wrenn_and_seven  # noqa: F401

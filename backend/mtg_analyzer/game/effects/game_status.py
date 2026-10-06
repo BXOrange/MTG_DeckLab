@@ -591,9 +591,14 @@ class TopLibraryPermissionEffect(GameEffect):
         land_criteria: Optional[dict[str, Any]] = None,
         once_each_turn: bool = False,
         active_if: Optional[dict[str, Any]] = None,
+        sacrifice_type: Optional[str] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
+        #: "You may cast spells from the top of your library **by sacrificing a nonland permanent** in addition to paying
+        #: their other costs." (Into the Pit) — a `GameEngine._matches_sacrifice_type` word; every cast through this grant
+        #: also sacrifices one such permanent (RULE 601.2b/601.2h). A grant without it is preferred when both apply.
+        self.sacrifice_type = str(sacrifice_type) if sacrifice_type else None
         #: RULE 613.6's "as long as `<condition>`, you may cast … from the top of your library" — a
         #: `static_conditions` dict read live by `top_library.active_top_library_grants` (this effect is not
         #: a `StaticAbility`, so the layer engine's own ``active_if`` gate never sees it).
@@ -1347,9 +1352,10 @@ class RepeatProcessEffect(GameEffect):
 
     ``effects`` is the serialized process (`EffectSpec`-shaped dicts, built
     through the ordinary `effect_binder.build_effects` whitelist). It runs
-    once, then — while ``repeat_while`` holds (only ``"clash_won"`` today,
-    read off `GameContext.clash_won`, which the process's own trailing
-    `ClashEffect` sets each pass) — runs again, up to
+    once, then — while ``repeat_while`` holds (``"clash_won"``, read off
+    `GameContext.clash_won`, which the process's own trailing `ClashEffect`
+    sets each pass, or an `effect_conditions` dict re-evaluated after each
+    pass) — runs again, up to
     `_MAX_CLASH_REPEAT_ITERATIONS`. The inner effects apply directly on
     ``context`` (not a nested `_apply_effects_partitioned`) so the clash
     outcome each pass is visible to the loop test.
@@ -1358,7 +1364,7 @@ class RepeatProcessEffect(GameEffect):
     def __init__(
         self,
         effects: Optional[list[dict[str, Any]]] = None,
-        repeat_while: str = "clash_won",
+        repeat_while: Any = "clash_won",
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1379,7 +1385,14 @@ class RepeatProcessEffect(GameEffect):
             )
             for effect in built:
                 effect.apply(context, None)
-            if self.repeat_while == "clash_won" and not getattr(context, "clash_won", None):
+            if isinstance(self.repeat_while, dict):
+                # "If an Insect card was milled this way, … and repeat this process." (Grist, the Hunger Tide) — an
+                # `effect_conditions` gate read after each pass; the first pass that fails it ends the loop.
+                from .. import effect_conditions  # function-scoped: effect_conditions imports this package
+
+                if not effect_conditions.condition_holds(self.repeat_while, context, self.source, None):
+                    return
+            elif self.repeat_while == "clash_won" and not getattr(context, "clash_won", None):
                 return
 
 
