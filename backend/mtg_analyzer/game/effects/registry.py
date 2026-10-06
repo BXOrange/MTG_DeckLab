@@ -11,6 +11,10 @@ EffectRegistry.register("play_hideaway_card", lambda p: PlayHideawayCardEffect(p
 EffectRegistry.register("sacrifice_to_return_targets", lambda p: SacrificeToReturnTargetsEffect())
 EffectRegistry.register("return_remembered_graveyard_cards", lambda p: ReturnRememberedGraveyardCardsEffect(
     instance_ids=p.get("instance_ids", []), tapped=bool(p.get("tapped", False)),
+    exile_instead_of_leaving=bool(p.get("exile_instead_of_leaving", False)),
+))
+EffectRegistry.register("sacrifice_shared_type_to_return", lambda p: SacrificeSharedTypeToReturnEffect(
+    target_kind=p.get("target_kind", "graveyard_permanent"),
 ))
 
 # Register the core one-shot effects (RULE R3.1 in docs/02).
@@ -831,6 +835,9 @@ EffectRegistry.register(
         condition=p.get("condition"), all_cards=bool(p.get("all_cards", False)),
         linked_source=bool(p.get("linked_source", False)),
         cost_override=p.get("cost_override"),
+        exiled_this_way=bool(p.get("exiled_this_way", False)),
+        permanent_only=bool(p.get("permanent_only", False)),
+        any_color=bool(p.get("any_color", False)),
     ),
 )
 EffectRegistry.register(
@@ -1029,6 +1036,7 @@ EffectRegistry.register(
         keep_bottom=p.get("keep_bottom"),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         target_kind=p.get("target_kind"),
+        position=p.get("position", "top"),
     ),
 )
 EffectRegistry.register(
@@ -1097,6 +1105,7 @@ EffectRegistry.register(
         else_effects=p.get("else_effects"),
         shares_type_with_trigger=bool(p.get("shares_type_with_trigger", False)),
         strictly_less_than_trigger=bool(p.get("strictly_less_than_trigger", False)),
+        arm_all=bool(p.get("arm_all", False)),
     ),
 )
 EffectRegistry.register(
@@ -1326,6 +1335,7 @@ EffectRegistry.register(
     "look_top_cast_free",
     lambda p: LookTopCastFreeEffect(
         count=p.get("count", 7), criteria=p.get("criteria"), max_mana_value_from=p.get("max_mana_value_from"),
+        prompt=p.get("prompt"),
     ),
 )
 EffectRegistry.register(
@@ -1383,6 +1393,7 @@ EffectRegistry.register(
     "cast_graveyard_instant_sorcery_free_exile",
     lambda p: CastGraveyardInstantSorceryFreeExileEffect(
         pick=bool(p.get("pick", False)), max_mana_value=p.get("max_mana_value"),
+        target_kind=p.get("target_kind", "any_graveyard_instant_or_sorcery"),
     ),
 )
 EffectRegistry.register(
@@ -1657,6 +1668,9 @@ EffectRegistry.register(
     lambda p: PayEnergyThenEffect(
         amount=p.get("amount", 0),
         effects=list(p.get("effects", [])),
+        variable=bool(p.get("variable", False)),
+        target_kind=p.get("target_kind"),
+        amount_from_target_mana_value=bool(p.get("amount_from_target_mana_value", False)),
     ),
 )
 EffectRegistry.register(
@@ -1695,6 +1709,8 @@ EffectRegistry.register(
         then_trigger=p.get("then_trigger"),
         then_trigger_modes=p.get("then_trigger_modes"),
         x_color=p.get("x_color"),
+        x_from_trigger_event=p.get("x_from_trigger_event"),
+        pay_life_x=bool(p.get("pay_life_x", False)),
     ),
 )
 EffectRegistry.register(
@@ -2653,6 +2669,11 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # RULE 506.4 "remove enchanted creature from combat" (Observed Stasis).
+    "remove_from_combat",
+    lambda p: RemoveFromCombatEffect(target_kind=p.get("target_kind")),
+)
+EffectRegistry.register(
     "attach",
     lambda p: AttachEffect(
         target=p.get("target"),
@@ -2774,6 +2795,16 @@ EffectRegistry.register(
         not_legendary=bool(p.get("not_legendary", False)),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
         set_name=p.get("set_name"),
+    ),
+)
+EffectRegistry.register(
+    # "Target artifact you control becomes a copy of another target artifact or creature you control until end of
+    # turn, except it's an artifact in addition to its other types." (Saheeli, Sublime Artificer)
+    "become_copy_of_target_until_eot",
+    lambda p: BecomeCopyOfTargetUntilEndOfTurnEffect(
+        target_kind=p.get("target_kind", "artifact_you_control"),
+        copy_target_kind=p.get("copy_target_kind", "artifact_or_creature_you_control"),
+        add_types=p.get("add_types"),
     ),
 )
 EffectRegistry.register(
@@ -3032,6 +3063,8 @@ EffectRegistry.register(
         per_opponent=bool(p.get("per_opponent", False)),
         token_dies_gain_life=p.get("token_dies_gain_life"),
         oracle_text=str(p.get("oracle_text", "")),
+        vehicle=bool(p.get("vehicle", False)),
+        is_enchantment=bool(p.get("is_enchantment", False)),
     ),
 )
 EffectRegistry.register(
@@ -3915,6 +3948,8 @@ EffectRegistry.register(
         affects="all",
         params={
             "nonland_only": bool(p.get("nonland_only", True)),
+            # "Each **enchantment** card in your graveyard has escape." (The Master of Keys)
+            "card_type": str(p.get("card_type", "")),
             "exile_from_graveyard": int(p.get("exile_from_graveyard", 0) or 0),
         },
     ),
@@ -4336,6 +4371,17 @@ EffectRegistry.register(
             "to": p.get("to", "C"),
         },
     ),
+)
+EffectRegistry.register("aminatous_augury", lambda p: AminatousAuguryEffect())
+EffectRegistry.register(
+    # "Until end of turn, you may play cards exiled with ~. Spells you cast this way cost {2} less." (Urianger Augurelt)
+    "play_cards_exiled_with_source",
+    lambda p: PlayCardsExiledWithSourceEffect(spell_discount=int(p.get("spell_discount", 0) or 0)),
+)
+EffectRegistry.register(
+    # "When ~ dies, you may cast it from your graveyard as an Adventure until the end of your next turn."
+    "grant_self_adventure_cast_from_graveyard",
+    lambda p: GrantSelfAdventureCastFromGraveyardEffect(),
 )
 EffectRegistry.register(
     # RULE 601.2f for the rest of the turn, owned by a player (Rowan, Scion of
@@ -4828,6 +4874,10 @@ EffectRegistry.register(
             "any_player": bool(p.get("any_player", False)),
             "grants_flash": bool(p.get("grants_flash", False)),
             "from_hand": bool(p.get("from_hand", False)),
+            # "Once during each of your turns, you may cast a spell from your hand or the top of your library
+            # without paying its mana cost." (One with the Multiverse) — ``zones`` limits where it may be cast from.
+            "once_per_turn": bool(p.get("once_per_turn", False)),
+            **({"zones": list(p["zones"])} if p.get("zones") else {}),
             **_selectors(p),
         },
     ),
@@ -4848,10 +4898,33 @@ EffectRegistry.register(
         affects="self",
         params={
             "collect_evidence": int(p.get("collect_evidence", 0)),
+            "pay_energy": int(p.get("pay_energy", 0)),
+            # "…cast an enchantment spell by paying life equal to its mana value" (Demon of Fate's Design).
+            "pay_life_equal_mv": bool(p.get("pay_life_equal_mv", False)),
+            "card_type": str(p.get("card_type", "")),
+            "once_per_turn": bool(p.get("once_per_turn", False)),
+            "permanent_only": bool(p.get("permanent_only", False)),
             "creature_only": bool(p.get("creature_only", False)),
             "max_mana_value": p.get("max_mana_value"),
             **_selectors(p),
         },
+    ),
+)
+EffectRegistry.register(
+    # "Stun counters can't be removed from permanents your opponents control." (Fear of Sleep Paralysis) — read by
+    # `continuous.stun_counters_locked`, which `RulesEngine.set_tapped` consults before spending a stun counter.
+    "stun_counters_cant_be_removed",
+    lambda p: StaticAbility("stun_lock", affects="self", params={}),
+)
+EffectRegistry.register(
+    # "Each enchantment card in your hand has miracle. Its miracle cost is equal to its mana cost reduced by {4}."
+    # (Aminatou, Veil Piercer — RULE 702.94) — a granted Miracle onto *hand* cards no battlefield selector reaches;
+    # read by `draw_discard_mixin._arm_miracle` through `continuous.granted_miracle_cost_for`.
+    "grant_miracle",
+    lambda p: StaticAbility(
+        "grant_miracle",
+        affects="self",
+        params={"card_type": str(p.get("card_type", "")), "reduce_generic": int(p.get("reduce_generic", 0) or 0)},
     ),
 )
 EffectRegistry.register(

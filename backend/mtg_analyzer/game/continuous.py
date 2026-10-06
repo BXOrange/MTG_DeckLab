@@ -1014,6 +1014,10 @@ def _structured_selector_objects(
         or (scope == "opponents" and p.id != controller_id)
         or (scope == "chosen" and source is not None
             and p.id == getattr(source, "chosen_player_id", None))
+        # "…for each tapped creature **its controller** controls" (Observed Stasis) — the controller of the
+        # permanent this Aura/Equipment is attached to.
+        or (scope == "attached_controller" and source is not None
+            and p.id == getattr(state.find_object(getattr(source, "attached_to", None)), "controller_id", None))
     ]
     zone = spec.get("zone", "battlefield")
     filt = spec.get("filter") or None
@@ -1335,6 +1339,10 @@ def count_selector(
             return 0
         lost = getattr(state, "life_lost_this_turn", None) or {}
         return int(lost.get(controller_id, 0) or 0)
+    if selector == "players_who_lost_life_this_turn":
+        # "…for each player who lost life this turn." (Reaper's Scythe) — event-derived (`life_lost_this_turn`).
+        lost = getattr(state, "life_lost_this_turn", None) or {}
+        return sum(1 for p in state.living_players() if int(lost.get(p.id, 0) or 0) > 0)
     if selector == "life_gained_this_turn":
         # "…where X is the amount of life you gained this turn." (Defiling
         # Daemogoth, Blossoming Bogbeast, PAR-60) — `GameState.
@@ -1357,6 +1365,23 @@ def count_selector(
         hit: set[str] = set()
         for victims in state.combat_damage_to_players_this_turn.values():
             hit |= victims
+        return len(hit & opponent_ids)
+    if selector.startswith("opponents_dealt_combat_damage_by_self_or_") and selector.endswith("_this_turn"):
+        # "…where X is the number of your opponents who were dealt combat damage by ~ or a Dragon this turn."
+        # (Estinien Varlineau) — `opponents_dealt_combat_damage_this_turn` narrowed to dealers that are the source
+        # itself or a creature of the named subtype (read in any zone: the dealer may have died, RULE 400.7).
+        if controller_id is None:
+            return 0
+        wanted = selector[len("opponents_dealt_combat_damage_by_self_or_"):-len("_this_turn")].lower()
+        opponent_ids = {p.id for p in state.living_players() if p.id != controller_id}
+        hit: set[str] = set()
+        for dealer_id, victims in state.combat_damage_to_players_this_turn.items():
+            dealer = state.find_object(dealer_id)
+            if dealer is None:
+                continue
+            if dealer is source or wanted in {w.lower() for w in derived_subtype_words(dealer)} \
+                    or wanted in dealer.card.type_line.lower().partition("—")[2].split():
+                hit |= victims
         return len(hit & opponent_ids)
     if selector == "noncombat_damage_to_opponents_this_turn":
         # "This spell costs {X} less to cast, where X is the total amount
@@ -3670,9 +3695,13 @@ def turn_cost_reduction_applies(entry: dict[str, Any], obj: Optional["GameObject
     A filtered entry needs the spell itself; with ``obj=None`` (an offer-time
     probe) only an unfiltered one applies, like the static filters below.
     """
-    filtered = entry.get("spell_type") or entry.get("spell_colors") or entry.get("face_down")
+    filtered = (
+        entry.get("spell_type") or entry.get("spell_colors") or entry.get("face_down") or entry.get("object_ids")
+    )
     if obj is None:
         return not filtered
+    if entry.get("object_ids") and obj.instance_id not in entry["object_ids"]:
+        return False  # "spells you cast this way" — only the cards this grant named (Urianger Augurelt)
     if entry.get("spell_type") and not _spell_type_matches(obj, entry["spell_type"]):
         return False
     colors = entry.get("spell_colors")
@@ -5065,6 +5094,9 @@ def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[s
             continue
         if ability.params.get("nonland_only") and obj.card.is_land:
             continue
+        granted_type = str(ability.params.get("card_type") or "").lower()
+        if granted_type and not getattr(obj.card, f"is_{granted_type}", False):
+            continue
         return dict(ability.params)
     return None
 
@@ -5513,6 +5545,11 @@ def _active_free_cast_permission(
         # emblem): the permission covers a spell cast from the hand only, read off the card object being cast.
         if ability.params.get("from_hand") and getattr(getattr(obj, "zone", None), "value", None) != "hand":
             continue
+        zones = ability.params.get("zones")
+        if zones and getattr(getattr(obj, "zone", None), "value", None) not in zones:
+            continue
+        if ability.params.get("once_per_turn") and _once_per_turn_spent(state, "free_cast", ability):
+            continue
         max_mv = ability.params.get("max_mana_value")
         if max_mv is not None and getattr(card, "converted_mana_cost", 0) > max_mv:
             continue
@@ -5522,6 +5559,19 @@ def _active_free_cast_permission(
             continue
         return ability
     return None
+
+
+def _once_per_turn_spent(state: "GameState", kind: str, ability: Any) -> bool:
+    """Whether a "once during each of your turns" standing grant (``kind``, its source) was used this turn."""
+    used = getattr(state, "once_per_turn_grants_used", None) or {}
+    return used.get((kind, getattr(ability.source, "instance_id", None))) == state.internal_turn.number
+
+
+def note_free_cast_permission_used(state: "GameState", player: "Player", card: Any, obj: Any = None) -> None:
+    """Spend the "once during each of your turns" standing free-cast grant covering this cast, if there is one."""
+    ability = _active_free_cast_permission(state, player, card, obj)
+    if ability is not None and ability.params.get("once_per_turn"):
+        state.once_per_turn_grants_used[("free_cast", ability.source.instance_id)] = state.internal_turn.number
 
 
 def has_standing_free_cast_permission(
@@ -5583,10 +5633,65 @@ def granted_alt_cast_cost_for(
         max_mv = ability.params.get("max_mana_value")
         if max_mv is not None and getattr(card, "converted_mana_cost", 0) > max_mv:
             continue
-        n = int(ability.params.get("collect_evidence") or 0)
-        if n <= 0:
+        # "…permanent spells you cast" (Nissa, Worldsoul Speaker): no instant or sorcery.
+        if ability.params.get("permanent_only") and (
+            getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False)
+        ):
             continue
-        return parse_activation_cost({"collect_evidence": n})
+        card_type = str(ability.params.get("card_type") or "").lower()
+        if card_type and not getattr(card, f"is_{card_type}", False):
+            continue
+        if ability.params.get("once_per_turn") and _once_per_turn_spent(state, "alt_cost", ability):
+            continue
+        n = int(ability.params.get("collect_evidence") or 0)
+        energy = int(ability.params.get("pay_energy") or 0)
+        if ability.params.get("pay_life_equal_mv"):
+            # "…by paying life equal to its mana value rather than paying its mana cost" (Demon of Fate's Design).
+            cost = parse_activation_cost({"pay_life": int(getattr(card, "converted_mana_cost", 0) or 0)})
+        elif n <= 0 and energy <= 0:
+            continue
+        else:
+            # "You may pay eight {E} rather than pay the mana cost…" — the energy sibling of collect evidence (RULE 118.9).
+            cost = parse_activation_cost({"collect_evidence": n} if n > 0 else {"pay_energy": energy})
+        if ability.params.get("once_per_turn"):
+            cost.grant_key = ("alt_cost", ability.source.instance_id)
+        return cost
+    return None
+
+
+def stun_counters_locked(state: "GameState", obj: Any) -> bool:
+    """RULE 122.1c with a lock: "Stun counters can't be removed from permanents your opponents control." (Fear of
+    Sleep Paralysis) — true while a ``"stun_lock"`` static on the battlefield belongs to a player who is an opponent of
+    ``obj``'s controller. A permanent whose stun counter can't be removed simply stays tapped."""
+    controller_id = getattr(obj, "controller_id", None)
+    return any(
+        ability.layer == "stun_lock"
+        and getattr(ability.source, "controller_id", None) not in (None, controller_id)
+        for ability in _battlefield_static_abilities(state)
+    )
+
+
+def granted_miracle_cost_for(state: "GameState", player: "Player", obj: Any) -> Optional["ManaCost"]:
+    """The Miracle cost a standing ``"grant_miracle"`` static gives ``obj`` (a card ``player`` just drew), or ``None``.
+
+    "Each enchantment card in your hand has miracle. Its miracle cost is equal to its mana cost reduced by {4}."
+    (Aminatou, Veil Piercer, RULE 702.94) — the card's printed mana cost minus ``reduce_generic`` generic mana (never
+    below zero), for a card of the named ``card_type`` in the granting permanent's controller's hand.
+    """
+    from ..models.mana.mana_cost import ManaCost  # local: avoid a continuous<->models import cycle
+
+    card = getattr(obj, "card", None)
+    if card is None or card.is_land:
+        return None
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "grant_miracle":
+            continue
+        if getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        wanted = str(ability.params.get("card_type") or "").lower()
+        if wanted and not getattr(card, f"is_{wanted}", False):
+            continue
+        return ManaCost.from_card(card).reduce_generic(int(ability.params.get("reduce_generic") or 0))
     return None
 
 
@@ -6008,6 +6113,8 @@ def _describe_combat_restriction(entry: dict[str, Any]) -> str:
         return "can block any number of creatures"
     if kind == "must_block_target":
         return "must block a specific creature this turn if able"
+    if kind == "must_block_if_able":
+        return "blocks this turn if able"
     return str(kind or "combat restriction")
 
 

@@ -411,8 +411,18 @@ class DealDamageEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        with context.state.simultaneous():
-            self._apply_with_dealer(context, targets)
+        # An `effect_amounts` operand ("…damage equal to the total mana value of those cards", Combustible Gearhulk) is
+        # measured now and stands in for the base amount for this resolution only — one effect instance serves every
+        # future firing of the ability.
+        operand = self._base_amount if isinstance(self._base_amount, dict) else None
+        if operand is not None:
+            self._base_amount = self._measured(operand, context, targets)
+        try:
+            with context.state.simultaneous():
+                self._apply_with_dealer(context, targets)
+        finally:
+            if operand is not None:
+                self._base_amount = operand
 
     def _apply_with_dealer(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.dealer_event_key is None:

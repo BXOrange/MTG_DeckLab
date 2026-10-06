@@ -2092,8 +2092,16 @@ class TriggerCollectionMixin:
             ability_key=ability.description or None,
             # A cast trigger never announces an X of its own, so an X in its
             # text is the cast spell's (Zaxara, the Exemplary's ruling).
+            # RULE 107.3m: likewise a permanent's own enters-the-battlefield ability reads the X announced when it
+            # was cast ("When this enchantment enters, create X 1/1 Hero tokens" — Champions from Beyond).
             x=int((event or {}).get("x_paid", 0) or 0)
-            if getattr(event, "type", None) == EventType.SPELL_CAST else 0,
+            if getattr(event, "type", None) == EventType.SPELL_CAST
+            else int(getattr(ability.source, "x_paid", 0) or 0)
+            if (
+                getattr(event, "type", None) == EventType.ENTERS_BATTLEFIELD
+                and ability.source is not None
+                and (event or {}).get("instance_id") == getattr(ability.source, "instance_id", None)
+            ) else 0,
         )
         self.state.stack.append(item)
         self._note_crime(item)

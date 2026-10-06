@@ -80,3 +80,5 @@ from . import rain_of_riches  # noqa: F401
 from . import reflections_of_littjara
 from . import rot_hulk
 from . import razorlash_transmogrant
+from . import rampaging_aetherhood  # noqa: F401
+from . import reaper_s_scythe  # noqa: F401

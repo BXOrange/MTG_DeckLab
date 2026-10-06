@@ -191,6 +191,8 @@ def synthesize_token_card(
     oracle_text: str = "",
     legendary: bool = False,
     is_artifact: bool = False,
+    vehicle: bool = False,
+    is_enchantment: bool = False,
 ) -> Card:
     """Build a `Card` *definition* for a token an effect creates on the fly.
 
@@ -217,10 +219,19 @@ def synthesize_token_card(
     (`Card.is_token`'s own contract), with "Legendary" folded in right
     after it, matching where the supertype actually sits.
     """
+    # ``vehicle`` ("create an X/X colorless Vehicle artifact token", Pia Nalaar): an Artifact — Vehicle whose
+    # printed P/T is the Vehicle's (RULE 208.1, `Card.vehicle_power`), not a creature until crewed.
+    vehicle_power, vehicle_toughness = (power, toughness) if vehicle else (None, None)
+    if vehicle:
+        power = toughness = None
+        subtypes = ["Vehicle"] + [s for s in (subtypes or []) if s != "Vehicle"]
+        is_artifact = True
     is_creature = power is not None and toughness is not None
     subtypes = subtypes or ([name] if (name and is_creature) else [])
     if is_creature:
         kind = "Artifact Creature" if is_artifact else "Creature"
+        if is_enchantment:  # "a 2/2 black Horror enchantment creature token" (Phenomenon Investigators)
+            kind = "Enchantment " + kind
     else:
         kind = "Artifact"
     type_line = f"Token{' Legendary' if legendary else ''} {kind}"
@@ -241,6 +252,8 @@ def synthesize_token_card(
         is_legendary=legendary,
         power=power,
         toughness=toughness,
+        vehicle_power=vehicle_power,
+        vehicle_toughness=vehicle_toughness,
         color_identity=set(colors or []),
         keywords=list(keywords or []),
         oracle_text=oracle_text,

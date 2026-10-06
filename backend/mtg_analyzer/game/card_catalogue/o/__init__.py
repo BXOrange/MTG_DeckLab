@@ -27,3 +27,5 @@ from . import ozolith_the_shattered_spire  # noqa: F401
 from . import opportunistic_dragon
 from . import on_wings_of_gold
 from . import oversold_cemetery
+from . import observed_stasis  # noqa: F401
+from . import one_with_the_multiverse  # noqa: F401

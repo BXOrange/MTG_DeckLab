@@ -3737,6 +3737,21 @@ def _kw_living_weapon(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbil
     ]
 
 
+def _kw_job_select(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    # RULE 702.182a: "When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this
+    # Equipment to it." — Living Weapon's atomic create-then-attach over a different token.
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[LivingWeaponEffect(source=obj, token_name="Hero", power=1, toughness=1, colors=[],
+                                        subtypes=["Hero"])],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            description=_ability_description(obj, spec) or "Job select",
+        )
+    ]
+
+
 def _kw_fading(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     if n is None:
         return []
@@ -4246,6 +4261,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "hideaway": _kw_hideaway,
     "soulbond": _kw_soulbond,
     "living_weapon": _kw_living_weapon,
+    "job_select": _kw_job_select,
     "fading": _kw_fading,
     "vanishing": _kw_vanishing,
     "cumulative_upkeep": _kw_cumulative_upkeep,

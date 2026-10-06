@@ -436,7 +436,8 @@ class ManaCountersMixin:
             and was_tapped
             and obj.counters.get("stun", 0) > 0
         ):
-            self.add_counters(obj, -1, "stun")
+            if not continuous.stun_counters_locked(self.state, obj):  # Fear of Sleep Paralysis
+                self.add_counters(obj, -1, "stun")
             return
         obj.tapped = tapped
         if tapped and not was_tapped:

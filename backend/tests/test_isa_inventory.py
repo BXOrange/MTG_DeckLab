@@ -262,7 +262,10 @@ class TestBacklogSizes:
         # same `choose_objects` frames (`ChoosePlayerObjectsEffect`'s idiom), 92 -> 93.
         # Abzan Armor adds two more over the same frames: `choose_number_then` (a resolution-time "choose a number",
         # Expel the Interlopers) and `slaughter_the_strong` (a per-player power-budget partition), 93 -> 95.
-        assert n <= 95, f"continuation types grew to {n}"
+        # Miracle Worker adds two over the same chooser frames: `aminatous_augury` (exile eight, an optional land, a
+        # free cast per nonland card type) and `sacrifice_shared_type_to_return` (Victimize's sacrifice/return linkage
+        # for Spirit-Sister's Call), 95 -> 97.
+        assert n <= 97, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

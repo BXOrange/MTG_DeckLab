@@ -117,3 +117,8 @@ from . import commence_the_endgame
 from . import champion_of_wits
 from . import corpse_augur
 from . import cemetery_recruitment
+from . import combustible_gearhulk  # noqa: F401
+from . import confiscation_coup  # noqa: F401
+from . import champions_from_beyond  # noqa: F401
+from . import circle_of_power  # noqa: F401
+from . import cramped_vents_access_maze  # noqa: F401

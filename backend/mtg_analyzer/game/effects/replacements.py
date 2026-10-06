@@ -1007,16 +1007,24 @@ def _additional_creature_tokens_replacement(params: dict[str, Any]) -> Replaceme
     tokens, and an earlier doubler's increased amount is counted correctly.
     """
     effect = ReplacementEffect(EventType.CREATE_TOKENS, lambda event, context: event)
+    #: "If one or more **artifact** tokens would be created under your control, those tokens plus an additional
+    #: **1/1** Thopter … are created instead." (Stridehangar Automaton): only artifact-token creations match, and
+    #: the extra token is one per creation (``fixed_amount``) rather than one per token created.
+    only_artifact = bool(params.get("only_artifact", False))
+    fixed_amount = params.get("fixed_amount")
+    definition = {k: v for k, v in params.items() if k not in ("only_artifact", "fixed_amount")}
 
     def applies(event, context):
         return (effect.source is not None
                 and event.get("controller_id") == effect.source.controller_id
-                and event.get("amount", 0) > 0)
+                and event.get("amount", 0) > 0
+                and (not only_artifact or bool(event.get("is_artifact"))))
 
     def replace(event, context):
         batches = list(event.get("additional_tokens", []))
-        count = event.get("amount", 0) + sum(batch["amount"] for batch in batches)
-        batches.append({"amount": count, "definition": dict(params)})
+        count = int(fixed_amount) if fixed_amount is not None else (
+            event.get("amount", 0) + sum(batch["amount"] for batch in batches))
+        batches.append({"amount": count, "definition": dict(definition)})
         return event.copy_with(additional_tokens=batches)
 
     effect.condition, effect.replacement_fn = applies, replace

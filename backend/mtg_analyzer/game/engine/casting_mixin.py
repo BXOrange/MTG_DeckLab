@@ -601,6 +601,12 @@ class CastingMixin:
             or (obj in player.graveyard and blitz is None and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
+                # Hildibrand Manderville: a temporary permission to cast the Adventure half from the graveyard.
+                obj in player.graveyard
+                and obj.instance_id in self.state.temp_play_adventure_only
+                and self._has_temp_play_permission(obj, player)
+            )
+            or (
                 obj in player.graveyard
                 and self._self_graveyard_or_exile_cast_permission(obj, player)
             )
@@ -616,6 +622,15 @@ class CastingMixin:
         )
         if not in_castable_zone:
             return False
+        if (
+            obj in player.graveyard
+            and obj.instance_id in self.state.temp_play_adventure_only
+            and not (face == "back" and obj.card.is_adventure)
+            # `cast_spell(face="back")` has already switched ``obj.card`` to the Adventure half by the time it asks again.
+            and "adventure" not in obj.card.type_line.lower().partition("—")[2]
+            and not (self._castable_from_graveyard(obj) or self._graveyard_cast_permission(player, obj))
+        ):
+            return False  # the permission only covers casting it "as an Adventure"
         # RULE 601.3a: "Players can't cast spells from graveyards or
         # libraries." (Grafdigger's Cage/Weathered Runestone) — checked
         # once here rather than duplicated into every graveyard/library
@@ -2090,6 +2105,9 @@ class CastingMixin:
             blitz_payment = blitz_mechanic.costs_for(self.state, player, obj)[blitz].payment if blitz is not None else None
             obj.blitz_cost_paid = blitz is not None
             if free:
+                if getattr(obj, "free_cast_condition", None) is None and obj.instance_id not in self.state.free_cast_instance_ids:
+                    # A standing "once during each of your turns" free-cast grant is spent by this cast.
+                    continuous.note_free_cast_permission_used(self.state, player, obj.card, obj)
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
             elif bestow:
                 # RULE 702.103a: pay the Bestow cost in place of the mana
@@ -2717,6 +2735,9 @@ class CastingMixin:
             return False
         if cost.pay_life and player.life < cost.pay_life:
             return False
+        # RULE 122: "pay eight {E} rather than pay the mana cost" (Nissa, Worldsoul Speaker).
+        if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
+            return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
         if cost.return_to_hand_count:
@@ -2770,6 +2791,11 @@ class CastingMixin:
                 self.rules.lose_life(player, life_spent, cause="cost")
         if cost.pay_life:
             self.rules.lose_life(player, cost.pay_life, cause="cost")
+        if cost.pay_energy:
+            self.rules.add_player_counters(player, -cost.pay_energy, "energy")
+        grant_key = getattr(cost, "grant_key", None)
+        if grant_key is not None:  # a "once during each of your turns" granted alternative cost is spent
+            self.state.once_per_turn_grants_used[grant_key] = self.state.internal_turn.number
         if cost.return_to_hand:
             bounced = self._return_to_hand_candidate(player, cost.return_to_hand)
             if bounced is not None:

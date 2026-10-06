@@ -348,6 +348,12 @@ class CombatMixin:
                 raise ValueError(f"{attacker.name} must be blocked if able")
 
         for obj in self.state.permanents():
+            # RULE 509.1c: "blocks this turn if able" — blocks any attacker it legally can (one is enough).
+            if combat.combat_restrictions(obj, "must_block_if_able") and not combat.blocking_attacker_ids(obj):
+                defender = self.state.player_by_id(obj.controller_id)
+                for attacker in self.attackers:
+                    if self.can_block(defender, obj, attacker):
+                        raise ValueError(f"{obj.name} must block this turn if able")
             for entry in combat.combat_restrictions(obj, "must_block_target"):
                 attacker_id = (entry.get("filter") or {}).get("instance_id")
                 if attacker_id is None:

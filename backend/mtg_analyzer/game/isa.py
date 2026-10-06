@@ -472,7 +472,9 @@ _ALIAS_TYPES: dict[str, str] = {
     "unattach": "attach",
     "attacker_creates_attacking_token": "create",
     "become_copy_until_eot": "copy_object",
+    "become_copy_of_target_until_eot": "copy_object",
     "become_prepared": "set_status",
+    "remove_from_combat": "set_status",  # RULE 506.4 — Observed Stasis
     "become_saddled": "set_status",
     "become_solved": "set_status",
     "bounce_own_land_from_trigger": "move_object",
@@ -588,6 +590,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_flash_until_eot": "create_continuous_effect",
     "grant_flashback_to_target": "create_continuous_effect",
     "grant_graveyard_cast_permission_this_turn": "create_continuous_effect",
+    "grant_self_adventure_cast_from_graveyard": "create_continuous_effect",  # Hildibrand Manderville
+    "play_cards_exiled_with_source": "create_continuous_effect",  # Urianger Augurelt
     "grant_sunburst_to_triggering_spell": "create_continuous_effect",
     "grant_keyword_to_trigger_subject": "create_continuous_effect",
     "grant_keywords_to_chosen_type_until_eot": "create_continuous_effect",
@@ -762,6 +766,9 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
     "choose_player_on_enter": "614.12",
+    # Aminatou's Augury (the optional land) and Spirit-Sister's Call (the optional sacrifice) suspend on a resolution choice.
+    "aminatous_augury": "608.2d",
+    "sacrifice_shared_type_to_return": "608.2d",
     "sacrifice_to_return_targets": "608.2d",
     "destroy_and_half_copies": "616",
     "mill_recover_permanent_subtype_bonus": "601.2b",
@@ -892,6 +899,8 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "self_graveyard_or_exile_cast_permission", "set_max_life_total",
     "sorcery_speed_only", "top_library_permission", "trigger_prohibition", "proliferate_twice", "pip_life_option", "lands_enter_untapped",
     "untap_cap", "player_hexproof", "spend_mana_as_any_color",
+    # Aminatou, Veil Piercer's granted Miracle / Fear of Sleep Paralysis's stun-counter lock.
+    "grant_miracle", "stun_counters_cant_be_removed",
 })
 
 #: REPLACEMENT — RULE 614/616 event middleware. Also outside the instruction

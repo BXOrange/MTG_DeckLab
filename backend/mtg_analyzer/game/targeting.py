@@ -66,6 +66,8 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "non_aura_enchantment": lambda o: bool(o.card.is_enchantment)
     and "aura" not in o.card.type_line.lower(),
     "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
+    # "target instant card from your graveyard" (Torrential Gearhulk).
+    "instant": lambda o: bool(o.card.is_instant),
     # "target instant, sorcery, or artifact card from your graveyard" (Scholar of the Lost Trove).
     "instant_sorcery_or_artifact": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.card.is_artifact),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
@@ -337,6 +339,8 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "Target legendary permanent" (Minamo, School at Water's Edge,
         # RULE 205.4a) — any player's, supertype-filtered.
         "legendary_permanent",
+        # "another target legendary permanent you control" (Thancred Waters) — the controller-scoped, source-excluding sibling.
+        "another_legendary_permanent_you_control",
         # "Target Forest" (Arbor Elf) — any player's, subtype-filtered to
         # one specific basic land type. Only Forest exists so far (the one
         # real card in this codebase needing it); add its WUBRG siblings
@@ -413,6 +417,7 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "enchantment": "Verzauberungskarte",
     "non_aura_enchantment": "Nicht-Aura-Verzauberungskarte",
     "instant_or_sorcery": "Spontanzauber- oder Hexereikarte",
+    "instant": "Spontanzauberkarte",
     "permanent": "Karte eines bleibenden Kartentyps",
     "nonland_permanent": "Karte eines nichtländlichen bleibenden Kartentyps",
     "rebel_permanent": "Rebellenkarte",
@@ -758,6 +763,7 @@ class TargetSpec:
             "nonbasic_land": "nichtgrundlegendes Land",
             "nonbasic_land_you_dont_control": "nichtgrundlegendes Land, das du nicht kontrollierst",
             "legendary_permanent": "legendäre bleibende Karte",
+            "another_legendary_permanent_you_control": "andere legendäre bleibende Karte unter deiner Kontrolle",
             "forest_you_control": "Wald unter deiner Kontrolle",
             "creature_source_is_blocking": "Kreatur, die dies blockiert",
             "noncreature_nonland_permanent":
@@ -1237,6 +1243,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "permanent", SCOPE_NEITHER_OWN_NOR_CONTROL, apply_color=True,
         emit_controller=True),
     "legendary_permanent": TargetFrame("legendary_permanent", apply_color=True),
+    "another_legendary_permanent_you_control": TargetFrame("legendary_permanent", SCOPE_YOU),
     "historic_permanent_you_control": TargetFrame("historic_permanent", SCOPE_YOU, apply_color=True),
     "monocolored_permanent": TargetFrame("monocolored_permanent"),
     "incubator_token_you_control": TargetFrame("incubator_token", SCOPE_YOU),

@@ -49,3 +49,5 @@ from . import hazels_brewmaster
 from . import hazel_of_the_rootbloom
 from . import hammerhead_tyrant
 from . import hellkite_courser
+from . import hildibrand_manderville_gentleman_s_rise  # noqa: F401
+from . import hall_of_heliod_s_generosity  # noqa: F401

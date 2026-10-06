@@ -81,3 +81,8 @@ from . import deceptive_frostkite
 from . import dread_summons
 from . import death_baron
 from . import diregraf_colossus
+from . import druid_of_purification  # noqa: F401
+from . import dancer_s_chakrams  # noqa: F401
+from . import demolition_field  # noqa: F401
+from . import demon_of_fate_s_design  # noqa: F401
+from . import dream_eater  # noqa: F401

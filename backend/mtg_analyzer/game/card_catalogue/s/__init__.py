@@ -162,3 +162,9 @@ from . import stormbreath_dragon
 from . import sarkhan_soul_aflame
 from . import selvala_s_stampede
 from . import syphon_flesh
+from . import stridehangar_automaton  # noqa: F401
+from . import saheeli_radiant_creator  # noqa: F401
+from . import saheeli_sublime_artificer  # noqa: F401
+from . import summon_good_king_mog_xii  # noqa: F401
+from . import secret_arcade_dusty_parlor  # noqa: F401
+from . import spirit_sister_s_call  # noqa: F401

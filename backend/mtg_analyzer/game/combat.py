@@ -525,6 +525,9 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         # checked by `GameEngine._enforce_block_requirements`, not by anything
         # in this module (it needs the whole board, not just two creatures).
         "must_block_target",
+        # RULE 509.1c's unqualified requirement — "target creature blocks this turn if able" (Peema Aether-Seer): the
+        # creature blocks *some* attacker whenever it can (the defending player picks which one).
+        "must_block_if_able",
         # PAR-50 / RULE 510.1c: these alter damage *assignment*, after the
         # combatants and their blockers are known, rather than declaration.
         "damage_as_unblocked",

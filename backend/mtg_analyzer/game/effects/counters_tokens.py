@@ -783,8 +783,19 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         self, condition: Optional[dict[str, Any]] = None,
         all_cards: bool = False, linked_source: bool = False,
         source: Optional["GameObject"] = None, cost_override: Optional[str] = None,
+        exiled_this_way: bool = False,
+        permanent_only: bool = False,
+        any_color: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…you may cast **permanent** spells from among them" (Arvinox) — instants and sorceries get no permission.
+        self.permanent_only = bool(permanent_only)
+        #: "…and you may spend mana as though it were mana of any color to cast those spells" (Arvinox) — the
+        #: card's `GameState.mana_wildcard_permission` (RULE 605.1a).
+        self.any_color = bool(any_color)
+        #: Read the cards a preceding `exile` clause moved (`GameContext.exiled_objects`) rather than the library
+        #: batch `exile_top_of_library` surfaces on ``created_objects`` (Blue Mage's Cane: a graveyard exile).
+        self.exiled_this_way = bool(exiled_this_way)
         self.condition = dict(condition or {})
         self.all_cards = all_cards
         self.linked_source = linked_source
@@ -797,9 +808,14 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        for obj in list(getattr(context, "created_objects", []) or []):
+        pool = context.exiled_objects if self.exiled_this_way else getattr(context, "created_objects", [])
+        for obj in list(pool or []):
             card = getattr(obj, "card", None)
+            if self.permanent_only and (getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False)):
+                continue
             if self.all_cards or getattr(card, "is_creature", False):
+                if self.any_color:
+                    context.state.mana_wildcard_permission[obj.instance_id] = "color"
                 condition = dict(self.condition)
                 if self.linked_source:
                     condition["linked_source_id"] = self.source.instance_id
@@ -1560,7 +1576,25 @@ class LivingWeaponEffect(GameEffect):
     created, not a RULE 115 target or an entry off a shared targets list —
     there's no vocabulary for "whatever the previous effect just made" in
     the ordinary effects-list composition.
+
+    RULE 702.182a Job select is the same shape with a different token — "create a 1/1 colorless Hero creature token,
+    then attach this Equipment to it" — so the token definition is a parameter (the Germ by default).
     """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        token_name: str = "Phyrexian Germ",
+        power: int = 0,
+        toughness: int = 0,
+        colors: Optional[list[str]] = None,
+        subtypes: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.token_name = token_name
+        self.power, self.toughness = power, toughness
+        self.colors = ["B"] if colors is None and token_name == "Phyrexian Germ" else list(colors or [])
+        self.subtypes = list(subtypes) if subtypes is not None else ["Phyrexian", "Germ"]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
@@ -1568,7 +1602,7 @@ class LivingWeaponEffect(GameEffect):
         from ...services.token_database import synthesize_token_card
 
         card = synthesize_token_card(
-            "Phyrexian Germ", power=0, toughness=0, colors=["B"], subtypes=["Phyrexian", "Germ"]
+            self.token_name, power=self.power, toughness=self.toughness, colors=self.colors, subtypes=self.subtypes
         )
         tokens = context.engine.create_token(self.source.controller_id, card)
         if tokens:
@@ -2122,6 +2156,16 @@ class DoubleCountersOnTargetEffect(GameEffect):
         if self.mode == "self":
             if self.source is not None:
                 self._double_on(context, self.source)
+            return
+        if self.mode == "player":
+            # "Double the number of each kind of counter **you have**." (Aetheric Amplifier) — the controller's
+            # own player counters (energy, experience, poison, …), snapshotted before any are added.
+            player = context.state.player_by_id(getattr(self.source, "controller_id", None))
+            held = {k: v for k, v in dict(player.counters).items() if v and v > 0}
+            if getattr(player, "poison", 0) > 0:
+                held["poison"] = player.poison
+            for kind, amount in held.items():
+                context.add_player_counters(player, amount, kind, source=self.source)
             return
         if self.mode == "each_you_control":
             controller_id = getattr(self.source, "controller_id", None)
@@ -3157,8 +3201,15 @@ class CreateTokenEffect(GameEffect):
         per_opponent: bool = False,
         token_dies_gain_life: Optional[int] = None,
         oracle_text: str = "",
+        vehicle: bool = False,
+        is_enchantment: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…a 2/2 black Horror **enchantment creature** token" (Phenomenon Investigators).
+        self.is_enchantment = bool(is_enchantment)
+        #: "create an X/X colorless Vehicle artifact token" (Pia Nalaar, Chief Mechanic) — ``power``/``toughness``
+        #: are the Vehicle's printed P/T (`synthesize_token_card` ``vehicle``); its Crew comes from ``oracle_text``.
+        self.vehicle = bool(vehicle)
         #: "…creature token with \"when ~ dies, you gain N life.\"" — the
         #: STX Pest token's own printed death trigger (Blight Mound, Feral
         #: Appetite, Pest Rescuer, Hunt for Specimens, …). A `dies` →
@@ -3313,6 +3364,8 @@ class CreateTokenEffect(GameEffect):
                 oracle_text=self.oracle_text,
                 legendary=self.legendary,
                 is_artifact=self.is_artifact,
+                vehicle=self.vehicle,
+                is_enchantment=self.is_enchantment,
             )
         controller_id = getattr(context, "acting_player_id", None) or (
             self.source.controller_id if self.source is not None
@@ -4163,6 +4216,33 @@ class BecomeCopyUntilEndOfTurnEffect(_BecomeCopyBase):
         if target is None or self.source is None or target is self.source:
             return
         self._become(context, context.become_copy_until_end_of_turn, target)
+
+
+class BecomeCopyOfTargetUntilEndOfTurnEffect(GameEffect):
+    """"Target `<kind>` you control becomes a copy of **another** target `<kind>` you control until end of turn,
+    except it's an artifact in addition to its other types." (Saheeli, Sublime Artificer) — the two-target sibling of
+    `BecomeCopyUntilEndOfTurnEffect` (whose copier is always the source): ``targets[0]`` becomes a copy of
+    ``targets[1]`` (RULE 707.2), reverted at cleanup (RULE 514.2) through the same `become_copy_until_end_of_turn`
+    snapshot. The two requirements are announced together via ``extra_target_specs`` (RULE 115.1, printed order).
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "artifact_you_control",
+        copy_target_kind: str = "artifact_or_creature_you_control",
+        add_types: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.extra_target_specs = (TargetSpec(kind=copy_target_kind, distinct_from_others=True),)
+        self.add_types = list(add_types or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        objs = [t for t in (targets or [])]
+        if len(objs) < 2 or objs[0] is None or objs[1] is None or objs[0] is objs[1]:
+            return  # a target became illegal — nothing becomes a copy of nothing (RULE 608.2b)
+        context.become_copy_until_end_of_turn(objs[0], objs[1], self.add_types or None)
 
 
 class BecomeCopyPermanentEffect(_BecomeCopyBase):

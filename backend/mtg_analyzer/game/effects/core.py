@@ -126,6 +126,9 @@ class GameContext:
         #: Objects a preceding zone-changing instruction moved during this
         #: resolution (the exact "this way" batch for a later measurement).
         self.moved_objects: list[Any] = []
+        #: The objects `exile` moved into exile during this resolution — what "exiled this way" names for a following
+        #: clause ("…you may cast the exiled card for {3}", Blue Mage's Cane); unlike `moved_objects` it is only exile.
+        self.exiled_objects: list[Any] = []
         #: MEC-28: the `continuous.group_selector_objects` name the last
         #: mass-*selector* effect of this same resolution acted on (RULE
         #: 601.2c, untargeted — "untap all attacking creatures. **They**
@@ -359,6 +362,7 @@ class GameContext:
         # mirroring `destroy`'s before/after check.
         if was_elsewhere and getattr(target, "zone", None) == Zone.EXILE:
             self.objects_exiled_this_way += 1
+            self.exiled_objects.append(target)
 
     def exile_until_duplicate_name(self, player: "Player") -> None:
         self.engine.exile_until_duplicate_name(player)

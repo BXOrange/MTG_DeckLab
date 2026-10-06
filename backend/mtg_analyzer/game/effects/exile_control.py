@@ -436,10 +436,14 @@ class ExileTopOfLibraryEffect(GameEffect):
         track_exiled_with: bool = False,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        position: str = "top",
     ) -> None:
         super().__init__(source)
         self.face_down = face_down
         self.player_selector = player_selector
+        #: "Exile the **bottom** card of each opponent's library face down." (Arvinox, the Mind Flail) — which end of
+        #: the library the cards come from (`Player.library`: index 0 is the bottom, ``[-1]`` the top).
+        self.position = "bottom" if position == "bottom" else "top"
         #: "Exile the top X cards of **target opponent's** library." (Gix, Yawgmoth Praetor) — a real RULE 115
         #: player target of this effect's own, read back by ``player_selector="target"``.
         if target_kind is not None:
@@ -463,6 +467,9 @@ class ExileTopOfLibraryEffect(GameEffect):
             players = [context.state.active_player]
         elif self.player_selector == "each_player":
             players = list(context.state.living_players())
+        elif self.player_selector == "each_opponent":
+            controller_id = getattr(self.source, "controller_id", None)
+            players = [p for p in context.state.living_players() if p.id != controller_id]
         else:
             controller = _controller_of(self.source, context)
             players = [controller] if controller is not None else []
@@ -475,7 +482,7 @@ class ExileTopOfLibraryEffect(GameEffect):
             for _ in range(count):
                 if not player.library:
                     break
-                top = player.library[-1]
+                top = player.library[0] if self.position == "bottom" else player.library[-1]
                 context.exile(top)
                 context.moved_objects.append(top)
                 if self.face_down:
@@ -859,8 +866,14 @@ class FreeCastFromHandEffect(GameEffect):
         else_effects: Optional[list[dict[str, Any]]] = None,
         shares_type_with_trigger: bool = False,
         strictly_less_than_trigger: bool = False,
+        arm_all: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "You may cast **any number of** spells from your hand without paying their mana costs." (Aetherflux
+        #: Conduit) — every eligible hand card is armed in `GameState.free_cast_instance_ids` at once (RULE 118.9),
+        #: and the caster then casts as many as they like through the ordinary cast action. **Simplification:** the
+        #: window lasts the rest of the turn (the armed ids are dropped at cleanup), not only during resolution.
+        self.arm_all = bool(arm_all)
         self.criteria = dict(criteria or {})
         #: "…a spell **with lesser mana value that shares a card type with it**…" (Baral and Kari Zev) —
         #: "it" is the spell whose cast fired this ability: the offered card must share one of its card
@@ -924,6 +937,9 @@ class FreeCastFromHandEffect(GameEffect):
             and (not isinstance(max_mv, int) or (obj.card.converted_mana_cost or 0) <= max_mv)
             and (shared_types is None or bool(continuous.card_types_of(obj) & shared_types))
         ]
+        if self.arm_all:
+            context.state.free_cast_instance_ids.update(o.instance_id for o in candidates)
+            return
         context.engine._request_choose_objects(
             player, candidates, "grant_free_cast", count=1, optional=True,
             prompt=f"{source.name}: Karte kostenlos zaubern?",
@@ -2522,8 +2538,11 @@ class LookTopCastFreeEffect(GameEffect):
     def __init__(
         self, count: int = 7, criteria: Optional[dict[str, Any]] = None,
         max_mana_value_from: Optional[str] = None, source: Optional["GameObject"] = None,
+        prompt: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: The pending choice's German prompt; the default names Velomachus's instant/sorcery restriction.
+        self.prompt = prompt
         self.count = int(count)
         self.criteria = dict(criteria) if criteria else None
         self.max_mana_value_from = max_mana_value_from
@@ -2569,7 +2588,7 @@ class LookTopCastFreeEffect(GameEffect):
         )
         choice = context.state.pending_choice
         if choice is not None and choice.get("kind") == "play_during_resolution":
-            choice["prompt"] = "Instant oder Sorcery kostenlos wirken?"
+            choice["prompt"] = self.prompt or "Instant oder Sorcery kostenlos wirken?"
 
 
 class GrantDieToExileThisTurnEffect(GameEffect):

@@ -88,3 +88,4 @@ from . import maelstrom_pulse
 from . import maskwood_nexus
 from . import mosswort_bridge
 from . import mutilate
+from . import midnight_clock  # noqa: F401

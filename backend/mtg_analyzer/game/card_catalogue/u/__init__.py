@@ -11,3 +11,4 @@ from . import urza_s_saga  # noqa: F401
 from . import utopia_sprawl  # noqa: F401
 from . import unholy_grotto
 from . import undead_butler
+from . import urianger_augurelt  # noqa: F401

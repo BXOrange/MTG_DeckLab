@@ -105,3 +105,11 @@ from . import the_odd_acorn_gang
 
 from . import the_beamtown_bullies  # noqa: F401
 from . import territorial_hellkite
+from . import triplicate_titan  # noqa: F401
+from . import territorial_aetherkite  # noqa: F401
+from . import transpose  # noqa: F401
+from . import thancred_waters  # noqa: F401
+from . import torrential_gearhulk  # noqa: F401
+from . import telling_time  # noqa: F401
+from . import the_eldest_reborn  # noqa: F401
+from . import the_master_of_keys  # noqa: F401

@@ -687,16 +687,43 @@ class PayEnergyThenEffect(GameEffect):
         amount: int = 0,
         effects: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        variable: bool = False,
+        target_kind: Optional[str] = None,
+        amount_from_target_mana_value: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…you may pay an amount of {E} equal to **that permanent's mana value**. If you do, gain control of it."
+        #: (Confiscation Coup) — the spell's own target (``target_kind``) prices the payment, and is handed on to the
+        #: "if you do" effects (they see it as their target, like `pay_cost_then`'s branches).
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        self.amount_from_target_mana_value = bool(amount_from_target_mana_value)
         self.amount = int(amount)
         self.inner_specs = list(effects or [])
+        #: "you may pay **one or more** {E}. If you do, … X …" (Rampaging Aetherhood, Territorial Aetherkite, Pia
+        #: Nalaar) — the payer announces how much (one option per affordable amount, RULE 107.1b "X is chosen by the
+        #: payer") and the paid amount is bound to the ``"x"`` sentinel in ``effects``. ``amount`` is the minimum.
+        self.variable = bool(variable)
+
+    @property
+    def owns_x_sentinel(self) -> bool:
+        """A variable payment announces its own X when the choice is answered (ENG-48's `PayCostThenEffect` idiom):
+        the branch specs' ``"x"`` is the paid amount, so `RulesEngine._substitute_x` must not fill it first."""
+        return self.variable
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
-        if player is None or player.counters.get("energy", 0) < self.amount:
+        amount = self.amount
+        if self.amount_from_target_mana_value:
+            target = next((t for t in (targets or []) if t is not None), None)
+            if target is None:
+                return  # the target is gone — nothing to price or take
+            amount = int(getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0)
+        floor = max(1, amount) if self.variable else amount
+        if player is None or player.counters.get("energy", 0) < floor:
             return  # can't pay — the optional payment simply doesn't happen
-        context.engine._request_pay_energy_then(player, self.amount, self.inner_specs, self.source)
+        context.engine._request_pay_energy_then(
+            player, floor, self.inner_specs, self.source, variable=self.variable, targets=targets,
+        )
 
 
 class BackFromTheBrinkEffect(GameEffect):
@@ -873,8 +900,17 @@ class PayCostThenEffect(GameEffect):
         then_trigger: Optional[list[dict[str, Any]]] = None,
         then_trigger_modes: Optional[dict[str, Any]] = None,
         x_color: Optional[str] = None,
+        x_from_trigger_event: Optional[str] = None,
+        pay_life_x: bool = False,
     ) -> None:
         super().__init__(source)
+        #: The cost is "Pay X life" with X from ``x_from_trigger_event`` (a literal ``"x"`` in a cost dict would be
+        #: rewritten by the composition layer's X substitution before this effect ever ran).
+        self.pay_life_x = bool(pay_life_x)
+        #: "…you may pay X life, where X is that spell's mana value. If you do, … X +1/+1 counters …" (G'raha Tia) —
+        #: X is a field of the firing event (``mana_value``): it prices a ``Pay X life`` cost and binds the branch's
+        #: ``"$x"`` sentinel, measured when the trigger resolves.
+        self.x_from_trigger_event = x_from_trigger_event
         #: "…you may pay **any amount of {R}**." (Leyline Tyrant) — a ``{X}`` cost whose X is paid in this colour.
         self.x_color = x_color
         self.cost_data = cost
@@ -1043,8 +1079,14 @@ class PayCostThenEffect(GameEffect):
             return
         cost = parse_activation_cost(self.cost_data)
         from ..costs import PAY_LIFE_X
+        trigger_x: Optional[int] = None
+        if self.x_from_trigger_event:
+            raw = (context.trigger_event or {}).get(self.x_from_trigger_event)
+            trigger_x = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) else 0
         if cost.pay_life == PAY_LIFE_X:
-            cost.pay_life = int(getattr(self.source, "x_paid", 0) or 0)
+            cost.pay_life = trigger_x if trigger_x is not None else int(getattr(self.source, "x_paid", 0) or 0)
+        elif self.pay_life_x and trigger_x is not None:
+            cost.pay_life = trigger_x
         if self.sacrifice_or_discard:
             cost.sacrifice_or_discard = True
         # "…its controller may pay 1 life. If they do, **they** draw a card." (Gix) — the paid branch is
@@ -1054,17 +1096,27 @@ class PayCostThenEffect(GameEffect):
         if self.payer == "trigger_subject_controller":
             context.acting_player_id = player.id
         try:
-            self._open_pay_cost_then(context, player, cost, targets)
+            self._open_pay_cost_then(context, player, cost, targets, trigger_x)
         finally:
             context.acting_player_id = outer_acting
 
-    def _open_pay_cost_then(self, context: GameContext, player: Any, cost: Any, targets: Optional[list[Any]]) -> None:
+    def _open_pay_cost_then(
+        self, context: GameContext, player: Any, cost: Any, targets: Optional[list[Any]],
+        trigger_x: Optional[int] = None,
+    ) -> None:
+        from .composition import BindEffect  # function-scoped: effects↔composition cycle
+
+        def bound(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            # ``"$x"`` is this trigger's X (BindEffect's ``$name`` sentinel): a plain ``"x"`` would already have been
+            # rewritten with the *ability's* X by the enclosing composition layer (`composition._resolve_x`).
+            return specs if trigger_x is None else BindEffect._substitute(specs, "$x", trigger_x)
+
         context.engine._request_pay_cost_then(
             player,
             cost,
-            self.inner_specs,
+            bound(self.inner_specs),
             self.source,
-            else_effect_specs=self.else_specs,
+            else_effect_specs=bound(self.else_specs),
             # A reflexive trigger's baked-in "that spell" (Wandering
             # Archaic) has to reach the branch effects, which are built
             # fresh when the choice is answered rather than sitting on the
@@ -1543,11 +1595,20 @@ class ChoosePlayerObjectsEffect(GameEffect):
             remaining = list(self.player_ids)
         if remaining:
             player = context.state.player_by_id(remaining[0])
-            candidates = (list(player.hand) if self.action == "discard_or_sacrifice" else []) + [
-                o for o in context.state.permanents_controlled_by(player.id)
-                if not o.cant_be_sacrificed_this_turn
-                and (self.card_types_any is None or set(self.card_types_any) & o.type_words)
-                and combat.matches_object_filter(o, self.permanent_filter, reference=self.source, state=context.state)]
+            if self.action == "destroy_not_yours":
+                # "…each player may choose an artifact or enchantment **you don't control**." (Druid of
+                # Purification) — the pool is the source controller's opponents' permanents for every chooser.
+                candidates = [
+                    o for o in context.state.battlefield
+                    if o.controller_id != controller.id
+                    and (self.card_types_any is None or set(self.card_types_any) & o.type_words)
+                ]
+            else:
+                candidates = (list(player.hand) if self.action == "discard_or_sacrifice" else []) + [
+                    o for o in context.state.permanents_controlled_by(player.id)
+                    if not o.cant_be_sacrificed_this_turn
+                    and (self.card_types_any is None or set(self.card_types_any) & o.type_words)
+                    and combat.matches_object_filter(o, self.permanent_filter, reference=self.source, state=context.state)]
             params = {"player_ids": remaining[1:], "chosen_ids": list(self.chosen_ids),
                       "then_that_many": self.then_that_many, "player_scope": self.player_scope,
                       "action": self.action, "optional": self.optional, "card_types_any": self.card_types_any,
@@ -1566,9 +1627,19 @@ class ChoosePlayerObjectsEffect(GameEffect):
                                    source=self.source, then_specs=[continuation], optional=self.optional,
                                    else_specs=[declined],
                                    prompt="Handkarte abwerfen oder Permanent opfern" if self.action == "discard_or_sacrifice"
-                                   else "Permanent zum Opfern wählen")
+                                   else "Artefakt oder Verzauberung zum Zerstören wählen"
+                                   if self.action == "destroy_not_yours" else "Permanent zum Opfern wählen")
             return
         moved = []
+        if self.action == "destroy_not_yours":
+            # RULE 608.2e: every chooser has chosen — "destroy each permanent chosen this way" at once (a permanent
+            # two players picked is destroyed once).
+            with context.state.simultaneous():
+                for iid in dict.fromkeys(self.chosen_ids):
+                    obj = context.state.find_object(iid)
+                    if obj is not None and obj.zone == Zone.BATTLEFIELD:
+                        context.destroy(obj)
+            return
         with context.state.simultaneous():
             for iid in self.chosen_ids:
                 obj = context.state.find_object(iid)

@@ -1103,6 +1103,13 @@ class LegalActionsMixin:
             )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
+            if (
+                obj.instance_id in self.state.temp_play_adventure_only
+                and obj.card.is_adventure
+                and self._castable_now_or_via_potential(player, obj, face="back")
+            ):
+                # Hildibrand Manderville: "cast it from your graveyard as an Adventure".
+                actions.append(self._cast_action(player, obj, face="back"))
             # Yawgmoth's Will's own first clause also covers lands, unlike
             # every other graveyard-cast permission source — `can_play_land`
             # already gates on `card.is_land`, so this is cheap to try for

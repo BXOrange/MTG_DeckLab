@@ -1808,9 +1808,13 @@ class SacrificeEffect(GameEffect):
         if self._remaining_players is not None:
             self._sacrifice_each_in_order(context, self._remaining_players)
             return
-        if self.selector == "each_opponent":
+        if self.selector in ("each_opponent", "each_opponent_who_lost_life_this_turn"):
             controller_id = getattr(self.source, "controller_id", None)
             players = [p for p in context.state.living_players() if p.id != controller_id]
+            if self.selector == "each_opponent_who_lost_life_this_turn":
+                # "Each opponent who lost life this turn sacrifices…" (Papalymo Totolymo).
+                lost = getattr(context.state, "life_lost_this_turn", None) or {}
+                players = [p for p in players if int(lost.get(p.id, 0) or 0) > 0]
             self._sacrifice_each_in_order(context, players)
             return
         if self.selector == "each_player":

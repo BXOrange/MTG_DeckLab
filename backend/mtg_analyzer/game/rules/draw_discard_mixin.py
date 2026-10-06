@@ -471,7 +471,13 @@ class DrawDiscardMixin:
         the moment the card is cast or otherwise leaves the hand.
         """
         if not getattr(obj, "miracle", False):
-            return
+            # A *granted* Miracle (Aminatou, Veil Piercer): its cost is the card's own mana cost reduced by the grant.
+            granted = continuous.granted_miracle_cost_for(self.state, player, obj)
+            if granted is None:
+                return
+            obj.alt_cast_cost = ActivationCost(mana=granted)
+            obj.miracle = True
+            obj.miracle_granted = True
         obj.miracle_armed = True
         self.state.miracle_armed_ids.add(obj.instance_id)
 

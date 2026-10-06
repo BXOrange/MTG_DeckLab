@@ -289,19 +289,40 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 class MiscSystemsMixin:
     """Designations (goad/monarch/initiative/Ring), planeswalking, dungeons, wards/rampage/dethrone, countering a spell, generic interactive-payment primitives, tokens, Sagas/day-night."""
 
+    #: Prefix of a variable energy payment's option id (``pay_x:<n>``), mirroring `_request_pay_cost_then`'s ENG-48.
+    PAY_ENERGY_X_PREFIX = "pay_x:"
+
     def _request_pay_energy_then(
-        self, player: Player, amount: int, effect_specs: list[dict], source: Optional[GameObject]
+        self, player: Player, amount: int, effect_specs: list[dict], source: Optional[GameObject],
+        variable: bool = False, targets: Optional[list[Any]] = None,
     ) -> None:
         """Open the interactive "you may pay {E}×N. If you do, `<effect>`."
         choice (RULE 122, Aether Chaser-shaped) — the resolve-time energy
         sibling of the shock-land pay-life choice. Assumes the caller
-        (`PayEnergyThenEffect`) already checked the player can afford it."""
+        (`PayEnergyThenEffect`) already checked the player can afford it.
+
+        ``variable`` — "you may pay one or more {E}" (Rampaging Aetherhood): ``amount`` is the minimum, the offer is
+        one ``pay_x:<n>`` option per affordable amount (largest first) and the paid n binds the branch's ``"x"``."""
         self._pending_pay_energy = {
             "player_id": player.id,
             "amount": int(amount),
             "effect_specs": [dict(d) for d in effect_specs],
             "source": source,
+            "variable": bool(variable),
+            "targets": list(targets or []),
         }
+        if variable:
+            held = int(player.counters.get("energy", 0))
+            options = [
+                {"id": f"{self.PAY_ENERGY_X_PREFIX}{n}", "label": f"{'{E}' * n} bezahlen" if n <= 8 else f"{n} {{E}} bezahlen"}
+                for n in range(held, int(amount) - 1, -1)
+            ]
+            options.append({"id": "decline", "label": "Nicht bezahlen"})
+            self.open_choice({
+                "kind": "pay_energy_then", "player_id": player.id,
+                "prompt": "{E} bezahlen? (beliebig viele)", "options": options,
+            })
+            return
         pips = "{E}" * int(amount)
         self.open_choice({
             "kind": "pay_energy_then",
@@ -312,21 +333,36 @@ class MiscSystemsMixin:
                 {"id": "decline", "label": "Nicht bezahlen"},
             ],
         })
+
     @continuations.choice("pay_energy_then", answer=continuations.ANSWER_STR, rule="122")
     def _resume_pay_energy_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_energy_then` choice. ``answer == "pay"``
         spends the energy and resolves the follow-up effects; anything else
-        (``None``/``"decline"``) does neither."""
+        (``None``/``"decline"``) does neither. A variable payment answers ``pay_x:<n>``."""
         pending = self._pending_pay_energy
         self._pending_pay_energy = None
-        if pending is None or answer != "pay":
+        if pending is None or answer is None:
             return
         player = self.state.player_by_id(pending["player_id"])
+        specs = pending["effect_specs"]
         amount = pending["amount"]
+        if pending.get("variable"):
+            if not answer.startswith(self.PAY_ENERGY_X_PREFIX):
+                return
+            try:
+                amount = int(answer[len(self.PAY_ENERGY_X_PREFIX):])
+            except ValueError:
+                return
+            if amount < pending["amount"]:
+                return
+            specs = _substitute_x_specs(specs, amount)
+        elif answer != "pay":
+            return
         if player.counters.get("energy", 0) < amount:
             return  # energy changed since the offer — decline by default
         self.add_player_counters(player, -amount, "energy")
-        self._apply_effect_specs(pending["effect_specs"], pending["source"])
+        self._apply_effect_specs(specs, pending["source"], pending.get("targets") or None)
+
     def _request_pay_cost_then(
         self,
         player: Player,
@@ -2071,6 +2107,8 @@ class MiscSystemsMixin:
             # "If one or more creature tokens would be created under your control, …" (Divine
             # Visitation) — whether this token is a creature, which the name alone doesn't say.
             is_creature=bool(getattr(token_card, "is_creature", False)),
+            # "If one or more artifact tokens would be created…" (Stridehangar Automaton).
+            is_artifact=bool(getattr(token_card, "is_artifact", False)),
         )
         result: list[GameObject] = []
 
@@ -2102,6 +2140,7 @@ class MiscSystemsMixin:
                     name=definition.get("token_name", "Creature"), power=definition.get("power", 1),
                     toughness=definition.get("toughness", 1), colors=definition.get("colors", []),
                     subtypes=definition.get("subtypes", []), keywords=definition.get("keywords", []),
+                    is_artifact=bool(definition.get("is_artifact", False)),
                 )
                 result.extend(self.create_token(
                     controller_id, extra_card, batch["amount"],

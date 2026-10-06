@@ -896,6 +896,7 @@ class CastingResolutionMixin:
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)
             self.state.free_cast_ignore_timing_instance_ids.discard(obj.instance_id)
+            self._consume_free_cast_type_slot(obj)  # Aminatou's Augury: one cast per nonland card type
         # RULE 601.2b: remember the announced X on the object itself (not
         # just this ephemeral StackItem) — an "unless its controller pays
         # {X}" tied to *this* spell's own X (Logic Knot's Delve-adjacent
@@ -1037,6 +1038,29 @@ class CastingResolutionMixin:
                 )
             )
 
+    #: The nonland card types a type-slot free cast (Aminatou's Augury) hands out one cast apiece for (RULE 205.2a).
+    FREE_CAST_SLOT_TYPES: tuple[str, ...] = ("artifact", "battle", "creature", "enchantment", "instant", "planeswalker", "sorcery")
+
+    def _consume_free_cast_type_slot(self, obj: GameObject) -> None:
+        """Spend a type slot for a free-cast pool card being cast now ("for each nonland card type, you may cast a
+        spell of that type" — Aminatou's Augury): the spell uses one of its own types' still-open slots, and every other
+        card in the pool that no longer has an open slot of any of its types loses its free cast."""
+        for pool in list(self.state.free_cast_type_pools):
+            if obj.instance_id not in pool["ids"]:
+                continue
+            own = [t for t in self.FREE_CAST_SLOT_TYPES if getattr(obj.card, f"is_{t}", False) and t in pool["slots"]]
+            if own:
+                pool["slots"].discard(own[0])
+            pool["ids"].discard(obj.instance_id)
+            for other_id in list(pool["ids"]):
+                other = self.state.find_object(other_id)
+                if other is None or not any(
+                    getattr(other.card, f"is_{t}", False) for t in pool["slots"]
+                ):
+                    pool["ids"].discard(other_id)
+                    self.state.free_cast_instance_ids.discard(other_id)
+                    self.state.temp_play_permissions.pop(other_id, None)
+
     def cast_without_paying(
         self,
         player: Player,
@@ -1075,6 +1099,7 @@ class CastingResolutionMixin:
         obj.gift_recipient_id = None
         self._remove_from_current_zone(player, obj)
         obj.zone = Zone.STACK
+        self._consume_free_cast_type_slot(obj)
         # RULE 108.4 / 601.2f: whoever casts the spell controls it (and the
         # permanent it may become). Usually a no-op — a free cast is nearly
         # always of the caster's own card — but not when casting a card out

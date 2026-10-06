@@ -944,6 +944,9 @@ class TurnLoopMixin:
             for pl in self.state.players:
                 for o in pl.hand:
                     o.miracle_armed = False
+                    if getattr(o, "miracle_granted", False):
+                        # A granted Miracle (Aminatou) lasts only for the draw window it was armed in.
+                        o.miracle, o.miracle_granted, o.alt_cast_cost = False, False, None
             self.state.miracle_armed_ids.clear()
         self._clear_combat()
         # RULE 601.3b analogue: a temporary "play until end of your next
@@ -975,6 +978,7 @@ class TurnLoopMixin:
             if _permission_still_active(iid, turn)
         }
         self.state.temp_play_permission_same_turn_only &= set(self.state.temp_play_permissions)
+        self.state.temp_play_adventure_only &= set(self.state.temp_play_permissions)
         self.state.temp_play_permission_source = {
             iid: name for iid, name in self.state.temp_play_permission_source.items()
             if iid in self.state.temp_play_permissions
@@ -985,12 +989,14 @@ class TurnLoopMixin:
         }
         self.state.mana_wildcard_permission = {
             iid: kind for iid, kind in self.state.mana_wildcard_permission.items()
-            if iid in self.state.temp_play_permissions
+            # A standing exile permission (Arvinox: "…spend mana as though it were mana of any color") outlives the turn.
+            if iid in self.state.temp_play_permissions or iid in self.state.exile_cast_condition
         }
         self.state.free_cast_instance_ids = {
             iid for iid in self.state.free_cast_instance_ids
             if iid in self.state.temp_play_permissions
         }
+        self.state.free_cast_type_pools = []  # Aminatou's Augury: "until end of turn"
         self.state.free_cast_ignore_timing_instance_ids = {
             iid for iid in self.state.free_cast_ignore_timing_instance_ids
             if iid in self.state.temp_play_permissions

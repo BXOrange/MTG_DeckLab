@@ -624,6 +624,17 @@ class GameState:
         #: player`'s own next turn to end. Pruned in lockstep with
         #: `temp_play_permissions`.
         self.temp_play_permission_same_turn_only: set[int] = set()
+        #: "…cast it from your graveyard **as an Adventure** until the end of your next turn." (Hildibrand Manderville) —
+        #: the `temp_play_permissions` entries that only cover the Adventure half and only from the graveyard.
+        self.temp_play_adventure_only: set[int] = set()
+        #: "Once during each of your turns, you may cast …" standing grants (Demon of Fate's Design, One with the
+        #: Multiverse) spent this turn: ``(kind, source instance id) → the internal turn number`` it was used on.
+        self.once_per_turn_grants_used: dict[tuple[str, int], int] = {}
+        #: "…for each nonland card type, you may cast a spell of that type from among the exiled cards without paying its
+        #: mana cost." (Aminatou's Augury) — one pool per resolution: ``{"ids": {card instance ids}, "slots": {types
+        #: still available}}``. Casting one of the pool's cards spends one of its types' slots; cards left with none are
+        #: no longer free (`RulesEngine._consume_free_cast_type_slot`). Dropped at cleanup with the free-cast arming.
+        self.free_cast_type_pools: list[dict[str, Any]] = []
 
         #: A *standing*, condition-gated exile cast permission — ``instance_
         #: id -> (player_id, condition_dict)`` — distinct from every entry

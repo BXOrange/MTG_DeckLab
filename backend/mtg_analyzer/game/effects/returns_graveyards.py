@@ -68,10 +68,13 @@ class ReturnRememberedGraveyardCardsEffect(GameEffect):
     """A serialized continuation returns previously targeted cards, without targeting again."""
 
     def __init__(self, instance_ids: list[int], tapped: bool = False,
-                 source: Optional["GameObject"] = None) -> None:
+                 source: Optional["GameObject"] = None, exile_instead_of_leaving: bool = False) -> None:
         super().__init__(source)
         self.instance_ids = list(instance_ids)
         self.tapped = tapped
+        #: "…and it gains 'If this permanent would leave the battlefield, exile it instead of putting it anywhere
+        #: else.'" (Spirit-Sister's Call) — each returned card is armed like Unearth's (`_exile_instead_of_dying`).
+        self.exile_instead_of_leaving = bool(exile_instead_of_leaving)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         with context.state.simultaneous():
@@ -79,6 +82,45 @@ class ReturnRememberedGraveyardCardsEffect(GameEffect):
                 obj = context.state.find_object(iid)
                 if obj is not None and obj.zone == Zone.GRAVEYARD:
                     ReturnFromGraveyardEffect(source=self.source, tapped=self.tapped)._apply_one(context, obj)
+                    if self.exile_instead_of_leaving and obj.zone == Zone.BATTLEFIELD:
+                        _exile_instead_of_dying(context, obj, "Exilieren statt zu verlassen")
+
+
+class SacrificeSharedTypeToReturnEffect(GameEffect):
+    """"Choose target permanent card in your graveyard. You may sacrifice a permanent that shares a card type with the
+    chosen card. If you do, return the chosen card from your graveyard to the battlefield and it gains 'If this
+    permanent would leave the battlefield, exile it instead of putting it anywhere else.'" (Spirit-Sister's Call.)
+
+    The card is this effect's RULE 115 target (the "choose target" announcement); the sacrifice is Victimize's
+    optional resolution-time pick, restricted to permanents sharing one of the target's card types, and only a
+    paid sacrifice returns the card (`return_remembered_graveyard_cards`, armed with the exile replacement)."""
+
+    #: The card types a "shares a card type" comparison reads (RULE 205.2a, permanent types).
+    _CARD_TYPES = frozenset({"artifact", "creature", "enchantment", "land", "planeswalker", "battle"})
+
+    def __init__(self, source: Optional["GameObject"] = None, target_kind: str = "graveyard_permanent") -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        target = next((t for t in (targets or []) if t is not None), None)
+        if player is None or target is None or target.zone != Zone.GRAVEYARD:
+            return  # RULE 608.2b: the chosen card is gone
+        shared = self._CARD_TYPES & {w.lower() for w in target.type_words}
+        candidates = [
+            obj for obj in context.state.permanents_controlled_by(player.id)
+            if not obj.cant_be_sacrificed_this_turn and self._CARD_TYPES & {w.lower() for w in obj.type_words} & shared
+        ]
+        if not candidates:
+            return
+        context.engine._request_choose_objects(
+            player, candidates, "sacrifice", count=1, optional=True, source=self.source,
+            prompt="Permanent opfern, um die gewählte Karte zurückzubringen?",
+            then_specs=[{"type": "return_remembered_graveyard_cards", "params": {
+                "instance_ids": [target.instance_id], "tapped": False, "exile_instead_of_leaving": True,
+            }}],
+        )
 
 
 class SacrificeToReturnTargetsEffect(GameEffect):

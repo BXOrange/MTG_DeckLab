@@ -376,11 +376,13 @@ class CastGraveyardInstantSorceryFreeExileEffect(GameEffect):
 
     def __init__(
         self, source: Optional["GameObject"] = None, pick: bool = False, max_mana_value: Optional[int] = None,
+        target_kind: str = "any_graveyard_instant_or_sorcery",
     ) -> None:
         super().__init__(source)
         self.pick = bool(pick)
         self.max_mana_value = None if max_mana_value is None else int(max_mana_value)
-        self.target_spec = None if self.pick else TargetSpec(kind="any_graveyard_instant_or_sorcery")
+        #: "…cast target instant card from **your** graveyard…" (Torrential Gearhulk) narrows Impulsivity's target.
+        self.target_spec = None if self.pick else TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1006,7 +1008,9 @@ class ConditionalEffect(GameEffect):
         that creature only when it was."""
         if effect_conditions.announced_state(self.condition, self.source) is False:
             return []
-        return super().target_specs
+        # The inner effect's *own* announcement: a gated `seq` (the "Do this only once each turn" gate, PAR-135) has
+        # no single ``target_spec`` but announces its body's targets (RULE 601.2c) — Krile Baldesion's return.
+        return list(self.inner.target_specs)
 
     def _condition_holds(
         self, context: GameContext, targets: Optional[list[Any]] = None
@@ -1404,6 +1408,96 @@ class ChaosEnsuesEffect(GameEffect):
         if player is not None:
             context.engine.trigger_chaos(player)
 
+
+
+class AminatousAuguryEffect(GameEffect):
+    """"Exile the top eight cards of your library. You may put a land card from among them onto the battlefield. Until
+    end of turn, for each nonland card type, you may cast a spell of that type from among the exiled cards without
+    paying its mana cost." (Aminatou's Augury, RULE 118.9.)
+
+    The eight cards are exiled; the optional land goes onto the battlefield through the shared chooser
+    (``zone_to_battlefield``); every nonland card gets a same-turn play permission *and* a free-cast arming, grouped in
+    one `GameState.free_cast_type_pools` entry — casting a spell spends one slot of its card types, and a card left with
+    no open type slot stops being free (`RulesEngine._consume_free_cast_type_slot`)."""
+
+    #: "the top eight cards" — the printed count.
+    EXILED_CARDS = 8
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        exiled = []
+        for _ in range(self.EXILED_CARDS):
+            if not player.library:
+                break
+            top = player.library[-1]
+            context.exile(top)
+            if top.zone == Zone.EXILE:
+                exiled.append(top)
+        spells = [o for o in exiled if not o.card.is_land]
+        for obj in spells:
+            context.engine._grant_temp_play_permission(obj, player, self.source.name, True, None)
+            context.state.free_cast_instance_ids.add(obj.instance_id)
+        if spells:
+            context.state.free_cast_type_pools.append({
+                "ids": {o.instance_id for o in spells},
+                "slots": set(context.engine.FREE_CAST_SLOT_TYPES),
+            })
+        lands = [o for o in exiled if o.card.is_land]
+        if lands:
+            context.engine._request_choose_objects(
+                player, lands, "zone_to_battlefield", count=1, optional=True, source=self.source,
+                prompt="Landkarte aus dem Exil aufs Schlachtfeld legen?",
+            )
+
+
+class GrantSelfAdventureCastFromGraveyardEffect(GameEffect):
+    """"When ~ dies, you may cast it from your graveyard as an Adventure until the end of your next turn."
+    (Hildibrand Manderville, RULE 715.3a.) The dying card — now in its owner's graveyard — gets a `temp_play_permissions`
+    entry held by its last controller (so it lapses at the end of *that player's* next turn, the same sweep every
+    "until the end of your next turn" grant uses), restricted to the Adventure half and the graveyard
+    (`GameState.temp_play_adventure_only`). Cast that way it goes to exile on an adventure like any Adventure (RULE
+    715.4) and can be cast as the creature from there."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = self.source
+        if obj is None or obj.zone != Zone.GRAVEYARD or not obj.card.is_adventure:
+            return
+        holder = _controller_of(obj, context)
+        if holder is None:
+            return
+        context.engine._grant_temp_play_permission(obj, holder, obj.name, False, None)
+        context.state.temp_play_adventure_only.add(obj.instance_id)
+
+
+class PlayCardsExiledWithSourceEffect(GameEffect):
+    """"Until end of turn, you may play cards exiled with ~. Spells you cast this way cost {N} less to cast."
+    (Urianger Augurelt's Play Arcanum, RULE 607.2a linked exile.) Every card still in exile among this source's
+    `GameObject.exiled_with_ids` gets a same-turn `temp_play_permissions` entry (lands too), and — with
+    ``spell_discount`` — one `turn_cost_reductions` entry naming exactly those cards (``object_ids``), so only a spell
+    cast *this way* is cheaper."""
+
+    def __init__(self, source: Optional["GameObject"] = None, spell_discount: int = 0) -> None:
+        super().__init__(source)
+        self.spell_discount = max(0, int(spell_discount))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        player = _controller_of(source, context)
+        if source is None or player is None:
+            return
+        cards = [
+            obj for obj in (context.state.find_object(i) for i in list(source.exiled_with_ids))
+            if obj is not None and obj.zone == Zone.EXILE
+        ]
+        for obj in cards:
+            context.engine._grant_temp_play_permission(obj, player, source.name, True, None)
+        if cards and self.spell_discount:
+            context.state.turn_cost_reductions.append({
+                "player_id": player.id, "amount": self.spell_discount, "next_only": False,
+                "source": source.name, "object_ids": [o.instance_id for o in cards],
+            })
 
 
 class ReduceSpellCostsThisTurnEffect(GameEffect):

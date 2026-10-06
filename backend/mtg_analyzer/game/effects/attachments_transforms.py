@@ -753,6 +753,25 @@ class GrantCombatRestrictionEffect(GameEffect):
                 target.temp_combat_restrictions.append(dict(restriction))
 
 
+class RemoveFromCombatEffect(GameEffect):
+    """"Remove enchanted creature from combat." (RULE 506.4 — Observed Stasis) — the creature stops attacking/blocking
+    without being tapped or untapped. ``target_kind="attached_permanent"`` names the Aura's host; the default
+    (``None``) is this effect's own source."""
+
+    def __init__(self, source: Optional["GameObject"] = None, target_kind: Optional[str] = None) -> None:
+        super().__init__(source)
+        self.attached = target_kind == "attached_permanent"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.attached:
+            host_id = getattr(self.source, "attached_to", None)
+            obj = context.state.find_object(host_id) if host_id is not None else None
+        else:
+            obj = self.source
+        if obj is not None:
+            TapEffect._remove_from_combat(context, obj)
+
+
 class BecomeAuraEffect(GameEffect):
     """"…it becomes an Aura with '`<quoted enchant text>`.'" (RULE 305.1c/
     303.4f — Necromancy-shaped, MEC-44). Stamps `GameObject.

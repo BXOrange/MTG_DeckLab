@@ -56,3 +56,4 @@ from . import fable_of_the_mirror_breaker
 
 from . import first_responder
 from . import forgotten_creation
+from . import fear_of_sleep_paralysis  # noqa: F401

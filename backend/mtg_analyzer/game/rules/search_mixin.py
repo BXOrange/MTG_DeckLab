@@ -915,7 +915,11 @@ class SearchMixin:
                 for iid, obj in looked if obj is not None
             ]
             options.append({"id": "decline", "label": "Reihenfolge behalten"})
-            prompt = "Wähle die nächste Karte für die Bibliothek"
+            prompt = (
+                "Wähle die Karte, die zuoberst auf die Bibliothek kommt"
+                if rest_destination == "library_top_bottom" and not ordered
+                else "Wähle die nächste Karte für die Bibliothek"
+            )
         else:
             eligible = set(self._look_top_select_eligible(remaining, select_filter))
             options = [
@@ -1052,6 +1056,17 @@ class SearchMixin:
                 obj = objects.get(iid)
                 if obj is not None:
                     player.library.append(obj)
+        elif rest_destination == "library_top_bottom":
+            # "…one on top of your library, and one on the bottom" (Telling Time): the first card of the (chosen)
+            # order goes on top, every other one to the bottom.
+            for position, iid in enumerate(rest):
+                obj = objects.get(iid)
+                if obj is None:
+                    continue
+                if position == 0:
+                    player.library.append(obj)
+                else:
+                    player.library.insert(0, obj)
         else:  # "library_bottom"
             for iid in rest:
                 obj = objects.get(iid)

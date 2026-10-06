@@ -59,3 +59,7 @@ from . import braids_arisen_nightmare
 
 from . import bellowing_mauler
 from . import broodcaller_scourge
+from . import bespoke_battlewagon  # noqa: F401
+from . import blue_mage_s_cane  # noqa: F401
+from . import bottomless_pool_locker_room  # noqa: F401
+from . import brainstone  # noqa: F401
