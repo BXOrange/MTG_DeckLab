@@ -1032,7 +1032,7 @@ class CastingMixin:
             return None
         candidates = [
             o for o in self.state.permanents_controlled_by(player.id)
-            if self._matches_sacrifice_type(o, grant.sacrifice_type)
+            if self._matches_sacrifice_type(o, grant.sacrifice_type, state=self.state)
             and not o.cant_be_sacrificed_this_turn
             and (chosen_id is None or o.instance_id == chosen_id)
         ]
@@ -1809,7 +1809,8 @@ class CastingMixin:
         for kw in self._HELP_PAY_KEYWORDS:
             if combat.has(obj, kw):
                 return kw
-        return None
+        granted = continuous.granted_help_pay_keyword(self.state, obj)  # Inspiring Statuary
+        return granted if granted in self._HELP_PAY_KEYWORDS else None
 
     def _cast_help_pool(self, player: Player, obj: GameObject) -> list[GameObject]:
         """The resources available to help pay ``obj``'s generic cost, in the

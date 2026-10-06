@@ -15,9 +15,11 @@ from . import hazoret_s_monument  # noqa: F401
 from . import heat_shimmer  # noqa: F401
 from . import hedge_whisperer  # noqa: F401
 from . import hedron_field_purists  # noqa: F401
+from . import heidegger_shinra_executive  # noqa: F401
 from . import helga_skittish_seer  # noqa: F401
 from . import helicarrier_strike  # noqa: F401
 from . import heliod_sun_crowned  # noqa: F401
+from . import hellkite_tyrant  # noqa: F401
 from . import helm_of_awakening  # noqa: F401
 from . import helm_of_obedience  # noqa: F401
 from . import helm_of_the_host  # noqa: F401
@@ -27,6 +29,7 @@ from . import herald_of_secret_streams  # noqa: F401
 from . import herald_of_war  # noqa: F401
 from . import herald_s_horn  # noqa: F401
 from . import hermit_druid  # noqa: F401
+from . import hero_s_heirloom  # noqa: F401
 from . import high_perfect_morcant  # noqa: F401
 from . import hit_the_mother_lode  # noqa: F401
 from . import hoarding_broodlord  # noqa: F401

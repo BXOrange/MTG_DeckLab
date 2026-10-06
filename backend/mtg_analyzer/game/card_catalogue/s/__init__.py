@@ -35,6 +35,7 @@ from . import selvala_explorer_returned  # noqa: F401
 from . import selvala_heart_of_the_wilds  # noqa: F401
 from . import sensei_s_divining_top  # noqa: F401
 from . import sephara_sky_s_blade  # noqa: F401
+from . import sephiroth_fallen_hero  # noqa: F401
 from . import serah_farron  # noqa: F401
 from . import seraph_of_the_sword  # noqa: F401
 from . import serra_avenger  # noqa: F401
@@ -82,6 +83,7 @@ from . import smothering_tithe  # noqa: F401
 from . import snap  # noqa: F401
 from . import sneak_attack  # noqa: F401
 from . import sokenzan_crucible_of_defiance  # noqa: F401
+from . import soldier_military_program  # noqa: F401
 from . import solitude  # noqa: F401
 from . import songbirds_blessing  # noqa: F401
 from . import sorin_markov  # noqa: F401
@@ -127,6 +129,7 @@ from . import stuffy_doll  # noqa: F401
 from . import subterfuge  # noqa: F401
 from . import sudden_substitution  # noqa: F401
 from . import summon_ixion  # noqa: F401
+from . import summon_kujata  # noqa: F401
 from . import summon_magus_sisters  # noqa: F401
 from . import summon_valefor  # noqa: F401
 from . import summon_yojimbo  # noqa: F401

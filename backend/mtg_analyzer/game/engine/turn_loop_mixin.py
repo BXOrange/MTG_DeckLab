@@ -978,9 +978,13 @@ class TurnLoopMixin:
         active_id = self.state.active_player.id
         same_turn_only = self.state.temp_play_permission_same_turn_only
 
+        standing = self.state.temp_play_permission_standing
+
         def _permission_still_active(instance_id: int, granted_turn: int) -> bool:
             if instance_id in same_turn_only:
                 return False
+            if instance_id in standing:
+                return True  # "…until you exile another card with ~" (Furious Rise): revoked by the next exile, not by time
             holder_id = self.state.temp_play_permission_player.get(instance_id)
             return not (
                 holder_id is not None
@@ -993,6 +997,7 @@ class TurnLoopMixin:
             if _permission_still_active(iid, turn)
         }
         self.state.temp_play_permission_same_turn_only &= set(self.state.temp_play_permissions)
+        self.state.temp_play_permission_standing &= set(self.state.temp_play_permissions)
         self.state.temp_play_adventure_only &= set(self.state.temp_play_permissions)
         self.state.temp_play_permission_source = {
             iid: name for iid, name in self.state.temp_play_permission_source.items()

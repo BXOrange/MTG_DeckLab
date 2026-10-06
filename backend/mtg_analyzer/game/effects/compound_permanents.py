@@ -288,6 +288,28 @@ class TokensPerDiscardedCardTypeEffect(GameEffect):
         _apply_effects_partitioned(build_effects([spec], self.source), context, None, None, source=self.source)
 
 
+class DamageOpponentsByDiscardedManaValueEffect(GameEffect):
+    """"When you discard a card this way, ~ deals damage equal to that card's mana value to each opponent." (Summon: Kujata, chapter III) — the controller's
+    ``DISCARD_CARD`` events since the source's `MarkEventLogEffect` window opened; each discarded card's mana value (read off the card, now in the graveyard)
+    is dealt to every opponent."""
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        mark = int(getattr(self.source, "window_event_mark", 0) or 0)
+        for event in context.state.event_log[mark:]:
+            if event.type != EventType.DISCARD_CARD or event.get("player_id") != player.id:
+                continue
+            discarded = context.state.find_object(event.get("instance_id"))
+            mana_value = int(getattr(getattr(discarded, "card", None), "converted_mana_cost", 0) or 0)
+            if mana_value <= 0:
+                continue
+            for opponent in context.state.living_players():
+                if opponent.id != player.id:
+                    context.deal_damage(opponent, mana_value, self.source)
+
+
 class CoinOfFateSplitEffect(GameEffect):
     """"An opponent chooses one of the exiled cards. You put that card on the bottom of your library and return the other
     to the battlefield tapped. You become the monarch." (Coin of Fate) — the two creature cards the ability's cost exiled
@@ -477,6 +499,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "mill_attackers_each_player_cast_free", lambda p: MillAttackersEachPlayerCastFreeEffect(subtype=p.get("subtype", "sphinx")),
+)
+EffectRegistry.register(
+    "damage_opponents_by_discarded_mana_value", lambda p: DamageOpponentsByDiscardedManaValueEffect(),
 )
 EffectRegistry.register("coin_of_fate_split", lambda p: CoinOfFateSplitEffect())
 EffectRegistry.register("exile_random_graveyard_cards_cast_free", lambda p: ExileRandomGraveyardCardsCastFreeEffect())

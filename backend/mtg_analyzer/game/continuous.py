@@ -1494,6 +1494,13 @@ def count_selector(
             max(0, int(o.toughness or 0)) for o in bf
             if o.is_creature and o.controller_id == controller_id and o is not source
         )
+    if selector == "opponents_controlling_more_creatures":
+        # "…the number of opponents who control more creatures than you." (Heidegger, Shinra Executive)
+        mine = sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
+        return sum(
+            1 for p in state.living_players()
+            if p.id != controller_id and sum(1 for o in bf if o.is_creature and o.controller_id == p.id) > mine
+        )
     if selector == "opponents_controlling_creature_power_4_or_greater":
         # "…the number of opponents who control a creature with power 4 or greater." (Summon: Yojimbo IV)
         return sum(
@@ -1805,6 +1812,19 @@ def count_selector(
     if selector.startswith("permanents_you_control_of_subtype_"):
         subtype = selector[len("permanents_you_control_of_subtype_"):]
         return sum(1 for o in bf if o.controller_id == controller_id and _has_subtype(o, subtype))
+    if selector in ("equipped_creatures_you_control", "equipped_attacking_creatures_you_control"):
+        # "…the number of equipped creatures you control" (Barret Wallace) / "…for each equipped attacking creature you control" (Cloud, Ex-SOLDIER).
+        attacking_only = selector == "equipped_attacking_creatures_you_control"
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.controller_id == controller_id and (o.attacking or not attacking_only)
+            and any(a.attached_to == o.instance_id and _has_subtype(a, "equipment") for a in bf)
+        )
+    if selector == "greatest_power_among_creatures_you_control":
+        # "…the greatest power among creatures you control" (Lifestream's Blessing's X).
+        return max(
+            (int(o.power or 0) for o in bf if o.is_creature and o.controller_id == controller_id), default=0,
+        )
     if selector == "counters_on_creatures_you_control":
         # "…the number of counters among creatures you control" (Maester Seymour's Monstrosity X) — every kind.
         return sum(
@@ -4669,8 +4689,12 @@ def self_cost_reduction_for(
     return net, contributors
 
 
+#: A reduction large enough to take any printed equip cost to {0} ("Equipment you control have equip {0}").
+_SET_COST_TO_ZERO_REDUCTION = 1000
+
+
 def activation_cost_reduction_for(
-    state: "GameState", source: "GameObject", is_mana_ability: bool = False
+    state: "GameState", source: "GameObject", is_mana_ability: bool = False, cost: Any = None,
 ) -> tuple[int, int]:
     """Net generic-mana reduction for *activating* ``source``'s own
     activated ability (Power Artifact-shaped "Enchanted artifact's
@@ -4716,6 +4740,34 @@ def activation_cost_reduction_for(
         if is_mana_ability and ability.params.get("except_mana_abilities"):
             continue
         source_controller = getattr(ability.source, "controller_id", None)
+        if ability.params.get("first_targeting_own_creature"):
+            # "The first activated ability you activate during your turn that targets a creature you control costs {2} less to activate."
+            # (Professor Hojo): this ability must target a creature you control, and no earlier activation of yours this turn did.
+            player_id = getattr(ability.source, "controller_id", None)
+            if source.controller_id != player_id or not getattr(cost, "targets_own_creature", False):
+                continue
+            gate = ability.params.get("active_if")
+            if gate and not static_conditions.condition_holds(gate, state, ability.source, player_id):
+                continue
+            if any(
+                e.type == "ACTIVATED_ABILITY" and e.get("player_id") == player_id and e.get("targets_own_creature")
+                for e in state.events_this_turn()
+            ):
+                continue
+            net += int(ability.params.get("generic", 1))
+            continue
+        if ability.params.get("set_to_zero"):
+            # "Equipment you control have equip {0}" (Puresteel Paladin): only the named attach keyword's own ability, on the
+            # controller's own permanents of ``subtype``, while ``active_if`` (metalcraft) holds.
+            if getattr(cost, "attach_kind", None) != ability.params.get("attach_kind") or source.controller_id != source_controller:
+                continue
+            if ability.params.get("subtype") and not has_subtype(source, str(ability.params["subtype"])):
+                continue
+            gate = ability.params.get("active_if")
+            if gate and not static_conditions.condition_holds(gate, state, ability.source, source_controller):
+                continue
+            net += _SET_COST_TO_ZERO_REDUCTION
+            continue
         if ability.affects == "attached_permanent":
             if getattr(ability.source, "attached_to", None) != source.instance_id:
                 continue
@@ -6171,7 +6223,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
      "damage_prevention_prohibition", "global_wither", "attack_tax", "block_tax", "cant_lose_game", "opponents_cant_win", "player_hexproof",
-     "mana_wildcard", "retain_mana", "unspent_mana_colorless", "entry_counters_self", "counter_placement_prohibition"}
+     "mana_wildcard", "retain_mana", "unspent_mana_colorless", "spell_help_pay_grant", "entry_counters_self", "counter_placement_prohibition"}
 )
 
 
@@ -6557,6 +6609,21 @@ def trigger_doubler_bonus(
     `TriggerDoublerEffect.cause` is set (see `_composed_doubler_applies`).
     """
     return sum(1 for _, effect in _active_doublers(state, obj, event, context) if not effect.tap_cost)
+
+
+def granted_help_pay_keyword(state: "GameState", obj: Any) -> Optional[str]:
+    """"Nonartifact spells you cast have improvise." (Inspiring Statuary) — the Convoke/Delve/Improvise keyword a ``spell_help_pay_grant`` static gives the spell
+    ``obj`` its controller is casting (``exclude_card_type`` leaves out the named type), or ``None``."""
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "spell_help_pay_grant":
+            continue
+        if getattr(ability.source, "controller_id", None) != getattr(obj, "controller_id", None):
+            continue
+        excluded = ability.params.get("exclude_card_type")
+        if excluded and _has_card_type(obj, str(excluded)):
+            continue
+        return str(ability.params.get("keyword") or "")
+    return None
 
 
 def granted_cast_keyword_instances(state, obj, event, keyword):

@@ -1559,17 +1559,27 @@ def _trigger_condition(
         # ``recipient_not_you`` (Generous Patron — "counters on a creature **you don't control**"): the counters'
         # recipient is controlled by someone other than this ability's controller.
         recipient_not_you = bool(filt.get("recipient_not_you"))
+        # ``target_creature_you_control`` (Professor Hojo — "creatures you control become the target of …"): a `BECOMES_TARGET` event whose target is a
+        # creature controlled by this ability's controller.
+        target_creature_you_control = bool(filt.get("target_creature_you_control"))
         exact = {
             k: v for k, v in dict(filt).items()
-            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you")
+            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control")
         }
 
         def _filter_ok(
             event: Any, context: Any, f=exact, want_by_you=by_you,
             want_player_or_planeswalker=player_or_planeswalker, want_not_you=recipient_not_you,
+            want_own_creature_target=target_creature_you_control,
         ) -> bool:
             if not all(event.get(k) == v for k, v in f.items()):
                 return False
+            if want_own_creature_target:
+                if event.get("is_player") or event.get("target_controller_id") != getattr(source, "controller_id", None):
+                    return False
+                target_obj = context.state.find_object(event.get("instance_id"))
+                if target_obj is None or not target_obj.is_creature:
+                    return False
             if want_not_you and event.get("recipient_controller_id") == getattr(source, "controller_id", None):
                 return False
             if want_player_or_planeswalker and not event.get("is_player"):
@@ -3320,6 +3330,10 @@ def bind_ability(
         activated_modes = _build_mode_entries(spec.modes, source)
     if powerup_cost_reduction:
         cost.powerup_cost_reduction = True
+    cost.targets_own_creature = any(
+        "creature" in str(getattr(spec, "kind", "")) and str(spec.kind).endswith("_you_control")
+        for effect in effects for spec in getattr(effect, "target_specs", ())
+    )
     return ActivatedAbility(
         effects=effects,
         cost=cost,
@@ -3410,6 +3424,9 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     # set the flag `GameEngine._sorcery_speed_ok` checks, so Equip/Fortify/
     # Reconfigure were legal to activate at instant speed.
     cost.sorcery_speed_only = True
+    cost.attach_kind = name
+    # Equip/Reconfigure target "a creature you control" (RULE 702.6a/702.151a) — what Professor Hojo's discount asks about.
+    cost.targets_own_creature = name in ("equip", "reconfigure")
     return ActivatedAbility(
         effects=[AttachEffect(target_kind=target_kind)],
         cost=cost,

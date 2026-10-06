@@ -507,6 +507,12 @@ class ActivationCost:
     #: hand-authored only (`game/card_catalogue`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
+    #: ``"equip"``/``"fortify"``/``"reconfigure"`` on the cost of an attach keyword's own ability (`binding.core._keyword_activated_ability`),
+    #: so a static can target "equip {N}" costs specifically ("Equipment you control have equip {0}", Puresteel Paladin).
+    attach_kind: Optional[str] = None
+    #: Whether the ability's effects target a creature its controller controls (stamped at bind time, `binding.core.bind_ability`) — what "the first
+    #: activated ability you activate during your turn that targets a creature you control" (Professor Hojo) asks about.
+    targets_own_creature: bool = False
     #: ENG-32 (RULE 701.67 Waterbend): which Convoke-style "tap your
     #: artifacts and creatures to help pay this cost" helper applies, or
     #: ``None``. Currently only ``"waterbend"`` and only *recorded* — the

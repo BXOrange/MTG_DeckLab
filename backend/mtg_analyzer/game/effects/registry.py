@@ -153,6 +153,11 @@ EffectRegistry.register(
     lambda p: ExileCreatureCardMakeSpiritEffect(min_mana_value_for_counter=int(p.get("min_mana_value_for_counter", 4))),
 )
 EffectRegistry.register(
+    # "For each opponent, choose an artifact or land that player controls. Destroy the chosen permanents." (Ultimate Magic: Meteor)
+    "destroy_artifact_or_land_per_opponent",
+    lambda p: DestroyArtifactOrLandPerOpponentEffect(),
+)
+EffectRegistry.register(
     # "…return that card to its owner's hand." under a turn-scoped DIES trigger (Together Forever)
     "return_trigger_subject_to_hand",
     lambda p: ReturnTriggerSubjectToHandEffect(),
@@ -1237,6 +1242,7 @@ EffectRegistry.register(
         mark_no_sacrifice=bool(p.get("mark_no_sacrifice", False)),
         duration=str(p.get("duration", "end_of_turn")),
         untap=bool(p.get("untap", True)),
+        player_from_trigger_event=p.get("player_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -1662,6 +1668,7 @@ EffectRegistry.register(
         at_random=p.get("at_random"),
         else_destination=p.get("else_destination"),
         pick_mode=p.get("pick_mode"),
+        attach_to_previous=bool(p.get("attach_to_previous", False)),
     ),
 )
 EffectRegistry.register(
@@ -2789,6 +2796,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Attach up to one target Equipment you control to it / target Rebel you control." (Cloud, Ex-SOLDIER; Barret, Avalanche Leader; Yuffie)
+    "attach_equipment",
+    lambda p: AttachEquipmentEffect(
+        to_source=bool(p.get("to_source", False)), creature_kind=p.get("creature_kind", "creature_you_control"),
+        creature_filter=p.get("creature_filter"),
+    ),
+)
+EffectRegistry.register(
     # "…it becomes an Aura with '<quoted enchant text>.'" (RULE 305.1c/
     # 303.4f, MEC-44 — Necromancy) — see `BecomeAuraEffect`.
     "become_aura",
@@ -3453,6 +3468,25 @@ EffectRegistry.register(
 )
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register("proliferate", lambda p: ProliferateEffect(times=p.get("times", 1)))
+EffectRegistry.register(
+    # "Exile the top card of your library. You may play that card until you exile another card with this enchantment." (Furious Rise)
+    "exile_top_play_until_next_exile",
+    lambda p: ExileTopPlayUntilNextExileEffect(),
+)
+EffectRegistry.register(
+    # "Nonartifact spells you cast have improvise." (Inspiring Statuary) — read by `GameEngine._help_pay_keyword`.
+    "grant_help_pay_to_spells",
+    lambda p: StaticAbility("spell_help_pay_grant", affects="self", params={
+        "keyword": str(p.get("keyword", "improvise")),
+        **({"exclude_card_type": str(p["exclude_card_type"])} if p.get("exclude_card_type") else {}),
+    }),
+)
+EffectRegistry.register(
+    # "…gains indestructible until end of turn. Put ~'s counters on that creature and attach an Equipment that was attached to ~ to that
+    # creature." (Zack Fair)
+    "transfer_sacrificed_legacy",
+    lambda p: TransferSacrificedLegacyEffect(target_kind=p.get("target_kind", "creature_you_control")),
+)
 EffectRegistry.register(
     # "Put a +1/+1 counter on it if it's a creature and a loyalty counter on it if it's a planeswalker." (Forge of Heroes)
     "add_counter_matching_type",
@@ -4584,6 +4618,11 @@ EffectRegistry.register(
             # mana in that cost to less than N mana" floor.
             **({"scope": p["scope"]} if p.get("scope") else {}),
             **({"min_total": p["min_total"]} if p.get("min_total") else {}),
+            # "Equipment you control have equip {0}" (Puresteel Paladin): ``scope="activation"`` plus ``set_to_zero`` for the named
+            # ``attach_kind`` (`continuous.activation_cost_reduction_for`).
+            **({"set_to_zero": True, "attach_kind": str(p.get("attach_kind", "equip"))} if p.get("set_to_zero") else {}),
+            # Professor Hojo: the first activation each turn that targets a creature you control (needs ``scope="activation"``).
+            **({"first_targeting_own_creature": True} if p.get("first_targeting_own_creature") else {}),
             # "Activated abilities of Foods you control cost {1} less to
             # activate." (Sam, Loyal Attendant) — the subtype-scoped
             # ``scope="activation"`` variant `continuous.

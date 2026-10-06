@@ -2780,6 +2780,27 @@ class DrawPerDamageDealtToSourceEffect(GameEffect):
                 context.draw(player, amount)
 
 
+class ExileTopPlayUntilNextExileEffect(GameEffect):
+    """"Exile the top card of your library. You may play that card until you exile another card with this enchantment." (Furious Rise) — the new card is
+    playable (a land too) until the next exile with this source revokes it, however many turns later: the permission is a *standing* one
+    (`GameState.temp_play_permission_standing`). The cards exiled before are tracked on the source (`exiled_with_ids`)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        state = context.state
+        for old_id in list(self.source.exiled_with_ids):
+            state.temp_play_permissions.pop(old_id, None)
+            state.temp_play_permission_standing.discard(old_id)
+            state.temp_play_permission_player.pop(old_id, None)
+        self.source.exiled_with_ids = []
+        exiled = context.engine.exile_with_play_permission(player, 1, self.source.name)
+        for obj in exiled:
+            state.temp_play_permission_standing.add(obj.instance_id)
+            self.source.exiled_with_ids.append(obj.instance_id)
+
+
 class FightEffect(GameEffect):
     """RULE 701.14 — "Target creature you control fights target creature you
     don't control." (Prey Upon), "~ fights up to one target creature you don't

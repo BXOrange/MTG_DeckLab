@@ -41,7 +41,7 @@ def filler(engine, name="Filler", type_line="Creature", player="p1", mv=0, power
     """A synthetic vanilla card (no abilities) — use for bodies, library fodder, hand cards."""
     c = Card(id=name, name=name, type_line=type_line, converted_mana_cost=mv,
              is_creature="Creature" in type_line, is_land="Land" in type_line,
-             is_instant="Instant" in type_line, is_sorcery="Sorcery" in type_line,
+             is_instant="Instant" in type_line, is_sorcery="Sorcery" in type_line, is_legendary="Legendary" in type_line,
              power=power, toughness=toughness, mana_cost_string=kw.pop("mana_cost_string", "{%d}" % mv if mv else ""),
              mana_cost={"generic": mv} if mv else {}, **kw)
     return _place(engine, GameObject(c, owner_id=player, zone=zone), player, zone)

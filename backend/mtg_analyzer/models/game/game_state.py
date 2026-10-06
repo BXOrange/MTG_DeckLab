@@ -624,6 +624,9 @@ class GameState:
         #: player`'s own next turn to end. Pruned in lockstep with
         #: `temp_play_permissions`.
         self.temp_play_permission_same_turn_only: set[int] = set()
+        #: Cards whose play permission lasts *until revoked* rather than a fixed window ("You may play that card until you exile another card
+        #: with this enchantment", Furious Rise) — never lapses at cleanup.
+        self.temp_play_permission_standing: set[int] = set()
         #: "…cast it from your graveyard **as an Adventure** until the end of your next turn." (Hildibrand Manderville) —
         #: the `temp_play_permissions` entries that only cover the Adventure half and only from the graveyard.
         self.temp_play_adventure_only: set[int] = set()

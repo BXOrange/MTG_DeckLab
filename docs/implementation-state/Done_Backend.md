@@ -1094,6 +1094,19 @@ Other shared pieces: `entry_counters_self` can strip counters from artifacts/cre
 irreducible `legal_targets` branch); the frame dispatch now passes `state` to creature filters (so `entered_this_turn` works on a frame, e.g.
 `commander_entered_this_turn`). Per-card limitations are in the card modules; tests: `tests/game/catalogue/cards/test_counter_blitz_deck.py`.
 
+### Equipment, activation costs and standing permissions (PLAY-ALL, Limit Break)
+
+Equipment: the parser's equip keyword regex skips "Equip legendary creature {N}" (PARSER_VERSION 612), so the plain `Equip {M}` ability keeps its own cost and the legendary
+variant is a hand-authored `attach` with a `creature_filter`; `attach_equipment` moves an Equipment you control onto the source or a chosen creature (Cloud, Barret, Yuffie);
+`continuous.activation_cost_reduction_for` takes the `ActivationCost` and honours `set_to_zero` for a named `attach_kind` ("Equipment you control have equip {0}", Puresteel
+Paladin) and `first_targeting_own_creature` (Professor Hojo: the cost carries `targets_own_creature`, stamped at bind time, and `ACTIVATED_ABILITY` events carry it).
+Other shared pieces: a `BECOMES_TARGET` filter key `target_creature_you_control`; the sacrifice cost stamps the victim's last-known counters and attached Equipment
+(`sacrificed_cost_counters`/`_attached_ids`, Zack Fair); "Sacrifice a modified creature" (`_matches_sacrifice_type` now takes `state`); count selectors for equipped creatures,
+greatest power, opponents with more creatures; graveyard target filters `aura_or_equipment`, `equipment_or_vehicle`, `non_assassin_historic`; `return_from_graveyard`
+`attach_to_previous` (Unfinished Business); `gain_control_until_eot` `player_from_trigger_event` (Hellkite Tyrant); `spell_help_pay_grant` (Inspiring Statuary's improvise
+for nonartifact spells, read by `_help_pay_keyword`); `GameState.temp_play_permission_standing` for "until you exile another card" (Furious Rise); `phase_out` now applies
+to every gathered target. Foretell cards read "cast from exile" as the `foretold` flag. Tests: `tests/game/catalogue/cards/test_limit_break_deck.py`.
+
 ## Targeting
 
 ### Structural target frames — `kind` decomposed (ENG-34, `14_` S0b)

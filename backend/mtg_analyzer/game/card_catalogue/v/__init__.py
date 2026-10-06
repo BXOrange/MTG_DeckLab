@@ -17,6 +17,7 @@ from . import vesuvan_shapeshifter  # noqa: F401
 from . import vexing_radgull  # noqa: F401
 from . import vexing_shusher  # noqa: F401
 from . import veyran_voice_of_duality  # noqa: F401
+from . import vincent_vengeful_atoner  # noqa: F401
 from . import virtual_assistant  # noqa: F401
 from . import virtue_of_courage  # noqa: F401
 from . import void_winnower  # noqa: F401

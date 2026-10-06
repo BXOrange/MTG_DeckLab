@@ -70,6 +70,7 @@ from . import auron_venerated_guardian  # noqa: F401
 from . import austere_command  # noqa: F401
 from . import autumn_s_veil  # noqa: F401
 from . import avacyn_guardian_angel  # noqa: F401
+from . import avalanche_of_sector_7  # noqa: F401
 from . import avatar_aang  # noqa: F401
 from . import aven_mindcensor  # noqa: F401
 from . import avenger_of_zendikar  # noqa: F401

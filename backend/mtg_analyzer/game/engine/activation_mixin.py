@@ -427,7 +427,7 @@ class ActivationMixin:
         whichever the cost names.
         """
         reduction, floor = continuous.activation_cost_reduction_for(
-            self.state, source, is_mana_ability=is_mana_ability
+            self.state, source, is_mana_ability=is_mana_ability, cost=cost,
         )
         colored_reduction: dict[str, int] = {}
         if cost is not None and cost.dynamic_reduction:
@@ -859,7 +859,7 @@ class ActivationMixin:
             # ENG-49: through the sacrifice-type matcher, so a main type
             # ("Sacrifice two lands") pays too; a subtype word still ends up
             # at its `continuous.has_subtype` fallback.
-            if self._matches_sacrifice_type(o, subtype)
+            if self._matches_sacrifice_type(o, subtype, state=self.state)
             # ENG-51: "Sacrifice two other creatures" — never the source.
             and not (o is source and _names_other(subtype))
         ]
@@ -932,7 +932,7 @@ class ActivationMixin:
         candidates = [
             obj
             for obj in self.state.permanents_controlled_by(player.id)
-            if self._matches_sacrifice_type(obj, what)
+            if self._matches_sacrifice_type(obj, what, state=self.state)
             # "You can't sacrifice those creatures this turn." (Call for Aid)
             and not obj.cant_be_sacrificed_this_turn
             # ENG-51: "Sacrifice another creature" — never the source itself.
@@ -948,10 +948,10 @@ class ActivationMixin:
         ``cost.sacrifice_also``, RULE 701.17), or ``None``. A permanent of both types (a Swamp Forest) can pay
         either half but never both, so every first pick is tried against a second one."""
         pool = [o for o in self.state.permanents_controlled_by(player.id) if not o.cant_be_sacrificed_this_turn]
-        firsts = [o for o in pool if self._matches_sacrifice_type(o, cost.sacrifice)
+        firsts = [o for o in pool if self._matches_sacrifice_type(o, cost.sacrifice, state=self.state)
                   and (chosen_id is None or o.instance_id == chosen_id)]
         for first in firsts:
-            second = next((o for o in pool if o is not first and self._matches_sacrifice_type(o, cost.sacrifice_also)), None)
+            second = next((o for o in pool if o is not first and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state)), None)
             if second is not None:
                 return first, second
         return None
@@ -983,7 +983,7 @@ class ActivationMixin:
         candidates = [
             obj
             for obj in self.state.permanents_controlled_by(player.id)
-            if self._matches_sacrifice_type(obj, cost.sacrifice)
+            if self._matches_sacrifice_type(obj, cost.sacrifice, state=self.state)
             and not obj.cant_be_sacrificed_this_turn
             and not (obj is source and _names_other(cost.sacrifice))
         ]
@@ -991,9 +991,16 @@ class ActivationMixin:
             "options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]
         }
     @staticmethod
-    def _matches_sacrifice_type(obj: GameObject, what: str) -> bool:
+    def _matches_sacrifice_type(obj: GameObject, what: str, state: Optional[GameState] = None) -> bool:
         if what in ("permanent", "another"):
             return True
+        if what == "modified_creature":
+            # "Sacrifice a modified creature" (Sephiroth, Fallen Hero) — RULE 700.9: a counter, an Equipment, or an Aura its controller controls.
+            if not obj.is_creature:
+                return False
+            return continuous.is_modified(state, obj) if state is not None else any(
+                int(v or 0) > 0 for v in (obj.counters or {}).values()
+            )
         if what == "creature":
             return obj.is_creature
         if what == "artifact":
@@ -1270,6 +1277,8 @@ class ActivationMixin:
         source.sacrificed_cost_was_suspected = False
         source.sacrificed_cost_power = None
         source.sacrificed_cost_toughness = None
+        source.sacrificed_cost_counters = {}
+        source.sacrificed_cost_attached_ids = []
         source.station_tapped_power = None
         if cost.taps_self:
             self.rules.set_tapped(source, True)
@@ -1377,6 +1386,11 @@ class ActivationMixin:
                     # RULE 701.17a: the second permanent of "a Swamp and a Forest" is sacrificed with the first.
                     self.rules.put_into_graveyard(pair[1])
             if victim is not None:
+                # RULE 608.2h last-known information: what the victim carried and what was attached to it, before it leaves.
+                source.sacrificed_cost_counters = {k: v for k, v in (victim.counters or {}).items() if v and v > 0}
+                source.sacrificed_cost_attached_ids = [
+                    o.instance_id for o in self.state.permanents() if o.attached_to == victim.instance_id
+                ]
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 self.rules.put_into_graveyard(victim)
@@ -1766,6 +1780,8 @@ class ActivationMixin:
                 # `source` can be an `Emblem` (RULE 114.4's rare own
                 # activated ability) — no card frame, so no type words.
                 object_types=sorted(getattr(source, "type_words", None) or []),
+                # Professor Hojo: whether this activation's effects target a creature its controller controls.
+                targets_own_creature=bool(getattr(ability.cost, "targets_own_creature", False)),
                 # RULE 707.10 (Rings of Brighthearth): the ability's own
                 # stack identity, so a "copy that ability" trigger can find
                 # the exact `StackItem` just pushed above — an ability item

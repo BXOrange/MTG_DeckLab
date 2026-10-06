@@ -1697,6 +1697,30 @@ class ClassLevelEffect(GameEffect):
         )
 
 
+class TransferSacrificedLegacyEffect(GameEffect):
+    """"Target creature you control gains indestructible until end of turn. Put ~'s counters on that creature and attach an Equipment that was
+    attached to ~ to that creature." (Zack Fair, after "{1}, Sacrifice ~") — reads the sacrificed source's last-known counters and attachments
+    (`GameObject.sacrificed_cost_counters`/`sacrificed_cost_attached_ids`, stamped as the cost was paid, RULE 608.2h) and moves them to the
+    chosen creature."""
+
+    def __init__(self, target_kind: str = "creature_you_control", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None or self.source is None:
+            return
+        target.temp_keywords.add("indestructible")
+        for kind, amount in dict(self.source.sacrificed_cost_counters or {}).items():
+            context.add_counters(target, amount, kind, source=self.source)
+        for equipment_id in list(self.source.sacrificed_cost_attached_ids or []):
+            equipment = context.state.find_object(equipment_id)
+            if equipment is not None and equipment in context.state.battlefield and "equipment" in equipment.card.type_line.lower():
+                context.engine.attach_to_target(equipment, target)
+        context.recompute()
+
+
 class AddCounterMatchingTypeEffect(GameEffect):
     """"Put a +1/+1 counter on it if it's a creature and a loyalty counter on it if it's a planeswalker." (Forge of Heroes) — one
     counter on the chosen permanent per type it has (a planeswalker creature gets both)."""

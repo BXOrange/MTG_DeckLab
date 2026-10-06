@@ -983,6 +983,35 @@ class AttachEffect(GameEffect):
             context.engine.attach_to_target(mover, target)
 
 
+class AttachEquipmentEffect(GameEffect):
+    """"Attach up to one target Equipment you control to it." (Cloud, Ex-SOLDIER; Yuffie) / "…to target Rebel you control." (Barret, Avalanche
+    Leader) — an effect (not the equip ability) moving an Equipment you control onto a creature: this effect's own source (``to_source``) or a second
+    chosen creature (``creature_kind`` narrowed by ``creature_filter``), without the equip ability's control check (RULE 301.5b/c, 701.3).
+
+    ``to_source`` makes the Equipment the only (optional, "up to one") target. With a second chosen creature both targets are required — **simplification:** the
+    "up to one" is dropped there, so the ability simply isn't put on the stack when you control no Equipment."""
+
+    def __init__(
+        self, to_source: bool = False, creature_kind: str = "creature_you_control",
+        creature_filter: Optional[dict[str, Any]] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.to_source = bool(to_source)
+        self.target_spec = TargetSpec(kind="equipment_you_control", optional=self.to_source)
+        if not self.to_source:
+            self.extra_target_specs = (TargetSpec(kind=creature_kind, creature_filter=creature_filter),)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        picks = [t for t in (targets or []) if t is not None]
+        if not picks:
+            return
+        equipment = picks[0]
+        host = self.source if self.to_source else (picks[1] if len(picks) > 1 else None)
+        if host is None:
+            return
+        context.engine.attach_to_target(equipment, host, check_control=False)
+
+
 class AttachTriggeringPermanentEffect(GameEffect):
     """"Whenever a[n] <X> you control enters, you may attach it to target
     creature you control." (Sigarda's Aid-shaped) — RULE 603.3d's "it"
@@ -1625,7 +1654,10 @@ class PhaseOutEffect(GameEffect):
             if target is not None:
                 self._phase_out_one(context, target)
             return
-        if self.target_spec is not None and self.target_spec.count_selector:
+        if self.target_spec is not None and (
+            self.target_spec.count_selector or self.target_spec.effective_count != 1
+        ):
+            # "Any number of target … phase out" (Clever Concealment, Guardian of Faith): every target gathered phases out.
             # A dynamic (e.g. X-sized) multi-target count, resolved once at
             # target-gathering time (`targeting.resolved_count`) — every
             # target actually gathered phases out, not just the first.

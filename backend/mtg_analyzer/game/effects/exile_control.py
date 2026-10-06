@@ -1288,9 +1288,13 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         mark_no_sacrifice: bool = False,
         duration: str = "end_of_turn",
         untap: bool = True,
+        player_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Whenever ~ deals combat damage to a player, gain control of all artifacts **that player** controls." (Hellkite Tyrant) — with
+        #: ``mass_of_target_player`` the player is the firing event's field (``"target_id"``) rather than a RULE 115 target.
+        self.player_from_trigger_event = player_from_trigger_event
         #: "Gain control of target creature **with mana value X**."
         #: (Entrancing Melody, Mind Control / Control Magic / Persuasion /
         #: Corrupted Conscience family, PAR-60) — ``"permanent"`` makes the
@@ -1323,7 +1327,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         #: but the param is named/shaped like every other mass effect's for
         #: consistency.
         self.selector = selector
-        if self.selector is None:
+        if self.selector is None and self.player_from_trigger_event is None:
             #: "Gain control of target creature **with mana value 3 or
             #: less**" (Claim the Firstborn) — a target-offer-time cap, the
             #: same `TargetSpec.max_mana_value` `DestroyEffect`/`destroy_mv`
@@ -1379,6 +1383,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             context.recompute()
             return
         chosen = list(targets or ([self.target] if self.target is not None else []))
+        if self.player_from_trigger_event:
+            event_player_id = (context.trigger_event or {}).get(self.player_from_trigger_event)
+            chosen = [event_player_id] if event_player_id is not None else []
         if not chosen:
             return
         if self.mass_of_target_player:

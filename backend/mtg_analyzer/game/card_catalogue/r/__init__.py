@@ -22,6 +22,7 @@ from . import realmwalker  # noqa: F401
 from . import reanimate  # noqa: F401
 from . import recruiter_of_the_guard  # noqa: F401
 from . import red_hulk  # noqa: F401
+from . import red_xiii_proud_warrior  # noqa: F401
 from . import redoubled_stormsinger  # noqa: F401
 from . import reiterate  # noqa: F401
 from . import relic_retriever  # noqa: F401

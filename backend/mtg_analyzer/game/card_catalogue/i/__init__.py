@@ -20,6 +20,7 @@ from . import ingenious_prodigy  # noqa: F401
 from . import inkshield  # noqa: F401
 from . import inspired_skypainter  # noqa: F401
 from . import inspiring_call  # noqa: F401
+from . import inspiring_statuary  # noqa: F401
 from . import insult_injury  # noqa: F401
 from . import intellectual_offering  # noqa: F401
 from . import intermediate_chirography  # noqa: F401

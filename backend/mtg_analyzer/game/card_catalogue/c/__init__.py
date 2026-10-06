@@ -1,5 +1,6 @@
 """Hand-authored card entries whose name starts with 'c' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import cabal_ritual  # noqa: F401
+from . import cait_sith_fortune_teller  # noqa: F401
 from . import call_for_unity  # noqa: F401
 from . import call_of_the_ring  # noqa: F401
 from . import calming_licid  # noqa: F401
@@ -24,6 +25,7 @@ from . import chains_of_mephistopheles  # noqa: F401
 from . import chalice_of_the_void  # noqa: F401
 from . import chameleon_master_of_disguise  # noqa: F401
 from . import champion_of_the_weird  # noqa: F401
+from . import champion_s_helm  # noqa: F401
 from . import chandra_s_ignition  # noqa: F401
 from . import chandra_s_incinerator  # noqa: F401
 from . import chaos_warp  # noqa: F401
@@ -33,6 +35,7 @@ from . import chocobo_knights  # noqa: F401
 from . import chocobo_racetrack  # noqa: F401
 from . import chromatic_orrery  # noqa: F401
 from . import chrome_mox  # noqa: F401
+from . import cid_freeflier_pilot  # noqa: F401
 from . import circle_of_despair  # noqa: F401
 from . import circle_of_protection_artifacts  # noqa: F401
 from . import circle_of_protection_black  # noqa: F401
@@ -47,9 +50,12 @@ from . import city_of_traitors  # noqa: F401
 from . import city_on_fire  # noqa: F401
 from . import citywide_bust  # noqa: F401
 from . import claim_jumper  # noqa: F401
+from . import clever_concealment  # noqa: F401
 from . import clever_impersonator  # noqa: F401
 from . import clifftop_lookout  # noqa: F401
+from . import cloud_ex_soldier  # noqa: F401
 from . import cloud_key  # noqa: F401
+from . import cloud_s_limit_break  # noqa: F401
 from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401
@@ -66,6 +72,7 @@ from . import commander_s_insignia  # noqa: F401
 from . import commander_s_plate  # noqa: F401
 from . import communal_brewing  # noqa: F401
 from . import conduit_of_worlds  # noqa: F401
+from . import conformer_shuriken  # noqa: F401
 from . import confusion_in_the_ranks  # noqa: F401
 from . import conjured_currency  # noqa: F401
 from . import conqueror_s_flail  # noqa: F401

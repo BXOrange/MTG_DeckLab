@@ -472,6 +472,11 @@ _ALIAS_TYPES: dict[str, str] = {
     "tokens_per_discarded_card_type": "create",
     # Counter Blitz (PLAY-ALL).
     "add_counter_matching_type": "put_counter",
+    "damage_opponents_by_discarded_mana_value": "deal_damage",
+    "exile_top_play_until_next_exile": "exile",
+    "attach_equipment": "attach",
+    "transfer_sacrificed_legacy": "move_counter",
+    "destroy_artifact_or_land_per_opponent": "destroy",
     "each_opponent_returns_greatest_mv_creature": "move_object",
     "exile_creature_card_make_spirit": "exile",
     "return_trigger_subject_to_hand": "move_object",
@@ -924,7 +929,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     # `self_cost_reduction_for`. `EffectRegistry.register` builds a
     # `StaticAbility` for it.
     "exile_discount_cost",
-    "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana", "unspent_mana_colorless",
+    "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana", "unspent_mana_colorless", "grant_help_pay_to_spells",
     "counter_placement_prohibition",
     "enters_with_counters_count",
     "free_cast_permission", "goaded", "grant_any_color_for_activation",

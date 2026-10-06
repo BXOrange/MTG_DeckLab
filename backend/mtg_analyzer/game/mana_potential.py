@@ -269,7 +269,7 @@ def _sacrifice_pool(engine: Any, player: Player, what: str, commitment: _Commitm
     return [
         o
         for o in engine.state.permanents_controlled_by(player.id)
-        if engine._matches_sacrifice_type(o, what) and o.instance_id not in commitment.sacrificed
+        if engine._matches_sacrifice_type(o, what, state=engine.state) and o.instance_id not in commitment.sacrificed
     ]
 
 

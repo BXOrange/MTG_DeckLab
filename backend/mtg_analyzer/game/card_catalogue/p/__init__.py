@@ -55,6 +55,7 @@ from . import prismari_pianist  # noqa: F401
 from . import prismatic_circle  # noqa: F401
 from . import prismatic_ward  # noqa: F401
 from . import prize_pig  # noqa: F401
+from . import professor_hojo  # noqa: F401
 from . import professor_onyx  # noqa: F401
 from . import progenitor_exarch  # noqa: F401
 from . import promise_of_loyalty  # noqa: F401
@@ -67,6 +68,7 @@ from . import puca_s_covenant  # noqa: F401
 from . import pugnacious_hammerskull  # noqa: F401
 from . import puppeteer_clique  # noqa: F401
 from . import pure_intentions  # noqa: F401
+from . import puresteel_paladin  # noqa: F401
 from . import pyreswipe_hawk  # noqa: F401
 from . import pyrohemia  # noqa: F401
 

@@ -13,6 +13,7 @@ from . import eldrazi_conscription  # noqa: F401
 from . import eldritch_evolution  # noqa: F401
 from . import electrodominance  # noqa: F401
 from . import elementalist_s_palette  # noqa: F401
+from . import elena_turk_recruit  # noqa: F401
 from . import elesh_norn_grand_cenobite  # noqa: F401
 from . import elesh_norn_mother_of_machines  # noqa: F401
 from . import eliminate_the_competition  # noqa: F401

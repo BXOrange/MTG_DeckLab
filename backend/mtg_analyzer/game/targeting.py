@@ -105,6 +105,16 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "nonlegendary_card": lambda o: "legendary" not in o.card.type_line.lower(),
     # "put target non-Dragon creature card from a graveyard onto the battlefield" (Junji, the Midnight Sky).
     "non_dragon_creature": lambda o: o.is_creature and "dragon" not in o.card.type_line.lower(),
+    # "return target Aura or Equipment card from your graveyard to your hand" (Red XIII, Proud Warrior).
+    "aura_or_equipment": lambda o: any(w in o.card.type_line.lower() for w in ("aura", "equipment")),
+    # "return target Equipment or Vehicle card from your graveyard to your hand" (Cid, Freeflier Pilot).
+    "equipment_or_vehicle": lambda o: any(w in o.card.type_line.lower() for w in ("equipment", "vehicle")),
+    # "return target non-Assassin historic card from your graveyard to your hand" (Elena, Turk Recruit) — historic is artifact,
+    # legendary or Saga (RULE 700.6).
+    "non_assassin_historic": lambda o: (
+        (bool(o.card.is_artifact) or "legendary" in o.card.type_line.lower() or "saga" in o.card.type_line.lower())
+        and "assassin" not in o.card.type_line.lower()
+    ),
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
 #: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
@@ -442,6 +452,9 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "nonland_card": "Nichtlandkarte",
     "nonlegendary_card": "nicht legendäre Karte",
     "non_dragon_creature": "Nicht-Drache-Kreaturenkarte",
+    "aura_or_equipment": "Aura- oder Ausrüstungskarte",
+    "equipment_or_vehicle": "Ausrüstungs- oder Fahrzeugkarte",
+    "non_assassin_historic": "historische Nicht-Assassinen-Karte",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
 _GRAVEYARD_SCOPE_LABELS: dict[str, str] = {

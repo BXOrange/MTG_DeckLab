@@ -635,6 +635,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         at_random: Optional[int] = None,
         else_destination: Optional[str] = None,
         pick_mode: Optional[str] = None,
+        attach_to_previous: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -644,6 +645,10 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: ``"each_opponent_from_yours"`` — "each opponent chooses a creature card in your graveyard that hasn't been
         #: chosen. Return each card chosen this way … under your control" (Rejoin the Fight).
         self.pick_mode = pick_mode if pick_mode in ("controller_from_each_opponent", "each_opponent_from_yours") else None
+        #: "…then return up to two target Aura and/or Equipment cards from your graveyard to the battlefield **attached to that creature**."
+        #: (Unfinished Business) — each returned card enters attached to the creature an earlier clause chose
+        #: (`GameContext.previous_targets`); one that can't legally be attached there stays in the graveyard.
+        self.attach_to_previous = bool(attach_to_previous)
         #: "return two creature cards **at random** from your graveyard to the battlefield" (Moldgraf Monstrosity) /
         #: "choose a card at random in your graveyard" (Deadbridge Chant) — RULE 706's untargeted random pick: this
         #: many cards (fewer if the graveyard has fewer) matching ``target_kind`` in the controller's graveyard are
@@ -838,6 +843,15 @@ class ReturnFromGraveyardEffect(GameEffect):
         if controller_id is None and self.under_your_control and self.destination == "battlefield":
             player = _controller_of(self.source, context)
             controller_id = player.id if player is not None else None
+        attach_to = None
+        if self.attach_to_previous and self.destination == "battlefield":
+            previous = list(context.previous_targets or [])
+            host = previous[0] if previous else None
+            if host is None or host not in context.state.battlefield or not context.engine._attachment_legal(
+                target, host, check_control=False
+            ):
+                return  # it stays in the graveyard (RULE 303.4f/301.5)
+            attach_to = host
         mv = getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0
         owner_id = getattr(target, "owner_id", None)
         # RULE 110.5b: "…to the battlefield tapped" *enters* tapped — the destination string
@@ -849,6 +863,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         context.return_from_graveyard(
             target, destination, controller_id=controller_id,
             face_down_kind=self.face_down_as if self.destination == "battlefield" else None,
+            attach_to=attach_to,
         )
         if self.destination == "battlefield":
             # RULE 400.7: the object's `instance_id` stays stable across
@@ -1483,6 +1498,30 @@ class EachOpponentReturnsGreatestManaValueCreatureEffect(GameEffect):
             chosen.append(min(tied, key=lambda o: ((o.power or 0), o.instance_id)))
         for obj in chosen:
             context.return_to_hand(obj)
+
+
+class DestroyArtifactOrLandPerOpponentEffect(GameEffect):
+    """"For each opponent, choose an artifact or land that player controls. Destroy the chosen permanents." (Ultimate Magic: Meteor, when cast from
+    exile) — one pick per living opponent, all destroyed together. **Simplification:** the controller's choice is automatic: the permanent
+    with the greatest mana value, an artifact before a land on a tie."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        me = _controller_of(self.source, context)
+        if me is None:
+            return
+        chosen: list[Any] = []
+        for player in context.state.living_players():
+            if player.id == me.id:
+                continue
+            pool = [
+                o for o in context.state.battlefield
+                if o.controller_id == player.id and (o.card.is_artifact or o.is_land)
+            ]
+            if pool:
+                chosen.append(max(pool, key=lambda o: (int(getattr(o.card, "converted_mana_cost", 0) or 0),
+                                                        bool(o.card.is_artifact))))
+        for obj in chosen:
+            context.destroy(obj)
 
 
 class ReturnTriggerSubjectToHandEffect(GameEffect):

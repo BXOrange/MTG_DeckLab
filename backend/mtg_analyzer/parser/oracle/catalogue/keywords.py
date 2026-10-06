@@ -151,7 +151,9 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # only 2 cards cache-wide print it, and Commander's Plate's own is
     # hand-authored (`game/card_catalogue`) rather than built as a
     # second keyword shape for that small a yield.
-    "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
+    "equip": re.compile(
+        rf"\bEquip\b(?!\s+(?:commander|legendary creature)\b){_GAP}(?P<cost>{_COST_RUN})", re.I,
+    ),
 }
 
 #: RULE 702.174d-i (MEC-106): the gifts the Comprehensive Rules define, as the lowercased

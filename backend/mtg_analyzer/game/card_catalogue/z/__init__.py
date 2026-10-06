@@ -1,4 +1,5 @@
 """Hand-authored card entries whose name starts with 'z' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import zack_fair  # noqa: F401
 from . import zealous_conscripts  # noqa: F401
 from . import zimone_all_questioning  # noqa: F401
 from . import zimone_infinite_analyst  # noqa: F401

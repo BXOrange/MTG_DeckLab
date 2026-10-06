@@ -3893,7 +3893,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 609: PLAY-ALL — the `moved_count` amount's ``card_type`` field ("for each creature card put into a graveyard this way").
 # 610: PLAY-ALL — the `greater_of` amount (``left``/``right``): "A or B, whichever is greater".
 # 611: PLAY-ALL — paired sacrifice cost "Sacrifice a Swamp and a Forest" (`ActivationCost.sacrifice_also`).
-PARSER_VERSION = "611"
+PARSER_VERSION = "612"
 
 
 def parser_source_hash() -> str:
