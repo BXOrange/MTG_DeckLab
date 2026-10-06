@@ -50,3 +50,4 @@ from . import whispersilk_cloak  # noqa: F401
 from . import whip_of_erebos  # noqa: F401
 from . import winter_cynical_opportunist  # noqa: F401
 from . import wrenn_and_seven  # noqa: F401
+from . import well_of_lost_dreams  # noqa: F401

@@ -359,6 +359,18 @@ class DrawDiscardMixin:
         if card.zone == Zone.GRAVEYARD:  # RULE 702.52b "return this card"
             self.return_from_graveyard(card, "hand")
     def mill(self, player: Player, count: int) -> None:
+        if count <= 0:
+            return self._mill(player, count)
+        # RULE 614.1/701.13: "if a player would mill N cards, they mill N plus 4 instead" (The Water Crystal) — routed
+        # through `apply_replacements` like `gain_life`; with no such replacement active `_mill` runs synchronously.
+        event = GameEvent(EventType.WOULD_MILL, player_id=player.id, count=count)
+        self.apply_replacements(
+            event, on_resolved=lambda resolved: resolved is not None and self._mill(
+                player, int(resolved.get("count", count) or 0)
+            ),
+        )
+
+    def _mill(self, player: Player, count: int) -> None:
         milled: list[GameObject] = []
         for _ in range(count):
             if not player.library:

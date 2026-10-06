@@ -430,6 +430,7 @@ EffectRegistry.register(
         count_selector_multiplier=int(p.get("count_selector_multiplier", 1) or 1),
         life_from_target_creature=p.get("life_from_target_creature"),
         target_creature_kind=p.get("target_creature_kind"),
+        selector=p.get("selector"),
     ),
 )
 EffectRegistry.register(
@@ -1120,7 +1121,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "exile_all_graveyards",
-    lambda p: ExileAllGraveyardsEffect(colors=p.get("colors"), opponents_only=bool(p.get("opponents_only", False))),
+    lambda p: ExileAllGraveyardsEffect(
+        colors=p.get("colors"), opponents_only=bool(p.get("opponents_only", False)), card_type=p.get("card_type"),
+    ),
 )
 EffectRegistry.register(
     "exile_graveyard_card_counter_if_permanent",  # Lion Sash
@@ -1724,6 +1727,7 @@ EffectRegistry.register(
         x_color=p.get("x_color"),
         x_from_trigger_event=p.get("x_from_trigger_event"),
         pay_life_x=bool(p.get("pay_life_x", False)),
+        x_cap_from_trigger_event=p.get("x_cap_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -2567,7 +2571,7 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "lose_game", lambda p: LoseGameEffect(reason=p.get("reason", "effect"))
+    "lose_game", lambda p: LoseGameEffect(reason=p.get("reason", "effect"), players=p.get("players"))
 )
 EffectRegistry.register(
     "lose_game_trigger_damaged_player",
@@ -2614,6 +2618,7 @@ EffectRegistry.register(
         target_operand=p.get("target_operand"),
         selector_player=p.get("selector_player"),
         remove_from_combat=bool(p.get("remove_from_combat", False)),
+        untap_if_yours=bool(p.get("untap_if_yours", False)),
     ),
 )
 EffectRegistry.register(
@@ -2773,7 +2778,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "choose_color_on_enter",  # "As ~ enters, choose a color." (RULE 601.2b)
-    lambda p: ChooseColorReplacement(),
+    lambda p: ChooseColorReplacement(count=int(p.get("count", 1) or 1)),
 )
 EffectRegistry.register(
     "choose_basic_land_type_on_enter",  # "As ~ enters, choose a basic land type." (RULE 601.2b, PAR-4)

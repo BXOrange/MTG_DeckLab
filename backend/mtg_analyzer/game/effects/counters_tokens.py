@@ -4048,9 +4048,11 @@ class ChooseColorReplacement(GameEffect):
     ``color_from_source`` selector param.
     """
 
-    def __init__(self, description: str = "") -> None:
+    def __init__(self, description: str = "", count: int = 1) -> None:
         super().__init__(None)
         self.description = description
+        #: "choose **two** colors" (Tablet of the Guilds): how many distinct colours are picked, one prompt each.
+        self.count = max(1, int(count))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_choices, not applied

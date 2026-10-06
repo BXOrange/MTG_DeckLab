@@ -148,9 +148,14 @@ class TapEffect(GameEffect):
         target_operand: Any = None,
         selector_player: Optional[str] = None,
         remove_from_combat: bool = False,
+        untap_if_yours: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Untap the chosen permanents you control. Tap the chosen permanents you don't control." (Teferi, Who Slows
+        #: the Sunset) — the plain-target branch untaps a permanent its controller is the ability's controller, taps
+        #: any other.
+        self.untap_if_yours = bool(untap_if_yours)
         #: "Remove all attacking creatures from combat and untap them." (Illusionist's Gambit) — a mass
         #: ``selector`` group that is also taken out of combat (RULE 506.4): it stops attacking and the
         #: blocks around it are undone. The group is left on `GameContext.previous_targets` so a following
@@ -361,6 +366,10 @@ class TapEffect(GameEffect):
         if target is not None:
             if self.choose_tap_or_untap:
                 context.engine._request_tap_or_untap_choice(target, source=self.source)
+            elif self.untap_if_yours:
+                controller = _controller_of(self.source, context)
+                mine = controller is not None and getattr(target, "controller_id", None) == controller.id
+                context.set_tapped(target, tapped=not mine)
             else:
                 context.set_tapped(target, tapped=not self.untap)
 

@@ -377,6 +377,7 @@ class MiscSystemsMixin:
         then_trigger_event: Optional[GameEvent] = None,
         captured_previous: Optional[list[Any]] = None,
         x_color: Optional[str] = None,
+        x_cap: Optional[int] = None,
     ) -> None:
         """Open the interactive "you may pay ``cost``. If you do, `<effect>`."
         choice (RULE 118.3-style optional payment mid-resolution).
@@ -423,6 +424,8 @@ class MiscSystemsMixin:
         # ENG-48 / RULE 107.3a: "you may pay {X}" — the payer announces X as
         # part of paying, so the offer is one option per affordable value.
         x_max = self._max_payable_x(player, cost, source, x_color) if cost.mana.has_variable else None
+        if x_max is not None and x_cap is not None:
+            x_max = min(x_max, max(x_cap, 0))  # "X is less than or equal to the amount of life you gained"
         if not self._can_pay_player_cost(player, cost, source):
             saved = self.context.previous_targets
             if captured_previous is not None:

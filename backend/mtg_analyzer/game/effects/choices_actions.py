@@ -902,8 +902,12 @@ class PayCostThenEffect(GameEffect):
         x_color: Optional[str] = None,
         x_from_trigger_event: Optional[str] = None,
         pay_life_x: bool = False,
+        x_cap_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "…you may pay {X}, where X is less than or equal to the amount of life you gained." (Well of Lost Dreams) —
+        #: the largest X offered is capped by this field of the firing event.
+        self.x_cap_from_trigger_event = x_cap_from_trigger_event
         #: The cost is "Pay X life" with X from ``x_from_trigger_event`` (a literal ``"x"`` in a cost dict would be
         #: rewritten by the composition layer's X substitution before this effect ever ran).
         self.pay_life_x = bool(pay_life_x)
@@ -1096,13 +1100,17 @@ class PayCostThenEffect(GameEffect):
         if self.payer == "trigger_subject_controller":
             context.acting_player_id = player.id
         try:
-            self._open_pay_cost_then(context, player, cost, targets, trigger_x)
+            x_cap: Optional[int] = None
+            if self.x_cap_from_trigger_event:
+                raw_cap = (context.trigger_event or {}).get(self.x_cap_from_trigger_event)
+                x_cap = int(raw_cap) if isinstance(raw_cap, int) and not isinstance(raw_cap, bool) else 0
+            self._open_pay_cost_then(context, player, cost, targets, trigger_x, x_cap)
         finally:
             context.acting_player_id = outer_acting
 
     def _open_pay_cost_then(
         self, context: GameContext, player: Any, cost: Any, targets: Optional[list[Any]],
-        trigger_x: Optional[int] = None,
+        trigger_x: Optional[int] = None, x_cap: Optional[int] = None,
     ) -> None:
         from .composition import BindEffect  # function-scoped: effects↔composition cycle
 
@@ -1127,6 +1135,7 @@ class PayCostThenEffect(GameEffect):
             then_trigger_specs=self.then_trigger_specs or None,
             then_trigger_modes=self.then_trigger_modes or None,
             x_color=self.x_color,
+            x_cap=x_cap,
             # The outer trigger's own event, so a "When you do" payoff that
             # names it ("that player", "defending player's graveyard") can
             # read it back off its own `StackItem.trigger_event`.
@@ -3605,11 +3614,28 @@ class LoseGameEffect(GameEffect):
     "you lose the game" downside, resolved via the same `_player_loses` path
     an SBA loss uses."""
 
-    def __init__(self, reason: str = "effect", source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, reason: str = "effect", source: Optional["GameObject"] = None, players: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
         self.reason = reason
+        #: ``"attacked_by_source_this_turn"`` — "each player ~ attacked this turn loses the game" (Angel of Destiny):
+        #: every player this effect's source declared an attack against this turn (RULE 508.1a, a *player*, not a
+        #: planeswalker or battle), instead of the controller.
+        self.players = players
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.players == "attacked_by_source_this_turn":
+            source_id = getattr(self.source, "instance_id", None)
+            attacked_ids = {
+                event.get("defending_player_id") for event in context.state.events_this_turn()
+                if event.type == "ATTACKS" and event.get("declared") and event.get("instance_id") == source_id
+                and event.get("defender_kind") == "player" and event.get("defending_player_id") is not None
+            }
+            for player in list(context.state.living_players_apnap()):
+                if player.id in attacked_ids:
+                    context.lose_game(player, self.reason)
+            return
         player = _controller_of(self.source, context)
         if player is not None:
             context.lose_game(player, self.reason)

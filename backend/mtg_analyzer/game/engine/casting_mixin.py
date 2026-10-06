@@ -332,6 +332,9 @@ class CastingMixin:
         single-mode/"both" selection can't be either — or when ``obj``
         carries neither.
         """
+        if isinstance(mode, int) and not isinstance(mode, bool):
+            # RULE 702.183 Tiered: "choose one" additional cost — the one chosen mode prices itself.
+            mode = [mode]
         if not isinstance(mode, (list, tuple)):
             return None
         modes = list(getattr(obj, "spell_modes", None) or [])

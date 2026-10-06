@@ -86,3 +86,6 @@ from . import rendmaw_creaking_nest  # noqa: F401
 from . import reckoner_bankbuster  # noqa: F401
 from . import rebbec_architect_of_ascension  # noqa: F401
 from . import rakdos_lord_of_riots  # noqa: F401
+from . import resplendent_angel  # noqa: F401
+from . import restoration_magic  # noqa: F401
+from . import riverchurn_monument  # noqa: F401

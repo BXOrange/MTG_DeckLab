@@ -571,7 +571,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "a black or red source"/"a source of the chosen colour"/"a creature
         # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
         # Circle/Prismatic Circle/Circle of Solace).
-        "color_any", "color_from_source", "subtype_from_source",
+        "color_any", "color_from_source", "color_from_source_chosen_colors", "subtype_from_source",
         # RULE 111.9 — "a **nontoken** blue creature" (Flare of Denial-
         # shaped RULE 118.9 alternative cost).
         "nontoken",
@@ -883,6 +883,11 @@ def matches_object_filter(
     # ``reference.chosen_color`` (the filtering ability's own source, not the
     # candidate) instead of a literal colour baked in at parse time, the same
     # dynamic-vs-literal split ``power_lt_count_selector`` already uses.
+    if filt.get("color_from_source_chosen_colors"):
+        # "…if it's at least one of the chosen colors" (Tablet of the Guilds) — any of the source's chosen colours.
+        picked = {str(c).upper() for c in (getattr(reference, "chosen_colors", None) or [])}
+        if not picked & {str(c).upper() for c in (getattr(obj, "colors", None) or set())}:
+            return False
     if filt.get("color_from_source"):
         chosen = getattr(reference, "chosen_color", None) if reference is not None else None
         if not chosen or str(chosen).upper() not in {

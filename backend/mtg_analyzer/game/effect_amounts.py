@@ -141,6 +141,9 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # kind summed — "put that number of +1/+1 counters on target creature" after "if it
         # had one or more counters on it" (Yuna, Grand Summoner, PAR-120).
         "trigger_event_counter",  # + ``counter`` (optional)
+        # How many of the source's chosen colours (`GameObject.chosen_colors`) the firing event's spell is —
+        # "you gain 1 life for each of the chosen colors it is" (Tablet of the Guilds).
+        "chosen_colors_shared_with_trigger_spell",
         # How many spells the ``of`` player has cast this turn, this one included —
         # "they lose 1 life for each spell they've cast this turn" (Rug of Smothering).
         "spells_cast_this_turn",  # + ``of`` (a player referent)
@@ -310,6 +313,12 @@ def _base(
         if isinstance(raw, bool) or not isinstance(raw, int):
             return 0
         return int(raw)
+
+    if kind == "chosen_colors_shared_with_trigger_spell":
+        event = getattr(context, "trigger_event", None) or {}
+        spell = context.state.find_object(event.get("instance_id")) if event.get("instance_id") is not None else None
+        picked = {str(c).upper() for c in (getattr(source, "chosen_colors", None) or [])}
+        return len(picked & {str(c).upper() for c in (getattr(spell, "colors", None) or set())})
 
     if kind == "trigger_event_counter":
         counters = (getattr(context, "trigger_event", None) or {}).get("counters") or {}

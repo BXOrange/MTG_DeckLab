@@ -525,6 +525,14 @@ def group_selector_objects(
             if o.is_creature and o.controller_id == controller_id
             and "legendary" in o.card.type_line.lower()
         ]
+    elif affects == "legendary_permanents_you_control":
+        # "Each legendary permanent you control has ward {2}." (Gold-Forged
+        # Thopteryx) — RULE 205.4a's supertype on any permanent, the
+        # non-creature sibling of ``legendary_creatures_you_control`` above.
+        result = [
+            o for o in battlefield
+            if o.controller_id == controller_id and "legendary" in o.card.type_line.lower()
+        ]
     elif affects == "nonlegendary_creatures_you_control":
         result = [
             o for o in battlefield
@@ -2083,6 +2091,14 @@ def count_selector(
         # another combat phase let it attack again this turn.
         return len({event.get("instance_id") for event in state.events_this_turn()
                     if event.type == "ATTACKS" and event.get("declared")
+                    and event.get("instance_id") is not None
+                    and "creature" in (event.get("object_types") or ())})
+    if selector == "creatures_you_attacked_with_this_turn":
+        # "…if you attacked with two or more creatures this turn" (Minas Tirith) — `creatures_attacked_this_turn`
+        # scoped to the attacks the controller declared (the ATTACKS event's ``player_id``, RULE 508.1a).
+        return len({event.get("instance_id") for event in state.events_this_turn()
+                    if event.type == "ATTACKS" and event.get("declared")
+                    and event.get("player_id") == controller_id
                     and event.get("instance_id") is not None
                     and "creature" in (event.get("object_types") or ())})
     return 0

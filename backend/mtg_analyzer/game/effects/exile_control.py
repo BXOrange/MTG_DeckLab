@@ -987,9 +987,11 @@ class ExileAllGraveyardsEffect(GameEffect):
 
     def __init__(
         self, source: Optional["GameObject"] = None, colors: Optional[list[str]] = None,
-        opponents_only: bool = False,
+        opponents_only: bool = False, card_type: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "Exile all **creature cards** from all graveyards." (Honor the Fallen) — a `Card.is_<type>` flag name.
+        self.card_type = card_type
         self.colors = {str(c).upper() for c in colors} if colors else None
         #: "Exile each **opponent's** graveyard." (Soul-Guide Lantern) — the controller's own graveyard stays.
         self.opponents_only = bool(opponents_only)
@@ -1001,6 +1003,8 @@ class ExileAllGraveyardsEffect(GameEffect):
                 continue
             for obj in list(player.graveyard):
                 if self.colors and not ((obj.colors or set()) & self.colors):
+                    continue
+                if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
                     continue
                 context.exile(obj)
 

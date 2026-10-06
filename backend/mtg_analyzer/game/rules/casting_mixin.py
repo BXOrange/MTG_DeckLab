@@ -290,6 +290,31 @@ def _restore_x_sentinels(effect: Any) -> None:
             pass
 
 
+
+#: Card-type words that make a check-land phrase about permanents rather than land subtypes.
+_CHECK_PERMANENT_TYPE_WORDS = frozenset({"creature", "artifact", "enchantment", "planeswalker"})
+
+
+def _controls_check_type(state: Any, controller_id: Optional[str], types: list[str]) -> bool:
+    """Whether ``controller_id`` controls a permanent a "tapped unless you control <type>" clause names (RULE 614.1).
+
+    A land-subtype phrase ("Plains or Island" — the check lands) is looked up among the controller's lands. A phrase
+    with a card-type word ("a legendary creature" — Minas Tirith) needs every word on the type line of any permanent."""
+    for t in types:
+        words = t.lower().split()
+        if _CHECK_PERMANENT_TYPE_WORDS & set(words):
+            if any(
+                o.controller_id == controller_id and all(w in o.card.type_line.lower() for w in words)
+                for o in state.battlefield
+            ):
+                return True
+        elif any(
+            o.is_land and o.controller_id == controller_id and t in o.card.type_line.lower()
+            for o in state.battlefield
+        ):
+            return True
+    return False
+
 class CastingResolutionMixin:
     """Casting a spell onto the stack and resolving it, incl. RULE 614.1 entry-tapped/counters and every ETB interactive choice."""
 
@@ -479,15 +504,7 @@ class CastingResolutionMixin:
         condition = card_registry.land_tap_condition(obj.card)
         kind = condition["kind"]
         if kind == "unless_types":
-            types = condition["types"]
-            controlled = [
-                o
-                for o in self.state.battlefield
-                if o.is_land and o.controller_id == obj.controller_id
-            ]
-            obj.tapped = not any(
-                any(t in o.card.type_line.lower() for t in types) for o in controlled
-            )
+            obj.tapped = not _controls_check_type(self.state, obj.controller_id, condition["types"])
         elif kind == "unless_count":
             type_word = condition.get("type")
             if type_word:
@@ -633,14 +650,7 @@ class CastingResolutionMixin:
         condition = card_registry.land_tap_condition(card)
         kind = condition["kind"]
         if kind == "unless_types":
-            types = condition["types"]
-            controlled = [
-                o for o in self.state.battlefield
-                if o.is_land and o.controller_id == obj.controller_id
-            ]
-            tapped = not any(
-                any(t in o.card.type_line.lower() for t in types) for o in controlled
-            )
+            tapped = not _controls_check_type(self.state, obj.controller_id, condition["types"])
         elif kind == "unless_count":
             if condition.get("basic"):
                 other_lands = sum(
@@ -2602,6 +2612,9 @@ class CastingResolutionMixin:
             return
         effect = obj.enter_choice_effects[0]
         remaining = obj.enter_choice_effects[1:]
+        if isinstance(effect, ChooseColorReplacement) and effect.count > 1:
+            # "choose two colors": one prompt per colour, the next one offered once this is answered.
+            remaining = [ChooseColorReplacement(count=effect.count - 1), *remaining]
 
         def _next() -> None:
             obj.enter_choice_effects = remaining
@@ -2658,7 +2671,10 @@ class CastingResolutionMixin:
         else:
             kind = "choose_color"
             prompt = "Farbe wählen"
-            options = [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
+            options = [
+                {"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()
+                if color not in obj.chosen_colors  # a second pick must differ from the first
+            ]
 
         if not options and kind not in ("choose_card_name", "choose_number"):
             # RULE 601.2b's choice still has to happen in principle, but
@@ -2748,7 +2764,8 @@ class CastingResolutionMixin:
                 if picked is not None:
                     obj.add_counters(picked["kind"], picked["count"])
             else:
-                obj.chosen_color = chosen
+                obj.chosen_color = obj.chosen_color or chosen
+                obj.chosen_colors.append(chosen)
         if continuation is not None:
             continuation()
     def _offer_read_ahead(self, obj: GameObject, continuation: Callable[[], None]) -> None:

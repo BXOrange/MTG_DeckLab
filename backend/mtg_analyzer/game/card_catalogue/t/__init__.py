@@ -118,3 +118,6 @@ from . import the_wanderer  # noqa: F401
 from . import the_millennium_calendar  # noqa: F401
 from . import theater_of_horrors  # noqa: F401
 from . import the_lord_of_pain  # noqa: F401
+from . import tablet_of_the_guilds  # noqa: F401
+from . import teferi_who_slows_the_sunset  # noqa: F401
+from . import the_water_crystal  # noqa: F401

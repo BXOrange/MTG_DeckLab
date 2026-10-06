@@ -51,3 +51,5 @@ from . import hammerhead_tyrant
 from . import hellkite_courser
 from . import hildibrand_manderville_gentleman_s_rise  # noqa: F401
 from . import hall_of_heliod_s_generosity  # noqa: F401
+from . import honor_the_fallen  # noqa: F401
+from . import hope_estheim  # noqa: F401

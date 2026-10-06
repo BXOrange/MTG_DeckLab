@@ -193,8 +193,12 @@ class GainLifeEffect(GameEffect):
         count_selector_multiplier: int = 1,
         life_from_target_creature: Optional[str] = None,
         target_creature_kind: Optional[str] = None,
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: ``"event_damaged_player"`` — "…you and **that player** each gain that much life" (Angel of Destiny): the
+        #: player a damage trigger's event names as ``target_id``, instead of the controller.
+        self.selector = selector
         #: How much: a number or an `effect_amounts` operand ("you gain that much life", "gain
         #: life equal to its power" — El-Hajjâj, Bottle Golems, Angelic Chorus).
         self.amount = amount
@@ -229,7 +233,12 @@ class GainLifeEffect(GameEffect):
             if amount > 0:
                 context.gain_life(gainer, amount)
             return
-        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
+        if self.selector == "event_damaged_player":
+            player = _event_player(context, key="target_id")
+            if player is None:
+                return
+        else:
+            player = self._resolve_target_or_controller(context, targets, explicit=self.player)
 
         def _from_count_selector() -> int:
             from .. import continuous  # avoid the continuous↔effects import cycle

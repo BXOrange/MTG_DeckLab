@@ -74,3 +74,5 @@ from . import gate_to_the_afterlife
 from . import g_raha_tia_scion_reborn  # noqa: F401
 from . import grist_the_hunger_tide  # noqa: F401
 from . import grab_the_prize  # noqa: F401
+from . import gold_forged_thopteryx  # noqa: F401
+from . import guide_of_souls  # noqa: F401

@@ -88,3 +88,5 @@ from . import ancient_cellarspawn  # noqa: F401
 from . import archetype_of_imagination  # noqa: F401
 from . import arvinox_the_mind_flail  # noqa: F401
 from . import aerial_surveyor  # noqa: F401
+from . import ajani_strength_of_the_pride  # noqa: F401
+from . import angel_of_destiny  # noqa: F401

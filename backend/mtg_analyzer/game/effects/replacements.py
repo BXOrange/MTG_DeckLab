@@ -956,6 +956,35 @@ def _gain_life_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+def _mill_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """A mill is rewritten instead (RULE 614.1/701.13) — "if an opponent would mill one or more cards, they mill that
+    many cards plus N instead" (The Water Crystal, ``plus``). ``scope`` is whose mills it rewrites, relative to the
+    effect's controller: ``"opponents"`` (default) or ``"you"``; read off the `EventType.WOULD_MILL` event's ``player_id``.
+    """
+    plus = int(params.get("plus", 0))
+    scope = str(params.get("scope", "opponents"))
+    effect = ReplacementEffect(
+        event_type=EventType.WOULD_MILL,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
+        src = effect.source
+        if src is None:
+            return False
+        mine = event.get("player_id") == src.controller_id
+        return mine if scope == "you" else not mine
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        count = int(event.get("count", 0) or 0)
+        return event.copy_with(count=count + plus) if count > 0 else event
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
 def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """Tokens that would be created under *this effect's controller* are
     doubled instead (RULE 111.5/614/616) — Doubling Season's/Parallel
@@ -1437,6 +1466,7 @@ ReplacementRegistry.register("heal_others_on_damage", _heal_others_on_damage_rep
 ReplacementRegistry.register("gain_life_replacement", _gain_life_replacement)
 ReplacementRegistry.register("die_to_exile", _die_to_exile_replacement)
 ReplacementRegistry.register("draw_exile_face_up", _draw_exile_face_up_replacement)
+ReplacementRegistry.register("mill_replacement", _mill_replacement)
 ReplacementRegistry.register("double_tokens", _double_tokens_replacement)
 ReplacementRegistry.register("additional_creature_tokens", _additional_creature_tokens_replacement)
 ReplacementRegistry.register("create_one_of_each_named_token", _create_one_of_each_named_token_replacement)

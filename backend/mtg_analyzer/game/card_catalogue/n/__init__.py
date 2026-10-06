@@ -43,3 +43,4 @@ from . import nesting_dragon
 from . import noxious_ghoul
 from . import nissa_worldsoul_speaker  # noqa: F401
 from . import nightmare_shepherd  # noqa: F401
+from . import nykthos_paragon  # noqa: F401

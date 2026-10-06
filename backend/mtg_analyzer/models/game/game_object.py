@@ -822,6 +822,9 @@ class GameObject:
         #: `reset_as_new_object` clears both.
         self.chosen_type: Optional[str] = None
         self.chosen_color: Optional[str] = None
+        #: "As ~ enters, choose two colors." (Tablet of the Guilds) — every colour picked, in pick order;
+        #: `chosen_color` stays the first one. Cleared with the other ETB picks (RULE 400.7).
+        self.chosen_colors: list[str] = []
         #: The battle's **protector** (RULE 310.8) — the player id chosen as
         #: this battle enters (310.11a, for a Siege: an opponent of its
         #: controller). Genuinely distinct from `controller_id`: the
@@ -1562,6 +1565,7 @@ class GameObject:
         #: choose a creature type/color" pick yet either.
         self.chosen_type = None
         self.chosen_color = None
+        self.chosen_colors = []
         self.protector_id = None
         self.battle_defeat_triggered = False
         self.chosen_mode = None
@@ -2078,6 +2082,7 @@ class GameObject:
             # tribe/color is visible, not just its effect.
             "chosen_type": self.chosen_type,
             "chosen_color": self.chosen_color,
+            "chosen_colors": list(self.chosen_colors),
             "chosen_card_name": self.chosen_card_name,
             "chosen_number": self.chosen_number,
             "attacking": self.attacking,

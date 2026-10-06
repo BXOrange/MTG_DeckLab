@@ -99,3 +99,5 @@ from . import mechtitan  # noqa: F401
 from . import mask_of_griselbrand  # noqa: F401
 from . import massacre_girl  # noqa: F401
 from . import mogis_god_of_slaughter  # noqa: F401
+from . import memory_erosion  # noqa: F401
+from . import minas_tirith  # noqa: F401

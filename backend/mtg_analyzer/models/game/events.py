@@ -149,6 +149,10 @@ class EventType:
     #: 701.16c/704.5f: those aren't "destruction" and regeneration can't
     #: replace them.
     DESTROY = "DESTROY"
+    #: A player would mill cards (RULE 701.13/614) — fired pre-emptively by `RulesEngine.mill` (positive counts only) so
+    #: a "they mill that many cards plus N instead" replacement (The Water Crystal) can rewrite ``count`` before any card
+    #: moves. Carries ``player_id`` (the milling player) and ``count``; `MILL` below reports the mill that happened.
+    WOULD_MILL = "WOULD_MILL"
     MILL = "MILL"
     #: One milling instruction put one or more cards from a player's library
     #: into that player's graveyard (RULE 701.13).  ``cards`` preserves each

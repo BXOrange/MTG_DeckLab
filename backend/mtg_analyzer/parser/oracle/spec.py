@@ -955,7 +955,12 @@ class AbilitySpec:
             for cost in mode_costs:
                 if not isinstance(cost, str) or not cost.strip():
                     raise SpecValidationError("'modes' mode_costs entries must be mana-cost strings")
-            if not self.modes.get("at_least") or choose != 1:
+            # RULE 702.183 Tiered: the same per-mode price on a plain "choose one" block (``tiered``).
+            tiered = bool(self.modes.get("tiered")) and not self.modes.get("at_least")
+            if tiered:
+                if choose != 1 or self.modes.get("or_both"):
+                    raise SpecValidationError("'modes' tiered requires a plain 'choose one' block")
+            elif not self.modes.get("at_least") or choose != 1:
                 raise SpecValidationError(
                     "'modes' mode_costs (Spree) requires a 'choose one or more' block"
                 )

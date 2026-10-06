@@ -176,3 +176,6 @@ from . import star_athlete  # noqa: F401
 from . import sadistic_shell_game  # noqa: F401
 from . import spiked_corridor_torture_pit  # noqa: F401
 from . import suspended_sentence  # noqa: F401
+from . import shabraz_the_skyshark  # noqa: F401
+from . import sphinx_of_the_revelation  # noqa: F401
+from . import starfield_shepherd  # noqa: F401
