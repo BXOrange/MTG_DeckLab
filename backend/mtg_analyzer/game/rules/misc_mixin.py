@@ -538,26 +538,6 @@ class MiscSystemsMixin:
         if pending is None:
             return
         player = self.state.player_by_id(pending["player_id"])
-        targets = pending.get("targets") or None
-        captured = pending.get("captured_previous")
-        def apply_branch(specs: list[dict]) -> None:
-            outer_acting = self.context.acting_player_id
-            self.context.acting_player_id = pending.get("acting_player_id")
-            outer_revealed = self.context.revealed_card
-            self.context.revealed_card = pending.get("revealed_card")
-            try:
-                if not captured:
-                    self._apply_effect_specs(specs, pending["source"], targets)
-                    return
-                saved = list(self.context.previous_targets)
-                self.context.previous_targets = list(captured)
-                try:
-                    self._apply_effect_specs(specs, pending["source"], targets)
-                finally:
-                    self.context.previous_targets = saved
-            finally:
-                self.context.acting_player_id = outer_acting
-                self.context.revealed_card = outer_revealed
         cost = pending["cost"]
         x_max = pending.get("x_max")
         x: Optional[int] = None
@@ -572,7 +552,9 @@ class MiscSystemsMixin:
             paying = answer == "pay"
         if not paying or not self._can_pay_player_cost(player, cost, pending["source"]):
             # Re-checked: the board can have changed since the offer was made.
-            apply_branch(_substitute_x_specs(pending["else_effect_specs"], None if x_max is None else 0))
+            self._apply_pay_cost_branch(
+                pending, _substitute_x_specs(pending["else_effect_specs"], None if x_max is None else 0),
+            )
         else:
             self._pay_player_cost(player, cost, pending["source"])
             if x is not None:
@@ -582,14 +564,46 @@ class MiscSystemsMixin:
                     "then_trigger_specs": _substitute_x_specs(pending["then_trigger_specs"], x),
                     "then_trigger_modes": _substitute_x_modes(pending["then_trigger_modes"], x),
                 }
-            apply_branch(pending["effect_specs"])
-            self._enqueue_pay_cost_then_trigger(pending)
+            if self.state.pending_choice is not None:
+                # RULE 117.12 / 608.2c: "you may sacrifice a creature. If you do, …" — the *choice* of what to
+                # sacrifice is part of paying, so the "if you do" half waits until it is answered. Parked as a
+                # frame `resume_deferred_effects` runs once nothing is pending (the mass sweep advances then too).
+                self.state.deferred_effects.append({"kind": self.DEFERRED_PAID_COST, "pending": pending})
+                return
+            self._finish_paid_cost_then(pending)
         # PAR-13: if this single-player choice is one leg of a mass
         # `_request_each_player_pay_or` sweep, move on to whoever's next —
         # a no-op for every ordinary (non-mass) `pay_cost_then` caller,
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
+
+    def _apply_pay_cost_branch(self, pending: dict[str, Any], specs: list[dict]) -> None:
+        """Run one branch of a `pay_cost_then` ("if you do" / "if you don't") as the player it was run for."""
+        targets = pending.get("targets") or None
+        captured = pending.get("captured_previous")
+        outer_acting = self.context.acting_player_id
+        self.context.acting_player_id = pending.get("acting_player_id")
+        outer_revealed = self.context.revealed_card
+        self.context.revealed_card = pending.get("revealed_card")
+        try:
+            if not captured:
+                self._apply_effect_specs(specs, pending["source"], targets)
+                return
+            saved = list(self.context.previous_targets)
+            self.context.previous_targets = list(captured)
+            try:
+                self._apply_effect_specs(specs, pending["source"], targets)
+            finally:
+                self.context.previous_targets = saved
+        finally:
+            self.context.acting_player_id = outer_acting
+            self.context.revealed_card = outer_revealed
+
+    def _finish_paid_cost_then(self, pending: dict[str, Any]) -> None:
+        """The paid half of a `pay_cost_then`: the "if you do" effects, then the reflexive trigger."""
+        self._apply_pay_cost_branch(pending, pending["effect_specs"])
+        self._enqueue_pay_cost_then_trigger(pending)
 
     def _request_exile_source_then(
         self, player: Player, source: GameObject, then_trigger_specs: list[dict],

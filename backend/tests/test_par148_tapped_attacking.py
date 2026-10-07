@@ -348,3 +348,27 @@ def test_another_creature_or_artifact_cannot_be_paid_by_the_source_itself():
     _attack(engine, state, [gut])
     assert state.pending_choice is None  # nothing but Gut itself to sacrifice: the payment is not offered
     assert gut in state.battlefield and not [o for o in state.battlefield if o.name == "Skeleton"]
+
+
+def test_the_if_you_do_half_waits_for_the_sacrifice_to_be_chosen():
+    # RULE 608.2c: the order of the text is the order of the game — what to sacrifice is picked first, the
+    # token is made only afterwards (and only because a sacrifice happened).
+    engine, state = _engine()
+    state.current_step = "main1"
+    gut = _permanent(
+        state, "Gut, True Soul Zealot", "Legendary Creature — Human Warrior", (
+            "Whenever you attack, you may sacrifice another creature or an artifact. If you do, create a 4/1 "
+            "black Skeleton creature token with menace that's tapped and attacking."
+        ), is_creature=True, power=2, toughness=2,
+    )
+    first, second = _attackers(state, [("First", "Creature — Bear", []), ("Second", "Creature — Bear", [])])
+    state.current_phase = "combat"
+    _attack(engine, state, [gut])
+    engine.rules.resolve_choice("pay")
+    assert state.pending_choice["kind"] == "choose_objects"
+    assert not [o for o in state.battlefield if o.name == "Skeleton"]  # nothing happens before the pick
+    engine.rules.resolve_choice(str(second.instance_id))
+    engine.resolve_until_stable()
+    assert second not in state.battlefield and first in state.battlefield
+    skeleton = [o for o in state.battlefield if o.name == "Skeleton"]
+    assert len(skeleton) == 1 and skeleton[0].tapped and skeleton[0].attacking

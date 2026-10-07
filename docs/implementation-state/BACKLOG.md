@@ -42,7 +42,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-150` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-151`**; next free `MEC`: **`MEC-114`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
+  > **`PAR-151`**; next free `MEC`: **`MEC-115`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -126,6 +126,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **MEC-113 · "Until ~ leaves the battlefield" as a duration (RULE 610.3).** The exile family uses the legacy linked-exile leaves
   trigger (`return_linked_exile`, 10 hand-authored cards plus the parser's mass-exile rows): the return is respondable, and an
   enters trigger still exiles when the source already left. ~143 cached cards use the wording (Portable Hole, Auron, Summon: Ixion).
+- **MEC-114 · Myriad (RULE 702.116).** The keyword is recognised (`keywords.py`) but has no engine behaviour: "whenever this
+  creature attacks, for each opponent other than defending player, you may create a token copy that's tapped and attacking that
+  player or a planeswalker they control; exile the tokens at end of combat" never fires. 23 cached cards print it, plus the
+  granters (Legion Loyalty, Cybermen Squadron, Blade of Selves, Duke Ulder Ravengard, Corporeal Projection, Ironwill Forger,
+  Mass of Mysteries, Firbolg Flutist, Muddle). Reuse `copy_permanent` (`tapped`/`attacking`) and `_offer_attack_defenders` (PAR-148).
 
 ## PLR — Player management
 

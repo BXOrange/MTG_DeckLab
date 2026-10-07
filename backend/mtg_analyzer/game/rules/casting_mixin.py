@@ -1727,6 +1727,8 @@ class CastingResolutionMixin:
     #: piece was never the stack, only the loop counter.
     DEFERRED_TAIL = "tail"
     DEFERRED_ITERATION = "iteration"
+    #: A paid `pay_cost_then` whose payment opened a choice (the sacrifice pick): its "if you do" half waits here.
+    DEFERRED_PAID_COST = "paid_cost"
 
     def defer_iteration(
         self,
@@ -1942,6 +1944,11 @@ class CastingResolutionMixin:
         resumed = self.state.deferred_effects.pop()
         if resumed.get("kind") == self.DEFERRED_ITERATION:
             self._resume_iteration(resumed)
+            return True
+        if resumed.get("kind") == self.DEFERRED_PAID_COST:
+            self._finish_paid_cost_then(resumed["pending"])
+            if self._pending_each_player_pay_or is not None:
+                self._advance_each_player_pay_or()
             return True
         stack_item = resumed.get("stack_item")
         # RULE 109.5: a paused body keeps the player it was acting as.
