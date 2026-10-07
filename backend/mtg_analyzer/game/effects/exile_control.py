@@ -68,6 +68,7 @@ class ExileEffect(GameEffect):
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         remember: bool = False,
+        until_source_leaves: bool = False,
         until_opponent_monarch: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         distinct_controllers: bool = False,
@@ -114,7 +115,8 @@ class ExileEffect(GameEffect):
         self.colors = tuple(colors) if colors else None
         self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
         self.filter = filter
-        self.remember = remember
+        self.until_source_leaves = bool(until_source_leaves)
+        self.remember = remember and not self.until_source_leaves
         self.track_exiled_with = track_exiled_with
         #: "…until an opponent becomes the monarch" (Palace Jailer): the exiled card is stamped with the exiler.
         self.until_opponent_monarch = bool(until_opponent_monarch)
@@ -208,7 +210,22 @@ class ExileEffect(GameEffect):
             self.source.linked_exile_ids = [o.instance_id for o in exiled]
             self.source.linked_exile_id = None
 
+    def _exile_object(self, context: GameContext, obj: Any) -> None:
+        context.exile(obj)
+        if self.until_source_leaves and obj.zone == Zone.EXILE:
+            context.state.until_source_leaves_exiles.append({
+                "source_id": self.source.instance_id,
+                "source_incarnation": self.source.zone_incarnation,
+                "exile_id": obj.instance_id,
+                "exile_incarnation": obj.zone_incarnation,
+            })
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.until_source_leaves:
+            incarnation = getattr(context, "resolving_source_incarnation", None)
+            if (self.source is None or self.source not in context.state.battlefield
+                    or (incarnation is not None and self.source.zone_incarnation != incarnation)):
+                return  # RULE 610.3a/b: departure already happened, including a blink.
         if self._captured_target_incarnation is not None:
             if (self.target is None or self.target.zone != self._captured_target_zone
                     or self.target.hideaway_incarnation != self._captured_target_incarnation):
@@ -219,7 +236,7 @@ class ExileEffect(GameEffect):
             for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
                 if self.track_exiled_with and self.source is not None:
                     self.source.exiled_with_ids.append(obj.instance_id)
-                context.exile(obj)
+                self._exile_object(context, obj)
                 exiled_now.append(obj)
             # RULE 608.2: "those cards"/"the exiled cards" in a following clause (a delayed return,
             # PAR-136 — Ghostway, Sudden Disappearance) name exactly what this one exiled.
@@ -239,14 +256,14 @@ class ExileEffect(GameEffect):
                     # untargeted board-wipe-shaped exile can still feed
                     # `ReturnAllExiledWithEffect` later.
                     self.source.exiled_with_ids.append(obj.instance_id)
-                context.exile(obj)
+                self._exile_object(context, obj)
             context.previous_targets = exiled_now  # as in the group branch above
             self._remember_mass_exile(exiled_now)
             return
         if self._previous_mode:
             for obj in list(context.previous_targets):
                 if getattr(obj, "instance_id", None) is not None and obj in context.state.permanents():
-                    context.exile(obj)
+                    self._exile_object(context, obj)
                     self._post_exile(context, obj)
             return
         if self._attached_mode:
@@ -254,7 +271,7 @@ class ExileEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             host = context.state.find_object(host_id) if host_id is not None else None
             if host is not None:
-                context.exile(host)
+                self._exile_object(context, host)
                 self._post_exile(context, host)
             return
         if self._trigger_subject_mode:
@@ -269,8 +286,13 @@ class ExileEffect(GameEffect):
             )
             obj_id = (event or {}).get(key)
             target = context.state.find_object(obj_id) if obj_id is not None else None
+            if (event or {}).get("graveyard_incarnation") is not None:
+                if (target is None or target.zone != Zone.GRAVEYARD
+                        or target.zone_incarnation != event.get("graveyard_incarnation")):
+                    context.previous_targets = []
+                    return  # RULE 400.7: "it" is only the captured graveyard incarnation.
             if target is not None:
-                context.exile(target)
+                self._exile_object(context, target)
                 if self.track_exiled_with and self.source is not None:
                     # "…if three or more cards have been exiled with ~" (Colfenor's Urn) — the trigger-subject
                     # sibling of the targeted branch's tracking below.
@@ -300,7 +322,7 @@ class ExileEffect(GameEffect):
             # to this second, untargeted self-exile as if it were one.
             target = self.target or self.source
             if target is not None:
-                context.exile(target)
+                self._exile_object(context, target)
                 # PAR-74: "exile ~. If you do, return it to the battlefield
                 # …" (Hikari, Twilight Guardian) needs `remember`'s
                 # `linked_exile_id` stamp same as the RULE 115 targeted
@@ -337,7 +359,7 @@ class ExileEffect(GameEffect):
             if item is not None and item.obj is not None:
                 context.engine.move_spell_off_stack(item, "exile")
             else:
-                context.exile(target)
+                self._exile_object(context, target)
             self._post_exile(context, target)
         if chosen:
             self._record_bend_if_set(context)
@@ -534,7 +556,7 @@ class ExileTopThenDamageByMvEffect(GameEffect):
                 break
             top = victim.library[-1]
             context.exile(top)
-            total += int(getattr(top.card, "converted_mana_cost", 0) or 0)
+            total += int(getattr(top, "mana_value", 0) or 0)
         if total > 0:
             context.engine.deal_damage(victim, total, source=self.source)
 
@@ -608,21 +630,9 @@ class LandOrFreeCastEffect(GameEffect):
 
 
 class ExileAnyNumberYouControlEffect(GameEffect):
-    """"Exile any number of other nonland permanents you control until ~
-    leaves the battlefield." (MEC-12, Abdel Adrian, Gorion's Ward) — a
-    *selection* among the controller's own permanents, not a RULE 115
-    target at all (the printed line has no "target" word), so it opens
-    `RulesEngine._request_choose_objects`'s "choose N of these objects"
-    chooser instead of `ExileEffect`'s own target-gathering, offering
-    every eligible permanent at once (``count=len(candidates)``) with
-    ``optional=True`` so the player may stop after any number, including
-    zero. Each pick accumulates onto this ability's own source via the
-    chooser's ``track_exiled_with=True`` — the same `GameObject.
-    exiled_with_ids` list `ExileEffect(track_exiled_with=True)` uses — read
-    back by a following ``create_token`` clause's own ``count_selector=
-    "exiled_with_count"`` for "a token for each permanent exiled this way",
-    and by `ReturnAllExiledWithEffect` (already shipped for Parallax Wave)
-    on this permanent's own leaves-battlefield trigger.
+    """Abdel Adrian: select other nonland permanents, exile under RULE 610.3,
+    then create a Soldier for each actual pick. The chooser retains the count
+    independently of cards subsequently leaving exile.
     """
 
     def __init__(self, other_only: bool = True, source: Optional["GameObject"] = None) -> None:
@@ -631,7 +641,9 @@ class ExileAnyNumberYouControlEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
-        if source is None:
+        incarnation = getattr(context, "resolving_source_incarnation", None)
+        if (source is None or source not in context.state.battlefield
+                or (incarnation is not None and source.zone_incarnation != incarnation)):
             return
         player = _controller_of(source, context)
         if player is None:
@@ -642,9 +654,11 @@ class ExileAnyNumberYouControlEffect(GameEffect):
             and (not self.other_only or obj is not source)
         ]
         context.engine._request_choose_objects(
-            player, candidates, "exile", count=len(candidates), optional=True,
+            player, candidates, "exile_until_source_leaves", count=len(candidates), optional=True,
             prompt=f"{source.name}: Permanente exilieren?",
-            source=source, track_exiled_with=True,
+            source=source, then_that_many={"effects": [{"type": "create_token", "params": {
+                "count": "x", "power": 1, "toughness": 1, "colors": ["W"], "subtypes": ["Soldier"],
+            }}]},
         )
 
 
@@ -708,7 +722,7 @@ class ImprintEffect(GameEffect):
             obj for obj in pool
             if not any(getattr(obj.card, f"is_{t}", False) for t in self.exclude_card_types)
             and (self.include_card_type is None or getattr(obj.card, f"is_{self.include_card_type}", False))
-            and (self.max_mana_value is None or obj.card.converted_mana_cost <= self.max_mana_value)
+            and (self.max_mana_value is None or obj.mana_value <= self.max_mana_value)
         ]
         context.engine._request_choose_objects(
             player, candidates, "exile", count=1, optional=self.optional,
@@ -949,7 +963,7 @@ class FreeCastFromHandEffect(GameEffect):
             if not obj.card.is_land
             and (not self.noncreature_only or not obj.card.is_creature)
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
-            and (not isinstance(max_mv, int) or (obj.card.converted_mana_cost or 0) <= max_mv)
+            and (not isinstance(max_mv, int) or (obj.mana_value or 0) <= max_mv)
             and (shared_types is None or bool(continuous.card_types_of(obj) & shared_types))
         ]
         if self.during_resolution:
@@ -1806,7 +1820,7 @@ class CollectEvidenceXThenBoardDamageEffect(GameEffect):
                 victim = None
         if controller is None or victim is None:
             return
-        x = sum(c.card.converted_mana_cost for c in controller.graveyard)
+        x = sum(c.mana_value for c in controller.graveyard)
         if x <= 0:
             return
         context.engine.collect_evidence(controller, x)  # exiles all; fires COLLECTED_EVIDENCE
@@ -1902,7 +1916,7 @@ class MemoryVampireCombatEffect(GameEffect):
         ]
         if not candidates:
             return
-        pick = max(candidates, key=lambda c: c.card.converted_mana_cost or 0)
+        pick = max(candidates, key=lambda c: c.mana_value or 0)
         context.engine.cast_without_paying(controller, pick)
 
 
@@ -2030,7 +2044,7 @@ class CreateTokenForLinkedExileEffect(GameEffect):
             return
         from ...services.token_database import synthesize_token_card
 
-        x = int(card_obj.card.converted_mana_cost or 0)
+        x = int(card_obj.mana_value or 0)
         token_card = synthesize_token_card(
             self.subtypes[0] if self.subtypes else "Token",
             power=x, toughness=x, colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
@@ -2077,7 +2091,7 @@ class ExileOwnGraveyardCardManaValueXEffect(GameEffect):
         candidates = [
             o for o in player.graveyard
             if (o.is_creature or not self.creature_only)
-            and o.card.converted_mana_cost == x
+            and o.mana_value == x
         ]
         context.engine._request_choose_objects(
             player, candidates, "exile", count=1, source=self.source,
@@ -2634,7 +2648,7 @@ class LookTopCastFreeEffect(GameEffect):
         candidates = [
             o for o in exiled
             if not o.card.is_land and card_query.matches(o.card, self.criteria)
-            and (limit is None or o.card.converted_mana_cost <= limit)
+            and (limit is None or o.mana_value <= limit)
         ]
         rest_ids = [o.instance_id for o in exiled]
         if not candidates:

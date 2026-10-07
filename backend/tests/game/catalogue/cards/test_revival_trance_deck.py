@@ -225,6 +225,9 @@ def test_coin_of_fate_tracks_cost_exiles_after_its_source_is_sacrificed():
     p = e.state.player_by_id('p1')
     p.mana_pool.add_many(RICH)
     _activate(e, coin)
+    assert e.state.pending_choice["kind"] == "coin_of_fate_split"
+    assert e.state.pending_choice["player_id"] == "p2"
+    e.resolve_pending_choice(expensive.instance_id)
     assert coin.zone == Zone.GRAVEYARD and cheap.zone == Zone.BATTLEFIELD and cheap.tapped
     assert expensive.zone == Zone.LIBRARY and p.library[0] is expensive
     assert e.state.monarch_id == 'p1'
@@ -681,3 +684,22 @@ def test_locke_casts_are_offered_to_ui_and_execute_through_game_session():
     assert foreign.zone == Zone.STACK and foreign.controller_id == 'p1'
     assert not any(a.get('instance_id') == own.instance_id and a['type'] == 'cast_spell'
                    for a in session.view(perspective='p1')['legal_actions'])
+
+
+def test_coin_of_fate_controller_selects_an_opponent_and_that_opponent_can_bottom_the_cheaper_card():
+    e = _game(players=3)
+    coin = _card(e, "Coin of Fate", zone=Zone.HAND)
+    _cast(e, coin, RICH)
+    _answer(e)
+    cheap, expensive = _grave(e, "Cheap", mv=2), _grave(e, "Expensive", mv=5)
+    e.state.player_by_id("p1").mana_pool.add_many(RICH)
+    _activate(e, coin)
+    assert e.state.pending_choice["kind"] == "choose_opponent_decider"
+    assert e.state.pending_choice["player_id"] == "p1"
+    e.resolve_pending_choice("p3")
+    assert e.state.pending_choice["player_id"] == "p3"
+    assert cheap.zone == expensive.zone == Zone.EXILE
+    e.resolve_pending_choice(cheap.instance_id)
+    assert cheap.zone == Zone.LIBRARY
+    assert expensive.zone == Zone.BATTLEFIELD and expensive.tapped
+    assert e.state.monarch_id == "p1"

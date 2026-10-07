@@ -733,6 +733,7 @@ class StateBasedActionsMixin:
             self._check_game_over()
     def _check_game_over(self) -> None:
         living = self.state.living_players()
+        # RULE 104.2a: the last surviving player wins even through a cannot-win effect.
         if len(self.state.players) > 1 and len(living) <= 1:
             self.state.game_over = True
             self.state.winner_id = living[0].id if living else None

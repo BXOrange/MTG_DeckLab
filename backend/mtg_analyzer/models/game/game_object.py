@@ -127,6 +127,13 @@ class GameObject:
         #: `prepared_source_id`/`GameState.free_cast_instance_ids` already
         #: exempt their own off-battlefield tokens.
         self.conjured_into_hand: bool = False
+        #: RULE 709.5c: which doors of a Room permanent are unlocked — ``"left"`` (the front
+        #: half) and/or ``"right"`` (the back half). A locked half has no rules text, so the
+        #: abilities in `door_abilities` exist only for the doors listed here (`game/rooms.py`).
+        self.unlocked_doors: set[str] = set()
+        #: Per unlocked door, the ``(list name, ability)`` pairs binding that half produced, so
+        #: locking the door (RULE 709.5g) removes exactly those.
+        self.door_abilities: dict[str, list[tuple[str, Any]]] = {}
         #: RULE 702.33b: how many times Kicker was paid when this spell was
         #: cast — 0 (not kicked), 1 for a plain Kicker, or 0..N for
         #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
@@ -739,6 +746,7 @@ class GameObject:
         self.granted_haste_sacrifice: bool = False
         #: Coin of Fate: the instance ids of the cards its cost exiled from the graveyard (read by the resolving effect).
         self.last_cost_exiled_ids: list[int] = []
+        self.last_cost_exiled_incarnations: dict[int, int] = {}
         #: Every card one remembering exile took, when it took more than one
         #: ("for each opponent, exile up to one target … until ~ leaves the
         #: battlefield" — PAR-130). `linked_exile_id` keeps naming the last of
@@ -1461,6 +1469,10 @@ class GameObject:
         self.prepared = False
         self.prepared_source_id = None
         self.conjured_into_hand = False
+        # RULE 400.7 / 709.5: a new Room object has neither door unlocked, and no abilities from one.
+        from ...game.rooms import clear_designations  # function-scoped: models/ must not import game/ at load
+
+        clear_designations(self)
         self.ability_resolutions = {}
         self.kicker_count = 0
         self.x_paid = 0
@@ -1541,6 +1553,7 @@ class GameObject:
         self.enters_tapped_from_cast_grant = False
         self.granted_haste_sacrifice = False
         self.last_cost_exiled_ids = []
+        self.last_cost_exiled_incarnations = {}
         self.linked_exile_ids = []
         self.haunting_instance_id = None
         self.exile_after_free_cast = False
@@ -1629,6 +1642,12 @@ class GameObject:
         proxy the combat/anthem code already reads."""
         if self._derived_colors is not None:
             return set(self._derived_colors)
+        from ...game import rooms
+
+        if self._room_characteristics_apply() or (self.zone == Zone.STACK and rooms.is_room(self.card)):
+            from ..mana.mana_cost import ManaCost
+
+            return set().union(*(symbol.colors for symbol in ManaCost.parse(self.mana_cost_string).symbols))
         return set(self.card.color_identity or set())
 
     @property
@@ -1640,6 +1659,11 @@ class GameObject:
         ``oracle_text``."""
         if self._derived_oracle_text is not None:
             return self._derived_oracle_text
+        if self._room_characteristics_apply():
+            from ...game import rooms
+
+            return "\n".join(rooms.door_card(self.card, door).oracle_text or ""
+                             for door in rooms.DOORS if door in self.unlocked_doors)
         return self.card.oracle_text or ""
 
     # -- Delegated characteristics (read from the printed card) ---------
@@ -1656,7 +1680,53 @@ class GameObject:
 
     @property
     def name(self) -> str:
+        # RULE 709.5: only unlocked halves contribute names on the battlefield.
+        if self._room_characteristics_apply():
+            return " // ".join(self.names)
+        from ...game import rooms
+
+        if self.zone == Zone.STACK and rooms.has_doors(self.card):
+            return rooms.front_name(self.card)
         return self.card.name
+
+    def _room_characteristics_apply(self) -> bool:
+        from ...game import rooms  # models/ must not import game/ at module load
+
+        return self.zone == Zone.BATTLEFIELD and rooms.has_doors(self.card)
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """RULE 201/709.5: each actual name; a fully locked Room has none."""
+        from ...game import rooms
+
+        if self._room_characteristics_apply():
+            return tuple(rooms.unlocked_door_names(self))
+        if rooms.has_doors(self.card):
+            doors = (rooms.LEFT,) if self.zone == Zone.STACK else rooms.DOORS
+            return tuple(rooms.door_name(self.card, door) for door in doors)
+        return (self.card.name,)
+
+    @property
+    def mana_cost_string(self) -> str:
+        """RULE 709.5: a Room permanent combines only unlocked halves' costs."""
+        from ...game import rooms
+
+        if rooms.has_doors(self.card):
+            doors = (self.unlocked_doors if self.zone == Zone.BATTLEFIELD
+                     else (rooms.LEFT,) if self.zone == Zone.STACK else rooms.DOORS)
+            return "".join(rooms.door_cost(self.card, door).raw for door in rooms.DOORS if door in doors)
+        return self.card.mana_cost_string
+
+    @property
+    def mana_value(self) -> int:
+        """RULE 202.3/709.3/709.5: Room mana value depends on zone and doors."""
+        from ...game import rooms
+
+        if rooms.has_doors(self.card):
+            doors = (self.unlocked_doors if self.zone == Zone.BATTLEFIELD
+                     else (rooms.LEFT,) if self.zone == Zone.STACK else rooms.DOORS)
+            return sum(rooms.door_cost(self.card, door).converted_mana_cost for door in doors)
+        return self.card.converted_mana_cost
 
     @property
     def is_creature(self) -> bool:
@@ -2006,6 +2076,24 @@ class GameObject:
             self.counters["loyalty"] = new_card.loyalty
         return True
 
+    def _room_doors(self) -> Optional[list[dict[str, Any]]]:
+        """The wire form of a Room permanent's doors (RULE 709.5c): per door its key, its half's name and mana cost
+        (what unlocking a locked one costs) and whether it is unlocked. Only on the battlefield — a Room spell or card
+        in another zone is just the card, and a non-Room has none."""
+        from ...game import rooms  # function-scoped: models/ must not import game/ at load
+
+        if self.zone != Zone.BATTLEFIELD or not rooms.has_doors(self.card):
+            return None
+        return [
+            {
+                "door": door,
+                "name": rooms.door_name(self.card, door),
+                "mana_cost": rooms.door_cost(self.card, door).raw,
+                "unlocked": door in self.unlocked_doors,
+            }
+            for door in rooms.DOORS
+        ]
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the instance's game state (for the wire protocol)."""
         display_keywords = _combat_display_keywords(
@@ -2025,6 +2113,9 @@ class GameObject:
             "instance_id": self.instance_id,
             "card_id": self.card.id,
             "name": self.card.name,
+            "names": list(self.names),
+            "mana_value": self.mana_value,
+            "mana_cost": self.mana_cost_string,
             "owner_id": self.owner_id,
             "controller_id": self.controller_id,
             "zone": self.zone.value,
@@ -2037,6 +2128,8 @@ class GameObject:
             # showing the back. The frontend's "🔄 peek other face" toggle
             # uses this to decide whether to offer the button at all.
             "has_back_face": self._front_card.has_back_face,
+            # RULE 709.5 (MEC-111): a Room's two doors and which of them are unlocked — ``None`` for anything else.
+            "room_doors": self._room_doors(),
             "summoning_sick": is_summoning_sick,
             "phased_out": self.phased_out,
             "damage_marked": self.damage_marked,

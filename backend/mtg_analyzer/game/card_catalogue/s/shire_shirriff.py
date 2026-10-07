@@ -20,13 +20,8 @@ def _shire_shirriff() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "remember": True})],
+            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "until_source_leaves": True})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-        ),
-        AbilitySpec(
-            "triggered",
-            [EffectSpec("return_linked_exile", {})],
-            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
     ]
 

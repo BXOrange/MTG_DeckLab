@@ -29,6 +29,7 @@ from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, variants
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
+from ..mana_abilities import restriction_predicate_for_turn_face_up
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -124,7 +125,9 @@ class MiscMixin:
             return []
         actions: list[dict[str, Any]] = []
         for index, option in enumerate(face_down.turn_face_up_options(obj)):
-            if not player.mana_pool.can_pay(option["cost"], life_available=player.life):
+            if not player.mana_pool.can_pay(
+                option["cost"], life_available=player.life, allows_restriction=restriction_predicate_for_turn_face_up(),
+            ):
                 continue
             actions.append(
                 {
@@ -153,9 +156,10 @@ class MiscMixin:
         if option_index < 0 or option_index >= len(options):
             raise ValueError("no such turn-face-up option")
         option = options[option_index]
-        if not player.mana_pool.can_pay(option["cost"], life_available=player.life):
+        allows_restriction = restriction_predicate_for_turn_face_up()  # Creeping Peeper's mana may pay for this
+        if not player.mana_pool.can_pay(option["cost"], life_available=player.life, allows_restriction=allows_restriction):
             raise ValueError(f"cannot pay {option['label']} to turn {obj.name} face up")
-        life_spent = player.mana_pool.pay(option["cost"], life_available=player.life)
+        life_spent = player.mana_pool.pay(option["cost"], life_available=player.life, allows_restriction=allows_restriction)
         self.rules.lose_life(player, life_spent, cause="cost")
         turned = self.rules.turn_face_up(obj, megamorph=bool(option.get("megamorph")))
         self.recompute_continuous_effects()
@@ -255,7 +259,7 @@ class MiscMixin:
         # Cast affordable non-land spells cheapest first.
         castable = sorted(
             (o for o in active.hand if not o.card.is_land),
-            key=lambda o: o.card.converted_mana_cost,
+            key=lambda o: o.mana_value,
         )
         for obj in castable:
             if getattr(obj, "spell_modes", None):

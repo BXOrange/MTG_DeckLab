@@ -74,6 +74,7 @@ from . import dualcaster_mage  # noqa: F401
 from . import dungeon_delver  # noqa: F401
 from . import duplicant  # noqa: F401
 from . import dusk_urchins  # noqa: F401
+from . import dusty_parlor  # noqa: F401
 from . import dwynen_gilt_leaf_daen  # noqa: F401
 
 from . import deathbringer_regent

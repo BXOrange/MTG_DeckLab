@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ....models.game.events import EventType
+from ....parser.oracle.catalogue.player_event_head import THIS_DOOR
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
@@ -11,8 +12,7 @@ def _cramped_vents_access_maze() -> list[AbilitySpec]:
 
     — PLAY-ALL (Miracle Worker). The damage payoff uses the target's
     remaining lethal damage and actual damage after prevention/replacements,
-    including deathtouch (RULE 120.9). Room doors still use the separate
-    documented single-door simplification.
+    including deathtouch (RULE 120.9). The left door's text (`game/rooms.py`, MEC-111).
     """
     return [
         AbilitySpec(
@@ -21,10 +21,9 @@ def _cramped_vents_access_maze() -> list[AbilitySpec]:
                 EffectSpec("damage", {"amount": 6, "target_kind": "creature_you_dont_control"}),
                 EffectSpec("gain_life", {"amount": {"kind": "this_way", "tally": "excess_damage_this_way"}}),
             ],
-            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            trigger={"event": EventType.DOOR_UNLOCKED, "condition": {"subject": "self"}, "filter": {"door": THIS_DOOR}},
         ),
     ]
 
 
-register("Cramped Vents // Access Maze", _cramped_vents_access_maze)
 register("Cramped Vents", _cramped_vents_access_maze)

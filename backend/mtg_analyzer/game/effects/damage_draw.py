@@ -2151,10 +2151,10 @@ def _mass_selector_objects(
             result = [o for o in result if (o.toughness or 0) >= min_toughness]
         max_mv = filt.get("max_mana_value")
         if max_mv is not None:
-            result = [o for o in result if o.card.converted_mana_cost <= max_mv]
+            result = [o for o in result if o.mana_value <= max_mv]
         min_mv = filt.get("min_mana_value")
         if min_mv is not None:
-            result = [o for o in result if o.card.converted_mana_cost >= min_mv]
+            result = [o for o in result if o.mana_value >= min_mv]
         # "destroy all permanents with that spell's mana value." (PAR-74,
         # Celestial Kirin) — the exact-match sibling of ``max_mana_value``/
         # ``min_mana_value`` above, reading the firing SPELL_CAST event's
@@ -2163,7 +2163,7 @@ def _mass_selector_objects(
         # magnitude idiom applied to a mass-wipe filter instead).
         if filt.get("mana_value_from_trigger_event"):
             mv = (context.trigger_event or {}).get("mana_value")
-            result = [o for o in result if mv is not None and o.card.converted_mana_cost == mv]
+            result = [o for o in result if mv is not None and o.mana_value == mv]
         # "destroy all creatures with power 3 or greater" (Dusk // Dawn/The
         # Battle of Bywater-shaped) — the power-threshold sibling of
         # ``min_toughness`` above.

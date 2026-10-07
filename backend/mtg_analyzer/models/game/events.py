@@ -78,6 +78,11 @@ class EventType:
     # Separate from ACTIVATED_ABILITY, whose triggers exclude mana abilities.
     MANA_ABILITY_ACTIVATED = "MANA_ABILITY_ACTIVATED"
 
+    # RULE 610.3: notification after actual removal, distinct from look-back LTB triggers.
+    BATTLEFIELD_DEPARTED = "BATTLEFIELD_DEPARTED"
+    # RULE 603.2: per-card sibling of CARDS_LEFT_GRAVEYARD (one-or-more).
+    CARD_LEFT_GRAVEYARD = "CARD_LEFT_GRAVEYARD"
+
     # Object/zone movement.
     DRAW = "DRAW"
     #: RULE 701.34: a player proliferated (even if no counters were chosen).
@@ -229,6 +234,15 @@ class EventType:
     #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,
     #: so a rare "when this Class becomes level N" trigger can scope by both.
     CLASS_LEVEL = "CLASS_LEVEL"
+    #: RULE 709.5h: a Room permanent was given an unlocked designation (entering as the cast half,
+    #: through the unlock special action of RULE 709.5e, or an effect). Carries ``instance_id`` of
+    #: the Room, ``controller_id``/``player_id`` (who unlocked it), ``door`` (``"left"``/``"right"``)
+    #: and ``door_name``. "When you unlock this door" is this event filtered to the ability's own
+    #: door (`game/rooms.py`).
+    DOOR_UNLOCKED = "DOOR_UNLOCKED"
+    #: RULE 709.5i: a Room permanent gained its second unlocked designation ("whenever you fully
+    #: unlock a Room", the Eerie cards) — carries the same payload as DOOR_UNLOCKED minus the door.
+    ROOM_FULLY_UNLOCKED = "ROOM_FULLY_UNLOCKED"
     #: RULE 701.42a: two cards of a meld pair were melded — exiled and
     #: returned to the battlefield as a *single* new permanent, back faces
     #: combined. Carries ``instance_id``/``controller_id``/``object_types``

@@ -3905,7 +3905,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      "another"), the one-card reveal-and-branch dig ("if it's a creature card, put it onto the battlefield … otherwise").
 # 616: PAR-148 — "you get an experience counter", tokens "for each experience counter you have", and a token-first union
 #      sacrifice ("a token or a land") read whole by `cost_text._SACRIFICE_RE`.
-PARSER_VERSION = "616"
+# 617: MEC-111 — Rooms (RULE 709.5): "When you unlock this door" (door-scoped trigger), "whenever you fully unlock a Room",
+#      "unlock a locked door of …"/"lock or unlock a door of target Room you control", "this Room" folded to the source,
+#      the Eerie label, "unlocked doors among Rooms you control" counts/conditions, the "…unlock doors" spend restriction;
+#      a Room card's verdict now reads both halves (`_room_halves`), not just the front; "target Room [you control]";
+#      "put N +1/+1 counters on that creature" after a create/manifest-dread clause.
+PARSER_VERSION = "618"
 
 
 def parser_source_hash() -> str:
@@ -4327,9 +4332,42 @@ def parse_oracle(card: Any) -> ParseResult:
     key = _parse_cache_key(card)
     cached = _PARSE_CACHE.get(key)
     if cached is None:
-        cached = _parse_oracle_uncached(card)
+        halves = _room_halves(card)
+        cached = _merge_room_halves([parse_oracle(half) for half in halves]) if halves else _parse_oracle_uncached(card)
         _PARSE_CACHE[key] = cached
     return copy.deepcopy(cached)
+
+
+def _room_halves(card: Any) -> list[Any]:
+    """The two halves of a whole Room card (RULE 709.5: a split card with a shared "Room" type line), each
+    as a card of its own, or ``[]`` for anything else. The front fields of a cached `Card` are the left
+    half and its ``back_*`` fields the right one; a Room's rules text is its two halves' (a locked half has
+    none), so the coverage verdict must read both — never just the front, which is all ``oracle_text`` holds."""
+    type_line = str(getattr(card, "type_line", "") or "").lower()
+    if getattr(card, "layout", "") != "split" or "room" not in type_line.split("—")[-1].split():
+        return []
+    back = card.back_face() if hasattr(card, "back_face") else None
+    if back is None:
+        return []
+    front = copy.copy(card)
+    front.name = str(card.name).split("//")[0].strip()
+    front.back_name = front.back_type_line = front.back_oracle_text = front.back_mana_cost_string = ""
+    front.keywords = []
+    return [front, back]
+
+
+def _merge_room_halves(results: list[ParseResult]) -> ParseResult:
+    """A Room is `MODELED` only when both halves are; the specs are simply concatenated (the
+    binder reads each half through `game/rooms.py`, which keeps them apart)."""
+    if any(r.never_supported for r in results):
+        coverage = NEVER_SUPPORTED
+    else:
+        coverage = MODELED if all(r.modeled for r in results) else UNMODELED
+    return ParseResult(
+        specs=[spec for r in results for spec in r.specs],
+        coverage=coverage,
+        unclaimed=[line for r in results for line in r.unclaimed],
+    )
 
 
 #: PAR-130: trigger events whose firing names the player a "that player"

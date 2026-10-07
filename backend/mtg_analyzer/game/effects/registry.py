@@ -12,6 +12,7 @@ EffectRegistry.register("sacrifice_to_return_targets", lambda p: SacrificeToRetu
 EffectRegistry.register("return_remembered_graveyard_cards", lambda p: ReturnRememberedGraveyardCardsEffect(
     instance_ids=p.get("instance_ids", []), tapped=bool(p.get("tapped", False)),
     exile_instead_of_leaving=bool(p.get("exile_instead_of_leaving", False)),
+    graveyard_incarnations=p.get("graveyard_incarnations"),
 ))
 EffectRegistry.register("sacrifice_shared_type_to_return", lambda p: SacrificeSharedTypeToReturnEffect(
     target_kind=p.get("target_kind", "graveyard_permanent"),
@@ -1074,6 +1075,7 @@ EffectRegistry.register(
         selector=p.get("selector"),
         filter=p.get("filter"),
         remember=bool(p.get("remember", False)),
+        until_source_leaves=bool(p.get("until_source_leaves", False)),
         until_opponent_monarch=bool(p.get("until_opponent_monarch", False)),
         creature_filter=p.get("creature_filter"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
@@ -1706,6 +1708,7 @@ EffectRegistry.register(
         amount_from_context=p.get("amount_from_context"),
         keep_until=p.get("keep_until"),
         any_amount_from_trigger_event=p.get("any_amount_from_trigger_event"),
+        restriction=p.get("restriction"),
     ),
 )
 EffectRegistry.register(
@@ -3123,6 +3126,7 @@ EffectRegistry.register(
     lambda p: TurnFaceUpChosenEffect(
         optional=bool(p.get("optional", True)),
         creature_only=bool(p.get("creature_only", False)),
+        trigger_subject_key=p.get("trigger_subject_key"),
     ),
 )
 def _top_library_gate(p: dict) -> Optional[dict]:
@@ -3249,6 +3253,7 @@ EffectRegistry.register(
         add_subtypes=p.get("add_subtypes"),
         not_legendary=bool(p.get("not_legendary", False)),
         referent=p.get("referent", "source"),
+        require_exiled_trigger_subject=bool(p.get("require_exiled_trigger_subject", False)),
         target_instance_id=p.get("target_instance_id"),
         enter_counters=p.get("enter_counters"),
         target_count=int(p.get("target_count", 1) or 1),
@@ -5112,6 +5117,7 @@ EffectRegistry.register(
             "pay_life_equal_mv": bool(p.get("pay_life_equal_mv", False)),
             "card_type": str(p.get("card_type", "")),
             "once_per_turn": bool(p.get("once_per_turn", False)),
+            "from_hand": bool(p.get("from_hand", False)),
             "permanent_only": bool(p.get("permanent_only", False)),
             "creature_only": bool(p.get("creature_only", False)),
             "max_mana_value": p.get("max_mana_value"),
@@ -5339,6 +5345,15 @@ EffectRegistry.register(
 EffectRegistry.register(
     "take_initiative",  # "you take the initiative" (RULE 726.1)
     lambda p: TakeInitiativeEffect(target_kind=p.get("target_kind")),
+)
+EffectRegistry.register(
+    # RULE 709.5f/709.5g (MEC-111): "unlock a locked door of a Room you control", "lock or unlock a door of target Room".
+    "unlock_door",
+    lambda p: UnlockDoorEffect(
+        target_kind=p.get("target_kind"),
+        optional=bool(p.get("optional", False)),
+        lock_or_unlock=bool(p.get("lock_or_unlock", False)),
+    ),
 )
 EffectRegistry.register(
     "venture",  # "venture into the dungeon" (RULE 701.49)

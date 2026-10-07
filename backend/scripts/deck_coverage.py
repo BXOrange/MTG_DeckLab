@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_authored_card  # noqa: E402
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections  # noqa: E402
 from mtg_analyzer.parser.oracle import parse_oracle  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402
@@ -59,7 +59,7 @@ def deck_coverage(deck, db: CardDatabase) -> tuple[int, int, list[str], list[str
         # `card.name` is the canonical name (a DFC's own "Front // Back"
         # form) — the one thing both `is_registered` and the oracle parser
         # key off, regardless of how the decklist line spelled it.
-        if is_registered(card.name) or parse_oracle(card).modeled:
+        if is_authored_card(card) or parse_oracle(card).modeled:
             covered += 1
         else:
             uncovered.append(card.name)

@@ -18,7 +18,8 @@ def _nightmare_shepherd() -> list[AbilitySpec]:
             [
                 EffectSpec("exile", {"target_kind": "trigger_subject"}),
                 EffectSpec("copy_permanent", {
-                    "target_kind": None, "referent": "trigger_event", "set_power": 1, "set_toughness": 1,
+                    "target_kind": None, "referent": "trigger_event", "require_exiled_trigger_subject": True,
+                    "set_power": 1, "set_toughness": 1,
                     "add_subtypes": ["Nightmare"],
                 }),
             ],

@@ -1394,8 +1394,8 @@ class JuxtaposeEffect(GameEffect):
         ]
         if not candidates:
             return None
-        best_mv = max(o.card.converted_mana_cost or 0 for o in candidates)
-        tied = [o for o in candidates if (o.card.converted_mana_cost or 0) == best_mv]
+        best_mv = max(o.mana_value or 0 for o in candidates)
+        tied = [o for o in candidates if (o.mana_value or 0) == best_mv]
         return min(tied, key=lambda o: o.instance_id)
 
     def _swap_round(self, context: GameContext, you: "Player", them: "Player", want_creature: bool) -> None:
@@ -1894,7 +1894,7 @@ class SacrificeEffect(GameEffect):
             return
         from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules↔effects cycle
 
-        measure = (lambda o: o.power or 0) if self.greatest == "power" else (lambda o: o.card.converted_mana_cost or 0)
+        measure = (lambda o: o.power or 0) if self.greatest == "power" else (lambda o: o.mana_value or 0)
         pool = [
             o for o in context.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(o, self.what)
@@ -2206,7 +2206,7 @@ class SurgeToVictoryEffect(GameEffect):
         card_obj = targets[0] if targets else None
         if card_obj is None:
             return
-        mv = int(getattr(card_obj.card, "converted_mana_cost", 0) or 0)
+        mv = int(getattr(card_obj, "mana_value", 0) or 0)
         context.exile(card_obj)
         if mv > 0:
             context.engine._apply_effect_specs(
@@ -2312,7 +2312,7 @@ class TragicArroganceEffect(GameEffect):
                     continue
                 pick = (max if want_high else min)(
                     of_type,
-                    key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+                    key=lambda o: int(getattr(o, "mana_value", 0) or 0),
                 )
                 keep.add(pick.instance_id)
             for o in perms:

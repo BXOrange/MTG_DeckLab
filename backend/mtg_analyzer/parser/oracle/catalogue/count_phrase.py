@@ -93,6 +93,12 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     text = text.strip().lower()
     if not text:
         return None  # an empty phrase would count every permanent
+    doors = _UNLOCKED_DOORS.match(text)
+    if doors is not None:
+        return _door_selector(doors.group("phrase"), {"aggregate": "sum", "value": "unlocked_doors"})
+    names = _DOOR_NAMES.match(text)
+    if names is not None:
+        return _door_selector(names.group("phrase"), {"distinct": "door_name"})
     two_zones = _TWO_ZONES.fullmatch(text)
     if two_zones is not None:
         head = two_zones.group("head")
@@ -269,6 +275,10 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
 
 #: A term of an amount expression that is not "the number of `<count phrase>`":
 #: values *among* a group rather than how many objects it holds.
+#: RULE 709.5 (MEC-111): "the number of unlocked doors among Rooms you control" (Misty Salon) — the Rooms' designations
+#: summed — and "different names among unlocked doors of Rooms you control" (Promising Stairs).
+_UNLOCKED_DOORS = re.compile(r"^unlocked doors among (?P<phrase>.+)$")
+_DOOR_NAMES = re.compile(r"^different names among unlocked doors of (?P<phrase>.+)$")
 _AMONG_DISTINCT = re.compile(
     r"^the number of (?P<what>card types|colors) among (?P<phrase>.+)$"
 )
@@ -324,6 +334,14 @@ _PLUS_PREFIX = re.compile(rf"^(?P<n>{_NUMBER}) plus (?P<rest>.+)$")
 _TWICE_PREFIX = "twice "
 #: Where one term ends and the next begins: "X plus the number of Y".
 _TERM_SPLIT = re.compile(r" plus (?=the |your )")
+
+
+def _door_selector(phrase: str, measure: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """The Rooms ``phrase`` names, measured by their unlocked doors."""
+    selector = parse_count_phrase(phrase)
+    if selector is None or "distinct" in selector or selector.get("filter") != {"subtype": "room"}:
+        return None
+    return {**selector, **measure}
 
 
 def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":

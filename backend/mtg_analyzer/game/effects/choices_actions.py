@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core import GameEffect
+from .. import continuations
 from ._runtime import install, register
 
 install(globals())
@@ -45,8 +46,12 @@ class AddManaEffect(GameEffect):
         amount_from_context: Optional[str] = None,
         keep_until: Optional[str] = None,
         any_amount_from_trigger_event: Optional[str] = None,
+        restriction: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        #: "Spend this mana only to cast Room spells and unlock doors." (Smoky Lounge, RULE 605.3a): the restriction
+        #: dict `mana_abilities._parse_restriction` reads off such a clause, tagged onto the mana as it is added.
+        self.restriction = dict(restriction) if restriction else None
         #: "add that much mana of any 1 color" (Photon) / "…in any combination of {R} and/or {G}" (Grand Warlord Radha):
         #: the ``"ANY"`` amount is the firing event's field of this name (a damage head's ``amount``). Under an
         #: attack-count head the segmenter rewrites it into a measured `bind` instead.
@@ -203,17 +208,17 @@ class AddManaEffect(GameEffect):
                     )
                     used_this_turn = True
             else:
-                context.add_mana(player, color, keep_until=self.keep_until)
+                context.add_mana(player, color, keep_until=self.keep_until, restriction=self.restriction)
                 used_this_turn = True
         if self.once_per_turn_ability and used_this_turn and self.source is not None:
             self.source.added_mana_with_ability_this_turn = True
         if isinstance(self.amount, int) and self.amount > 0:
-            context.add_mana(player, self.color, self.amount, keep_until=self.keep_until)
+            context.add_mana(player, self.color, self.amount, keep_until=self.keep_until, restriction=self.restriction)
         if self.amount_from_trigger_event:
             event = context.trigger_event
             extra = int((event or {}).get(self.amount_from_trigger_event) or 0)
             if extra > 0:
-                context.add_mana(player, self.color, extra, keep_until=self.keep_until)
+                context.add_mana(player, self.color, extra, keep_until=self.keep_until, restriction=self.restriction)
         if self.amount_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
 
@@ -221,11 +226,11 @@ class AddManaEffect(GameEffect):
                 context.state, player.id, self.amount_selector, source=self.source
             )
             if extra > 0:
-                context.add_mana(player, self.color, extra, keep_until=self.keep_until)
+                context.add_mana(player, self.color, extra, keep_until=self.keep_until, restriction=self.restriction)
         if self.amount_from_context:
             extra = int(getattr(context, self.amount_from_context, 0) or 0)
             if extra > 0:
-                context.add_mana(player, self.color, extra, keep_until=self.keep_until)
+                context.add_mana(player, self.color, extra, keep_until=self.keep_until, restriction=self.restriction)
 
 
 def _mana_value_of(target: Any) -> int:
@@ -234,7 +239,7 @@ def _mana_value_of(target: Any) -> int:
     (Mana Drain) at setup, before the spell leaves the game."""
     obj = getattr(target, "obj", None) or target
     card = getattr(obj, "card", None) or obj
-    return int(getattr(card, "converted_mana_cost", 0) or 0)
+    return int(getattr(obj, "mana_value", getattr(card, "converted_mana_cost", 0)) or 0)
 
 
 class CreateDelayedTriggerEffect(GameEffect):
@@ -721,7 +726,7 @@ class PayEnergyThenEffect(GameEffect):
             target = next((t for t in (targets or []) if t is not None), None)
             if target is None:
                 return  # the target is gone — nothing to price or take
-            amount = int(getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0)
+            amount = int(getattr(target, "mana_value", 0) or 0)
         floor = max(1, amount) if self.variable else amount
         if player is None or player.counters.get("energy", 0) < floor:
             return  # can't pay — the optional payment simply doesn't happen
@@ -1393,7 +1398,7 @@ class ChooseObjectsEffect(GameEffect):
             if _matches_permanent_type(obj, self.what)
             and (self.card_types_any is None or set(self.card_types_any) & obj.type_words)
             and (not self.mana_value_less_than_trigger
-                 or obj.card.converted_mana_cost < (context.trigger_event or {}).get("mana_value", 0))
+                 or obj.mana_value < (context.trigger_event or {}).get("mana_value", 0))
             and not (self.action == "sacrifice" and obj.cant_be_sacrificed_this_turn)
             and not (self.exclude_self and obj is self.source)
             and not (self.require_untapped and obj.tapped)
@@ -3031,7 +3036,7 @@ class CastExiledFaceDownEffect(GameEffect):
                 continue
             cheap_enough = (
                 self.max_mana_value is None
-                or obj.card.converted_mana_cost <= self.max_mana_value
+                or obj.mana_value <= self.max_mana_value
             )
             if not (may_cast and cheap_enough):
                 # Never eligible to be cast — the "put it into your hand"
@@ -3706,3 +3711,26 @@ class ExileSelectedThenReturnOneEffect(GameEffect):
 
 
 register(globals())
+
+
+def offer_opponent_decision(rules, controller, decision):
+    """RULE 608.2d: controller selects an opponent, then that opponent answers."""
+    opponents = [p for p in rules.state.living_players_apnap() if p.id != controller.id]
+    if not opponents:
+        return False
+    if len(opponents) == 1:
+        rules.open_choice({**decision, "player_id": opponents[0].id})
+    else:
+        rules.open_choice({"kind": "choose_opponent_decider", "player_id": controller.id,
+                           "prompt": "Wähle den Gegner, der die Entscheidung trifft",
+                           "optional": False, "decision": decision,
+                           "options": [{"id": p.id, "label": p.name} for p in opponents]})
+    return True
+
+
+@continuations.choice("choose_opponent_decider", answer=continuations.ANSWER_STR, rule="608.2d")
+def _resume_opponent_decider(rules, choice, answer):
+    if answer not in {o["id"] for o in choice["options"]}:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed opponent")
+    rules.open_choice({**choice["decision"], "player_id": answer})

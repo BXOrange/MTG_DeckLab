@@ -114,9 +114,9 @@ def content_hash(card: object, parser_version: str = PARSER_VERSION) -> str:
     the only workaround would be bumping `PARSER_VERSION` for a change the
     parser had no part in, invalidating all 34k rows to re-measure a handful.
     """
-    from ..game.card_registry import is_registered  # function-scoped: import cycle
+    from ..game.card_registry import is_authored_card  # function-scoped: import cycle
 
-    authored = "1" if is_registered(getattr(card, "name", "") or "") else "0"
+    authored = "1" if is_authored_card(card) else "0"
     key = (parser_version, authored) + tuple(str(part) for part in _parse_cache_key(card))
     return hashlib.sha1("␟".join(key).encode("utf-8")).hexdigest()
 

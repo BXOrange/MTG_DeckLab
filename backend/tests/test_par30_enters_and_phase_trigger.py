@@ -4,8 +4,8 @@ and at the beginning of your first main phase" trigger (Crack in Time).
 `segmenter._ENTERS_AND_MAIN_PHASE_RE` splits it into one self
 `ENTERS_BATTLEFIELD` spec + one controller-scoped `STEP_BEGIN`
 (`filter={"step": "main1"}`, `phase_relation="you"`), and — the body being
-an "exile … until ~ leaves the battlefield" O-Ring clause — the companion
-`LEAVES_BATTLEFIELD` → `return_linked_exile` spec.
+an "exile … until ~ leaves the battlefield" clause — uses the immediate
+RULE 610.3 return, without a companion leaves trigger.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from mtg_analyzer.models.cards.card import Card
 _PROV = ParserProvenance(version="test", source="rule:oracle", confidence=1.0)
 
 
-def test_segment_splits_into_enters_plus_phase_plus_ltb():
+def test_segment_splits_into_enters_plus_phase_without_ltb():
     seg = segment_line(
         "when ~ enters and at the beginning of your first main phase, exile "
         "target creature an opponent controls until ~ leaves the battlefield.",
@@ -26,7 +26,7 @@ def test_segment_splits_into_enters_plus_phase_plus_ltb():
     )
     assert seg.claimed
     events = [seg.spec.trigger["event"]] + [x.trigger["event"] for x in seg.extra_specs]
-    assert set(events) == {"ENTERS_BATTLEFIELD", "STEP_BEGIN", "LEAVES_BATTLEFIELD"}
+    assert set(events) == {"ENTERS_BATTLEFIELD", "STEP_BEGIN"}
     phase = next(x for x in [seg.spec, *seg.extra_specs]
                  if x.trigger["event"] == "STEP_BEGIN")
     assert phase.trigger["filter"] == {"step": "main1"}
@@ -61,4 +61,4 @@ def test_real_crack_in_time_modeled():
     events = {e for s in r.specs if s.ability_kind == "triggered"
               for e in ([s.trigger["event"]] if isinstance(s.trigger["event"], str)
                         else s.trigger["event"])}
-    assert {"ENTERS_BATTLEFIELD", "STEP_BEGIN", "LEAVES_BATTLEFIELD"} <= events
+    assert {"ENTERS_BATTLEFIELD", "STEP_BEGIN"} <= events

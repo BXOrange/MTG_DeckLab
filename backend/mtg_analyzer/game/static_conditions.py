@@ -760,7 +760,7 @@ def condition_holds(
 
             condition = {**condition, "max": continuous.count_selector(
                 state, controller_id, condition["max_selector"], source)}
-        return _within(int(getattr(card, "converted_mana_cost", 0) or 0), condition)
+        return _within(int(getattr(subject, "mana_value", 0) or 0), condition)
     if kind == "has_keyword":
         if subject is None or not hasattr(subject, "instance_id"):
             return False
@@ -795,7 +795,7 @@ def condition_holds(
         mine = [o for o in artifacts if o.controller_id == controller_id]
         if not mine:
             return False
-        value = lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0)  # noqa: E731
+        value = lambda o: int(getattr(o, "mana_value", 0) or 0)  # noqa: E731
         return max(map(value, mine)) >= max(map(value, artifacts))
     if kind == "dealt_combat_damage_to_player_this_turn":
         instance_id = getattr(subject, "instance_id", None)
@@ -931,7 +931,8 @@ def condition_holds(
         for o in state.permanents():
             if o.controller_id != controller_id or wanted not in (o.card.type_line or "").lower().split("—")[0]:
                 continue
-            names[o.name] = names.get(o.name, 0) + 1
+            for name in o.names:
+                names[name] = names.get(name, 0) + 1
         return max(names.values(), default=0) >= int(condition.get("min", 1))
     if kind == "control_legendary_subtype":
         # "as long as you control a legendary Assassin" (Brotherhood Spy and
@@ -1247,7 +1248,7 @@ def condition_holds(
         # Sewer Crocodile: cards with the same mana value count only once.
         minimum = int(condition.get("min", 1) or 1)
         return len({
-            int(getattr(obj.card, "converted_mana_cost", 0) or 0)
+            int(getattr(obj, "mana_value", 0) or 0)
             for obj in getattr(player, "graveyard", [])
         }) >= minimum
     if kind == "another_subtype_entered_this_turn":

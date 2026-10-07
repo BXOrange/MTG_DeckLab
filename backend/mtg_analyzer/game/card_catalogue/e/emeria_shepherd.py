@@ -9,20 +9,27 @@ def _emeria_shepherd() -> list[AbilitySpec]:
     """Flying
     Landfall — Whenever a land you control enters, you may return target nonland permanent card from your graveyard to your hand. If that land is a Plains, you may return that nonland permanent card to the battlefield instead.
 
-    — PLAY-ALL (Calling All Angels). An optional landfall trigger over a targeted `return_from_graveyard` to hand whose
-    ``destination_if`` (Stitch Together's swap) sends it to the battlefield when the entering land (``trigger_subject``) is a
-    Plains. **Simplification:** the "instead" is taken whenever it is available, since the battlefield is never worse
-    than the hand.
+    Targets are announced with the landfall trigger. A Plains offers the
+    battlefield alternative at resolution; declining that alternative returns
+    the selected card to hand. The controller can also decline the whole return.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("return_from_graveyard", {
-                "target_kind": "graveyard_nonland_permanent", "destination": "hand",
-                "destination_if": {
-                    "condition": {"kind": "is_subtype", "of": "trigger_subject", "subtype": "plains"},
-                    "destination": "battlefield",
-                },
+            [EffectSpec("if_else", {
+                "condition": {"kind": "is_subtype", "of": "trigger_subject", "subtype": "plains"},
+                "then": [{"type": "optional", "params": {
+                    "prompt": "Emeria Shepherd: Karte stattdessen ins Spiel zurückbringen? (Nein: auf die Hand)",
+                    "effects": [{"type": "return_from_graveyard", "params": {
+                        "target_kind": "graveyard_nonland_permanent", "destination": "battlefield",
+                    }}],
+                    "else_effects": [{"type": "return_from_graveyard", "params": {
+                        "target_kind": "graveyard_nonland_permanent", "destination": "hand",
+                    }}],
+                }}],
+                "else": [{"type": "return_from_graveyard", "params": {
+                    "target_kind": "graveyard_nonland_permanent", "destination": "hand",
+                }}],
             })],
             trigger={
                 "event": EventType.ENTERS_BATTLEFIELD,

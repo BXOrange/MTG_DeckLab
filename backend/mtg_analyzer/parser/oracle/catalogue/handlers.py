@@ -3644,7 +3644,7 @@ def _add_rad_counters_half_x(m: re.Match[str]) -> list[EffectSpec]:
 #: e.g. Abrade's "Destroy target artifact." from wrongly offering any
 #: permanent, including lands) doesn't regress these families to UNMODELED.
 _SINGLE_TYPE_PERMANENT_KINDS: tuple[str, ...] = (
-    "artifact", "enchantment", "land",
+    "artifact", "enchantment", "land", "room",
     # "destroy/exile target nonbasic land [an opponent controls]" (Fulminator
     # Mage / Dust Bowl / Field of Ruin / Ravenous Baboons — 21 SOLO on the
     # bare form). RULE 205.4 supertype filter; `targeting.legal_targets` has
@@ -8138,17 +8138,9 @@ def _exile_return_transformed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("exile_return_transformed", {})]
 
 
-#: The O-Ring / Banisher Priest / Fiend Hunter family — modern one-sentence
-#: templating: "exile `<TARGET>` [an opponent controls] until ~ leaves the
-#: battlefield." (~47 SOLO cache cards). `ExileEffect(remember=True)` stamps
-#: the exiled card's id onto `GameObject.linked_exile_id`; the companion
-#: `LEAVES_BATTLEFIELD` → `return_linked_exile` ability is synthesized by
-#: the segmenter (`_EXILE_UNTIL_LEAVES_LTB`), since a body handler emits
-#: one ability's effects and the return is a *second* ability. The
-#: ``until_source_leaves`` param is that signal. Old two-sentence O-Ring
-#: templating ("…exile another target nonland permanent." + a separate
-#: "When ~ leaves the battlefield, return the exiled card…") is a
-#: different, still-unmodeled shape.
+#: RULE 610.3: modern "exile <target> until ~ leaves" is one instruction.
+#: The engine returns the exiled incarnation immediately after departure;
+#: old two-ability wording retains an ordinary separate return trigger.
 _EXILE_UNTIL_LEAVES_RE = _c(
     rf"exile {TARGET}(?P<opp_ctrl> an opponent controls| defending player controls)? "
     r"until ~ leaves the battlefield"
@@ -8170,7 +8162,6 @@ def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         kind = _EXILE_UNTIL_LEAVES_OPP_KINDS.get(kind, kind)
     params: dict = {
         "target_kind": kind,
-        "remember": True,
         "until_source_leaves": True,
         **_optional_param(m),
     }
@@ -8195,7 +8186,7 @@ def _exile_all_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = specs[0].params
     if params.get("selector") is None and params.get("group") is None:
         return None  # only the untargeted mass exile has a linked set to return
-    return [EffectSpec("exile", {**params, "remember": True, "until_source_leaves": True})]
+    return [EffectSpec("exile", {**params, "until_source_leaves": True})]
 
 
 #: PAR-30 "Threaten … tails residue" — the *old two-sentence* O-Ring
@@ -11985,6 +11976,20 @@ def _turn_face_up_chosen(m: re.Match[str]) -> list[EffectSpec]:
         "optional": bool(m.group("may")),
         "creature_only": m.group("what") == "face-down creature",
     })]
+
+
+# "Unlock a locked door of up to one target Room you control." (RULE 709.5f, Ghostly Keybearer), "unlock a locked
+# door of a Room you control" (untargeted, chosen on resolution) and "lock or unlock a door of target Room you
+# control" (RULE 709.5g, Marina Vendrell/Keys to the House) — the door itself is always chosen on resolution.
+def _unlock_door(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {}
+    if m.group("target"):
+        params["target_kind"] = "room_you_control"
+        if m.group("upto"):
+            params["optional"] = True
+    if m.group("lock"):
+        params["lock_or_unlock"] = True
+    return [EffectSpec("unlock_door", params)]
 
 
 # "Venture into the dungeon." (RULE 701.49) and its RULE 701.49d "venture
@@ -18297,6 +18302,21 @@ HANDLERS: list[EffectHandler] = [
         })],
         previous_subject_only=True,
     ),
+    # "Manifest dread, then put three +1/+1 counters on **that creature**." (Weight Room, Slimy Aquarium) — the object a
+    # preceding create/manifest clause left (`created_objects`), named "that creature" rather than "it".
+    EffectHandler(
+        "add_counters_that_creature",
+        _c(
+            rf"put {COUNT} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? "
+            r"on that creature"
+        ),
+        lambda m: [EffectSpec("add_counters", {
+            "count": count_of(m.group("n")) * _counter_kind_and_multiplier(m.group("ckind"))[1],
+            "kind": _counter_kind_and_multiplier(m.group("ckind"))[0],
+            "previous_subject": True,
+        })],
+        previous_subject_only=True,
+    ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
     # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter
     # on this creature." — `_SELF_SUBJECT`, the same self-reference
@@ -19217,6 +19237,14 @@ HANDLERS: list[EffectHandler] = [
         "look_top_reorder",
         _LOOK_TOP_REORDER_RE,
         _look_top_reorder,
+    ),
+    EffectHandler(
+        "unlock_door",
+        _c(
+            r"(?:(?P<lock>lock or unlock a door)|unlock a locked door) of "
+            r"(?:(?P<upto>up to 1 )?(?P<target>target room you control)|a room you control)"
+        ),
+        _unlock_door,
     ),
     # "venture into the dungeon" (RULE 701.49) / "venture into Undercity"
     # (RULE 701.49d).

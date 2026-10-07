@@ -42,6 +42,8 @@ _VERBS: dict[str, str] = {
     "discard a card": "DISCARD_CARD", "discard another card": "DISCARD_CARD",
     # RULE 702.174c (MEC-106): "whenever you give a gift" — `GIFT_GIVEN`, fired when a promised gift is given.
     "give a gift": "GIFT_GIVEN", "gives a gift": "GIFT_GIVEN",
+    # RULE 709.5i (MEC-111): "whenever you fully unlock a Room" — a Room got its second unlocked designation.
+    "fully unlock a room": "ROOM_FULLY_UNLOCKED", "fully unlocks a room": "ROOM_FULLY_UNLOCKED",
 }
 _COMPOUND_VERBS: dict[str, list[str]] = {
     "scry or surveil": ["SCRY", "SURVEIL"],
@@ -81,6 +83,10 @@ _DEFENDER_KEYS = {
     "opponents": {"defender_is_opponent": True},
 }
 
+#: RULE 709.5h (MEC-111): the placeholder door of "When you unlock *this door*" — the binder substitutes the
+#: half the ability is printed on (`game/rooms.py`), which the line itself cannot know.
+THIS_DOOR = "this"
+
 _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
 
 
@@ -89,6 +95,9 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     cond = cond.strip().lower()
     if cond == "the ring tempts you":
         return "RING_TEMPTED", {"subject": "you"}, {}
+    if cond == "you unlock this door":
+        # Scoped to the Room itself (only its own unlocked half carries the ability) and to the printed door.
+        return "DOOR_UNLOCKED", {"subject": "self"}, {"filter": {"door": THIS_DOOR}}
     if cond.startswith("you're "):
         cond = "you are " + cond[len("you're "):]
     # "whenever combat damage is dealt to you" (Risona) — the passive spelling of "you're dealt combat damage".

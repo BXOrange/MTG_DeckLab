@@ -1,7 +1,7 @@
 """Real gameplay for the Miracle Worker (Duskmourn: House of Horror Commander) catalogue entries."""
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game import combat, continuous
+from mtg_analyzer.game import combat, continuous, rooms
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -286,7 +286,10 @@ def test_secret_arcade_makes_your_nonland_permanents_enchantments():
     bear = _filler(engine, "Bear", "Creature — Bear", power=2, toughness=2)
     land = _filler(engine, "Forest", "Basic Land — Forest")
     theirs = _filler(engine, "Theirs", "Creature — Bear", power=1, toughness=1, player="p2")
-    _card(engine, "Secret Arcade // Dusty Parlor")
+    arcade = _card(engine, "Secret Arcade // Dusty Parlor")
+    continuous.recompute(engine.state)
+    assert "enchantment" not in bear.type_words  # RULE 709.5: both doors are locked, the Room has no rules text
+    rooms.unlock(engine.state, arcade, rooms.LEFT)
     continuous.recompute(engine.state)
     assert bear.card.is_enchantment or "enchantment" in bear.type_words
     assert "enchantment" not in land.type_words and "enchantment" not in theirs.type_words
@@ -509,3 +512,46 @@ def test_the_master_of_keys_grows_by_x_mills_twice_x_and_gives_enchantments_esca
     p1.mana_pool.add_many({"C": 2})
     assert engine._graveyard_cast_keyword(shrine) == "escape"
     assert engine._graveyard_cast_keyword(sorcery) != "escape"
+
+
+def test_nightmare_shepherd_copies_the_dying_transformed_face():
+    engine = _game()
+    _card(engine, "Nightmare Shepherd")
+    wolf = _card(engine, "Huntmaster of the Fells")
+    engine.rules.transform_permanent(wolf)
+    assert wolf.name == "Ravager of the Fells"
+    engine.rules.destroy(wolf)
+    engine.resolve_until_stable()
+    _resolve_choices(engine)
+    copies = [o for o in engine.state.battlefield if o.is_token and o.name == "Ravager of the Fells"]
+    assert len(copies) == 1
+    assert (copies[0].power, copies[0].toughness) == (1, 1)
+    assert "nightmare" in continuous.derived_subtype_words(copies[0])
+
+
+def test_nightmare_shepherd_cannot_copy_a_card_already_exiled_in_response():
+    engine = _game()
+    _card(engine, "Nightmare Shepherd")
+    bear = _filler(engine, "Vanished Bear", power=2, toughness=2)
+    engine.rules.destroy(bear)
+    engine.rules.exile(bear)  # another effect removes the linked graveyard object before resolution
+    engine.resolve_until_stable()
+    _resolve_choices(engine)
+    assert not any(o.is_token and o.name == "Vanished Bear" for o in engine.state.battlefield)
+    assert bear.zone == Zone.EXILE
+
+
+def test_spirit_sisters_call_does_not_return_a_different_graveyard_incarnation():
+    engine = _game()
+    _card(engine, "Spirit-Sister's Call")
+    fodder = _filler(engine, "Fodder", power=2, toughness=2)
+    fallen = _filler(engine, "Fallen", power=2, toughness=2, zone=Zone.GRAVEYARD)
+    _step(engine, "end", "p1")
+    engine.resolve_pending_choice(fallen.instance_id)
+    assert engine.state.pending_choice["kind"] == "choose_objects"
+    # The continuation must not follow the retained ID through a new zone visit.
+    engine.rules.return_from_graveyard(fallen, "battlefield")
+    engine.rules.put_into_graveyard(fallen)
+    engine.resolve_pending_choice(fodder.instance_id)
+    engine.resolve_until_stable()
+    assert fallen.zone == Zone.GRAVEYARD

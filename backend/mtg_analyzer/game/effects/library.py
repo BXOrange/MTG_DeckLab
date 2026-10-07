@@ -1101,8 +1101,8 @@ class ExchangeControlEffect(GameEffect):
             if not (a & b):
                 return False
         if self.second_not_greater == "mana_value":
-            if (getattr(theirs.card, "converted_mana_cost", 0) or 0) > (
-                getattr(mine.card, "converted_mana_cost", 0) or 0
+            if (getattr(theirs, "mana_value", 0) or 0) > (
+                getattr(mine, "mana_value", 0) or 0
             ):
                 return False
         if self.second_not_greater == "power":
@@ -1221,7 +1221,7 @@ class ExchangeControlThenEnergySacrificeEffect(GameEffect):
         context.recompute()
         context.add_player_counters(player, 4, "energy", source=mine)
         from ..costs import ActivationCost  # function-scoped: costs↔effects cycle
-        mv = theirs.card.converted_mana_cost or 0
+        mv = theirs.mana_value or 0
         context.engine._request_sacrifice_unless_pay(player, ActivationCost(pay_energy=mv), theirs)
 
 
@@ -2163,7 +2163,7 @@ class PutEqualOrLesserManaValueFromHandEffect(GameEffect):
         entering = context.state.find_object(event.get("instance_id"))
         if player is None or entering is None or self.source is None:
             return
-        max_mv = entering.card.converted_mana_cost
+        max_mv = entering.mana_value
         candidates = [
             obj for obj in player.hand
             if card_query.matches(obj.card, {
@@ -3205,7 +3205,7 @@ class DestroyEachWithManaValueEffect(GameEffect):
             obj
             for obj in context.state.permanents()
             if self.card_type in obj.type_words
-            and obj.card.converted_mana_cost == self.amount
+            and obj.mana_value == self.amount
         ]
         for obj in doomed:
             context.destroy(obj)

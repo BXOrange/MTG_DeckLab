@@ -506,6 +506,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "remove_from_combat": "set_status",  # RULE 506.4 — Observed Stasis
     "become_saddled": "set_status",
     "become_solved": "set_status",
+    "unlock_door": "set_status",  # RULE 709.5f/709.5g — Rooms' designations (MEC-111)
     "remember_card_name": "set_status",
     "pump_attacker_per_other_attacker": "create_continuous_effect",
     "prevent_source_damage_until_next_turn": "create_continuous_effect",

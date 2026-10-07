@@ -215,9 +215,9 @@ GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
 SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen"})
-SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "color"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "color", "door_name"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
-SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols"})
+SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})
 
 #: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
 #: operands of an ENG-37 B5 `amount_compare`), and the type each must have.

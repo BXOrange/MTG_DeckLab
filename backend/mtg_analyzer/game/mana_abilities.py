@@ -286,6 +286,14 @@ _RESTRICTION_MULTI_TYPE_RE = re.compile(
 #: "cast a(n) <Type> spell" / "cast a(n) <Type> creature spell" (Flamebraider's
 #: "Elemental", Gnarlroot Trapper's "Elf creature") — a single named
 #: creature type, the optional literal "creature" just along for the ride.
+#: RULE 709.5e (MEC-111): "cast Room spells and unlock doors" (Smoky Lounge) and "cast an enchantment spell, unlock
+#: a door, or turn a permanent face up" (Creeping Peeper) — a spell-type restriction that also covers paying an unlock
+#: cost (``allow_unlock``) and, for the Peeper, the special action of turning a permanent face up (``allow_face_up``).
+_RESTRICTION_TYPE_OR_UNLOCK_RE = re.compile(
+    r"^cast (?:an? )?(?P<type>[a-z]+) spells?(?:,)? (?:and )?unlock (?:a )?doors?"
+    r"(?:,? (?:and|or) turn a permanent face up)?$",
+    re.IGNORECASE,
+)
 _RESTRICTION_TYPE_RE = re.compile(
     r"^cast (?:an? )?(?P<type>[a-z]+)(?: creature)? spells?$", re.IGNORECASE
 )
@@ -741,6 +749,12 @@ def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
         return {"kind": "legendary_spell"}
     if _RESTRICTION_INSTANT_SORCERY_RE.match(clause):
         return {"kind": "instant_or_sorcery_spell"}
+    m = _RESTRICTION_TYPE_OR_UNLOCK_RE.match(clause)
+    if m is not None:
+        return {
+            "kind": "type_spell", "types": [m.group("type").lower()], "allow_ability": allow_ability,
+            "allow_unlock": True, **({"allow_face_up": True} if "face up" in clause.lower() else {}),
+        }
     m = _RESTRICTION_MULTI_TYPE_RE.match(clause)
     if m is not None:
         return {
@@ -814,6 +828,19 @@ def _restriction_allows_activation(restriction: dict[str, Any], source: Any, has
     if kind == "type_spell":
         return any(continuous.has_subtype(source, t) for t in restriction.get("types", ()))
     return False
+
+
+def restriction_predicate_for_unlock() -> Callable[[dict], bool]:
+    """``restriction_predicate_for_cast``'s counterpart for paying an unlock cost (RULE 709.5e, "Spend this mana
+    only to cast Room spells and unlock doors"): only a restriction that names unlocking (``allow_unlock``)
+    covers it — ``contains_x`` can't apply (a door's cost has no {X})."""
+    return lambda restriction: bool(restriction.get("allow_unlock"))
+
+
+def restriction_predicate_for_turn_face_up() -> Callable[[dict], bool]:
+    """Paying to turn a permanent face up (RULE 116.2b) — only a restriction that names it (``allow_face_up``, Creeping
+    Peeper's "…or turn a permanent face up") covers that special action."""
+    return lambda restriction: bool(restriction.get("allow_face_up"))
 
 
 def restriction_predicate_for_activation(source: Any, has_x: bool = False) -> Callable[[dict], bool]:

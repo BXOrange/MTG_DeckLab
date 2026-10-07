@@ -317,6 +317,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # an "an opponent controls"/"that player controls" tail composes onto it like any other row.
     (r"target equipment you control", "equipment_you_control"),
     (r"target equipment", "equipment"),
+    # MEC-111: "target Room [you control]" (Anthropede's "destroy target Room") — the Room subtype pool of `targeting`.
+    (r"target room you control", "room_you_control"),
+    (r"target room", "room"),
     # "target Forest" (Arbor Elf) — a specific basic land subtype, above
     # the bare "target land" row so the longer/more specific phrase wins.
     (r"target forest", "forest"),

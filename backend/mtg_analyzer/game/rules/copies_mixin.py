@@ -272,7 +272,7 @@ class CopiesMixin:
             EventType.SPELL_COPIED, player_id=item.controller_id,
             instance_id=obj.instance_id, stack_id=item.stack_id,
             object_types=sorted(obj.type_words), card_id=obj.card.id, spell=obj.name,
-            mana_value=obj.card.converted_mana_cost, x_paid=item.x,
+            mana_value=obj.mana_value, x_paid=item.x,
             target_instance_ids=[getattr(target, "instance_id", None)
                                  for target in item.targets or []
                                  if getattr(target, "instance_id", None) is not None],
@@ -319,6 +319,11 @@ class CopiesMixin:
             copy_obj = GameObject(
                 copiable.as_copy(), owner_id=controller_id, zone=Zone.STACK
             )
+            # RULE 709.5b: even a copied right-half spell retains both Room halves.
+            from ..rooms import has_doors
+
+            if has_doors(item.obj._front_card):
+                copy_obj._front_card = item.obj._front_card.as_copy()
             copy_obj.is_token = True
             copy_obj.is_copy = True
             copy_obj.x_paid = item.x

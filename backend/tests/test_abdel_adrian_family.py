@@ -2,12 +2,8 @@
 number of other nonland permanents you control" ETB plus its mass
 leaves-battlefield return.
 
-New primitives: `ExileAnyNumberYouControlEffect` (a *selection*, not a RULE
-115 target, via `RulesEngine._request_choose_objects`'s chooser with its new
-`track_exiled_with=True`) and `continuous.count_selector`'s new
-`exiled_with_count` kind (reading `GameObject.exiled_with_ids`'s own
-length). The leaves-battlefield half reuses `ReturnAllExiledWithEffect`
-verbatim (built for Parallax Wave in the same batch).
+MEC-113 replaces the separate return trigger with RULE 610.3.
+The chooser counts the actual picks for its Soldier payoff.
 
 Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 """
@@ -60,7 +56,7 @@ def test_abdel_adrian_exiles_chosen_permanents_and_makes_matching_tokens():
     assert bear.zone == Zone.EXILE
     assert elf.zone == Zone.EXILE
     assert forest.zone == Zone.BATTLEFIELD
-    assert adrian.exiled_with_ids == [bear.instance_id, elf.instance_id]
+    assert [r["exile_id"] for r in eng.state.until_source_leaves_exiles] == [bear.instance_id, elf.instance_id]
 
     soldiers = [o for o in eng.state.battlefield if o.card.name == "Soldier"]
     assert len(soldiers) == 2
@@ -90,8 +86,9 @@ def test_abdel_adrian_leaving_returns_every_exiled_permanent():
     assert bear.zone == Zone.EXILE
 
     eng.rules.put_into_graveyard(adrian)
+    assert bear.zone == Zone.BATTLEFIELD  # no return trigger or response window
     eng.resolve_until_stable()
 
     assert bear.zone == Zone.BATTLEFIELD
     assert bear.controller_id == "p1"
-    assert adrian.exiled_with_ids == []
+    assert eng.state.until_source_leaves_exiles == []

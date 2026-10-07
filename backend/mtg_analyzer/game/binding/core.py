@@ -1825,7 +1825,7 @@ def _trigger_condition(
             obj = state.find_object(iid) if state is not None and iid is not None else None
             if obj is None:
                 return False
-            return int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= n
+            return int(getattr(obj, "mana_value", 0) or 0) <= n
 
         predicates.append(_entering_mv_ok)
 
@@ -3162,7 +3162,21 @@ def bind_ability(
         return effects
 
     if spec.ability_kind == "triggered":
-        modes = _build_mode_entries(spec.modes, source) if spec.modes else None
+        mode_blocks = spec.modes
+        if (mode_blocks and isinstance(spec.trigger["event"], str)
+                and (spec.trigger.get("condition") or {}).get("subject") in ("group", "self_or_group")):
+            # "turn that creature face up or put a +1/+1 counter on it" (Staff Room): each mode names the
+            # firing object, so the group-subject placeholder is resolved inside the mode bodies too.
+            key = _subject_event_key(spec.trigger)
+            mode_blocks = {**mode_blocks, "options": [
+                [
+                    EffectSpec(e.type, _resolve_group_sentinel(e.params, key), condition=e.condition)
+                    if isinstance(e, EffectSpec) else _resolve_group_sentinel(e, key)
+                    for e in option
+                ]
+                for option in mode_blocks["options"]
+            ]}
+        modes = _build_mode_entries(mode_blocks, source) if mode_blocks else None
         trigger_event = spec.trigger["event"]
 
         def _one(event: str, own_effects: list[GameEffect]) -> TriggeredAbility:
@@ -3179,7 +3193,10 @@ def bind_ability(
                     matched = members(firing_event, context)
                     captured = firing_event.copy_with(
                         matching_count=len(matched),
-                        matching_ids=[m.get("instance_id") for m in matched],
+                        matching_ids=list(dict.fromkeys(
+                            m.get(_subject_event_key({**single_trigger, "event": single_trigger["batch"]["of"]}))
+                            for m in matched
+                        )),
                         matching_opponents=len({m.get("target_id") for m in matched
                                                 if m.get("is_player")}),
                     )
@@ -3355,6 +3372,7 @@ def bind_ability(
         once_per_turn=once_per_turn,
         modes=activated_modes,
         once_per_game=once_per_game,
+        attach_kind=cost.attach_kind,
     )
 
 
@@ -4764,7 +4782,14 @@ def bind_from_catalogue(obj: Any) -> None:
     (`card_registry` builds specs, this module binds them)."""
     from ..card_registry import specs_for
     from ..card_registry.core import suppressed_keywords_for
+    from .. import rooms
 
+    if rooms.is_room(getattr(obj, "card", None)):
+        # RULE 709.5: a Room's rules text is its *unlocked* halves' — bound by `rooms.rebind_doors`
+        # (and on every unlock), so a Room with no designation, or on the stack, binds nothing.
+        obj.suppressed_keywords = set()
+        rooms.rebind_doors(obj)
+        return
     specs = specs_for(getattr(obj, "card", None))
     # A keyword Scryfall lists only conditionally (Goddric's celebration flying) is not the card's own.
     obj.suppressed_keywords = set(suppressed_keywords_for(getattr(obj, "card", None)))

@@ -126,6 +126,10 @@ class StackItem:
         self.x = x
         self.category = category or self._derive_category()
         self.source = source
+        # RULE 610.3a/b: retain the source incarnation from triggering/activation.
+        self.source_zone_incarnation = (trigger_event or {}).get(
+            "source_zone_incarnation", getattr(source, "zone_incarnation", None)
+        )
         #: Which ability of ``source`` this item is, for the per-ability
         #: resolution count ("the second time this ability has resolved this
         #: turn" — `GameObject.ability_resolutions`). The ability's printed
@@ -1068,6 +1072,8 @@ class GameState:
         #: RULE 603.3f: the cards that left a graveyard inside the open scope — one
         #: `CARDS_LEFT_GRAVEYARD` names them all when it closes (`note_graveyard_exit`).
         self._graveyard_exits: list[dict[str, Any]] = []
+        # RULE 610.3: source and exile incarnations; values survive undo snapshots.
+        self.until_source_leaves_exiles: list[dict[str, int]] = []
 
     # -- Players ---------------------------------------------------------
 
@@ -1311,6 +1317,11 @@ class GameState:
         # neither designation exists, before the entrant is on the field.
         if getattr(obj, "establishes_day_on_entry", False) and self.day_night is None:
             self.day_night = "day"
+        # RULE 709.5d: a Room enters with the designation of the half that was cast (if any) —
+        # a right-half cast left ``obj.card`` on that half, so make it the whole Room first.
+        from ...game import rooms  # function-scoped: models/ must not import game/ at load
+
+        room_door = rooms.prepare_entry(obj, from_stack=obj.zone == Zone.STACK)
         obj.zone = Zone.BATTLEFIELD
         # RULE 613.7b: stamp a timestamp on entry so the layer engine can order
         # multiple effects within the same layer (newest applies last).
@@ -1340,6 +1351,9 @@ class GameState:
         if is_entering_class:
             obj.counters["class_level"] = 1
         self.battlefield.append(obj)
+        # RULE 709.5h: the entering designation is given (and "when you unlock this door" fires)
+        # only once the Room is on the battlefield, like the Saga/Class entry events below.
+        rooms.complete_entry(self, obj, room_door)
         # Fired here (rather than left to the caller, unlike ENTERS_BATTLEFIELD)
         # so chapter I's ability triggers regardless of *how* the Saga reached
         # the battlefield (cast normally, or put there some other way) — after
@@ -1372,6 +1386,9 @@ class GameState:
         obj.blitz_cost_paid = False
         if obj in self.battlefield:
             self.battlefield.remove(obj)
+            self.fire_event(GameEvent(EventType.BATTLEFIELD_DEPARTED,
+                                      instance_id=obj.instance_id,
+                                      zone_incarnation=obj.zone_incarnation))
         # RULE 708.9: "if a face-down permanent moves from the battlefield to
         # any other zone, its owner must reveal it to all players as they
         # move it" — so no object ever leaves the battlefield still wearing
@@ -1419,7 +1436,7 @@ class GameState:
     BATCHED_EVENT_TYPES: frozenset[str] = frozenset({
         EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD, EventType.DIES,
         EventType.DISCARD_CARD, EventType.PUT_INTO_GRAVEYARD, EventType.SACRIFICE,
-        EventType.DAMAGE,
+        EventType.DAMAGE, EventType.BATTLEFIELD_DEPARTED,
     })
 
     @contextmanager
@@ -1525,6 +1542,7 @@ class GameState:
         graveyard" triggers once), collected by the same `simultaneous` scope that
         batches the per-object events; outside every scope the card is its own event.
         """
+        self.fire_event(GameEvent(EventType.CARD_LEFT_GRAVEYARD, cards=[card], **card))
         if getattr(self, "_batch_depth", 0) > 0 or getattr(self, "_batch_hold", False):
             if not hasattr(self, "_graveyard_exits"):
                 self._graveyard_exits = []

@@ -636,7 +636,7 @@ class DrawDiscardMixin:
         if mana_value is None:
             return
         for obj in list(player.hand):
-            if obj.card.converted_mana_cost == mana_value:
+            if obj.mana_value == mana_value:
                 self.discard_specific(obj, cause=cause)
 
     def look_at_hand(

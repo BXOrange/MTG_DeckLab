@@ -25,6 +25,7 @@ from .core import (
     _REGISTRY,
     enters_tapped,
     entry_counters,
+    is_authored_card,
     is_registered,
     kicker_x_mana_restriction,
     land_tap_condition,

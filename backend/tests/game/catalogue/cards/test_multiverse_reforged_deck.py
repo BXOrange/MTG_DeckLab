@@ -956,3 +956,25 @@ def test_jace_lets_the_active_opponent_pay_two_to_keep_attacking_jaces():
     engine.resolve_until_stable()
     defenders = engine.legal_defenders_for(engine.state.player_by_id("p2"))
     assert any(d.get("instance_id") == jace.instance_id for d in defenders)
+
+
+def test_tamiyo_uses_one_trigger_for_a_combat_damage_batch_and_each_dealer_once():
+    engine = _game()
+    _card(engine, "Tamiyo, Upriser Crowned")
+    engine.state.monarch_id = "p1"
+    me = engine.state.player_by_id("p1")
+    first = _filler(engine, "First", power=2, toughness=2, player="p2")
+    second = _filler(engine, "Second", power=2, toughness=2, player="p2")
+    ignored = _filler(engine, "Noncombat", power=2, toughness=2, player="p2")
+    with engine.state.simultaneous():
+        engine.rules.deal_damage(me, 1, source=first, combat=True)
+        engine.rules.deal_damage(me, 1, source=first, combat=True)
+        engine.rules.deal_damage(me, 1, source=second, combat=True)
+        engine.rules.deal_damage(me, 1, source=ignored, combat=False)
+    firings = [a for a, _ in engine.rules.pending_triggers if getattr(a.source, "name", None) == "Tamiyo, Upriser Crowned"]
+    assert len(firings) == 1
+    engine.state.monarch_id = "p2"  # losing monarch after triggering does not undo the trigger
+    engine.resolve_until_stable()
+    assert first.tapped and second.tapped
+    assert first.counters.get("stun") == second.counters.get("stun") == 1
+    assert not ignored.tapped and not ignored.counters.get("stun")

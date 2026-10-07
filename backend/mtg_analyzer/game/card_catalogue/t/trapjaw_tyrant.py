@@ -10,22 +10,14 @@ def _trapjaw_tyrant() -> list[AbilitySpec]:
     creature an opponent controls until this creature leaves the
     battlefield.
 
-    The O-Ring-shaped linked-exile pair (`ExileEffect(remember=True)` +
-    `ReturnLinkedExileEffect` on the leaves-battlefield trigger, exactly
-    `Leonin Relic-Warder`'s pattern) — the modern one-sentence "exile …
-    until ~ leaves the battlefield" templating is the same RULE 610.3-style
-    linked duration as Leonin's older two-sentence phrasing, just terser.
+    Each firing keeps its own RULE 610.3 link; all linked cards return
+    immediately when that incarnation of the Tyrant leaves.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "remember": True})],
+            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "until_source_leaves": True})],
             trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
-        ),
-        AbilitySpec(
-            "triggered",
-            [EffectSpec("return_linked_exile", {})],
-            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
     ]
 

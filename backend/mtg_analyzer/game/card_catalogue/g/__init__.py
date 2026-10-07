@@ -18,6 +18,7 @@ from . import geometer_s_arthropod  # noqa: F401
 from . import ghastly_demise  # noqa: F401
 from . import ghost_quarter  # noqa: F401
 from . import ghostfire_slice  # noqa: F401
+from . import ghostly_dancers  # noqa: F401
 from . import ghostly_flicker  # noqa: F401
 from . import ghoulish_impetus  # noqa: F401
 from . import giada_font_of_hope  # noqa: F401

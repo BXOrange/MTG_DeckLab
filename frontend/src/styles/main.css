@@ -3666,6 +3666,27 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 709.5c (MEC-111): a Room's two doors. Bottom-left like the face-down badge (a Room is never face down). */
+.gf-room-badge {
+  position: absolute;
+  bottom: -0.4rem;
+  left: 0.15rem;
+  display: inline-flex;
+  gap: 0.1rem;
+  background: color-mix(in srgb, var(--panel) 70%, #000);
+  border: 1px solid var(--border);
+  font-size: 0.6rem;
+  line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.gf-room-door--open {
+  filter: drop-shadow(0 0 2px var(--accent, #6cf));
+}
+
 /* RULE 901: the Planechase strip above the boards — the face-up plane and
    the planar-die button. One row, so it reads as part of the turn/phase
    furniture rather than as a card zone. */

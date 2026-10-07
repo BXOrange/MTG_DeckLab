@@ -12,9 +12,9 @@ ask instead of guessing (docs/02 R4.3 — the frontend has no such check
 today). `run_goldfish_turn` wires those together into a solo auto-turn
 (UC3).
 
-`GameEngine` itself (ENG-20) is a composition of eight per-responsibility
+`GameEngine` itself (ENG-20) is a composition of nine per-responsibility
 mixins under `game/engine/` — turn loop (incl. `new_game`), combat,
-casting, lands, activation, mana, legal-actions, misc — rather than one
+casting, lands, activation, mana, legal-actions, misc, rooms — rather than one
 class carrying all ~130 methods. This is a pure file-organization split:
 every mixin operates on the same shared `self.state`/`self.rules`/etc.
 instance state, method names/signatures are unchanged, and nothing outside
@@ -31,6 +31,7 @@ from .engine.lands_mixin import LandsMixin
 from .engine.legal_actions_mixin import LegalActionsMixin
 from .engine.mana_mixin import ManaMixin
 from .engine.misc_mixin import MiscMixin
+from .engine.rooms_mixin import RoomsMixin
 from .engine.turn_loop_mixin import MAX_HAND_SIZE, TurnLoopMixin
 
 __all__ = ["GameEngine", "MAX_HAND_SIZE"]
@@ -45,6 +46,7 @@ class GameEngine(
     ManaMixin,
     LegalActionsMixin,
     MiscMixin,
+    RoomsMixin,
 ):
     """Drives a `GameState` through turns using a `RulesEngine`.
 

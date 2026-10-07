@@ -11,8 +11,7 @@ def _coin_of_fate() -> list[AbilitySpec]:
 
     — PLAY-ALL (Revival Trance). The surveil is the parser's. The cost is mana, tap, ``exile 2 creature cards from your
     graveyard`` (their ids are kept on the source, `last_cost_exiled_ids`) and a self-sacrifice; the effect is the new
-    `coin_of_fate_split`. **Simplification:** the opponent's choice is made as the one worst for you — the more expensive
-    card goes to the bottom, the cheaper one returns.
+    `coin_of_fate_split`. The controller selects the opponent, who chooses the bottomed card; the other returns tapped.
     """
     return [
         AbilitySpec(

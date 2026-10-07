@@ -2,12 +2,8 @@
 one-sentence "exile <TARGET> [an opponent controls] until ~ leaves the
 battlefield" templating.
 
-`handlers._exile_until_leaves` emits an `ExileEffect(remember=True)` with a
-new `until_source_leaves` param; `segmenter.segment_line` reads that param
-and synthesizes the companion `LEAVES_BATTLEFIELD` -> `return_linked_exile`
-ability that a single-body parse can't. Both the exile machinery and
-`ReturnLinkedExileEffect` are pre-existing (MEC-21 / MEC-30 / Skyclave
-Apparition).
+The parser emits the RULE 610.3 exile instruction without a companion
+leaves trigger. The engine returns the exiled incarnation immediately.
 """
 
 from __future__ import annotations
@@ -31,7 +27,7 @@ def _named(name):
     return CardDatabase(DB_PATH).get_card(name)
 
 
-def test_segment_emits_exile_plus_companion_ltb():
+def test_segment_emits_exile_without_companion_ltb():
     seg = segment_line(
         "when ~ enters, exile target creature an opponent controls "
         "until ~ leaves the battlefield.",
@@ -39,13 +35,9 @@ def test_segment_emits_exile_plus_companion_ltb():
     )
     assert seg.claimed
     assert seg.spec.effects[0].type == "exile"
-    assert seg.spec.effects[0].params["remember"] is True
     assert seg.spec.effects[0].params["until_source_leaves"] is True
     assert seg.spec.effects[0].params["target_kind"] == "creature_you_dont_control"
-    assert len(seg.extra_specs) == 1
-    ltb = seg.extra_specs[0]
-    assert ltb.effects[0].type == "return_linked_exile"
-    assert ltb.trigger["event"] == "LEAVES_BATTLEFIELD"
+    assert seg.extra_specs == []
 
 
 def test_segment_nonland_permanent_and_optional_you_may():
@@ -56,7 +48,7 @@ def test_segment_nonland_permanent_and_optional_you_may():
     )
     assert seg.spec.effects[0].params["target_kind"] == "nonland_permanent_you_dont_control"
     assert seg.spec.optional is True
-    assert len(seg.extra_specs) == 1
+    assert seg.extra_specs == []
 
 
 def test_no_companion_without_the_until_clause():
@@ -95,9 +87,10 @@ def test_execute_exile_on_etb_then_return_when_it_leaves():
     eng.resolve_pending_choice(opt["id"])
 
     assert bear.zone == Zone.EXILE
-    assert priest.linked_exile_id == bear.instance_id
+    assert eng.state.until_source_leaves_exiles[0]["exile_id"] == bear.instance_id
 
     eng.rules.put_into_graveyard(priest)
+    assert bear.zone == Zone.BATTLEFIELD  # RULE 610.3: no response window
     eng.resolve_until_stable()
 
     assert bear.zone == Zone.BATTLEFIELD

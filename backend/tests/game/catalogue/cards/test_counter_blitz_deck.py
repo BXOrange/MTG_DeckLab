@@ -436,3 +436,21 @@ def test_sin_strips_counters_enters_with_twice_as_many_and_passes_them_on_when_i
     answer(engine, pick_label("Ally"))
     assert ally.counters.get("+1/+1") == 4
     assert sin.zone == Zone.LIBRARY
+
+
+def test_valefor_lets_each_opponent_choose_a_tie_before_returning_any_creatures():
+    engine = game(players=3)
+    candidates = {p: [filler(engine, f"{p} Choice {i}", mv=5, power=i+2, toughness=5, player=p)
+                      for i in range(2)] for p in ("p2", "p3")}
+    cheap = filler(engine, "Cheap", mv=1, power=1, toughness=1, player="p2")
+    card(engine, "Summon: Valefor")
+    engine.resolve_until_stable()
+    first_choice = engine.state.pending_choice
+    assert first_choice["player_id"] == "p2"
+    assert {o["instance_id"] for o in first_choice["options"]} == {o.instance_id for o in candidates["p2"]}
+    engine.resolve_pending_choice(candidates["p2"][1].instance_id)
+    assert engine.state.pending_choice["player_id"] == "p3"
+    assert all(o.zone == Zone.BATTLEFIELD for values in candidates.values() for o in values)
+    engine.resolve_pending_choice(candidates["p3"][0].instance_id)
+    assert candidates["p2"][1].zone == candidates["p3"][0].zone == Zone.HAND
+    assert candidates["p2"][0].zone == candidates["p3"][1].zone == cheap.zone == Zone.BATTLEFIELD

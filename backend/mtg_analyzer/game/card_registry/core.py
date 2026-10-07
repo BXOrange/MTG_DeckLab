@@ -93,6 +93,21 @@ def registry_signature() -> str:
     return hashlib.sha1(joined.encode("utf-8")).hexdigest()[:12]
 
 
+def is_authored_card(card: Any) -> bool:
+    """Whether ``card`` counts as hand-`AUTHORED` for coverage: its catalogue entry, or — for a Room (RULE 709.5, MEC-111),
+    whose two halves are separate abilities — every half covered (registered or parser-`MODELED`) with at least one of
+    them registered. A whole-name lookup (`is_registered`) says nothing about the half the front-face fallback skips."""
+    from .. import rooms  # function-scoped: rooms imports the parser, this module is imported by the binder
+
+    if rooms.has_doors(card):
+        halves = [rooms.door_card(card, door) for door in rooms.DOORS]
+        return (
+            all(is_registered(half.name) or parse_oracle(half).modeled for half in halves)
+            and any(is_registered(half.name) for half in halves)
+        )
+    return is_registered(getattr(card, "name", "") or "")
+
+
 def is_registered(name: str) -> bool:
     """Whether ``name`` (a card's own ``.name``) has a catalogue entry.
 

@@ -371,6 +371,8 @@ export default [
               ['full', 'Sagas (714)'],
               ['full', 'Class (716) & Leveler (711)'],
               ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/715/722)'],
+              ['full', 'Rooms (709.5) — locked/unlocked doors per half, casting either half, the unlock special action (116.2m), "when you unlock this door", Eerie "fully unlock", lock/unlock effects'],
+              ['partial', 'Room texts: 22 of 30 cached Rooms modeled (the rest fail on unrelated effect grammars — convoke grants, mill-and-return, …; Alchemy halves are a permanent non-goal)'],
             ],
           },
           {

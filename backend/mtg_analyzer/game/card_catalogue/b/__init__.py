@@ -66,7 +66,6 @@ from . import bellowing_mauler
 from . import broodcaller_scourge
 from . import bespoke_battlewagon  # noqa: F401
 from . import blue_mage_s_cane  # noqa: F401
-from . import bottomless_pool_locker_room  # noqa: F401
 from . import brainstone  # noqa: F401
 from . import born_to_drive  # noqa: F401
 from . import barbflare_gremlin  # noqa: F401

@@ -84,6 +84,8 @@ class GameContext:
         #: the permanent's own controller — read by `PreventDamageEffect`'s
         #: opt-in ``recipient_is_activator``.
         self.resolving_controller_id: Optional[str] = None
+        # RULE 610.3a/b: incarnation of the source of the resolving stack item.
+        self.resolving_source_incarnation: Optional[int] = None
         #: PAR-123: the player "you" means while a body runs *as someone else* — "**its
         #: controller** creates a 1/1 Snake token" is the ordinary "you create a token" done by
         #: the firing object's controller (RULE 109.5: the player an ability's "you" names).
@@ -891,8 +893,9 @@ class GameContext:
 
     def add_mana(
         self, player: "Player", color: str, amount: int = 1, keep_until: Optional[str] = None,
+        restriction: Optional[dict] = None,
     ) -> None:
-        self.engine.add_mana(player, color, amount, keep_until=keep_until)
+        self.engine.add_mana(player, color, amount, keep_until=keep_until, restriction=restriction)
 
     def add_mana_any_color(
         self, player: "Player", colors: Optional[list[str]] = None, amount: int = 1,
@@ -990,8 +993,8 @@ def _characteristic_of_subject(
     first entry of `GameContext.previous_targets` — usually already gone, so
     this is RULE 608.2h last-known information), ``trigger_subject`` (the
     object the firing event names by ``instance_id``). ``char`` ∈ ``power``
-    / ``toughness`` (derived, layer-engine values) / ``mana_value`` (read
-    off the printed card). Anything unrecognised → ``0``, fail-safe.
+    / ``toughness`` (derived, layer-engine values) / ``mana_value`` (live
+    characteristics, including unlocked Room doors). Anything unrecognised → ``0``, fail-safe.
     """
     # ``char`` may be one word ("power"/"toughness") or two ("mana_value"),
     # so match the known suffixes rather than splitting on the last "_".
@@ -1028,7 +1031,7 @@ def _characteristic_of_subject(
         if obj is None:
             return 0
     if char == "mana_value":
-        return int(getattr(getattr(obj, "card", None), "converted_mana_cost", 0) or 0)
+        return int(getattr(obj, "mana_value", 0) or 0)
     return int(getattr(obj, char, 0) or 0)
 
 
@@ -2124,7 +2127,7 @@ register(globals())
 _EFFECT_MODULES = (
     "game_status", "damage_draw", "life_sacrifice", "stack", "exile_control",
     "returns_graveyards", "choices_actions", "attachments_transforms",
-    "counters_tokens", "library", "registry", "replacements",
+    "counters_tokens", "library", "rooms", "registry", "replacements",
 )
 
 for _module_name in _EFFECT_MODULES:

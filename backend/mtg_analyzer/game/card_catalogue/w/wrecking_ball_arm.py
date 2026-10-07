@@ -23,8 +23,8 @@ def _wrecking_ball_arm() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("attach", {"target_kind": "creature", "creature_filter": {"legendary": True}})],
-            cost={"text": "{3}", "sorcery_speed_only": True},
+            [EffectSpec("attach", {"target_kind": "creature_you_control", "creature_filter": {"legendary": True}})],
+            cost={"text": "{3}", "sorcery_speed_only": True, "attach_kind": "equip"},
         ),
     ]
 

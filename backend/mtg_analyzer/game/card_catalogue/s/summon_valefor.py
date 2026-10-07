@@ -11,7 +11,7 @@ def _summon_valefor() -> list[AbilitySpec]:
     II, III, IV — Tap up to one target creature and put a stun counter on it.
     Flying
 
-    — PLAY-ALL (Counter Blitz). Flying is the keyword. Chapter I is the new `each_opponent_returns_greatest_mv_creature` (ties broken in the opponent's favour).
+    — PLAY-ALL (Counter Blitz). Flying is the keyword. Chapter I is the new `each_opponent_returns_greatest_mv_creature` (each opponent selects among ties before any creature moves).
     Chapters II–IV are Fear of Sleep Paralysis' optional `tap` plus a stun `add_counters` on the same creature (``previous_subject``).
     """
     return [

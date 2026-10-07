@@ -948,7 +948,7 @@ class CastingResolutionMixin:
             if obj.instance_id in self.state.free_cast_owner_loses_life_ids:
                 # "…each player who owns a spell you cast this way loses life equal to its mana value." (Kefka)
                 self.state.free_cast_owner_loses_life_ids.discard(obj.instance_id)
-                self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.card.converted_mana_cost or 0))
+                self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.mana_value or 0))
             self.state.free_cast_ignore_timing_instance_ids.discard(obj.instance_id)
             self._consume_free_cast_type_slot(obj)  # Aminatou's Augury: one cast per nonland card type
         # RULE 601.2b: remember the announced X on the object itself (not
@@ -1005,7 +1005,7 @@ class CastingResolutionMixin:
         self.state.stack.append(item)
         self._note_crime(item)
         self.state.record_stat(
-            player.id, "spell", cmc=obj.card.converted_mana_cost, name=obj.name
+            player.id, "spell", cmc=obj.mana_value, name=obj.name
         )
         self.state.fire_event(
             GameEvent(
@@ -1170,7 +1170,7 @@ class CastingResolutionMixin:
         obj.mana_spent_to_cast = 0
         if obj.instance_id in self.state.free_cast_owner_loses_life_ids:
             self.state.free_cast_owner_loses_life_ids.discard(obj.instance_id)
-            self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.card.converted_mana_cost or 0))
+            self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.mana_value or 0))
         item = StackItem(
             kind="spell",
             controller_id=player.id,
@@ -1230,7 +1230,7 @@ class CastingResolutionMixin:
         """
         card = {
             "instance_id": obj.instance_id,
-            "mana_value": int(getattr(obj.card, "converted_mana_cost", 0) or 0),
+            "mana_value": int(getattr(obj, "mana_value", 0) or 0),
             "owner_id": obj.owner_id,
             "graveyard_owner_id": obj.owner_id,
             # "one or more **creature** cards leave your graveyard" (PAR-119) — the
@@ -1680,12 +1680,15 @@ class CastingResolutionMixin:
         outer_trigger_event = self.context.trigger_event
         outer_resolving_controller_id = self.context.resolving_controller_id
         outer_resolution_count = self.context.ability_resolution_count
+        outer_source_incarnation = getattr(self.context, "resolving_source_incarnation", None)
+        self.context.resolving_source_incarnation = item.source_zone_incarnation
         self.context.trigger_event = item.trigger_event
         self.context.resolving_controller_id = item.controller_id
         self.context.ability_resolution_count = self._count_ability_resolution(item)
         try:
             return self._apply_stack_item(item)
         finally:
+            self.context.resolving_source_incarnation = outer_source_incarnation
             self.context.trigger_event = outer_trigger_event
             self.context.resolving_controller_id = outer_resolving_controller_id
             self.context.ability_resolution_count = outer_resolution_count

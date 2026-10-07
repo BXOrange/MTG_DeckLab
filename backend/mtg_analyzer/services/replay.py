@@ -34,6 +34,7 @@ from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.phases import default_turn_sequence
+from mtg_analyzer.game.rooms import set_designations
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import GameState
@@ -93,6 +94,8 @@ def _serialize_object(obj: GameObject) -> dict[str, Any]:
         # the synthetic 2/2 face back on.
         "face_down": obj.face_down,
         "face_down_kind": obj.face_down_kind,
+        # RULE 709.5c: which doors of a Room are unlocked — not derivable from the card, and what its abilities depend on.
+        "unlocked_doors": sorted(obj.unlocked_doors),
     }
     if obj.is_token:
         card = obj.card
@@ -105,6 +108,18 @@ def _serialize_object(obj: GameObject) -> dict[str, Any]:
             "oracle_text": card.oracle_text,
             "loyalty": card.loyalty,
         }
+        from mtg_analyzer.game.rooms import has_doors
+
+        if has_doors(card):
+            # RULE 709.5b: token copies retain both halves, independent of their door designations.
+            inst["token"]["room"] = {
+                "mana_cost_string": card.mana_cost_string,
+                "converted_mana_cost": card.converted_mana_cost,
+                "back_name": card.back_name,
+                "back_type_line": card.back_type_line,
+                "back_mana_cost_string": card.back_mana_cost_string,
+                "back_oracle_text": card.back_oracle_text,
+            }
     return inst
 
 
@@ -169,7 +184,15 @@ def _token_card(token: dict[str, Any]) -> Card:
     # form), keyed on the exact name/power/toughness/colors so a same-named
     # different-stats token can't collide with the wrong printing's picture.
     art = default_token_art_library().find(name, power, toughness, colors)
+    room = token.get("room") or {}
     return Card(
+        layout="split" if room else "",
+        mana_cost_string=room.get("mana_cost_string") or "",
+        converted_mana_cost=int(room.get("converted_mana_cost", 0) or 0),
+        back_name=room.get("back_name") or "",
+        back_type_line=room.get("back_type_line") or "",
+        back_mana_cost_string=room.get("back_mana_cost_string") or "",
+        back_oracle_text=room.get("back_oracle_text") or "",
         id=art["id"] if art else f"token:{name}:{type_line}",
         name=name,
         type_line=type_line,
@@ -327,6 +350,8 @@ def build_replay_engine(
         if obj is not None:
             remember(inst, obj)
             state.add_to_battlefield(obj)
+            # RULE 709.5c: entering gave a Room neither door; restore the saved designations (and their abilities).
+            set_designations(obj, inst.get("unlocked_doors"))
 
     # Runtime IDs are regenerated. Remap references only after every object
     # exists; player-targeting Auras keep their string player IDs.

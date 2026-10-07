@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core import GameEffect
+from .. import continuations
 from ._runtime import install, register
 from ..targeting import graveyard_card_matches, legal_targets
 
@@ -68,9 +69,11 @@ class ReturnRememberedGraveyardCardsEffect(GameEffect):
     """A serialized continuation returns previously targeted cards, without targeting again."""
 
     def __init__(self, instance_ids: list[int], tapped: bool = False,
-                 source: Optional["GameObject"] = None, exile_instead_of_leaving: bool = False) -> None:
+                 source: Optional["GameObject"] = None, exile_instead_of_leaving: bool = False,
+                 graveyard_incarnations: Optional[dict[str, int]] = None) -> None:
         super().__init__(source)
         self.instance_ids = list(instance_ids)
+        self.graveyard_incarnations = dict(graveyard_incarnations or {})
         self.tapped = tapped
         #: "…and it gains 'If this permanent would leave the battlefield, exile it instead of putting it anywhere
         #: else.'" (Spirit-Sister's Call) — each returned card is armed like Unearth's (`_exile_instead_of_dying`).
@@ -80,7 +83,8 @@ class ReturnRememberedGraveyardCardsEffect(GameEffect):
         with context.state.simultaneous():
             for iid in self.instance_ids:
                 obj = context.state.find_object(iid)
-                if obj is not None and obj.zone == Zone.GRAVEYARD:
+                if (obj is not None and obj.zone == Zone.GRAVEYARD
+                        and obj.zone_incarnation == self.graveyard_incarnations.get(str(iid), obj.zone_incarnation)):
                     ReturnFromGraveyardEffect(source=self.source, tapped=self.tapped)._apply_one(context, obj)
                     if self.exile_instead_of_leaving and obj.zone == Zone.BATTLEFIELD:
                         _exile_instead_of_dying(context, obj, "Exilieren statt zu verlassen")
@@ -119,6 +123,7 @@ class SacrificeSharedTypeToReturnEffect(GameEffect):
             prompt="Permanent opfern, um die gewählte Karte zurückzubringen?",
             then_specs=[{"type": "return_remembered_graveyard_cards", "params": {
                 "instance_ids": [target.instance_id], "tapped": False, "exile_instead_of_leaving": True,
+                "graveyard_incarnations": {str(target.instance_id): target.zone_incarnation},
             }}],
         )
 
@@ -852,7 +857,7 @@ class ReturnFromGraveyardEffect(GameEffect):
             ):
                 return  # it stays in the graveyard (RULE 303.4f/301.5)
             attach_to = host
-        mv = getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0
+        mv = getattr(target, "mana_value", 0) or 0
         owner_id = getattr(target, "owner_id", None)
         # RULE 110.5b: "…to the battlefield tapped" *enters* tapped — the destination string
         # `return_from_graveyard` reads, so an enters-the-battlefield trigger sees it tapped.
@@ -1419,7 +1424,7 @@ class RevealOpponentLibraryStealEffect(GameEffect):
             return
         hit.controller_id = me.id
         context.engine._put_searched_card(me, hit, "battlefield")
-        mana_value = int(getattr(hit.card, "converted_mana_cost", 0) or 0)
+        mana_value = int(getattr(hit, "mana_value", 0) or 0)
         if mana_value > 0:
             context.lose_life(me, mana_value)
 
@@ -1465,7 +1470,7 @@ class ExileCreatureCardMakeSpiritEffect(GameEffect):
         target = targets[0] if targets else None
         if target is None:
             return
-        mana_value = int(getattr(target.card, "converted_mana_cost", 0) or 0)
+        mana_value = int(getattr(target, "mana_value", 0) or 0)
         context.exile(target)
         if target.zone != Zone.EXILE:
             return
@@ -1480,27 +1485,55 @@ class ExileCreatureCardMakeSpiritEffect(GameEffect):
         )
 
 
+def _offer_greatest_mana_value_creature(rules, frame):
+    remaining = list(frame["remaining_player_ids"])
+    selected = list(frame.get("selected", []))
+    while remaining:
+        player_id = remaining.pop(0)
+        creatures = [o for o in rules.state.permanents_controlled_by(player_id) if o.is_creature]
+        if not creatures:
+            continue
+        top = max(o.mana_value for o in creatures)
+        tied = [o for o in creatures if o.mana_value == top]
+        if len(tied) == 1:
+            selected.append({"instance_id": tied[0].instance_id, "incarnation": tied[0].zone_incarnation})
+            continue
+        rules.open_choice({"kind": "greatest_mana_value_creature", "player_id": player_id,
+                           "remaining_player_ids": remaining, "selected": selected,
+                           "optional": False, "prompt": "Wähle eine Kreatur mit dem höchsten Manabetrag zum Zurücknehmen",
+                           "options": [{"id": str(o.instance_id), "instance_id": o.instance_id,
+                                        "incarnation": o.zone_incarnation, "label": o.name} for o in tied]})
+        return
+    # RULE 608.2d: all opponents choose before any chosen creature moves.
+    with rules.state.simultaneous():
+        for record in selected:
+            obj = rules.state.find_object(record["instance_id"])
+            if (obj is not None and obj in rules.state.battlefield
+                    and obj.zone_incarnation == record["incarnation"]):
+                rules.return_to_hand(obj)
+
+
+@continuations.choice("greatest_mana_value_creature", answer=continuations.ANSWER_INT, rule="608.2d")
+def _resume_greatest_mana_value_creature(rules, choice, answer):
+    option = next((o for o in choice["options"] if o["instance_id"] == answer), None)
+    if option is None:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed greatest-mana-value creature")
+    _offer_greatest_mana_value_creature(rules, {**choice, "selected": [*choice["selected"], {
+        "instance_id": answer, "incarnation": option["incarnation"],
+    }]})
+
+
 class EachOpponentReturnsGreatestManaValueCreatureEffect(GameEffect):
-    """"Each opponent chooses a creature with the greatest mana value among creatures they control. Return those creatures to their owners'
-    hands." (Summon: Valefor, chapter I) — per opponent, one creature among those tied for the greatest mana value. **Simplification:** the
-    tie is broken for the opponent in their favour (the lowest power goes back), since the opponent chooses."""
+    """Valefor: each opponent chooses a greatest-mana-value creature; return them together."""
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        me = _controller_of(self.source, context)
-        if me is None:
-            return
-        chosen: list[Any] = []
-        for player in context.state.living_players():
-            if player.id == me.id:
-                continue
-            creatures = [o for o in context.state.battlefield if o.is_creature and o.controller_id == player.id]
-            if not creatures:
-                continue
-            top = max(int(getattr(o.card, "converted_mana_cost", 0) or 0) for o in creatures)
-            tied = [o for o in creatures if int(getattr(o.card, "converted_mana_cost", 0) or 0) == top]
-            chosen.append(min(tied, key=lambda o: ((o.power or 0), o.instance_id)))
-        for obj in chosen:
-            context.return_to_hand(obj)
+        player = _controller_of(self.source, context)
+        if player is not None:
+            _offer_greatest_mana_value_creature(context.engine, {
+                "remaining_player_ids": [p.id for p in context.state.living_players_apnap() if p.id != player.id],
+                "selected": [],
+            })
 
 
 class DestroyArtifactOrLandPerOpponentEffect(GameEffect):
@@ -1521,7 +1554,7 @@ class DestroyArtifactOrLandPerOpponentEffect(GameEffect):
                 if o.controller_id == player.id and (o.card.is_artifact or o.is_land)
             ]
             if pool:
-                chosen.append(max(pool, key=lambda o: (int(getattr(o.card, "converted_mana_cost", 0) or 0),
+                chosen.append(max(pool, key=lambda o: (int(getattr(o, "mana_value", 0) or 0),
                                                         bool(o.card.is_artifact))))
         for obj in chosen:
             context.destroy(obj)
@@ -1681,7 +1714,7 @@ class PlarggAndNassariEffect(GameEffect):
         if not nonlands:
             return
         nonlands.sort(
-            key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0), reverse=True,
+            key=lambda o: int(getattr(o, "mana_value", 0) or 0), reverse=True,
         )
         denied = nonlands[0]
         castable = [o for o in nonlands[1:] if not o.card.is_land][:2]
@@ -1732,7 +1765,7 @@ class AbstractPerformanceEffect(GameEffect):
             return
 
         def _mv(pile: list[GameObject]) -> int:
-            return sum(int(getattr(o.card, "converted_mana_cost", 0) or 0) for o in pile)
+            return sum(int(getattr(o, "mana_value", 0) or 0) for o in pile)
 
         to_graveyard, kept = (
             (pile_a, pile_b) if _mv(pile_a) >= _mv(pile_b) else (pile_b, pile_a)
@@ -1742,7 +1775,7 @@ class AbstractPerformanceEffect(GameEffect):
             player.graveyard.append(o)
         spells = sorted(
             (o for o in kept if not o.card.is_land),
-            key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+            key=lambda o: int(getattr(o, "mana_value", 0) or 0),
             reverse=True,
         )
         free = spells[0] if spells else None
@@ -1786,7 +1819,7 @@ class DanceWithCalamityEffect(GameEffect):
         name = self.source.name if self.source is not None else "Dance with Calamity"
         while player.library:
             top = player.library[-1]
-            mv = int(getattr(top.card, "converted_mana_cost", 0) or 0)
+            mv = int(getattr(top, "mana_value", 0) or 0)
             if total + mv > self._BUDGET:
                 break
             total += mv
@@ -1834,12 +1867,12 @@ class BudgetDigOntoBattlefieldEffect(GameEffect):
             ))
         cands = sorted(
             (o for o in looked if _is_permanent_card_obj(o) and not o.card.is_land),
-            key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+            key=lambda o: int(getattr(o, "mana_value", 0) or 0),
         )
         taken: list[GameObject] = []
         total = 0
         for o in cands:
-            mv = int(getattr(o.card, "converted_mana_cost", 0) or 0)
+            mv = int(getattr(o, "mana_value", 0) or 0)
             if total + mv <= self.budget:
                 total += mv
                 taken.append(o)

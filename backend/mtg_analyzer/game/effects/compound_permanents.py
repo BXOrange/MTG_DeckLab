@@ -5,6 +5,7 @@ from ...models.game.events import EventType
 from ...models.game.game_object import Zone
 from ..targeting import TargetSpec
 from .core import GameEffect, EffectRegistry, _apply_effects_partitioned
+from .. import continuations
 from .core import DestroyEffect, _controller_of
 
 
@@ -304,34 +305,56 @@ class DamageOpponentsByDiscardedManaValueEffect(GameEffect):
             if event.type != EventType.DISCARD_CARD or event.get("player_id") != player.id:
                 continue
             discarded = context.state.find_object(event.get("instance_id"))
-            mana_value = int(getattr(getattr(discarded, "card", None), "converted_mana_cost", 0) or 0)
+            mana_value = int(getattr(discarded, "mana_value", 0) or 0)
             context.enqueue_reflexive_trigger([
                 {"type": "damage", "params": {"amount": mana_value, "selector": "each_opponent"}},
             ], self.source)
 
 
 class CoinOfFateSplitEffect(GameEffect):
-    """"An opponent chooses one of the exiled cards. You put that card on the bottom of your library and return the other
-    to the battlefield tapped. You become the monarch." (Coin of Fate) — the two creature cards the ability's cost exiled
-    (`GameObject.last_cost_exiled_ids`). **Simplification:** the opponent's choice is made for them as the one that is worst
-    for you — the card with the greater mana value goes to the bottom, the cheaper one returns."""
+    """The controller selects an opponent; that opponent chooses the bottomed exile card."""
 
     def apply(self, context, targets=None):
+        from .choices_actions import offer_opponent_decision
+
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        ids = list(getattr(self.source, "last_cost_exiled_ids", None) or [])
+        ids = list(self.source.last_cost_exiled_ids)
+        incarnations = dict(self.source.last_cost_exiled_incarnations)
         self.source.last_cost_exiled_ids = []
-        cards = [o for o in (context.state.find_object(i) for i in ids) if o is not None and o.zone == Zone.EXILE]
-        if cards:
-            cards.sort(key=lambda o: int(o.card.converted_mana_cost or 0))
-            for bottomed in cards[1:]:
-                owner = context.state.player_by_id(bottomed.owner_id)
-                owner.remove_from_zone(bottomed, Zone.EXILE)
-                bottomed.zone = Zone.LIBRARY
-                owner.library.insert(0, bottomed)  # the bottom (index 0 — see Player.library)
-            context.return_from_graveyard(cards[0], "battlefield_tapped")
-        context.engine.become_monarch(player)
+        self.source.last_cost_exiled_incarnations = {}
+        cards = [o for o in (context.state.find_object(i) for i in ids)
+                 if o is not None and o.zone == Zone.EXILE
+                 and o.zone_incarnation == incarnations.get(o.instance_id, o.zone_incarnation)]
+        decision = {"kind": "coin_of_fate_split", "owner_id": player.id,
+                    "card_ids": [o.instance_id for o in cards],
+                    "incarnations": {str(o.instance_id): o.zone_incarnation for o in cards},
+                    "optional": False, "prompt": "Coin of Fate: Welche Karte kommt unter die Bibliothek?",
+                    "options": [{"id": str(o.instance_id), "instance_id": o.instance_id, "label": o.name}
+                                for o in cards]}
+        if not cards or not offer_opponent_decision(context.engine, player, decision):
+            context.engine.become_monarch(player)
+
+
+@continuations.choice("coin_of_fate_split", answer=continuations.ANSWER_INT, rule="608.2d")
+def _resume_coin_of_fate_split(rules, choice, answer):
+    if answer not in choice["card_ids"]:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed exiled card")
+    for iid in choice["card_ids"]:
+        obj = rules.state.find_object(iid)
+        if (obj is None or obj.zone != Zone.EXILE
+                or obj.zone_incarnation != choice["incarnations"][str(iid)]):
+            continue
+        if iid == answer:
+            owner = rules.state.player_by_id(obj.owner_id)
+            owner.remove_from_zone(obj, Zone.EXILE)
+            obj.zone = Zone.LIBRARY
+            owner.library.insert(0, obj)
+        else:
+            rules.return_from_graveyard(obj, "battlefield_tapped")
+    rules.become_monarch(rules.state.player_by_id(choice["owner_id"]))
 
 
 class ExileRandomGraveyardCardsCastFreeEffect(GameEffect):
@@ -532,7 +555,7 @@ class ExileOpponentGraveyardsCopyCreatureEffect(GameEffect):
                 if obj.card.is_creature and obj.zone == Zone.EXILE:
                     candidates.append(obj)
         if candidates:
-            obj = max(candidates, key=lambda o: int(o.card.converted_mana_cost or 0))
+            obj = max(candidates, key=lambda o: int(o.mana_value or 0))
             copy = obj.card.as_copy(only_types=['Artifact'])
             context.created_objects.extend(context.create_token(player.id, copy, 1) or [])
 

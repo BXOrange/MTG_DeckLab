@@ -78,6 +78,7 @@ from . import slithermuse  # noqa: F401
 from . import sm_agol_helpful_guide  # noqa: F401
 from . import smite_the_deathless  # noqa: F401
 from . import smokestack  # noqa: F401
+from . import smoky_lounge  # noqa: F401
 from . import smothering_abomination  # noqa: F401
 from . import smothering_tithe  # noqa: F401
 from . import snap  # noqa: F401
@@ -107,6 +108,7 @@ from . import squee_the_immortal  # noqa: F401
 from . import sram_senior_edificer  # noqa: F401
 from . import staff_of_compleation  # noqa: F401
 from . import staff_of_the_storyteller  # noqa: F401
+from . import staff_room  # noqa: F401
 from . import stalwart_speartail  # noqa: F401
 from . import stangg_echo_warrior  # noqa: F401
 from . import steal_enchantment  # noqa: F401

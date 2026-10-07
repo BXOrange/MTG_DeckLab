@@ -20,11 +20,6 @@ def _sheltered_by_ghosts() -> list[AbilitySpec]:
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
         AbilitySpec(
-            "triggered",
-            [EffectSpec("return_linked_exile", {})],
-            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
-        ),
-        AbilitySpec(
             "static",
             [
                 EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 0}),

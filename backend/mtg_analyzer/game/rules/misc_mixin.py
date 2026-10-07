@@ -153,6 +153,10 @@ def _that_many_value(then_that_many: Optional[dict], objs: list[Any]) -> int:
                 return 0
             if getattr(obj, "is_melded", False):
                 return sum(mana_value(part) for part in obj.melded_components)
+            from ..rooms import has_doors
+
+            if has_doors(getattr(obj, "card", None)):
+                return obj.mana_value
             card = getattr(obj, "card", None)
             front = getattr(obj, "_front_card", None)
             # RULE 202.3b: a genuine transforming back uses the front's
@@ -3032,7 +3036,7 @@ class MiscSystemsMixin:
         """Whether ``player``'s graveyard holds cards whose **total mana
         value** is ``amount`` or greater (RULE 701.59a) — the affordability
         check shared by every "collect evidence N" cost site."""
-        total = sum(c.card.converted_mana_cost for c in player.graveyard)
+        total = sum(c.mana_value for c in player.graveyard)
         return total >= amount
 
     def collect_evidence(self, player: Player, amount: int) -> bool:
@@ -3052,12 +3056,12 @@ class MiscSystemsMixin:
         picked: list[GameObject] = []
         running = 0
         for card in sorted(
-            player.graveyard, key=lambda c: c.card.converted_mana_cost, reverse=True
+            player.graveyard, key=lambda c: c.mana_value, reverse=True
         ):
             if running >= amount:
                 break
             picked.append(card)
-            running += card.card.converted_mana_cost
+            running += card.mana_value
         met = running >= amount
         for card in picked:
             self.exile(card)
@@ -3420,7 +3424,7 @@ class MiscSystemsMixin:
         if player is None:
             return False
         top = player.library[-1] if player.library else None
-        my_mv = top.card.converted_mana_cost if top is not None else -1
+        my_mv = top.mana_value if top is not None else -1
         revealed: list[tuple[Player, GameObject]] = []
         if top is not None:
             revealed.append((player, top))
@@ -3442,7 +3446,7 @@ class MiscSystemsMixin:
                     self._last_clash_opponent_id = opp.id
                 opp_top = opp.library[-1] if opp.library else None
                 if opp_top is not None:
-                    other_mvs.append(opp_top.card.converted_mana_cost)
+                    other_mvs.append(opp_top.mana_value)
                     revealed.append((opp, opp_top))
                 # RULE 701.30b is one opponent, not every opponent.  Choosing
                 # the first living one remains this engine's documented
@@ -3645,6 +3649,7 @@ class MiscSystemsMixin:
             # another hand-zone pick, general enough for any future "exile a
             # card from your hand" cost/effect to reuse.
             "exile",
+            "exile_until_source_leaves",  # RULE 610.3, selected permanents
             "exile_face_down_linked",  # RULE 702.75a Hideaway's selected library card
             # MEC-20 (the "Expertise" cycle): another hand-zone pick, but
             # unlike ``"cast_free"`` this only *arms* the pick's temporary
@@ -3893,7 +3898,7 @@ class MiscSystemsMixin:
             pool = [obj for obj in pool if _card_type_words(obj)]
         if total_mana_value_budget is not None:
             pool = [obj for obj in pool if int(
-                getattr(obj.card, "converted_mana_cost", 0) or 0
+                getattr(obj, "mana_value", 0) or 0
             ) <= int(total_mana_value_budget)]
         if total_power_budget is not None:
             # "…any number of creatures … with total power 4 or less" (Slaughter the Strong, Reunion of the House):
@@ -4151,7 +4156,7 @@ class MiscSystemsMixin:
             )
             remaining_pool = [
                 obj for obj in remaining_pool
-                if int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= int(budget) - spent
+                if int(getattr(obj, "mana_value", 0) or 0) <= int(budget) - spent
             ]
         power_budget = choice.get("total_power_budget")
         if power_budget is not None:
@@ -4447,8 +4452,13 @@ class MiscSystemsMixin:
                 self.grant_damage_multiplier_from_source(obj)
             else:
                 self.prevent_damage_from_source(obj, "all")
-        elif action in ("exile", "exile_face_down_linked"):
-            self.exile(obj)
+        elif action in ("exile", "exile_face_down_linked", "exile_until_source_leaves"):
+            if action == "exile_until_source_leaves":
+                from ..effects.exile_control import ExileEffect
+
+                ExileEffect(source=source, until_source_leaves=True).apply(self.context, [obj])
+            else:
+                self.exile(obj)
             if action == "exile_face_down_linked":
                 obj.face_down_in_exile = True
                 obj.face_down_exile_viewers = {player.id}
@@ -4489,7 +4499,7 @@ class MiscSystemsMixin:
             if obj in player.library:
                 player.remove_from_zone(obj, Zone.LIBRARY)
             if action == "library_to_battlefield_cheap_bonus" and (
-                int(obj.card.converted_mana_cost or 0) <= CHEAP_CREATURE_MAX_MANA_VALUE
+                int(obj.mana_value or 0) <= CHEAP_CREATURE_MAX_MANA_VALUE
             ):
                 obj.entry_bonus_counters["+1/+1"] = CHEAP_CREATURE_BONUS_COUNTERS  # "enters with" — see `_apply_entry_counters`
             self._put_searched_card(

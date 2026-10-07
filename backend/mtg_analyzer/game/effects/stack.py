@@ -951,7 +951,7 @@ class MillThenDamageEachOpponentByMvEffect(GameEffect):
         before = len(player.graveyard)
         context.mill(player, self.count)
         milled = player.graveyard[before:]
-        total_mv = sum(int(getattr(o.card, "converted_mana_cost", 0) or 0) for o in milled)
+        total_mv = sum(int(getattr(o, "mana_value", 0) or 0) for o in milled)
         if total_mv <= 0:
             return
         for opp in context.state.players:

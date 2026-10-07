@@ -78,6 +78,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from .creature_types import CREATURE_SUBTYPES
+from .rooms import unlocked_door_names
 from .effects.core import (
     ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
     ReplacementRegistry, StaticAbility, TriggeredAbility,
@@ -954,7 +955,7 @@ COUNT_SELECTOR_ZONES: dict[str, str] = {
 #: different powers").
 _DISTINCT_KEYS: dict[str, Any] = {
     "power": lambda o: o.power, "toughness": lambda o: o.toughness,
-    "mana_value": lambda o: o.card.converted_mana_cost, "name": lambda o: o.name,
+    "mana_value": lambda o: o.mana_value,
 }
 
 #: The card types of RULE 205.2a an object can carry in a real game ("kindred"
@@ -978,8 +979,11 @@ def card_types_of(obj: "GameObject") -> set[str]:
 #: among permanents you control" (Squawkroaster) count the union, since one
 #: artifact creature contributes two card types.
 _DISTINCT_SET_KEYS: dict[str, Any] = {
+    "name": lambda o: set(o.names),
     "card_type": card_types_of,
     "color": lambda o: set(getattr(o, "colors", None) or ()),
+    # RULE 709.5 (MEC-111): "different names among unlocked doors of Rooms you control" — a locked half has no name.
+    "door_name": lambda o: set(unlocked_door_names(o)),
 }
 
 #: What an ``aggregate`` selector measures on each matched object —
@@ -988,7 +992,9 @@ _DISTINCT_SET_KEYS: dict[str, Any] = {
 #: "the number of +1/+1 counters on lands you control" (Toph; ``counters``
 #: reads ``counter_kind``, or every kind when that is absent).
 _AGGREGATE_VALUES: dict[str, Any] = {
-    "mana_value": lambda o, _k: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+    # RULE 709.5c (MEC-111): "the number of unlocked doors among Rooms you control".
+    "unlocked_doors": lambda o, _k: len(getattr(o, "unlocked_doors", None) or ()),
+    "mana_value": lambda o, _k: int(getattr(o, "mana_value", 0) or 0),
     "power": lambda o, _k: int(o.power or 0),
     "toughness": lambda o, _k: int(o.toughness or 0),
     "counters": lambda o, k: (
@@ -1077,7 +1083,7 @@ def _count_structured(
             colour = spec.get("color")
             return sum(
                 1 for obj in matched
-                for symbol in ManaCost.parse(obj.card.mana_cost_string).symbols
+                for symbol in ManaCost.parse(obj.mana_cost_string).symbols
                 if colour in symbol.colors
             )
         measure = _AGGREGATE_VALUES.get(spec.get("value", ""))
@@ -1534,7 +1540,7 @@ def count_selector(
         # would otherwise have grown a third near-duplicate of).
         metric_name, _, scope_name = selector[len("greatest_"):-len("_you_control")].partition("_among_")
         metric = {
-            "mana_value": lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+            "mana_value": lambda o: int(getattr(o, "mana_value", 0) or 0),
             "power": lambda o: int(o.power or 0),
         }.get(metric_name)
         in_scope = {
@@ -1884,7 +1890,7 @@ def count_selector(
         owner = state.player_by_id(controller_id) if controller_id else None
         owned = [o for o in bf if o.is_commander and o.owner_id == controller_id]
         owned += list(getattr(owner, "command", None) or [])
-        return max((o.card.converted_mana_cost or 0 for o in owned), default=0)
+        return max((o.mana_value or 0 for o in owned), default=0)
     if selector == "commanders_you_control":
         # "as long as you control your commander"/"if you control your
         # commander" (RULE 903.4 — Angelic Field Marshal, Loyal Drake and
@@ -2071,7 +2077,7 @@ def count_selector(
             return sum(
                 sum(
                     1
-                    for symbol in ManaCost.parse(o.card.mana_cost_string).symbols
+                    for symbol in ManaCost.parse(o.mana_cost_string).symbols
                     if symbol.kind == HYBRID
                 )
                 for o in bf
@@ -2090,7 +2096,7 @@ def count_selector(
         return sum(
             sum(
                 1
-                for symbol in ManaCost.parse(o.card.mana_cost_string).symbols
+                for symbol in ManaCost.parse(o.mana_cost_string).symbols
                 if letters & symbol.colors
             )
             for o in bf
@@ -2314,7 +2320,7 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
         # mana value; `combat._quality_matches_type` matches a ``mv:N`` quality against the source's mana value.
         controller_id = getattr(ability.source, "controller_id", None)
         quals |= {
-            f"mv:{int(getattr(o.card, 'converted_mana_cost', 0) or 0)}"
+            f"mv:{int(getattr(o, "mana_value", 0) or 0)}"
             for o in state.battlefield if o.controller_id == controller_id and o.card.is_artifact
         }
     if ability.params.get("protection_from_colors_not_in_commanders_identity"):
@@ -2675,7 +2681,7 @@ def _apply_layer_3_text(state: "GameState", abilities: list) -> None:
         if not replace:
             continue
         for obj in affected_objects(state, ability):
-            text = obj._derived_oracle_text if obj._derived_oracle_text is not None else (obj.card.oracle_text or "")
+            text = obj._derived_oracle_text if obj._derived_oracle_text is not None else obj.effective_oracle_text
             for old, new in replace.items():
                 text = re.sub(rf"\b{re.escape(old)}\b", new, text, flags=re.IGNORECASE)
             obj._derived_oracle_text = text
@@ -2740,7 +2746,7 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             add_subtypes += linked.card.type_line.partition("—")[2].split()
         for obj in affected_objects(state, ability):
             if pt_selector == "mana_value":
-                obj_power = obj_toughness = getattr(obj.card, "converted_mana_cost", 0) or 0
+                obj_power = obj_toughness = getattr(obj, "mana_value", 0) or 0
             elif pt_selector == "vehicle":
                 # "Target Vehicle becomes an artifact creature until end of turn." (Mech Hangar, Peacewalker Colossus)
                 # — RULE 301.7: it has the printed Vehicle P/T of *whichever* Vehicle was chosen.
@@ -5351,7 +5357,7 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
         # mana-value floor, and an amount that scales with its mana value.
         if ability.params.get("cast_only") and not getattr(obj, "was_cast", False):
             continue
-        mana_value = int(getattr(obj.card, "converted_mana_cost", 0) or 0)
+        mana_value = int(getattr(obj, "mana_value", 0) or 0)
         if mana_value < int(ability.params.get("min_mana_value", 0) or 0):
             continue
         kind = str(ability.params.get("kind", "+1/+1"))
@@ -5787,7 +5793,7 @@ def standing_free_cast_grants_flash(
 
 
 def granted_alt_cast_cost_for(
-    state: "GameState", player: "Player", card: Any
+    state: "GameState", player: "Player", card: Any, obj: Optional[Any] = None
 ) -> Optional[Any]:
     """An `ActivationCost` a standing ``"granted_alt_cast_cost"`` static
     (Conspiracy Unraveler — "You may collect evidence N rather than pay the
@@ -5819,6 +5825,9 @@ def granted_alt_cast_cost_for(
             continue
         card_type = str(ability.params.get("card_type") or "").lower()
         if card_type and not getattr(card, f"is_{card_type}", False):
+            continue
+        # "…cast a spell **from your hand**" (Access Maze): the spell's own zone, when the caller knows it.
+        if ability.params.get("from_hand") and obj is not None and getattr(obj, "zone", None) != "hand":
             continue
         if ability.params.get("once_per_turn") and _once_per_turn_spent(state, "alt_cost", ability):
             continue

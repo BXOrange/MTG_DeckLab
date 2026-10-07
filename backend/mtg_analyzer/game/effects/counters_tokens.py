@@ -925,8 +925,8 @@ class MutualRevealCompareManaValueEffect(GameEffect):
         # revealed, so neither `lose_life` call can run first.
         player_card = _reveal(player)
         opponent_card = _reveal(opponent)
-        player_loss = int(getattr(opponent_card.card, "converted_mana_cost", 0) or 0) if opponent_card else 0
-        opponent_loss = int(getattr(player_card.card, "converted_mana_cost", 0) or 0) if player_card else 0
+        player_loss = int(getattr(opponent_card, "mana_value", 0) or 0) if opponent_card else 0
+        opponent_loss = int(getattr(player_card, "mana_value", 0) or 0) if player_card else 0
         if player_loss:
             context.lose_life(player, player_loss)
         if opponent_loss:
@@ -3162,14 +3162,23 @@ class TurnFaceUpChosenEffect(GameEffect):
     701.40g/701.58g)."""
 
     def __init__(self, source: Optional["GameObject"] = None, optional: bool = True,
-                 creature_only: bool = False) -> None:
+                 creature_only: bool = False, trigger_subject_key: Optional[str] = None) -> None:
         super().__init__(source)
         self.optional = bool(optional)
         self.creature_only = bool(creature_only)
+        #: "Turn **that creature** face up" (Staff Room) — the firing event's object instead of a pick from the
+        #: controller's face-down permanents, the same read `AddCountersEffect.trigger_subject_key` makes.
+        self.trigger_subject_key = trigger_subject_key
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
+            return
+        if self.trigger_subject_key:
+            obj_id = (context.trigger_event or {}).get(self.trigger_subject_key)
+            subject = context.state.find_object(obj_id) if obj_id is not None else None
+            if subject is not None and getattr(subject, "face_down", False):
+                context.engine.turn_face_up(subject)
             return
         candidates = [
             obj for obj in context.state.battlefield
@@ -3710,8 +3719,10 @@ class CopyPermanentEffect(GameEffect):
         legendary: bool = False,
         max_mana_value: Any = None,
         other_opponents: bool = False,
+        require_exiled_trigger_subject: bool = False,
     ) -> None:
         super().__init__(source)
+        self.require_exiled_trigger_subject = bool(require_exiled_trigger_subject)
         self.count = count
         self.other_opponents = bool(other_opponents)
         #: "…a copy of target artifact, except **it's legendary**" (Adagia) — the copy gains the Legendary
@@ -3964,6 +3975,16 @@ class CopyPermanentEffect(GameEffect):
                 event = context.trigger_event
                 iid = (event or {}).get("instance_id")
                 target = context.state.find_object(iid) if iid is not None else None
+                if self.require_exiled_trigger_subject and not any(
+                    o.instance_id == iid and o.zone == Zone.EXILE
+                    for o in context.previous_targets
+                ):
+                    return  # "If you do": the preceding exile actually succeeded.
+                copiable = (event or {}).get("copiable_card")
+                if copiable is not None:
+                    from ...models.game.game_object import GameObject
+
+                    target = GameObject(copiable, owner_id=(event or {}).get("owner_id"), zone=Zone.BATTLEFIELD)
             elif self.referent == "linked_exile":
                 iid = getattr(self.source, "linked_exile_id", None)
                 if self.source is not None:

@@ -78,6 +78,7 @@ from . import torbran_thane_of_red_fell  # noqa: F401
 from . import torch_breath  # noqa: F401
 from . import torch_the_tower  # noqa: F401
 from . import torch_the_witness  # noqa: F401
+from . import torture_pit  # noqa: F401
 from . import touch_the_spirit_realm  # noqa: F401
 from . import towering_titan  # noqa: F401
 from . import toxic_deluge  # noqa: F401

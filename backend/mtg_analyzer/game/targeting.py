@@ -427,6 +427,8 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # `forest` narrowed to the controller's own, the same split
         # `land_you_control` is to a bare "land".
         "forest_you_control",
+        # "target Room" / "target Room you control" (RULE 709.5, MEC-111: Anthropede, Marina Vendrell, Keys to the House).
+        "room", "room_you_control",
         # "target creature it's blocking" (Tinder Wall, MEC-40) — narrowed
         # to whichever attacker(s) this ability's own source currently has
         # assigned via `GameObject.blocking`/`additional_blocking`.
@@ -807,6 +809,8 @@ class TargetSpec:
             "legendary_permanent": "legendäre bleibende Karte",
             "another_legendary_permanent_you_control": "andere legendäre bleibende Karte unter deiner Kontrolle",
             "forest_you_control": "Wald unter deiner Kontrolle",
+            "room": "Raum",
+            "room_you_control": "Raum unter deiner Kontrolle",
             "creature_source_is_blocking": "Kreatur, die dies blockiert",
             "noncreature_nonland_permanent":
                 "bleibende Karte, die weder Kreatur noch Land ist",
@@ -1046,11 +1050,11 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
         if not any(str(s).lower() in type_line for s in subtype_any):
             return False
     mana_value = spell_filter.get("mana_value")
-    if mana_value is not None and obj.card.converted_mana_cost != mana_value:
+    if mana_value is not None and obj.mana_value != mana_value:
         return False
     # "…spell with mana value 4 or less" (Expansion // Explosion).
     max_mana_value = spell_filter.get("max_mana_value")
-    if max_mana_value is not None and obj.card.converted_mana_cost > max_mana_value:
+    if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
     return True
 
@@ -1208,6 +1212,7 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     "mountain": lambda o: bool(o.is_land) and "mountain" in str(o.card.type_line).lower(),
     "forest": lambda o: bool(o.is_land) and "forest" in str(o.card.type_line).lower(),
     "forest": lambda o: bool(o.is_land) and _fp_subtype(o, "forest"),
+    "room": lambda o: _fp_subtype(o, "room"),
     "legendary_permanent": lambda o: bool(o.card.is_legendary),
     "historic_permanent": lambda o: (
         bool(o.card.is_artifact) or bool(o.card.is_legendary)
@@ -1340,6 +1345,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "forest": TargetFrame("forest"),
     "forest": TargetFrame("forest"),
     "forest_you_control": TargetFrame("forest", SCOPE_YOU),
+    "room": TargetFrame("room", exclude_source=False),
+    "room_you_control": TargetFrame("room", SCOPE_YOU, exclude_source=False),
 
     # --- controller-scoped single types ---------------------------------
     # RULE 115: "target creature you control" includes the source itself,
@@ -1603,15 +1610,15 @@ def _legal_from_frame(
         if frame.apply_color and not _color_ok(spec, obj.colors):
             continue
         if frame.apply_max_mana_value and spec.max_mana_value is not None and (
-            obj.card.converted_mana_cost > spec.max_mana_value
+            obj.mana_value > spec.max_mana_value
         ):
             continue
         if frame.apply_max_mana_value and spec.min_mana_value is not None and (
-            obj.card.converted_mana_cost < spec.min_mana_value
+            obj.mana_value < spec.min_mana_value
         ):
             continue
         if frame.apply_max_mana_value and spec.exact_mana_value is not None and (
-            obj.card.converted_mana_cost != spec.exact_mana_value
+            obj.mana_value != spec.exact_mana_value
         ):
             continue
         if frame.apply_creature_filter and spec.creature_filter and not (
@@ -1783,7 +1790,7 @@ def _legal_targets_for(
         event = trigger_event or {}
         firing = state.find_object(event.get("instance_id", event.get("source_id")))
         spec = replace(spec, exact_mana_value=(
-            int(getattr(getattr(firing, "card", None), "converted_mana_cost", 0) or 0)
+            int(getattr(firing, "mana_value", 0) or 0)
             if firing is not None else -1
         ))
     if spec.exact_mana_value == "trigger_spell_mana_value":
@@ -2032,9 +2039,9 @@ def _legal_targets_for(
             and (allow_self or o is not source)
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-            and (spec.min_mana_value is None or o.card.converted_mana_cost >= spec.min_mana_value)
-            and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
+            and (spec.max_mana_value is None or o.mana_value <= spec.max_mana_value)
+            and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
+            and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
             and (
                 not spec.creature_filter
                 or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event)
@@ -2173,10 +2180,10 @@ def _legal_targets_for(
             if type_filter(o)
             and (not spec.subtype or spec.subtype.lower() in o.card.type_line.lower())
             and not (spec.exclude_legendary and o.card.is_legendary)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-            and (spec.min_mana_value is None or o.card.converted_mana_cost >= spec.min_mana_value)
+            and (spec.max_mana_value is None or o.mana_value <= spec.max_mana_value)
+            and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
             # "…creature card with mana value X from your graveyard" (Isareth the Awakener, PAR-139).
-            and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
+            and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
             # "return target creature card with power 2 or less from your graveyard" (Alesha,
             # PAR-143) — the same filter vocabulary a battlefield creature target reads.
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event))

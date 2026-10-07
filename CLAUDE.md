@@ -129,6 +129,13 @@ damage. Noncombat damage instructions emit a `DAMAGE` batch; the trigger
 counts distinct opponents, so Kediss copying Malcolm's damage yields Treasures
 for the other opponents as well. See `tests/test_malcolm_noncombat_damage.py`.
 
+**Exile until departure** (RULE 610.3) uses `ExileEffect.until_source_leaves`
+and state-owned source/exile incarnation links. Actual battlefield removals
+emit a separate notification; its batch returns linked cards immediately and
+simultaneously, without a leaves trigger. A source that already left or blinked
+cannot exile through its old ability. Ordinary two-ability linked exile remains
+on the separate-trigger path.
+
 **Object choices** (`effects/choices_actions.py`, `choose_objects`) support
 hand-only pools and targeted player choosers. `then_that_many` counts selected
 sacrifices directly, including tokens; graveyard size is not a reliable count. Delayed
@@ -153,6 +160,12 @@ completed attack declaration and includes dynamically granted instances.
 Spell mana provenance preserves artifact-creature membership in both types.
 Continuous characteristics are recomputed between resolving instructions,
 without running state-based actions inside a resolution (RULE 613/704).
+
+**Suspended choices** preserve graveyard incarnations for remembered returns.
+Death events also capture copiable card values so a token copy reads the dying
+permanent’s face. Graveyard departures provide separate per-card and one-or-more
+events; damage-batch referents capture distinct source IDs. Paired activation
+sacrifices accept both selected IDs through the shared board and session API.
 
 **Cleanup discards** (RULE 514.1) use the shared pending-choice card picker.
 The active player selects excess hand cards before damage and temporary effects
@@ -568,6 +581,9 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
   Squirreled Away is fully modeled (85/85); see the Deck/Cube Playability Batches
   in `docs/implementation-state/Done_Backend.md` for reusable engine support.
 - `blitz.py` — Blitz payments, grants, discounts and delayed sacrifice (RULE 702.152).
+- `rooms.py` — Rooms (RULE 709.5): door designations, per-door ability binding,
+  `unlock`/`lock` and their `DOOR_UNLOCKED`/`ROOM_FULLY_UNLOCKED` events; the
+  special action is `engine/rooms_mixin.py`, the instruction `effects/rooms.py`.
 - `costs.py` — regex parser for **activated-ability costs** (`Cost: Effect`).
 - `card_registry/` — card→`AbilitySpec` registry mechanism (bind-on-load
   source, née `ability_catalogue/`): `core.py`'s `register`/`specs_for`
@@ -727,8 +743,17 @@ for the upstream contract and limits.
   (RULE 701.42 — exile the pair, one melded permanent, un-melds on leave);
   modal-DFC/Adventure/Split-Fuse/Prepared casting; Sagas, Class/Leveler/
   Station level-ups; battles (RULE 310); face-down permanents (morph/
-  manifest/disguise/cloak); dungeons + venturing (RULE 309); the RULE 9
-  casual variants (Planechase/Archenemy/Vanguard).
+  manifest/disguise/cloak); dungeons + venturing (RULE 309); Rooms (RULE
+  709.5 — `game/rooms.py`: a Room permanent keeps both halves and
+  `GameObject.unlocked_doors` are its designations; **abilities are bound
+  only for unlocked doors**, so a locked half simply has none; live names,
+  mana costs, mana values, colours and rules text also follow the doors.
+  Printed identity stays available for Replay and art. The unlock
+  special action is `GameEngine.unlock_door`, "when you unlock this door" is
+  a `DOOR_UNLOCKED` trigger with `{"filter": {"door": "this"}}` the binder
+  fills in per half, and a Room's parser/coverage verdict reads **both**
+  halves — `card_registry.is_authored_card`, not `is_registered(name)`);
+  the RULE 9 casual variants (Planechase/Archenemy/Vanguard).
 
 **The oracle-text parser is the main ongoing effort.** Pipeline:
 `normalize` → `segmenter` → `catalogue/handlers` → `gate.parse_oracle`,

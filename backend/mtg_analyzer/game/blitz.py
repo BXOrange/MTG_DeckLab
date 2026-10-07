@@ -71,7 +71,7 @@ def costs_for(state, player, obj) -> list[BlitzCost]:
         params = ability.params
         minimum = int(params.get("min_mana_value", 0))
         if not obj.card.is_creature or (
-            obj.card.converted_mana_cost < minimum and not ManaCost.from_card(obj.card).has_variable
+            obj.mana_value < minimum and not ManaCost.from_card(obj.card).has_variable
         ):
             continue
         if params.get("from_hand") and obj not in player.hand:

@@ -570,3 +570,31 @@ def test_jarad_gets_plus_one_per_creature_card_in_the_graveyard_and_drains_on_sa
     engine.activate_ability(p1, jarad, jarad.activated_abilities.index(drain), sacrifice_choice=fodder.instance_id)
     engine.resolve_until_stable()
     assert p2.life == 17  # the sacrificed creature's power
+
+
+def test_jarad_lets_the_player_select_both_halves_of_the_sacrifice_cost():
+    engine, p1, jarad, index = _jarad_in_graveyard()
+    swamp = _filler(engine, "Swamp", "Basic Land — Swamp")
+    kept = _filler(engine, "Keep Forest", "Basic Land — Forest")
+    chosen = _filler(engine, "Sacrifice Forest", "Basic Land — Forest")
+    action = next(a for a in engine.legal_actions(p1) if a["type"] == "activate_ability"
+                  and a["instance_id"] == jarad.instance_id and a["ability_index"] == index)
+    assert {o["instance_id"] for o in action["sacrifice_cost"]["second_options"]} == {kept.instance_id, chosen.instance_id}
+    engine.activate_ability(p1, jarad, index, sacrifice_choice=swamp.instance_id,
+                            sacrifice_also_choice=chosen.instance_id)
+    assert swamp.zone == chosen.zone == Zone.GRAVEYARD
+    assert kept.zone == Zone.BATTLEFIELD and jarad.zone == Zone.GRAVEYARD
+    engine.resolve_until_stable()
+    assert jarad.zone == Zone.HAND
+
+
+def test_jarad_rejects_a_duplicate_or_ineligible_second_cost_pick_before_payment():
+    engine, p1, jarad, index = _jarad_in_graveyard()
+    dual = _filler(engine, "Dual", "Land — Swamp Forest")
+    forest = _filler(engine, "Forest", "Basic Land — Forest")
+    import pytest
+    with pytest.raises(ValueError):
+        engine.activate_ability(p1, jarad, index, sacrifice_choice=dual.instance_id,
+                                sacrifice_also_choice=dual.instance_id)
+    assert dual.zone == forest.zone == Zone.BATTLEFIELD
+    assert jarad.zone == Zone.GRAVEYARD and not engine.state.stack

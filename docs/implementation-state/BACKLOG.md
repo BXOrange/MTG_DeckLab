@@ -132,16 +132,9 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-111 · Rooms: door state and unlocking (RULE 709.5).** Rooms have no locked/unlocked door state — casting a Room *is* its
-  door unlocking, only the front half's text is cached, and nothing can unlock a door later, count "fully unlock", or cast either
-  half. 30 cached Room cards plus Blu Mansion Prince, Fear of Sleep Paralysis, Secret Arcade and the "unlock" payoffs. Needs the
-  cache to hold both halves (a `Card` schema change wipes the cache; `import_bulk.py --reseed-only` restores it).
 - **MEC-112 · "You may choose new targets for the copy" (RULE 707.10c).** Spell/ability copies always keep the original's targets
   (`copy_spell`/`copy_ability` take a caller-supplied `new_targets`, no interactive choice exists). 225 cached cards carry the
   text (e.g. Gogo, Sevinne's Reclamation); the 78 already covered silently take the default.
-- **MEC-113 · "Until ~ leaves the battlefield" as a duration (RULE 610.3).** The exile family uses the legacy linked-exile leaves
-  trigger (`return_linked_exile`, 10 hand-authored cards plus the parser's mass-exile rows): the return is respondable, and an
-  enters trigger still exiles when the source already left. ~143 cached cards use the wording (Portable Hole, Auron, Summon: Ixion).
 - **MEC-114 · Myriad (RULE 702.116).** The keyword is recognised (`keywords.py`) but has no engine behaviour: "whenever this
   creature attacks, for each opponent other than defending player, you may create a token copy that's tapped and attacking that
   player or a planeswalker they control; exile the tokens at end of combat" never fires. 23 cached cards print it, plus the

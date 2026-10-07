@@ -197,6 +197,10 @@ class TriggerCollectionMixin:
                 ability.capture_event(event, self.context)
                 if capture and ability.capture_event else event
             )
+            # RULE 610.3b: a source that leaves before placement is still the old source.
+            captured = copy.copy(captured)
+            captured.data = dict(captured.data)
+            captured.data["source_zone_incarnation"] = getattr(obj, "zone_incarnation", None)
             firing_ability = ability
             controller_id = getattr(obj, "controller_id", None)
             if controller_id is not None and controller_id != ability.controller_id:

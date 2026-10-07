@@ -1039,7 +1039,7 @@ class CastingMixin:
                 return False
         elif alt_cost:
             alt_cast_cost = getattr(obj, "alt_cast_cost", None) or continuous.granted_alt_cast_cost_for(
-                self.state, player, card
+                self.state, player, card, obj
             )
             if alt_cast_cost is None:
                 return False
@@ -2308,7 +2308,7 @@ class CastingMixin:
                 self._pay_alt_cast_cost(
                     player, obj,
                     getattr(obj, "alt_cast_cost", None)
-                    or continuous.granted_alt_cast_cost_for(self.state, player, obj.card),
+                    or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj),
                 )
                 if getattr(obj, "dash", False):
                     # RULE 702.109c/d (PAR-26): a creature cast for its dash
@@ -2322,7 +2322,7 @@ class CastingMixin:
                 # (RULE 118), mirroring `RulesEngine.cast_spell`'s own
                 # "lose_life *after* the card leaves its current zone" order.
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
-                self.rules.lose_life(player, obj.card.converted_mana_cost, cause="cost")
+                self.rules.lose_life(player, obj.mana_value, cause="cost")
             else:
                 cost = self.effective_cast_cost(
                     player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
@@ -2699,7 +2699,7 @@ class CastingMixin:
                 for o in self.state.permanents_controlled_by(player.id)
                 if continuous.has_subtype(o, quality)
             ),
-            key=lambda o: o.card.converted_mana_cost,
+            key=lambda o: o.mana_value,
         )
         if on_bf:
             return on_bf[0]
@@ -2709,7 +2709,7 @@ class CastingMixin:
                 for c in player.hand
                 if c is not obj and continuous.has_subtype(c, quality)
             ),
-            key=lambda c: c.card.converted_mana_cost,
+            key=lambda c: c.mana_value,
         )
         return in_hand[0] if in_hand else None
     def _pay_additional_cast_cost(

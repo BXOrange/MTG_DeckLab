@@ -553,3 +553,18 @@ def test_suspended_sentence_destroys_drains_and_exiles_itself_with_time_counters
     for expected in (2, 1):
         _step(engine, "upkeep")
         assert spell.counters.get("time") == expected
+
+
+def test_syr_konrad_triggers_for_each_creature_card_in_a_simultaneous_graveyard_exit():
+    engine = _game(library=10)
+    konrad = _card(engine, "Syr Konrad, the Grim")
+    creatures = [_filler(engine, f"Dead {i}", "Creature", power=2, toughness=2, zone=Zone.GRAVEYARD) for i in range(2)]
+    artifact = _filler(engine, "Dead Artifact", "Artifact", zone=Zone.GRAVEYARD)
+    theirs = _filler(engine, "Their Dead", "Creature", player="p2", power=2, toughness=2, zone=Zone.GRAVEYARD)
+    with engine.state.simultaneous():
+        for obj in [*creatures, artifact, theirs]:
+            engine.rules.exile(obj)
+    assert len([a for a, _ in engine.rules.pending_triggers if a.source is konrad]) == 2
+    life = engine.state.player_by_id("p2").life
+    engine.resolve_until_stable()
+    assert engine.state.player_by_id("p2").life == life - 2

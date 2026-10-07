@@ -30,8 +30,9 @@ def test_segment_enters_or_transforms_into_self():
     assert seg.claimed
     assert seg.spec.trigger["event"] == ["ENTERS_BATTLEFIELD", "TRANSFORMED"]
     assert seg.spec.trigger["condition"] == {"subject": "self"}
-    # + the companion LEAVES_BATTLEFIELD return
-    assert any(x.effects[0].type == "return_linked_exile" for x in seg.extra_specs)
+    # RULE 610.3 returns immediately, without a companion leave trigger.
+    assert seg.extra_specs == []
+    assert seg.spec.effects[0].params["until_source_leaves"]
 
 
 def test_segment_fails_closed_on_unknown_verb_in_compound():

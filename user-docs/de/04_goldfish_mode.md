@@ -84,6 +84,13 @@ tun kann:
 - Eine gesperrte Aktion zeigt **🔒** mit einem Grund (z. B. "kein
   gültiges Ziel") statt eines klickbaren Buttons.
 
+Räume zeigen für jede Tür eine 🔒/🔓-Markierung. Wenn du eine Hälfte wirkst,
+wird diese Tür entriegelt; nur entriegelte Hälften tragen Fähigkeiten, Namen
+und Manawert bei. In einer Hauptphase deines Zuges, mit Priorität und leerem
+Stack, bezahlt **🚪 … entriegeln** die aufgedruckten Kosten der anderen Tür.
+Das Entriegeln selbst verwendet den Stack nicht; seine ausgelösten
+Fähigkeiten schon.
+
 ## Der Stack
 
 Sobald etwas auf seine Auflösung wartet, legt sich ein

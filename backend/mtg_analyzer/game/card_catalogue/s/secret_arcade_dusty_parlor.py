@@ -9,8 +9,7 @@ def _secret_arcade_dusty_parlor() -> list[AbilitySpec]:
     (You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)
 
     — PLAY-ALL (Miracle Worker). A `type_change` adding ``enchantment`` to ``nonland_permanents_you_control``. **Simplification:** only
-    the permanents on the battlefield are enchantments — a permanent spell on the stack is not. **Simplification (as in Experimental Lab // Staff Room):** Rooms have no door state in the engine, so casting the Room is its
-    door unlocking — the ability is an enters trigger — and the cache holds only this front door's text.
+    the permanents on the battlefield are enchantments — a permanent spell on the stack is not. The left door's text (`game/rooms.py`, MEC-111).
     """
     return [
         AbilitySpec(
@@ -20,5 +19,4 @@ def _secret_arcade_dusty_parlor() -> list[AbilitySpec]:
     ]
 
 
-register("Secret Arcade // Dusty Parlor", _secret_arcade_dusty_parlor)
 register("Secret Arcade", _secret_arcade_dusty_parlor)

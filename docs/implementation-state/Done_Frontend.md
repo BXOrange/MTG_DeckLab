@@ -247,6 +247,12 @@ repointed there.
 
 ## Card-Type & Structural UI
 
+### Room doors and unlocking (MEC-111)
+
+- **What:** Room permanents show a lock/unlock badge for each door and the legal-action button names the door and its unlock cost. The table feed announces unlocks. Replay imports/exports door designations and offers a toggle per door; editor toggles are free and do not fire game triggers.
+- **Files:** `gameBoardView.js`, `replayView.js`, `locales/de.js`, `locales/en.js`, `styles/main.css`; the Engine-Status translations document both the door mechanic and the separate card-text coverage.
+- **Validation:** Chromium/Playwright exercised Replay import, toggles, export, mana editing and the play-mode unlock button against the real HTTP API; badges/buttons updated without JavaScript errors.
+
 ### Planeswalker loyalty display
 
 - **What:** A ◆-badge shows current loyalty; `[+N]`/`[-N]`/`[0]` ability buttons get color-coded modifier classes.

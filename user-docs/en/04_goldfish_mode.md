@@ -80,6 +80,12 @@ Buttons appear directly under a card for whatever it can currently do:
 - A locked action shows **🔒** with a reason (e.g. "kein gültiges
   Ziel" — no legal target) instead of a clickable button.
 
+Rooms show a 🔒/🔓 marker for each door. Casting a half unlocks that door;
+only unlocked halves contribute abilities, names and mana value. During a
+main phase of your turn, with priority and an empty stack, **🚪 Unlock …**
+pays the other door's printed cost. The unlock itself does not use the stack;
+its triggered abilities do.
+
 ## The stack
 
 Whenever something is waiting to resolve, a **Stack** panel overlays

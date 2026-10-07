@@ -449,6 +449,10 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     bonus = int(params.get("amount", 0))
     your_sources_only = bool(params.get("your_sources_only", False))
     to_opponent_only = bool(params.get("to_opponent_only", False))
+    #: "…noncombat damage to an opponent" (Torture Pit): combat damage is untouched and the recipient must be
+    #: the opponent *player* itself, not a permanent they control.
+    noncombat_only = bool(params.get("noncombat_only", False))
+    players_only = bool(params.get("players_only", False))
     colors = list(params.get("colors") or ([params["color"]] if params.get("color") else []))
     types = list(params.get("types") or [])
     is_spell = bool(params.get("is_spell", False))
@@ -485,6 +489,10 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         if your_sources_only:
             if src is None or event.get("source_controller_id") != src.controller_id:
                 return False
+        if noncombat_only and event.get("combat"):
+            return False
+        if players_only and not event.get("is_player"):
+            return False
         if to_opponent_only:
             if src is None:
                 return False

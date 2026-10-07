@@ -68,6 +68,7 @@ Every card on the board has its own toolbar:
 
 - **⤵** tap/untap
 - **⟳** transform (flip a double-faced card)
+- **🔒 / 🔓** lock/unlock either door of a Room for free; editor changes do not trigger abilities. Door states are saved in the replay.
 - **＋** / **−** add a +1/+1 or −1/−1 counter
 - **✦** any other named counter (you'll be prompted for its name and
   amount)

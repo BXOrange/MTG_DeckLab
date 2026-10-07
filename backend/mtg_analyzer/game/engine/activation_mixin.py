@@ -107,6 +107,7 @@ class ActivationMixin:
         discard_choices: Optional[list[int]] = None,
         hand_card_choices: Optional[list[int]] = None,
         assume_mana_available: bool = False,
+        sacrifice_also_choice: Optional[int] = None,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
 
@@ -236,7 +237,7 @@ class ActivationMixin:
             return False
         return self._can_pay_activation_cost(
             player, source, ability.cost, x, tap_choices=tap_choices,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices,
             assume_mana_available=assume_mana_available,
         )
@@ -464,7 +465,7 @@ class ActivationMixin:
             # PAR-28 / Power-up: "Reduce the cost by its mana cost if it
             # entered this turn." — a generic reduction equal to the
             # source's own printed mana value (RULE 202.3).
-            reduction += int(getattr(source.card, "converted_mana_cost", 0) or 0)
+            reduction += int(getattr(source, "mana_value", 0) or 0)
         if reduction < 0:
             mana = mana.increase_generic(-reduction)
         elif reduction > 0:
@@ -486,6 +487,7 @@ class ActivationMixin:
         hand_card_choices: Optional[list[int]] = None,
         assume_mana_available: bool = False,
         is_mana_ability: bool = False,
+        sacrifice_also_choice: Optional[int] = None,
     ) -> bool:
         if cost.activation_condition and not static_conditions.condition_holds(
             cost.activation_condition, self.state, source=source, controller_id=player.id,
@@ -571,7 +573,7 @@ class ActivationMixin:
         ) is None:
             return False
         if cost.sacrifice_also and self._sacrifice_pair(
-            player, source, cost, chosen_id=sacrifice_choice
+            player, source, cost, chosen_id=sacrifice_choice, chosen_second_id=sacrifice_also_choice
         ) is None:
             return False  # Jarad: "a Swamp and a Forest" must be two different permanents
         if cost.exile_creature and self._exile_creature_candidate(
@@ -949,6 +951,7 @@ class ActivationMixin:
         return candidates[0] if candidates else None
     def _sacrifice_pair(
         self, player: Player, source: GameObject, cost: "ActivationCost", chosen_id: Optional[int] = None,
+        chosen_second_id: Optional[int] = None,
     ) -> Optional[tuple[GameObject, GameObject]]:
         """Two *distinct* permanents paying "Sacrifice a `<A>` and a `<B>`" (``cost.sacrifice`` and
         ``cost.sacrifice_also``, RULE 701.17), or ``None``. A permanent of both types (a Swamp Forest) can pay
@@ -957,7 +960,9 @@ class ActivationMixin:
         firsts = [o for o in pool if self._matches_sacrifice_type(o, cost.sacrifice, state=self.state)
                   and (chosen_id is None or o.instance_id == chosen_id)]
         for first in firsts:
-            second = next((o for o in pool if o is not first and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state)), None)
+            second = next((o for o in pool if o is not first
+                           and (chosen_second_id is None or o.instance_id == chosen_second_id)
+                           and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state)), None)
             if second is not None:
                 return first, second
         return None
@@ -993,9 +998,15 @@ class ActivationMixin:
             and not obj.cant_be_sacrificed_this_turn
             and not (obj is source and _names_other(cost.sacrifice))
         ]
-        return {
-            "options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]
-        }
+        if cost.sacrifice_also:
+            candidates = [o for o in candidates if self._sacrifice_pair(player, source, cost, chosen_id=o.instance_id)]
+        result = {"options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]}
+        if cost.sacrifice_also:
+            result["second_options"] = [{"instance_id": o.instance_id, "name": o.name}
+                for o in self.state.permanents_controlled_by(player.id)
+                if not o.cant_be_sacrificed_this_turn
+                and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state)]
+        return result
     @staticmethod
     def _matches_sacrifice_type(obj: GameObject, what: str, state: Optional[GameState] = None) -> bool:
         if what in ("permanent", "another"):
@@ -1265,6 +1276,7 @@ class ActivationMixin:
         discard_choices: Optional[list[int]] = None,
         hand_card_choices: Optional[list[int]] = None,
         is_mana_ability: bool = False,
+        sacrifice_also_choice: Optional[int] = None,
     ) -> None:
         """Charge every component of ``cost`` (RULE 601.2h analogue for
         abilities) — tap/untap the source, tap other permanents, pay mana,
@@ -1387,7 +1399,7 @@ class ActivationMixin:
                 player, source, cost.sacrifice, chosen_id=sacrifice_choice
             )
             if cost.sacrifice_also:
-                pair = self._sacrifice_pair(player, source, cost, chosen_id=sacrifice_choice)
+                pair = self._sacrifice_pair(player, source, cost, chosen_id=sacrifice_choice, chosen_second_id=sacrifice_also_choice)
                 if pair is not None:
                     victim = pair[0]
                     # RULE 701.17a: the second permanent of "a Swamp and a Forest" is sacrificed with the first.
@@ -1400,6 +1412,7 @@ class ActivationMixin:
                 ]
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
+                sacrificed_mana_value = victim.mana_value
                 self.rules.put_into_graveyard(victim)
                 # MEC-43 (Birthing Pod/Oswald Fiddlebender): mirrors
                 # `_pay_additional_cast_cost`'s own `sacrificed_cost_mana_
@@ -1409,7 +1422,7 @@ class ActivationMixin:
                 # same "stamp on `source` for cost-payment-driven
                 # magnitude" idiom `cost.exile_creature`'s own
                 # `last_cost_exiled_object_mv` just below already uses.
-                source.sacrificed_cost_mana_value = victim.card.converted_mana_cost
+                source.sacrificed_cost_mana_value = sacrificed_mana_value
                 source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
                 # MEC-43 (Altar of Dementia): the *power* sibling of the
                 # stamp just above — read `victim.power` (derived, RULE
@@ -1421,7 +1434,7 @@ class ActivationMixin:
         if cost.exile_creature:
             exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
             if exiled is not None:
-                mv = exiled.card.converted_mana_cost or 0
+                mv = exiled.mana_value or 0
                 self.rules.exile(exiled)
                 # "…where X is 1 plus the exiled creature's mana value."
                 # (Food Chain, MEC-40) — the mana ability's own amount
@@ -1488,9 +1501,11 @@ class ActivationMixin:
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
         if exile_count:
             source.last_cost_exiled_ids = []
+            source.last_cost_exiled_incarnations = {}
             for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost):
                 self.rules.exile(victim)
                 source.last_cost_exiled_ids.append(victim.instance_id)
+                source.last_cost_exiled_incarnations[victim.instance_id] = victim.zone_incarnation
         if cost.discard_self:
             instance_id, controller_id, name = source.instance_id, player.id, source.name
             self.rules.discard_specific(source, cause=source)
@@ -1563,6 +1578,7 @@ class ActivationMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         hand_card_choices: Optional[list[int]] = None,
+        sacrifice_also_choice: Optional[int] = None,
     ) -> None:
         """"Automatisches Tappen" for an ordinary activated ability's own
         mana cost — the `activate_ability` counterpart of `CastingMixin.
@@ -1573,13 +1589,13 @@ class ActivationMixin:
         """
         if self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices,
         ):
             return
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices,
             assume_mana_available=True,
         ):
@@ -1629,6 +1645,7 @@ class ActivationMixin:
         discard_choices: Optional[list[int]] = None,
         hand_card_choices: Optional[list[int]] = None,
         mode: Optional[int] = None,
+        sacrifice_also_choice: Optional[int] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
@@ -1710,12 +1727,12 @@ class ActivationMixin:
             source.x_paid = previous_x
         self._auto_tap_for_activation_if_needed(
             player, source, ability, x, tap_choices=tap_choices,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices,
         )
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices,
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
@@ -1734,7 +1751,7 @@ class ActivationMixin:
         with self.state.simultaneous():
             self._pay_activation_cost(
                 player, source, ability.cost, x, tap_choices=tap_choices,
-                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
                 hand_card_choices=hand_card_choices,
             )
         # RULE 107.3c/601.2b: remember the announced X on the ability's own

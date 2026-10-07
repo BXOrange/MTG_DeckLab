@@ -6001,7 +6001,9 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # fallback). ``copy_permanent``/``become_copy`` included since the
     # reanimator-token grammar routes "a token that's a copy of that card"
     # through them.
-    if last.type in ("create_token", "copy_permanent", "become_copy", "manifest"):
+    # "Manifest dread, then put two +1/+1 counters on **that creature**" (Experimental Lab, Weight Room): the manifested
+    # card is left as the next clause's referent (`created_objects`, also across the look-at-two pause).
+    if last.type in ("create_token", "copy_permanent", "become_copy", "manifest", "manifest_dread"):
         return True
     # "Return it to the battlefield … with 2 +1/+1 counters on it. It's a Demon in addition …" (PAR-142):
     # the returned permanent is what the rider's "it" names (`ReturnSelfToBattlefieldEffect` sets it).
@@ -8556,18 +8558,6 @@ def _segment_line_unsplit(
                     raw_text=raw,
                     parser=provenance,
                 ))
-            # O-Ring body ("exile … until ~ leaves") wants a companion
-            # LEAVES_BATTLEFIELD return, exactly as the single-trigger path
-            # below synthesizes it.
-            if any(e.type == "exile" and e.params.get("until_source_leaves")
-                   for e in effects):
-                eap_specs.append(AbilitySpec(
-                    "triggered",
-                    effects=[EffectSpec("return_linked_exile", {})],
-                    trigger={"event": "LEAVES_BATTLEFIELD", "condition": {"subject": "self"}},
-                    raw_text=raw,
-                    parser=provenance,
-                ))
             return Segment(
                 raw=raw, spec=eap_specs[0], extra_specs=eap_specs[1:], claimed=True,
             )
@@ -8967,29 +8957,7 @@ def _segment_line_unsplit(
             raw_text=raw,
             parser=provenance,
         )
-        # O-Ring / Banisher Priest: "exile … until ~ leaves the battlefield"
-        # (`handlers._exile_until_leaves`, `ExileEffect(remember=True)`) needs
-        # a *second* ability — "When ~ leaves the battlefield, return the
-        # exiled card." (`ReturnLinkedExileEffect`) — which a single body
-        # parse can't emit. The ``until_source_leaves`` param on the exile
-        # spec is that signal.
-        extra_ltb: list[AbilitySpec] = []
-        if any(
-            e.type == "exile" and e.params.get("until_source_leaves") for e in effects
-        ):
-            extra_ltb.append(
-                AbilitySpec(
-                    "triggered",
-                    effects=[EffectSpec("return_linked_exile", {})],
-                    trigger={
-                        "event": "LEAVES_BATTLEFIELD",
-                        "condition": {"subject": "self"},
-                    },
-                    raw_text=raw,
-                    parser=provenance,
-                )
-            )
-        return Segment(raw=raw, spec=spec, extra_specs=extra_ltb, claimed=True)
+        return Segment(raw=raw, spec=spec, claimed=True)
 
     # No trigger wrapper. On a *permanent*, "As ~ enters, choose a creature
     # type/color" (RULE 601.2b) is a characteristic-defining choice made as

@@ -251,6 +251,19 @@ def test_herald_of_eternal_dawn_stops_you_losing_and_opponents_winning():
     assert p1.has_lost
 
 
+
+def test_last_player_wins_despite_heralds_cannot_win_effect():
+    # RULE 104.2a expressly overrides every effect that prevents winning.
+    engine = _game()
+    herald = _card(engine, "Herald of Eternal Dawn")
+    p1, p2 = engine.state.players
+    from mtg_analyzer.game import continuous
+
+    assert continuous.player_cant_win(engine.state, p2)
+    engine.rules.concede(p1)
+    assert herald in engine.state.battlefield  # table cleanup is deliberately deferred
+    assert engine.state.game_over and engine.state.winner_id == p2.id
+
 def test_herald_of_war_grows_when_attacking_and_discounts_angels_and_humans_per_counter():
     engine = _game()
     p1, _ = engine.state.players
@@ -387,3 +400,16 @@ def test_wojek_investigator_investigates_once_per_opponent_with_more_cards():
     engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", player_id="p1", controller_id="p1"))
     engine.resolve_until_stable()
     assert len(_named(engine, "Clue")) == 1  # only p2 has more cards than p1
+
+
+def test_emeria_shepherd_can_return_to_hand_despite_a_plains_entry():
+    engine = _game()
+    _card(engine, "Emeria Shepherd")
+    target = _filler(engine, "Old Rock", "Artifact", mv=2, zone=Zone.GRAVEYARD)
+    plains = _filler(engine, "Plains", "Basic Land — Plains")
+    _enter(engine, plains)
+    engine.resolve_pending_choice(target.instance_id)
+    assert engine.state.pending_choice["kind"] == "composite_optional"
+    assert target.zone == Zone.GRAVEYARD
+    engine.resolve_pending_choice("decline")
+    assert target.zone == Zone.HAND

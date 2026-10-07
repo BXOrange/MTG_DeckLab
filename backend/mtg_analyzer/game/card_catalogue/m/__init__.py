@@ -61,6 +61,7 @@ from . import mirrorwing_dragon  # noqa: F401
 from . import misdirection  # noqa: F401
 from . import misleading_signpost  # noqa: F401
 from . import mistveil_plains  # noqa: F401
+from . import misty_salon  # noqa: F401
 from . import mizzix_s_mastery  # noqa: F401
 from . import mnemonic_betrayal  # noqa: F401
 from . import mockingbird  # noqa: F401

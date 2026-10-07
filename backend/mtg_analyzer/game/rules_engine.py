@@ -80,6 +80,7 @@ from .rules.damage_death_mixin import DamageDeathMixin
 from .rules.draw_discard_mixin import DrawDiscardMixin
 from .rules.mana_counters_mixin import ManaCountersMixin
 from .rules.misc_mixin import MiscSystemsMixin
+from .rules.rooms_mixin import RoomsRulesMixin
 from .rules.sba_mixin import StateBasedActionsMixin
 from .rules.search_mixin import SearchMixin
 from .rules.triggers_mixin import TriggerCollectionMixin
@@ -177,6 +178,7 @@ class RulesEngine(
     SearchMixin,
     StateBasedActionsMixin,
     MiscSystemsMixin,
+    RoomsRulesMixin,
 ):
     """Applies MTG rules to a `GameState`.
 
@@ -466,6 +468,7 @@ class RulesEngine(
         # RULE 702.55: Haunt abilities function from exile, but only for the
         # creature instance their source is currently haunting.
         state.subscribe(self._collect_haunt_triggers)
+        state.subscribe(self._return_until_source_leaves_exiles)
     def open_choice(self, choice: dict[str, Any]) -> None:
         """ENG-35: suspend and ask. The other half of `resolve_choice`.
 

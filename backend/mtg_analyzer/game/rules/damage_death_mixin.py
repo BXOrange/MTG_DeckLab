@@ -628,7 +628,7 @@ class DamageDeathMixin:
         both stamp, so a clause measuring "the sacrificed creature" reads the same fields either way."""
         if source is None:
             return
-        source.sacrificed_cost_mana_value = victim.card.converted_mana_cost
+        source.sacrificed_cost_mana_value = victim.mana_value
         source.sacrificed_cost_card_types = sorted(victim.type_words & {
             "artifact", "battle", "creature", "enchantment", "land", "planeswalker",
         })
@@ -681,6 +681,42 @@ class DamageDeathMixin:
             player, candidates, "sacrifice", count=count,
             prompt="Wähle eine bleibende Karte zum Opfern",
         )
+    def _return_until_source_leaves_exiles(self, event: GameEvent) -> None:
+        """RULE 610.3c/d: return immediately after actual (possibly simultaneous) departures."""
+        if event.type != EventType.EVENT_BATCH or event.get("batch_of") != EventType.BATTLEFIELD_DEPARTED:
+            return
+        departed = {(e.get("instance_id"), e.get("zone_incarnation"))
+                    for e in event.get("members", [])}
+        returning, remaining = [], []
+        for record in self.state.until_source_leaves_exiles:
+            if (record["source_id"], record["source_incarnation"]) in departed:
+                obj = self.state.find_object(record["exile_id"])
+                if (obj is not None and obj.zone == Zone.EXILE
+                        and obj.zone_incarnation == record["exile_incarnation"]):
+                    returning.append(obj)
+            else:
+                remaining.append(record)
+        self.state.until_source_leaves_exiles = remaining
+        if not returning:
+            return
+        # All entrants are present before entry triggers inspect the returned set.
+        outer_events = getattr(self.state, "_deferred_entry_events", None)
+        own_batch = outer_events is None
+        if own_batch:
+            self.state._deferred_entry_events = []
+        try:
+            with self.state.simultaneous():
+                for obj in returning:
+                    self.return_from_graveyard(obj, "battlefield")
+                if own_batch:
+                    events = self.state._deferred_entry_events
+                    self.state._deferred_entry_events = None
+                    for arrival in events:
+                        self.state.fire_event(arrival)
+        finally:
+            if own_batch:
+                self.state._deferred_entry_events = None
+
     def exile(self, obj: GameObject) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
 
@@ -2240,6 +2276,8 @@ class DamageDeathMixin:
                 GameEvent(
                     EventType.DIES,
                     graveyard_incarnation=obj.zone_incarnation + 1,
+                    # RULE 707.2 / 608.2h: copy the dying permanent, not its later graveyard face.
+                    copiable_card=obj.card.as_copy(),
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,

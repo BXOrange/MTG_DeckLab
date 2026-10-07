@@ -45,9 +45,9 @@ def _commanders_plate() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("attach", {
-                "target_kind": "creature", "creature_filter": {"is_commander": True},
+                "target_kind": "creature_you_control", "creature_filter": {"is_commander": True},
             })],
-            cost={"text": "{3}"},
+            cost={"text": "{3}", "sorcery_speed_only": True, "attach_kind": "equip"},
         ),
     ]
 

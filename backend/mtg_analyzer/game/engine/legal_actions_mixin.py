@@ -370,7 +370,7 @@ class LegalActionsMixin:
             action["blitz"] = blitz
             action["blitz_cost_label"] = payment.label()
             action["cost_label"] = self.effective_cast_cost(player, obj, option.minimum_x(obj.card), blitz=blitz, mode=mode).raw
-            action["mana_value"] = obj.card.converted_mana_cost
+            action["mana_value"] = obj.mana_value
             if payment.discard:
                 action["discard_cost"] = {
                     "count": payment.discard,
@@ -392,7 +392,7 @@ class LegalActionsMixin:
             elif alt_cost:
                 action["alt_cost"] = True
                 alt_cast_cost = getattr(obj, "alt_cast_cost", None) or (
-                    continuous.granted_alt_cast_cost_for(self.state, player, obj.card)
+                    continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
                     if obj is not None else None
                 )
                 if alt_cast_cost is not None:
@@ -739,7 +739,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
-                or (card is not None and continuous.granted_alt_cast_cost_for(self.state, player, card))
+                or (card is not None and continuous.granted_alt_cast_cost_for(self.state, player, card, obj))
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
             and self.can_cast(player, obj, face=face, alt_cost=True)
@@ -897,7 +897,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
-                or continuous.granted_alt_cast_cost_for(self.state, player, obj.card)
+                or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
             and self.can_cast(player, obj, alt_cost=True)
@@ -1395,6 +1395,8 @@ class LegalActionsMixin:
             # 702.168d/701.40b/701.58b; a manifested noncreature card offers
             # none, RULE 701.40g).
             actions.extend(self.turn_face_up_actions(player, obj))
+            # RULE 709.5e/116.2m: a Room's locked half can be unlocked for its mana cost (special action).
+            actions.extend(self.unlock_door_actions(player, obj))
 
         for obj in self.state.permanents_controlled_by(player.id):
             # RULE 502.1 "you may choose not to untap ~ during your untap

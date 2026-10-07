@@ -461,3 +461,31 @@ def test_summon_kujata_chapters():
     _chapter(engine, kujata, 3)
     answer(engine, pick_label("Expensive Card"))
     assert engine.state.player_by_id("p2").life == 16
+
+
+def test_qualified_equip_obeys_equip_discounts_own_targets_and_sorcery_timing():
+    from mtg_analyzer.game.targeting import legal_targets
+    engine = game()
+    arm = card(engine, "Wrecking Ball Arm")
+    legend = filler(engine, "My Legend", type_line="Legendary Creature", power=2, toughness=2)
+    theirs = filler(engine, "Their Legend", type_line="Legendary Creature", player="p2", power=2, toughness=2)
+    equip = next(a for a in arm.activated_abilities if a.cost.raw == "{3}")
+    assert equip.attach_kind == equip.cost.attach_kind == "equip"
+    assert equip.cost.targets_own_creature
+    offered = {o["instance_id"] for o in legal_targets(engine.state, "p1", equip.effects[0].target_spec, source=arm)}
+    assert legend.instance_id in offered and theirs.instance_id not in offered
+    card(engine, "Puresteel Paladin")
+    filler(engine, "Artifact One", type_line="Artifact")
+    filler(engine, "Artifact Two", type_line="Artifact")
+    engine.state.current_step = "main1"
+    index = arm.activated_abilities.index(equip)
+    me = engine.state.player_by_id("p1")
+    assert engine.can_activate(me, arm, equip)  # metalcraft: equip costs zero
+    import pytest
+    with pytest.raises(ValueError):
+        engine.activate_ability(me, arm, index, targets=[theirs])
+    engine.activate_ability(me, arm, index, targets=[legend])
+    engine.resolve_until_stable()
+    assert arm.attached_to == legend.instance_id
+    engine.state.current_step = "upkeep"
+    assert not engine.can_activate(me, arm, equip)

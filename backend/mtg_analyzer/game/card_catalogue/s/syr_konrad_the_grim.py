@@ -10,8 +10,8 @@ def _syr_konrad_the_grim() -> list[AbilitySpec]:
     {1}{B}: Each player mills a card. (They each put the top card of their library into their graveyard.)
 
     — PLAY-ALL (Endless Punishment). The mill activation and the "another creature dies" head are the parser's. The other two heads are the `PUT_INTO_GRAVEYARD`
-    group trigger with ``from_zone_not: battlefield`` and the `CARDS_LEFT_GRAVEYARD` trigger with ``graveyard_owner: you`` / ``left_graveyard_types: creature``
-    (PAR-119). **Simplification**: cards that leave your graveyard in one batch (one instruction) trigger it once, not once per card.
+    group trigger with ``from_zone_not: battlefield`` and the `CARD_LEFT_GRAVEYARD` trigger with ``graveyard_owner: you`` / ``left_graveyard_types: creature``
+    (RULE 603.2). Each creature card leaving triggers independently, including simultaneous exits.
     """
     ping = lambda: [EffectSpec("damage", {"amount": 1, "selector": "each_opponent"})]
     return [
@@ -29,7 +29,7 @@ def _syr_konrad_the_grim() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered", ping(),
-            trigger={"event": EventType.CARDS_LEFT_GRAVEYARD, "graveyard_owner": "you", "left_graveyard_types": ["creature"]},
+            trigger={"event": EventType.CARD_LEFT_GRAVEYARD, "graveyard_owner": "you", "left_graveyard_types": ["creature"]},
         ),
         AbilitySpec(
             "activated",

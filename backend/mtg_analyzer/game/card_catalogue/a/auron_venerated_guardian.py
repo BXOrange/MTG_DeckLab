@@ -12,9 +12,8 @@ def _auron_venerated_guardian() -> list[AbilitySpec]:
 
     — PLAY-ALL (Counter Blitz). Vigilance is the keyword's. The attack trigger puts the counter, then a RULE 603.12 `reflexive_trigger` whose
     target (chosen when the reflexive trigger is put on the stack, so Auron's power already includes the counter) is a creature the defending
-    player controls with ``power_vs_reference: less`` (reference = Auron). The exile is the linked-exile pair of Portable Hole:
-    ``remember`` plus `return_linked_exile` when Auron leaves the battlefield (**simplification** shared with Portable Hole: the return is
-    respondable).
+    player controls with ``power_vs_reference: less`` (reference = Auron).
+    The exile uses RULE 610.3: an immediate return when that Auron leaves.
     """
     return [
         AbilitySpec(
@@ -23,17 +22,12 @@ def _auron_venerated_guardian() -> list[AbilitySpec]:
                 EffectSpec("add_counters", {"count": 1, "kind": "+1/+1", "target_kind": None}),
                 EffectSpec("reflexive_trigger", {"then_trigger": [
                     {"type": "exile", "params": {
-                        "target_kind": "creature_defending_player_controls", "remember": True,
+                        "target_kind": "creature_defending_player_controls", "until_source_leaves": True,
                         "creature_filter": {"power_vs_reference": "less"},
                     }},
                 ]}),
             ],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-        ),
-        AbilitySpec(
-            "triggered",
-            [EffectSpec("return_linked_exile", {})],
-            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
     ]
 

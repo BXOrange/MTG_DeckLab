@@ -166,6 +166,7 @@ class ManaCountersMixin:
 
     def add_mana(
         self, player: Player, color: str, amount: int = 1, keep_until: Optional[str] = None,
+        restriction: Optional[dict] = None,
     ) -> None:
         """Add ``amount`` mana of ``color`` straight to ``player``'s pool
         (RULE 106.4) — a spell's own bare "Add {B}." resolve-time body
@@ -174,7 +175,7 @@ class ManaCountersMixin:
         entirely, never routed through this engine at all). ``keep_until`` is "until end of turn, you don't lose this
         mana as steps and phases end" (`ManaPool.kept`).
         """
-        player.mana_pool.add(color, amount, keep_until=keep_until)
+        player.mana_pool.add(color, amount, restriction=restriction, keep_until=keep_until)
     #: German labels for the interactive "add one mana of any color" choice.
     _ANY_COLOR_LABELS: dict[str, str] = {
         "W": "Weiß", "U": "Blau", "B": "Schwarz", "R": "Rot", "G": "Grün",

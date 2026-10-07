@@ -11,13 +11,13 @@ def _summon_ixion() -> list[AbilitySpec]:
     II, III — Put a +1/+1 counter on each of up to two target creatures you control. You gain 2 life.
     First strike
 
-    — PLAY-ALL (Counter Blitz). First strike is the keyword. Chapter I is Portable Hole's linked exile (``remember`` + `return_linked_exile` when the Saga
-    leaves; the return is respondable). Chapters II and III are `add_counters` over up to two creatures you control (``target_count`` 2) and `gain_life`.
+    Chapter I uses RULE 610.3, returning immediately when the Saga leaves.
+    Chapters II and III add counters to up to two targets and gain 2 life.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "remember": True})],
+            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "until_source_leaves": True})],
             trigger={"event": EventType.SAGA_CHAPTER, "chapter": [1]},
         ),
         AbilitySpec(
@@ -29,11 +29,6 @@ def _summon_ixion() -> list[AbilitySpec]:
                 EffectSpec("gain_life", {"amount": 2}),
             ],
             trigger={"event": EventType.SAGA_CHAPTER, "chapter": [2, 3]},
-        ),
-        AbilitySpec(
-            "triggered",
-            [EffectSpec("return_linked_exile", {})],
-            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
     ]
 

@@ -371,6 +371,8 @@ export default [
               ['full', 'Sagas (714)'],
               ['full', 'Class (716) & Leveler (711)'],
               ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/715/722)'],
+              ['full', 'Räume (709.5) — verriegelte/entriegelte Türen je Hälfte, jede Hälfte wirkbar, die Sonderhandlung „entriegeln" (116.2m), „wenn du diese Tür entriegelst", Eerie „vollständig entriegeln", Verriegeln/Entriegeln-Effekte'],
+              ['partial', 'Raum-Kartentexte: 22 von 30 gecachten Räumen modelliert (die übrigen scheitern an fremden Effekt-Grammatiken — Konvoke-Vergabe, Mill-und-Zurückholen, …; Alchemy-Hälften sind dauerhaft ein Nicht-Ziel)'],
             ],
           },
           {

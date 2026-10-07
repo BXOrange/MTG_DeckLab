@@ -988,6 +988,11 @@ def parse_activation_cost(
         parsed.discard_land_type = str(cost["discard_land_type"])
     if cost.get("mana_source_kind"):
         parsed.mana_source_kind = str(cost["mana_source_kind"])
+    if cost.get("attach_kind") is not None:
+        kind = cost["attach_kind"]
+        if kind not in {"equip", "fortify", "reconfigure"}:
+            raise ValueError(f"Unknown attachment ability: {kind}")
+        parsed.attach_kind = kind
     if "sorcery_speed_only" in cost:
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if "only_during_your_turn" in cost:

@@ -10,15 +10,9 @@ def _tamiyo_upriser_crowned() -> list[AbilitySpec]:
     Whenever one or more creatures deal combat damage to you while you're the monarch, tap those creatures and put a stun
     counter on each of them.
 
-    — PLAY-ALL (Multiverse Reforged). The keywords are the keyword catalogue's. **Simplification:** the batch trigger is one
-    per-creature `DAMAGE` trigger (tap + stun counter on that creature), so a double strike pair of hits stuns twice and N
-    simultaneous attackers put N triggers on the stack instead of one; the end state is the same (each creature is tapped
-    and gets one counter per hit). "While you're the monarch" is the RULE 603.4 intervening-if ``trigger["active_if"]``.
+    The RULE 603.2c damage batch produces one trigger. The captured damage
+    sources are tapped and each receives a stun counter at resolution.
     """
-    body = [
-        EffectSpec("tap", {}),
-        EffectSpec("add_counters", {"kind": "stun", "amount": 1, "previous_subject": True}),
-    ]
     return [
         AbilitySpec(
             "triggered",
@@ -27,12 +21,15 @@ def _tamiyo_upriser_crowned() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("trigger_subject_referent", {"event_key": "source_id", "effects": [
-                {"type": b.type, "params": b.params} for b in body]})],
+            [EffectSpec("for_each", {"over": {"batch_members": True}, "effects": [
+                {"type": "tap", "params": {"target_kind": "previous_target"}},
+                {"type": "add_counters", "params": {"kind": "stun", "count": 1, "previous_subject": True}},
+            ]})],
             trigger={
-                "event": "DAMAGE",
+                "event": "EVENT_BATCH",
+                "batch": {"of": "DAMAGE", "min": 1},
                 "filter": {"combat": True, "is_player": True},
-                "condition": {"subject": "group", "recipient_is_you": True},
+                "condition": {"subject": "group", "recipient_is_you": True, "filter": {"card_type": "creature"}},
                 "active_if": {"kind": "is_monarch"},
             },
         ),

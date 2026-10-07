@@ -70,6 +70,7 @@ Jede Karte auf dem Board hat ihre eigene Werkzeugleiste:
 
 - **⤵** tappen/enttappen
 - **⟳** umwandeln (eine doppelseitige Karte flippen)
+- **🔒 / 🔓** eine Tür eines Raums kostenlos verriegeln/entriegeln; Editor-Änderungen lösen keine Fähigkeiten aus. Die Türzustände werden im Replay gespeichert.
 - **＋** / **−** eine +1/+1- oder −1/−1-Marke hinzufügen
 - **✦** jede andere benannte Marke (du wirst nach Name und Anzahl
   gefragt)

@@ -946,7 +946,7 @@ def matches_object_filter(
     # matches`'s sibling ``cast_prohibition`` check for the spell-side twin
     # of this same filter).
     even_mana_value = filt.get("even_mana_value")
-    if even_mana_value is not None and (obj.card.converted_mana_cost % 2 == 0) != bool(even_mana_value):
+    if even_mana_value is not None and (obj.mana_value % 2 == 0) != bool(even_mana_value):
         return False
     # "destroy target **nonblack** creature" (Doom Blade-shaped, RULE 105's
     # colour-hoser adjective negated) — the negated sibling of ``color``
@@ -1030,10 +1030,10 @@ def matches_object_filter(
     # "…with mana value 3 or greater" — the printed mana value, like
     # ``even_mana_value`` above (a spell on the stack keeps it, RULE 202.3).
     min_mana_value = filt.get("min_mana_value")
-    if min_mana_value is not None and obj.card.converted_mana_cost < min_mana_value:
+    if min_mana_value is not None and obj.mana_value < min_mana_value:
         return False
     max_mana_value = filt.get("max_mana_value")
-    if max_mana_value is not None and obj.card.converted_mana_cost > max_mana_value:
+    if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
     # "an **instant or sorcery** spell" — the OR-of-types form of
     # ``card_type``, same idiom as ``subtype_any``/``keyword_any``.
@@ -1061,7 +1061,7 @@ def matches_object_filter(
         return False
     if filt.get("without_snow") and "snow" in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0].split():
         return False
-    if filt.get("named_as_reference") and (reference is None or getattr(obj, "name", None) != reference.name):
+    if filt.get("named_as_reference") and (reference is None or not set(obj.names) & set(reference.names)):
         return False
     if filt.get("shares_creature_type_with_reference"):
         if reference is None or not (_creature_subtypes(obj) & _creature_subtypes(reference)):

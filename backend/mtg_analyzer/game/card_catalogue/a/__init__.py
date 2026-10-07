@@ -3,6 +3,7 @@ from . import abdel_adrian_gorion_s_ward  # noqa: F401
 from . import abstract_performance  # noqa: F401
 from . import academy_manufactor  # noqa: F401
 from . import academy_rector  # noqa: F401
+from . import access_maze  # noqa: F401
 from . import access_tunnel  # noqa: F401
 from . import acererak_the_archlich  # noqa: F401
 from . import acolyte_of_bahamut  # noqa: F401

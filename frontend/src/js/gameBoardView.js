@@ -73,7 +73,7 @@ const CHOICE_ICONS = {
   search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
-  commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
+  commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎', door_choice: '🚪',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', reorder_top: '🔮', look_hand: '👁️', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
@@ -2659,12 +2659,13 @@ export function createGameBoardView(opts = {}) {
           (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
         );
         if (!action || !action.sacrifice_cost) return;
-        const { options } = action.sacrifice_cost;
+        const { options, second_options: secondOptions } = action.sacrifice_cost;
         // "Sacrifice a <type>" cost (RULE 602.1) — which permanent pays it
         // is the player's own choice, not an engine auto-pick; same
-        // one-pick modal as `tap_cost` above, just always exactly one pick
-        // and dispatched as `sacrifice_choice` instead of `tap_choices`.
+        // picker as `tap_cost` above. Paired costs gather a second distinct
+        // pick, dispatched as `sacrifice_also_choice`.
         const requirements = [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
+        if (secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index: info.option_index };
@@ -2825,9 +2826,11 @@ export function createGameBoardView(opts = {}) {
         // `tap_choices` instead of `targets`.
         act({ ...send, tap_choices: targets.map((t) => t.instance_id) });
       } else if (isSacrificeChoice) {
-        // A "Sacrifice a <type>" cost choice (RULE 602.1) — always exactly
-        // one pick, sent as `sacrifice_choice` instead of `targets`.
-        act({ ...send, sacrifice_choice: targets[0].instance_id });
+        // RULE 602.1: the first cost pick and, for a paired sacrifice,
+        // the second distinct pick are separate from ability targets.
+        act({ ...send, sacrifice_choice: targets[0].instance_id,
+          ...(targets[1] ? { sacrifice_also_choice: targets[1].instance_id } : {}),
+        });
       } else if (isDiscardChoice) {
         // A "discard N cards" additional cast cost choice (RULE 601.2b /
         // 602.1) — the picked hand cards, sent as `discard_choices` instead
@@ -3369,6 +3372,11 @@ export function createGameBoardView(opts = {}) {
     const faceDownBadge = o.face_down
       ? `<span class="gf-facedown-badge" title="${escapeAttr(t('bd.faceDown.title'))}">🎭 ${escapeHtml(faceDownLabels[o.face_down_kind] || t('bd.faceDown.default'))}</span>`
       : '';
+    // RULE 709.5c: a Room shows each of its two doors, unlocked or locked (a locked half has no name or rules text
+    // of its own until it is unlocked).
+    const roomBadge = o.room_doors
+      ? `<span class="gf-room-badge" title="${escapeAttr(t('bd.badge.roomTitle'))}">${o.room_doors.map((d) => `<span class="gf-room-door${d.unlocked ? ' gf-room-door--open' : ''}" title="${escapeAttr(t(d.unlocked ? 'bd.badge.doorUnlocked' : 'bd.badge.doorLocked', { door: d.name }))}">${d.unlocked ? '🔓' : '🔒'}</span>`).join('')}</span>`
+      : '';
     const effectsSummary = effectSummaryHtml(o);
     // A double-faced permanent (transform/modal DFC) gets a "🔄 peek other
     // face" button — purely a client-side preview (`flippedForView`), not
@@ -3381,7 +3389,7 @@ export function createGameBoardView(opts = {}) {
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
       <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">
-        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${roomBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }
@@ -3843,6 +3851,15 @@ export function createGameBoardView(opts = {}) {
           actionButton(
             { type: 'turn_face_up', instance_id: a.instance_id, option_index: a.option_index },
             `🔎 Aufdecken (${escapeHtml(a.cost_label || '')})`
+          )
+        );
+      } else if (a.type === 'unlock_door') {
+        // RULE 709.5e/116.2m: a Room's special action — pay a locked half's mana cost to unlock it (main phase,
+        // empty stack). No stack, so the half's text is live the moment this lands.
+        buttons.push(
+          actionButton(
+            { type: 'unlock_door', instance_id: a.instance_id, door: a.door },
+            `🚪 ${escapeHtml(t('bd.action.unlockDoor', { door: a.door_name || a.door, cost: a.cost_label || '' }))}`
           )
         );
       } else if (a.type === 'attack') {

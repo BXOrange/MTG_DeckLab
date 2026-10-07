@@ -782,6 +782,7 @@ export function createReplayView() {
           <button type="button" data-card-act="plus" title="+1/+1 Marke">＋</button>
           <button type="button" data-card-act="minus" title="−1/−1 Marke">−</button>
           <button type="button" data-card-act="counter" title="${escapeAttr(t('rp.counterAnyTitle'))}">✦</button>
+          ${o.room_doors ? o.room_doors.map((d) => `<button type="button" data-card-act="door" data-door="${escapeAttr(d.door)}" class="${d.unlocked ? 'active' : ''}" title="${escapeAttr(t('rp.doorTitle', { door: d.name }))}">${d.unlocked ? '🔓' : '🔒'}</button>`).join('') : ''}
           ${o.zone === 'battlefield' && o.is_creature ? `<button type="button" data-card-act="sick" class="${sick ? 'active' : ''}" title="${escapeAttr(t('rp.sickToggleTitle'))}">💤</button>` : ''}
           <button type="button" data-card-act="remove" title="${escapeAttr(t('rp.removeTitle'))}">✕</button>
         </div>
@@ -1001,7 +1002,7 @@ export function createReplayView() {
     root.querySelectorAll('.replay-card').forEach((cardEl) => {
       const iid = Number(cardEl.dataset.iid);
       cardEl.querySelectorAll('[data-card-act]').forEach((btn) =>
-        btn.addEventListener('click', () => cardAction(iid, btn.dataset.cardAct, cardEl)));
+        btn.addEventListener('click', () => cardAction(iid, btn.dataset.cardAct, cardEl, btn)));
       cardEl.addEventListener('dragstart', (e) => {
         draggedIid = iid;
         cardEl.classList.add('dragging');
@@ -1070,7 +1071,7 @@ export function createReplayView() {
     });
   }
 
-  function cardAction(iid, action, cardEl) {
+  function cardAction(iid, action, cardEl, button) {
     if (action === 'tap') {
       const tapped = cardEl.classList.contains('tapped');
       act({ type: 'edit_set_flags', instance_id: iid, tapped: !tapped });
@@ -1079,6 +1080,13 @@ export function createReplayView() {
     } else if (action === 'sick') {
       const obj = findObject(iid);
       act({ type: 'edit_set_flags', instance_id: iid, summoning_sick: !(obj?.summoning_sick) });
+    } else if (action === 'door') {
+      // RULE 709.5c: the Replay editor sets a Room's designations directly (no cost, no unlock triggers).
+      const obj = findObject(iid);
+      const door = button?.dataset.door;
+      const open = new Set((obj?.room_doors || []).filter((d) => d.unlocked).map((d) => d.door));
+      if (open.has(door)) open.delete(door); else open.add(door);
+      act({ type: 'edit_set_doors', instance_id: iid, doors: [...open] });
     } else if (action === 'plus' || action === 'minus') {
       const obj = findObject(iid);
       const current = (obj?.counters || {})['+1/+1'] || 0;

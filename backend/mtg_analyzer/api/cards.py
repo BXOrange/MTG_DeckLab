@@ -39,7 +39,7 @@ def coverage_for(card: Any) -> dict[str, object]:
     verdict `specs_for` falls back to for binding, so "modeled" here means
     "the engine plays this card's abilities", not just "text parses".
     """
-    if card_registry.is_registered(getattr(card, "name", "") or ""):
+    if card_registry.is_authored_card(card):
         return {"modeled": True, "source": "catalogue", "unclaimed": []}
     result = parse_oracle(card)
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}

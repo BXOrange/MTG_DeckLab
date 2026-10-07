@@ -20,11 +20,6 @@ def _chains_of_custody() -> list[AbilitySpec]:
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
         AbilitySpec(
-            "triggered",
-            [EffectSpec("return_linked_exile", {})],
-            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
-        ),
-        AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {"affects": "attached_permanent", "ward_cost": "{2}"})],
         ),

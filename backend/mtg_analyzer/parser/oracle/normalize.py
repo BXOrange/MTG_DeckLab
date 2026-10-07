@@ -77,7 +77,7 @@ SELF = "~"
 #: ETB as "When this Case enters, …".
 _SELF_REFERENCE_RE = re.compile(
     r"\bthis (?:creature|permanent|artifact|enchantment|land|planeswalker"
-    r"|vehicle|equipment|aura|token|battle|siege|spacecraft|planet|case)\b"
+    r"|vehicle|equipment|aura|token|battle|siege|spacecraft|planet|case|room)\b"
 )
 
 
@@ -115,7 +115,10 @@ _ABILITY_WORD_RE = re.compile(
     r"|teamwork|corrupted|chroma|alliance"
     # "Split — When ~ dies, …" (Ochre Jelly): decorative too; the dash keeps
     # it apart from the keyword "split second".
-    r"|split)\s*—\s*",
+    r"|split"
+    # "Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, …" (Duskmourn):
+    # decorative (RULE 207.2c); the compound trigger behind it is parsed on its own.
+    r"|eerie)\s*—\s*",
     re.MULTILINE,
 )
 

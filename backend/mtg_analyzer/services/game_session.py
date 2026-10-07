@@ -48,7 +48,7 @@ from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game import card_registry, continuous, mana_potential
+from mtg_analyzer.game import card_registry, continuous, mana_potential, rooms
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
@@ -1225,6 +1225,10 @@ class GameSession:
         """RULE 702.62a's hand-zone special action; it does not use the stack."""
         self.engine.suspend(active, self._object(action))
 
+    def _dispatch_unlock_door(self, action: dict[str, Any], active: Player) -> None:
+        """RULE 709.5e: pay a Room half's mana cost to unlock it; a special action, so no stack."""
+        self.engine.unlock_door(active, self._object(action), str(action.get("door", "")))
+
     def _dispatch_turn_face_up(self, action: dict[str, Any], active: Player) -> None:
         # RULE 116.2b: the special action of turning a face-down
         # permanent face up (morph/disguise/manifest/cloak) — no stack,
@@ -1254,6 +1258,7 @@ class GameSession:
         self.engine.activate_ability(
             active, self._object(action), index, targets, x, tap_choices,
             target_groups=target_groups, sacrifice_choice=sacrifice_choice,
+            sacrifice_also_choice=self._resolve_sacrifice_choice(action.get("sacrifice_also_choice")),
             discard_choices=discard_choices, hand_card_choices=hand_card_choices,
         )
 
@@ -1331,6 +1336,7 @@ class GameSession:
         "auto_tap_for": _dispatch_auto_tap_for,
         "cast_spell": _dispatch_cast_spell,
         "foretell": _dispatch_foretell,
+        "unlock_door": _dispatch_unlock_door,
         "suspend": _dispatch_suspend,
         "roll_planar_die": _dispatch_roll_planar_die,
         "turn_face_up": _dispatch_turn_face_up,
@@ -1366,6 +1372,10 @@ class GameSession:
             self.engine.rules.transform_permanent(self._object(action))
         elif kind == "edit_set_counters":
             self._set_counter_map(self._object(action).counters, action)
+        elif kind == "edit_set_doors":
+            # RULE 709.5c: a puzzle-setup convenience — exactly these doors of a Room are unlocked, with no cost or events.
+            rooms.set_designations(self._object(action), action.get("doors") or [])
+            self.engine.recompute_continuous_effects()
         elif kind == "edit_set_life":
             self._edit_player(action).life = int(action.get("value", 0))
         elif kind == "edit_set_poison":

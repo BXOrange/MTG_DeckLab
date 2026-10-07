@@ -1233,7 +1233,7 @@ class SearchMixin:
             if card_query.matches(obj.card, criteria)
             and (
                 total_mana_value_budget is None
-                or obj.card.converted_mana_cost <= total_mana_value_budget
+                or obj.mana_value <= total_mana_value_budget
             )
         ]
         if not eligible or count <= 0:
@@ -1490,7 +1490,7 @@ class SearchMixin:
                     o for o in self._search_zone_objects(player, zones)
                     if o.instance_id == instance_id
                 )
-                spent_mana_value += picked.card.converted_mana_cost
+                spent_mana_value += picked.mana_value
 
         remaining = choice["count"] - len(found)
         remaining_budget = (
@@ -1504,7 +1504,7 @@ class SearchMixin:
             for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found
             and card_query.matches(obj.card, choice["criteria"])
-            and (remaining_budget is None or obj.card.converted_mana_cost <= remaining_budget)
+            and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
         ]
         if not declined and remaining > 0 and still_eligible:
@@ -1592,7 +1592,7 @@ class SearchMixin:
             {"instance_id": obj.instance_id, "name": obj.name}
             for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
-            and (remaining_budget is None or obj.card.converted_mana_cost <= remaining_budget)
+            and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
         ]
         # Each eligible card is one option; declining an optional search is a
@@ -2371,7 +2371,7 @@ class SearchMixin:
         if matched is None:
             self._bottom_exiled(player, exiled)
             return
-        if cast_limit is not None and matched.card.converted_mana_cost > cast_limit:
+        if cast_limit is not None and matched.mana_value > cast_limit:
             # "You may cast it without paying its mana cost if that spell's mana value is 8 or less. If you
             # don't, put that card into your hand." (Breaching Dragonstorm) — a too-big hit can only be taken.
             player.remove_from_zone(matched, Zone.EXILE)
@@ -2417,9 +2417,9 @@ class SearchMixin:
             # "If the discovered card's mana value is less than 10, create a number of tapped Treasure tokens
             # equal to the difference." (Hit the Mother Lode)
             below = choice.get("treasures_below")
-            if below is not None and matched.card.converted_mana_cost < below:
+            if below is not None and matched.mana_value < below:
                 self._apply_effect_specs([{"type": "create_token", "params": {
-                    "token_name": "Treasure", "tapped": True, "count": below - matched.card.converted_mana_cost,
+                    "token_name": "Treasure", "tapped": True, "count": below - matched.mana_value,
                 }}], self.state.find_object(choice.get("source_id")))
         self._bottom_remaining(player, choice["exiled"])
     def _exile_top_until(
@@ -2630,7 +2630,7 @@ class SearchMixin:
         self.open_choice({
             "kind": "reveal_top_hand_lose_life_loop",
             "player_id": player.id,
-            "prompt": f"{top.name} (Manawert {top.card.converted_mana_cost}) "
+            "prompt": f"{top.name} (Manawert {top.mana_value}) "
                       "aufdecken, auf die Hand nehmen und entsprechend Leben "
                       "verlieren?",
             "looking_at": [{"instance_id": top.instance_id, "name": top.name}],
@@ -2656,7 +2656,7 @@ class SearchMixin:
         top = player.library.pop()
         top.zone = Zone.HAND
         player.hand.append(top)
-        self.lose_life(player, top.card.converted_mana_cost, cause="effect")
+        self.lose_life(player, top.mana_value, cause="effect")
         self._request_reveal_top_hand_lose_life_loop(player)
     def exile_until_duplicate_name(
         self, player: Player, seen_names: Optional[set[str]] = None
@@ -2783,7 +2783,7 @@ class SearchMixin:
         if victim is not None:
             self._transmute_artifact_sacrifice(player, victim)
     def _transmute_artifact_sacrifice(self, player: Player, victim: GameObject) -> None:
-        sacrificed_mv = victim.card.converted_mana_cost
+        sacrificed_mv = victim.mana_value
         self.put_into_graveyard(victim)
         eligible = [
             o for o in player.library
@@ -2823,7 +2823,7 @@ class SearchMixin:
             return
         player.remove_from_zone(found, Zone.LIBRARY)
         self.shuffle_library(player)
-        found_mv = found.card.converted_mana_cost
+        found_mv = found.mana_value
         if found_mv <= sacrificed_mv:
             self._put_searched_card(player, found, "battlefield")
             return

@@ -392,7 +392,7 @@ class CastGraveyardInstantSorceryFreeExileEffect(GameEffect):
             candidates = [
                 o for o in player.graveyard
                 if (o.card.is_instant or o.card.is_sorcery)
-                and (self.max_mana_value is None or o.card.converted_mana_cost <= self.max_mana_value)
+                and (self.max_mana_value is None or o.mana_value <= self.max_mana_value)
             ]
             if candidates:
                 context.engine._request_resolution_play(

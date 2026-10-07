@@ -338,7 +338,7 @@ def _base(
         total = 0
         for obj in getattr(context, "moved_objects", []) or []:
             if characteristic == "mana_value":
-                total += int(getattr(getattr(obj, "card", None), "converted_mana_cost", 0) or 0)
+                total += int(getattr(obj, "mana_value", 0) or 0)
             else:
                 total += int(getattr(obj, characteristic, 0) or 0)
         return total
@@ -448,14 +448,8 @@ def _base(
         if subject is None:
             return 0
         if characteristic == "mana_value":
-            # RULE 202.3 is read off the printed card, where the field is
-            # named ``converted_mana_cost`` — the same read
-            # `_characteristic_of_subject` makes. (Getting this wrong is why
-            # Feed the Swarm silently lost 0 life on the first migration: a
-            # missing attribute is 0 under this module's fail-safe rule, so
-            # it failed quietly rather than raising.)
-            card = getattr(subject, "card", None)
-            return int(getattr(card, "converted_mana_cost", 0) or 0)
+            # RULE 202.3/709.5: use the live object, including a Room's unlocked costs.
+            return int(getattr(subject, "mana_value", 0) or 0)
         return int(getattr(subject, characteristic, 0) or 0)
 
     if kind == "target_defense":
