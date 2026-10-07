@@ -7,9 +7,7 @@ from ...card_registry.core import register
 def _disorienting_choice() -> list[AbilitySpec]:
     """For each opponent, choose up to one target artifact or enchantment that player controls. For each permanent chosen this way, its controller may exile it. Then if one or more of the chosen permanents are still on the battlefield, you search your library for up to that many land cards, put them onto the battlefield tapped, then shuffle.
 
-    — PLAY-ALL (Jump Scare!). One `disorienting_choice` effect: a three-stage continuation (choose per opponent, the owner
-    may exile, count what stayed and fetch lands). **Simplification:** the permanents are chosen as it resolves, not
-    targeted at cast time.
+    Targets are announced per opponent; exile and search choices occur at resolution.
     """
     return [AbilitySpec("spell_effect", [EffectSpec("disorienting_choice", {})])]
 

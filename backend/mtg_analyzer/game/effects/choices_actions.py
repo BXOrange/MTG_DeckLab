@@ -1418,28 +1418,18 @@ class ChooseObjectsEffect(GameEffect):
 
 
 class DisorientingChoiceEffect(GameEffect):
-    """Disorienting Choice — "For each opponent, choose up to one target artifact or enchantment that player controls.
-    For each permanent chosen this way, its controller may exile it. Then if one or more of the chosen permanents are
-    still on the battlefield, you search your library for up to that many land cards, put them onto the battlefield
-    tapped, then shuffle."
+    """Announced targets, optional controller exile, then count remaining permanents."""
 
-    A three-stage continuation over the general chooser (`ChoosePlayerObjectsEffect`'s idiom — one `pending_choice` at
-    a time, the remainder carried as serialized data on the choice): ``choose`` asks the spell's controller for one
-    artifact/enchantment per opponent in turn order; ``exile`` offers each chosen permanent's controller a "may
-    exile it"; ``search`` counts the chosen permanents still on the battlefield and fetches that many lands.
-    **Simplification:** the choice is made as the spell resolves (an untargeted pick, so hexproof/protection do not stop
-    it), not as a RULE 115 target at cast time.
-    """
-
-    def __init__(self, stage: str = "choose", player_ids=None, chosen_ids=None, pending_ids=None,
-                 source: Optional["GameObject"] = None) -> None:
+    def __init__(self, stage="targets", chosen_ids=None, pending_ids=None, chosen_incarnations=None,
+                 source=None):
         super().__init__(source)
         self.stage = stage
-        self.player_ids = player_ids
-        self.chosen_ids: list[Any] = []
-        for item in chosen_ids or []:
-            self.chosen_ids.extend(item if isinstance(item, list) else [item])
+        self.chosen_ids = list(chosen_ids or [])
         self.pending_ids = list(pending_ids) if pending_ids is not None else None
+        self.chosen_incarnations = dict(chosen_incarnations or {})
+        if stage == "targets":
+            self.target_spec = TargetSpec(kind="artifact_or_enchantment_that_player_controls",
+                                          optional=True, per_player="any_opponents")
 
     def _next(self, context: "GameContext", **params: Any) -> None:
         context.engine._apply_effect_specs(
@@ -1451,37 +1441,20 @@ class DisorientingChoiceEffect(GameEffect):
         if controller is None:
             return
         state = context.state
-        if self.stage == "choose":
-            remaining = self.player_ids
-            if remaining is None:
-                remaining = [p.id for p in state.living_players_apnap() if p.id != controller.id]
-            if not remaining:
-                self._next(context, stage="exile", chosen_ids=list(self.chosen_ids))
-                return
-            opponent = state.player_by_id(remaining[0])
-            candidates = [
-                o for o in (state.permanents_controlled_by(opponent.id) if opponent else [])
-                if o.card.is_artifact or o.card.is_enchantment
-            ]
-            declined = {"player_ids": remaining[1:], "chosen_ids": list(self.chosen_ids)}
-            if not candidates:
-                self._next(context, stage="choose", **declined)
-                return
-            picked = {"player_ids": remaining[1:], "chosen_ids": self.chosen_ids + [{"kind": "chosen_instance_ids"}]}
-            context.choose_objects(
-                controller, candidates, "select_referent", count=1, optional=True, source=self.source,
-                then_specs=[{"type": "disorienting_choice", "params": {"stage": "choose", **picked}}],
-                else_specs=[{"type": "disorienting_choice", "params": {"stage": "choose", **declined}}],
-                prompt=f"Artefakt oder Verzauberung von {opponent.name} wählen",
-            )
+        if self.stage == "targets":
+            chosen = [obj for obj in targets or [] if obj is not None]
+            self._next(context, stage="exile", chosen_ids=[obj.instance_id for obj in chosen],
+                       chosen_incarnations={str(obj.instance_id): obj.zone_incarnation for obj in chosen})
             return
         if self.stage == "exile":
             pending = list(self.chosen_ids) if self.pending_ids is None else list(self.pending_ids)
             while pending:
                 permanent = state.find_object(pending.pop(0))
-                if permanent is None or permanent.zone != Zone.BATTLEFIELD:
+                if (permanent is None or permanent.zone != Zone.BATTLEFIELD
+                        or permanent.zone_incarnation != self.chosen_incarnations.get(str(permanent.instance_id))):
                     continue
-                rest = {"stage": "exile", "chosen_ids": list(self.chosen_ids), "pending_ids": list(pending)}
+                rest = {"stage": "exile", "chosen_ids": list(self.chosen_ids), "pending_ids": list(pending),
+                        "chosen_incarnations": self.chosen_incarnations}
                 owner = state.player_by_id(permanent.controller_id)
                 context.choose_objects(
                     owner, [permanent], "exile", count=1, optional=True, source=self.source,
@@ -1490,11 +1463,13 @@ class DisorientingChoiceEffect(GameEffect):
                     prompt=f"{permanent.name} ins Exil schicken?",
                 )
                 return
-            self._next(context, stage="search", chosen_ids=list(self.chosen_ids))
+            self._next(context, stage="search", chosen_ids=list(self.chosen_ids),
+                       chosen_incarnations=self.chosen_incarnations)
             return
         remaining_count = sum(
             1 for iid in self.chosen_ids
             if (o := state.find_object(iid)) is not None and o.zone == Zone.BATTLEFIELD
+            and o.zone_incarnation == self.chosen_incarnations.get(str(iid))
         )
         if remaining_count:
             context.engine._apply_effect_specs([{"type": "search", "params": {

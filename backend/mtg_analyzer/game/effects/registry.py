@@ -2408,8 +2408,8 @@ EffectRegistry.register(
     # Disorienting Choice — see `DisorientingChoiceEffect`.
     "disorienting_choice",
     lambda p: DisorientingChoiceEffect(
-        stage=str(p.get("stage", "choose")), player_ids=p.get("player_ids"), chosen_ids=p.get("chosen_ids"),
-        pending_ids=p.get("pending_ids"),
+        stage=str(p.get("stage", "targets")), chosen_ids=p.get("chosen_ids"),
+        pending_ids=p.get("pending_ids"), chosen_incarnations=p.get("chosen_incarnations"),
     ),
 )
 EffectRegistry.register(
@@ -4555,7 +4555,8 @@ EffectRegistry.register("aminatous_augury", lambda p: AminatousAuguryEffect())
 EffectRegistry.register(
     # "Until end of turn, you may play cards exiled with ~. Spells you cast this way cost {2} less." (Urianger Augurelt)
     "play_cards_exiled_with_source",
-    lambda p: PlayCardsExiledWithSourceEffect(spell_discount=int(p.get("spell_discount", 0) or 0)),
+    lambda p: PlayCardsExiledWithSourceEffect(spell_discount=int(p.get("spell_discount", 0) or 0),
+                                           from_activation_cost=bool(p.get("from_activation_cost", False))),
 )
 EffectRegistry.register(
     # "When ~ dies, you may cast it from your graveyard as an Adventure until the end of your next turn."

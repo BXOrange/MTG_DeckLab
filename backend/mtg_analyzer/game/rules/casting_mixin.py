@@ -1073,6 +1073,17 @@ class CastingResolutionMixin:
         return item
 
     def _stage_cast_event(self, item, event, deferred):
+        from ..targeting import effects_target_specs, partition_targets
+
+        specs = effects_target_specs(item.effects)
+        if any(spec.per_player for spec in specs):
+            groups = item.target_groups or partition_targets(specs, item.targets)
+            if groups is not None:
+                item.copy_target_roles = [
+                    [dataclasses.replace(spec, per_player=None, scoped_player_id=target.controller_id)
+                     if spec.per_player else spec]
+                    for spec, group in zip(specs, groups) for target in group
+                ]
         if deferred:
             item.pending_cast_event = event
             item.deferred_ward_triggers = self.check_ward(

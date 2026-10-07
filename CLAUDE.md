@@ -198,6 +198,13 @@ separate cost choices. Casting events are deferred until all costs are paid
 immutable paid count. Plumb the Forbidden uses ordinary draw/life effects and
 real event-derived stack copies, including after the original is countered.
 
+**Per-opponent spell targets** retain their announced controller scopes and
+reuse per-occurrence legality checks at resolution (RULE 608.2b). Disorienting
+Choice offers exile only for legal targets and counts their original battlefield
+incarnations. Battlefield exile costs expose `exile_cost` choices through the
+shared cost picker; activation events snapshot paid IDs/incarnations so later
+activations cannot replace the cards referenced by Primordial Mist's permission.
+
 **Suspended choices** preserve graveyard incarnations for remembered returns,
 player target referents, and the resolving spell through its last interactive instruction.
 Death events also capture copiable card values so a token copy reads the dying

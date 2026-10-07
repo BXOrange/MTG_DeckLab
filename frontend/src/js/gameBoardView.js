@@ -2653,8 +2653,8 @@ export function createGameBoardView(opts = {}) {
         const action = (view?.legal_actions || []).find(
           (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
         );
-        if (!action || !action.tap_cost) return;
-        const { count, options } = action.tap_cost;
+        if (!action || !(action.tap_cost || action.exile_cost)) return;
+        const { count, options } = action.tap_cost || action.exile_cost;
         // One synthetic "requirement" per permanent to tap — reuses the
         // same one-pick-at-a-time modal RULE 115 targets use, since it's
         // the same UX (choose N from a pool); `excludePicked` stops the
@@ -2665,14 +2665,14 @@ export function createGameBoardView(opts = {}) {
         // "N target X", `expandMultiTargetRequirements`) which still sends
         // `targets`.
         const requirements = Array.from({ length: count }, () => ({
-          label: 'zu tappende Kreatur', options, optional: false,
+          label: action.exile_cost ? t('bd.exile.permanent') : 'zu tappende Kreatur', options, optional: false,
         }));
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
-          excludePicked: true, isTapChoice: true,
+          excludePicked: true, isTapChoice: true, isExileChoice: !!action.exile_cost,
         };
         finishCastIfReady();
       });
@@ -3777,7 +3777,7 @@ export function createGameBoardView(opts = {}) {
             <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
           </div>
         `);
-      } else if (a.type === 'activate_ability' && a.tap_cost) {
+      } else if (a.type === 'activate_ability' && (a.tap_cost || a.exile_cost)) {
         // Cost includes "tap N untapped <type>s you control" (RULE 602.1) —
         // which ones is the player's own choice, not an engine auto-pick.
         const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
@@ -4031,7 +4031,7 @@ export function createGameBoardView(opts = {}) {
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
     const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice;
-    const modalGlyph = castTargeting.isGraveyardExileChoice ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
+    const modalGlyph = (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,

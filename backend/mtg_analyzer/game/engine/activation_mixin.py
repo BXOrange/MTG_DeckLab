@@ -1389,8 +1389,12 @@ class ActivationMixin:
             self.rules.add_player_counters(player, -amount, "energy")
         if cost.exile_others:
             count, word = cost.exile_others
+            source.last_cost_exiled_ids = []
+            source.last_cost_exiled_incarnations = {}
             for obj in self._resolve_sacrifice_count(player, count, word, tap_choices, source) or []:
                 self.rules.exile(obj)
+                source.last_cost_exiled_ids.append(obj.instance_id)
+                source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
                 source.exiled_with_ids.append(obj.instance_id)  # RULE 607.2a: "exiled with this Vehicle"
         if cost.exile_self:
             # RULE 602.2b: exiled as the cost is paid; the ability still
@@ -1758,6 +1762,10 @@ class ActivationMixin:
                 sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
                 hand_card_choices=hand_card_choices,
             )
+        if ability.cost.exile_others:
+            hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+            hideaway_event["cost_exiled_ids"] = list(source.last_cost_exiled_ids)
+            hideaway_event["cost_exiled_incarnations"] = dict(source.last_cost_exiled_incarnations)
         # RULE 107.3c/601.2b: remember the announced X on the ability's own
         # source, mirroring `RulesEngine.cast_spell`'s `obj.x_paid` stamp —
         # every existing X-reading effect (`AddCountersEffect.x_multiplier`,

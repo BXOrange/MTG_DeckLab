@@ -188,6 +188,12 @@ class LegalActionsMixin:
             # Crew cost is the player's own choice — the `_crew_cost_choice`
             # UI shape (a power threshold, not `tap_cost`'s exact count).
             action["crew_cost"] = self._crew_cost_choice(player, source, ability.cost)
+        if ability.cost.exile_others:
+            count, word = ability.cost.exile_others
+            action["exile_cost"] = {"count": count, "options": [
+                {"instance_id": obj.instance_id, "name": obj.name}
+                for obj in self._sacrifice_count_pool(player, word, source)
+            ]}
         if ability.cost.sacrifice and ability.cost.sacrifice != "self":
             # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is
             # the player's own choice — offer the pool so the UI can prompt

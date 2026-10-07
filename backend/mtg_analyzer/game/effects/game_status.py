@@ -1505,8 +1505,9 @@ class PlayCardsExiledWithSourceEffect(GameEffect):
     ``spell_discount`` — one `turn_cost_reductions` entry naming exactly those cards (``object_ids``), so only a spell
     cast *this way* is cheaper."""
 
-    def __init__(self, source: Optional["GameObject"] = None, spell_discount: int = 0) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, spell_discount: int = 0, from_activation_cost: bool = False) -> None:
         super().__init__(source)
+        self.from_activation_cost = from_activation_cost
         self.spell_discount = max(0, int(spell_discount))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1514,9 +1515,13 @@ class PlayCardsExiledWithSourceEffect(GameEffect):
         player = _controller_of(source, context)
         if source is None or player is None:
             return
+        event = context.trigger_event or {}
+        ids = event.get("cost_exiled_ids", []) if self.from_activation_cost else list(source.exiled_with_ids)
+        incarnations = event.get("cost_exiled_incarnations", {})
         cards = [
-            obj for obj in (context.state.find_object(i) for i in list(source.exiled_with_ids))
+            obj for obj in (context.state.find_object(i) for i in ids)
             if obj is not None and obj.zone == Zone.EXILE
+            and (not self.from_activation_cost or obj.zone_incarnation == incarnations.get(obj.instance_id, incarnations.get(str(obj.instance_id))))
         ]
         for obj in cards:
             context.engine._grant_temp_play_permission(obj, player, source.name, True, None)

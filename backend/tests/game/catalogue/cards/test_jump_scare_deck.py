@@ -144,8 +144,8 @@ def test_disorienting_choice_ramps_for_each_permanent_that_stays():
         o = GameObject(forest, owner_id="p1", zone=Zone.LIBRARY)
         p1.library.append(o)
     spell = _card(engine, "Disorienting Choice", zone=Zone.HAND)
-    _cast(engine, spell, {"G": 1, "C": 3})
-    # Controller picks the artifact; its controller declines to exile it; we fetch one land.
+    _cast(engine, spell, {"G": 1, "C": 3}, targets=[keep])
+    # The target was announced; its controller declines to exile it; we fetch one land.
     for _ in range(6):
         choice = engine.state.pending_choice
         if choice is None:
@@ -167,7 +167,7 @@ def test_disorienting_choice_fetches_nothing_if_the_permanent_is_exiled():
     forest = CardDatabase(DB_PATH).get_card("Forest")
     p1.library.append(GameObject(forest, owner_id="p1", zone=Zone.LIBRARY))
     spell = _card(engine, "Disorienting Choice", zone=Zone.HAND)
-    _cast(engine, spell, {"G": 1, "C": 3})
+    _cast(engine, spell, {"G": 1, "C": 3}, targets=[keep])
     for _ in range(6):
         choice = engine.state.pending_choice
         if choice is None:

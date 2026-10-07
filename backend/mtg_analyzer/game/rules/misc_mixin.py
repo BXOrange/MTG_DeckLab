@@ -3630,7 +3630,6 @@ class MiscSystemsMixin:
             # (RULE 701.40a: manifesting "a card" is not limited to the library's top).
             "manifest_from_hand",
             # "Exile a face-down permanent you control face up: You may play that card this turn." (Primordial Mist)
-            "exile_face_down_for_play",
             # RULE 702.110a/b: an exploit ability's optional sacrifice — a sacrifice that also fires `EXPLOITS`.
             "exploit",
             # Quandrix Command mode 4 ("target player shuffles up to three
@@ -4602,15 +4601,6 @@ class MiscSystemsMixin:
                 # RULE 708.3: turned face down before it enters, so its own ETB abilities never trigger.
                 self.turn_face_down(obj, "manifest")
                 self._put_searched_card(player, obj, "battlefield")
-        elif action == "exile_face_down_for_play":
-            # The permanent is exiled face up (RULE 708.9 — leaving the battlefield reveals it), then its controller
-            # may play that card this turn (the same-turn-only exile play permission).
-            self.exile(obj)
-            if obj.zone == Zone.EXILE:
-                self._grant_temp_play_permission(
-                    obj, player, source.name if source is not None else None,
-                    same_turn_only=True, mana_wildcard=None,
-                )
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source

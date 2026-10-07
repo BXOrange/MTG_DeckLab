@@ -524,6 +524,12 @@ play grants now honor their live conditions, including charge-counter thresholds
 - **Serra Avenger:** Replay exports/imports preserve `Player.turns_taken` and the starting seat, including extra/skipped turns. Older descriptors infer ordinary turn order with later seats one turn behind; editing the turn resets counts after applying the selected active seat, rather than flooring counts at the greatest previously displayed round.
 - **Validation:** `tests/test_calling_angels_residue.py`, the Replay suite and the Calling All Angels card suite. Chromium verified decline without an HTTP action/payment and confirmation with exactly one paid block.
 
+### Jump Scare!: announced opponent targets and paid face-down exile
+
+- **Disorienting Choice:** Uses ordinary optional target rounds, at most one artifact/enchantment per opponent. Hexproof/protection prevent announcement; resolving targets retain their announced player scope and use the existing legality mask. Only legal targets receive controller exile choices; the final land search counts original battlefield incarnations still present (RULE 601.2c / 608.2b / 400.7). The former resolution-time target picker is removed.
+- **Primordial Mist:** Reuses `exile_others` with a face-down filter and the shared cost picker. The selected permanent leaves face up while paying the activation cost, before responses; countering the ability leaves the cost paid and grants no permission (RULE 602.2b / 708.9). The existing exile-play effect accepts immutable activation cost IDs/incarnations, keeping separate activations and cards that leave/re-enter exile distinct. The former resolution-time exile action is removed.
+- **Validation:** `tests/test_jump_scare_residue.py`, the Jump Scare card suite and per-player targeting regressions. Chromium verified two announced opponent targets, an alternate exile-cost selection, and permission only after resolution through the shared board and HTTP.
+
 ### Composed graveyard recovery and linked casting permissions
 
 `MillEffect.capture_milled` and `ReturnFromGraveyardEffect.previous_pool` restrict

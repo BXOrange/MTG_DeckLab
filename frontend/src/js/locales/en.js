@@ -715,6 +715,7 @@ export default {
   'bd.turnControl.scopeYourTurn': "your turn",
   'bd.turnControl.locked': "🔒 {name} is controlling {scope} right now. You make no decisions in the meantime.",
   'bd.block.noBlock': "— does not block —",
+  'bd.exile.permanent': 'Exile a permanent',
   'bd.blockTax.confirm': 'Pay the {cost} blocking cost?',
   'bd.block.confirm': "Confirm block ({count})",
   'bd.block.confirmNone': "Confirm no blockers",

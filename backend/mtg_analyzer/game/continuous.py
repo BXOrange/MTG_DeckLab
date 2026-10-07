@@ -257,6 +257,8 @@ def matches_permanent_word(obj: "GameObject", word: str) -> bool:
     tapped state, "defender"/"flying", else a subtype (RULE 205.3). "other"
     always matches here — excluding the ability's own source is the
     caller's job, since only it knows the source."""
+    if word == "face_down":
+        return bool(obj.face_down)
     if "_or_" in word:
         return any(matches_permanent_word(obj, part) for part in word.split("_or_"))
     if "_" in word:
