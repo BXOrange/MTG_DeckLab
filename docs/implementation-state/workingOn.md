@@ -73,7 +73,6 @@ Block template (do not change this, copy below the line, fill in there):
 
 Coverage completion does not close these recorded limitations; confirm them against the current card files before fixing them.
 
-
 - **Sultai Arisen:** Kotis auto-picks the three other graveyard cards it exiles (oldest first, no prompt); Steward of the Harvest borrows mana abilities through the existing borrow machinery, not tested against non-basic activated land abilities beyond Command Tower's.
 - **Mardu Surge:** Eliminate the Competition (and Immoral Bargain) sacrifice and choose the X creatures at resolution, not as announced cost and targets; Kaya's +1 counter target and Windbrisk's attack count use the existing selectors without a planeswalker-attack special case; Plumb the Forbidden still pays its optional sacrifice at resolution and models copies as scaled draw/life loss; its sacrifice count now uses the actual picks, including tokens.
 - **Calling All Angels:** Archangel of Tithes' block tax is auto-paid at `declare_blockers` (an unaffordable block is rejected, there is no explicit decline); Serra Avenger's turn count in a Replay board is floored at the round number;
