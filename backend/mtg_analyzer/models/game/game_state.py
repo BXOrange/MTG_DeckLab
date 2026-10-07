@@ -1207,11 +1207,14 @@ class GameState:
         """
         seats = max(1, len([p for p in self.players if not p.is_dummy]))
         self.turn_nr = max(1, -(-max(1, self.internal_turn.number) // seats))
-        for player in self.players:
-            if not player.is_dummy:
-                player.turns_taken = max(player.turns_taken, self.turn_nr)
         if self.starting_player_id is None and self.players:
             self.starting_player_id = self.players[0].id
+        order = [p for p in self.players if not p.is_dummy]
+        start = next((i for i, p in enumerate(order) if p.id == self.starting_player_id), 0)
+        order = order[start:] + order[:start]
+        active = next((i for i, p in enumerate(order) if p is self.active_player), 0)
+        for i, player in enumerate(order):
+            player.turns_taken = max(0, self.turn_nr - int(i > active))
 
     def next_active_index(self) -> int:
         """The next player to take a turn, skipping passive dummies (UC3).

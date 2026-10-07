@@ -49,6 +49,13 @@ without these IDs cannot reliably reconstruct numeric attachment references.
 goldfish position can be exported and re-opened in Replay. Frontend:
 `frontend/src/js/replayView.js`.
 
+Replay descriptors preserve each player's `turns_taken` and the starting seat,
+so own-turn casting restrictions retain extra/skipped turns independently of the
+display round. Older descriptors infer ordinary seat order. Editing the turn
+recomputes these counts, including when moving backwards. Blocking offers expose
+per-creature mana taxes; the shared board confirms payment before submission,
+and explicit API declines leave mana and combat unchanged (RULE 509.1c–f).
+
 **Solo bot updates** use one action per response: human POSTs return before
 bots answer; each subsequent GET applies at most one bot action. The Solo
 board polls once per second while `bot_action_pending` is true, including AI

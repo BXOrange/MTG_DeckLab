@@ -1308,7 +1308,7 @@ class GameSession:
             }
             for a in (action.get("assignments") or [])
         ]
-        self.engine.declare_blockers(blocker_player, pairs)
+        self.engine.declare_blockers(blocker_player, pairs, pay_block_tax=bool(action.get("pay_block_tax", True)))
 
     def _dispatch_ninjutsu(self, action: dict[str, Any], active: Player) -> None:
         # RULE 702.49a Ninjutsu (PAR-26): swap an unblocked attacker for a
@@ -1556,10 +1556,11 @@ class GameSession:
         state = self.engine.state
         if "internal_turn" in action:
             state.internal_turn.number = max(1, int(action["internal_turn"]))
-            state.sync_turn_nr()
         if action.get("active_player_id"):
             player = state.player_by_id(str(action["active_player_id"]))
             state.active_player_index = state.players.index(player)
+        if "internal_turn" in action or action.get("active_player_id"):
+            state.sync_turn_nr()
         step = action.get("step")
         if step:
             state.current_step = str(step)

@@ -708,6 +708,7 @@ export default {
   'bd.turnControl.scopeYourTurn': "deinen Zug",
   'bd.turnControl.locked': "🔒 {name} kontrolliert gerade {scope}. Du triffst währenddessen keine Entscheidungen.",
   'bd.block.noBlock': "— blockt nicht —",
+  'bd.blockTax.confirm': 'Blockkosten von {cost} bezahlen?',
   'bd.block.confirm': "Block bestätigen ({count})",
   'bd.block.confirmNone': "Keine Blocker bestätigen",
   'bd.seat.active': "am Zug",

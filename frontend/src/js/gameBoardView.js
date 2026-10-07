@@ -1639,7 +1639,11 @@ export function createGameBoardView(opts = {}) {
     // "declare no blocks" is a real turn-based action, not the absence of
     // one), so this must not be guarded on `blockDraft.size`.
     const assignments = Array.from(blockDraft, ([blocker, attacker]) => ({ blocker, attacker }));
-    await act({ type: 'declare_blockers', assignments });
+    const offers = (view?.legal_actions || []).filter((a) => a.type === 'declare_blockers');
+    const tax = assignments.reduce((sum, { blocker }) =>
+      sum + (offers.find((a) => a.instance_id === blocker)?.block_tax_amount || 0), 0);
+    if (tax > 0 && !window.confirm(t('bd.blockTax.confirm', { cost: `{${tax}}` }))) return;
+    await act({ type: 'declare_blockers', assignments, pay_block_tax: true });
   }
 
   // Every board, in order. Stacked they're just concatenated, as they always

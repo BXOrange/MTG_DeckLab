@@ -518,6 +518,12 @@ play grants now honor their live conditions, including charge-counter thresholds
 - **Implementation:** Reuses `sacrifice_count`, ordinary draw/life/destroy effects and event-derived copy recipes; removes the former fused resolution-time effects. `CAST_COST_PAID` carries the paid count. PARSER_VERSION 619 validates the additional-cost spec. Kaya's optional token target and Windbrisk's attacks on players, planeswalkers and battles are covered by existing selectors.
 - **Validation:** `test_immoral_bargain.py`, `test_plumb_the_forbidden.py`, and `test_mardu_surge_deck.py`; Chromium verified target/cost selection and HTTP payment timing through the shared board.
 
+### Calling All Angels: optional block costs and own-turn replay history
+
+- **Archangel of Tithes:** Blocking offers expose the active per-creature tax. The shared board confirms the total before submitting assignments; decline preserves the draft and pays nothing. The API's `pay_block_tax=False` rejects a taxed declaration before mana or combat changes. A creature blocking multiple attackers pays once; additive declarations charge only new blocking creatures (RULE 509.1c–f).
+- **Serra Avenger:** Replay exports/imports preserve `Player.turns_taken` and the starting seat, including extra/skipped turns. Older descriptors infer ordinary turn order with later seats one turn behind; editing the turn resets counts after applying the selected active seat, rather than flooring counts at the greatest previously displayed round.
+- **Validation:** `tests/test_calling_angels_residue.py`, the Replay suite and the Calling All Angels card suite. Chromium verified decline without an HTTP action/payment and confirmation with exactly one paid block.
+
 ### Composed graveyard recovery and linked casting permissions
 
 `MillEffect.capture_milled` and `ReturnFromGraveyardEffect.previous_pool` restrict

@@ -1141,7 +1141,7 @@ class CombatMixin:
             obj.is_creature and obj.summoning_sick and not combat.has_haste(obj)
             and not continuous.activates_as_though_haste(self.state, obj)
         )
-    def declare_blockers(self, player: Player, assignments: list[Any]) -> None:
+    def declare_blockers(self, player: Player, assignments: list[Any], *, pay_block_tax: bool = True) -> None:
         """Declare ``player``'s creatures as blockers (RULE 509).
 
         ``player`` is a *defending* player (not the active/attacking one).
@@ -1222,8 +1222,11 @@ class CombatMixin:
         # up front, auto-tapping like the attack tax, before any block locks
         # in. Per newly declared blocker, so an additive second call only
         # pays for its own blockers.
-        block_tax = continuous.block_tax_per_creature(self.state) * len(resolved)
+        new_blockers = {b.instance_id for b, _ in resolved if not combat.blocking_attacker_ids(b)}
+        block_tax = continuous.block_tax_per_creature(self.state) * len(new_blockers)
         if block_tax > 0:
+            if not pay_block_tax:
+                raise ValueError("block tax declined; those creatures cannot be declared as blockers")
             tax_cost = ManaCost.parse(f"{{{block_tax}}}")
             if not player.mana_pool.can_pay(tax_cost):
                 try:

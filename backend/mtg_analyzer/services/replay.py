@@ -135,6 +135,7 @@ def _serialize_player(state: GameState, player: Player) -> dict[str, Any]:
         "poison": player.poison,
         "counters": dict(player.counters),
         "is_dummy": player.is_dummy,
+        "turns_taken": player.turns_taken,
         "commander_damage": {str(k): v for k, v in player.commander_damage.items()},
         "zones": zones,
     }
@@ -155,6 +156,7 @@ def serialize_replay(state: GameState) -> dict[str, Any]:
         "internal_turn": state.internal_turn.to_dict(),
         "turn_nr": state.turn_nr,
         "active_player_index": state.active_player_index,
+        "starting_player_id": state.starting_player_id,
         "current_phase": state.current_phase or "precombat_main",
         "current_step": state.current_step or "main1",
         "players": [_serialize_player(state, p) for p in state.players],
@@ -367,10 +369,16 @@ def build_replay_engine(
     state.internal_turn.player_id = state.active_player.id
     state.current_phase = descriptor.get("current_phase") or "precombat_main"
     state.current_step = descriptor.get("current_step") or "main1"
-    # A position that was assembled rather than played has no turn history.
-    # A descriptor without a display turn is derived from the internal turn.
-    if state.turn_nr < 1:
-        state.sync_turn_nr()
+    # Older descriptors infer ordinary turn order; explicit own-turn counts
+    # preserve extra/skipped turns and take precedence over the display round.
+    display_round = state.turn_nr
+    state.starting_player_id = descriptor.get("starting_player_id")
+    state.sync_turn_nr()
+    if display_round > 0:
+        state.turn_nr = display_round
+    for player, pd in zip(players, descriptor.get("players", [])):
+        if "turns_taken" in pd:
+            player.turns_taken = max(0, int(pd["turns_taken"]))
 
     engine = GameEngine(state)
     engine.resume_at(cursor_after(state.current_step))

@@ -1268,6 +1268,7 @@ class LegalActionsMixin:
                 actions.append(
                     {
                         "type": "declare_blockers",
+                        "block_tax_amount": continuous.block_tax_per_creature(self.state),
                         "instance_id": obj.instance_id,
                         "name": obj.name,
                         "player_id": player.id,
