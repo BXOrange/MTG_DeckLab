@@ -35,8 +35,8 @@ Block template (copy below the line, fill in):
 - **Started / last update:** <YYYY-MM-DD> / <YYYY-MM-DD HH:MM>
 - **Goal of this run:** <which part of the ticket this run closes>
 - **Done (built + tested):** <bullets — what is finished, with file/test names>
-- **In progress:** The remaining correctness gaps and parser/integration follow-ups below remain part of PLAY-ALL. Coverage completion alone does not close this ticket (user-confirmed scope).
-- **Next step:** Fix the optional casting-life payment for Defiler of Vigor / Defiler of Dreams: inspect their card modules and `game/engine/casting_mixin.py` / `models/mana/mana_pool.py`, add an explicit player choice and real-cast regressions. Then continue the remaining correctness gaps below. Commander Cube remains optional.
+- **In progress:** <what is half-built right now, and in which files>
+- **Next step:** <the exact next action — command to run or change to make>
 - **Decisions:** <choices made and why, so they aren't re-litigated>
 - **Baselines / artefacts:** <snapshot paths, measured numbers, PARSER_VERSION>
 - **Known failures:** <red tests and whether they are ours or pre-existing>
