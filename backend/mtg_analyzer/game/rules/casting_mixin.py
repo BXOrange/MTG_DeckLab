@@ -2212,7 +2212,10 @@ class CastingResolutionMixin:
         a `pending_choice` (possibly more than one, in sequence) and resume
         later from `_resume_enter_as_copy`/`_resume_choose_creature_type`.
         """
+        self.state.pending_permanent_entry = {"item": item, "obj": obj}
+
         def _finish() -> None:
+            self.state.pending_permanent_entry = None
             if obj.cast_via_mutate:
                 # RULE 702.140b-d: a mutate spell never enters the
                 # battlefield as its own permanent — it merges onto the
@@ -2470,6 +2473,9 @@ class CastingResolutionMixin:
         here, not sitting in any per-player zone list, so there's nothing to
         remove it *from* first — `resolve_top_of_stack` already popped it).
         """
+        if (self.state.pending_permanent_entry
+                and self.state.pending_permanent_entry["obj"] is obj):
+            self.state.pending_permanent_entry = None
         owner = self.state.player_by_id(obj.owner_id)
         obj.blitz_cost_paid = False  # RULE 400.7: this spell did not become a permanent.
         owner.add_to_zone(obj, Zone.GRAVEYARD)
@@ -2676,6 +2682,21 @@ class CastingResolutionMixin:
             return
         effect = obj.enter_choice_effects[0]
         remaining = obj.enter_choice_effects[1:]
+        if getattr(effect, "is_enter_effect", False):
+            # RULE 614.12: these instructions run before any entry event.
+            # Consume the instruction before asking, so snapshots retain its remainder.
+            obj.enter_choice_effects = remaining
+            outer_actor = self.context.acting_player_id
+            self.context.acting_player_id = obj.controller_id
+            try:
+                effect.apply(self.context)
+            finally:
+                self.context.acting_player_id = outer_actor
+            if self.state.pending_choice:
+                self.state.pending_choice["entry_effect"] = True
+            else:
+                self._offer_enter_choices(obj, continuation)
+            return
         if isinstance(effect, ChooseColorReplacement) and effect.count > 1:
             # "choose two colors": one prompt per colour, the next one offered once this is answered.
             remaining = [ChooseColorReplacement(count=effect.count - 1), *remaining]

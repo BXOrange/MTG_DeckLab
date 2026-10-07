@@ -10,17 +10,31 @@ def _sin_unending_cataclysm() -> list[AbilitySpec]:
     As Sin enters, remove all counters from any number of artifacts, creatures, and enchantments. Sin enters with X +1/+1 counters on it, where X is twice the number of counters removed this way.
     When Sin dies, put its counters on target creature you control, then shuffle this card into its owner's library.
 
-    — PLAY-ALL (Counter Blitz). Flying and trample are keywords. The entry clause is the `enters_with_counters_count` static (`entry_counters_self`) with the new
-    ``remove_counters_scope`` and ``multiplier`` 2 (`RulesEngine._apply_entry_counters`; **simplification:** "any number" is taken as every artifact, creature and
-    enchantment). The dies trigger is `transfer_event_counters` (every kind from the dying Sin's RULE 603.10a snapshot onto a creature you control) then
-    `shuffle_self_into_library`.
+    — PLAY-ALL (Counter Blitz). Before entry, choose any number of
+    artifacts, creatures and enchantments under any controller. Only after
+    selection ends are their counters removed together. Twice the removed
+    count is staged as entry counters; the death trigger transfers counters
+    and shuffles Sin into its owner's library.
     """
     return [
         AbilitySpec(
-            "static",
-            [EffectSpec("enters_with_counters_count", {
-                "kind": "+1/+1", "remove_counters_scope": "artifacts_creatures_enchantments", "multiplier": 2,
-            })],
+            "enter_replacement",
+            [EffectSpec("entry_effect", {"effects": [
+                {"type": "choose_objects", "params": {
+                    "action": "select_only", "what": "permanent", "count": "all", "optional": True,
+                    "pool_player_selector": "all",
+                    "card_types_any": ["artifact", "creature", "enchantment"],
+                    "prompt": "Permanents auswählen, deren Marken entfernt werden",
+                    "then": [
+                        {"type": "remove_counters", "params": {"previous_subject": True}},
+                        {"type": "add_entry_counters", "params": {
+                            "kind": "+1/+1", "amount": {
+                                "kind": "this_way", "tally": "counters_removed_this_way", "multiply": 2,
+                            },
+                        }},
+                    ],
+                }},
+            ]})],
         ),
         AbilitySpec(
             "triggered",

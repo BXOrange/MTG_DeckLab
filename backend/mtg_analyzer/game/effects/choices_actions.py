@@ -1369,6 +1369,9 @@ class ChooseObjectsEffect(GameEffect):
             defender_id = event.get("defending_player_id")
             pool_player = (context.state.player_by_id(defender_id) if defender_id is not None
                            else _defending_player_of(self.source, context))
+        elif self.pool_player_selector == "all":
+            if self.pool_zone != "battlefield":
+                raise ValueError("All-controller choice pools require the battlefield")
         elif self.pool_player_selector != "chooser":
             raise ValueError(f"Unknown choice pool player: {self.pool_player_selector}")
         if self.pool_zones is not None:
@@ -1378,7 +1381,8 @@ class ChooseObjectsEffect(GameEffect):
                     for obj in (getattr(pool_player, zone) if pool_player else [])
                     if obj.owner_id == player.id]
         elif self.pool_zone == "battlefield":
-            pool = context.state.permanents_controlled_by(pool_player.id) if pool_player else []
+            pool = (list(context.state.permanents()) if self.pool_player_selector == "all"
+                    else context.state.permanents_controlled_by(pool_player.id) if pool_player else [])
         elif self.pool_zone in {"graveyard", "hand"}:
             pool = getattr(pool_player, self.pool_zone) if pool_player else []
         else:

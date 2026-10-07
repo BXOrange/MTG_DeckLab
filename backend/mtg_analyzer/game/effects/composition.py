@@ -153,6 +153,7 @@ class _CompositeEffect(GameEffect):
             previous_targets=list(getattr(context, "previous_targets", []) or []),
             created_objects=list(getattr(context, "created_objects", []) or []),
             life_lost_this_way=getattr(context, "life_lost_this_way", 0),
+            excess_damage_this_way=getattr(context, "excess_damage_this_way", 0),
             permanents_destroyed_this_way=getattr(
                 context, "permanents_destroyed_this_way", 0
             ),
@@ -200,6 +201,12 @@ class SeqEffect(_CompositeEffect):
 
 #: `TriggerSubjectReferentEffect.event_key` naming the remembered subject rather than an event field.
 REMEMBERED_EVENT_KEY = "remembered"
+
+
+class EntryEffect(SeqEffect):
+    """A sequence expanded into before-entry instructions by the binder."""
+    is_enter_effect = True
+    description = ""
 
 
 class TriggerSubjectReferentEffect(_CompositeEffect):
@@ -667,6 +674,7 @@ EffectRegistry.register(
     "seq",
     lambda p: SeqEffect(effects=p.get("effects")),
 )
+EffectRegistry.register("entry_effect", lambda p: EntryEffect(effects=p.get("effects")))
 EffectRegistry.register(
     # PAR-123 — a group trigger's firing object as the referent of "it"/"that creature".
     "trigger_subject_referent",

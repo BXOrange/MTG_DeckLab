@@ -358,6 +358,7 @@ class TypeEntry:
 _INSTRUCTION_TYPES: dict[str, str] = {
     "adapt": "adapt",
     "add_counters": "put_counter",
+    "add_entry_counters": "put_counter",
     "add_mana": "add_mana",
     "amass": "amass",
     "empower_jace": "empower_jace",
@@ -957,6 +958,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
 #: whether these get their own operators (`instead`, `rather than`) instead
 #: of reusing the branch node.
 _REPLACEMENT_TYPES: frozenset[str] = frozenset({
+    "entry_effect",
     "double_tokens_this_turn", "dungeon_room_trigger_doubler", "enters_tapped_static", "extra_etb_counter",
     "global_wither", "graveyard_redirect", "graveyard_redirect_to_exile_this_turn",
     "mana_multiplier", "mana_type_override", "mirror_produced_mana",

@@ -514,6 +514,10 @@ GameSession (services/game_session.py) wraps an engine: snapshots/undo, wire vie
 API (api/game.py)  ── JSON ──▶  frontend (src/js/goldfishView.js)
 ```
 
+Before-entry instruction choices retain their permanent and stack item in
+`GameState.pending_permanent_entry`, so identity lookup survives rollback.
+`entry_effect` uses the ordinary choice machinery before the entry event.
+
 Inserted turn phases live in `GameState.turn_steps`, so snapshots retain extra
 combats and their phase-specific delayed triggers through undo.
 

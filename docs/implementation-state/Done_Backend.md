@@ -1411,6 +1411,16 @@ Equipment slot independent of a mandatory creature target.
 
 ## Replacement Effects
 
+### Executable before-entry instructions (RULE 614.12)
+
+`entry_effect` expands whitelisted instruction descriptors into a permanent's
+before-entry queue. Choices finish before the entry event; a pending permanent
+and its stack item remain in `GameState` for identity lookup and rollback.
+The shared revealed-permanent batch supports the same instructions after copying.
+`remove_counters` can operate on the selected preceding group;
+`add_entry_counters` stages counters for the ordinary entry replacement path.
+The counter-removal and excess-damage tallies survive nested composition.
+
 ### Replacement effect stacking (RULE 616)
 
 - **What:** `RulesEngine.apply_replacements` rewrites an event through each applicable replacement at most once — draw→draw-2→mill chains and full prevention both work.

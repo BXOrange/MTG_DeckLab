@@ -4160,6 +4160,10 @@ class MiscSystemsMixin:
                         return obj
         # A spell mid-resolution is in no zone (popped off the stack, not yet routed to its graveyard): its
         # suspended remainder (RULE 608.2) is where it still lives.
+        if self.state.pending_permanent_entry:
+            obj = self.state.pending_permanent_entry["obj"]
+            if obj.instance_id == instance_id:
+                return obj
         for frame in self.state.deferred_effects:
             for candidate in (frame.get("source"), getattr(frame.get("stack_item"), "obj", None)):
                 if candidate is not None and getattr(candidate, "instance_id", None) == instance_id:

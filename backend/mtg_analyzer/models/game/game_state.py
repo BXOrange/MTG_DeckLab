@@ -864,6 +864,8 @@ class GameState:
         self.pending_extra_combats: list[Any] = []
         #: RULE 500.8: inserted phases and their delayed triggers survive undo.
         self.turn_steps: list[Any] = []
+        #: A resolving permanent retained through before-entry choices and undo.
+        self.pending_permanent_entry: Optional[dict[str, Any]] = None
 
         #: RULE 500-adjacent "end the turn" (Day's Undoing/Time Stop-shaped
         #: reminder text) — the same "an effect can't reach `GameEngine.
@@ -1103,6 +1105,10 @@ class GameState:
         MEC-8) — the two never collide since `Emblem.instance_id` shares
         `GameObject`'s own counter.
         """
+        if self.pending_permanent_entry:
+            obj = self.pending_permanent_entry["obj"]
+            if obj.instance_id == instance_id:
+                return obj
         for obj in self.battlefield:
             if obj.instance_id == instance_id:
                 return obj

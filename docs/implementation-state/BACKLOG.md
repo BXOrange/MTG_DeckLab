@@ -53,7 +53,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-150` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-151`**; next free `MEC`: **`MEC-111`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
+  > **`PAR-151`**; next free `MEC`: **`MEC-114`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -134,7 +134,16 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-**NONE** Nothing to Do!
+- **MEC-111 · Rooms: door state and unlocking (RULE 709.5).** Rooms have no locked/unlocked door state — casting a Room *is* its
+  door unlocking, only the front half's text is cached, and nothing can unlock a door later, count "fully unlock", or cast either
+  half. 30 cached Room cards plus Blu Mansion Prince, Fear of Sleep Paralysis, Secret Arcade and the "unlock" payoffs. Needs the
+  cache to hold both halves (a `Card` schema change wipes the cache; `import_bulk.py --reseed-only` restores it).
+- **MEC-112 · "You may choose new targets for the copy" (RULE 707.10c).** Spell/ability copies always keep the original's targets
+  (`copy_spell`/`copy_ability` take a caller-supplied `new_targets`, no interactive choice exists). 225 cached cards carry the
+  text (e.g. Gogo, Sevinne's Reclamation); the 78 already covered silently take the default.
+- **MEC-113 · "Until ~ leaves the battlefield" as a duration (RULE 610.3).** The exile family uses the legacy linked-exile leaves
+  trigger (`return_linked_exile`, 10 hand-authored cards plus the parser's mass-exile rows): the return is respondable, and an
+  enters trigger still exiles when the source already left. ~143 cached cards use the wording (Portable Hole, Auron, Summon: Ixion).
 
 ## PLR — Player management
 

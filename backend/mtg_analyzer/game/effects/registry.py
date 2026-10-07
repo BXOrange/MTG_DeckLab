@@ -3526,7 +3526,12 @@ EffectRegistry.register(
         self_only=bool(p.get("self_only", False)), kind=p.get("kind"),
         keep=int(p.get("keep", 0) or 0),
         count=p.get("count"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
+)
+EffectRegistry.register(
+    "add_entry_counters",
+    lambda p: AddEntryCountersEffect(amount=p.get("amount", 0), kind=p.get("kind", "+1/+1")),
 )
 EffectRegistry.register(
     # "Move a counter from target permanent you control onto a second

@@ -4711,6 +4711,13 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             # on `enter_choice_effects` instead — `RulesEngine._resolve_
             # permanent_spell` offers both in turn before battlefield entry.
             for effect in bound:
+                if getattr(effect, "is_enter_effect", False):
+                    body = [EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
+                                       condition=d.get("condition")) for d in effect.inner_specs]
+                    for instruction in build_effects(body, obj):
+                        instruction.is_enter_effect = True
+                        obj.enter_choice_effects.append(instruction)
+                    continue
                 if effect.__class__.__name__ == "EstablishDayOnEntryEffect":
                     obj.establishes_day_on_entry = True
                     continue

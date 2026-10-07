@@ -71,7 +71,8 @@ _RESOURCE_AGGREGATES: dict[str, Any] = {"max": max, "min": min, "sum": sum}
 #: 608.2). Maintained by `_apply_effects_partitioned` and reset per
 #: resolution, which is exactly the scope "this way" means.
 THIS_WAY_TALLIES: frozenset[str] = frozenset(
-    {"life_lost_this_way", "excess_damage_this_way", "permanents_destroyed_this_way", "objects_exiled_this_way"}
+    {"life_lost_this_way", "excess_damage_this_way", "counters_removed_this_way",
+     "permanents_destroyed_this_way", "objects_exiled_this_way"}
 )
 
 #: Every recognized ``kind``. An amount naming anything else is 0.

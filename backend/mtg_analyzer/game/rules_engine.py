@@ -530,10 +530,16 @@ class RulesEngine(
             # registry covers every kind the engine can open.
             raise ValueError(f"no continuation registered for choice kind {kind!r}")
         self.state.pending_choice = None
-        if choice.get("battlefield_batch"):
+        if choice.get("battlefield_batch") and not choice.get("entry_effect"):
             from .effects.battlefield_batches import restore_batch_runtime
             restore_batch_runtime(self, choice)
         handler.func(self, choice, continuations.coerce_answer(handler, answer))
+        if choice.get("entry_effect"):
+            if self.state.pending_choice:
+                self.state.pending_choice["entry_effect"] = True
+            elif self.state.pending_permanent_entry:
+                entry = self.state.pending_permanent_entry
+                self._resolve_permanent_spell(entry["item"], entry["obj"])
         if choice.get("battlefield_batch"):
             from .effects.battlefield_batches import resume_battlefield_batch
             resume_battlefield_batch(self, choice)

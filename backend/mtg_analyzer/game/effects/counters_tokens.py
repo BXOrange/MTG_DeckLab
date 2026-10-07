@@ -1838,6 +1838,18 @@ class ProliferateEffect(GameEffect):
                 context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=controller.id))
 
 
+class AddEntryCountersEffect(GameEffect):
+    """RULE 614.1c: stage counters to be placed as the source enters."""
+    def __init__(self, amount: Any = 0, kind: str = "+1/+1", source=None):
+        super().__init__(source)
+        self.amount, self.kind = amount, kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            amount = max(0, self._measured(self.amount, context, targets))
+            self.source.entry_bonus_counters[self.kind] = self.source.entry_bonus_counters.get(self.kind, 0) + amount
+
+
 class RemoveCountersEffect(GameEffect):
     """Strip counters from a target permanent (Vampire Hexmage-shaped:
     "Remove all counters from target permanent") or from every permanent on
@@ -1871,9 +1883,11 @@ class RemoveCountersEffect(GameEffect):
         kind: Optional[str] = None,
         keep: int = 0,
         count: Optional[int] = None,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.max_count = max_count
+        self.previous_subject = previous_subject
         #: "Remove a menace counter from ~." (MEC-108, RULE 122.1/701 — a keyword-counter payoff
         #: cost-as-effect) — remove up to exactly this many of ``kind`` (none is a no-op, nothing
         #: is owed), unlike every other mode's "strip them all". ``None`` keeps "all".
@@ -1922,6 +1936,12 @@ class RemoveCountersEffect(GameEffect):
         return removed
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            with context.state.simultaneous():
+                for obj in context.previous_targets:
+                    if obj in context.state.battlefield:
+                        context.counters_removed_this_way += self._strip(context, obj)
+            return
         if self.max_count is not None:
             target = targets[0] if targets else None
             if target is not None:

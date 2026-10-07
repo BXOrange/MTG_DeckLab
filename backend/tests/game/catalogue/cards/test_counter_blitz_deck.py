@@ -429,6 +429,7 @@ def test_sin_strips_counters_enters_with_twice_as_many_and_passes_them_on_when_i
     ally.add_counters("+1/+1", 2)
     sin = card(engine, "Sin, Unending Cataclysm", zone=Zone.HAND)
     cast(engine, sin)
+    answer(engine, pick_label("Ally"))
     assert not ally.counters.get("+1/+1") and sin.counters.get("+1/+1") == 4
     engine.rules.put_into_graveyard(sin)
     engine.resolve_until_stable()

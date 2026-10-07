@@ -9,15 +9,19 @@ def _dermotaxi() -> list[AbilitySpec]:
     """Imprint — As this Vehicle enters, exile a creature card from a graveyard.
     Tap two untapped creatures you control: Until end of turn, this Vehicle becomes a copy of the exiled card, except it's a Vehicle artifact in addition to its other types.
 
-    — PLAY-ALL (Shorikai Vehicles). The imprint is Chrome Mox's `imprint` widened with ``pool: graveyards`` (a mandatory exile of a creature card from any
-    graveyard, remembered in `linked_exile_id`) as an enters trigger rather than a true "as enters" replacement. The activation pays the parser's
-    tap-two-creatures cost and runs the new `become_copy_of_imprinted_until_eot` (`become_copy_until_end_of_turn` plus the artifact/Vehicle additions).
+    — PLAY-ALL (Shorikai Vehicles). The mandatory graveyard imprint is
+    a before-entry instruction (RULE 614.12), so the linked card is already
+    known when the Vehicle enters. Its tap-two-creatures activation copies
+    that card until end of turn, retaining artifact and Vehicle types.
     """
     return [
         AbilitySpec(
-            "triggered",
-            [EffectSpec("imprint", {"pool": "graveyards", "include_card_type": "creature", "optional": False})],
-            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            "enter_replacement",
+            [EffectSpec("entry_effect", {"effects": [
+                {"type": "imprint", "params": {
+                    "pool": "graveyards", "include_card_type": "creature", "optional": False,
+                }},
+            ]})],
         ),
         AbilitySpec(
             "activated",
