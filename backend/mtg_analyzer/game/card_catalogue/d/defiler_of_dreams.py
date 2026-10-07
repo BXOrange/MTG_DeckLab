@@ -14,10 +14,10 @@ def _defiler_of_dreams() -> list[AbilitySpec]:
     Whenever you cast a blue permanent spell, draw a card.
 
     — PLAY-ALL Step 2 (yshtola). The blue twin of Defiler of Vigor: the same
-    `pip_life_option` static (one ``{U}`` becomes Phyrexian ``{U/P}``) and the
+    `pip_life_option` static with an announced optional life payment and the
     same `any_of` permanent-types filter on the trigger (the parser's own
     claim drops the word "permanent" and would fire for a blue instant too).
-    The solver-chooses-the-life-payment simplification carries over.
+    Casting offers the payment explicitly, including when blue mana is available.
     """
     return [
         AbilitySpec(

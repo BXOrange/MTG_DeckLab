@@ -292,6 +292,27 @@ class MiscSystemsMixin:
     #: Prefix of a variable energy payment's option id (``pay_x:<n>``), mirroring `_request_pay_cost_then`'s ENG-48.
     PAY_ENERGY_X_PREFIX = "pay_x:"
 
+    def _offer_cast_pip_life_payment(self, allowed: list[int]) -> None:
+        pending = self.state.pending_cast_payment
+        color = pending["colors"][len(pending["selected"])]
+        player = self.state.player_by_id(pending["player_id"])
+        self.open_choice({
+            "kind": "cast_pip_life_payment", "player_id": player.id,
+            "source_id": pending["instance_id"], "color": color,
+            "prompt": f"Zusätzliche Lebenszahlung für {{{color}}} wählen",
+            "options": [{"id": str(n), "label": "Kein Leben bezahlen" if n == 0 else
+                         f"{2 * n} Leben bezahlen; {{{color}}}-Kosten um {n} reduzieren"}
+                        for n in allowed],
+        })
+
+    @continuations.choice("cast_pip_life_payment", rule="601.2b")
+    def _resume_cast_pip_life_payment(self, payload, answer) -> None:
+        answer = "0" if answer is None else str(answer)
+        if answer not in {option["id"] for option in payload["options"]}:
+            raise ValueError("Ungültige Lebenszahlung")
+        pending = self.state.pending_cast_payment
+        pending["selected"][payload["color"]] = int(answer)
+
     def _request_pay_energy_then(
         self, player: Player, amount: int, effect_specs: list[dict], source: Optional[GameObject],
         variable: bool = False, targets: Optional[list[Any]] = None,
@@ -5061,7 +5082,8 @@ class MiscSystemsMixin:
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
         self.state.fire_event(GameEvent(
-            EventType.SPELL_COUNTERED, player_id=countered_by, controller_id=countered_by, spell=item.description,
+            EventType.SPELL_COUNTERED, player_id=countered_by or self.context.resolving_controller_id,
+            controller_id=countered_by or self.context.resolving_controller_id, spell=item.description,
             spell_controller_id=getattr(item.obj, "controller_id", None),
         ))
     def bounce_spell_or_permanent(self, target: Any) -> None:
@@ -5195,7 +5217,7 @@ class MiscSystemsMixin:
         obj = item.obj
         if self._is_cant_be_countered(obj):
             return
-        countered_by = getattr(source, "controller_id", None)
+        countered_by = self.context.resolving_controller_id or getattr(source, "controller_id", None)
         if not unless_pays:
             self.counter_spell(
                 target, suspend_time_counters=suspend_time_counters, countered_by=countered_by,
@@ -5221,6 +5243,7 @@ class MiscSystemsMixin:
         self._pending_counter_on_pay_source = source
         self.open_choice({
             "kind": "counter_unless_pays",
+            "countered_by": countered_by,
             "player_id": controller.id,
             "prompt": f"{obj.name}: {unless_pays} zahlen, um es vor dem Countern zu bewahren?",
             "options": [
@@ -5269,7 +5292,7 @@ class MiscSystemsMixin:
             return
         self.counter_spell(
             target, suspend_time_counters=suspend_time_counters,
-            countered_by=getattr(on_pay_source, "controller_id", None),
+            countered_by=choice.get("countered_by"),
         )
         if tap_penalty and penalised_player is not None:
             self._tap_lands_and_empty_pool(penalised_player)  # Power Sink: "if that player doesn't"
@@ -5426,14 +5449,14 @@ class MiscSystemsMixin:
             # No real decision — countered outright, same "don't stall a
             # passive goldfish opponent on a choice nobody can act on"
             # shortcut `counter_unless_pays` uses.
-            self.counter_spell(item)
+            self.counter_spell(item, countered_by=ability_controller_id)
             return
         self._pending_ward_item = item
         self._pending_ward_caster_id = caster_id
         self._pending_ward_cost = cost
         cost_label = cost.label()
         self.open_choice({
-            "kind": "ward",
+            "kind": "ward", "countered_by": ability_controller_id,
             "player_id": caster.id,
             "prompt": f"Ward {cost_label} — zahlen, um deinen Zauberspruch/deine Fähigkeit zu "
             "behalten?",
@@ -5628,7 +5651,7 @@ class MiscSystemsMixin:
                 self._pay_player_cost(caster, cost)
             return
         if item is not None:
-            self.counter_spell(item)
+            self.counter_spell(item, countered_by=choice.get("countered_by"))
     def check_rampage(self, attacker: GameObject, blocker_count: int) -> None:
         """RULE 702.23: place Rampage's triggered ability, if any, right when
         ``attacker`` becomes blocked — built directly (not via the generic

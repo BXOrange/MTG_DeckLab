@@ -17,16 +17,11 @@ def _defiler_of_vigor() -> list[AbilitySpec]:
     creature you control.
 
     — PLAY-ALL Step 2 (Kodama). Trample is the keyword fold-in. The optional
-    life cost is the new `pip_life_option` static (`continuous.pip_life_options_for`,
-    consulted by `GameEngine._adjust_cost`): one ``{G}`` of a green permanent spell
-    becomes a Phyrexian ``{G/P}`` — pay the mana or 2 life, which is exactly
-    "pay 2 life, the spell costs {G} less" and reduces only green mana by
-    construction. The trigger is the parser's own `add_counters` over
-    ``each_creature_you_control`` on a green `SPELL_CAST`, narrowed here to
-    *permanent* spells (the parser drops the word, so its claim would also fire for
-    a green instant or sorcery). **Documented simplification:** the life payment is
-    the solver's choice — like any printed Phyrexian pip it is used when the green
-    mana isn't there, not asked about up front.
+    life cost uses the `pip_life_option` static. Affordability probes consider
+    either payment; casting prompts for the additional life payment before
+    paying costs, even when green mana is available. Each paid instance reduces
+    only the green mana cost. The trigger's `any_of` permanent-types filter
+    prevents green instants and sorceries from receiving counters.
     """
     return [
         AbilitySpec(

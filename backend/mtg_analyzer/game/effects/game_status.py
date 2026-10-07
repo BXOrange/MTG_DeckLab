@@ -395,21 +395,19 @@ class CastGraveyardInstantSorceryFreeExileEffect(GameEffect):
                 and (self.max_mana_value is None or o.card.converted_mana_cost <= self.max_mana_value)
             ]
             if candidates:
-                context.engine._request_choose_objects(
-                    player, candidates, "free_cast_exile", count=1, optional=True,
-                    prompt="Zauber aus dem Friedhof kostenlos wirken", source=self.source,
+                context.engine._request_resolution_play(
+                    player, candidates, zone="graveyard", free=True, only_spells=True, exile_after_cast=True,
                 )
             return
         target = (targets or [None])[0]
         if target is None or target.zone != Zone.GRAVEYARD:
             return
         # The player, not the engine, chooses whether to cast and supplies
-        # every RULE 115 target through the ordinary cast flow. Moving the
-        # card to exile first makes the existing per-card free-cast window
-        # available without inventing an off-stack target-selection shortcut.
-        target.exile_after_free_cast = True
-        context.exile(target)
-        context.engine.grant_free_cast_window_from_exile(target, caster=player)
+        # every RULE 115 target through the ordinary cast flow. The scoped
+        # permission casts directly from the graveyard during resolution.
+        context.engine._request_resolution_play(
+            player, [target], zone="graveyard", free=True, only_spells=True, exile_after_cast=True,
+        )
 
 
 class DealDamageToChosenPlayerEffect(GameEffect):
@@ -868,6 +866,7 @@ class GrantFlashbackToTargetEffect(GameEffect):
         target_kind: str = "graveyard_instant_or_sorcery",
         as_permission: bool = False,
         lock_casting: bool = False,
+        during_resolution: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -876,11 +875,18 @@ class GrantFlashbackToTargetEffect(GameEffect):
         #: With ``as_permission``: casting the chosen card also bars its caster from casting any further spells this
         #: turn ("If you do, you can't cast additional spells this turn." — Conduit of Worlds).
         self.lock_casting = bool(lock_casting)
+        self.during_resolution = bool(during_resolution)
         self.target_spec = TargetSpec(kind=target_kind, count=1)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = targets[0] if targets else None
         if target is None:
+            return
+        if self.during_resolution:
+            context.engine._request_resolution_play(
+                _controller_of(self.source, context), [target], zone="graveyard", free=False,
+                only_spells=True, exile_after_cast=not self.as_permission, lock_casting=self.lock_casting,
+            )
             return
         if self.as_permission:
             context.state.temp_graveyard_cast_permissions[target.instance_id] = self.source.controller_id

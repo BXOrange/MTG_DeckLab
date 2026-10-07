@@ -891,7 +891,8 @@ class CastingResolutionMixin:
             # of a {B} pip" permission (`continuous.life_for_mana_pip_color`).
             extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
             if not player.mana_pool.can_pay(
-                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                cost, life_available=player.life - getattr(obj, "_cast_pip_life_cost", 0),
+                allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             ):
                 raise ValueError(f"{player.id} cannot pay for {obj.name}")
@@ -906,7 +907,8 @@ class CastingResolutionMixin:
                               if kind is not None}
             snow_before = sum(player.mana_pool.snow_pool.values())
             life_spent = player.mana_pool.pay(
-                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                cost, life_available=player.life - getattr(obj, "_cast_pip_life_cost", 0),
+                allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             )
             obj.colors_spent_to_cast = frozenset(
@@ -931,6 +933,7 @@ class CastingResolutionMixin:
             obj.mana_spent_to_cast_creature = source_mana_spent.get("creature", 0) + source_mana_spent.get("artifact_creature", 0)
             # Every artifact source, Treasures included (Coin of Mastery's "for each mana from an artifact source spent to cast it").
             obj.mana_spent_to_cast_artifact = source_mana_spent.get("treasure", 0) + source_mana_spent.get("artifact", 0) + source_mana_spent.get("artifact_creature", 0)
+        life_spent += getattr(obj, "_cast_pip_life_cost", 0)
         self.lose_life(player, life_spent, cause="cost")
         self.state.next_spell_flash_grants = [
             g for g in self.state.next_spell_flash_grants

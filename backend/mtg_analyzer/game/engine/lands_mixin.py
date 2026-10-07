@@ -273,6 +273,9 @@ class LandsMixin:
         granting permanent may leave play or change before the graveyard
         card is ever cast, unlike Underworld Breach's own live grant).
         """
+        choice = self.state.resolution_play_choice
+        if choice is not None and obj.instance_id in choice["instance_ids"]:
+            return None  # This cast uses the resolving effect's permission, not a graveyard keyword's cost.
         params = getattr(obj, "parametric_keywords", None) or {}
         if "flashback" in params:
             return "flashback"

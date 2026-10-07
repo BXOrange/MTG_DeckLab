@@ -76,7 +76,7 @@ class GameEngine(
         choice = self.state.resolution_play_choice
         return bool(choice and choice["player_id"] == player.id
                     and obj.instance_id in choice["instance_ids"]
-                    and obj.zone.value == "exile")
+                    and obj.zone.value == choice.get("zone", "exile"))
 
     def play_resolution_card(self, player, obj, targets=None, x=0, *, face="front", **cast_options):
         """Play an offered card using ordinary target, mode and cost validation.
@@ -88,9 +88,9 @@ class GameEngine(
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "play_during_resolution" or not self._has_resolution_play_permission(player, obj):
             raise ValueError("this card is not offered for playing during resolution")
-        if face in ("face_down", "bestow", "fuse") or any(cast_options.get(key) for key in (
+        if choice.get("free", True) and (face in ("face_down", "bestow", "fuse") or any(cast_options.get(key) for key in (
             "free", "alt_cost", "evoke", "surge", "mutate", "exile_discount",
-        )):
+        ))):
             raise ValueError("cannot combine alternative costs with this free cast")
         card = self._face_card(obj, face)
         if card is None:
@@ -99,10 +99,12 @@ class GameEngine(
             raise ValueError("this effect permits casting spells only")
         if choice.get("max_mana_value") is not None and card.converted_mana_cost >= choice["max_mana_value"]:
             raise ValueError("the resulting spell must have lesser mana value")
-        if cast_options.get("x", 0) and "{X}" in (card.mana_cost_string or ""):
+        if choice.get("free", True) and cast_options.get("x", 0) and "{X}" in (card.mana_cost_string or ""):
             raise ValueError("X in a free spell's mana cost must be zero")
         self.state.pending_choice = None
         previous_controller = obj.controller_id
+        previous_exile = obj.exile_after_free_cast
+        obj.exile_after_free_cast = previous_exile or choice.get("exile_after_cast", False)
         obj.controller_id = player.id
         try:
             if card.is_land:
@@ -111,8 +113,15 @@ class GameEngine(
                 result = self.cast_spell(player, obj, face=face, **cast_options)
         except Exception:
             obj.controller_id = previous_controller
+            obj.exile_after_free_cast = previous_exile
             self.state.pending_choice = choice
             raise
+        if self.state.pending_cast_payment is not None:
+            # Additional-cost choices suspend this same immediate cast, not its permission.
+            self.state.pending_cast_payment["resolution_play"] = choice
+            return result
+        if choice.get("lock_casting"):
+            self.state.no_more_spells_this_turn.add(player.id)
         self.rules._finish_resolution_play_permission(played_id=obj.instance_id)
         if choice.get("repeat"):
             self.state.resolution_play_followup = {
@@ -160,7 +169,7 @@ class GameEngine(
                     elif self.can_cast(player, obj, face=face):
                         actions.append(self._cast_action(player, obj, face=face))
         for action in actions:
-            if action["type"] == "cast_spell":
+            if action["type"] == "cast_spell" and choice.get("free", True):
                 action["has_x"] = False
                 action["max_x"] = 0
         return [action for action in actions if action.get("face") not in ("face_down", "bestow", "fuse")

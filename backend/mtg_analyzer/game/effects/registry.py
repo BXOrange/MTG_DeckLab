@@ -1394,6 +1394,7 @@ EffectRegistry.register(
         cost=p.get("cost"), target_kind=p.get("target_kind", "graveyard_instant_or_sorcery"),
         as_permission=bool(p.get("as_permission", False)),
         lock_casting=bool(p.get("lock_casting", False)),
+        during_resolution=bool(p.get("during_resolution", False)),
     ),
 )
 EffectRegistry.register(

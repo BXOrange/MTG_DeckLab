@@ -146,10 +146,9 @@ def test_impulsivity_free_casts_any_graveyard_instant_and_exiles_it_after_resolu
     assert state.pending_choice and state.pending_choice["kind"] == "trigger_target"
     engine.resolve_pending_choice(spell.instance_id)
     engine.resolve_until_stable()
-    assert spell.zone == Zone.EXILE and spell.instance_id in state.free_cast_instance_ids
-    # The controller deliberately casts the offered spell and chooses its
-    # target through the normal casting flow.
-    engine.cast_spell(p1, spell, targets=[p2])
+    assert spell.zone == Zone.GRAVEYARD and state.pending_choice["kind"] == "play_during_resolution"
+    # The controller casts it during this resolution and supplies ordinary targets.
+    engine.play_resolution_card(p1, spell, targets=[p2])
     engine.resolve_until_stable()
     assert spell.zone == Zone.EXILE and spell in p2.exile
     assert p2.life == 17

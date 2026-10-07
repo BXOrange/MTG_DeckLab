@@ -5995,7 +5995,7 @@ def pip_life_options_for(
     `ManaCost.with_phyrexian_pips`). ``spell_type`` is a `_spell_type_matches` word/list and ``spell_color``
     a WUBRG letter, both read off the spell being cast; with no spell (an offer-time probe) nothing
     applies. Read off the standing ``pip_life_option`` static, outside the layer engine."""
-    if obj is None:
+    if obj is None or cost_restricted(state, "pay_life"):
         return []
     options: list[tuple[str, int]] = []
     for ability in _battlefield_static_abilities(state):

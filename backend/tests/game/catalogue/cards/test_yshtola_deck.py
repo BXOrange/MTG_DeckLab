@@ -380,6 +380,7 @@ def test_defiler_of_dreams_pays_life_for_blue_and_draws_only_for_blue_permanent_
     life, hand_before = p1.life, len(p1.hand)
     assert not engine.can_cast(p1, trick)  # no life option for an instant
     engine.cast_spell(p1, cub)
+    engine.resolve_pending_choice("1")
     engine.rules.put_triggers_on_stack()
     engine.resolve_until_stable()
     assert cub.zone == Zone.BATTLEFIELD and p1.life == life - 2  # {U} paid with 2 life
@@ -442,7 +443,12 @@ def test_emet_selch_grants_a_graveyard_cast_once_per_turn_when_an_opponent_loses
     assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"Big Burn", "Other Burn"}
     engine.resolve_pending_choice(str(burn.instance_id))
     engine.resolve_until_stable()
-    assert burn.instance_id in engine.state.temp_flashback_grants  # may be cast from the graveyard this turn
+    assert engine.state.pending_choice["kind"] == "play_during_resolution"
+    assert burn.zone == Zone.GRAVEYARD and burn.instance_id not in engine.state.temp_flashback_grants
+    p1.mana_pool.add_many({"R": 1})
+    engine.play_resolution_card(p1, burn)
+    engine.resolve_until_stable()
+    assert burn.zone == Zone.EXILE
     assert other.instance_id not in engine.state.temp_flashback_grants
 
     engine.rules.lose_life(p2, 2)  # "do this only once each turn"

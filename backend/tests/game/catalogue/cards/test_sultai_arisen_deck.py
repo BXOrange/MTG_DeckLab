@@ -303,11 +303,12 @@ def test_diviner_of_mist_mills_four_then_offers_a_cheap_instant_or_sorcery_for_f
     engine.resolve_until_stable()
     assert len(p1.library) == library - 4
     choice = engine.state.pending_choice
-    offered = {o.get("instance_id") for o in choice["options"]}
-    assert offered - {None} == {cheap.instance_id}  # None is the decline option
-    _answer(engine, prefer={cheap.instance_id})
-    assert cheap.zone == Zone.EXILE and cheap.exile_after_free_cast
-    assert cheap.instance_id in engine.state.free_cast_instance_ids
+    assert set(choice["instance_ids"]) == {cheap.instance_id}
+    assert cheap.zone == Zone.GRAVEYARD
+    engine.play_resolution_card(p1, cheap)
+    engine.resolve_until_stable()
+    assert cheap.zone == Zone.EXILE
+    assert cheap.instance_id not in engine.state.free_cast_instance_ids
     assert pricey.zone == Zone.GRAVEYARD and creature.zone == Zone.GRAVEYARD
 
 
@@ -453,8 +454,8 @@ def test_conduit_of_worlds_casts_a_nonland_permanent_card_and_then_locks_further
     engine.resolve_until_stable()
     assert conduit.tapped
     p1.mana_pool.add_many({"G": 2})
-    assert engine.can_cast(p1, elves) and engine.can_cast(p1, other)
-    engine.cast_spell(p1, elves, targets=None, target_groups=None)
+    assert engine.can_cast(p1, elves) and not engine.can_cast(p1, other)
+    engine.play_resolution_card(p1, elves, targets=None, target_groups=None)
     engine.resolve_until_stable()
     assert elves.zone == Zone.BATTLEFIELD
     p1.mana_pool.add_many({"G": 2})

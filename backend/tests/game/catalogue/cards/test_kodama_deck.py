@@ -557,6 +557,7 @@ def test_defiler_of_vigor_pays_two_life_instead_of_the_green_mana_of_a_green_per
     p1.mana_pool.add_many({"C": 1})  # only the generic part — no green mana at all
     life = p1.life
     engine.cast_spell(p1, cub)
+    engine.resolve_pending_choice("1")
     engine.resolve_until_stable()
     assert cub.zone == Zone.BATTLEFIELD and p1.life == life - 2  # {G} paid with 2 life
 
@@ -578,6 +579,7 @@ def test_defiler_of_vigor_puts_a_counter_on_each_creature_for_a_green_permanent_
     engine.resolve_until_stable()
     assert not defiler.counters and not bear.counters
     engine.cast_spell(p1, cub)
+    engine.resolve_pending_choice("0")
     engine.rules.put_triggers_on_stack()
     engine.resolve_until_stable()
     assert defiler.counters == {"+1/+1": 1} and bear.counters == {"+1/+1": 1}

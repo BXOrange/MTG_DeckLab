@@ -16,6 +16,9 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+import inspect
+import copy
+from functools import wraps
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -75,8 +78,120 @@ from ..top_library import (
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
 
 
+# RULE 118.8a / 601.2b: announce granted optional life costs before paying.
+_PIP_LIFE_COST = 2
+
+
+@contextmanager
+def _announced_pip_payment(obj, payments, undecided=()):
+    fields = ("_cast_pip_life_payments", "_cast_pip_life_cost", "_cast_pip_life_undecided")
+    previous = {key: obj.__dict__.get(key) for key in fields}
+    obj._cast_pip_life_payments = payments
+    obj._cast_pip_life_cost = _PIP_LIFE_COST * sum(payments.values())
+    obj._cast_pip_life_undecided = undecided
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                obj.__dict__.pop(key, None)
+            else:
+                setattr(obj, key, value)
+
+
+def _choose_cast_pip_life_payment(cast):
+    signature = inspect.signature(cast)
+
+    @wraps(cast)
+    def choose(self, player, obj, *args, **kwargs):
+        bound = signature.bind(self, player, obj, *args, **kwargs)
+        bound.apply_defaults()
+        parameters = {k: v for k, v in bound.arguments.items() if k not in {"self", "player", "obj"}}
+        payments = parameters.pop("pip_life_payments")
+        probe = obj
+        face = parameters.get("face", "front")
+        if face != "front":
+            card = self._face_card(obj, face)
+            if card is None:
+                raise ValueError("Ungültige Zauberseite")
+            probe = copy.copy(obj)
+            probe.card = card
+            probe.reset_derived()
+        limits = {}
+        if face != "face_down":
+            for color, count in continuous.pip_life_options_for(self.state, player, probe):
+                limits[color] = limits.get(color, 0) + count
+        if payments is None and limits:
+            can_parameters = inspect.signature(self.can_cast).parameters
+            validation = {k: v for k, v in parameters.items() if k in can_parameters}
+            if not self.can_cast(player, obj, assume_mana_available=True, **validation):
+                raise ValueError(f"{player.id} cannot cast {obj.name} now")
+            self.state.pending_cast_payment = {
+                "player_id": player.id, "instance_id": obj.instance_id,
+                "kwargs": parameters, "limits": limits, "colors": list(limits), "selected": {},
+            }
+            self._offer_cast_pip_life_payment()
+            return None
+        payments = {} if payments is None else payments
+        if not isinstance(payments, dict) or any(
+            type(n) is not int or n < 0 or n > limits.get(color, 0) for color, n in payments.items()
+        ):
+            raise ValueError("Ungültige Lebenszahlung")
+        life_cost = _PIP_LIFE_COST * sum(payments.values())
+        if player.life < life_cost:
+            raise ValueError("Nicht genug Leben für diese Zahlung")
+        with _announced_pip_payment(obj, payments):
+            return cast(self, player, obj, *args, **{**kwargs, "pip_life_payments": payments})
+    return choose
+
+
 class CastingMixin:
     """Casting a spell: legality, alternate costs, cost calculation, stack placement."""
+
+    def _offer_cast_pip_life_payment(self) -> None:
+        pending = self.state.pending_cast_payment
+        player = self.state.player_by_id(pending["player_id"])
+        obj = self.state.find_object(pending["instance_id"])
+        index = len(pending["selected"])
+        color = pending["colors"][index]
+        maximum = min(pending["limits"][color], player.life // _PIP_LIFE_COST - sum(pending["selected"].values()))
+        can_parameters = inspect.signature(self.can_cast).parameters
+        validation = {k: v for k, v in pending["kwargs"].items() if k in can_parameters}
+        cost_parameters = inspect.signature(self.effective_cast_cost).parameters
+        cost_args = {k: v for k, v in pending["kwargs"].items() if k in cost_parameters}
+        allowed = []
+        for n in range(maximum + 1):
+            payments = {**pending["selected"], color: n}
+            with _announced_pip_payment(obj, payments, pending["colors"][index + 1:]):
+                payable = self.can_cast(player, obj, **validation)
+                if not payable and self.can_cast(player, obj, assume_mana_available=True, **validation):
+                    cost = self.effective_cast_cost(player, obj, **cost_args)
+                    trial_player = copy.copy(player)
+                    trial_player.life -= obj._cast_pip_life_cost
+                    payable = mana_potential.is_castable_via_potential(
+                        self, trial_player, cost,
+                        allows_restriction=restriction_predicate_for_cast(obj, has_x=cost.has_variable),
+                    )
+                if payable:
+                    allowed.append(n)
+        if not allowed:
+            self.state.pending_cast_payment = None
+            raise ValueError(f"{player.id} cannot pay for {obj.name}")
+        self.rules._offer_cast_pip_life_payment(allowed)
+
+    def _resume_cast_pip_life_payment(self) -> None:
+        pending = self.state.pending_cast_payment
+        if len(pending["selected"]) < len(pending["colors"]):
+            self._offer_cast_pip_life_payment()
+        else:
+            self.state.pending_cast_payment = None
+            cast = self.cast_spell
+            if pending.get("resolution_play"):
+                self.rules.open_choice(pending["resolution_play"])
+                cast = self.play_resolution_card
+            cast(self.state.player_by_id(pending["player_id"]),
+                 self.state.find_object(pending["instance_id"]),
+                 pip_life_payments=pending["selected"], **pending["kwargs"])
 
     def _in_main_phase(self) -> bool:
         return self.state.current_step in ("main1", "main2")
@@ -583,6 +698,8 @@ class CastingMixin:
         # spell on the stack blocks casting anything else at all (mana
         # abilities never reach `can_cast` — see `continuous.split_second_
         # active`'s own docstring for why that needs no exemption here).
+        if self.state.resolution_play_choice is not None and not self._has_resolution_play_permission(player, obj):
+            return False  # RULE 608.2g: only the cards this resolving effect offered may be cast.
         if continuous.split_second_active(self.state):
             return False
         if player.id in self.state.no_more_spells_this_turn:
@@ -961,7 +1078,8 @@ class CastingMixin:
             # of a {B} pip" permission (`continuous.life_for_mana_pip_color`).
             extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
             if not player.mana_pool.can_pay(
-                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                cost, life_available=player.life - getattr(obj, "_cast_pip_life_cost", 0),
+                allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             ):
                 return False
@@ -1010,7 +1128,8 @@ class CastingMixin:
     def _standing_graveyard_grant(self, player, obj):
         from ..graveyard_cast import has_temporary_graveyard_play_permission
 
-        if (obj not in player.graveyard or self._graveyard_cast_keyword(obj) is not None
+        if (obj not in player.graveyard or self._has_resolution_play_permission(player, obj)
+                or self._graveyard_cast_keyword(obj) is not None
                 or has_temporary_graveyard_play_permission(player, self.state)
                 or self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
                 or self._self_graveyard_or_exile_cast_permission(obj, player)):
@@ -1278,7 +1397,7 @@ class CastingMixin:
             if not 0 <= blitz < len(options):
                 raise ValueError("invalid blitz cost")
             cost = options[blitz].payment.mana
-        elif self._has_resolution_play_permission(player, obj):
+        elif self._has_resolution_play_permission(player, obj) and self.state.resolution_play_choice.get("free", True):
             # RULE 118.9d: replace only the mana cost; additional costs
             # and taxes below still apply to a cast during resolution.
             cost = ManaCost()
@@ -1433,8 +1552,18 @@ class CastingMixin:
             for contributor in self_contributors:
                 for color, amount in contributor.get("colored", {}).items():
                     cost = cost.reduce_colored(color, amount)
-        for pip_color, pips in continuous.pip_life_options_for(self.state, player, obj):
-            cost = cost.with_phyrexian_pips(pip_color, pips)
+        announced = getattr(obj, "_cast_pip_life_payments", None)
+        if announced is None:
+            # Affordability probes may consider either payment; an actual cast fixes the choice.
+            for pip_color, pips in continuous.pip_life_options_for(self.state, player, obj):
+                cost = cost.with_phyrexian_pips(pip_color, pips)
+        else:
+            for pip_color, pips in announced.items():
+                cost = cost.reduce_colored(pip_color, pips)
+            undecided = getattr(obj, "_cast_pip_life_undecided", ())
+            for pip_color, pips in continuous.pip_life_options_for(self.state, player, obj):
+                if pip_color in undecided:
+                    cost = cost.with_phyrexian_pips(pip_color, pips)
         floor = continuous.cost_floor_for(self.state, player, obj)
         if floor > cost.converted_mana_cost:
             # RULE 601.2f's reminder text example is explicit: a {1}{B}
@@ -1468,6 +1597,7 @@ class CastingMixin:
             if mana_potential.is_castable_via_potential(self, player, cost):
                 return x
         return 0
+    @_choose_cast_pip_life_payment
     def cast_spell(
         self,
         player: Player,
@@ -1498,6 +1628,7 @@ class CastingMixin:
         teamwork: bool = False,
         teamwork_choices: Optional[list[int]] = None,
         gift_opponent_id: Optional[str] = None,
+        pip_life_payments: Optional[dict[str, int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -2460,7 +2591,7 @@ class CastingMixin:
                 return False
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
-            if player.life < amount:
+            if player.life - getattr(obj, "_cast_pip_life_cost", 0) < amount:
                 return False
         if cost.tap_others:
             count, subtype = cost.tap_others

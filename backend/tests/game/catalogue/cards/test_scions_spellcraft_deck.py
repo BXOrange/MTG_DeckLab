@@ -421,17 +421,13 @@ def test_torrential_gearhulk_casts_an_instant_from_your_graveyard_for_free_and_e
     sorcery = _filler(engine, "Sorcery", "Sorcery", mv=1, zone=Zone.GRAVEYARD)
     theirs = _filler(engine, "Their Instant", "Instant", mv=1, zone=Zone.GRAVEYARD, player="p2")
     _put_on_battlefield(engine, "Torrential Gearhulk")
-    for _ in range(3):
-        choice = engine.state.pending_choice
-        if choice is None:
-            break
-        ids = [str(o["id"]) for o in choice.get("options", [])]
-        engine.resolve_pending_choice(str(bolt.instance_id) if str(bolt.instance_id) in ids else ids[0])
+    engine.resolve_pending_choice(str(bolt.instance_id))
+    assert engine.state.pending_choice["kind"] == "play_during_resolution"
     assert str(sorcery.instance_id) not in map(str, engine.state.free_cast_instance_ids)
     assert theirs.zone == Zone.GRAVEYARD  # only *your* graveyard is a legal target
-    assert bolt.zone == Zone.EXILE and bolt.instance_id in engine.state.free_cast_instance_ids
+    assert bolt.zone == Zone.GRAVEYARD and bolt.instance_id in engine.state.free_cast_instance_ids
     engine.state.current_step = "main1"
-    engine.cast_spell(p1, bolt, targets=None, target_groups=None)  # no mana in the pool: it is free
+    engine.play_resolution_card(p1, bolt, targets=None, target_groups=None)  # no mana in the pool: it is free
     engine.resolve_until_stable()
     assert bolt.zone == Zone.EXILE  # "if that spell would be put into your graveyard, exile it instead"
 

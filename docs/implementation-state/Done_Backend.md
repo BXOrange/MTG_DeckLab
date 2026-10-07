@@ -381,13 +381,13 @@ The shared state predicate `opponent_was_dealt_damage_this_turn` reads actual
 damage events per opponent, including infect, independently of life loss or
 subsequent life gain. It supports the numeric bounds needed by Spinerock Knoll.
 
-### Playing an exile card during resolution (RULE 608.2g / 305.2–3)
+### Playing a card during resolution (RULE 608.2g / 305.2–3)
 
 `GameContext.offer_play_during_resolution` opens a scoped optional play choice;
 `GameEngine.play_resolution_card` uses the ordinary casting/land path with
 targets, modes and additional costs. Casting another player's card transfers
-spell control to its caster. Alternative costs cannot be combined, and mana-cost
-X must be zero. Lands still require the player's turn and an available land
+spell control to its caster. Free casts cannot combine alternative costs, and
+mana-cost X must be zero. Paid offers retain normal costs, discounts and X. Lands still require the player's turn and an available land
 play, but do not require an empty stack or main phase. Declining or playing
 revokes the scoped permission. Deferred outer effects finish before the nested
 spell resolves; the active player receives priority afterward.
@@ -398,6 +398,11 @@ target/modal cast controls inside the choice. The primitive is tested in
 `tests/test_resolution_play.py`. Repeated offers wait for a played land's own
 entry choice before offering the remaining cards; no nested spell resolves
 between those choices.
+
+The scoped offer also supports graveyard cards, paid casting, an exile
+replacement after casting, and a post-cast lock on further spells. These
+permissions expire on decline and preserve the original graveyard cast zone.
+Optional additional life payments suspend the same offer until casting finishes.
 
 ### Public revealed-card piles (RULE 608.2d)
 
@@ -1521,6 +1526,16 @@ to every gathered target. Foretell cards read "cast from exile" as the `foretold
 
 ## Triggered Abilities & Trigger Ordering
 
+### Countering-controller attribution (RULE 701.5 / 603)
+
+Counter effects use the resolving ability's controller even without a source
+permanent. Ward and counter-unless-pay choices retain that controller through
+the payment decision, including when the source changes control. The
+`SPELL_COUNTERED` event therefore supplies the correct controller to counter
+payoffs such as Baral; gameplay regressions cover both Ward payment paths and
+an ability with no permanent source.
+
+
 ### Resolution sequencing and reflexive trigger precision
 
 Continuous effects recompute between instructions while SBAs wait until the
@@ -2414,6 +2429,15 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 `active_player` scope so only the player whose turn it is gets the pay-or prompt.
 
 ## Casting & Costs
+
+### Announced optional life payments for colored-cost reductions (RULE 118.8a / 601.2b)
+
+`pip_life_option` prompts before casting, including when ordinary colored mana
+is available. Multiple instances and colors receive explicit payment counts;
+affordability includes untapped mana sources and the life reserved for costs.
+Life-payment prohibitions remove these choices. Session rollback preserves the
+pending cast after an invalid answer. Regression coverage lives in
+`tests/game/catalogue/cards/test_play_all_correctness.py`.
 
 ### MEC-109: Blitz (RULE 702.152, PARSER_VERSION 605)
 

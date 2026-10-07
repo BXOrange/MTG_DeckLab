@@ -979,7 +979,7 @@ English and German.
 
 | Task | Start in |
 | --- | --- |
-| Playing a card during a resolving effect (RULE 608.2g) | `effects.GameContext.offer_play_during_resolution`, `GameEngine.play_resolution_card` / `resolution_play_actions`, and the matching `services/game_session.py` action/choice path; preserves targets, modes, additional costs and land-play limits without a turn-long grant |
+| Playing a card during a resolving effect (RULE 608.2g) | `effects.GameContext.offer_play_during_resolution`, `GameEngine.play_resolution_card` / `resolution_play_actions`, and the matching `services/game_session.py` action/choice path; preserves targets, modes, announced optional life payments, paid/free graveyard casts and land-play limits without a turn-long grant |
 | Combat / keywords | `game/combat.py`, `game/game_engine.py` (`_step_combat_damage`) |
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
 | "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` — the project's **single state-predicate vocabulary**, read by statics' `active_if`, trigger intervening-ifs, `binding/core.py`'s replacement gate and (via `game/effect_conditions.py`) resolving effects; includes `opponent_was_dealt_damage_this_turn` (damage per opponent, distinct from life loss); plus `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |

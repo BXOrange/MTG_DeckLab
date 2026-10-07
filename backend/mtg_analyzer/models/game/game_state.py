@@ -539,6 +539,8 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        #: A proposed cast awaiting granted additional-cost choices; omitted from wire views.
+        self.pending_cast_payment: Optional[dict[str, Any]] = None
         # Resolve-time payment frame belongs to state so rewind preserves it.
         self.pending_pay_cost_then: Optional[dict[str, Any]] = None
         # RULE 608.2g: scoped permission while a resolving effect offers

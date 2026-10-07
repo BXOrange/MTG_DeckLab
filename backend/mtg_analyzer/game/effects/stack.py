@@ -681,7 +681,7 @@ class WardEffect(GameEffect):
         self.cost = cost
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        ability_controller_id = self.source.controller_id if self.source is not None else None
+        ability_controller_id = context.resolving_controller_id or (self.source.controller_id if self.source is not None else None)
         context.engine.resolve_ward_effect(
             self.item, self.caster_id, self.cost, ability_controller_id=ability_controller_id
         )

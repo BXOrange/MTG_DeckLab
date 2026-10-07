@@ -178,15 +178,18 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 class SearchMixin:
     def _request_resolution_play(self, player: Player, cards: list[GameObject], *, repeat: bool = False,
                                  only_spells: bool = False, max_mana_value: Optional[int] = None,
-                                 bottom_remaining: Optional[list[int]] = None) -> None:
-        """RULE 608.2g: offer one exile card now, without a turn-long grant."""
+                                 bottom_remaining: Optional[list[int]] = None, zone: str = "exile",
+                                 free: bool = True, exile_after_cast: bool = False,
+                                 lock_casting: bool = False) -> None:
+        """RULE 608.2g: offer a card from exile or the graveyard only during this resolution."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
-        cards = [obj for obj in cards if obj.zone == Zone.EXILE]
+        cards = [obj for obj in cards if obj.zone.value == zone]
         if not cards:
             return
         choice = {
             "kind": "play_during_resolution", "player_id": player.id,
+            "zone": zone, "free": free, "exile_after_cast": exile_after_cast, "lock_casting": lock_casting,
             "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
             "bottom_remaining": list(bottom_remaining or []),
             "instance_ids": [obj.instance_id for obj in cards],
@@ -198,7 +201,8 @@ class SearchMixin:
         }
         self.state.resolution_play_choice = choice
         self.state.resolution_play_waiting = True
-        self.state.free_cast_instance_ids.update(choice["instance_ids"])
+        if free:
+            self.state.free_cast_instance_ids.update(choice["instance_ids"])
         self.state.free_cast_ignore_timing_instance_ids.update(choice["instance_ids"])
         self.open_choice(choice)
 

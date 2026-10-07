@@ -68,7 +68,7 @@ def test_legendary_spell_gate_applies_without_catalogue_reminder_text(kind):
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.targeting import legal_targets
 from mtg_analyzer.models.game.game_object import Zone
-from tests.support.deck_batch import activate, answer, attack, card, cast, filler, game, named, pick_label, step
+from tests.support.deck_batch import activate, answer, attack, card, cast, filler, game, main_phase, named, pick_label, step
 
 
 def test_resourceful_defense_moves_a_chosen_subset_of_counter_kinds():
@@ -244,3 +244,233 @@ def test_kimahri_keeps_only_ronso_rage_when_copying_again():
     step(engine, 'begin_combat')
     answer(engine, pick_label('Plain', 'Ja'))
     assert len(kimahri.triggered_abilities) == 1 and combat.has(kimahri, 'vigilance')
+
+
+@pytest.mark.parametrize('name,color', [('Defiler of Vigor', 'G'), ('Defiler of Dreams', 'U')])
+@pytest.mark.parametrize('payment', [0, 1])
+def test_defiler_life_payment_is_chosen_even_when_colored_mana_is_available(name, color, payment):
+    engine = game()
+    card(engine, name)
+    spell = filler(engine, 'Permanent', power=1, toughness=1, zone=Zone.HAND, mv=2,
+                   mana_cost_string='{1}{' + color + '}', color_identity={color})
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 1, color: 1})
+    main_phase(engine)
+    engine.cast_spell(me, spell)
+    assert engine.state.pending_choice['kind'] == 'cast_pip_life_payment'
+    assert spell.zone == Zone.HAND and me.life == 20 and not engine.state.stack
+    engine.resolve_pending_choice(str(payment))
+    assert spell.zone == Zone.STACK and me.life == 20 - 2 * payment
+    assert me.mana_pool.pool[color] == payment
+    engine.resolve_until_stable()
+    assert spell.zone == Zone.BATTLEFIELD
+
+
+def test_multiple_defilers_allow_separate_additional_payments_for_the_same_color():
+    engine = game()
+    card(engine, 'Defiler of Vigor')
+    card(engine, 'Defiler of Vigor')
+    spell = filler(engine, 'Double Green', power=1, toughness=1, zone=Zone.HAND, mv=3,
+                   mana_cost_string='{1}{G}{G}', color_identity={'G'})
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 1, 'G': 2})
+    main_phase(engine)
+    engine.cast_spell(me, spell)
+    assert [option['id'] for option in engine.state.pending_choice['options']] == ['0', '1', '2']
+    engine.resolve_pending_choice('2')
+    assert spell.zone == Zone.STACK and me.life == 16
+
+
+def test_declining_an_unaffordable_defiler_payment_restores_the_session_choice():
+    import json
+    from mtg_analyzer.services.game_session import GameSession, GameActionError
+    engine = game()
+    card(engine, 'Defiler of Vigor')
+    spell = filler(engine, 'Green Cub', power=1, toughness=1, zone=Zone.HAND, mv=2,
+                   mana_cost_string='{1}{G}', color_identity={'G'})
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 1})
+    main_phase(engine)
+    session = GameSession(engine)
+    session.apply_action({'type': 'cast_spell', 'instance_id': spell.instance_id})
+    json.dumps(session.view())  # the pending cast's internal objects never reach a wire view
+    with pytest.raises(GameActionError):
+        session.apply_action({'type': 'choose', 'option_id': '0'})
+    assert session.engine.state.pending_choice['kind'] == 'cast_pip_life_payment'
+    session.apply_action({'type': 'choose', 'option_id': '1'})
+    assert session.engine.state.player_by_id('p1').life == 18
+    assert session.engine.state.find_object(spell.instance_id).zone == Zone.STACK
+
+
+def test_defiler_payment_choices_do_not_mix_colors_or_exceed_available_life():
+    engine = game()
+    card(engine, 'Defiler of Vigor')
+    card(engine, 'Defiler of Dreams')
+    spell = filler(engine, 'Multicolor', power=1, toughness=1, zone=Zone.HAND, mv=3,
+                   mana_cost_string='{1}{G}{U}', color_identity={'G', 'U'})
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 1, 'U': 1})
+    me.life = 2
+    main_phase(engine)
+    engine.cast_spell(me, spell)
+    engine.resolve_pending_choice('1')
+    assert [o['id'] for o in engine.state.pending_choice['options']] == ['0']
+    engine.resolve_pending_choice('0')
+    assert me.life == 0 and spell.zone == Zone.STACK
+
+
+def test_defiler_does_not_offer_life_payment_for_a_nonpermanent_spell():
+    engine = game()
+    card(engine, 'Defiler of Vigor')
+    spell = filler(engine, 'Green Instant', type_line='Instant', zone=Zone.HAND, mv=1,
+                   mana_cost_string='{G}', color_identity={'G'})
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'G': 1})
+    main_phase(engine)
+    engine.cast_spell(me, spell)
+    assert not engine.state.pending_choice and me.life == 20 and spell.zone == Zone.STACK
+
+
+def test_defiler_offers_only_payable_options_but_counts_untapped_mana_sources():
+    engine = game()
+    card(engine, 'Defiler of Vigor')
+    spell = filler(engine, 'Green Cub', power=1, toughness=1, zone=Zone.HAND, mv=2,
+                   mana_cost_string='{1}{G}', color_identity={'G'})
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 1})
+    main_phase(engine)
+    engine.cast_spell(me, spell)
+    assert [o['id'] for o in engine.state.pending_choice['options']] == ['1']
+    # A fresh cast with an available Forest also offers paying ordinary mana.
+    engine.state.pending_choice = engine.state.pending_cast_payment = None
+    card(engine, 'Forest')
+    engine.cast_spell(me, spell)
+    assert [o['id'] for o in engine.state.pending_choice['options']] == ['0', '1']
+    engine.resolve_pending_choice('0')
+    assert me.life == 20 and spell.zone == Zone.STACK
+
+
+def test_defiler_payment_during_a_free_resolution_cast_keeps_the_permission_until_casting():
+    engine = game()
+    card(engine, 'Defiler of Vigor')
+    spell = filler(engine, 'Green Cub', power=1, toughness=1, zone=Zone.EXILE, mv=2,
+                   mana_cost_string='{1}{G}', color_identity={'G'})
+    me = engine.state.player_by_id('p1')
+    main_phase(engine)
+    engine.rules._request_resolution_play(me, [spell])
+    engine.play_resolution_card(me, spell)
+    assert engine.state.pending_choice['kind'] == 'cast_pip_life_payment'
+    assert engine.state.resolution_play_choice is not None and spell.zone == Zone.EXILE
+    engine.resolve_pending_choice('1')
+    assert spell.zone == Zone.STACK and me.life == 18
+    assert engine.state.resolution_play_choice is None
+    assert not engine.state.resolution_play_waiting
+
+
+def test_yasharn_prevents_defiler_life_payments_and_optimistic_cast_offers():
+    engine = game()
+    card(engine, 'Defiler of Vigor')
+    card(engine, 'Yasharn, Implacable Earth')
+    spell = filler(engine, 'Green Cub', power=1, toughness=1, zone=Zone.HAND, mv=2,
+                   mana_cost_string='{1}{G}', color_identity={'G'})
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 1})
+    main_phase(engine)
+    assert not engine.can_cast(me, spell)
+    with pytest.raises(ValueError):
+        engine.cast_spell(me, spell, pip_life_payments={'G': 1})
+    assert me.life == 20 and spell.zone == Zone.HAND
+
+
+@pytest.mark.parametrize('can_pay', [False, True])
+def test_baral_loots_for_ward_counters_with_the_original_ability_controller(can_pay):
+    engine = game()
+    baral = card(engine, 'Baral, Chief of Compliance')
+    warded = filler(engine, 'Warded', power=2, toughness=4, oracle_text='Ward {2}', keywords=['Ward'])
+    bolt = card(engine, 'Lightning Bolt', player='p2', zone=Zone.HAND)
+    enemy = engine.state.player_by_id('p2')
+    enemy.mana_pool.add_many({'R': 1, 'C': 2 if can_pay else 0})
+    main_phase(engine)
+    engine.cast_spell(enemy, bolt, targets=[warded])
+    warded.controller_id = 'p2'  # the ward trigger still belongs to p1
+    engine.resolve_until_stable()
+    if can_pay:
+        assert engine.state.pending_choice['kind'] == 'ward'
+        engine.resolve_pending_choice('decline')
+    assert bolt.zone == Zone.GRAVEYARD
+    assert engine.state.pending_choice['player_id'] == 'p1'
+    before = len(engine.state.player_by_id('p1').library)
+    answer(engine, pick_label('Ja'))
+    assert len(engine.state.player_by_id('p1').library) == before - 1
+
+
+def test_baral_loots_for_a_counter_ability_with_no_permanent_source():
+    from mtg_analyzer.models.game.game_state import StackItem
+    from mtg_analyzer.game.effects.core import EffectRegistry
+    engine = game()
+    card(engine, 'Baral, Chief of Compliance')
+    spell = filler(engine, 'Opposing Spell', type_line='Instant', player='p2', zone=Zone.HAND)
+    main_phase(engine)
+    engine.cast_spell(engine.state.player_by_id('p2'), spell)
+    engine.state.stack.append(StackItem(kind='ability', controller_id='p1',
+        effects=[EffectRegistry.create('counter', {})], targets=[spell], description='Counter ability'))
+    engine.resolve_until_stable()
+    assert spell.zone == Zone.GRAVEYARD and engine.state.pending_choice['player_id'] == 'p1'
+    before = len(engine.state.player_by_id('p1').library)
+    answer(engine, pick_label('Ja'))
+    assert len(engine.state.player_by_id('p1').library) == before - 1
+
+
+def test_conduit_decline_expires_its_permission_without_locking_normal_casts():
+    engine = game()
+    conduit = card(engine, 'Conduit of Worlds')
+    grave = card(engine, 'Llanowar Elves', zone=Zone.GRAVEYARD)
+    hand = card(engine, 'Llanowar Elves', zone=Zone.HAND)
+    engine.state.player_by_id('p1').mana_pool.add_many({'G': 2})
+    activate(engine, conduit, targets=[grave])
+    assert engine.state.pending_choice['kind'] == 'play_during_resolution'
+    engine.resolve_pending_choice('decline')
+    me = engine.state.player_by_id('p1')
+    assert not engine.can_cast(me, grave) and engine.can_cast(me, hand)
+    assert not grave.exile_after_free_cast
+
+
+def test_diviner_decline_keeps_cards_in_the_graveyard_and_expires_the_free_cast():
+    engine = game()
+    diviner = card(engine, 'Diviner of Mist')
+    bolt = card(engine, 'Lightning Bolt', zone=Zone.GRAVEYARD)
+    attack(engine, [diviner])
+    assert engine.state.pending_choice['kind'] == 'play_during_resolution'
+    assert bolt.zone == Zone.GRAVEYARD
+    engine.resolve_pending_choice('decline')
+    assert not engine.can_cast(engine.state.player_by_id('p1'), bolt)
+    assert not bolt.exile_after_free_cast and bolt.zone == Zone.GRAVEYARD
+
+
+def test_emet_casts_from_the_graveyard_during_resolution_at_its_discounted_normal_cost():
+    engine = game()
+    card(engine, 'Emet-Selch of the Third Seat')
+    spell = card(engine, 'Deep Analysis', zone=Zone.GRAVEYARD)
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 1, 'U': 1})
+    engine.rules.lose_life(engine.state.player_by_id('p2'), 1)
+    engine.resolve_until_stable()
+    engine.resolve_pending_choice(str(spell.instance_id))
+    assert engine.state.pending_choice['kind'] == 'play_during_resolution'
+    engine.play_resolution_card(me, spell, targets=[me])
+    assert spell.zone == Zone.STACK and spell.cast_from_zone == 'graveyard'
+    assert me.life == 20 and me.mana_pool.total() == 0
+
+
+def test_conduit_paid_resolution_cast_keeps_its_x_announcement():
+    engine = game()
+    conduit = card(engine, 'Conduit of Worlds')
+    spell = card(engine, 'Walking Ballista', zone=Zone.GRAVEYARD)
+    me = engine.state.player_by_id('p1')
+    me.mana_pool.add_many({'C': 4})
+    activate(engine, conduit, targets=[spell])
+    offer = next(a for a in engine.resolution_play_actions(me) if a['type'] == 'cast_spell')
+    assert offer['has_x'] and offer['max_x'] >= 2
+    engine.play_resolution_card(me, spell, x=2)
+    assert spell.zone == Zone.STACK and spell.x_paid == 2
+    assert 'p1' in engine.state.no_more_spells_this_turn
