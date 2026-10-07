@@ -28,7 +28,7 @@ from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
-from .dig import parse_dig
+from .dig import parse_dig, parse_reveal_top_branch
 from .counters import KEYWORD_COUNTER_KINDS, counter_choice_list, parse_counter_choice_items
 from .referent_condition import PRONOUN_NOUN_ALT
 from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
@@ -764,7 +764,8 @@ def _copy_head_params(m: re.Match[str]) -> Optional[dict]:
 #: silently dropping it.
 _COPY_PERMANENT_RE = _c(
     # The comma before "except" is optional: "a copy of that creature except it's an artifact" (Faerie Artisans).
-    rf"{_COPY_HEAD}{TARGET}(?:,?\s+except (?P<except_tail>.+))?"
+    # PAR-148: "…a copy of another target attacking creature **and that's tapped and attacking**" (Flamerush Rider).
+    rf"{_COPY_HEAD}{TARGET}(?P<and_ta> and that'?s tapped and attacking)?(?:,?\s+except (?P<except_tail>.+))?"
 )
 
 #: PAR-142: the granted end-step clause of a temporary copy — "…except it has haste and \"at the beginning of the
@@ -808,6 +809,9 @@ def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if head is None:
         return None
     params: dict = {"target_kind": kind, **_optional_param(m), **head}
+    if m.groupdict().get("and_ta"):
+        params["tapped"] = True
+        params["attacking"] = True
     state_filter = resolve_target_creature_state_filter(m.group("target"))
     if state_filter:
         params["creature_filter"] = state_filter  # "target nonlegendary creature" (Kiki-Jiki)
@@ -7643,8 +7647,10 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: payment. Self-sacrifice is handled by that separate antecedent path.
 _MAY_COST_THEN_CLAUSE = (
     r"pay (?:\{[wubrgcx0-9/]+\})+"
-    r"|sacrifice an? \w+"
-    r"|sacrifice another \w+"
+    # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
+    # ("token or a land" is excluded: `costs.py` encodes it as ``token_or`` and drops "a land".)
+    r"|sacrifice an? (?!token or )\w+(?: or (?:an? )?\w+)?"
+    r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
     r"|discard (?:your hand|a card|\d+ cards?|[a-z]+ cards?)"
     r"|pay \d+ life"
     # RULE 701.59a — a non-mana graveyard cost sized by total mana value;
@@ -8764,6 +8770,9 @@ _TOKEN_TAPPED_ATTACKING = (
     # "for each opponent, " prefix on the clause and the create-token rows
     # never fullmatch it.
     r"(?P<atk_defender> that (?:player|opponent))?"
+    # PAR-148 (RULE 508.4a): "…that player or a planeswalker they control" (Adeline) — the controller may
+    # pick a planeswalker of the player the creature was put in against.
+    r"(?P<atk_walker> that (?:player|opponent) or a planeswalker they control)?"
 )
 
 
@@ -8859,6 +8868,8 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     if m.groupdict().get("tapped_attacking") or m.groupdict().get("pre_ta"):  # RULE 508.4 — enters tapped and attacking
         params["tapped"] = True
         params["attacking"] = True
+    if m.groupdict().get("atk_walker"):
+        params["defender_planeswalker"] = True
     tname = m.groupdict().get("tname")
     if tname:  # PAR-148: the printed name replaces the subtype-derived one (RULE 111.4)
         if _TOKEN_NAME_TAIL_WORDS_RE.search(tname):
@@ -20150,6 +20161,11 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler("look_top_put_three_party", _LOOK_TOP_PUT_THREE_PARTY_RE, _look_top_put_three_party),
     EffectHandler("reveal_top_all_filter", _REVEAL_TOP_ALL_FILTER_RE, _reveal_top_all_filter),
     EffectHandler("dig_top_choose", _DIG_RE, _dig),
+    # PAR-148: the one-card reveal whose hit is forced and whose miss is routed ("otherwise, put it into your hand").
+    EffectHandler(
+        "reveal_top_branch", _c(r"(?:you may )?reveal the top card of your library\..+"),
+        lambda m: parse_reveal_top_branch(m.group(0)),
+    ),
     EffectHandler(
         "damage_target_and_controller_party",
         _DAMAGE_TARGET_AND_CONTROLLER_PARTY_RE, _damage_target_and_controller_party,

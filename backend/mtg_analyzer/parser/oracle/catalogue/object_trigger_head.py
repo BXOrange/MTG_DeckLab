@@ -382,7 +382,9 @@ _SELF_AND_ANOTHER_ATTACK = re.compile(
     r"^(?:~ and another (?P<subject>.+) attack|you attack with ~ and another (?P<with>.+))$"
 )
 _TOTAL_POWER = re.compile(r"^(?P<phrase>.+) with total power (?P<n>\d+) or greater$")
-_ENTRY_ORIGIN = re.compile(r"^from (?:a )?(?P<zone>graveyard|exile|hand|library)(?:\s+|$)")
+#: "from your hand/graveyard" (PAR-148, Thousand-Faced Shadow, Phyrexian Dragon Engine) names the owner too; only
+#: the head's own "~" can read it, because the entry filter carries no zone owner for a group subject.
+_ENTRY_ORIGIN = re.compile(r"^from (?:(?P<poss>a|your) )?(?P<zone>graveyard|exile|hand|library)(?:\s+|$)")
 
 
 def _attackers_spec(
@@ -549,6 +551,8 @@ def _consume_tails(
         origin = _ENTRY_ORIGIN.match(tail) if events == ["ENTERS_BATTLEFIELD"] else None
         if origin is not None:
             if "from_zone" in trigger.get("filter", {}):
+                return None
+            if origin.group("poss") == "your" and condition.get("subject") != "self":
                 return None
             trigger.setdefault("filter", {})["from_zone"] = origin.group("zone")
             tail = tail[origin.end():].strip()

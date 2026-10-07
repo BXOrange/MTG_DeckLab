@@ -3900,7 +3900,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      "onto the battlefield tapped and attacking"; plural self-reference verbs ("whenever Raph & Mikey attack");
 #      `finality` counter on a graveyard return.
 # 614: ENG-52 — `distinct_from_others` also stamped on pump/destroy/exile/tap/return_to_hand clauses (binder applies it).
-PARSER_VERSION = "614"
+# 615: PAR-148 — "that player or a planeswalker they control" (`defender_planeswalker`), "enters from your hand/graveyard"
+#      self heads, copy "and that's tapped and attacking", type-union sacrifice in pay-then costs (source excluded for
+#      "another"), the one-card reveal-and-branch dig ("if it's a creature card, put it onto the battlefield … otherwise").
+PARSER_VERSION = "615"
 
 
 def parser_source_hash() -> str:

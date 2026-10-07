@@ -3189,6 +3189,13 @@ class SearchMixin:
                 treasure = default_token_database().get_token("Treasure")
                 if treasure is not None:
                     self.create_token(player.id, treasure, count=len(objs))
+        elif destination == "hand":
+            # PAR-148: "reveal the top card … otherwise, put that card into your hand" (Hans Eriksson, Skyward Eye
+            # Prophets) — the unpicked revealed card goes to its owner's hand.
+            for o in objs:
+                self._remove_from_current_zone(player, o)
+                o.zone = Zone.HAND
+                player.add_to_zone(o, Zone.HAND)
         elif destination == "library_shuffled":
             # PAR-144 (Genesis Hydra): "shuffle the rest into your library" — the
             # unpicked cards stay in the library, which is then shuffled (RULE 701.20).

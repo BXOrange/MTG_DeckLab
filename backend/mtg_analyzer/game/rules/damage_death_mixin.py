@@ -636,7 +636,10 @@ class DamageDeathMixin:
         source.sacrificed_cost_power = victim.power
         source.sacrificed_cost_toughness = victim.toughness
 
-    def sacrifice(self, player: Player, what: str = "permanent", count: "int | str" = 1) -> None:
+    def sacrifice(
+        self, player: Player, what: str = "permanent", count: "int | str" = 1,
+        exclude: Optional[GameObject] = None,
+    ) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
         702.86), not a cost payment (`GameEngine._sacrifice_candidate`
@@ -664,6 +667,8 @@ class DamageDeathMixin:
             if _matches_permanent_type(obj, what)
             # "You can't sacrifice those creatures this turn." (Call for Aid)
             and not obj.cant_be_sacrificed_this_turn
+            # "sacrifice **another** creature" (RULE 109.5): the ability's own source cannot pay it.
+            and obj is not exclude
         ]
         if count == "all":
             count = len(candidates)  # "sacrifices all permanents they control that …": nothing to choose

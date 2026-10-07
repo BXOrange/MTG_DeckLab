@@ -192,6 +192,39 @@ def _rest_destination(text: str) -> Optional[str]:
     return "library_bottom_random" if match.group("bottom") else "graveyard"
 
 
+#: PAR-148: "Reveal the top card of your library. If it's a `<kind>` card, put it onto the battlefield [tapped [and
+#: attacking]]. Otherwise, put it into your hand/graveyard." (Call of the Wild, Skyward Eye Prophets, Hans Eriksson) and
+#: "…you may reveal the top card … if a `<kind>` card is revealed this way, put it …" (Doors of Durin): a one-card dig
+#: whose hit is forced. No "otherwise" leaves the card on top (``decline_leaves_untouched``).
+_REVEAL_TOP_BRANCH_RE = re.compile(
+    r"(?P<may>you may )?reveal the top card of your library\.\s+"
+    r"if (?:it'?s an? (?P<crit>[a-z' -]+?) card|an? (?P<crit2>[a-z' -]+?) card is revealed this way), "
+    r"put it (?P<dest>onto the battlefield(?: tapped(?: and attacking)?)?)"
+    r"(?:\.\s+otherwise, put (?:it|that card) (?P<rest>into your hand|into your graveyard))?\.?"
+)
+_REVEAL_REST = {"into your hand": "hand", "into your graveyard": "graveyard"}
+
+
+def parse_reveal_top_branch(text: str) -> Optional[list[EffectSpec]]:
+    """The `inspect_top_choose` spec for a one-card reveal-and-branch clause, else ``None``."""
+    m = _REVEAL_TOP_BRANCH_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    criteria = parse_criteria(f'{m.group("crit") or m.group("crit2")} card')
+    if not criteria:
+        return None  # an unreadable (or empty) kind would turn "if it's a creature" into "always"
+    params: dict = {
+        "count": 1, "action": _ACTION_BY_DEST[m.group("dest")], "max_picks": 1,
+        "optional": bool(m.group("may")), "criteria": criteria,
+    }
+    if m.group("rest"):
+        params["rest_destination"] = _REVEAL_REST[m.group("rest")]
+    else:
+        params["rest_destination"] = "library_top"
+        params["decline_leaves_untouched"] = True
+    return [EffectSpec("inspect_top_choose", params)]
+
+
 def parse_dig(
     count: "int | str", remainder: str, match_tail: Callable[[str], Optional[list[EffectSpec]]],
 ) -> Optional[list[EffectSpec]]:

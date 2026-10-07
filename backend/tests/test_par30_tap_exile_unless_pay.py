@@ -159,9 +159,30 @@ def test_exile_unless_sacrifice_declined_exiles_the_source():
                                controller_id="p1"))
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()
-    # (the choice opens even with no *other* creature — "another" isn't
-    # honoured by the cost checker, same as sacrifice_unless_pay). Decline:
-    assert state.pending_choice["kind"] == "pay_cost_then"
-    eng.resolve_pending_choice("decline")
+    # "another" excludes the source (RULE 109.5): with no other creature the payment cannot be made, so it is
+    # not offered and the else branch (exile it) resolves at once.
+    assert state.pending_choice is None
     assert obj not in state.battlefield
     assert any(o.instance_id == obj.instance_id for o in state.player_by_id("p1").exile)
+
+
+def test_exile_unless_sacrifice_declined_with_another_creature_available_exiles_the_source():
+    eng = _engine()
+    state = eng.state
+    dem = Card(id="dem", name="Demonlord of Ashmouth", type_line="Creature — Demon",
+               is_creature=True, power=4, toughness=4,
+               oracle_text="When Demonlord of Ashmouth enters, exile it unless "
+                           "you sacrifice another creature.")
+    obj = GameObject(dem, owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    state.add_to_battlefield(obj)
+    other = GameObject(Card(id="bear", name="Bear", type_line="Creature — Bear", is_creature=True,
+                            power=2, toughness=2), owner_id="p1", zone=Zone.BATTLEFIELD)
+    state.add_to_battlefield(other)
+    state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=obj.instance_id,
+                               controller_id="p1"))
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_top_of_stack()
+    assert state.pending_choice["kind"] == "pay_cost_then"
+    eng.resolve_pending_choice("decline")
+    assert obj not in state.battlefield and other in state.battlefield

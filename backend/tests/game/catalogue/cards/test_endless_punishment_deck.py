@@ -316,6 +316,22 @@ def test_vial_smasher_burns_a_random_opponent_for_the_first_spell_each_turn_only
     assert p2.life + p3.life == 40 - 2
 
 
+def test_vial_smasher_may_hit_a_planeswalker_of_the_random_opponent():
+    # "…damage equal to that spell's mana value to that player **or a planeswalker that player controls**"
+    engine = _game(players=2)
+    p1, p2 = engine.state.players
+    _card(engine, "Vial Smasher the Fierce")
+    jace = _filler(engine, "Jace", "Legendary Planeswalker — Jace", player="p2", loyalty=5)
+    spell = _filler(engine, "Three", "Creature — Bear", mv=3, power=1, toughness=1, zone=Zone.HAND)
+    _cast(engine, spell, {"C": 3})
+    pending = engine.state.pending_choice
+    assert pending is not None and pending["kind"] == "damage_recipient"
+    assert {o["id"] for o in pending["options"]} == {"player:p2", f"planeswalker:{jace.instance_id}"}
+    engine.resolve_pending_choice(f"planeswalker:{jace.instance_id}")
+    engine.resolve_until_stable()
+    assert jace.loyalty == 2 and p2.life == 20  # RULE 120.3c: loyalty counters, not life
+
+
 def test_syr_konrad_pings_for_other_deaths_non_battlefield_creature_cards_and_graveyard_exits():
     engine = _game(library=10)
     p1, p2 = engine.state.players

@@ -77,6 +77,8 @@ const CHOICE_ICONS = {
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', reorder_top: '🔮', look_hand: '👁️', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
+  // PAR-148: which defender a creature put into combat attacks / who takes "that player or a planeswalker" damage.
+  reselect_attack: '⚔️', damage_recipient: '🎯',
   // MEC-108: "your choice of a flying counter or a lifelink counter" — at resolution / as it enters.
   counter_kind: '🏷️', choose_enter_counter: '🏷️',
   // Explorer's Scope's "look at the top card, if it's a land you may put

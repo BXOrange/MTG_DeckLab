@@ -45,7 +45,9 @@ class PreventCombatDamageDealtEffect(GameEffect):
 #: PAR-128: RULE 109.5's "each other creature" — every creature but this
 #: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s
 #: power-damage effect shares and does not iterate.
-_DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({"each_other_creature", "attacked_object", "random_opponent"})
+_DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({
+    "each_other_creature", "attacked_object", "random_opponent", "random_opponent_or_planeswalker",
+})
 
 
 class DealDamageEffect(GameEffect):
@@ -719,6 +721,22 @@ class DealDamageEffect(GameEffect):
             victim = context.engine.random_choice(opponents)
             if victim is not None:
                 context.deal_damage(victim, amount, self.source)
+            return
+        if self.selector == "random_opponent_or_planeswalker":
+            # "choose an opponent at random. ~ deals damage … to that player or a planeswalker that player
+            # controls" (Vial Smasher the Fierce): the opponent is random (RULE 706), the recipient is the
+            # controller's pick between them and their planeswalkers (RULE 120.3) — asked only when there is one.
+            opponents = [p for p in context.state.living_players() if p.id != controller_id]
+            victim = context.engine.random_choice(opponents)
+            if victim is None:
+                return
+            walkers = [o for o in context.state.battlefield if o.is_planeswalker and o.controller_id == victim.id]
+            if not walkers:
+                context.deal_damage(victim, amount, self.source)
+                return
+            context.engine._request_damage_recipient(
+                context.state.player_by_id(controller_id), self.source, amount, victim, walkers,
+            )
             return
         if self.selector == "event_player":
             # "whenever a player casts a spell, ~ deals 2 damage to that

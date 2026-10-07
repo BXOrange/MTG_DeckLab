@@ -13,7 +13,8 @@ def _adeline_resplendent_cathar() -> list[AbilitySpec]:
     — Adeline. Vigilance comes from the keyword catalogue; the power is the parser's own `pt_cda`. "Whenever
     you attack" is `ATTACKERS_DECLARED` (one per declaration, so attacking two opponents triggers once, unlike
     the per-defender `PLAYER_ATTACKED`); the body is `create_token` with ``per_opponent`` (RULE 508.4a — each
-    token attacks a distinct opponent; the planeswalker alternative is not offered, as for Endless Foot Assault).
+    token attacks a distinct opponent) and ``defender_planeswalker`` (its controller may instead pick a planeswalker
+    that opponent controls, `RulesEngine._offer_attack_defenders`).
     """
     return [
         AbilitySpec(
@@ -27,6 +28,7 @@ def _adeline_resplendent_cathar() -> list[AbilitySpec]:
             [EffectSpec("create_token", {
                 "count": 1, "power": 1, "toughness": 1, "colors": ["W"], "subtypes": ["Human"],
                 "token_name": "Human", "per_opponent": True, "tapped": True, "attacking": True,
+                "defender_planeswalker": True,
             })],
             trigger={
                 "event": EventType.ATTACKERS_DECLARED, "condition": {"subject": "you"},

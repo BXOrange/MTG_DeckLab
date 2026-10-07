@@ -97,11 +97,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
   "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
   `engine_bench.py`, not parse verdicts.
-- **PAR-148 · "Tapped and attacking" residue.** Open axes: a defender choice for "that player or a planeswalker
-  they control" (Adeline, Hans Eriksson, Zara; `put_onto_battlefield_attacking` only infers it); pay-then bodies
-  (Arni Metalbrow, Gut, Boulder Jockey); reveal-then branches (Doors of Durin, Fireflux Squad, Hans); token-copy
-  shapes (Flamerush Rider, Loki, Shaun, Satya, Phantom Steed, Calamity); blink "return tapped and attacking"
-  (The Neutrinos, Meandering Towershell, Noctis). Risk: a wrong defender (RULE 508.4).
 - **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
   checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
   step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a

@@ -229,3 +229,122 @@ def test_look_top_dig_hit_enters_tapped_and_attacking():
     _answer(eng, {"Bear"})
     bear = next(o for o in eng.state.battlefield if o.name == "Bear")
     assert bear.tapped and bear.attacking
+
+
+# -- the reveal-and-branch dig ----------------------------------------------------
+
+
+def _reveal_engine(top_cards):
+    from tests.test_par144_dig_family import _engine as _dig_engine, _stock
+
+    eng, p1 = _dig_engine()
+    _stock(p1, *top_cards)
+    return eng, p1
+
+
+def test_reveal_top_branch_puts_a_hit_onto_the_battlefield_and_a_miss_into_the_graveyard():
+    from tests.test_par144_dig_family import _card
+
+    specs = parse_effect_body(
+        "reveal the top card of your library. if it's a creature card, put it onto the battlefield. "
+        "otherwise, put it into your graveyard."
+    )
+    (spec,) = specs
+    assert (spec.params["action"], spec.params["rest_destination"]) == ("library_to_battlefield", "graveyard")
+    for top, on_battlefield in ((_card("Bear"), True), (_card("Rock", "Sorcery"), False)):
+        eng, p1 = _reveal_engine([top, _card("Deep", "Sorcery")])  # the first card is the top
+        eng.rules.inspect_top_n_choose(
+            p1, count=1, action="library_to_battlefield", criteria={"type": "creature"},
+            rest_destination="graveyard",
+        )
+        assert (top.name in [o.name for o in eng.state.battlefield]) is on_battlefield
+        assert (top.name in [o.name for o in p1.graveyard]) is (not on_battlefield)
+
+
+def test_reveal_top_branch_miss_goes_to_hand_and_optional_reveal_leaves_the_card_on_top():
+    from tests.test_par144_dig_family import _card
+
+    eng, p1 = _reveal_engine([_card("Rock", "Sorcery"), _card("Deep", "Sorcery")])
+    before = len(p1.hand)
+    eng.rules.inspect_top_n_choose(
+        p1, count=1, action="library_to_battlefield_attacking", criteria={"type": "creature"},
+        rest_destination="hand",
+    )
+    assert len(p1.hand) == before + 1 and p1.hand[-1].name == "Rock"
+    (spec,) = parse_effect_body(
+        "you may reveal the top card of your library. if a creature card is revealed this way, put it onto "
+        "the battlefield."
+    )
+    assert spec.params["decline_leaves_untouched"] is True and spec.params["optional"] is True
+
+
+def test_reveal_top_branch_with_a_kind_the_criteria_cannot_express_stays_unclaimed():
+    assert parse_effect_body(
+        "reveal the top card of your library. if it's a nontoken card, put it onto the battlefield. "
+        "otherwise, put it into your hand."
+    ) is None
+
+
+# -- pay-then with a type-union sacrifice ----------------------------------------------
+
+
+def test_gut_sacrifices_a_creature_or_artifact_and_makes_a_tapped_attacking_skeleton():
+    engine, state = _engine()
+    state.current_step = "main1"
+    gut = _permanent(
+        state, "Gut, True Soul Zealot", "Legendary Creature — Human Warrior", (
+            "Whenever you attack, you may sacrifice another creature or an artifact. If you do, create a 4/1 "
+            "black Skeleton creature token with menace that's tapped and attacking."
+        ), is_creature=True, power=2, toughness=2,
+    )
+    fodder = _attackers(state, [("Fodder", "Artifact — Treasure", [])])[0]
+    state.current_phase = "combat"
+    _attack(engine, state, [gut])
+    pc = state.pending_choice
+    if pc is not None:
+        option = next(o for o in pc["options"] if o.get("id") not in ("decline", None))
+        engine.rules.resolve_choice(option["id"])
+        engine.resolve_until_stable()
+    skeletons = [o for o in state.battlefield if o.name == "Skeleton"]
+    assert len(skeletons) == 1 and skeletons[0].tapped and skeletons[0].attacking
+    assert fodder not in state.battlefield and gut in state.battlefield  # "another": the Treasure paid, not Gut
+
+
+def test_union_sacrifice_cost_shapes_that_the_cost_parser_mangles_stay_unclaimed():
+    assert parse_effect_body(
+        "you may sacrifice a token or a land. if you do, draw a card."
+    ) is None
+
+
+# -- copy tail, entry origin, defender ------------------------------------------------
+
+
+def test_copy_of_another_attacking_creature_that_is_tapped_and_attacking():
+    specs = parse_effect_body(
+        "create a token that's a copy of another target attacking creature and that's tapped and attacking. "
+        "exile the token at end of combat."
+    )
+    copy, delayed = specs
+    assert copy.params["tapped"] and copy.params["attacking"] and copy.params["creature_filter"] == {"attacking": True}
+    assert delayed.type == "create_delayed_trigger"
+
+
+def test_enters_from_your_hand_head_for_the_self_object_only():
+    seg = _segment("when ~ enters from your hand, draw a card.")
+    assert seg.claimed and seg.spec.trigger["filter"] == {"from_zone": "hand"}
+    assert not _segment("whenever a creature enters from your graveyard, draw a card.").claimed
+
+
+def test_another_creature_or_artifact_cannot_be_paid_by_the_source_itself():
+    engine, state = _engine()
+    state.current_step = "main1"
+    gut = _permanent(
+        state, "Gut, True Soul Zealot", "Legendary Creature — Human Warrior", (
+            "Whenever you attack, you may sacrifice another creature or an artifact. If you do, create a 4/1 "
+            "black Skeleton creature token with menace that's tapped and attacking."
+        ), is_creature=True, power=2, toughness=2,
+    )
+    state.current_phase = "combat"
+    _attack(engine, state, [gut])
+    assert state.pending_choice is None  # nothing but Gut itself to sacrifice: the payment is not offered
+    assert gut in state.battlefield and not [o for o in state.battlefield if o.name == "Skeleton"]

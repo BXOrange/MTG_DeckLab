@@ -98,6 +98,33 @@ def test_adeline_makes_a_tapped_attacking_human_per_opponent_and_scales_with_the
     assert combat.has(adeline, "vigilance") and not adeline.tapped
 
 
+def test_adeline_may_send_a_token_at_a_planeswalker_of_that_opponent():
+    # RULE 508.4a: "…tapped and attacking that player or a planeswalker they control" — a choice per token, asked
+    # only for an opponent who controls a planeswalker.
+    engine = _game(players=3)
+    adeline = _card(engine, "Adeline, Resplendent Cathar")
+    jace = _filler(engine, "Jace", "Legendary Planeswalker — Jace", player="p2", loyalty=4)
+    _attack(engine, [adeline])
+    pending = engine.state.pending_choice
+    assert pending is not None and pending["kind"] == "reselect_attack"
+    assert {o["id"] for o in pending["options"]} == {"player:p2", f"planeswalker:{jace.instance_id}", "decline"}
+    engine.resolve_pending_choice(f"planeswalker:{jace.instance_id}")
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice is None  # p3 controls no planeswalker: nothing more to ask
+    by_defender = {h.combat_defender.get("id") or h.combat_defender.get("instance_id") for h in _named(engine, "Human")}
+    assert by_defender == {jace.instance_id, "p3"}
+
+
+def test_adeline_keeps_the_player_when_the_pick_is_declined():
+    engine = _game(players=3)
+    adeline = _card(engine, "Adeline, Resplendent Cathar")
+    _filler(engine, "Jace", "Legendary Planeswalker — Jace", player="p2", loyalty=4)
+    _attack(engine, [adeline])
+    engine.resolve_pending_choice("decline")
+    engine.resolve_until_stable()
+    assert {h.combat_defender["id"] for h in _named(engine, "Human")} == {"p2", "p3"}
+
+
 def test_within_range_makes_two_warriors_and_drains_per_attacker():
     engine = _game(players=3)
     p1, p2, p3 = engine.state.players

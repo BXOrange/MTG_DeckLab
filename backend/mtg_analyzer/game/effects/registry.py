@@ -3207,6 +3207,7 @@ EffectRegistry.register(
         is_artifact=bool(p.get("is_artifact", False)),
         parametric_keywords=p.get("parametric_keywords"),
         per_opponent=bool(p.get("per_opponent", False)),
+        defender_planeswalker=bool(p.get("defender_planeswalker", False)),
         token_dies_gain_life=p.get("token_dies_gain_life"),
         oracle_text=str(p.get("oracle_text", "")),
         vehicle=bool(p.get("vehicle", False)),

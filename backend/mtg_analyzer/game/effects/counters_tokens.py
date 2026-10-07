@@ -3342,6 +3342,7 @@ class CreateTokenEffect(GameEffect):
         is_artifact: bool = False,
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
         per_opponent: bool = False,
+        defender_planeswalker: bool = False,
         token_dies_gain_life: Optional[int] = None,
         oracle_text: str = "",
         vehicle: bool = False,
@@ -3418,6 +3419,9 @@ class CreateTokenEffect(GameEffect):
         #: rather than by the shared auto-pick). Distinct from
         #: ``creators="each_opponent"`` (there each opponent makes their own).
         self.per_opponent = bool(per_opponent)
+        #: "…tapped and attacking **that player or a planeswalker they control**" (Adeline): the token's
+        #: controller may attack a planeswalker of the player it was put in against (RULE 508.4a).
+        self.defender_planeswalker = bool(defender_planeswalker)
         self.tapped = bool(tapped)
         #: "…create a … token that's **tapped and attacking**." (RULE 508.4 —
         #: Captain's Claws, Basri Ket, Anim Pakal, the "whenever ~ attacks,
@@ -3585,6 +3589,7 @@ class CreateTokenEffect(GameEffect):
             if self.tapped:
                 for token in made:
                     token.tapped = True
+            defender_picks: list[tuple[Any, Optional[str]]] = []
             if self.attacking and self.per_opponent:
                 # RULE 508.4a per token: token i attacks opponent i.
                 for token, opp_id in zip(made, per_opp_defenders):
@@ -3594,9 +3599,12 @@ class CreateTokenEffect(GameEffect):
                         defender={"kind": "player", "id": opp_id,
                                   "label": getattr(opp, "name", opp_id)},
                     )
+                    defender_picks.append((token, opp_id))
             elif self.attacking:
                 for token in made:
                     context.engine.put_onto_battlefield_attacking(token)
+                    defender = getattr(token, "combat_defender", None) or {}
+                    defender_picks.append((token, defender.get("id") if defender.get("kind") == "player" else None))
             if self.extra_counters:
                 kind = str(self.extra_counters.get("kind", "+1/+1"))
                 amount = self._resolve_extra_counter_amount(context)
@@ -3651,6 +3659,9 @@ class CreateTokenEffect(GameEffect):
                         )
             # The referent for a following "the tokens are …" clause.
             context.created_objects.extend(made)
+            if self.defender_planeswalker and defender_picks:
+                # Last, so the rest of the resolution parks behind the pick (RULE 608.2).
+                context.engine._offer_attack_defenders(context.state.player_by_id(creator_id), defender_picks)
 
 
 class CopyPermanentEffect(GameEffect):

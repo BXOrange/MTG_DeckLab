@@ -194,6 +194,12 @@ def _saga_final_chapter(card: Card) -> int:
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
+def _names_other_word(word: str) -> bool:
+    """Whether a cost's permanent word says "another"/"other" — mirrors `activation_mixin._names_other`
+    (kept as its own copy: `game_engine.py` imports `rules_engine.py`, not the reverse)."""
+    return word.startswith("other_") or word == "another"
+
+
 def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     """Whether ``obj`` matches a sacrifice cost/effect's type word (RULE
     701.17), e.g. ``"creature"``/``"artifact"``/``"enchantment"``/``"land"``/
@@ -1608,6 +1614,63 @@ class MiscSystemsMixin:
         )
         return specs
 
+    def _request_damage_recipient(
+        self, chooser: Player, source: Optional[GameObject], amount: Any, player: Player,
+        walkers: list[GameObject],
+    ) -> None:
+        """"…damage to that player or a planeswalker that player controls" (RULE 120.3): ``chooser`` picks the
+        recipient among ``player`` and the planeswalkers they control; the damage is dealt on the answer."""
+        options = [{"id": f"player:{player.id}", "label": player.name}]
+        options += [{"id": f"planeswalker:{o.instance_id}", "label": o.name} for o in walkers]
+        self.open_choice({
+            "kind": "damage_recipient", "player_id": chooser.id, "options": options,
+            "prompt": "Wähle, wer den Schaden erhält",
+            "source_id": getattr(source, "instance_id", None), "amount": amount,
+        })
+
+    @continuations.choice("damage_recipient", answer=continuations.ANSWER_STR, rule="120.3")
+    def _resume_damage_recipient(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        source = self.state.find_object(choice["source_id"]) if choice.get("source_id") is not None else None
+        # An unanswerable/declined pick falls back to the first option — the player (damage is not optional).
+        picked = next((o for o in choice["options"] if o["id"] == answer), choice["options"][0])
+        kind, _, key = picked["id"].partition(":")
+        target = self.state.player_by_id(key) if kind == "player" else self.state.find_object(int(key))
+        if target is not None:
+            self.deal_damage(target, int(choice["amount"]), source=source)
+
+    def _offer_attack_defenders(
+        self, chooser: Player, pairs: list[tuple[GameObject, Optional[str]]],
+    ) -> None:
+        """RULE 508.4a: "…tapped and attacking **that player or a planeswalker they control**" (Adeline, Zara,
+        Hans Eriksson). Each ``(creature, defending_player_id)`` was already put into combat attacking that
+        player (the deterministic choice); its controller may instead pick a planeswalker that player controls.
+        The picks are asked one creature at a time (`reselect_attack` carries the rest in ``remaining``), and
+        nothing is asked for a creature whose player controls no planeswalker."""
+        queue = [
+            {"attacker_id": creature.instance_id, "player_id": player_id}
+            for creature, player_id in pairs if player_id is not None and getattr(creature, "attacking", False)
+        ]
+        self._open_next_attack_defender(chooser.id, queue)
+
+    def _open_next_attack_defender(self, chooser_id: str, queue: list[dict[str, Any]]) -> None:
+        """Open the first queued defender pick that has a real alternative; the rest wait in ``remaining``."""
+        while queue:
+            head, queue = queue[0], queue[1:]
+            attacker = self.state.find_object(head["attacker_id"])
+            if attacker is None or not getattr(attacker, "attacking", False):
+                continue
+            controller = self.state.player_by_id(head["player_id"])
+            walkers = [
+                {"kind": "planeswalker", "instance_id": o.instance_id, "label": o.name}
+                for o in self.state.battlefield if o.is_planeswalker and o.controller_id == head["player_id"]
+            ]
+            if controller is None or not walkers:
+                continue
+            defenders = [{"kind": "player", "id": controller.id, "label": controller.name}, *walkers]
+            self._request_reselect_attack(self.state.player_by_id(chooser_id), attacker, defenders)
+            self.state.pending_choice["remaining"] = queue
+            return
+
     def _request_reselect_attack(self, chooser: Player, attacker: GameObject, defenders: list[dict[str, Any]]) -> None:
         """RULE 506.4/508.1b-adjacent "you may reselect which player or permanent target attacking
         creature is attacking" (Misleading Signpost): open a defender pick for ``chooser`` — a player
@@ -1625,16 +1688,20 @@ class MiscSystemsMixin:
 
     @continuations.choice("reselect_attack", answer=continuations.ANSWER_STR, rule="508.1b")
     def _resume_reselect_attack(self, choice: dict[str, Any], answer: Optional[str]) -> None:
-        if answer in (None, "decline"):
-            return
-        attacker = self.state.find_object(choice["attacker_id"])
-        if attacker is None or not getattr(attacker, "attacking", False):
-            return  # RULE 608.2b: it left combat meanwhile
-        for spec in choice.get("defenders", []):
-            key = spec["id"] if spec.get("kind") == "player" else spec["instance_id"]
-            if answer == f'{spec["kind"]}:{key}':
-                attacker.combat_defender = dict(spec)
-                return
+        try:
+            attacker = self.state.find_object(choice["attacker_id"])
+            if answer not in (None, "decline") and attacker is not None and getattr(attacker, "attacking", False):
+                # (RULE 608.2b: an attacker that left combat meanwhile is simply skipped)
+                for spec in choice.get("defenders", []):
+                    key = spec["id"] if spec.get("kind") == "player" else spec["instance_id"]
+                    if answer == f'{spec["kind"]}:{key}':
+                        attacker.combat_defender = dict(spec)
+                        break
+        finally:
+            # RULE 508.4a: the next creature of the same instruction (`_offer_attack_defenders`) asks next.
+            remaining = choice.get("remaining") or []
+            if remaining:
+                self._open_next_attack_defender(choice["player_id"], remaining)
 
     def _request_choose_creature_type_grant(
         self, player: Player, source: GameObject, then_specs: list[dict],
@@ -5502,6 +5569,7 @@ class MiscSystemsMixin:
             return False
         if cost.sacrifice and not any(
             _matches_permanent_type(obj, cost.sacrifice)
+            and not (obj is source and _names_other_word(cost.sacrifice))
             for obj in self.state.permanents_controlled_by(player.id)
         ):
             return False
@@ -5573,7 +5641,8 @@ class MiscSystemsMixin:
         if cost.discard:
             self.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
         if cost.sacrifice:
-            self.sacrifice(player, cost.sacrifice, 1)
+            # "another"/"other …": the source is not a legal pick (RULE 109.5).
+            self.sacrifice(player, cost.sacrifice, 1, exclude=source if _names_other_word(cost.sacrifice) else None)
         if cost.pay_energy:
             self.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice_or_discard:
