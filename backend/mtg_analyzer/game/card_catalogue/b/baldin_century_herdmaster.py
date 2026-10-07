@@ -14,7 +14,8 @@ def _baldin_century_herdmaster() -> list[AbilitySpec]:
 
     — PLAY-ALL (Abzan Armor). The turn-gated toughness-damage static is the parser's. The attack trigger is a `pump` over up to
     100 targets (``target_count``) whose toughness is the new ``cards_in_your_hand`` count (`dynamic_amount`, toughness
-    axis only). **Simplification:** X is measured once as the trigger resolves, for every target.
+    axis only). RULE 608.2h: X is measured once as the trigger resolves and
+    applies equally to each target.
     """
     return [
         AbilitySpec("static", [EffectSpec("combat_restriction", {

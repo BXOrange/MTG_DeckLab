@@ -5,9 +5,10 @@ from ...models.game.events import EventType, GameEvent
 from .core import GameEffect, _controller_of, ChooseColorReplacement
 
 
-def start_battlefield_batch(rules, objects, controller_id):
+def start_battlefield_batch(rules, objects, controller_id, *, tapped=False):
     frame = {'cards': [{'id': o.instance_id, 'from_zone': o.zone.value,
-                        'controller_id': controller_id or o.owner_id} for o in objects],
+                        'controller_id': controller_id or o.owner_id,
+                        'tapped': tapped} for o in objects],
              'cursor': 0, 'stage': 'reset'}
     advance_battlefield_batch(rules, frame)
 
@@ -93,7 +94,10 @@ def advance_battlefield_batch(rules, frame):
             if not rules.state.pending_choice:
                 frame['stage'] = 'tap'
         elif stage == 'tap':
-            rules.enter_land_tapped(obj)
+            if record.get('tapped'):
+                obj.tapped = True
+            else:
+                rules.enter_land_tapped(obj)
             frame['stage'] = 'tap_wait' if rules.state.pending_choice else 'ready'
         elif stage == 'ready':
             frame['cursor'] += 1

@@ -546,7 +546,7 @@ def test_moraug_landfall_grants_an_extra_combat_only_in_my_main_phase_and_untaps
         return engine, bear
 
     engine, bear = play_land("main1")
-    assert len(engine.state.pending_extra_combats) == 1 and not bear.tapped  # extra combat + untap
+    assert len(engine.state.pending_extra_combats) == 1 and bear.tapped  # untap waits for that combat
 
     engine, bear = play_land("declare_attackers")
     assert not engine.state.pending_extra_combats and bear.tapped  # not a main phase: nothing happens

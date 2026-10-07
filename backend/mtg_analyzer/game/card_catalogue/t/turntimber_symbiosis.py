@@ -13,15 +13,10 @@ def _turntimber_symbiosis() -> list[AbilitySpec]:
     less, it enters with three additional +1/+1 counters on it. Put the rest on
     the bottom of your library in a random order.
 
-    — PLAY-ALL Step 2 (Raggadragga). PAR-144's `inspect_top_choose` (one optional
-    creature pick, the rest to the bottom in random order) with the new choose
-    action `library_to_battlefield_cheap_bonus`: it stamps
-    `GameObject.entry_bonus_counters` (mana value <= 3 -> three +1/+1) which
-    `_apply_entry_counters` applies *as it enters*, so the counters are there
-    for its own ETB triggers. Registered under the front-face name (the DFC's `//`
-    fallback finds it). **The back face, Turntimber, Serpentine Wood (a land), is not
-    authored** — the card cache holds only the front face's text for this card, so its
-    abilities cannot be verified on this PC.
+    — PLAY-ALL (Raggadragga). `inspect_top_choose` gives a cheap selected
+    creature its three entry counters before ETB triggers. The cached modal
+    back face is handled by ordinary land play: its printed optional life
+    payment controls tapped entry, and its text supplies green mana.
     """
     return [
         AbilitySpec(

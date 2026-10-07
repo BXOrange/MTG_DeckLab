@@ -60,7 +60,6 @@ class GameEngine(
         #: ``advance_step``): the current turn's ``(phase, step)`` list and
         #: how far through it we are. ``run_turn``/``run_goldfish_turn`` do
         #: not use these — they run a whole turn at once.
-        self._turn_steps: list = []
         self._cursor = 0
         #: RULE 117: whether every priority window is *played out* by real
         #: players (multiplayer) instead of auto-drained. Off by default, so
@@ -71,6 +70,14 @@ class GameEngine(
         #: `pass_priority(player)` around the table (`services/
         #: game_session.py`). See `GameSession._pass_priority`.
         self.interactive_priority = False
+
+    @property
+    def _turn_steps(self):
+        return self.state.turn_steps
+
+    @_turn_steps.setter
+    def _turn_steps(self, steps):
+        self.state.turn_steps = steps
 
     def _has_resolution_play_permission(self, player, obj) -> bool:
         choice = self.state.resolution_play_choice

@@ -404,6 +404,13 @@ replacement after casting, and a post-cast lock on further spells. These
 permissions expire on decline and preserve the original graveyard cast zone.
 Optional additional life payments suspend the same offer until casting finishes.
 
+### Revealed permanents and entry choices (RULE 614.12)
+
+`reveal_until` can route matching permanents through the shared entry batch,
+including copy replacements and entry choices. Revealed cards remain library
+objects while choices are pending; this path emits reveal events without
+transient exile events.
+
 ### Public revealed-card piles (RULE 608.2d)
 
 `reveal_split_piles` reveals library cards without moving them, lets the
@@ -829,6 +836,13 @@ introduce no second answer protocol.
 
 - **What:** New `block_tax` static (RULE 509.1c, `continuous.block_tax_per_creature`, paid with an auto-tap in `GameEngine.declare_blockers` before the block locks in — Archangel of Tithes while attacking); `attack_tax` now honours its `active_if` gate (the registry factory used to drop it, so a tapped Archangel still taxed attackers). `cant_lose_game` / `opponents_cant_win` statics (RULE 104.3b, `continuous.player_cant_lose/_cant_win`) read by `RulesEngine._loss_prevented`, `_player_loses` (an effect-driven loss is stopped, a concession is not — RULE 104.3a) and `player_wins` (Herald of Eternal Dawn). `Player.starting_life` (+ condition `life_over_starting_at_least`) and `Player.turns_taken` (bumped in `begin_turn`, floored by `GameState.sync_turn_nr` for Replay) with the cast-gate key `own_turn_after` ("can't cast during your first three turns", Serra Avenger). `extra_etb_counter` filters: ``colorless``, ``subtype_from_source`` (Metallic Mimic's chosen type), a structured angel count (Giada). `cost_reduction` takes a ``spell_subtype`` *list* and passes its source to a ``per`` selector (Herald of War: one less per +1/+1 counter on it). Count selector `opponents_with_more_cards_in_hand` (Wojek Investigator), condition `control_same_name_at_least` (Endless Atlas), `parity` bound on `power` (Kianne's even/odd flash).
 - **Files:** `game/{continuous,static_conditions,condition_query,isa}.py`, `game/effects/registry.py`, `game/engine/{combat_mixin,turn_loop_mixin}.py`, `game/rules/sba_mixin.py`, `models/game/{player,game_state}.py`, `parser/oracle/spec.py`, `game/card_catalogue/…` (18 cards), `tests/game/catalogue/cards/test_calling_all_angels_deck.py`.
+
+### Face-down return followed by turning face up (RULE 400.7 / 708.3 / 708.8)
+
+`return_self_to_battlefield` supports face-down entry followed by turning face
+up, restricted to the captured graveyard incarnation of a permanent card.
+Face-up ETB abilities do not trigger; turn-face-up abilities do. Tokens and
+manifested instants/sorceries are excluded.
 
 ### Face-down land returns, manifest from hand, turn-face-up triggers, resolution-time choices (PLAY-ALL, Jump Scare!)
 
@@ -2430,6 +2444,13 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 
 ## Casting & Costs
 
+### Cast-trigger grants of entry counters (RULE 603 / 614)
+
+`grant_entry_counters_to_triggering_spell` marks the triggering spell's stack
+incarnation after a respondable trigger resolves. The amount reads announced
+mana value, including X; counters are applied as the spell enters and the
+source need not remain on the battlefield.
+
 ### Announced optional life payments for colored-cost reductions (RULE 118.8a / 601.2b)
 
 `pip_life_option` prompts before casting, including when ordinary colored mana
@@ -3550,6 +3571,15 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 - **Files:** `models/emblem.py`, `game/rules_engine.py`.
 
 ## Game Engine / Turn Loop & Actions
+
+### Phase-specific delayed combat triggers (RULE 500.8 / 603.7)
+
+`extra_combat_phase` can insert directly after the current phase and attach a
+respondable untap trigger to that specific combat. Multiple landfalls each
+supply their own trigger; the ordinary combat receives none. Turn-step data
+now belongs to `GameState`, preserving inserted phases through snapshots and
+undo. Skipped phases do not fire their beginning triggers.
+
 
 ### Ophidian Eye: stale attachment predicates after rollback
 

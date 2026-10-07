@@ -346,10 +346,11 @@ class TurnLoopMixin:
     def resume_at(self, cursor: int) -> None:
         """Restore the stepping position after a state was swapped in (undo).
 
-        The turn's step list is deterministic, so only the cursor needs to
-        travel with a snapshot; this rebuilds the list and seeks to it.
+        Snapshots retain the turn's step list, including inserted phases.
+        A portable replay without a retained list uses the standard sequence.
         """
-        self._turn_steps = list(default_turn_sequence().iter_steps())
+        if not self._turn_steps:
+            self._turn_steps = list(default_turn_sequence().iter_steps())
         self._cursor = cursor
     def auto_play_step(self) -> None:
         """Auto-play the greedy goldfish line for the *current* step.
@@ -380,7 +381,11 @@ class TurnLoopMixin:
         # done here, not where it's queued, since only `GameEngine` (not the
         # effect that requested it) can see `_turn_steps`/`_cursor`.
         while self.state.pending_extra_combats:
-            self.insert_additional_combat_phase(self.state.pending_extra_combats.pop(0))
+            request = self.state.pending_extra_combats.pop(0)
+            if isinstance(request, dict):
+                self.insert_additional_combat_phase(**request)
+            else:
+                self.insert_additional_combat_phase(request)
         ended_combat = self.state.end_combat_requested
         if ended_combat:
             self.state.end_combat_requested = False
@@ -451,6 +456,14 @@ class TurnLoopMixin:
             # Thief/Chains of Mephistopheles's shared exemption clause).
             self.state.first_draw_done_this_step[self.state.active_player.id] = False
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
+        if phase.steps and step is phase.steps[0] and getattr(phase, "untap_controller_id", None):
+            # RULE 603.7: Moraug's delayed trigger belongs to this specific combat.
+            from ..effects.attachments_transforms import TapEffect
+            self.state.stack.append(StackItem(
+                kind="ability", controller_id=phase.untap_controller_id,
+                effects=[TapEffect(selector="creatures_you_control", untap=True)],
+                description="Moraug: Kreaturen enttappen", category="triggered_ability",
+            ))
         self._fire_delayed_triggers(step.name)
         # RULE 611: "until the beginning of the next end step" — swept as
         # that step opens, alongside the delayed triggers due there, since
@@ -487,7 +500,9 @@ class TurnLoopMixin:
         for player in self.state.players:
             continuous.empty_mana_pool(self.state, player, kept_mana_expiring_at(step.name))
         self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
-    def insert_additional_combat_phase(self, main_phase_too: bool = False) -> None:
+    def insert_additional_combat_phase(self, main_phase_too: bool = False, *,
+                                       after_current_phase: bool = False,
+                                       untap_controller_id: Optional[str] = None) -> None:
         """RULE 500.4-adjacent "after this combat phase, there is an
         additional combat phase[, followed by an additional main phase]"
         (Combat Celebrant/Godo/Aurelia/Xenagos-shaped triggered abilities;
@@ -519,10 +534,17 @@ class TurnLoopMixin:
         if not steps:
             return
         insert_at = len(steps)
-        for i in range(max(0, self._cursor - 1), len(steps)):
-            if steps[i][1].name == "end_combat":
-                insert_at = i + 1
-                break
+        if after_current_phase:
+            # RULE 500.8: main-phase landfall inserts before the ordinary combat.
+            current = steps[max(0, self._cursor - 1)][0]
+            insert_at = self._cursor
+            while insert_at < len(steps) and steps[insert_at][0] is current:
+                insert_at += 1
+        else:
+            for i in range(max(0, self._cursor - 1), len(steps)):
+                if steps[i][1].name == "end_combat":
+                    insert_at = i + 1
+                    break
         new_combat = GamePhase(
             "combat",
             [
@@ -534,6 +556,7 @@ class TurnLoopMixin:
             ],
         )
         new_steps = [(new_combat, s) for s in new_combat.steps]
+        new_combat.untap_controller_id = untap_controller_id
         if main_phase_too:
             new_main = GamePhase("postcombat_main", [GameStep("main2", rule="505")])
             new_steps.append((new_main, new_main.steps[0]))

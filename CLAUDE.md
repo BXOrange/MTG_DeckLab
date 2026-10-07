@@ -508,6 +508,9 @@ GameSession (services/game_session.py) wraps an engine: snapshots/undo, wire vie
 API (api/game.py)  ── JSON ──▶  frontend (src/js/goldfishView.js)
 ```
 
+Inserted turn phases live in `GameState.turn_steps`, so snapshots retain extra
+combats and their phase-specific delayed triggers through undo.
+
 `RulesEngine`/`GameEngine` are each a **composition of per-responsibility
 mixins** (ENG-20/21, 2026-07-29) rather than one file holding every method —
 `game_engine.py`/`rules_engine.py` themselves shrank to `__init__` + (for

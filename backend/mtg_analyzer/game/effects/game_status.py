@@ -1567,6 +1567,25 @@ class ReduceSpellCostsThisTurnEffect(GameEffect):
 
 
 
+class GrantEntryCountersToTriggeringSpellEffect(GameEffect):
+    """RULE 603 / 614: a cast trigger grants counters for that spell's entry."""
+
+    def __init__(self, mana_value_minus: int = 0, kind: str = "+1/+1",
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.mana_value_minus = mana_value_minus
+        self.kind = kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event or {}
+        spell = context.state.find_object(event.get("instance_id"))
+        if (spell is None or spell.zone != Zone.STACK
+                or spell.zone_incarnation != event.get("zone_incarnation", spell.zone_incarnation)):
+            return
+        amount = max(0, event.get("mana_value", 0) - self.mana_value_minus)
+        spell.entry_bonus_counters[self.kind] = spell.entry_bonus_counters.get(self.kind, 0) + amount
+
+
 class GrantSunburstToTriggeringSpellEffect(GameEffect):
     """"Whenever you cast an artifact creature spell, it gains sunburst." (Lux Artillery, RULE 702.43a)
 

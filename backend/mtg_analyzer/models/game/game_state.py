@@ -859,7 +859,9 @@ class GameState:
         #: instead and `GameEngine.advance_step` drains it (via `insert_
         #: additional_combat_phase`) before running the next step. Plain
         #: board state — deep-copies with `clone`.
-        self.pending_extra_combats: list[bool] = []
+        self.pending_extra_combats: list[Any] = []
+        #: RULE 500.8: inserted phases and their delayed triggers survive undo.
+        self.turn_steps: list[Any] = []
 
         #: RULE 500-adjacent "end the turn" (Day's Undoing/Time Stop-shaped
         #: reminder text) — the same "an effect can't reach `GameEngine.

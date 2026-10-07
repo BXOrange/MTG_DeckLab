@@ -139,6 +139,7 @@ EffectRegistry.register(
         rest_destination=p.get("rest_destination", "library_bottom_random"),
         tapped=bool(p.get("tapped", False)),
         scope=p.get("scope"),
+        entry_choices=bool(p.get("entry_choices", False)),
     ),
 )
 EffectRegistry.register(
@@ -845,6 +846,8 @@ EffectRegistry.register(
         lose_all_abilities=bool(p.get("lose_all_abilities", False)),
         target_kind=p.get("target_kind"),
         trigger_event_key=p.get("trigger_event_key"),
+        face_down_kind=p.get("face_down_kind"),
+        turn_face_up=bool(p.get("turn_face_up", False)),
     ),
 )
 EffectRegistry.register(
@@ -2354,7 +2357,11 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "extra_combat_phase",
-    lambda p: ExtraCombatPhaseEffect(main_phase_too=bool(p.get("main_phase_too", False))),
+    lambda p: ExtraCombatPhaseEffect(
+        main_phase_too=bool(p.get("main_phase_too", False)),
+        after_current_phase=bool(p.get("after_current_phase", False)),
+        untap_at_beginning=bool(p.get("untap_at_beginning", False)),
+    ),
 )
 EffectRegistry.register(
     # MEC-51 (RULE 720): "You control target opponent during that player's
@@ -5282,8 +5289,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # "Whenever you cast an artifact creature spell, it gains sunburst." (Lux Artillery) — marks the
-    # spell that fired the trigger; see `GrantSunburstToTriggeringSpellEffect`.
+    # Runadi grants entry counters to the particular spell that fired its trigger.
+    "grant_entry_counters_to_triggering_spell",
+    lambda p: GrantEntryCountersToTriggeringSpellEffect(
+        mana_value_minus=int(p.get("mana_value_minus", 0)), kind=str(p.get("kind", "+1/+1")),
+    ),
+)
+EffectRegistry.register(
     "grant_sunburst_to_triggering_spell",
     lambda p: GrantSunburstToTriggeringSpellEffect(),
 )

@@ -3514,12 +3514,23 @@ class ExtraCombatPhaseEffect(GameEffect):
     running the next step.
     """
 
-    def __init__(self, main_phase_too: bool = False, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, main_phase_too: bool = False, source: Optional["GameObject"] = None,
+                 after_current_phase: bool = False, untap_at_beginning: bool = False) -> None:
         super().__init__(source)
         self.main_phase_too = main_phase_too
+        self.after_current_phase = after_current_phase
+        self.untap_at_beginning = untap_at_beginning
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        context.state.pending_extra_combats.append(self.main_phase_too)
+        if self.after_current_phase or self.untap_at_beginning:
+            controller = _controller_of(self.source, context)
+            context.state.pending_extra_combats.append({
+                "main_phase_too": self.main_phase_too,
+                "after_current_phase": self.after_current_phase,
+                "untap_controller_id": controller.id if controller and self.untap_at_beginning else None,
+            })
+        else:
+            context.state.pending_extra_combats.append(self.main_phase_too)
 
 
 class GrantProtectionEffect(GameEffect):
@@ -3691,4 +3702,3 @@ class ExileSelectedThenReturnOneEffect(GameEffect):
 
 
 register(globals())
-

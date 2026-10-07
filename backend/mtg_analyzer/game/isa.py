@@ -626,6 +626,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_self_adventure_cast_from_graveyard": "create_continuous_effect",  # Hildibrand Manderville
     "play_cards_exiled_with_source": "create_continuous_effect",  # Urianger Augurelt
     "grant_sunburst_to_triggering_spell": "create_continuous_effect",
+    "grant_entry_counters_to_triggering_spell": "create_continuous_effect",
     "grant_keyword_to_trigger_subject": "create_continuous_effect",
     "grant_keywords_to_chosen_type_until_eot": "create_continuous_effect",
     "grant_life_for_mana_pip": "create_continuous_effect",

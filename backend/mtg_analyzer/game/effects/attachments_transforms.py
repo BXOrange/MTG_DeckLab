@@ -272,7 +272,8 @@ class TapEffect(GameEffect):
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
-            controller_id = getattr(context, "acting_player_id", None) or getattr(
+            controller_id = (getattr(context, "acting_player_id", None)
+                             or context.resolving_controller_id) or getattr(
                 self.source, "controller_id", None)
             if self.selector_player is not None:
                 if self.selector_player == "defending":

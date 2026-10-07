@@ -3083,6 +3083,7 @@ class SearchMixin:
         hit_destination: str = "battlefield",
         rest_destination: str = "library_bottom_random",
         tapped: bool = False,
+        entry_choices: bool = False,
     ) -> list[GameObject]:
         """Reveal from the top of ``player``'s library until ``count`` cards
         matching ``criteria`` (a `models.cards.card_query` dict) are revealed
@@ -3098,8 +3099,11 @@ class SearchMixin:
             return []
         hits: list[GameObject] = []
         revealed: list[GameObject] = []
-        while player.library and len(hits) < count:
-            obj = player.library.pop()
+        for obj in list(reversed(player.library)):
+            if len(hits) >= count:
+                break
+            if not entry_choices:
+                player.library.remove(obj)
             revealed.append(obj)
             self.state.fire_event(
                 GameEvent(EventType.REVEAL, player_id=player.id, object=obj.name,
@@ -3108,7 +3112,7 @@ class SearchMixin:
             if card_query.matches(obj.card, criteria):
                 hits.append(obj)
 
-        for obj in hits:
+        for obj in ([] if entry_choices else hits):
             if hit_destination == "battlefield":
                 self._put_searched_card(player, obj, "battlefield")
                 if tapped:
@@ -3123,6 +3127,9 @@ class SearchMixin:
                 player.graveyard.append(obj)
 
         rest = [o for o in revealed if o not in hits]
+        if entry_choices:
+            for obj in rest:
+                player.library.remove(obj)
         if rest and rest_destination == "library_bottom_random":
             import random
             random.shuffle(rest)
@@ -3138,6 +3145,11 @@ class SearchMixin:
             for o in rest:
                 o.zone = Zone.GRAVEYARD
                 player.graveyard.append(o)
+        if entry_choices and hits:
+            # RULE 614.12: copied characteristics and entry choices precede
+            # the entry event. Keep identities in the library during prompts.
+            from ..effects.battlefield_batches import start_battlefield_batch
+            start_battlefield_batch(self, hits, player.id, tapped=tapped)
         return hits
 
     def _handle_rest_inspected(

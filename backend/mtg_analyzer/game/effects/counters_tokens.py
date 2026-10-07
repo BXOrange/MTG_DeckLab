@@ -1055,6 +1055,7 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         under_your_control: bool = False, extra_counters: Optional[dict[str, Any]] = None,
         target_kind: Optional[str] = None, trigger_event_key: Optional[str] = None,
         lose_all_abilities: bool = False,
+        face_down_kind: Optional[str] = None, turn_face_up: bool = False,
     ) -> None:
         super().__init__(source)
         self.tapped = tapped
@@ -1067,6 +1068,8 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         #: ``extra_counters`` uses, put on the object right after it lands.
         self.extra_counters = dict(extra_counters) if extra_counters else None
         self.lose_all_abilities = bool(lose_all_abilities)
+        self.face_down_kind = face_down_kind
+        self.turn_face_up = turn_face_up
         self._trigger_subject_mode = target_kind == "trigger_subject"
         #: ``target_kind="previous_target"`` ("Exile target creature or planeswalker. If its mana value was 3 or less,
         #: return **it** to the battlefield …" — Vindictive Triumph): the pick an earlier clause made.
@@ -1084,6 +1087,14 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
             obj = context.state.find_object(iid) if iid is not None else None
         if obj is None:
             return
+        if self.face_down_kind is not None:
+            # RULE 400.7 / 708.3: Yarus returns the particular permanent card
+            # that died, entering without its face-up abilities.
+            event = context.trigger_event or {}
+            if (obj.zone != Zone.GRAVEYARD or obj.is_token
+                    or obj.card.is_instant or obj.card.is_sorcery
+                    or event.get("graveyard_incarnation", obj.zone_incarnation) != obj.zone_incarnation):
+                return
         controller_id = None
         if self.under_your_control:
             player = _controller_of(self.source, context)
@@ -1091,7 +1102,10 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         context.return_from_graveyard(
             obj, "battlefield_tapped" if self.tapped else "battlefield",
             controller_id=controller_id,
+            face_down_kind=self.face_down_kind,
         )
+        if self.turn_face_up and obj.zone == Zone.BATTLEFIELD:
+            context.engine.turn_face_up(obj)
         if self.extra_counters:
             kind = str(self.extra_counters.get("kind", "+1/+1"))
             count = int(self.extra_counters.get("count", 1) or 1)

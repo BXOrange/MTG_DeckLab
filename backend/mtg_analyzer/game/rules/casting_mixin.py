@@ -1011,6 +1011,7 @@ class CastingResolutionMixin:
             GameEvent(
                 EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
+                zone_incarnation=obj.zone_incarnation,
                 mana_spent=obj.mana_spent_to_cast,
                 colors_spent=sorted(obj.colors_spent_to_cast),
                 creature_mana_spent=getattr(obj, "mana_spent_to_cast_creature", 0) or 0,

@@ -16,23 +16,20 @@ def _runadi_behemoth_caller() -> list[AbilitySpec]:
     Creatures you control with three or more +1/+1 counters on them have haste.
     {T}: Add {G}.
 
-    — PLAY-ALL Step 2 (Hydranten). The mana ability is read off the text. The
-    cast clause is the `extra_etb_counter` static (Master Chef / Gorma's out-of-
-    band entry-counter grant) with three new params: ``cast_only`` (`GameObject.
-    was_cast` — a reanimated creature does not qualify), ``min_mana_value`` and
-    ``count_mana_value_minus`` (amount = mana value minus 4). **Simplification:** it
-    is a standing replacement-style grant, not a trigger on the stack, so it can't be
-    responded to separately. The haste clause is `grant_keyword` over
-    ``creatures_you_control`` with ``object_filter {has_counter_kind: +1/+1,
-    counter_min: 3}`` (`combat.matches_object_filter`'s new threshold key).
+    — PLAY-ALL (Hydranten). The cast trigger is respondable and grants entry
+    counters to the triggering spell's stack incarnation. Its amount uses
+    the announced mana value, including X; the grant survives Runadi leaving
+    the battlefield. The haste static checks three or more +1/+1 counters.
     """
     return [
         AbilitySpec(
-            "static",
-            [EffectSpec("extra_etb_counter", {
-                "kind": "+1/+1", "cast_only": True,
-                "min_mana_value": _MIN_CAST_MANA_VALUE, "count_mana_value_minus": _MANA_VALUE_OFFSET,
+            "triggered",
+            [EffectSpec("grant_entry_counters_to_triggering_spell", {
+                "kind": "+1/+1", "mana_value_minus": _MANA_VALUE_OFFSET,
             })],
+            trigger={"event": "SPELL_CAST", "condition": {"subject": "you"},
+                     "spell_filter": {"card_type": "creature"},
+                     "spell_mana_value_at_least": _MIN_CAST_MANA_VALUE},
         ),
         AbilitySpec(
             "static",

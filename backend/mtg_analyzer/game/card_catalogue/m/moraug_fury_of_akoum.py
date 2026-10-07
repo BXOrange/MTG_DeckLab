@@ -14,16 +14,10 @@ def _moraug_fury_of_akoum() -> list[AbilitySpec]:
     there's an additional combat phase after this phase. At the beginning of that
     combat, untap all creatures you control.
 
-    — PLAY-ALL Step 2 (World Shaper). The pump is the per-count `anthem` shape
-    (``power: 1`` per unit) with the new per-object selector
-    ``times_attacked_this_turn_self`` (`GameObject.times_attacked_this_turn`,
-    bumped once per attack declaration, reset in the untap step; an extra combat
-    makes it 2+). Landfall is the parser's group head over `extra_combat_phase`
-    (Combat Celebrant's) and an untap of your creatures, each gated on the new
-    ``your_main_phase`` condition ("if it's your main phase" — checked as the
-    trigger resolves). **Simplification:** the untap happens as the trigger
-    resolves rather than at the beginning of the additional combat — the same
-    outcome unless something taps a creature in between.
+    — PLAY-ALL (World Shaper). The per-creature anthem reads the number of
+    attack declarations this turn. Main-phase landfall schedules a combat
+    immediately after that main phase (RULE 500.8), with its own respondable
+    untap trigger at the beginning of that specific combat (RULE 603.7).
     """
     return [
         AbilitySpec(
@@ -36,11 +30,13 @@ def _moraug_fury_of_akoum() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [
-                EffectSpec("extra_combat_phase", {}, condition=dict(_MAIN_PHASE)),
-                EffectSpec("tap", {"selector": "creatures_you_control", "untap": True}, condition=dict(_MAIN_PHASE)),
+                EffectSpec("extra_combat_phase", {
+                    "after_current_phase": True, "untap_at_beginning": True,
+                }, condition=dict(_MAIN_PHASE)),
             ],
             trigger={
                 "event": EventType.ENTERS_BATTLEFIELD,
+                "active_if": dict(_MAIN_PHASE),
                 "condition": {"subject": "group", "controller": "you", "other": False, "type": "land"},
             },
         ),

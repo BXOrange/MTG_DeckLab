@@ -1262,6 +1262,7 @@ class RevealUntilMatchingEffect(GameEffect):
         tapped: bool = False,
         scope: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        entry_choices: bool = False,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
@@ -1272,6 +1273,7 @@ class RevealUntilMatchingEffect(GameEffect):
         #: ``"each_opponent"`` — "each opponent reveals cards from the top of their library until …" (Consuming
         #: Aberration): every opponent reveals from their *own* library. ``None`` is the controller's.
         self.scope = scope
+        self.entry_choices = entry_choices
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1286,6 +1288,7 @@ class RevealUntilMatchingEffect(GameEffect):
                 revealer, self.criteria, count=count,
                 hit_destination=self.hit_destination,
                 rest_destination=self.rest_destination, tapped=self.tapped,
+                entry_choices=self.entry_choices,
             )
 
 

@@ -12,13 +12,11 @@ def _esika_god_of_the_tree() -> list[AbilitySpec]:
     Other legendary creatures you control have vigilance and "{T}: Add one
     mana of any color."
 
-    — PLAY-ALL Step 2 (SpongeBob). Vigilance and Esika's own {T}: Add one mana
-    of any color are read off the card's text. The grant is two statics on
-    ``other_creatures_you_control`` filtered to legendary ones: a
-    `grant_keyword` for vigilance and the parser's `grant_mana_ability` (the
-    five-color option list) for the quoted mana ability. This registers the
-    front face only — the cache holds just that face of the double-faced card
-    (the back, The Prismatic Bridge, is not in it, so it is not authored here).
+    — PLAY-ALL (SpongeBob). Esika grants vigilance and a five-color mana
+    ability to other legendary creatures. The modal back face has a separate
+    catalogue entry: The Prismatic Bridge reveals until a creature or
+    planeswalker, resolving entry replacements before it enters and randomly
+    bottoming the other revealed cards without an exile zone change.
     """
     legendary = {"legendary": True}
     return [
@@ -40,3 +38,17 @@ def _esika_god_of_the_tree() -> list[AbilitySpec]:
 
 
 register("Esika, God of the Tree", _esika_god_of_the_tree)
+
+
+def _prismatic_bridge() -> list[AbilitySpec]:
+    """Reveal until a creature or planeswalker enters at your upkeep."""
+    return [AbilitySpec(
+        "triggered",
+        [EffectSpec("reveal_until", {
+            "criteria": {"type": ["creature", "planeswalker"]}, "entry_choices": True,
+        })],
+        trigger={"event": "STEP_BEGIN", "filter": {"step": "upkeep"}, "phase_relation": "you"},
+    )]
+
+
+register("The Prismatic Bridge", _prismatic_bridge)

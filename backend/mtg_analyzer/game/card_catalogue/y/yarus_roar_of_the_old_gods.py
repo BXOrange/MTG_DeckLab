@@ -13,15 +13,10 @@ def _yarus_roar_of_the_old_gods() -> list[AbilitySpec]:
     battlefield face down under its owner's control if it's a permanent card,
     then turn it face up.
 
-    — PLAY-ALL Step 2 (Raggadragga). The haste lord and the draw trigger are the
-    parser's own claims, reproduced. The dies trigger uses the parser's head for
-    "whenever a face-down creature you control dies" (group ``controller: you``,
-    ``filter {face_down, creature}``, read off the look-back snapshot) with
-    `return_self_to_battlefield` on the dying object. **Documented simplification:**
-    the creature returns *face up* directly, rather than face down and then turned
-    face up — so its own enters-the-battlefield abilities fire here, where the
-    printed sequence (a face-down permanent has no abilities when it enters, and
-    "turned face up" is not "enters") would not trigger them.
+    — PLAY-ALL (Raggadragga). The return tracks the dying card's graveyard
+    incarnation and checks that it is a permanent card. It enters face down
+    under its owner's control, then turns face up: face-up ETB abilities do
+    not trigger, but turn-face-up abilities do (RULE 708.3 / 708.8).
     """
     return [
         AbilitySpec(
@@ -44,6 +39,7 @@ def _yarus_roar_of_the_old_gods() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("return_self_to_battlefield", {
                 "tapped": False, "target_kind": "trigger_subject", "trigger_event_key": "__group_subject__",
+                "face_down_kind": "manifest", "turn_face_up": True,
             })],
             trigger={
                 "event": EventType.DIES,
