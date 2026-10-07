@@ -131,7 +131,9 @@ class EndCombatPhaseEffect(GameEffect):
         state = context.state
         context.engine.pending_triggers.clear()
         while state.stack:
-            item = state.stack.pop()
+            item = state.stack[-1]
+            context.engine._capture_stack_copy_departure(item)
+            state.stack.pop()
             if item.obj is not None:
                 context.exile(item.obj)
         if self.source is not None and self.source.zone == Zone.STACK:

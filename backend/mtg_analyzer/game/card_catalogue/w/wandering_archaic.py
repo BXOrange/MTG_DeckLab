@@ -17,18 +17,10 @@ def _wandering_archaic() -> list[AbilitySpec]:
     "**If they don't**, …" branch is where all the action is — the
     else-branch is what copies the spell.
 
-    "That spell" is the RULE 603.3d ``reflexive`` trigger shape, so the copy
-    acts on the exact spell that fired the trigger rather than a freshly
-    chosen target — the same mechanism Lavinia's "counter that spell" uses.
-    An opponent who can't afford {2} is never asked (the shortcut ward and
-    `counter_unless_pays` already take), and the else-branch fires straight
-    away.
-
-    **Documented simplification**: "you *may* copy" is taken (the copy is
-    the only reason the trigger exists), and new targets aren't chosen — the
-    same `CopySpellEffect` MVP the whole copy family shares. The back face
-    "Explore the Vastlands" is a modal-DFC land half, covered by the shipped
-    MDFC machinery independently of this registration.
+    The spell is an untargeted firing-event referent. Its copiable recipe
+    survives countering or returning the original, the opponent's tax choice,
+    and the controller's optional copy decision. Targets are chosen before
+    the copy enters the stack. The MDFC land half uses the shared machinery.
     """
     return [
         AbilitySpec(
@@ -38,14 +30,18 @@ def _wandering_archaic() -> list[AbilitySpec]:
                 "payer": "event_player",
                 "effects": [],
                 "else_effects": [
-                    {"type": "copy_spell", "params": {"card_types": ["instant", "sorcery"]}},
+                    {"type": "optional", "params": {
+                        "prompt": "Den Zauber mit Wandering Archaic kopieren?",
+                        "effects": [{"type": "copy_spell", "params": {
+                            "spell_from_trigger_event": "instance_id", "choose_new_targets": True,
+                        }}],
+                    }},
                 ],
             })],
             trigger={
                 "event": EventType.SPELL_CAST,
                 "condition": {"subject": "group", "controller": "not_you"},
                 "spell_card_types": ["instant", "sorcery"],
-                "reflexive": True,
             },
         ),
     ]

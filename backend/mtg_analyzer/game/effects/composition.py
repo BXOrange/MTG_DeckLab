@@ -479,6 +479,7 @@ class OptionalEffect(_CompositeEffect):
         context.engine.open_choice({
             "referent_subject_id": referent_subject_id,
             "kind": self.CHOICE_KIND,
+            "copiable_stack_id": (context.trigger_event or {}).get("copiable_stack_id"),
             "player_id": chooser.id,
             "prompt": prompt,
             "options": [
@@ -519,7 +520,8 @@ class OptionalEffect(_CompositeEffect):
             ),
             # RULE 109.5: a body run *as* another player ("that attacking player may create a
             # token") has to still be that player's once the question is answered.
-            "acting_player_id": getattr(context, "acting_player_id", None),
+            "acting_player_id": (getattr(context, "acting_player_id", None)
+                                 or getattr(context, "resolving_controller_id", None)),
         })
 
 

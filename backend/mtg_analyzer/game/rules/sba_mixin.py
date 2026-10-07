@@ -705,6 +705,9 @@ class StateBasedActionsMixin:
                 self.state.initiative_id = None
         for obj in [o for o in self.state.battlefield if o.owner_id == player.id]:
             self.state.remove_from_battlefield(obj)
+        for item in self.state.stack:
+            if getattr(item.source, "owner_id", None) == player.id:
+                self._capture_stack_copy_departure(item)
         self.state.stack = [
             item for item in self.state.stack if getattr(item.source, "owner_id", None) != player.id
         ]

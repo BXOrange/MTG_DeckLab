@@ -1125,6 +1125,18 @@ class CastingMixin:
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             pay_additional=pay_additional,
         )
+    def _resolve_graveyard_cast_exile(self, player, spell, count, chosen_ids):
+        """RULE 601.2h: distinct other graveyard cards paying a cast permission."""
+        pool = [obj for obj in player.graveyard if obj is not spell]
+        if chosen_ids is None:
+            return pool[:count] if len(pool) >= count else None
+        if len(chosen_ids) != count or len(set(chosen_ids)) != count:
+            return None
+        by_id = {obj.instance_id: obj for obj in pool}
+        if any(instance_id not in by_id for instance_id in chosen_ids):
+            return None
+        return [by_id[instance_id] for instance_id in chosen_ids]
+
     def _standing_graveyard_grant(self, player, obj):
         from ..graveyard_cast import has_temporary_graveyard_play_permission
 
@@ -1625,6 +1637,7 @@ class CastingMixin:
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         graveyard_sacrifice_choice: Optional[int] = None,
+        graveyard_exile_choices: Optional[list[int]] = None,
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
         pay_additional: bool = False,
@@ -1758,7 +1771,7 @@ class CastingMixin:
                     player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                    sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
+                    sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
                     pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
                 )
             except Exception:
@@ -1782,7 +1795,7 @@ class CastingMixin:
                 player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                 target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                 mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
+                sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
                 pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
         finally:
@@ -2111,6 +2124,7 @@ class CastingMixin:
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         graveyard_sacrifice_choice: Optional[int] = None,
+        graveyard_exile_choices: Optional[list[int]] = None,
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
         bestow: bool = False,
@@ -2139,6 +2153,15 @@ class CastingMixin:
             if not entwine or self._entwine_cost(obj) is None:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
+            exile_grant = self._standing_graveyard_grant(player, obj)
+            exile_count = exile_grant.exile_graveyard_cards if exile_grant is not None else 0
+            if graveyard_exile_choices is not None and not exile_count:
+                raise ValueError("No graveyard exile cost applies to this cast")
+            graveyard_exile_victims = self._resolve_graveyard_cast_exile(
+                player, obj, exile_count, graveyard_exile_choices,
+            )
+            if graveyard_exile_victims is None:
+                raise ValueError("Choose distinct other cards from your graveyard to pay the exile cost")
             # RULE 601.2c/601.2b ordering: X is announced *before* targets
             # are chosen, so a target requirement whose own bound reads {X}
             # ("target permanent with mana value X or less" — March of
@@ -2229,10 +2252,7 @@ class CastingMixin:
             graveyard_victim = None
             # Kotis-shaped: the other graveyard cards exiled as this permission's additional cost (RULE 601.2h),
             # taken before the spell itself leaves the graveyard.
-            graveyard_exile_victims = (
-                [o for o in player.graveyard if o is not obj][:graveyard_grant.exile_graveyard_cards]
-                if graveyard_grant is not None and graveyard_grant.exile_graveyard_cards else []
-            )
+
             if graveyard_payment is not None:
                 printed_victim, graveyard_victim = graveyard_payment
                 if printed_victim is not None:

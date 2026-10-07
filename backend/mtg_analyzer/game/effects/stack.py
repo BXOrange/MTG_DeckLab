@@ -284,8 +284,13 @@ class CopySpellEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.spell_from_trigger_event is not None:
             event = context.trigger_event or {}
-            instance_id = event.get(self.spell_from_trigger_event)
-            target = context.state.find_object(instance_id) if instance_id is not None else None
+            from ..copy_event_state import original_or_recipe
+
+            recipe_id = event.get("copiable_stack_id")
+            target = original_or_recipe(context.engine, recipe_id) if recipe_id is not None else None
+            if target is None:
+                instance_id = event.get(self.spell_from_trigger_event)
+                target = context.state.find_object(instance_id) if instance_id is not None else None
             if target is None:
                 return
             controller_id = (
@@ -297,7 +302,11 @@ class CopySpellEffect(GameEffect):
                 return
             n = self._copies(context, controller_id)
             if n > 0:
-                context.copy_spell(target, controller_id, n, choose_new_targets=self.choose_new_targets)
+                if recipe_id is not None:
+                    context.engine.copy_spell(target, controller_id, n, choose_new_targets=self.choose_new_targets,
+                                              from_recipe=True)
+                else:
+                    context.copy_spell(target, controller_id, n, choose_new_targets=self.choose_new_targets)
             return
         if not targets:
             return
@@ -362,8 +371,12 @@ class DemonstrateCopyEffect(GameEffect):
                                                if ward.controller_id in living)
                     item.deferred_ward_triggers = []
             return
-        spell = (context.engine._stack_item_for(self.source) if self.stage == "controller"
-                 else next((i for i in context.state.stack if i.stack_id == self.spell_stack_id), None))
+        from ..copy_event_state import original_or_recipe
+
+        recipe_id = ((context.trigger_event or {}).get("copiable_stack_id")
+                     if self.stage == "controller" else self.spell_stack_id)
+        spell = (original_or_recipe(context.engine, recipe_id) if recipe_id is not None
+                 else context.engine._stack_item_for(self.source))
         if spell is None:
             DemonstrateCopyEffect(stage="wards", copy_ids=self.copy_ids).apply(context)
             return
@@ -386,7 +399,8 @@ class DemonstrateCopyEffect(GameEffect):
                 self._continue(context, "wards", spell, controller_id, self.copy_ids)
             return
         copier = controller_id if self.stage == "controller" else self.opponent_id
-        copies = context.copy_spell(spell, copier, 1, choose_new_targets=True, defer_choice=True)
+        copies = context.engine.copy_spell(spell, copier, 1, choose_new_targets=True,
+                                            defer_choice=True, from_recipe=True)
         if not copies:
             if self.stage != "controller":
                 self._continue(context, "wards", spell, controller_id, self.copy_ids)
@@ -473,13 +487,16 @@ class CopyAbilityEffect(GameEffect):
                     if self.ability_from_trigger_event else getattr(self.source, "remembered_stack_id", None))
         if stack_id is None:
             return
-        item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
+        from ..copy_event_state import original_or_recipe
+
+        item = original_or_recipe(context.engine, stack_id)
         if item is None:
             return
         controller_id = getattr(_controller_of(self.source, context), "id", None)
         if controller_id is None:
             return
-        context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets)
+        context.engine.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets,
+                                    from_recipe=True)
 
 
 class CopySelfSpellEffect(GameEffect):

@@ -795,6 +795,10 @@ export function createGameBoardView(opts = {}) {
       const action = actions.find((a) => a.type === 'play_land'
         || ((a.type === 'cast_spell' || a.type === 'activate_ability') && !a.requires_target));
       if (!action) return;
+      if (action.graveyard_exile_cost) {
+        prepareCastTargeting(action);
+        return;
+      }
       act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, x: readX(action.instance_id, action.face, action.blitz) });
       return;
     }
@@ -1133,7 +1137,7 @@ export function createGameBoardView(opts = {}) {
       );
       if (action) {
         const expanded = expandMultiTargetRequirements(action.targets || []);
-        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice
+        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice
           ? Array.isArray(ct.requirements)
           : expanded.requirements.length === (ct.requirements || []).length;
         if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
@@ -2817,43 +2821,45 @@ export function createGameBoardView(opts = {}) {
 
   function finishCastIfReady() {
     if (!castTargeting) return;
-    if (castTargeting.reqIndex >= castTargeting.requirements.length) {
-      const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice } = castTargeting;
-      castTargeting = null;
-      if (isTapChoice) {
-        // A "tap N untapped <type>s you control" cost choice (RULE 602.1),
-        // not a RULE 115 target — send the picked instance ids as
-        // `tap_choices` instead of `targets`.
-        act({ ...send, tap_choices: targets.map((t) => t.instance_id) });
-      } else if (isSacrificeChoice) {
-        // RULE 602.1: the first cost pick and, for a paired sacrifice,
-        // the second distinct pick are separate from ability targets.
-        act({ ...send, sacrifice_choice: targets[0].instance_id,
-          ...(targets[1] ? { sacrifice_also_choice: targets[1].instance_id } : {}),
-        });
-      } else if (isDiscardChoice) {
-        // A "discard N cards" additional cast cost choice (RULE 601.2b /
-        // 602.1) — the picked hand cards, sent as `discard_choices` instead
-        // of `targets`.
-        act({ ...send, discard_choices: targets.map((t) => t.instance_id) });
-      } else if ((groups || []).length > 1) {
-        // 2+ requirements: send the per-requirement partition too (RULE
-        // 115.1), so each targeting effect resolves against its own pick
-        // rather than every effect reading the first one. The flat list
-        // still goes along — ward, the stack display and every other
-        // consumer read that (`RulesEngine.cast_spell`).
-        act({ ...send, targets, target_groups: groups, x });
-      } else {
-        act({ ...send, targets, x });
-      }
-      // Submitted (or about to be, via `act`) — the backend drops any saved
-      // draft as a side effect of the real action succeeding, but clear it
-      // here too so a failed submission doesn't leave a stale one behind.
-      persistCastTargetingDraft();
-    } else {
+    if (castTargeting.reqIndex < castTargeting.requirements.length) {
       persistCastTargetingDraft();
       render();
+      return;
     }
+    const ct = castTargeting;
+    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice } = ct;
+    let payload;
+    if (isGraveyardExileChoice) {
+      payload = { ...send, graveyard_exile_choices: targets.map((t) => t.instance_id) };
+    } else if (isTapChoice) {
+      payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
+    } else if (isSacrificeChoice) {
+      payload = { ...send, sacrifice_choice: targets[0].instance_id,
+        ...(targets[1] ? { sacrifice_also_choice: targets[1].instance_id } : {}),
+      };
+    } else if (isDiscardChoice) {
+      payload = { ...send, discard_choices: targets.map((t) => t.instance_id) };
+    } else {
+      payload = { ...send, targets, x, ...((groups || []).length > 1 ? { target_groups: groups } : {}) };
+    }
+    const action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
+      send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
+      send.gift_opponent_id, send.surge, send.blitz);
+    if (!isGraveyardExileChoice && action?.graveyard_exile_cost) {
+      const { count, options } = action.graveyard_exile_cost;
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: Array.from({ length: count }, () => ({
+          label: t('bd.exile.graveyardCostCard'), options, optional: false,
+        })),
+        reqIndex: 0, targets: [], excludePicked: true, isGraveyardExileChoice: true,
+      };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    castTargeting = null;
+    act(payload);
+    persistCastTargetingDraft();
   }
 
   // --- Rendering helpers ------------------------------------------------
@@ -3666,7 +3672,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
         );
-      } else if (a.type === 'cast_spell' && a.requires_target) {
+      } else if (a.type === 'cast_spell' && (a.requires_target || a.graveyard_exile_cost)) {
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'cast_spell' && a.discard_cost) {
         // "As an additional cost to cast this spell, discard N cards" (RULE
@@ -3931,8 +3937,8 @@ export function createGameBoardView(opts = {}) {
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice;
-    const modalGlyph = isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : (castTargeting.isSacrificeChoice ? '💀' : '🎯'));
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice;
+    const modalGlyph = castTargeting.isGraveyardExileChoice ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : (castTargeting.isSacrificeChoice ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,

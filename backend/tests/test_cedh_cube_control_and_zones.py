@@ -440,6 +440,8 @@ def test_declining_wandering_archaics_tax_lets_you_copy_the_spell():
     engine.rules.put_triggers_on_stack()
     engine.rules.resolve_top_of_stack()
     engine.rules.resolve_choice("decline")
+    assert state.pending_choice["kind"] == "composite_optional"
+    engine.rules.resolve_choice("yes")
 
     copies = [i for i in state.stack if i.obj is not None and getattr(i.obj, "is_copy", False)]
     assert len(copies) == 1

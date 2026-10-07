@@ -1672,7 +1672,9 @@ class CastingResolutionMixin:
         """Resolve the topmost stack object (RULE 608). Returns it, or None."""
         if not self.state.stack:
             return None
-        item = self.state.stack.pop()  # LIFO
+        item = self.state.stack[-1]
+        self._capture_stack_copy_departure(item)
+        self.state.stack.pop()  # LIFO
         # RULE 603.1: expose the firing event for exactly this resolution, so
         # an effect that genuinely depends on *this* firing can read it
         # (`GameContext.trigger_event`). Restored rather than cleared,
@@ -1854,6 +1856,9 @@ class CastingResolutionMixin:
         referent_subject_id = choice.get("referent_subject_id")
         if referent_subject_id is not None:
             self.context.trigger_event = {"instance_id": referent_subject_id}
+        if choice.get("copiable_stack_id") is not None:
+            self.context.trigger_event = {**(self.context.trigger_event or {}),
+                                         "copiable_stack_id": choice["copiable_stack_id"]}
         outer_acting = self.context.acting_player_id
         self.context.acting_player_id = choice.get("acting_player_id")
         try:

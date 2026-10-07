@@ -588,6 +588,8 @@ class MiscSystemsMixin:
         captured = pending.get("captured_previous")
         outer_acting = self.context.acting_player_id
         self.context.acting_player_id = pending.get("acting_player_id")
+        outer_event = self.context.trigger_event
+        self.context.trigger_event = pending.get("then_trigger_event") or outer_event
         outer_revealed = self.context.revealed_card
         self.context.revealed_card = pending.get("revealed_card")
         try:
@@ -602,6 +604,7 @@ class MiscSystemsMixin:
                 self.context.previous_targets = saved
         finally:
             self.context.acting_player_id = outer_acting
+            self.context.trigger_event = outer_event
             self.context.revealed_card = outer_revealed
 
     def _finish_paid_cost_then(self, pending: dict[str, Any]) -> None:
@@ -5073,6 +5076,7 @@ class MiscSystemsMixin:
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
             return False
+        self._capture_stack_copy_departure(item)
         self.state.stack.remove(item)
         obj = item.obj
         owner = self.state.player_by_id(obj.owner_id)
@@ -5166,6 +5170,7 @@ class MiscSystemsMixin:
         item = self._stack_item_for(target)
         if item is None:
             return
+        self._capture_stack_copy_departure(item)
         self.state.stack.remove(item)
         if item.obj is not None:
             item.obj.blitz_cost_paid = False  # RULE 400.7: the countered spell is a new object.
@@ -5208,6 +5213,7 @@ class MiscSystemsMixin:
         if item is None:
             self.return_to_hand(target)
             return
+        self._capture_stack_copy_departure(item)
         self.state.stack.remove(item)
         if item.obj is not None:
             owner = self.state.player_by_id(item.obj.owner_id)
@@ -5250,6 +5256,7 @@ class MiscSystemsMixin:
         onto `GameState` instead of reaching the engine directly.
         """
         for item in list(self.state.stack):
+            self._capture_stack_copy_departure(item)
             self.state.stack.remove(item)
             if item.obj is not None:
                 owner = self.state.player_by_id(item.obj.owner_id)

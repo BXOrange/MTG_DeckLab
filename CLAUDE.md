@@ -179,7 +179,9 @@ Spell-copy prohibitions are static markers checked before creation; the spell/ab
 union dispatches to the corresponding primitive. Demonstrate chooses its opponent
 between its two copy instructions, retaining Ward trigger snapshots through the
 sequence. Activation events expose a printed mana {X} for Unbound Flourishing.
-Event-copy snapshots after the original leaves the stack remain in WorkingOn.
+Untargeted event copies retain state-owned stack recipes when the original leaves,
+refreshing their last-known values at departure. Public choices carry recipe IDs;
+payment/optional continuations and rewind retain the same original identity.
 See the delivered MEC-112 behavior in `Done_Backend.md`.
 
 **Suspended choices** preserve graveyard incarnations for remembered returns,

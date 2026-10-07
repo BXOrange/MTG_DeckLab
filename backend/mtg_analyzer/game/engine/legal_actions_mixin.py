@@ -478,6 +478,13 @@ class LegalActionsMixin:
             # RULE 702.34/702.138: a graveyard cast is by definition via
             # Flashback/Escape's own alternative cost, not the printed one — tag
             # it so the UI can label the offer distinctly from a normal cast.
+            graveyard_grant = self._standing_graveyard_grant(player, obj)
+            if graveyard_grant is not None and graveyard_grant.exile_graveyard_cards:
+                action["graveyard_exile_cost"] = {
+                    "count": graveyard_grant.exile_graveyard_cards,
+                    "options": [{"instance_id": card.instance_id, "name": card.name}
+                                for card in player.graveyard if card is not obj],
+                }
             graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             if graveyard_keyword is not None:
                 action["cast_from_graveyard"] = graveyard_keyword

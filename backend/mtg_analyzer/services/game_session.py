@@ -1180,6 +1180,8 @@ class GameSession:
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
             sacrifice_choice=sacrifice_choice,
             graveyard_sacrifice_choice=self._resolve_sacrifice_choice(action.get("graveyard_sacrifice_choice")),
+            graveyard_exile_choices=(None if action.get("graveyard_exile_choices") is None
+                                    else [int(i) for i in action["graveyard_exile_choices"]]),
             discard_choices=discard_choices,
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),

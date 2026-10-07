@@ -744,6 +744,7 @@ export default {
   'bd.choice.asideTitle': "Board darunter ansehen, ohne zu entscheiden",
   'bd.choice.chooseNothing': "Nichts wählen",
   'bd.msg.actionNotAllowedShort': "Aktion nicht erlaubt: {detail}",
+  'bd.exile.graveyardCostCard': "zu verbannende Friedhofskarte",
   'bd.discard.card': "abzuwerfende Karte",
   'bd.stack.topResolves': "oben – löst zuerst auf",
   'bd.stack.heading': "Stack ({count})",

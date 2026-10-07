@@ -24,8 +24,8 @@ def _unbound_flourishing() -> list[AbilitySpec]:
     Spell and activation events carry whether their mana portions contain {X},
     independently of X's announced value. The permanent trigger is restricted
     to permanent spells; copied abilities retain their source and chosen X.
-    Remaining requirement: retain a copiable firing snapshot when the original
-    spell/ability leaves the stack before this trigger resolves."""
+    State-owned copiable recipes retain the original's last-known stack
+    values when it leaves before the copy trigger resolves."""
     return [
         AbilitySpec(
             "triggered",

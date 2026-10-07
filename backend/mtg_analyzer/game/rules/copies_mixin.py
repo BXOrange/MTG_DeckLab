@@ -337,13 +337,18 @@ class CopiesMixin:
             for effect in [*getattr(obj, "static_effects", []), *getattr(obj, "spell_effects", []),
                            *getattr(item, "effects", [])])
 
+    def _capture_stack_copy_departure(self, item):
+        from ..copy_event_state import capture_departure
+
+        capture_departure(self, item)
+
     def copy_spell(
         self,
         target: Any,
         controller_id: str,
         count: int = 1,
         new_targets: Optional[list[Any]] = None,
-        *, choose_new_targets: bool = False, defer_choice: bool = False,
+        *, choose_new_targets: bool = False, defer_choice: bool = False, from_recipe: bool = False,
     ) -> list[StackItem]:
         """Put ``count`` copies of the spell ``target`` onto the stack (RULE
         707.10 — Dualcaster Mage/Reiterate/Flare of Duplication "copy target
@@ -368,7 +373,7 @@ class CopiesMixin:
         """
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
-        item = self._stack_item_for(target)
+        item = target if from_recipe else self._stack_item_for(target)
         if item is None or item.obj is None:
             return []
         if self._spell_copy_prohibited(item.obj, item):
@@ -452,7 +457,7 @@ class CopiesMixin:
 
     def copy_ability(
         self, target: Any, controller_id: str, new_targets: Optional[list[Any]] = None,
-        *, choose_new_targets: bool = False, defer_choice: bool = False,
+        *, choose_new_targets: bool = False, defer_choice: bool = False, from_recipe: bool = False,
     ) -> Optional[StackItem]:
         """Put a copy of the activated ability ``target`` onto the stack
         (RULE 707.10 — Rings of Brighthearth's "copy that ability").
@@ -463,7 +468,7 @@ class CopiesMixin:
         before the copy is placed above the original. A stack-item prohibition
         on copying is enforced before creating any copy (RULE 101.2).
         """
-        item = self._stack_item_for(target)
+        item = target if from_recipe else self._stack_item_for(target)
         if item is None or item.kind != "ability" or item.cant_be_copied:
             return None
         copy_item = StackItem(
@@ -483,6 +488,7 @@ class CopiesMixin:
         copy_item.source_zone_incarnation = item.source_zone_incarnation
         if new_targets is None:
             copy_item.target_incarnations = list(item.target_incarnations)
+        self._substitute_x(copy_item.effects, item.x)
         from ..stack_copy_targets import stage
 
         stage(self, [copy_item], may_choose=choose_new_targets and new_targets is None, defer=defer_choice)

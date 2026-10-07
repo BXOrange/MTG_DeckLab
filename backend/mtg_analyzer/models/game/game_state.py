@@ -1084,6 +1084,7 @@ class GameState:
         # RULE 610.3: source and exile incarnations; values survive undo snapshots.
         self.until_source_leaves_exiles: list[dict[str, int]] = []
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
+        self.copiable_stack_recipes: dict[int, StackItem] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []
         self.ready_stack_copies: list[StackItem] = []
 

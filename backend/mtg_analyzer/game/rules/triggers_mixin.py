@@ -186,6 +186,10 @@ class TriggerCollectionMixin:
         copy as `_TapOfferFiring.tap_offers`; `_place_triggers` asks its controller how many
         to tap when that copy is placed.
         """
+        from ..copy_event_state import capture_firing
+
+        recipe_id = (capture_firing(self, ability, event)
+                     if event.type in (EventType.SPELL_CAST, EventType.ACTIVATED_ABILITY) else None)
         copies = 1 + continuous.trigger_doubler_bonus(
             self.state, obj, event=event, context=self.context
         )
@@ -201,6 +205,8 @@ class TriggerCollectionMixin:
             captured = copy.copy(captured)
             captured.data = dict(captured.data)
             captured.data["source_zone_incarnation"] = getattr(obj, "zone_incarnation", None)
+            if recipe_id is not None:
+                captured.data["copiable_stack_id"] = recipe_id
             firing_ability = ability
             controller_id = getattr(obj, "controller_id", None)
             if controller_id is not None and controller_id != ability.controller_id:

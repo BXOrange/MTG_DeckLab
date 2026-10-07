@@ -751,6 +751,7 @@ export default {
   'bd.choice.asideTitle': "Look at the board below without deciding",
   'bd.choice.chooseNothing': "Choose nothing",
   'bd.msg.actionNotAllowedShort': "Action not allowed: {detail}",
+  'bd.exile.graveyardCostCard': "graveyard card to exile",
   'bd.discard.card': "card to discard",
   'bd.stack.topResolves': "top – resolves first",
   'bd.stack.heading': "Stack ({count})",
