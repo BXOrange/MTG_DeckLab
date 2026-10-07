@@ -1960,6 +1960,7 @@ class CastingResolutionMixin:
                 previous_targets=resumed.get("previous_targets"),
                 created_objects=resumed.get("created_objects"),
                 life_lost_this_way=resumed.get("life_lost_this_way", 0),
+                excess_damage_this_way=resumed.get("excess_damage_this_way", 0),
                 permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
                 objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
                 counters_removed_this_way=resumed.get("counters_removed_this_way", 0),

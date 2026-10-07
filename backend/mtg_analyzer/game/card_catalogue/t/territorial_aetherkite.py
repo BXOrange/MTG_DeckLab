@@ -9,9 +9,9 @@ def _territorial_aetherkite() -> list[AbilitySpec]:
     """Flying, haste
     When this creature enters, you get {E}{E} (two energy counters). Then you may pay one or more {E}. When you do, this creature deals that much damage to each other creature.
 
-    — PLAY-ALL (Living Energy). Keywords are the catalogue's. The ETB is `add_player_counters`, then the variable
-    `pay_energy_then` over `damage` ``each_other_creature`` (X = the paid amount). **Simplification:** "When you do" is
-    not a separate reflexive trigger — the damage happens as the payment is made (it has no target, so nothing is lost).
+    — PLAY-ALL (Living Energy). The entry trigger grants two energy and
+    offers a variable payment. Paying queues a separate respondable reflexive
+    damage trigger with the paid amount captured as X (RULE 603.12).
     """
     return [
         AbilitySpec(
@@ -19,7 +19,9 @@ def _territorial_aetherkite() -> list[AbilitySpec]:
             [
                 EffectSpec("add_player_counters", {"amount": 2, "kind": "energy"}),
                 EffectSpec("pay_energy_then", {"amount": 1, "variable": True, "effects": [
-                    {"type": "damage", "params": {"amount": "x", "selector": "each_other_creature"}},
+                    {"type": "reflexive_trigger", "params": {"then_trigger": [
+                        {"type": "damage", "params": {"amount": "x", "selector": "each_other_creature"}},
+                    ]}},
                 ]}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},

@@ -172,6 +172,8 @@ class GameContext:
         #: `_apply_effects_partitioned`'s own save/reset/restore idiom, same
         #: as `previous_targets`/`created_objects` above.
         self.life_lost_this_way: int = 0
+        #: RULE 120.9: actual damage beyond the amount needed to be lethal.
+        self.excess_damage_this_way: int = 0
         #: "Destroy each nonland permanent with mana value 2 or less. Add
         #: {B} or {G} for each permanent destroyed this way." (Culling
         #: Ritual, MEC-40) — `life_lost_this_way`'s sibling for a *count* of
@@ -273,7 +275,19 @@ class GameContext:
         # counts" idiom as `destroy`/`lose_life` — a prevented or 0 hit, or a
         # hit on a player, does not land in `damaged_this_way`.
         before = int(getattr(target, "damage_marked", 0) or 0) if hasattr(target, "instance_id") else None
+        remaining = None
+        if hasattr(target, "instance_id") and getattr(target, "is_creature", False):
+            from .. import combat
+            remaining = max(0, (target.toughness or 0) - target.damage_marked)
+            if remaining and source is not None and combat.has(source, "deathtouch"):
+                remaining = min(remaining, 1)
+        event_start = len(self.state.event_log)
         self.engine.deal_damage(target, amount, source, single_target_hint=single_target_hint)
+        if remaining is not None:
+            dealt = sum(int(e.get("amount", 0)) for e in self.state.event_log[event_start:]
+                        if e.type == EventType.DAMAGE and e.get("target_id") == target.instance_id
+                        and e.get("source_id") == getattr(source, "instance_id", None))
+            self.excess_damage_this_way += max(0, dealt - remaining)
         if before is not None and int(getattr(target, "damage_marked", 0) or 0) > before:
             if target not in self.damaged_this_way:
                 self.damaged_this_way.append(target)
@@ -1276,6 +1290,7 @@ def _apply_effects_partitioned(
     previous_targets: Optional[list[Any]] = None,
     created_objects: Optional[list[Any]] = None,
     life_lost_this_way: int = 0,
+    excess_damage_this_way: int = 0,
     permanents_destroyed_this_way: int = 0,
     objects_exiled_this_way: int = 0,
     counters_removed_this_way: int = 0,
@@ -1360,6 +1375,7 @@ def _apply_effects_partitioned(
     outer_attachment_hosts = getattr(context, "attachment_hosts", {})
     outer_created = getattr(context, "created_objects", [])
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
+    outer_excess_damage = getattr(context, "excess_damage_this_way", 0)
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
     outer_counters_removed = getattr(context, "counters_removed_this_way", 0)
@@ -1379,6 +1395,7 @@ def _apply_effects_partitioned(
     context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
+    context.excess_damage_this_way = excess_damage_this_way
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
     context.objects_exiled_this_way = objects_exiled_this_way
     context.counters_removed_this_way = counters_removed_this_way
@@ -1486,6 +1503,7 @@ def _apply_effects_partitioned(
                         "previous_targets": list(context.previous_targets),
                         "created_objects": list(context.created_objects),
                         "life_lost_this_way": context.life_lost_this_way,
+                        "excess_damage_this_way": context.excess_damage_this_way,
                         "permanents_destroyed_this_way": context.permanents_destroyed_this_way,
                         "objects_exiled_this_way": context.objects_exiled_this_way,
                         "counters_removed_this_way": context.counters_removed_this_way,
@@ -1507,6 +1525,7 @@ def _apply_effects_partitioned(
         context.attachment_hosts = outer_attachment_hosts
         context.created_objects = outer_created
         context.life_lost_this_way = outer_life_lost
+        context.excess_damage_this_way = outer_excess_damage
         context.permanents_destroyed_this_way = outer_permanents_destroyed
         context.objects_exiled_this_way = outer_objects_exiled
         context.counters_removed_this_way = outer_counters_removed

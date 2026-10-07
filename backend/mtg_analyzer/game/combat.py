@@ -1164,6 +1164,8 @@ def blocker_allowed(
     other filter kind ignores it.
     """
     for entry in combat_restrictions(attacker, "cant_be_blocked_by"):
+        if entry.get("blocker_controller_not") == blocker.controller_id:
+            continue
         if matches_object_filter(blocker, entry.get("filter"), reference=attacker, state=state):
             return False
     for entry in combat_restrictions(attacker, "only_blocked_by"):

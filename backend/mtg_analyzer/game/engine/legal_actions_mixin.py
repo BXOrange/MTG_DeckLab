@@ -33,6 +33,7 @@ from ..costs import (
     DISCARD_X,
     EXILE_FROM_GRAVEYARD_X,
     PAY_LIFE_X,
+    PAY_ENERGY_X,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
     SACRIFICE_COUNT_X,
@@ -164,7 +165,7 @@ class LegalActionsMixin:
         )
         # ENG-49: "Sacrifice X lands" announces X too (Copper-Leaf Angel).
         sacrifice_x = bool(ability.cost.sacrifice_count) and ability.cost.sacrifice_count[0] == SACRIFICE_COUNT_X
-        if mana.has_variable or remove_counters_x or sacrifice_x:
+        if mana.has_variable or remove_counters_x or sacrifice_x or ability.cost.pay_energy == PAY_ENERGY_X:
             action["has_x"] = True
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
         requirements = self._ability_target_requirements(player, ability, source, mode=mode)

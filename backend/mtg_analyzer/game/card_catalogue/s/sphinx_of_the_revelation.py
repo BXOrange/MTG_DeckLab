@@ -3,6 +3,7 @@ from __future__ import annotations
 from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
+from ...costs import PAY_ENERGY_X
 
 
 def _sphinx_of_the_revelation() -> list[AbilitySpec]:
@@ -10,8 +11,9 @@ def _sphinx_of_the_revelation() -> list[AbilitySpec]:
     Whenever you gain life, you get that many {E} (energy counters).
     {W}{U}{U}, {T}, Pay X {E}: Draw X cards.
 
-    — PLAY-ALL (Hope to the last). Keywords and the life-gain trigger are the parser's. **Simplification:** X energy is
-    chosen as the ability resolves (the variable `pay_energy_then`, minimum 0) rather than paid as an announced cost.
+    — PLAY-ALL (Hope to the last). Life gain supplies energy. The draw
+    ability announces X and pays that energy as part of activation before
+    opponents can respond; zero is legal and draw uses the announced X.
     """
     return [
         AbilitySpec(
@@ -21,10 +23,8 @@ def _sphinx_of_the_revelation() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("pay_energy_then", {"amount": 0, "variable": True, "effects": [
-                {"type": "draw", "params": {"count": "x"}},
-            ]})],
-            cost={"text": "{w}{u}{u}, {t}"},
+            [EffectSpec("draw", {"count": "x"})],
+            cost={"text": "{w}{u}{u}, {t}", "pay_energy": PAY_ENERGY_X},
         ),
     ]
 

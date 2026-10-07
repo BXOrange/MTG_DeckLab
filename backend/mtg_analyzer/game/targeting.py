@@ -2240,7 +2240,7 @@ def _legal_targets_for(
 #: every other card-text-derived name in this package; an unknown one falls
 #: back to the printed ``count``.
 TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
-    "opponents", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid",
+    "opponents", "players", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid",
 })
 
 
@@ -2263,6 +2263,8 @@ def resolved_count(
         return spec.count
     if selector == "opponents":
         return sum(1 for p in state.living_players() if p.id != controller_id)
+    if selector == "players":
+        return len(state.living_players())
     if selector == "source_x_paid":
         # "Up to X target creatures phase out." (March of Swirling Mist,
         # MEC-42) — the spell's own announced {X} (`GameObject.x_paid`,

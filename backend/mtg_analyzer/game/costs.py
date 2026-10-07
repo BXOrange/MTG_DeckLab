@@ -44,6 +44,9 @@ DISCARD_X = -2
 #: announced X, not a printed number.
 PAY_LIFE_X = -1
 
+#: RULE 602.2b: X energy is announced and paid while activating.
+PAY_ENERGY_X = -1
+
 #: RULE 601.2b's "exile X cards from your graveyard" additional cost.
 EXILE_FROM_GRAVEYARD_X = -1
 
@@ -695,7 +698,7 @@ class ActivationCost:
                          if self.pay_life == PAY_LIFE_COMMANDER_COLORS
                          else f"Pay {self.pay_life} life")
         if self.pay_energy:
-            parts.append(f"Pay {'{E}' * self.pay_energy}")
+            parts.append("Pay X {E}" if self.pay_energy == PAY_ENERGY_X else f"Pay {'{E}' * self.pay_energy}")
         if self.discard:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else "Discard X cards" if self.discard == DISCARD_X

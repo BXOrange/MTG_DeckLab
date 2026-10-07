@@ -1007,6 +1007,7 @@ EffectRegistry.register(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
         count_selector=p.get("count_selector"), selector=p.get("selector"), half=p.get("half"),
         capture_milled=bool(p.get("capture_milled", False)),
+        any_number_of_players=bool(p.get("any_number_of_players", False)),
     )
 )
 EffectRegistry.register(
@@ -2743,6 +2744,7 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
+        opponents_only=bool(p.get("opponents_only", False)),
     ),
 )
 EffectRegistry.register(

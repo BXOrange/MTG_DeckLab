@@ -493,8 +493,10 @@ class UnblockableEffect(GameEffect):
         count_selector: Optional[str] = None,
         optional: bool = False,
         previous_subject: bool = False,
+        opponents_only: bool = False,
     ) -> None:
         super().__init__(source)
+        self.opponents_only = opponents_only
         self.target = target
         self.selector = selector
         #: PAR-79 sixth increment: "put 2 +1/+1 counters on target creature
@@ -528,29 +530,39 @@ class UnblockableEffect(GameEffect):
             for obj in group_selector_objects(
                 context.state, controller_id, self.selector, src=self.source
             ):
-                obj.temp_unblockable = True
+                self._mark(context, obj)
             return
         if self.previous_subject:
             for obj in context.previous_targets:
                 if obj is not None:
-                    obj.temp_unblockable = True
+                    self._mark(context, obj)
             return
         if self._attached_mode:
             attached_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(attached_id) if attached_id is not None else None
             if target is not None:
-                target.temp_unblockable = True
+                self._mark(context, target)
             return
         if self.target_spec is not None and self.target_spec.effective_count != 1:
             for obj in (targets or []):
                 if obj is not None:
-                    obj.temp_unblockable = True
+                    self._mark(context, obj)
             return
         target = (targets[0] if targets else None) or self.target
         if target is None and self.target_spec is None:
             target = self.source
         if target is not None:
-            target.temp_unblockable = True
+            self._mark(context, target)
+
+    def _mark(self, context: GameContext, obj: Any) -> None:
+        if self.opponents_only:
+            player = _controller_of(self.source, context)
+            obj.temp_combat_restrictions.append({
+                "kind": "cant_be_blocked_by", "filter": {}, "blocker_controller_not": player.id,
+            })
+        else:
+            obj.temp_unblockable = True
+
 
 
 class CantBeRegeneratedEffect(GameEffect):
@@ -989,8 +1001,8 @@ class AttachEquipmentEffect(GameEffect):
     Leader) — an effect (not the equip ability) moving an Equipment you control onto a creature: this effect's own source (``to_source``) or a second
     chosen creature (``creature_kind`` narrowed by ``creature_filter``), without the equip ability's control check (RULE 301.5b/c, 701.3).
 
-    ``to_source`` makes the Equipment the only (optional, "up to one") target. With a second chosen creature both targets are required — **simplification:** the
-    "up to one" is dropped there, so the ability simply isn't put on the stack when you control no Equipment."""
+    The Equipment target is optional independently of a second mandatory
+    creature target; omitting it makes attachment do nothing."""
 
     def __init__(
         self, to_source: bool = False, creature_kind: str = "creature_you_control",
@@ -998,7 +1010,7 @@ class AttachEquipmentEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.to_source = bool(to_source)
-        self.target_spec = TargetSpec(kind="equipment_you_control", optional=self.to_source)
+        self.target_spec = TargetSpec(kind="equipment_you_control", optional=True)
         if not self.to_source:
             self.extra_target_specs = (TargetSpec(kind=creature_kind, creature_filter=creature_filter),)
 

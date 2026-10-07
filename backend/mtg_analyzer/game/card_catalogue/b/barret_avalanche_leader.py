@@ -10,8 +10,9 @@ def _barret_avalanche_leader() -> list[AbilitySpec]:
     Avalanche! — Whenever an Equipment you control enters, create a 2/2 red Rebel creature token.
     At the beginning of combat on your turn, attach up to one target Equipment you control to target Rebel you control.
 
-    — PLAY-ALL (Limit Break). Reach is the keyword. The token trigger is the Equipment group head (Puresteel Paladin's) over `create_token`. The combat trigger is the new
-    `attach_equipment` (an Equipment you control onto a Rebel you control; **simplification:** both targets are required, so with no Equipment the ability is not put on the stack).
+    — PLAY-ALL (Limit Break). The Equipment slot is optional independently
+    of the mandatory Rebel target. With no chosen Equipment the trigger still
+    targets its Rebel, and attachment does nothing.
     """
     return [
         AbilitySpec(

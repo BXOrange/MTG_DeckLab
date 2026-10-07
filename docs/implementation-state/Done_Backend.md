@@ -291,6 +291,16 @@ mana or breaking creature-only payment. `extra_etb_counter` supports
 
 ## Rules Engine Core Loop
 
+### Actual excess-damage payoffs (RULE 120.9)
+
+Damage-then-payoff effects compare actual damage after replacement/prevention
+against the target's remaining lethal damage, including prior damage and
+deathtouch. `GameContext.excess_damage_this_way` is an amount operand for a
+following ordinary effect, preserving the tally across suspended resolutions.
+Cramped Vents combines ordinary damage and life gain; Torch the Witness uses
+the same calculation for its investigate payoff.
+
+
 ### Cast-time keyword grants and scoped cascade
 
 `grant_keyword` supports `spells_you_cast`, a required `mana_source_kind`
@@ -1142,6 +1152,14 @@ for nonartifact spells, read by `_help_pay_keyword`); `GameState.temp_play_permi
 to every gathered target. Foretell cards read "cast from exile" as the `foretold` flag. Tests: `tests/game/catalogue/cards/test_limit_break_deck.py`.
 
 ## Targeting
+
+### Optional player groups and Equipment slots (RULE 115 / 601.2c)
+
+The target-count selector `players` supplies an optional group of distinct
+living players. `mill` supports that group and measures dynamic amounts for
+each selected player separately. Equipment attachments keep their optional
+Equipment slot independent of a mandatory creature target.
+
 
 ### Structural target frames — `kind` decomposed (ENG-34, `14_` S0b)
 
@@ -2328,6 +2346,13 @@ group; the free-cast flag expires with the turn's graveyard permissions.
 
 ## Combat
 
+
+### Block restrictions relative to an ability's controller (RULE 509.1b)
+
+`unblockable` can forbid only blockers controlled by the effect controller's
+opponents. The captured player remains the reference even if the affected
+creature belongs to another player; the restriction clears at cleanup.
+
 ### Melee from completed attack declarations (RULE 702.121)
 
 Melee is collected from `ATTACKERS_DECLARED`, after all attackers and defenders
@@ -2461,6 +2486,13 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 `active_player` scope so only the player whose turn it is gets the pay-or prompt.
 
 ## Casting & Costs
+
+### Announced variable energy activation costs (RULE 602.2b / 122)
+
+`ActivationCost.pay_energy` supports `PAY_ENERGY_X`. Legal actions expose X
+and the available-energy bound; energy is validated and paid at activation,
+including X=0, before the ability enters the stack.
+
 
 ### Mayhem (RULE 702.187)
 

@@ -1012,6 +1012,7 @@ class MillEffect(GameEffect):
         source: Optional["GameObject"] = None,
         half: Optional[str] = None,
         capture_milled: bool = False,
+        any_number_of_players: bool = False,
     ) -> None:
         super().__init__(source)
         #: "mills **half their library**, rounded down/up" (Cut Your Losses, Kitsune's Technique): the count
@@ -1023,13 +1024,31 @@ class MillEffect(GameEffect):
         self.count_selector = count_selector
         self.selector = selector
         self.capture_milled = capture_milled
+        self.any_number_of_players = any_number_of_players
         if target_kind is not None:
-            self.target_spec = TargetSpec(kind=target_kind)
+            self.target_spec = TargetSpec(
+                kind=target_kind, optional=any_number_of_players,
+                count_selector="players" if any_number_of_players else None,
+            )
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.any_number_of_players:
+            milled = []
+            with context.state.simultaneous():
+                for player in targets or []:
+                    if player is None:
+                        continue
+                    before = len(player.graveyard)
+                    context.mill(player, self._measured(self.count, context, [player]))
+                    milled.extend(player.graveyard[before:])
+            context.moved_objects.extend(milled)
+            context.milled_objects = list(milled)
+            if self.capture_milled:
+                context.previous_targets = list(milled)
+            return
         if self.selector == "event_player":
             player = _event_player(context, key="player_id")
         elif self.selector == "event_controller":

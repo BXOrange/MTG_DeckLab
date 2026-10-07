@@ -2466,9 +2466,7 @@ class DamageThenInvestigateIfExcessEffect(GameEffect):
             return
         x_paid = getattr(self.source, "x_paid", 0) or 0
         amount = x_paid * 2
-        remaining = (target.toughness or 0) - target.damage_marked
-        context.deal_damage(target, amount, self.source)
-        if amount > max(remaining, 0):
+        if self._excess_dealt(context, target, amount) > 0:
             player = _controller_of(self.source, context)
             if player is not None:
                 from ...services.token_database import default_token_database
@@ -2476,6 +2474,12 @@ class DamageThenInvestigateIfExcessEffect(GameEffect):
                 clue = default_token_database().get_token("Clue")
                 if clue is not None:
                     context.create_token(player.id, clue, 1)
+
+    def _excess_dealt(self, context: GameContext, target: Any, amount: int) -> int:
+        before = context.excess_damage_this_way
+        context.deal_damage(target, amount, self.source)
+        return context.excess_damage_this_way - before
+
 
 
 class CantBeCounteredThisTurnEffect(GameEffect):

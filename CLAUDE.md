@@ -139,6 +139,9 @@ and controller decisions, preserving library identities across rewind.
 Counter placement prohibitions use ordinary static groups and also guard
 entry counters (including the entrant's own abilities, RULE 614.12).
 Numeric keywords are recognized by object-filter and condition predicates.
+Activation costs can announce X energy, and mill effects can target any number
+of players with amounts measured separately. Damage effects expose actual
+excess damage through the resolution tally for ordinary composed payoffs.
 Mayhem uses discard-event incarnations and ordinary graveyard casting; Mobilize
 builds a creature-owned attack trigger with a token-specific delayed sacrifice.
 Coin flips emit player-owned result events for independent win triggers.

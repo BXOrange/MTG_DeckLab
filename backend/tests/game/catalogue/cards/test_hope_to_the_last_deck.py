@@ -212,8 +212,7 @@ def test_sphinx_of_the_revelation_banks_energy_and_pays_x_to_draw():
     assert p1.counters.get("energy") == 3
     hand = len(p1.hand)
     p1.mana_pool.add_many({"W": 1, "U": 2})
-    _activate(engine, sphinx)
-    _answer(engine, lambda c: next(o["id"] for o in c["options"] if o["id"].endswith(":2")))
+    _activate(engine, sphinx, x=2)
     assert len(p1.hand) == hand + 2 and p1.counters.get("energy") == 1
 
 

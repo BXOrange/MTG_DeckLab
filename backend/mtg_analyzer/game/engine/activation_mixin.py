@@ -38,6 +38,7 @@ from ..costs import (
     PAY_LIFE_COMMANDER_COLORS,
     PAY_LIFE_HALF_UP,
     PAY_LIFE_X,
+    PAY_ENERGY_X,
     REMOVE_COUNTERS_ALL,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_ANY_KIND,
@@ -335,8 +336,11 @@ class ActivationMixin:
         stricter of whichever components are actually variable.
         """
         bound: Optional[int] = None
+        if cost.pay_energy == PAY_ENERGY_X:
+            bound = player.counters.get("energy", 0)
         if cost.mana.has_variable:
-            bound = self._max_x_for_mana(player, source, cost.mana, cost.x_spend_color)
+            mana_bound = self._max_x_for_mana(player, source, cost.mana, cost.x_spend_color)
+            bound = mana_bound if bound is None else min(bound, mana_bound)
         if cost.remove_counters is not None and cost.remove_counters[1] in (
             REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY,
         ):
@@ -531,8 +535,10 @@ class ActivationMixin:
             return False
         if cost.pay_life and player.life < self._life_cost(player, cost):
             return False
-        if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
-            return False
+        if cost.pay_energy:
+            amount = x if cost.pay_energy == PAY_ENERGY_X else cost.pay_energy
+            if amount < 0 or player.counters.get("energy", 0) < amount:
+                return False
         if cost.discard and cost.discard != DISCARD_HAND:
             count = x if cost.discard == DISCARD_X else cost.discard
             # A random discard (RULE 701.8d) isn't the payer's pick — only the
@@ -1365,7 +1371,8 @@ class ActivationMixin:
             # RULE 122: spend energy counters — a player-level resource
             # (`Player.counters["energy"]`), same generic dict "rad"/
             # "poison" already use.
-            self.rules.add_player_counters(player, -cost.pay_energy, "energy")
+            amount = x if cost.pay_energy == PAY_ENERGY_X else cost.pay_energy
+            self.rules.add_player_counters(player, -amount, "energy")
         if cost.exile_others:
             count, word = cost.exile_others
             for obj in self._resolve_sacrifice_count(player, count, word, tap_choices, source) or []:

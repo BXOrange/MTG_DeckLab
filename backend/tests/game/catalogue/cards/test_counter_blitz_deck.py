@@ -226,7 +226,7 @@ def test_rikku_makes_a_creature_unblockable_when_you_put_a_counter_on_it():
     engine.rules.add_counters(runner, 1, "+1/+1", source=runner)
     engine.resolve_until_stable()
     answer(engine)
-    assert runner.temp_unblockable
+    assert runner.temp_combat_restrictions
 
 
 def test_rikku_steals_a_counter_from_an_opposing_creature():

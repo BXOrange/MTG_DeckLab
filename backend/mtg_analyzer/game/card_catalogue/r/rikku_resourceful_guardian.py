@@ -9,16 +9,16 @@ def _rikku_resourceful_guardian() -> list[AbilitySpec]:
     """Whenever you put one or more counters on a creature, until end of turn, that creature can't be blocked by creatures your opponents control.
     Steal — {1}, {T}: Move a counter from target creature an opponent controls onto target creature you control. Activate only as a sorcery.
 
-    — PLAY-ALL (Counter Blitz). The trigger is the Hapatra `COUNTER` shape (``by_you``) whose body is `unblockable` aimed at the recipient
-    through `trigger_subject_referent` (the COUNTER event's ``target_id``). **Simplification:** the creature can't be blocked at all this
-    turn (when the recipient is an opponent's creature it was never blockable by creatures *you* control anyway). Steal is Nesting
-    Grounds' `move_counters` from a creature an opponent controls onto one you control (the controller chooses the counter kind).
+    — PLAY-ALL (Counter Blitz). The COUNTER trigger grants a temporary
+    restriction on blockers controlled by the trigger controller's opponents,
+    including when the recipient is another player's creature. Steal offers
+    a counter-kind choice and moves it onto a creature you control.
     """
     return [
         AbilitySpec(
             "triggered",
             [EffectSpec("trigger_subject_referent", {"event_key": "target_id", "effects": [
-                {"type": "unblockable", "params": {"target_kind": "creature"}},
+                {"type": "unblockable", "params": {"target_kind": "creature", "opponents_only": True}},
             ]})],
             trigger={"event": EventType.COUNTER, "filter": {"recipient_is_creature": True, "by_you": True}},
         ),
