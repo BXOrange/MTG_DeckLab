@@ -1680,6 +1680,8 @@ class CastingResolutionMixin:
         outer_trigger_event = self.context.trigger_event
         outer_resolving_controller_id = self.context.resolving_controller_id
         outer_resolution_count = self.context.ability_resolution_count
+        outer_stack_item = self.context.resolving_stack_item
+        self.context.resolving_stack_item = item
         outer_source_incarnation = getattr(self.context, "resolving_source_incarnation", None)
         self.context.resolving_source_incarnation = item.source_zone_incarnation
         self.context.trigger_event = item.trigger_event
@@ -1688,6 +1690,7 @@ class CastingResolutionMixin:
         try:
             return self._apply_stack_item(item)
         finally:
+            self.context.resolving_stack_item = outer_stack_item
             self.context.resolving_source_incarnation = outer_source_incarnation
             self.context.trigger_event = outer_trigger_event
             self.context.resolving_controller_id = outer_resolving_controller_id
@@ -2017,6 +2020,16 @@ class CastingResolutionMixin:
             if isinstance(target, Player):
                 return target in self.state.living_players()
             if isinstance(target, GameObject):
+                indices = [i for i, t in enumerate(item.targets) if t is target]
+                if indices and not any(i >= len(item.target_incarnations)
+                                       or item.target_incarnations[i] in (None, target.zone_incarnation)
+                                       for i in indices):
+                    return False
+                if item.copy_target_roles:
+                    from ..stack_copy_targets import target_is_legal
+
+                    if indices and not any(target_is_legal(self, item, i, target) for i in indices):
+                        return False
                 if "graveyard" in spec.kind:
                     return target.zone == Zone.GRAVEYARD and any(
                         target in player.graveyard for player in self.state.players
@@ -2335,20 +2348,6 @@ class CastingResolutionMixin:
                 obj.granted_suspend_haste = False
                 if obj in self.state.permanents():
                     obj.temp_keywords.add("haste")
-            if getattr(obj, "granted_haste_sacrifice", False):
-                # "…it gains haste and 'at the beginning of the end step, sacrifice this creature'" (Strago and Relm).
-                obj.granted_haste_sacrifice = False
-                if obj in self.state.permanents():
-                    obj.temp_keywords.add("haste")
-                    self.state.delayed_triggers.append(
-                        DelayedTrigger(
-                            controller_id=obj.controller_id,
-                            step="end",
-                            scope="any",
-                            effects=[SacrificeSelfEffect(source=obj)],
-                            description=f"{obj.name}: im Endsegment opfern",
-                        )
-                    )
             if getattr(obj, "cast_via_dash", False):
                 # RULE 702.109c/d (PAR-26): a creature cast for its dash
                 # cost gains haste and is returned to its owner's hand at

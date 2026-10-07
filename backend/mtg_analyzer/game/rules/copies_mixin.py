@@ -19,6 +19,7 @@ engine is the toolbox that loop drives.
 from __future__ import annotations
 
 import re
+import copy
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
@@ -143,8 +144,52 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 
 
 
+# RULE 707.10: casting choices are copied; cast history and mana expenditure are not.
+_SPELL_COPY_CHOICES = (
+    "kicker_count", "kicker_x_paid", "additional_cost_paid", "teamwork_paid", "bargained",
+    "gift_promised", "gift_recipient_id", "blitz_cost_paid", "offered_additional_costs",
+    "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
+    "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected",
+)
+
+
 class CopiesMixin:
     """Copy effects, becoming a copy, and face changes (transform/manifest/face-down)."""
+
+    def _copy_effect_memo(self, old_source=None, new_source=None, targets=()):
+        memo = {id(self): self, id(self.state): self.state, id(self.context): self.context}
+        for player in self.state.players:
+            memo[id(player)] = player
+            for zone in player.zones.values():
+                memo.update({id(obj): obj for obj in zone})
+        memo.update({id(obj): obj for obj in self.state.battlefield})
+        for item in self.state.stack:
+            memo[id(item)] = item
+            for obj in (item.obj, item.source):
+                if obj is not None:
+                    memo[id(obj)] = obj
+        memo.update({id(target): target for target in targets})
+        if old_source is not None:
+            memo[id(old_source)] = old_source if new_source is None else new_source
+        return memo
+
+    def _copied_spell_effects(self, item, obj):
+        from ..binding.core import build_effects
+
+        memo = self._copy_effect_memo(item.obj, obj, item.targets)
+        effects = []
+        for original in item.effects:
+            spec = getattr(original, "_bound_spec", None)
+            if spec is not None:
+                effects.extend(build_effects([copy.deepcopy(spec, memo)], obj))
+            else:
+                effects.append(copy.deepcopy(original, memo))
+        return effects
+
+    def _advance_copy_targets(self):
+        from ..stack_copy_targets import advance
+
+        advance(self)
 
     def copy_permanent(
         self,
@@ -284,6 +329,7 @@ class CopiesMixin:
         controller_id: str,
         count: int = 1,
         new_targets: Optional[list[Any]] = None,
+        *, choose_new_targets: bool = False, defer_choice: bool = False,
     ) -> list[StackItem]:
         """Put ``count`` copies of the spell ``target`` onto the stack (RULE
         707.10 — Dualcaster Mage/Reiterate/Flare of Duplication "copy target
@@ -327,22 +373,28 @@ class CopiesMixin:
             copy_obj.is_token = True
             copy_obj.is_copy = True
             copy_obj.x_paid = item.x
+            for field in _SPELL_COPY_CHOICES:
+                if hasattr(item.obj, field):
+                    setattr(copy_obj, field, copy.deepcopy(getattr(item.obj, field)))
             # RULE 707.10: copying a spell copies alternative-cost decisions.
             copy_obj.blitz_cost_paid = item.obj.blitz_cost_paid
             bind_from_catalogue(copy_obj)
             copy_item = StackItem(
                 kind="spell",
                 controller_id=controller_id,
-                effects=self._effects_for_spell(copy_obj),
+                effects=self._copied_spell_effects(item, copy_obj),
                 obj=copy_obj,
                 description=f"{item.obj.name} (Kopie)",
                 targets=list(item.targets) if new_targets is None else list(new_targets),
                 x=item.x,
                 target_groups=item.target_groups if new_targets is None else None,
             )
-            self.state.stack.append(copy_item)
-            self._fire_spell_copied(copy_item)
+            if new_targets is None:
+                copy_item.target_incarnations = list(item.target_incarnations)
             copies.append(copy_item)
+        from ..stack_copy_targets import stage
+
+        stage(self, copies, may_choose=choose_new_targets and new_targets is None, defer=defer_choice)
         return copies
     def conjure_duplicate_into_hand(
         self, target: Any, controller_id: str,
@@ -382,6 +434,7 @@ class CopiesMixin:
 
     def copy_ability(
         self, target: Any, controller_id: str, new_targets: Optional[list[Any]] = None,
+        *, choose_new_targets: bool = False, defer_choice: bool = False,
     ) -> Optional[StackItem]:
         """Put a copy of the activated ability ``target`` onto the stack
         (RULE 707.10 — Rings of Brighthearth's "copy that ability").
@@ -408,7 +461,7 @@ class CopiesMixin:
         copy_item = StackItem(
             kind="ability",
             controller_id=controller_id,
-            effects=list(item.effects),
+            effects=copy.deepcopy(item.effects, self._copy_effect_memo(item.source, targets=item.targets)),
             source=item.source,
             description=f"{item.description} (Kopie)" if item.description else None,
             targets=list(item.targets) if new_targets is None else list(new_targets),
@@ -417,11 +470,18 @@ class CopiesMixin:
             # A copy of "this ability" counts toward its resolutions too
             # (Ashling the Pilgrim's ruling: Rings of Brighthearth's copy counts).
             ability_key=item.ability_key,
+            trigger_event=item.trigger_event,
         )
-        self.state.stack.append(copy_item)
+        copy_item.source_zone_incarnation = item.source_zone_incarnation
+        if new_targets is None:
+            copy_item.target_incarnations = list(item.target_incarnations)
+        from ..stack_copy_targets import stage
+
+        stage(self, [copy_item], may_choose=choose_new_targets and new_targets is None, defer=defer_choice)
         return copy_item
     def copy_self_spell(
         self, obj: GameObject, controller_id: str, targets: Optional[list[Any]] = None,
+        *, choose_new_targets: bool = False,
     ) -> Optional[StackItem]:
         """"You may copy this spell [and may choose a new target for the
         copy]." (Sevinne's Reclamation's own trailing clause, MEC-42) —
@@ -444,21 +504,28 @@ class CopiesMixin:
         """
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
-        copiable = obj.card
-        copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.STACK)
-        copy_obj.is_token = True
-        copy_obj.is_copy = True
+        original = self.context.resolving_stack_item
+        if original is None or original.obj is not obj:
+            original = next((frame.get("stack_item") for frame in reversed(self.state.deferred_effects)
+                             if getattr(frame.get("stack_item"), "obj", None) is obj), None)
+        if original is not None:
+            # Temporarily expose the resolving item to the ordinary copy primitive.
+            self.state.stack.append(original)
+            try:
+                copies = self.copy_spell(original, controller_id, choose_new_targets=choose_new_targets)
+            finally:
+                self.state.stack.remove(original)
+            return copies[0] if copies else None
+        copy_obj = GameObject(obj.card.as_copy(), owner_id=controller_id, zone=Zone.STACK)
+        copy_obj.is_token = copy_obj.is_copy = True
+        copy_obj.x_paid = obj.x_paid
         bind_from_catalogue(copy_obj)
-        copy_item = StackItem(
-            kind="spell",
-            controller_id=controller_id,
-            effects=self._effects_for_spell(copy_obj),
-            obj=copy_obj,
-            description=f"{obj.name} (Kopie)",
-            targets=list(targets or []),
-        )
-        self.state.stack.append(copy_item)
-        self._fire_spell_copied(copy_item)
+        copy_item = StackItem(kind="spell", controller_id=controller_id,
+                              effects=self._effects_for_spell(copy_obj), obj=copy_obj,
+                              description=f"{obj.name} (Kopie)", targets=list(targets or []), x=obj.x_paid)
+        from ..stack_copy_targets import stage
+
+        stage(self, [copy_item], may_choose=choose_new_targets)
         return copy_item
     def make_prepared(self, obj: GameObject) -> None:
         """``obj`` becomes prepared (RULE 722.3a — a preparation card's

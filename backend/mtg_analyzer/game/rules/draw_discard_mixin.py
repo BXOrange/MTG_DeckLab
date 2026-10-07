@@ -390,6 +390,7 @@ class DrawDiscardMixin:
                 player_id=player.id,
                 cards=[{
                     "instance_id": obj.instance_id,
+                    "zone_incarnation": obj.zone_incarnation,
                     "owner_id": obj.owner_id,
                     "object_types": sorted(obj.type_words),
                     "subtypes": obj.card.type_line.partition("—")[2].strip().lower().split(),

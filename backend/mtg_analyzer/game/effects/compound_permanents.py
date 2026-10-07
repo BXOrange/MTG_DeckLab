@@ -358,25 +358,26 @@ def _resume_coin_of_fate_split(rules, choice, answer):
 
 
 class ExileRandomGraveyardCardsCastFreeEffect(GameEffect):
-    """"Exile a card at random from each opponent's graveyard. You may cast any number of spells from among cards exiled
-    this way without paying their mana costs. Then each player who owns a spell you cast this way loses life equal to its
-    mana value." (Kefka, Dancing Mad) — each exiled nonland card gets a free-cast window for this effect's controller (the
-    Etali shape) and is marked so its owner loses life equal to its mana value when it is actually cast
-    (`GameState.free_cast_owner_loses_life_ids`)."""
+    """Kefka: random exile, optional repeated immediate casts, then owner life loss.
+
+    RULE 608.2g keeps every cast inside this resolution. The recorded spell
+    mana values are paid as life loss only after the entire casting sequence.
+    """
 
     def apply(self, context, targets=None):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        for opponent in [p for p in context.state.living_players() if p.id != player.id]:
-            if not opponent.graveyard:
-                continue
-            card = context.engine.random_choice(list(opponent.graveyard))
-            context.exile(card)
-            if card.card.is_land:
-                continue
-            context.engine.grant_free_cast_window_from_exile(card, caster=player, ignore_timing=True)
-            context.state.free_cast_owner_loses_life_ids.add(card.instance_id)
+        cards = []
+        with context.state.simultaneous():
+            for opponent in [p for p in context.state.living_players() if p.id != player.id]:
+                if not opponent.graveyard:
+                    continue
+                obj = context.engine.random_choice(list(opponent.graveyard))
+                context.exile(obj)
+                cards.append(obj)
+        context.engine._request_resolution_play(player, cards, repeat=True, only_spells=True,
+                                                owner_life_loss=True)
 
 
 class MillEachPlayerMayCastMilledEffect(GameEffect):
@@ -396,12 +397,13 @@ class MillEachPlayerMayCastMilledEffect(GameEffect):
 
 
 class _MillOnePlayerEffect(GameEffect):
-    def __init__(self, player_id, source):
+    def __init__(self, player_id, source, count=1):
         super().__init__(source)
         self.player_id = player_id
+        self.count = count
 
     def apply(self, context, targets=None):
-        context.mill(context.state.player_by_id(self.player_id), 1)
+        context.mill(context.state.player_by_id(self.player_id), self.count)
 
 
 class _GrantMilledSpellWindowEffect(GameEffect):
@@ -428,14 +430,11 @@ class _GrantMilledSpellWindowEffect(GameEffect):
 
 
 class MillAttackersEachPlayerCastFreeEffect(GameEffect):
-    """"Whenever one or more Sphinxes you control attack, each player mills that many cards. For each player, you may cast a
-    card that player milled this way without paying its mana cost." (The Ur-Sphinx)
+    """Ur-Sphinx: mill for each attacking Sphinx, then offer one immediate cast per player.
 
-    "That many" is the number of declared attackers of ``subtype`` in the firing `ATTACKERS_DECLARED` event. Each player
-    mills in APNAP order; then, per player, every nonland card *they* milled this way gets a free-cast permission from the
-    graveyard for the controller, grouped so casting one of a player's cards ends the offer for the rest of that player's
-    (RULE 601.2a: "a card"). **Simplification:** the window lasts the rest of the turn rather than only while the ability
-    resolves."""
+    Milling choices finish first. Each subsequent offer is scoped to the
+    corresponding player’s newly milled graveyard incarnations (RULE 608.2g).
+    """
 
     def __init__(self, subtype: str = "sphinx", source=None):
         super().__init__(source)
@@ -456,58 +455,104 @@ class MillAttackersEachPlayerCastFreeEffect(GameEffect):
         if count <= 0:
             return
         start = len(context.state.event_log)
-        for p in context.state.living_players_apnap():
-            context.mill(p, count)
-        milled: dict[str, set[int]] = {}
-        for logged in context.state.event_log[start:]:
-            if logged.type != EventType.CARDS_MILLED:
+        players = list(context.state.living_players_apnap())
+        effects = [_MillOnePlayerEffect(p.id, self.source, count) for p in players]
+        effects.extend(_OfferMilledPlayerCastEffect(p.id, start, self.source) for p in players)
+        _apply_effects_partitioned(effects, context, None, None, source=self.source)
+
+
+class _OfferMilledPlayerCastEffect(GameEffect):
+    def __init__(self, owner_id, history_start, source):
+        super().__init__(source)
+        self.owner_id, self.history_start = owner_id, history_start
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        cards = []
+        for event in context.state.event_log[self.history_start:]:
+            if event.type != EventType.CARDS_MILLED or event.get("player_id") != self.owner_id:
                 continue
-            for card in logged.get("cards", []):
-                if "land" in card.get("object_types", []):
-                    continue
-                milled.setdefault(logged.get("player_id"), set()).add(card["instance_id"])
-        for ids in milled.values():
-            group = frozenset(ids)
-            for iid in ids:
-                obj = context.state.find_object(iid)
-                if obj is not None and obj.zone == Zone.GRAVEYARD:
-                    context.state.temp_graveyard_cast_permissions[iid] = player.id
-                    context.state.temp_graveyard_cast_permission_groups[iid] = group
-                    context.state.free_cast_instance_ids.add(iid)
+            for record in event.get("cards", []):
+                obj = context.state.find_object(record["instance_id"])
+                if (obj is not None and obj.zone == Zone.GRAVEYARD
+                        and obj.zone_incarnation == record.get("zone_incarnation", obj.zone_incarnation)):
+                    cards.append(obj)
+        context.engine._request_resolution_play(player, cards, zone="graveyard", only_spells=True)
+
+
+def _offer_graveyard_spell_exiles(rules, frame):
+    remaining = list(frame["remaining_owner_ids"])
+    selected = list(frame.get("selected", []))
+    while remaining:
+        owner_id = remaining.pop(0)
+        owner = rules.state.player_by_id(owner_id)
+        cards = [o for o in owner.graveyard if o.card.is_instant or o.card.is_sorcery]
+        if not cards:
+            continue
+        if len(cards) == 1:
+            selected.append({"instance_id": cards[0].instance_id, "incarnation": cards[0].zone_incarnation})
+            continue
+        rules.open_choice({**frame, "kind": "choose_graveyard_spell_exile",
+            "remaining_owner_ids": remaining, "selected": selected,
+            "optional": False, "prompt": f"Wähle einen Instant oder eine Sorcery aus {owner.name}s Friedhof",
+            "options": [{"id": str(o.instance_id), "instance_id": o.instance_id,
+                         "incarnation": o.zone_incarnation, "label": o.name} for o in cards]})
+        return
+    source = rules.state.find_object(frame.get("source_id"))
+    can_link = source is not None and source.zone_incarnation == frame.get("source_incarnation")
+    with rules.state.simultaneous():
+        for record in selected:
+            obj = rules.state.find_object(record["instance_id"])
+            if obj is None or obj.zone != Zone.GRAVEYARD or obj.zone_incarnation != record["incarnation"]:
+                continue
+            rules.exile(obj)
+            if can_link and obj.zone == Zone.EXILE:
+                source.exiled_with_ids.append(obj.instance_id)
+
+
+@continuations.choice("choose_graveyard_spell_exile", answer=continuations.ANSWER_INT, rule="608.2d")
+def _resume_graveyard_spell_exile(rules, choice, answer):
+    option = next((o for o in choice["options"] if o["instance_id"] == answer), None)
+    if option is None:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed graveyard spell")
+    _offer_graveyard_spell_exiles(rules, {**choice, "selected": [*choice["selected"], {
+        "instance_id": answer, "incarnation": option["incarnation"],
+    }]})
 
 
 class ExileInstantSorceryFromEachGraveyardEffect(GameEffect):
-    """"Exile an instant or sorcery card from each graveyard." (Summon: Esper Valigarmanda, chapter I) — the exiled cards are
-    remembered as exiled with the source Saga (`exiled_with_ids`). **Simplification:** the most recently added matching card
-    of each graveyard is taken rather than offering a choice."""
+    """Controller selects a spell from each graveyard; exile the selected set together."""
 
     def apply(self, context, targets=None):
-        for p in list(context.state.players):
-            card = next((o for o in reversed(p.graveyard) if o.card.is_instant or o.card.is_sorcery), None)
-            if card is None:
-                continue
-            context.exile(card)
-            if self.source is not None:
-                self.source.exiled_with_ids.append(card.instance_id)
+        player = _controller_of(self.source, context)
+        if player is not None:
+            _offer_graveyard_spell_exiles(context.engine, {
+                "player_id": player.id, "selected": [],
+                "remaining_owner_ids": [p.id for p in context.state.living_players_apnap()],
+                "source_id": getattr(self.source, "instance_id", None),
+                "source_incarnation": context.resolving_source_incarnation,
+            })
 
 
 class CastExiledWithSourceEffect(GameEffect):
-    """"You may cast an instant or sorcery card exiled with this Saga, and mana of any type can be spent to cast that
-    spell." (Summon: Esper Valigarmanda, chapters II–IV) — a this-turn cast permission, with mana of any type, over every
-    instant/sorcery card the source exiled and still has in exile. **Simplification:** the window lasts the rest of the turn
-    rather than ending when the chapter ability finishes resolving."""
+    """Valigarmanda: offer one linked spell during this chapter, paying its normal costs.
+
+    Mana may be spent as any type for this cast; the permission and mana
+    flexibility end when the player casts or declines (RULE 608.2g).
+    """
 
     def apply(self, context, targets=None):
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        for instance_id in list(getattr(self.source, "exiled_with_ids", None) or []):
-            obj = context.state.find_object(instance_id)
-            if obj is None or obj.zone != Zone.EXILE or not (obj.card.is_instant or obj.card.is_sorcery):
-                continue
-            context.engine._grant_temp_play_permission(
-                obj, player, self.source.name, same_turn_only=True, mana_wildcard="type",
-            )
+        cards = [context.state.find_object(iid) for iid in self.source.exiled_with_ids]
+        cards = [obj for obj in cards if obj is not None and obj.zone == Zone.EXILE
+                 and (obj.card.is_instant or obj.card.is_sorcery)]
+        context.engine._request_resolution_play(player, cards, only_spells=True, free=False,
+                                                mana_wildcard="type")
 
 
 EffectRegistry.register("mark_event_log", lambda p: MarkEventLogEffect())

@@ -226,3 +226,48 @@ def test_repeated_play_waits_for_a_lands_entry_choice_before_offering_next_card(
     engine.play_resolution_card(player, spell)
     assert not engine.state.pending_choice and not engine.state.resolution_play_waiting
     assert spell.zone == Zone.STACK
+
+
+def test_repeated_paid_offers_charge_each_spell_normally():
+    engine, player, first = _offer("Divination")
+    engine.rules.resolve_choice("decline")
+    second = GameObject(CardDatabase(DB_PATH).get_card("Divination"), owner_id=player.id, zone=Zone.EXILE)
+    bind_from_catalogue(second)
+    player.add_to_zone(second, Zone.EXILE)
+    player.mana_pool.add_many({"U": 2, "C": 4})
+    engine.rules._request_resolution_play(player, [first, second], repeat=True, free=False)
+    engine.play_resolution_card(player, first)
+    assert first.mana_spent_to_cast == 3
+    assert engine.state.pending_choice["free"] is False
+    engine.play_resolution_card(player, second)
+    assert second.mana_spent_to_cast == 3
+    assert not engine.state.resolution_play_choice
+
+
+def test_resolution_mana_wildcard_is_scoped_and_restores_an_unplayed_prior_permission():
+    engine, player, spell = _offer("Divination")
+    engine.rules.resolve_choice("decline")
+    engine.state.mana_wildcard_permission[spell.instance_id] = "color"
+    engine.rules._request_resolution_play(player, [spell], free=False, mana_wildcard="type")
+    assert engine.state.mana_wildcard_permission[spell.instance_id] == "type"
+    engine.rules.resolve_choice("decline")
+    assert engine.state.mana_wildcard_permission[spell.instance_id] == "color"
+    engine.rules._request_resolution_play(player, [spell], free=False, mana_wildcard="type")
+    player.mana_pool.add_many({"R": 3})
+    engine.play_resolution_card(player, spell)
+    assert spell.mana_spent_to_cast == 3
+    assert spell.instance_id not in engine.state.mana_wildcard_permission
+
+
+def test_paid_resolution_offer_can_use_an_ordinary_alternative_cost():
+    engine, player, spell = _offer("Snuff Out")
+    engine.rules.resolve_choice("decline")
+    swamp = GameObject(CardDatabase(DB_PATH).get_card("Swamp"), owner_id=player.id, zone=Zone.BATTLEFIELD)
+    engine.state.add_to_battlefield(swamp)
+    victim = GameObject(Card(id="victim", name="Victim", type_line="Creature", is_creature=True,
+                             power=2, toughness=2), owner_id="p2", zone=Zone.BATTLEFIELD)
+    engine.state.add_to_battlefield(victim)
+    engine.rules._request_resolution_play(player, [spell], only_spells=True, free=False)
+    assert any(a.get("alt_cost") for a in engine.resolution_play_actions(player))
+    engine.play_resolution_card(player, spell, targets=[victim], alt_cost=True)
+    assert player.life == 16 and spell.zone == Zone.STACK

@@ -2035,9 +2035,10 @@ class SacrificeSelfEffect(GameEffect):
 
     def __init__(
         self, source: Optional["GameObject"] = None, target_kind: Optional[str] = None,
-        trigger_event_key: Optional[str] = None,
+        trigger_event_key: Optional[str] = None, require_source_incarnation: bool = False,
     ) -> None:
         super().__init__(source)
+        self.require_source_incarnation = bool(require_source_incarnation)
         self._trigger_subject_mode = target_kind == "trigger_subject"
         self.trigger_event_key = trigger_event_key or "instance_id"
 
@@ -2048,6 +2049,14 @@ class SacrificeSelfEffect(GameEffect):
             subject = context.state.find_object(iid) if iid is not None else None
             # RULE 701.17a: only a permanent on the battlefield can be sacrificed.
             if subject is not None and subject not in context.state.battlefield:
+                return
+        if self.require_source_incarnation:
+            incarnation = context.resolving_source_incarnation
+            player = _controller_of(self.source, context)
+            if (subject is None or subject not in context.state.battlefield
+                    or subject.cant_be_sacrificed_this_turn or player is None
+                    or subject.controller_id != player.id
+                    or (incarnation is not None and subject.zone_incarnation != incarnation)):
                 return
         if subject is not None:
             context.put_into_graveyard(subject)

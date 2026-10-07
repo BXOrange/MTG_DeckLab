@@ -292,7 +292,7 @@ def test_kefka_own_turn_indestructibility_and_free_cast_owner_life_loss():
     _step(e, 'end')
     assert hit.zone == Zone.EXILE
     p1, p2 = e.state.players
-    e.cast_spell(p1, hit, free=True)
+    e.play_resolution_card(p1, hit)
     e.resolve_until_stable()
     assert hit.zone == Zone.BATTLEFIELD and hit.controller_id == 'p1'
     assert p2.life == 16
@@ -463,10 +463,10 @@ def test_strago_digs_opponents_library_creature_has_haste_and_end_step_sacrifice
     p1.mana_pool.add_many(RICH)
     _activate(e, source, targets=[p2])
     assert hit.zone == Zone.EXILE and all(o.zone == Zone.EXILE for o in misses)
-    e.cast_spell(p1, hit, free=True)
+    e.play_resolution_card(p1, hit)
     e.resolve_until_stable()
     assert hit.controller_id == 'p1' and hit.zone == Zone.BATTLEFIELD and combat.has(hit, 'haste')
-    e._fire_delayed_triggers('end')
+    _step(e, 'end')
     e.resolve_until_stable()
     assert hit.zone == Zone.GRAVEYARD
 
@@ -485,13 +485,15 @@ def test_valigarmanda_chapters_link_exile_produce_lore_mana_and_allow_wildcard_c
     e.resolve_until_stable()
     assert p1.mana_pool.pool['R'] == 2
     assert e.can_cast(p1, foreign)
-    e.cast_spell(p1, foreign)
+    e.play_resolution_card(p1, foreign)
     e.resolve_until_stable()
     assert foreign.zone == Zone.GRAVEYARD and foreign.owner_id == 'p2'
     e.rules.advance_sagas(p1)
     e.resolve_until_stable()
+    _answer(e)  # decline the next chapter's immediate cast
     e.rules.advance_sagas(p1)
     e.resolve_until_stable()
+    _answer(e)  # finish the final chapter before its Saga sacrifice
     assert saga.zone == Zone.GRAVEYARD
 
 
@@ -632,6 +634,9 @@ def test_strago_unused_hit_stays_exiled_and_activation_is_sorcery_only():
     e.state.current_step = 'upkeep'
     assert not e.can_activate(p1, source, source.activated_abilities[0])
     _activate(e, source, targets=[p2])
+    assert e.state.pending_choice['kind'] == 'play_during_resolution'
+    e.resolve_pending_choice('decline')
+    assert not e.can_cast(p1, hit)
     e._fire_delayed_triggers('end')
     e.resolve_until_stable()
     e._step_cleanup()
@@ -652,7 +657,7 @@ def test_warring_triad_needs_a_library_card_for_its_mill_cost():
     assert not e.can_activate(e.state.player_by_id('p1'), triad, triad.activated_abilities[0])
 
 
-def test_valigarmanda_permissions_end_at_cleanup_and_do_not_cover_unlinked_cards():
+def test_valigarmanda_permissions_end_when_the_immediate_cast_is_declined_and_do_not_cover_unlinked_cards():
     e = _game()
     linked = _grave(e, 'Linked', 'p2', kind='Instant')
     unrelated = _filler(e, 'Unrelated', 'Instant', 'p2', zone=Zone.EXILE)
@@ -662,7 +667,8 @@ def test_valigarmanda_permissions_end_at_cleanup_and_do_not_cover_unlinked_cards
     e.resolve_until_stable()
     p1 = e.state.player_by_id('p1')
     assert e.can_cast(p1, linked) and not e.can_cast(p1, unrelated)
-    e._step_cleanup()
+    e.resolve_pending_choice("decline")
+    assert linked.instance_id not in e.state.mana_wildcard_permission
     assert not e.can_cast(p1, linked)
 
 
@@ -703,3 +709,65 @@ def test_coin_of_fate_controller_selects_an_opponent_and_that_opponent_can_botto
     assert cheap.zone == Zone.LIBRARY
     assert expensive.zone == Zone.BATTLEFIELD and expensive.tapped
     assert e.state.monarch_id == "p1"
+
+
+def test_kefka_waits_for_the_cast_sequence_to_finish_before_owner_life_loss():
+    e = _game(players=3)
+    _card(e, "Kefka, Dancing Mad")
+    first = _grave(e, "First Foreign", "p2", mv=3)
+    second = _grave(e, "Second Foreign", "p3", mv=5)
+    _step(e, "end")
+    p1, p2, p3 = e.state.players
+    assert e.state.pending_choice["kind"] == "play_during_resolution"
+    e.play_resolution_card(p1, first)
+    assert first.zone == Zone.STACK and p2.life == p3.life == 20
+    assert e.state.pending_choice["instance_ids"] == [second.instance_id]
+    e.resolve_pending_choice("decline")
+    assert p2.life == 17 and p3.life == 20
+    assert not e.can_cast(p1, second) and second.zone == Zone.EXILE
+    assert not e.state.free_cast_instance_ids and not e.state.free_cast_ignore_timing_instance_ids
+
+
+def test_strago_granted_haste_and_sacrifice_survive_cleanup_after_a_countered_trigger():
+    e = _game()
+    source = _card(e, "Strago and Relm")
+    creature = _top(e, "Granted Creature", "p2", mv=2)
+    p1, p2 = e.state.players
+    p1.mana_pool.add_many(RICH)
+    _activate(e, source, targets=[p2])
+    e.play_resolution_card(p1, creature)
+    e.resolve_until_stable()
+    e.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", player_id="p1"))
+    queue, e.rules.pending_triggers = e.rules.pending_triggers, []
+    e.rules._place_triggers(queue)
+    trigger = next(i for i in e.state.stack if i.source is creature)
+    e.rules.counter_ability(trigger)
+    e._step_cleanup()
+    assert creature.zone == Zone.BATTLEFIELD and combat.has(creature, "haste")
+    _step(e, "end")
+    assert creature.zone == Zone.GRAVEYARD
+    e.rules.return_from_graveyard(creature, "battlefield")
+    assert not combat.has(creature, "haste")  # a new incarnation has neither granted ability
+
+
+def test_valigarmanda_exile_choices_are_explicit_and_the_cast_is_one_per_chapter():
+    e = _game()
+    own = [_grave(e, f"Own {i}", kind="Instant", mv=1) for i in range(2)]
+    foreign = [_grave(e, f"Foreign {i}", "p2", kind="Sorcery", mv=1) for i in range(2)]
+    saga = _card(e, "Summon: Esper Valigarmanda", zone=Zone.HAND)
+    _cast(e, saga, RICH)
+    assert e.state.pending_choice["kind"] == "choose_graveyard_spell_exile"
+    e.resolve_pending_choice(own[0].instance_id)
+    assert all(o.zone == Zone.GRAVEYARD for o in [*own, *foreign])
+    e.resolve_pending_choice(foreign[1].instance_id)
+    assert own[0].zone == foreign[1].zone == Zone.EXILE
+    assert own[1].zone == foreign[0].zone == Zone.GRAVEYARD
+    p1 = e.state.player_by_id("p1")
+    p1.mana_pool.empty()
+    e.rules.advance_sagas(p1)
+    e.resolve_until_stable()
+    e.play_resolution_card(p1, own[0])
+    assert not e.state.resolution_play_choice
+    assert not e.can_cast(p1, foreign[1])
+    assert own[0].instance_id not in e.state.mana_wildcard_permission
+    assert foreign[1].instance_id not in e.state.mana_wildcard_permission

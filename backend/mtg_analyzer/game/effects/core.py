@@ -86,6 +86,7 @@ class GameContext:
         self.resolving_controller_id: Optional[str] = None
         # RULE 610.3a/b: incarnation of the source of the resolving stack item.
         self.resolving_source_incarnation: Optional[int] = None
+        self.resolving_stack_item: Optional[Any] = None
         #: PAR-123: the player "you" means while a body runs *as someone else* — "**its
         #: controller** creates a 1/1 Snake token" is the ordinary "you create a token" done by
         #: the firing object's controller (RULE 109.5: the player an ability's "you" names).
@@ -532,27 +533,24 @@ class GameContext:
             add_colors=add_colors,
         )
 
-    def copy_spell(
-        self,
-        target: Any,
-        controller_id: str,
-        count: int = 1,
-        new_targets: Optional[list] = None,
-    ) -> None:
-        self.engine.copy_spell(target, controller_id, count, new_targets)
+    def copy_spell(self, target: Any, controller_id: str, count: int = 1,
+                   new_targets: Optional[list] = None, *, choose_new_targets: bool = False,
+                   defer_choice: bool = False):
+        return self.engine.copy_spell(target, controller_id, count, new_targets,
+                                      choose_new_targets=choose_new_targets, defer_choice=defer_choice)
 
-    def copy_self_spell(self, obj: "GameObject", controller_id: str, targets: Optional[list] = None) -> None:
-        self.engine.copy_self_spell(obj, controller_id, targets=targets)
+    def copy_self_spell(self, obj: "GameObject", controller_id: str, targets: Optional[list] = None,
+                        *, choose_new_targets: bool = False):
+        return self.engine.copy_self_spell(obj, controller_id, targets=targets,
+                                           choose_new_targets=choose_new_targets)
 
-    def conjure_duplicate_into_hand(
-        self, target: Any, controller_id: str,
-    ) -> Optional["GameObject"]:
+    def conjure_duplicate_into_hand(self, target: Any, controller_id: str) -> Optional["GameObject"]:
         return self.engine.conjure_duplicate_into_hand(target, controller_id)
 
-    def copy_ability(
-        self, target: Any, controller_id: str, new_targets: Optional[list] = None,
-    ) -> None:
-        self.engine.copy_ability(target, controller_id, new_targets)
+    def copy_ability(self, target: Any, controller_id: str, new_targets: Optional[list] = None,
+                     *, choose_new_targets: bool = False, defer_choice: bool = False):
+        return self.engine.copy_ability(target, controller_id, new_targets,
+                                        choose_new_targets=choose_new_targets, defer_choice=defer_choice)
 
     def make_prepared(self, obj: "GameObject") -> None:
         self.engine.make_prepared(obj)

@@ -115,6 +115,9 @@ class StackItem:
         self.description = description
         self.targets = targets or []
         self.target_groups = target_groups
+        # RULE 400.7: retain each target's particular zone visit, including repeated targets.
+        self.target_incarnations = [getattr(t, "zone_incarnation", None) for t in self.targets]
+        self.copy_target_roles: list[Any] = []
         #: RULE 603.1: the event that *caused* this triggered ability, kept
         #: so an effect whose behaviour depends on the specific firing
         #: ("that permanent"'s produced mana, "that spell"'s card types, the
@@ -1074,6 +1077,9 @@ class GameState:
         self._graveyard_exits: list[dict[str, Any]] = []
         # RULE 610.3: source and exile incarnations; values survive undo snapshots.
         self.until_source_leaves_exiles: list[dict[str, int]] = []
+        # RULE 707.10c: copied stack items are held here until their targets are chosen.
+        self.pending_stack_copies: list[dict[str, Any]] = []
+        self.ready_stack_copies: list[StackItem] = []
 
     # -- Players ---------------------------------------------------------
 

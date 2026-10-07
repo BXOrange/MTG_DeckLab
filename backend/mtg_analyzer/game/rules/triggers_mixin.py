@@ -327,6 +327,17 @@ class TriggerCollectionMixin:
         controlled by the active player rather than following a
         designation, so no lookup is needed beyond `state.active_player`.
         """
+        if event.type == EventType.STEP_BEGIN and event.get("step") == "end":
+            from ..effects.life_sacrifice import SacrificeSelfEffect
+
+            for obj in self.state.permanents():
+                if obj.granted_haste_sacrifice and not getattr(obj, "loses_all_abilities", False):
+                    ability = TriggeredAbility(
+                        trigger_event=EventType.STEP_BEGIN, source=obj, controller_id=obj.controller_id,
+                        effects=[SacrificeSelfEffect(source=obj, require_source_incarnation=True)],
+                        description=f"{obj.name}: im Endsegment opfern",
+                    )
+                    self._queue_firing(ability, event, obj)
         if event.type == EventType.ATTACKERS_DECLARED:
             from ..effects.core import PumpEffect
             amount = len(set(event.get("defending_player_ids") or []))
@@ -1186,7 +1197,7 @@ class TriggerCollectionMixin:
             ability = TriggeredAbility(
                 EventType.SPELL_CAST,
                 [CopySpellEffect(count=max(0, previous_casts), source=obj,
-                                 spell_from_trigger_event="instance_id")],
+                                 spell_from_trigger_event="instance_id", choose_new_targets=True)],
                 source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Storm",
             )
             self._queue_firing(ability, event, obj, capture=False)

@@ -113,6 +113,7 @@ class GameEngine(
         self.state.pending_choice = None
         previous_controller = obj.controller_id
         previous_exile = obj.exile_after_free_cast
+        previous_rider = obj.granted_haste_sacrifice
         obj.exile_after_free_cast = previous_exile or choice.get("exile_after_cast", False)
         obj.controller_id = player.id
         try:
@@ -123,14 +124,19 @@ class GameEngine(
         except Exception:
             obj.controller_id = previous_controller
             obj.exile_after_free_cast = previous_exile
+            obj.granted_haste_sacrifice = previous_rider
             self.state.pending_choice = choice
             raise
         if self.state.pending_cast_payment is not None:
             # Additional-cost choices suspend this same immediate cast, not its permission.
             self.state.pending_cast_payment["resolution_play"] = choice
             return result
+        if choice.get("cast_rider") == "haste_sacrifice" and card.is_creature:
+            obj.granted_haste_sacrifice = True
         if choice.get("lock_casting"):
             self.state.no_more_spells_this_turn.add(player.id)
+        if choice.get("owner_life_loss") and not card.is_land:
+            choice["owner_life_losses"].append({"owner_id": obj.owner_id, "amount": int(obj.mana_value or 0)})
         self.rules._finish_resolution_play_permission(played_id=obj.instance_id)
         if choice.get("repeat"):
             self.state.resolution_play_followup = {
@@ -139,6 +145,10 @@ class GameEngine(
                 "zone": choice.get("zone", "exile"),
                 "only_spells": choice.get("only_spells", False),
                 "max_mana_value": choice.get("max_mana_value"),
+                "free": choice.get("free", True), "exile_after_cast": choice.get("exile_after_cast", False),
+                "mana_wildcard": choice.get("mana_wildcard"), "cast_rider": choice.get("cast_rider"),
+                "owner_life_loss": choice.get("owner_life_loss", False),
+                "owner_life_losses": list(choice.get("owner_life_losses", [])),
             }
         self._finish_resolution_play()
         return result
@@ -154,6 +164,10 @@ class GameEngine(
                 self.state.player_by_id(followup["player_id"]), cards, repeat=True,
                 zone=zone, only_spells=followup.get("only_spells", False),
                 max_mana_value=followup.get("max_mana_value"),
+                free=followup.get("free", True), exile_after_cast=followup.get("exile_after_cast", False),
+                mana_wildcard=followup.get("mana_wildcard"), cast_rider=followup.get("cast_rider"),
+                owner_life_loss=followup.get("owner_life_loss", False),
+                owner_life_losses=followup.get("owner_life_losses"),
             )
         while not self.state.pending_choice and self.rules.resume_deferred_effects():
             pass
@@ -189,5 +203,7 @@ class GameEngine(
             if action["type"] == "cast_spell" and choice.get("free", True):
                 action["has_x"] = False
                 action["max_x"] = 0
+        if not choice.get("free", True):
+            return actions  # RULE 601.2b: a paid offer permits ordinary alternative costs.
         return [action for action in actions if action.get("face") not in ("face_down", "bestow", "fuse")
                 and not any(action.get(key) for key in ("free", "alt_cost", "evoke", "surge", "mutate", "exile_discount"))]

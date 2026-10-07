@@ -889,15 +889,20 @@ def test_ur_sphinx_attack_mills_each_player_and_offers_a_free_cast_per_player():
     engine.state.fire_event(GameEvent(EventType.ATTACKERS_DECLARED, player_id="p1", controller_id="p1",
                                       attacker_ids=[sphinx.instance_id], count=1))
     engine.resolve_until_stable()
-    _answer(engine)
-    assert mine.zone == Zone.GRAVEYARD and their.zone == Zone.GRAVEYARD
-    assert engine.state.free_cast_instance_ids >= {mine.instance_id, their.instance_id}
-    assert engine.state.temp_graveyard_cast_permissions[their.instance_id] == "p1"
-    engine.state.current_phase, engine.state.current_step = "main", "main1"
-    engine.cast_spell(engine.state.player_by_id("p1"), their)  # no mana in the pool: cast for free from the graveyard
-    engine.resolve_until_stable()
+    assert mine.zone == their.zone == Zone.GRAVEYARD
+    player = engine.state.player_by_id("p1")
+    assert engine.state.pending_choice["instance_ids"] == [mine.instance_id]
+    assert mine.instance_id in engine.state.free_cast_instance_ids
     assert their.instance_id not in engine.state.free_cast_instance_ids
-    assert their.zone != Zone.GRAVEYARD or their in engine.state.player_by_id("p2").graveyard
+    engine.play_resolution_card(player, mine)
+    assert mine.zone == Zone.STACK  # no priority until the outer effect finishes
+    assert engine.state.pending_choice["instance_ids"] == [their.instance_id]
+    engine.play_resolution_card(player, their)
+    engine.resolve_until_stable()
+    assert mine.zone == Zone.BATTLEFIELD and their.zone == Zone.GRAVEYARD
+    assert not engine.state.free_cast_instance_ids
+    assert not engine.state.temp_graveyard_cast_permissions
+    assert not engine.can_cast(player, their)
 
 
 def test_jace_plus_one_draws_two_and_bottoms_a_chosen_card():

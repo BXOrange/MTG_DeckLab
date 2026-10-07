@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 
 from typing import Any, Callable, Optional, Union
 
@@ -110,7 +111,24 @@ class BindError(ValueError):
     """A spec could not be bound to a `GameEffect` (e.g. unknown effect type)."""
 
 
-def build_effects(effects: list[EffectSpec], source: Optional[Any] = None) -> list[GameEffect]:
+# RULE 707.10c: seal permission in the IR at binding, including suspended nested bodies.
+_COPY_TARGET_TYPES = frozenset({"copy_spell", "copy_ability", "copy_self_spell", "copy_target_ability"})
+_COPY_TARGET_WORDS = re.compile(r"\bmay choose (?:a )?new targets?\b", re.IGNORECASE)
+
+
+def _seal_copy_permission(value, permission):
+    if isinstance(value, list):
+        return [_seal_copy_permission(v, permission) for v in value]
+    if not isinstance(value, dict):
+        return value
+    result = {k: _seal_copy_permission(v, permission) for k, v in value.items()}
+    if result.get("type") in _COPY_TARGET_TYPES:
+        params = result.setdefault("params", {})
+        params.setdefault("choose_new_targets", permission)
+    return result
+
+
+def build_effects(effects: list[EffectSpec], source: Optional[Any] = None, *, copy_targets_text: Optional[str] = None) -> list[GameEffect]:
     """Instantiate one-shot `GameEffect`s from their specs via the registry.
 
     Refuses any effect ``type`` the `EffectRegistry` doesn't know — nothing
@@ -120,8 +138,18 @@ def build_effects(effects: list[EffectSpec], source: Optional[Any] = None) -> li
     for spec in effects:
         if not EffectRegistry.is_registered(spec.type):
             raise BindError(f"no registered effect for type {spec.type!r}")
-        effect = EffectRegistry.create(spec.type, dict(spec.params))
+        printed = copy_targets_text if copy_targets_text is not None else getattr(getattr(source, "card", source), "oracle_text", "")
+        permission = bool(_COPY_TARGET_WORDS.search(printed or ""))
+        params = _seal_copy_permission(spec.params, permission)
+        if spec.type in _COPY_TARGET_TYPES:
+            params.setdefault("choose_new_targets", permission)
+        bound_spec = dataclasses.replace(spec, params=params)
+        effect = EffectRegistry.create(spec.type, _seal_copy_permission(params, permission))
         effect.source = source
+        card = getattr(source, "card", None)
+        if card is not None and (card.is_instant or card.is_sorcery):
+            # Retain selected spell-mode instructions so a copy does not reselect modes.
+            effect._bound_spec = bound_spec
         per_player = spec.params.get("per_player")
         if per_player in PER_PLAYER_SCOPES and getattr(effect, "target_spec", None) is not None:
             # PAR-130: "for each opponent/player, … target `<X>` that player
@@ -3156,7 +3184,7 @@ def bind_ability(
         assert spec.trigger is not None  # validate() guarantees this
         effect_specs = _retarget_implicit_subject_effects(effect_specs, spec.trigger)
 
-    effects = build_effects(effect_specs, source)
+    effects = build_effects(effect_specs, source, copy_targets_text=spec.raw_text or None)
 
     if spec.ability_kind == "spell_effect":
         return effects

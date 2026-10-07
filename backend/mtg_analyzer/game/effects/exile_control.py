@@ -2600,11 +2600,10 @@ class LookTopCastFreeEffect(GameEffect):
     less than or equal to `<source>`'s power from among them without paying its mana cost. Put
     the rest on the bottom of your library in a random order." (Velomachus Lorehold)
 
-    The looked-at cards are exiled so the cast goes through the ordinary RULE 608.2g
+    The cast goes through the ordinary RULE 608.2g
     resolution-play path (`RulesEngine._request_resolution_play`, the cascade route), which keeps
     targets, modes and additional costs; every card that is not cast then goes to the bottom
-    (``bottom_remaining``). **Documented simplification:** the cards leave the library zone for
-    the duration of the choice instead of being cast from it. ``criteria`` is a
+    (``bottom_remaining``). Cards stay in the library until cast or reordered. ``criteria`` is a
     `card_query` dict; ``max_mana_value_from="source_power"`` bounds mana value by the
     source's current power (inclusive).
     """
@@ -2629,33 +2628,23 @@ class LookTopCastFreeEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        exiled = []
-        for _ in range(max(0, self.count)):
-            if not player.library:
-                break
-            obj = player.library.pop()
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
-            exiled.append(obj)
-            context.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
-            )
-        if not exiled:
+        looked = list(reversed(player.library[-max(0, self.count):])) if self.count > 0 else []
+        if not looked:
             return
         limit = None
         if self.max_mana_value_from == "source_power":
             limit = max(0, int(getattr(self.source, "power", 0) or 0))
         candidates = [
-            o for o in exiled
+            o for o in looked
             if not o.card.is_land and card_query.matches(o.card, self.criteria)
             and (limit is None or o.mana_value <= limit)
         ]
-        rest_ids = [o.instance_id for o in exiled]
+        rest_ids = [o.instance_id for o in looked]
         if not candidates:
-            context.engine._bottom_remaining(player, rest_ids)
+            context.engine._bottom_remaining(player, rest_ids, zone="library")
             return
         context.engine._request_resolution_play(
-            player, candidates, only_spells=True,
+            player, candidates, only_spells=True, zone="library",
             # `play_resolution_card` demands a *strictly* lesser value, so "≤ power" is "< power + 1".
             max_mana_value=None if limit is None else limit + 1,
             bottom_remaining=rest_ids,

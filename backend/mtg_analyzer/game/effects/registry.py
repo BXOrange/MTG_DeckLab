@@ -774,6 +774,7 @@ EffectRegistry.register(
 EffectRegistry.register(
     "copy_spell",
     lambda p: CopySpellEffect(
+        choose_new_targets=bool(p.get("choose_new_targets", False)),
         card_types=p.get("card_types"),
         count=p.get("count", 1),
         target_count=int(p.get("target_count", 1) or 1),
@@ -790,12 +791,12 @@ EffectRegistry.register(
     # ability-item sibling of ``"copy_spell"``; ``"that ability"`` is read
     # off `GameObject.remembered_stack_id`, not a target.
     "copy_ability",
-    lambda p: CopyAbilityEffect(),
+    lambda p: CopyAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False))),
 )
 EffectRegistry.register(
     # "Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry)
     "copy_target_ability",
-    lambda p: CopyTargetAbilityEffect(),
+    lambda p: CopyTargetAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False))),
 )
 EffectRegistry.register(
     # "Conjure a duplicate of that spell into your hand." (Spellchain
@@ -807,7 +808,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "copy_self_spell",
-    lambda p: CopySelfSpellEffect(controller=p.get("controller")),
+    lambda p: CopySelfSpellEffect(controller=p.get("controller"), choose_new_targets=bool(p.get("choose_new_targets", False))),
 )
 EffectRegistry.register(
     "change_target",

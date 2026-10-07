@@ -180,17 +180,26 @@ class SearchMixin:
                                  only_spells: bool = False, max_mana_value: Optional[int] = None,
                                  bottom_remaining: Optional[list[int]] = None, zone: str = "exile",
                                  free: bool = True, exile_after_cast: bool = False,
-                                 lock_casting: bool = False) -> None:
-        """RULE 608.2g: offer a card from exile or the graveyard only during this resolution."""
+                                 lock_casting: bool = False, mana_wildcard: Optional[str] = None,
+                                 owner_life_loss: bool = False, owner_life_losses: Optional[list[dict]] = None,
+                                 cast_rider: Optional[str] = None) -> None:
+        """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
         cards = [obj for obj in cards if obj.zone.value == zone]
         if not cards:
+            if owner_life_loss:
+                for loss in owner_life_losses or []:
+                    self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
             return
         choice = {
             "kind": "play_during_resolution", "player_id": player.id,
             "zone": zone, "free": free, "exile_after_cast": exile_after_cast, "lock_casting": lock_casting,
             "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
+            "mana_wildcard": mana_wildcard, "cast_rider": cast_rider,
+            "owner_life_loss": bool(owner_life_loss), "owner_life_losses": list(owner_life_losses or []),
+            "prior_wildcard": {obj.instance_id: self.state.mana_wildcard_permission.get(obj.instance_id)
+                               for obj in cards},
             "bottom_remaining": list(bottom_remaining or []),
             "instance_ids": [obj.instance_id for obj in cards],
             "options": [{"id": "decline", "label": "Decline"}],
@@ -204,6 +213,8 @@ class SearchMixin:
         if free:
             self.state.free_cast_instance_ids.update(choice["instance_ids"])
         self.state.free_cast_ignore_timing_instance_ids.update(choice["instance_ids"])
+        if mana_wildcard in {"color", "type"}:
+            self.state.mana_wildcard_permission.update({iid: mana_wildcard for iid in choice["instance_ids"]})
         self.open_choice(choice)
 
     def _finish_resolution_play_permission(self, played_id: Optional[int] = None) -> None:
@@ -215,9 +226,22 @@ class SearchMixin:
         self.state.free_cast_instance_ids.update(iid for iid in choice["prior_free"] if iid != played_id)
         self.state.free_cast_ignore_timing_instance_ids.difference_update(ids)
         self.state.free_cast_ignore_timing_instance_ids.update(iid for iid in choice["prior_timing"] if iid != played_id)
+        for iid, prior in choice.get("prior_wildcard", {}).items():
+            if prior is None or iid == played_id:
+                self.state.mana_wildcard_permission.pop(iid, None)
+            else:
+                self.state.mana_wildcard_permission[iid] = prior
+        # RULE 608.2c/g: the "then" payoff follows the entire repeated casting sequence.
+        if (choice.get("owner_life_loss") and (played_id is None or not choice.get("repeat")
+                or not any(iid != played_id for iid in choice["instance_ids"]))):
+            with self.state.simultaneous():
+                for loss in choice.get("owner_life_losses", []):
+                    self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
+            choice["owner_life_losses"] = []
         self.state.resolution_play_choice = None
         if choice.get("bottom_remaining"):
-            self._bottom_remaining(self.state.player_by_id(choice["player_id"]), choice["bottom_remaining"])
+            self._bottom_remaining(self.state.player_by_id(choice["player_id"]), choice["bottom_remaining"],
+                                   zone=choice.get("zone", "exile"))
 
     @continuations.choice("play_during_resolution", answer=continuations.ANSWER_STR, rule="608.2g")
     def _resume_play_during_resolution(self, choice: dict[str, Any], answer: Optional[str]) -> None:
@@ -2944,6 +2968,9 @@ class SearchMixin:
         hit when that is a *different* player than ``player`` (the digger) —
         Ensnared by the Mara's "**you** may cast that card" off an
         opponent's library. ``None`` keeps the digger as the caster."""
+        if destination == "cast_during_resolution":
+            self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider)
+            return
         if destination == "cast_free":
             self.cast_without_paying(caster or player, obj)
             return
@@ -2998,16 +3025,18 @@ class SearchMixin:
         return next((o for o in player.exile if o.instance_id == instance_id), None)
     def _bottom_exiled(self, player: Player, exiled: list[GameObject]) -> None:
         self._bottom_remaining(player, [o.instance_id for o in exiled])
-    def _bottom_remaining(self, player: Player, exiled_ids: list[int]) -> None:
+    def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile") -> None:
         """Put every still-exiled card from this effect on the bottom of the
         library in a random order (RULE 702.85e). Cards already cast/taken to
         hand are no longer in exile and are skipped."""
         import random
 
-        remaining = [o for o in list(player.exile) if o.instance_id in set(exiled_ids)]
+        origin = Zone.LIBRARY if zone == "library" else Zone.EXILE
+        pool = player.library if origin == Zone.LIBRARY else player.exile
+        remaining = [o for o in list(pool) if o.instance_id in set(exiled_ids)]
         random.shuffle(remaining)
         for obj in remaining:
-            player.remove_from_zone(obj, Zone.EXILE)
+            player.remove_from_zone(obj, origin)
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
 

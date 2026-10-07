@@ -10,9 +10,9 @@ def _specs() -> list[AbilitySpec]:
     I — Exile an instant or sorcery card from each graveyard.
     II, III, IV — Add {R} for each lore counter on this Saga. You may cast an instant or sorcery card exiled with this Saga, and mana of any type can be spent to cast that spell.
     Flying, haste
-    Known limitations: chapter I selects the newest matching card from each graveyard.
-    Chapters II–IV grant turn-long permissions for every linked spell, rather than a
-    single cast during the chapter's resolution.
+    Chapter I gathers the controller’s choices before exiling them together.
+    Later chapters offer one linked spell during resolution, with normal costs
+    and temporary mana flexibility (RULE 608.2g).
     """
     return [
         AbilitySpec(

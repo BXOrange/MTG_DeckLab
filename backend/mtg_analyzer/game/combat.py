@@ -265,6 +265,8 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     return (
         (keywords_of(obj.card) - frozenset(getattr(obj, "suppressed_keywords", None) or ()))
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
+        | (frozenset({"haste"}) if getattr(obj, "granted_haste_sacrifice", False)
+           and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset())
         | frozenset(getattr(obj, "granted_keywords", set()) or set())
     ) - (
         frozenset(getattr(obj, "removed_keywords", set()) or set())

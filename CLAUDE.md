@@ -161,6 +161,13 @@ Spell mana provenance preserves artifact-creature membership in both types.
 Continuous characteristics are recomputed between resolving instructions,
 without running state-based actions inside a resolution (RULE 613/704).
 
+**Resolution casts** can offer library cards without changing their zone,
+perform one immediate graveyard cast per player, or repeat an exile cast sequence.
+Paid offers preserve alternative costs and scoped mana flexibility. Payoffs after
+the cast sequence run before priority returns. Spell-granted haste/end-step
+sacrifice follows the spell onto the battlefield and lasts until another zone
+change, rather than expiring at cleanup.
+
 **Suspended choices** preserve graveyard incarnations for remembered returns.
 Death events also capture copiable card values so a token copy reads the dying
 permanent’s face. Graveyard departures provide separate per-card and one-or-more

@@ -18,7 +18,7 @@ def _specs() -> list[AbilitySpec]:
                         'target_kind': 'opponent',
                         'digger': 'facing',
                         'caster': 'controller',
-                        'hit_destination': 'cast_free_window',
+                        'hit_destination': 'cast_during_resolution',
                         'rest_destination': 'exile',
                         'hit_rider': 'haste_sacrifice',
                         'uncast_hit': 'stay',

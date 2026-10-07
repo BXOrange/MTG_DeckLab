@@ -536,3 +536,22 @@ def test_druid_of_purification_lets_every_player_choose_an_artifact_or_enchantme
     assert mine.zone == Zone.BATTLEFIELD and bear.zone == Zone.BATTLEFIELD
     assert theirs_a.zone == Zone.GRAVEYARD and theirs_e.zone == Zone.GRAVEYARD
     assert all(str(mine.instance_id) not in ids for ids in seen)
+
+
+def test_marvel_offers_casts_from_the_library_without_exiling_the_looked_cards():
+    from mtg_analyzer.services.game_session import GameSession
+    engine = _game()
+    marvel = _card(engine, "Aetherworks Marvel")
+    p1 = engine.state.player_by_id("p1")
+    p1.counters["energy"] = 6
+    gem = _filler(engine, "Library Gem", "Artifact", mv=4, zone=Zone.LIBRARY)
+    incarnation = gem.zone_incarnation
+    event_start = len(engine.state.event_log)
+    _activate(engine, marvel)
+    assert gem.zone == Zone.LIBRARY and gem.zone_incarnation == incarnation
+    session = GameSession(engine, mode="replay", require_setup=False)
+    action = next(a for a in session.view()["legal_actions"] if a["type"] == "cast_spell" and a["instance_id"] == gem.instance_id)
+    session.apply_action(action)
+    assert gem.cast_from_zone == "library" and gem.zone == Zone.STACK
+    assert not any(e.type == EventType.EXILE for e in engine.state.event_log[event_start:])
+    assert not engine.state.resolution_play_choice

@@ -27,7 +27,7 @@ Rules:
   With no ticket in progress this file is just this header and the empty template
   — no ticket id, no log.
 
-Block template (copy below the line, fill in):
+Block template (do not change this, copy below the line, fill in there):
 
 ```markdown
 ## <TICKET-ID> · <title>
@@ -39,7 +39,9 @@ Block template (copy below the line, fill in):
 - **Next step:** <the exact next action — command to run or change to make>
 - **Decisions:** <choices made and why, so they aren't re-litigated>
 - **Baselines / artefacts:** <snapshot paths, measured numbers, PARSER_VERSION>
-- **Known failures:** None — full backend including full-cache: 12,650 passed (2026-10-07). The shared board passed the bundled Node syntax check; Chromium verified both paired sacrifice picks through HTTP against an isolated test game.
+- **Known failures:** <red tests and whether they are ours or pre-existing>
+- **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
+```
 
 ---
 
@@ -48,11 +50,11 @@ Block template (copy below the line, fill in):
 - **Started / last update:** 2026-10-01 / 2026-10-07
 - **Goal:** Bring every non-cube saved deck to N/N and fix all recorded correctness gaps (user-confirmed scope); Commander Cube remains optional.
 - **Done:** Step 0 (War Room and alternate-name resolution) and Step 1 handler batches; every non-cube saved deck is N/N (see Coverage below) and the earlier correctness gaps are closed. General parser results are in `Done_Backend.md`; card implementations and their limitations live in `game/card_catalogue/` and `tests/game/catalogue/cards/test_*_deck.py`.
-- **Delivered:** Sin/Dermotaxi before-entry choices; Rooms with two independent doors (MEC-111); immediate exile-until-departure returns with incarnation tracking (MEC-113). Paired sacrifice choices, restricted Equip flags, per-card graveyard exits, damage-batch subjects and death-copy/return incarnation capture are also verified. See the implementations and regression tests; shared mechanics are documented in `Done_Backend.md`.
+- **Delivered:** Sin/Dermotaxi before-entry choices; Rooms with two independent doors (MEC-111); immediate exile-until-departure returns with incarnation tracking (MEC-113). Paired sacrifice choices, restricted Equip flags, per-card graveyard exits, damage-batch subjects and death-copy/return incarnation capture are also verified. Immediate casting now retains library/graveyard origins, scopes paid mana flexibility, sequences owner life loss after repeated casts, and retains spell-granted abilities until a zone change. See the implementations and regression tests; shared mechanics are documented in `Done_Backend.md`.
 - **Next step:** Close the remaining per-card correctness gaps below using existing primitives; add the shared new-target choice mechanism (MEC-112). Commander Cube remains optional.
 - **Decisions:** Prioritize shared parser axes, then decks by marginal cost. Reuse existing primitives before adding new ones. Hand-author isolated gaps; Alchemy is a permanent non-goal. Coverage N/N means MODELED or AUTHORED, not proof that every printed ability is rules-exact.
-- **Baselines:** PARSER_VERSION 618 (Rooms grammar and RULE 610.3 exile instructions). Full-cache corpus coverage 20,372/35,046 (58.1%), measured 2026-10-04 at v604 (not re-measured). Latest validation (2026-10-07): full backend including the full-cache tier 12,650 passed. Saved decklists are available on this PC; remaining counts below have been remeasured.
-- **Known failures:** None — standard tier 12,194 passed / 335 skipped and full-cache tier 12,529 passed on 2026-10-07 (final tree). The phenomenon regression now uses inert departure/destination planes to isolate the encounter trigger from random catalogue effects. Frontend lint remains unverified because Node/npm is unavailable; the changed choice renderer passed V8 syntax/render checks.
+- **Baselines:** PARSER_VERSION 618 (Rooms grammar and RULE 610.3 exile instructions). Full-cache corpus coverage 20,372/35,046 (58.1%), measured 2026-10-04 at v604 (not re-measured). Latest validation (2026-10-07): full backend including the full-cache tier 12,661 passed. Saved decklists are available on this PC; remaining counts below have been remeasured.
+- **Known failures:** None — full backend including full-cache: 12,661 passed (2026-10-07). Chromium verified the paired sacrifice picker and a library-origin cast through the shared board and HTTP; bundled Node syntax checks passed.
 
 ### Residue · cards and remaining deck order
 
@@ -63,7 +65,7 @@ Block template (copy below the line, fill in):
 
 - **Missing mechanics (own ticket, `BACKLOG.md`):** MEC-112 copy new-target choice (RULE 707.10c).
 - **Shipped (ENG-52 / PAR-148):** Adeline's and Vial Smasher's "or a planeswalker they control" choices (`_offer_attack_defenders`, `_request_damage_recipient`); Ainok attacks "that player" only, as printed. Angel of Destiny's end-step loss still counts players attacked directly only.
-- **Card fixes with existing primitives (not new mechanics):** auto-picks that should prompt (Kotis, Espers to Magicite, Collective Effort, Scholar of New Horizons, Plumb the Forbidden); resolution-time choices that should be announced targets/costs (Eliminate the Competition, Immoral Bargain, Disorienting Choice, Reunion of the House, Betor, Sepulchral Primordial, Primordial Mist); turn-long windows that should use `play_resolution_card` RULE 608.2g (Ur-Sphinx, Aetherworks Marvel, Kefka, Strago, Valigarmanda); Archangel of Tithes block-tax decline.
+- **Card fixes with existing primitives (not new mechanics):** auto-picks that should prompt (Kotis, Espers to Magicite, Collective Effort, Scholar of New Horizons, Plumb the Forbidden); resolution-time choices that should be announced targets/costs (Eliminate the Competition, Immoral Bargain, Disorienting Choice, Reunion of the House, Betor, Sepulchral Primordial, Primordial Mist); Archangel of Tithes block-tax decline.
 - **Replay-only / test-only:** Serra Avenger's round floor, Steward of the Harvest and the three integration-coverage gaps below.
 
 **Verified rules clarification:** Herald of Eternal Dawn does not prevent the last remaining opponent winning: RULE 104.2a explicitly overrides cannot-win effects. Regression: `test_last_player_wins_despite_heralds_cannot_win_effect`.
@@ -79,7 +81,6 @@ Coverage completion does not close these recorded limitations; confirm them agai
 - **Jump Scare!:** Disorienting Choice chooses its permanents on resolution (not as targets), so hexproof/protection do not stop it; Primordial Mist exiles on resolution rather than as a paid cost (it can be responded to);
 - **Abzan Armor:** Reunion of the House chooses on resolution rather than announcing its printed targets; Betor's two targeted halves are two end-step triggers.
 
-- **Living Energy:** Aetherworks Marvel's `look_top_cast_free` takes the six cards out of the library for the choice (cast from exile, not from the library).
 - **Scions & Spellcraft:** Blue Mage's Cane lets you cast the exiled card itself (not a copy) for {3}, from any opponent's graveyard rather than only the defending player's; Summon: Good King Mog XII targets the token it copies (``token_you_control``) instead of choosing untargeted; Urianger Augurelt exiles the top card face down without a separate look; Estinien counts dealers found in any zone;
 - **Miracle Worker:** Aminatou's granted Miracle uses the engine's whole-turn miracle window.
 
@@ -90,9 +91,9 @@ Coverage completion does not close these recorded limitations; confirm them agai
 
 - **Sans Soleil MWI:** Dack Fayden, Helping Hand puts creatures onto the battlefield through sequential entry chooser calls rather than one simultaneous entry batch.
 
-- **Revival Trance:** Espers to Magicite auto-copies the highest-mana-value creature rather than a reflexive optional target; Sepulchral Primordial chooses at resolution rather than as trigger targets; Rejoin the Fight returns picks as each opponent answers rather than after every pick. Snort asks the controller first and damages each accepting opponent after their own draw. Kefka uses a turn-long free-cast window (including non-instants in the end step), with owner life loss per cast. Strago uses the same-turn window, turn-scoped haste and a one-shot end-step sacrifice. Valigarmanda's chapter I takes the newest matching card per graveyard, and chapters II–IV grant turn-long permissions for all linked spells rather than a single during-resolution cast. Card-specific limitations are documented in the card modules and their effects.
+- **Revival Trance:** Espers to Magicite auto-copies the highest-mana-value creature rather than a reflexive optional target; Sepulchral Primordial chooses at resolution rather than as trigger targets; Rejoin the Fight returns picks as each opponent answers rather than after every pick. Snort asks the controller first and damages each accepting opponent after their own draw. Card-specific limitations are documented in the card modules and their effects.
 
-- **Multiverse Reforged:** Omnath converts only unrestricted mana; Serra's Emissary does not offer Kindred and protects a player from damage only; Teferi's Reproach's player shield covers damage and life changes, not targeting; Proteus Staff and Jhoira put the rest on the bottom in random order (no owner-chosen order); Venser's spell copies keep the original's targets (→ MEC-112); The Ur-Sphinx's free-cast window lasts the turn (not only during resolution) and lands are not castable; Jace's attack bar covers every Jace the controller owns, and the opponent's {2} uses the generic pay-or prompt.
+- **Multiverse Reforged:** Omnath converts only unrestricted mana; Serra's Emissary does not offer Kindred and protects a player from damage only; Teferi's Reproach's player shield covers damage and life changes, not targeting; Proteus Staff and Jhoira put the rest on the bottom in random order (no owner-chosen order); Venser's spell copies keep the original's targets (→ MEC-112); Jace's attack bar covers every Jace the controller owns, and the opponent's {2} uses the generic pay-or prompt.
 
 - **Counter Blitz:** Collective Effort's Escalate creatures are chosen automatically (lowest power); Scholar of New Horizons always puts the Plains onto the battlefield when an opponent controls more lands.
 

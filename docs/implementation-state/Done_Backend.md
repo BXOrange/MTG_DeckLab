@@ -417,6 +417,10 @@ Repeated hand offers preserve their zone, spell-only scope and mana-value cap;
 no offered spell resolves between casts. Temporary spell-only exile permissions
 exclude ordinary and modal land plays.
 
+- Offers can inspect cards in the library without exiling them; uncast looked-at cards are reordered in that same zone. Per-player graveyard offers retain their mill incarnations. Paid and free repeated offers preserve their payment mode, and paid offers expose normal alternative costs.
+- Temporary mana flexibility restores prior unplayed permissions and is consumed for played cards. A repeated offer can collect owner/mana-value data and apply its life-loss payoff only after casting ends. Spell-granted haste and end-step sacrifice survive cleanup; the grant follows a spell onto the battlefield and ends on other zone changes (RULE 400.7c).
+- Per-graveyard exile choices gather the controller’s selections before moving the selected cards simultaneously. Tests: `test_resolution_play.py` and the affected saved-deck suites; Chromium verified a library-origin cast over HTTP. Full backend including full-cache: 12,661 passed.
+
 ### Revealed permanents and entry choices (RULE 614.12)
 
 `reveal_until` can route matching permanents through the shared entry batch,

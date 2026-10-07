@@ -193,8 +193,9 @@ class CopyTargetAbilityEffect(GameEffect):
     keeps the original's targets.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False) -> None:
         super().__init__(source)
+        self.choose_new_targets = choose_new_targets
         self.target_spec = TargetSpec(kind="ability")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -207,7 +208,8 @@ class CopyTargetAbilityEffect(GameEffect):
         if item is None or item.kind != "ability" or controller_id is None or item.controller_id != controller_id:
             return  # RULE 608.2b: the ability left the stack, or isn't one you control
         for _ in range(max(0, int(getattr(self.source, "x_paid", 0) or 0))):
-            context.copy_ability(item, controller_id)
+            context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets, defer_choice=True)
+        context.engine._advance_copy_targets()
 
 
 class CopySpellEffect(GameEffect):
@@ -238,8 +240,10 @@ class CopySpellEffect(GameEffect):
         controller_from_trigger_event: Optional[str] = None,
         count_selector: Optional[str] = None,
         max_mana_value: Optional[int] = None,
+        choose_new_targets: bool = False,
     ) -> None:
         super().__init__(source)
+        self.choose_new_targets = bool(choose_new_targets)
         self.count = count
         #: "Copy target instant or sorcery spell with mana value 4 or less." (Expansion // Explosion)
         #: — the spell target's mana-value ceiling, folded into ``target_spec.spell_filter``.
@@ -292,7 +296,7 @@ class CopySpellEffect(GameEffect):
                 return
             n = self._copies(context, controller_id)
             if n > 0:
-                context.copy_spell(target, controller_id, n)
+                context.copy_spell(target, controller_id, n, choose_new_targets=self.choose_new_targets)
             return
         if not targets:
             return
@@ -303,7 +307,8 @@ class CopySpellEffect(GameEffect):
         if n <= 0:
             return
         for target in targets:
-            context.copy_spell(target, controller_id, n)
+            context.copy_spell(target, controller_id, n, choose_new_targets=self.choose_new_targets, defer_choice=True)
+        context.engine._advance_copy_targets()
 
     def _copies(self, context: GameContext, controller_id: str) -> int:
         """The fixed ``count``, or the live board/history count ``count_selector`` names."""
@@ -393,6 +398,10 @@ class CopyAbilityEffect(GameEffect):
     different target on the copy.
     """
 
+    def __init__(self, source=None, choose_new_targets=False):
+        super().__init__(source)
+        self.choose_new_targets = choose_new_targets
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
@@ -405,7 +414,7 @@ class CopyAbilityEffect(GameEffect):
         controller_id = getattr(self.source, "controller_id", None)
         if controller_id is None:
             return
-        context.copy_ability(item, controller_id)
+        context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets)
 
 
 class CopySelfSpellEffect(GameEffect):
@@ -424,6 +433,7 @@ class CopySelfSpellEffect(GameEffect):
 
     def __init__(self, controller: Any = None, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
+        self.choose_new_targets = choose_new_targets
         self.controller = controller
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -435,7 +445,8 @@ class CopySelfSpellEffect(GameEffect):
         controller_id = getattr(controller, "id", None)
         if controller_id is None:
             return
-        context.copy_self_spell(self.source, controller_id, targets=None)
+        context.copy_self_spell(self.source, controller_id, targets=None,
+                                choose_new_targets=self.choose_new_targets)
 
 
 class CopySelfIfCastFromGraveyardEffect(GameEffect):

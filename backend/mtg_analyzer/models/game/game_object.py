@@ -1676,6 +1676,10 @@ class GameObject:
     def zone(self, value: Zone) -> None:
         if value != self._zone:
             self.zone_incarnation += 1
+            # RULE 400.7c: a granted spell ability follows it onto the battlefield,
+            # but no other zone visit retains that grant.
+            if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
+                self.granted_haste_sacrifice = False
         self._zone = value
 
     @property
