@@ -984,6 +984,13 @@ class AbilitySpec:
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
+        elif key == "sacrifice_count":
+            if (not isinstance(value, (list, tuple)) or len(value) != 2
+                    or isinstance(value[0], bool) or not isinstance(value[0], int)
+                    or value[0] < -2 or value[1] not in _ADDITIONAL_COST_SACRIFICE_TYPES):
+                raise SpecValidationError("sacrifice_count must contain a count and supported permanent type")
+            if value[0] == -2 and not self.additional_cost_optional:
+                raise SpecValidationError("any-number sacrifice costs must be optional")
         elif key == "or_mana":
             # "<cost> or pay {N}" — one single-key additional cost plus the mana alternative (RULE 601.2b).
             if not isinstance(value, dict) or set(value) != {"cost", "mana"}:

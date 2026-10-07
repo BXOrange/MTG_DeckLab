@@ -1,77 +1,96 @@
-"""Immoral Bargain resolves its additional-cost sacrifice and scaling effect."""
+"""Variable sacrifice costs and destroy targets are fixed at casting."""
+import pytest
 
-from __future__ import annotations
-
-from mtg_analyzer.game.card_registry import _REGISTRY, is_registered, specs_for
-from mtg_analyzer.game.binding.core import bind_ability
-from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.cards.card import Card
-from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_object import Zone
+from tests.game.catalogue.cards.test_mardu_surge_deck import _game, _card, _filler
 
 
-def _ib_card():
-    return Card(id="ib", name="Immoral Bargain", type_line="Sorcery", is_sorcery=True,
-                oracle_text=("As an additional cost to cast this spell, sacrifice X "
-                             "creatures. Destroy X target nonland permanents."))
+def _setup(name):
+    engine = _game()
+    engine.state.current_step = 'main1'
+    player = engine.state.player_by_id('p1')
+    spell = _card(engine, name, zone=Zone.HAND)
+    player.mana_pool.add_many({'B': 4, 'G': 4, 'C': 15})
+    mine = [_filler(engine, f'Mine{i}', power=1, toughness=1) for i in range(3)]
+    theirs = [_filler(engine, f'Theirs{i}', power=1, toughness=1, player='p2') for i in range(3)]
+    return engine, player, spell, mine, theirs
 
 
-def test_registered_and_binds():
-    assert is_registered("Immoral Bargain")
-    spec = _REGISTRY["immoral bargain"]()[0]
-    spec.validate()
-    assert spec.effects[0].type == "immoral_bargain"
-    src = GameObject(_ib_card(), owner_id="p1", zone=Zone.STACK)
-    src.controller_id = "p1"
-    bind_ability(spec, src)
+@pytest.mark.parametrize('name', ['Eliminate the Competition', 'Immoral Bargain'])
+def test_cost_and_targets_are_committed_before_resolution(name):
+    engine, player, spell, mine, theirs = _setup(name)
+    engine.cast_spell(player, spell, x=2, targets=theirs[:2],
+                      sacrifice_choices=[o.instance_id for o in mine[1:]])
+    assert mine[0].zone == Zone.BATTLEFIELD and all(o.zone == Zone.GRAVEYARD for o in mine[1:])
+    assert all(o.zone == Zone.BATTLEFIELD for o in theirs)
+    assert engine.state.stack[-1].targets == theirs[:2]
+    engine.resolve_until_stable()
+    assert all(o.zone == Zone.GRAVEYARD for o in theirs[:2])
+    assert theirs[2].zone == Zone.BATTLEFIELD
 
 
-def test_specs_for_real_card():
-    assert specs_for(_ib_card())
+@pytest.mark.parametrize('name', ['Eliminate the Competition', 'Immoral Bargain'])
+def test_countering_spell_never_refunds_cost_or_destroys_targets(name):
+    engine, player, spell, mine, theirs = _setup(name)
+    engine.cast_spell(player, spell, x=1, targets=theirs[:1], sacrifice_choices=[mine[0].instance_id])
+    engine.rules.counter_spell(spell)
+    assert mine[0].zone == Zone.GRAVEYARD and all(o.zone == Zone.BATTLEFIELD for o in theirs)
 
 
-def test_destroy_choose_action_removes_the_pick():
-    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
-                              starting_life=20, starting_hand=0)
-    victim = GameObject(Card(id="v", name="Bear", type_line="Creature — Bear",
-                             is_creature=True, power=2, toughness=2),
-                        owner_id="p2", zone=Zone.BATTLEFIELD)
-    victim.controller_id = "p2"
-    eng.state.add_to_battlefield(victim)
-    src = GameObject(_ib_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
-    src.controller_id = "p1"
-    eng.state.add_to_battlefield(src)
-
-    eng.rules._request_choose_objects(
-        eng.state.player_by_id("p1"), [victim], "destroy", count=1, source=src)
-    eng.resolve_until_stable()
-    assert victim not in eng.state.battlefield
-    assert any(o.card.name == "Bear" for o in eng.state.player_by_id("p2").graveyard)
+@pytest.mark.parametrize('bad', ['duplicate', 'foreign', 'count'])
+def test_invalid_sacrifice_selection_rejected_before_mana_payment(bad):
+    engine, player, spell, mine, theirs = _setup('Eliminate the Competition')
+    picks = [mine[0].instance_id, mine[1].instance_id]
+    if bad == 'duplicate':
+        picks[1] = picks[0]
+    elif bad == 'foreign':
+        picks[1] = theirs[0].instance_id
+    else:
+        picks.pop()
+    mana = player.mana_pool.total()
+    with pytest.raises(ValueError, match='distinct creatures'):
+        engine.cast_spell(player, spell, x=2, targets=theirs[:2], sacrifice_choices=picks)
+    assert player.mana_pool.total() == mana
+    assert spell.zone == Zone.HAND and all(o.zone == Zone.BATTLEFIELD for o in mine)
 
 
-def test_destroy_tail_scales_with_graveyard_delta():
-    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
-                              starting_life=20, starting_hand=0)
-    p1 = eng.state.player_by_id("p1")
-    src = GameObject(_ib_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
-    src.controller_id = "p1"
-    eng.state.add_to_battlefield(src)
-    for i in range(2):
-        p1.add_to_zone(GameObject(Card(id=f"s{i}", name="Sacked", type_line="Creature",
-                                       is_creature=True), owner_id="p1", zone=Zone.GRAVEYARD),
-                       Zone.GRAVEYARD)
-    targets = []
-    for i in range(3):
-        o = GameObject(Card(id=f"t{i}", name=f"Perm{i}", type_line="Enchantment"),
-                       owner_id="p2", zone=Zone.BATTLEFIELD)
-        o.controller_id = "p2"
-        eng.state.add_to_battlefield(o)
-        targets.append(o)
+def test_x_zero_needs_no_sacrifice_or_targets():
+    engine, player, spell, mine, theirs = _setup('Eliminate the Competition')
+    engine.cast_spell(player, spell, x=0, targets=[], sacrifice_choices=[])
+    engine.resolve_until_stable()
+    assert all(o.zone == Zone.BATTLEFIELD for o in mine + theirs)
 
-    eng.rules._apply_effect_specs(
-        [{"type": "immoral_bargain_destroy", "params": {"player_id": "p1", "before": 0}}], src)
-    # X == 2 -> a two-pick destroy chooser
-    eng.resolve_pending_choice(str(targets[0].instance_id))
-    eng.resolve_pending_choice(str(targets[1].instance_id))
-    eng.resolve_until_stable()
-    survivors = [o for o in eng.state.battlefield if o.card.name.startswith("Perm")]
-    assert len(survivors) == 1
+
+def test_immoral_bargain_can_target_artifact_but_not_land():
+    engine, player, spell, mine, theirs = _setup('Immoral Bargain')
+    rock = _filler(engine, 'Rock', 'Artifact', player='p2')
+    engine.cast_spell(player, spell, x=1, targets=[rock], sacrifice_choices=[mine[0].instance_id])
+    engine.resolve_until_stable()
+    assert rock.zone == Zone.GRAVEYARD
+
+
+def test_hexproof_target_cannot_be_announced_before_sacrifice():
+    engine, player, spell, mine, theirs = _setup('Eliminate the Competition')
+    theirs[0].intrinsic_keywords.add('hexproof')
+    with pytest.raises(ValueError):
+        engine.cast_spell(player, spell, x=1, targets=theirs[:1], sacrifice_choices=[mine[0].instance_id])
+    assert mine[0].zone == Zone.BATTLEFIELD and spell.zone == Zone.HAND
+
+
+def test_sacrifice_prohibition_allows_x_zero_but_not_positive_payment():
+    engine, player, spell, mine, theirs = _setup('Eliminate the Competition')
+    _card(engine, 'Yasharn, Implacable Earth')
+    with pytest.raises(ValueError):
+        engine.cast_spell(player, spell, x=1, targets=theirs[:1], sacrifice_choices=[mine[0].instance_id])
+    engine.cast_spell(player, spell, x=0, targets=[], sacrifice_choices=[])
+    assert all(o.zone == Zone.BATTLEFIELD for o in mine)
+
+
+def test_sacrifice_x_offer_is_not_limited_by_mana_total():
+    engine, player, spell, mine, theirs = _setup('Eliminate the Competition')
+    player.mana_pool.empty()
+    player.mana_pool.add_many({'B': 1, 'C': 4})
+    for i in range(7):
+        _filler(engine, f'Extra{i}', power=1, toughness=1)
+    action = next(a for a in engine.legal_actions(player) if a.get('instance_id') == spell.instance_id)
+    assert action['has_x'] and action['max_x'] == 10

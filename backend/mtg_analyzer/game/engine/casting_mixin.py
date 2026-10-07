@@ -40,6 +40,8 @@ from ..costs import (
     PAY_LIFE_X,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
+    SACRIFICE_COUNT_X,
+    SACRIFICE_COUNT_ANY,
     ActivationCost,
     parse_activation_cost,
 )
@@ -1605,6 +1607,9 @@ class CastingMixin:
         first payable value, 0 if even X=0 doesn't work.
         """
         bound = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
+        additional = getattr(obj, "additional_cast_cost", None)
+        if additional is not None and additional.sacrifice_count and additional.sacrifice_count[0] == SACRIFICE_COUNT_X:
+            bound = max(bound, len(self._sacrifice_count_pool(player, additional.sacrifice_count[1], obj)))
         for x in range(bound, -1, -1):
             if not self.can_cast(player, obj, x, blitz=blitz, assume_mana_available=True):
                 continue
@@ -1636,6 +1641,7 @@ class CastingMixin:
         surge: bool = False,
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
+        sacrifice_choices: Optional[list[int]] = None,
         graveyard_sacrifice_choice: Optional[int] = None,
         graveyard_exile_choices: Optional[list[int]] = None,
         discard_choices: Optional[list[int]] = None,
@@ -1771,7 +1777,7 @@ class CastingMixin:
                     player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                    sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
+                    sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
                     pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
                 )
             except Exception:
@@ -1795,7 +1801,7 @@ class CastingMixin:
                 player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                 target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                 mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
+                sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
                 pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
         finally:
@@ -2123,6 +2129,7 @@ class CastingMixin:
         surge: bool = False,
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
+        sacrifice_choices: Optional[list[int]] = None,
         graveyard_sacrifice_choice: Optional[int] = None,
         graveyard_exile_choices: Optional[list[int]] = None,
         discard_choices: Optional[list[int]] = None,
@@ -2153,6 +2160,14 @@ class CastingMixin:
             if not entwine or self._entwine_cost(obj) is None:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
+            additional = getattr(obj, "additional_cast_cost", None)
+            paying = additional is not None and (not getattr(obj, "additional_cast_cost_optional", False) or pay_additional)
+            if sacrifice_choices is not None and (not paying or not additional.sacrifice_count):
+                raise ValueError("No multiple-sacrifice cost applies to this cast")
+            if paying and additional.sacrifice_count and self._cast_sacrifice_selection(
+                    player, obj, additional, x, sacrifice_choices) is None:
+                raise ValueError("Choose the required number of distinct creatures to sacrifice")
+            obj.sacrificed_cost_count = 0
             exile_grant = self._standing_graveyard_grant(player, obj)
             exile_count = exile_grant.exile_graveyard_cards if exile_grant is not None else 0
             if graveyard_exile_choices is not None and not exile_count:
@@ -2212,8 +2227,9 @@ class CastingMixin:
             if target_groups is None:
                 target_groups = partition_targets(spell_target_specs(obj), targets)
             validate_that_player_groups(spell_target_specs(obj), target_groups, obj.name)
-            if self.state.resolution_play_choice is not None:
-                # The resolving effect uses the ordinary modal target specs
+            if (self.state.resolution_play_choice is not None
+                    or (additional is not None and additional.sacrifice_count)):
+                # Announced choices use the ordinary modal target specs
                 # after the selected mode has been applied, not a targetless
                 # cast_without_paying shortcut (RULE 601.2c).
                 specs = spell_target_specs(obj)
@@ -2308,7 +2324,7 @@ class CastingMixin:
                 if getattr(obj, "free_cast_condition", None) is None and obj.instance_id not in self.state.free_cast_instance_ids:
                     # A standing "once during each of your turns" free-cast grant is spent by this cast.
                     continuous.note_free_cast_permission_used(self.state, player, obj.card, obj)
-                result = self.rules.cast_without_paying(player, obj, targets, target_groups)
+                result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
             elif bestow:
                 # RULE 702.103a: pay the Bestow cost in place of the mana
                 # cost — otherwise an ordinary paid cast (`rules.cast_spell`
@@ -2316,7 +2332,7 @@ class CastingMixin:
                 # alt-cost paths above.
                 cost = self.effective_cast_cost(player, obj, x, face="bestow")
                 result = self.rules.cast_spell(
-                    player, obj, targets, x, cost=cost, target_groups=target_groups,
+                    player, obj, targets, x, cost=cost, target_groups=target_groups, defer_cast_event=True,
                 )
             elif alt_cost:
                 # RULE 118.9 (MEC-15): no mana leaves the pool at all — the
@@ -2324,7 +2340,7 @@ class CastingMixin:
                 # pays the alternative cost instead, the same "free push,
                 # pay something else after" order the RULE 118-life-payment
                 # branch just below uses.
-                result = self.rules.cast_without_paying(player, obj, targets, target_groups)
+                result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
                 self._pay_alt_cast_cost(
                     player, obj,
                     getattr(obj, "alt_cast_cost", None)
@@ -2341,7 +2357,7 @@ class CastingMixin:
                 # pays life equal to its mana value as the cost instead
                 # (RULE 118), mirroring `RulesEngine.cast_spell`'s own
                 # "lose_life *after* the card leaves its current zone" order.
-                result = self.rules.cast_without_paying(player, obj, targets, target_groups)
+                result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
                 self.rules.lose_life(player, obj.mana_value, cause="cost")
             else:
                 cost = self.effective_cast_cost(
@@ -2355,7 +2371,7 @@ class CastingMixin:
                     # `_auto_tap` has already put in what lands it could —
                     # then pay the (further-reduced) mana cost as normal.
                     cost = self._consume_cast_help(player, obj, cost)
-                result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
+                result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups, defer_cast_event=True)
                 # RULE 702.74b's Incarnation-cycle Evoke cost is paid while
                 # casting, just like the Force-of-Will-style hand-exile
                 # alternative cost it reuses.  The spell has already left
@@ -2397,7 +2413,7 @@ class CastingMixin:
                 self._pay_cast_life_tax(player, obj, targets)
                 self._pay_additional_cast_cost(
                     player, obj, getattr(obj, "additional_cast_cost", None), x,
-                    sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                    sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, discard_choices=discard_choices,
                     pay_additional=pay_additional,
                 )
                 if graveyard_victim is not None:
@@ -2502,7 +2518,8 @@ class CastingMixin:
             # replacement of it, so its own ETB trigger still fires first).
             if blitz_payment is not None:
                 self._pay_additional_cast_cost(
-                    player, obj, blitz_payment, x, sacrifice_choice, discard_choices, True,
+                    player, obj, blitz_payment, x, sacrifice_choice=sacrifice_choice,
+                    discard_choices=discard_choices, pay_additional=True,
                 )
             obj.cast_via_evoke = evoke
             # RULE 702.117: "if its surge cost was paid" — reassigned every
@@ -2549,8 +2566,19 @@ class CastingMixin:
                 player.commander_casts.get(obj.instance_id, 0) + 1
             )
         # RULE 117.3c: taking an action reclaims priority for its taker.
+        self.rules._finish_cast_announcement(result)
         self.give_priority(player)
         return result
+
+    def _cast_sacrifice_selection(self, player, spell, cost, x, choices=None):
+        count, kind = cost.sacrifice_count
+        count = (len(choices) if choices is not None else 1) if count == SACRIFICE_COUNT_ANY else x if count == SACRIFICE_COUNT_X else count
+        if count < 0 or (cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY and count == 0):
+            return None
+        if count and kind != "land" and continuous.cost_restricted(self.state, "sacrifice_nonland_permanent"):
+            return None
+        return self._resolve_sacrifice_count(player, count, kind, choices, source=spell)
+
     def _can_pay_additional_cast_cost(
         self,
         player: Player,
@@ -2599,6 +2627,8 @@ class CastingMixin:
         if cost.sacrifice and cost.sacrifice != "land" and continuous.cost_restricted(
             self.state, "sacrifice_nonland_permanent"
         ):
+            return False
+        if cost.sacrifice_count and self._cast_sacrifice_selection(player, obj, cost, x) is None:
             return False
         if cost.pay_life and continuous.cost_restricted(self.state, "pay_life"):
             return False
@@ -2739,6 +2769,7 @@ class CastingMixin:
         cost: Optional["ActivationCost"],
         x: int,
         sacrifice_choice: Optional[int] = None,
+        sacrifice_choices: Optional[list[int]] = None,
         discard_choices: Optional[list[int]] = None,
         pay_additional: bool = False,
     ) -> None:
@@ -2784,6 +2815,13 @@ class CastingMixin:
                 # RULE 701.16c: sacrifice isn't destruction — regeneration
                 # can't save it — so this bypasses `destroy` and its
                 # regeneration-shield check.
+                self.rules.put_into_graveyard(victim)
+        if cost.sacrifice_count:
+            chosen = self._cast_sacrifice_selection(player, obj, cost, x, sacrifice_choices)
+            if chosen is None:
+                raise ValueError("Invalid sacrifice cost")
+            obj.sacrificed_cost_count = len(chosen)
+            for victim in chosen:
                 self.rules.put_into_graveyard(victim)
         discard_count = x if cost.discard == DISCARD_X else cost.discard
         if discard_count:

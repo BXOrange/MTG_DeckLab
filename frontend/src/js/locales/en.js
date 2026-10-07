@@ -834,6 +834,7 @@ export default {
   'bd.target.controllerTitle': "Controlled by {name}",
   'bd.cast.payCosts': "Pay costs",
   'bd.cast.chooseTarget': "Choose a target",
+  'bd.cast.finishCostChoice': "Done",
   'bd.cast.select': "Select",
   'bd.cast.progress': "{i} of {total}",
   'bd.split.generate': "💎 Generate",

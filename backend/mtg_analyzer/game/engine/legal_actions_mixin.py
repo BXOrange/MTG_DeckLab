@@ -37,6 +37,7 @@ from ..costs import (
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
     SACRIFICE_COUNT_X,
+    SACRIFICE_COUNT_ANY,
     ActivationCost,
     parse_activation_cost,
 )
@@ -443,11 +444,14 @@ class LegalActionsMixin:
                     or getattr(_add, "pay_life", 0) == PAY_LIFE_X
                     or getattr(_add, "discard", 0) == DISCARD_X
                     or getattr(_add, "exile_from_graveyard", 0) == EXILE_FROM_GRAVEYARD_X
+                    or (getattr(_add, "sacrifice_count", None) and _add.sacrifice_count[0] == SACRIFICE_COUNT_X)
                 )
             )
             if cost.has_variable or _add_has_x:
                 action["has_x"] = True
                 action["max_x"] = self.max_affordable_x(player, obj)
+                if _add is not None and _add.sacrifice_count and _add.sacrifice_count[0] == SACRIFICE_COUNT_X:
+                    action["max_x"] = min(action["max_x"], len(self._sacrifice_count_pool(player, _add.sacrifice_count[1], obj)))
 
             # RULE 702.33: surface Kicker/Multikicker so the UI can prompt for
             # how many times to pay it, the same "has_x/max_x" shape as {X}.
@@ -571,6 +575,15 @@ class LegalActionsMixin:
                 # discarded there. ``DISCARD_HAND`` ("discard your hand") isn't
                 # a choice, so it's excluded.
                 paying_additional = (not add_optional) or pay_additional
+                if paying_additional and additional_cost.sacrifice_count:
+                    count, kind = additional_cost.sacrifice_count
+                    pool = self._sacrifice_count_pool(player, kind, obj)
+                    action["sacrifice_count_cost"] = {
+                        "count": "x" if count == SACRIFICE_COUNT_X else 1 if count == SACRIFICE_COUNT_ANY else count,
+                        "options": [{"instance_id": c.instance_id, "name": c.name} for c in pool],
+                    }
+                    if count == SACRIFICE_COUNT_ANY:
+                        action["sacrifice_count_cost"]["count_max"] = len(pool)
                 discard_n = getattr(additional_cost, "discard", 0)
                 if discard_n == DISCARD_X:
                     # The client supplies the announced X alongside the cast;

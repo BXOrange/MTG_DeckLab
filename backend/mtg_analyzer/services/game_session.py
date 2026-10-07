@@ -1179,6 +1179,7 @@ class GameSession:
             active, self._object(action), targets, x, face=face, mode=mode,
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
             sacrifice_choice=sacrifice_choice,
+            sacrifice_choices=(None if action.get("sacrifice_choices") is None else [int(i) for i in action["sacrifice_choices"]]),
             graveyard_sacrifice_choice=self._resolve_sacrifice_choice(action.get("graveyard_sacrifice_choice")),
             graveyard_exile_choices=(None if action.get("graveyard_exile_choices") is None
                                     else [int(i) for i in action["graveyard_exile_choices"]]),

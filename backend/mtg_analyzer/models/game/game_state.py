@@ -131,6 +131,7 @@ class StackItem:
         #: engine exposes it as `GameContext.trigger_event` for exactly the
         #: window in which this item resolves; ``None`` for a spell or for
         #: any ability placed without one.
+        self.pending_cast_event: Optional[GameEvent] = None
         self.trigger_event = trigger_event
         self.x = x
         self.category = category or self._derive_category()

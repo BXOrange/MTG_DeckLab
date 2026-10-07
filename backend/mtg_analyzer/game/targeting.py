@@ -2569,6 +2569,8 @@ def requirements_with_targets(
             "distinct_from_others": spec.distinct_from_others,
             "polarity": spec.polarity,
         }
+        if spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
+            entry["count_from_x"] = 2 if spec.count_selector == "source_twice_x_paid" else 1
         if spec.count_max is not None:
             entry["count_max"] = spec.count_max
         out.append(entry)

@@ -189,7 +189,7 @@ class TriggerCollectionMixin:
         from ..copy_event_state import capture_firing
 
         recipe_id = (capture_firing(self, ability, event)
-                     if event.type in (EventType.SPELL_CAST, EventType.ACTIVATED_ABILITY) else None)
+                     if event.type in (EventType.SPELL_CAST, EventType.ACTIVATED_ABILITY, EventType.CAST_COST_PAID) else None)
         copies = 1 + continuous.trigger_doubler_bonus(
             self.state, obj, event=event, context=self.context
         )
@@ -1170,7 +1170,7 @@ class TriggerCollectionMixin:
         the trigger's own shape (`effect_binder.bind_ability`), so only a
         genuine "self" subject on a `SPELL_CAST` event ever qualifies.
         """
-        if event.type != EventType.SPELL_CAST:
+        if event.type not in (EventType.SPELL_CAST, EventType.CAST_COST_PAID):
             return
         instance_id = event.get("instance_id")
         if instance_id is None:

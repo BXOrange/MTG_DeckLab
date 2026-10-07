@@ -240,6 +240,7 @@ class CopySpellEffect(GameEffect):
         spell_from_trigger_event: Optional[str] = None,
         controller_from_trigger_event: Optional[str] = None,
         count_selector: Optional[str] = None,
+        count_from_trigger_event: Optional[str] = None,
         max_mana_value: Optional[int] = None,
         choose_new_targets: bool = False,
     ) -> None:
@@ -254,6 +255,7 @@ class CopySpellEffect(GameEffect):
         #: count read live from a `continuous.count_selector` at resolution
         #: rather than a fixed ``count``; 0 makes no copies.
         self.count_selector = count_selector
+        self.count_from_trigger_event = count_from_trigger_event
         self.spell_from_trigger_event = spell_from_trigger_event
         self.controller_from_trigger_event = controller_from_trigger_event
         spell_filter: dict[str, Any] = {}
@@ -327,6 +329,8 @@ class CopySpellEffect(GameEffect):
 
     def _copies(self, context: GameContext, controller_id: str) -> int:
         """The fixed ``count``, or the live board/history count ``count_selector`` names."""
+        if self.count_from_trigger_event:
+            return int((context.trigger_event or {}).get(self.count_from_trigger_event, 0))
         if self.count_selector is None:
             return self.count
         from ..continuous import count_selector as _count_selector  # avoid import cycle

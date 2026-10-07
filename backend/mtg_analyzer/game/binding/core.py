@@ -3312,7 +3312,7 @@ def bind_ability(
                 # functions_from_stack`'s own docstring for why that
                 # distinction matters).
                 functions_from_stack=(
-                    event == EventType.SPELL_CAST
+                    event in (EventType.SPELL_CAST, EventType.CAST_COST_PAID)
                     and isinstance(spec.trigger.get("condition"), dict)
                     and spec.trigger["condition"].get("subject") == "self"
                 ),

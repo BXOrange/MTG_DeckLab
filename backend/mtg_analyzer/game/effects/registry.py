@@ -234,32 +234,6 @@ EffectRegistry.register(
     lambda p: ExpressiveIterationEffect(),
 )
 EffectRegistry.register(
-    # Plumb the Forbidden — "sacrifice one or more creatures … copy this
-    # spell for each" as an at-resolution optional sacrifice + net
-    # draw/lose scaled by the count. (PAR-60 round 4)
-    "sacrifice_any_number_draw_lose_scaled",
-    lambda p: SacrificeAnyNumberDrawLoseScaledEffect(),
-)
-EffectRegistry.register(
-    "sacrifice_count_draw_lose",
-    lambda p: SacrificeCountDrawLoseTailEffect(
-        player_id=p.get("player_id"), before=int(p.get("before", 0) or 0),
-    ),
-)
-EffectRegistry.register(
-    # Immoral Bargain — "sacrifice X creatures. Destroy X target nonland
-    # permanents." X defined by the additional-cost sacrifice. (PAR-60 rd 4)
-    "immoral_bargain",
-    lambda p: ImmoralBargainEffect(destroy_kind=str(p.get("destroy_kind", "nonland_permanent"))),
-)
-EffectRegistry.register(
-    "immoral_bargain_destroy",
-    lambda p: ImmoralBargainDestroyTailEffect(
-        player_id=p.get("player_id"), before=int(p.get("before", 0) or 0),
-        destroy_kind=str(p.get("destroy_kind", "nonland_permanent")),
-    ),
-)
-EffectRegistry.register(
     # Primo, the Unbounded's second ability — base-power-0 creatures deal
     # combat damage -> sized Fractal token. (PAR-60 round 4)
     "base0_combat_damage_fractal",
@@ -782,7 +756,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "spell"),
         spell_from_trigger_event=p.get("spell_from_trigger_event"),
         controller_from_trigger_event=p.get("controller_from_trigger_event"),
-        count_selector=p.get("count_selector"),
+        count_selector=p.get("count_selector"), count_from_trigger_event=p.get("count_from_trigger_event"),
         max_mana_value=p.get("max_mana_value"),
     ),
 )

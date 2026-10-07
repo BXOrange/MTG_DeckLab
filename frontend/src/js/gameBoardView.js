@@ -582,13 +582,13 @@ export function createGameBoardView(opts = {}) {
   // read), so a per-round *clone* with its own `optional` is pushed instead
   // of reusing one shared `req` reference the way every other requirement
   // here still does.
-  function expandMultiTargetRequirements(requirements) {
+  function expandMultiTargetRequirements(requirements, x = 0) {
     const expanded = [];
     const owners = [];
     let excludePicked = false;
     let excludeControllers = false;
     for (const [reqIndex, req] of requirements.entries()) {
-      const minimum = req.count || 1;
+      const minimum = req.count_from_x ? x * req.count_from_x : (req.count ?? 1);
       const total = req.count_max || minimum;
       if (total > 1) excludePicked = true;
       if (req.distinct_controllers) excludeControllers = true;
@@ -728,7 +728,7 @@ export function createGameBoardView(opts = {}) {
 
   function requirementOwnerIndexForOption(action, selectedOption) {
     if (!Array.isArray(action.targets)) return 0;
-    const expanded = expandMultiTargetRequirements(action.targets || []);
+    const expanded = expandMultiTargetRequirements(action.targets || [], readX(action.instance_id, action.face, action.blitz));
     for (let i = 0; i < expanded.requirements.length; i += 1) {
       const req = expanded.requirements[i];
       if (!Array.isArray(req.options)) continue;
@@ -743,7 +743,7 @@ export function createGameBoardView(opts = {}) {
 
   function prepareCastTargeting(action, selectedOption = null) {
     const requirements = action.targets || [];
-    const expanded = expandMultiTargetRequirements(requirements);
+    const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz));
     const send = {
       type: action.type,
       instance_id: action.instance_id,
@@ -1136,8 +1136,8 @@ export function createGameBoardView(opts = {}) {
         ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge, ct.send.blitz,
       );
       if (action) {
-        const expanded = expandMultiTargetRequirements(action.targets || []);
-        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice
+        const expanded = expandMultiTargetRequirements(action.targets || [], ct.x || 0);
+        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice
           ? Array.isArray(ct.requirements)
           : expanded.requirements.length === (ct.requirements || []).length;
         if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
@@ -1937,7 +1937,8 @@ export function createGameBoardView(opts = {}) {
       // per-round filtering — see `castTargetOptions`.
       (castTargeting.pickedControllers ||= []).push(controllerId ?? null);
     }
-    castTargeting.reqIndex += 1;
+    castTargeting.reqIndex = target === null && castTargeting.isSacrificeCountChoice
+      ? castTargeting.requirements.length : castTargeting.reqIndex + 1;
     finishCastIfReady();
   }
 
@@ -2581,7 +2582,7 @@ export function createGameBoardView(opts = {}) {
           };
         const {
           requirements, owners, groupCount, excludePicked, excludeControllers,
-        } = expandMultiTargetRequirements(action.targets || []);
+        } = expandMultiTargetRequirements(action.targets || [], x);
         castTargeting = {
           instanceId: iid, requirements, owners, reqIndex: 0, targets: [], x, send,
           groups: Array.from({ length: groupCount }, () => []),
@@ -2848,9 +2849,11 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     const ct = castTargeting;
-    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice } = ct;
+    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice } = ct;
     let payload;
-    if (isGraveyardExileChoice) {
+    if (isSacrificeCountChoice) {
+      payload = { ...send, sacrifice_choices: targets.map((t) => t.instance_id) };
+    } else if (isGraveyardExileChoice) {
       payload = { ...send, graveyard_exile_choices: targets.map((t) => t.instance_id) };
     } else if (isTapChoice) {
       payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
@@ -2866,6 +2869,23 @@ export function createGameBoardView(opts = {}) {
     const action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz);
+    if (!payload.sacrifice_choices && action?.sacrifice_count_cost) {
+      const { count, count_max: maximum, options } = action.sacrifice_count_cost;
+      const minimum = count === 'x' ? (payload.x || 0) : count;
+      const total = maximum ?? minimum;
+      if (total > 0) {
+        castTargeting = { instanceId: ct.instanceId, send: payload, x,
+          requirements: Array.from({ length: total }, (_, index) => ({
+            label: t('bd.sacrifice.permanent'), options, optional: index >= minimum,
+          })),
+          reqIndex: 0, targets: [], excludePicked: true, isSacrificeCountChoice: true,
+        };
+        persistCastTargetingDraft();
+        render();
+        return;
+      }
+      payload.sacrifice_choices = [];
+    }
     if (!isGraveyardExileChoice && action?.graveyard_exile_cost) {
       const { count, options } = action.graveyard_exile_cost;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
@@ -3693,7 +3713,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
         );
-      } else if (a.type === 'cast_spell' && (a.requires_target || a.graveyard_exile_cost)) {
+      } else if (a.type === 'cast_spell' && (a.requires_target || a.graveyard_exile_cost || a.sacrifice_count_cost)) {
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'cast_spell' && a.discard_cost) {
         // "As an additional cost to cast this spell, discard N cards" (RULE
@@ -4006,8 +4026,8 @@ export function createGameBoardView(opts = {}) {
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice;
-    const modalGlyph = castTargeting.isGraveyardExileChoice ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : (castTargeting.isSacrificeChoice ? '💀' : '🎯'));
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice;
+    const modalGlyph = castTargeting.isGraveyardExileChoice ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
@@ -4019,7 +4039,7 @@ export function createGameBoardView(opts = {}) {
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
-      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t('bd.cast.noTarget')}</button>`);
+      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t(castTargeting.isSacrificeCountChoice ? 'bd.cast.finishCostChoice' : 'bd.cast.noTarget')}</button>`);
     }
     const heading = isCostChoice ? t('bd.cast.payCosts') : t('bd.cast.chooseTarget');
     const progress = total > 1 ? t('bd.cast.progress', { i: idx + 1, total }) : (isCostChoice ? t('bd.cast.select') : t('bd.cast.chooseTarget'));

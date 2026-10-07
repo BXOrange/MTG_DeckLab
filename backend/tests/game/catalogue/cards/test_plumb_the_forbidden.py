@@ -1,110 +1,98 @@
-"""Plumb the Forbidden scales card draw and life loss with sacrificed creatures."""
-
-from __future__ import annotations
-
+"""Plumb pays its optional sacrifice at casting and creates real stack copies."""
 import pytest
 
-from mtg_analyzer.game.card_registry import _REGISTRY, is_registered, specs_for
-from mtg_analyzer.game.binding.core import bind_ability
-from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.cards.card import Card
-from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.card_registry import is_registered, specs_for
+from mtg_analyzer.models.game.game_object import Zone
+from tests.game.catalogue.cards.test_mardu_surge_deck import _game, _card, _filler
 
 
-def _plumb_card():
-    return Card(id="plumb", name="Plumb the Forbidden", type_line="Instant", is_instant=True,
-                oracle_text=("As an additional cost to cast this spell, you may "
-                             "sacrifice one or more creatures. When you do, copy this "
-                             "spell for each creature sacrificed this way. You draw a "
-                             "card and lose 1 life."))
+def _setup():
+    engine = _game()
+    engine.state.current_step = 'main1'
+    player = engine.state.player_by_id('p1')
+    spell = _card(engine, 'Plumb the Forbidden', zone=Zone.HAND)
+    player.mana_pool.add_many({'B': 1, 'C': 1})
+    return engine, player, spell
 
 
-def test_registered_and_binds():
-    assert is_registered("Plumb the Forbidden")
-    spec = _REGISTRY["plumb the forbidden"]()[0]
-    spec.validate()
-    assert spec.effects[0].type == "sacrifice_any_number_draw_lose_scaled"
-    src = GameObject(_plumb_card(), owner_id="p1", zone=Zone.STACK)
-    src.controller_id = "p1"
-    bind_ability(spec, src)
+def test_registered_body_and_cost_use_shared_primitives():
+    engine, player, spell = _setup()
+    assert is_registered(spell.name)
+    specs = specs_for(spell.card)
+    assert [s.type for s in specs[0].effects] == ['draw', 'lose_life']
+    assert specs[0].additional_cost_optional
+    assert specs[1].effects[0].type == 'copy_spell'
 
 
-def test_specs_for_real_card():
-    assert specs_for(_plumb_card())
+def test_no_sacrifice_cast_has_only_original_and_base_draw_loss():
+    engine, player, spell = _setup()
+    engine.cast_spell(player, spell)
+    engine.rules.put_triggers_on_stack()
+    assert len(engine.state.stack) == 1
+    engine.resolve_until_stable()
+    assert len(player.hand) == 1 and player.life == 19
 
 
-def _lib(player, n):
-    for i in range(n):
-        player.add_to_zone(
-            GameObject(Card(id=f"L{i}{id(object())}", name="filler", type_line="Sorcery",
-                            is_sorcery=True), owner_id=player.id, zone=Zone.LIBRARY),
-            Zone.LIBRARY,
-        )
+@pytest.mark.parametrize('count', [1, 2, 3])
+@pytest.mark.parametrize('tokens', [False, True])
+def test_sacrifices_are_paid_before_trigger_and_make_separate_copies(count, tokens):
+    engine, player, spell = _setup()
+    victims = [_filler(engine, f'Victim {i}', power=1, toughness=1) for i in range(count + 1)]
+    for obj in victims:
+        obj.is_token = tokens
+    engine.cast_spell(player, spell, pay_additional=True,
+                      sacrifice_choices=[o.instance_id for o in victims[:count]])
+    assert all(o.zone == Zone.GRAVEYARD for o in victims[:count])
+    assert victims[-1].zone == Zone.BATTLEFIELD
+    engine.rules.put_triggers_on_stack()
+    assert len(engine.state.stack) == 2 and engine.state.stack[-1].kind == 'ability'
+    engine.rules.resolve_top_of_stack()
+    copies = [i for i in engine.state.stack if i.obj is not None and getattr(i.obj, "is_copy", False)]
+    assert len(copies) == count
+    assert player.life == 20  # Copies can be answered before they resolve.
+    engine.resolve_until_stable()
+    assert len(player.hand) == count + 1 and player.life == 19 - count
 
 
-def test_base_draw_and_loss_with_no_sacrifice():
-    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
-                              starting_life=20, starting_hand=0)
-    p1 = eng.state.player_by_id("p1")
-    _lib(p1, 5)
-    src = GameObject(_plumb_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
-    src.controller_id = "p1"
-    eng.state.add_to_battlefield(src)
-    eng.rules._apply_effect_specs(
-        [{"type": "sacrifice_any_number_draw_lose_scaled", "params": {}}], src)
-    eng.resolve_until_stable()
-    assert len(p1.hand) == 1
-    assert p1.life == 19
+def test_original_can_be_countered_before_cost_trigger_without_losing_copies():
+    engine, player, spell = _setup()
+    victim = _filler(engine, 'Victim', power=1, toughness=1)
+    engine.cast_spell(player, spell, pay_additional=True, sacrifice_choices=[victim.instance_id])
+    engine.rules.put_triggers_on_stack()
+    engine.rules.counter_spell(spell)
+    engine.resolve_until_stable()
+    assert len(player.hand) == 1 and player.life == 19
 
 
-def test_scaled_tail_reads_graveyard_delta():
-    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
-                              starting_life=20, starting_hand=0)
-    p1 = eng.state.player_by_id("p1")
-    _lib(p1, 5)
-    src = GameObject(_plumb_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
-    src.controller_id = "p1"
-    eng.state.add_to_battlefield(src)
-    # two creatures already in the graveyard simulate the sacrifice delta
-    for i in range(2):
-        p1.add_to_zone(GameObject(Card(id=f"c{i}", name="Dead", type_line="Creature",
-                                       is_creature=True), owner_id="p1", zone=Zone.GRAVEYARD),
-                       Zone.GRAVEYARD)
-    eng.rules._apply_effect_specs(
-        [{"type": "sacrifice_count_draw_lose", "params": {"player_id": "p1", "before": 0}}], src)
-    eng.resolve_until_stable()
-    assert len(p1.hand) == 2
-    assert p1.life == 18
+def test_cost_trigger_can_be_countered_without_refunding_sacrifice():
+    engine, player, spell = _setup()
+    victim = _filler(engine, 'Victim', power=1, toughness=1)
+    engine.cast_spell(player, spell, pay_additional=True, sacrifice_choices=[victim.instance_id])
+    engine.rules.put_triggers_on_stack()
+    engine.rules.counter_ability(engine.state.stack[-1])
+    engine.resolve_until_stable()
+    assert victim.zone == Zone.GRAVEYARD and len(player.hand) == 1 and player.life == 19
 
 
-@pytest.mark.parametrize("sacrifices", [0, 1, 2])
-@pytest.mark.parametrize("tokens", [False, True])
-def test_cast_plumb_counts_only_selected_creatures_during_resolution(sacrifices, tokens):
-    from mtg_analyzer.game.binding.core import bind_from_catalogue
-    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
-    eng.advance_step()
-    eng.state.current_phase, eng.state.current_step = "main", "main1"
-    p = eng.state.player_by_id("p1")
-    _lib(p, 10)
-    src = GameObject(Card(id="plumb-cost", name="Plumb the Forbidden", type_line="Instant",
-                          is_instant=True, mana_cost_string="{1}{B}", mana_cost={"generic": 1, "B": 1}),
-                     owner_id="p1", zone=Zone.HAND)
-    bind_from_catalogue(src)
-    p.add_to_zone(src, Zone.HAND)
-    victims = []
-    for i in range(2):
-        obj = GameObject(Card(id=f"victim-{i}", name=f"Victim {i}", type_line="Creature",
-                              is_creature=True, power=2, toughness=2), owner_id="p1", zone=Zone.BATTLEFIELD, is_token=tokens)
-        eng.state.add_to_battlefield(obj)
-        victims.append(obj)
-    p.mana_pool.add_many({"B": 1, "C": 1})
-    eng.cast_spell(p, src)
-    eng.resolve_until_stable()
-    assert src.zone == Zone.STACK and src not in p.graveyard
-    for victim in victims[:sacrifices]:
-        eng.resolve_pending_choice(str(victim.instance_id))
-    if eng.state.pending_choice:
-        eng.resolve_pending_choice("decline")
-    assert src in p.graveyard
-    assert len(p.hand) == 1 + sacrifices and p.life == 19 - sacrifices
-    assert all(v.zone == Zone.BATTLEFIELD for v in victims[sacrifices:])
+def test_sacrificed_magecraft_creature_never_sees_cast_or_copies():
+    engine, player, spell = _setup()
+    mage = _card(engine, 'Archmage Emeritus')
+    engine.cast_spell(player, spell, pay_additional=True, sacrifice_choices=[mage.instance_id])
+    engine.resolve_until_stable()
+    assert len(player.hand) == 2 and player.life == 18
+
+
+def test_surviving_magecraft_sees_each_copy_separately():
+    engine, player, spell = _setup()
+    _card(engine, 'Archmage Emeritus')
+    victims = [_filler(engine, f'Victim{i}', power=1, toughness=1) for i in range(2)]
+    engine.cast_spell(player, spell, pay_additional=True,
+                      sacrifice_choices=[o.instance_id for o in victims])
+    for _ in range(20):
+        engine.resolve_until_stable()
+        choice = engine.state.pending_choice
+        if not choice:
+            break
+        engine.resolve_pending_choice(choice['options'][0]['id'])
+    assert len(player.hand) == 6  # Three Plumb draws and one magecraft trigger per cast/copy.
+    assert player.life == 17

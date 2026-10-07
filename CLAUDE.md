@@ -184,6 +184,13 @@ refreshing their last-known values at departure. Public choices carry recipe IDs
 payment/optional continuations and rewind retain the same original identity.
 See the delivered MEC-112 behavior in `Done_Backend.md`.
 
+**Announced sacrifice costs** use `ActivationCost.sacrifice_count` for X or
+optional one-or-more creature payments. The shared board gathers targets before
+separate cost choices. Casting events are deferred until all costs are paid
+(RULE 601.2i); `CAST_COST_PAID` supports reflexive self-stack triggers with an
+immutable paid count. Plumb the Forbidden uses ordinary draw/life effects and
+real event-derived stack copies, including after the original is countered.
+
 **Suspended choices** preserve graveyard incarnations for remembered returns,
 player target referents, and the resolving spell through its last interactive instruction.
 Death events also capture copiable card values so a token copy reads the dying

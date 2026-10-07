@@ -307,12 +307,12 @@ def test_eliminate_the_competition_sacrifices_x_creatures_and_destroys_x_creatur
     mine = [_filler(engine, f"Mine{i}", power=1, toughness=1) for i in range(2)]
     theirs = [_filler(engine, f"Theirs{i}", power=1, toughness=1, player="p2") for i in range(3)]
     spell = _card(engine, "Eliminate the Competition", zone=Zone.HAND)
-    _cast(engine, spell, {"B": 1, "C": 4})
-    for victim in mine:
-        engine.resolve_pending_choice(str(victim.instance_id))
+    engine.state.current_phase, engine.state.current_step = "main", "main1"
+    p1.mana_pool.add_many({"B": 1, "C": 4})
+    engine.cast_spell(p1, spell, x=2, targets=theirs[:2],
+                      sacrifice_choices=[c.instance_id for c in mine])
     assert all(m in p1.graveyard for m in mine)
-    for victim in theirs[:2]:  # X = 2: two destroy picks
-        engine.resolve_pending_choice(str(victim.instance_id))
+    assert all(t.zone == Zone.BATTLEFIELD for t in theirs)
     engine.resolve_until_stable()
     assert [t.zone for t in theirs] == [Zone.GRAVEYARD, Zone.GRAVEYARD, Zone.BATTLEFIELD]
     assert engine.state.pending_choice is None
@@ -550,3 +550,34 @@ def test_gix_activation_discards_x_exiles_x_from_an_opponent_and_plays_them_free
     engine.play_resolution_card(p1, land)
     engine.resolve_until_stable()
     assert spell.zone == Zone.GRAVEYARD and land.zone == Zone.BATTLEFIELD
+
+
+def test_windbrisk_counts_creatures_attacking_planeswalkers_and_battles():
+    engine = _game()
+    heights = _card(engine, 'Windbrisk Heights')
+    walker = _filler(engine, 'Walker', 'Planeswalker — Test', player='p2')
+    walker.counters['loyalty'] = 5
+    battle = _filler(engine, 'Battle', 'Battle — Siege', player='p1')
+    battle.protector_id = 'p2'
+    battle.counters['defense'] = 5
+    attackers = [_filler(engine, f'Attacker{i}', power=1, toughness=1) for i in range(3)]
+    _attack(engine, [
+        {'attacker': attackers[0], 'defender': {'kind': 'planeswalker', 'instance_id': walker.instance_id}},
+        {'attacker': attackers[1], 'defender': {'kind': 'battle', 'instance_id': battle.instance_id}},
+        {'attacker': attackers[2], 'defender': {'kind': 'player', 'id': 'p2'}},
+    ])
+    from mtg_analyzer.game.static_conditions import condition_holds
+    assert condition_holds(heights.activated_abilities[0].effects[0].condition,
+                           engine.state, heights, 'p1')
+
+
+def test_kaya_optional_token_target_can_be_declined_while_group_deathtouch_applies():
+    engine = _game()
+    player = engine.state.player_by_id('p1')
+    kaya = _kaya(engine)
+    creature = _filler(engine, 'Real creature', power=2, toughness=2)
+    engine.activate_ability(player, kaya, _loyalty_index(kaya, 1), targets=[])
+    engine.resolve_until_stable()
+    from mtg_analyzer.game import combat
+    assert combat.has(creature, 'deathtouch')
+    assert creature.plus_one_counters == 0

@@ -511,6 +511,13 @@ play grants now honor their live conditions, including charge-counter thresholds
 - **Steward of the Harvest:** Borrowed mana definitions now use the existing amount resolver against the recipient and current board, rather than leaving variable production at its one-mana placeholder. Cabal Coffers therefore counts controlled Swamps correctly. Integration tests also exercise Yavimaya Coast's self-damage, summoning sickness, War Room's commander-color life cost, and Myriad Landscape's sacrifice of the recipient (RULE 201.5b / 605.1a).
 - **Validation:** `tests/test_kotis_cost_choices.py`, `tests/test_steward_nonbasic_lands.py`, and the complete Sultai Arisen card suite. Chromium verified choosing an alternate trio over HTTP, with no payment during selection.
 
+### Mardu Surge: announced sacrifice costs and real Plumb copies
+
+- **Eliminate the Competition / Immoral Bargain:** Announce X and X legal targets, then pay X distinct chosen creatures while casting. The shared board gathers targets and sacrifice choices separately; invalid choices are rejected before payment. Countering the spell does not refund sacrifices (RULE 601.2b/c/h).
+- **Plumb the Forbidden:** Its optional one-or-more sacrifice is a casting cost. A separate reflexive trigger creates one real stack copy per sacrificed creature, including tokens. Countering that trigger prevents the copies; countering the original still permits last-known-value copies. Casting triggers are collected after cost payment, so a sacrificed Magecraft creature does not trigger (RULE 601.2i / 603.12).
+- **Implementation:** Reuses `sacrifice_count`, ordinary draw/life/destroy effects and event-derived copy recipes; removes the former fused resolution-time effects. `CAST_COST_PAID` carries the paid count. PARSER_VERSION 619 validates the additional-cost spec. Kaya's optional token target and Windbrisk's attacks on players, planeswalkers and battles are covered by existing selectors.
+- **Validation:** `test_immoral_bargain.py`, `test_plumb_the_forbidden.py`, and `test_mardu_surge_deck.py`; Chromium verified target/cost selection and HTTP payment timing through the shared board.
+
 ### Composed graveyard recovery and linked casting permissions
 
 `MillEffect.capture_milled` and `ReturnFromGraveyardEffect.previous_pool` restrict

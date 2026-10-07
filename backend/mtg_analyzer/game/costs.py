@@ -100,6 +100,7 @@ PAY_LIFE_COMMANDER_COLORS = -3
 #: sacrifice cost component instead of a mana `{X}`/counter-removal one.
 #: Threaded through the same `x` param `activate_ability` already carries.
 SACRIFICE_COUNT_X = -1
+SACRIFICE_COUNT_ANY = -2
 #: Announced X for "Tap X untapped tokens you control" (Hazel).
 TAP_OTHERS_X = -1
 
@@ -743,7 +744,8 @@ class ActivationCost:
             parts.append(f"Tap {'X' if count == TAP_OTHERS_X else count} untapped {_permanent_phrase(subtype)}(s) you control")
         if self.sacrifice_count:
             count, subtype = self.sacrifice_count
-            parts.append(f"Sacrifice {count} {_permanent_phrase(subtype)}(s)")
+            amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
+            parts.append(f"Sacrifice {amount} {_permanent_phrase(subtype)}(s)")
         if self.add_counters_cost:
             kind, count = self.add_counters_cost
             parts.append(f"Put {count} {kind} counter(s) on this")

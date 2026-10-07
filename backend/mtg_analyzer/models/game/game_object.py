@@ -385,6 +385,7 @@ class GameObject:
         #: What a sacrificed permanent had as it was sacrificed to pay this ability's cost (last-known information, RULE 608.2h): its counters
         #: and the Equipment attached to it, read by "Put ~'s counters on that creature and attach an Equipment that was attached to ~" (Zack Fair).
         self.sacrificed_cost_counters: dict[str, int] = {}
+        self.sacrificed_cost_count: int = 0
         self.sacrificed_cost_attached_ids: list[int] = []
         #: The toughness sibling, retained as last-known information for an
         #: activated ability whose sacrifice cost names it (Animal Boneyard).
@@ -1494,6 +1495,7 @@ class GameObject:
         self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None
         self.sacrificed_cost_card_types = []
+        self.sacrificed_cost_count = 0
         self.discarded_cost_card_types = []
         self.sacrificed_cost_was_suspected = False
         self.sacrificed_cost_power = None

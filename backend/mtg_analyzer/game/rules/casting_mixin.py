@@ -827,6 +827,7 @@ class CastingResolutionMixin:
         x: int = 0,
         cost: Optional[ManaCost] = None,
         target_groups: Optional[list[list[Any]]] = None,
+        defer_cast_event: bool = False,
     ) -> StackItem:
         """Pay the cost, move the card to the stack (RULE 601).
 
@@ -1007,7 +1008,7 @@ class CastingResolutionMixin:
         self.state.record_stat(
             player.id, "spell", cmc=obj.mana_value, name=obj.name
         )
-        self.state.fire_event(
+        self._stage_cast_event(item,
             GameEvent(
                 EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
@@ -1064,11 +1065,39 @@ class CastingResolutionMixin:
                 targets_permanent_or_player=_targets_permanent_or_player(targets),
                 # What `GameState`'s per-turn cast tallies (`turn_history`) read back.
                 **_cast_history_traits(obj),
-            )
+            ), defer_cast_event,
         )
-        self._fire_expend_events(player, obj)
-        self.check_ward(item, player)
+        if not defer_cast_event:
+            self._fire_expend_events(player, obj)
+            self.check_ward(item, player)
         return item
+
+    def _stage_cast_event(self, item, event, deferred):
+        if deferred:
+            item.pending_cast_event = event
+            item.deferred_ward_triggers = self.check_ward(
+                item, self.state.player_by_id(item.controller_id), defer_stack=True,
+            )
+        else:
+            self.state.fire_event(event)
+
+    def _finish_cast_announcement(self, item):
+        """RULE 601.2i: casting triggers see the battlefield after costs."""
+        event = item.pending_cast_event
+        if event is None:
+            return
+        item.pending_cast_event = None
+        player = self.state.player_by_id(item.controller_id)
+        obj = item.obj
+        if obj.sacrificed_cost_count:
+            self.state.fire_event(GameEvent(EventType.CAST_COST_PAID, player_id=player.id,
+                controller_id=player.id, instance_id=obj.instance_id, stack_id=item.stack_id,
+                sacrificed_count=obj.sacrificed_cost_count))
+        self.state.fire_event(event)
+        self._fire_expend_events(player, obj)
+        living = {p.id for p in self.state.living_players()}
+        self.state.stack.extend(ward for ward in item.deferred_ward_triggers if ward.controller_id in living)
+        item.deferred_ward_triggers = []
 
     def _fire_expend_events(self, player: Player, obj: GameObject) -> None:
         """RULE 700.14: fire one `EXPEND` per N this payment crossed.
@@ -1123,6 +1152,7 @@ class CastingResolutionMixin:
         obj: GameObject,
         targets: Optional[list[Any]] = None,
         target_groups: Optional[list[list[Any]]] = None,
+        defer_cast_event: bool = False,
     ) -> StackItem:
         """Cast a card *without paying its mana cost* (RULE 118.9 / 601.3b).
 
@@ -1182,7 +1212,7 @@ class CastingResolutionMixin:
         )
         self.state.stack.append(item)
         self._note_crime(item)
-        self.state.fire_event(
+        self._stage_cast_event(item,
             GameEvent(
                 EventType.SPELL_CAST,
                 player_id=player.id,
@@ -1218,9 +1248,10 @@ class CastingResolutionMixin:
                 targets_permanent_or_player=_targets_permanent_or_player(targets),
                 # What `GameState`'s per-turn cast tallies (`turn_history`) read back.
                 **_cast_history_traits(obj),
-            )
+            ), defer_cast_event,
         )
-        self.check_ward(item, player)
+        if not defer_cast_event:
+            self.check_ward(item, player)
         return item
     def _note_graveyard_exit(self, obj: GameObject) -> None:
         """Record a card leaving its owner's graveyard before it becomes new.
