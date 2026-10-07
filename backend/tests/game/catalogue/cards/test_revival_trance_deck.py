@@ -409,7 +409,7 @@ def test_setzer_blackjack_can_crew_attack_and_win_coin_for_tapped_treasures(monk
     _activate(e, ship, tap_choices=[crew.instance_id])
     assert crew.tapped and ship.is_creature and (ship.power, ship.toughness) == (3, 3)
     ship.summoning_sick = False
-    monkeypatch.setattr(e.rules, 'coin_flip', lambda: True)
+    monkeypatch.setattr(e.rules, 'random_int', lambda maximum: 0)
     _attack(e, [ship], damage=True)
     treasures = _named(e, 'Treasure')
     assert len(treasures) == 2 and all(o.tapped for o in treasures)

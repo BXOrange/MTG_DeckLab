@@ -135,7 +135,8 @@ def test_aetherflux_conduit_gets_energy_equal_to_mana_spent_and_casts_the_hand_f
     _activate(engine, conduit, 0)
     assert _energy(engine) == 0 and len(p1.library) == 3  # drew seven cards
     assert bolt.instance_id in engine.state.free_cast_instance_ids
-    _cast(engine, bolt, {})  # no mana in the pool: the free cast carries it
+    engine.play_resolution_card(p1, bolt)
+    engine.resolve_until_stable()
     assert bolt.zone == Zone.GRAVEYARD
 
 

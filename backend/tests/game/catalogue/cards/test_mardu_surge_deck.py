@@ -516,5 +516,10 @@ def test_gix_activation_discards_x_exiles_x_from_an_opponent_and_plays_them_free
     assert all(d in p1.graveyard for d in discards)
     assert spell.zone == Zone.EXILE and land.zone == Zone.EXILE
     assert engine.can_play_land(p1, land)
-    assert engine.state.exile_cast_cost_override[spell.instance_id] == "{0}"
+    assert spell.instance_id not in engine.state.exile_cast_cost_override
     assert engine.can_cast(p1, spell)  # a five-mana sorcery castable with an empty mana pool
+    engine.play_resolution_card(p1, spell)
+    assert engine.state.pending_choice["kind"] == "play_during_resolution"
+    engine.play_resolution_card(p1, land)
+    engine.resolve_until_stable()
+    assert spell.zone == Zone.GRAVEYARD and land.zone == Zone.BATTLEFIELD

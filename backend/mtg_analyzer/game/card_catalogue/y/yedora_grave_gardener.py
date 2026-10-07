@@ -11,7 +11,8 @@ def _yedora_grave_gardener() -> list[AbilitySpec]:
     — PLAY-ALL (Jump Scare!). An optional DIES group trigger over `return_from_graveyard` of the dying card
     (``trigger_subject_key: instance_id``, only while it is still in a graveyard) with the new ``face_down_as:
     forest_land`` — the card is turned face down as a `face_down.LAND_KINDS` Forest before it enters (RULE 708.3), so it
-    is a land with only the basic land type's mana ability, and cannot be turned face up.
+    is a land with only the basic land type's mana ability. Its own morph or
+    disguise cost still permits turning it face up (RULE 708.7).
     """
     return [
         AbilitySpec(

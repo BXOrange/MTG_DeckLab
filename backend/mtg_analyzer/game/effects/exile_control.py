@@ -880,6 +880,7 @@ class FreeCastFromHandEffect(GameEffect):
         shares_type_with_trigger: bool = False,
         strictly_less_than_trigger: bool = False,
         arm_all: bool = False,
+        during_resolution: bool = False,
     ) -> None:
         super().__init__(source)
         #: "You may cast **any number of** spells from your hand without paying their mana costs." (Aetherflux
@@ -887,6 +888,7 @@ class FreeCastFromHandEffect(GameEffect):
         #: and the caster then casts as many as they like through the ordinary cast action. **Simplification:** the
         #: window lasts the rest of the turn (the armed ids are dropped at cleanup), not only during resolution.
         self.arm_all = bool(arm_all)
+        self.during_resolution = during_resolution
         self.criteria = dict(criteria or {})
         #: "…a spell **with lesser mana value that shares a card type with it**…" (Baral and Kari Zev) —
         #: "it" is the spell whose cast fired this ability: the offered card must share one of its card
@@ -950,6 +952,12 @@ class FreeCastFromHandEffect(GameEffect):
             and (not isinstance(max_mv, int) or (obj.card.converted_mana_cost or 0) <= max_mv)
             and (shared_types is None or bool(continuous.card_types_of(obj) & shared_types))
         ]
+        if self.during_resolution:
+            context.engine._request_resolution_play(
+                player, candidates, zone="hand", repeat=self.arm_all, only_spells=True,
+                max_mana_value=max_mv + 1 if isinstance(max_mv, int) else None,
+            )
+            return
         if self.arm_all:
             context.state.free_cast_instance_ids.update(o.instance_id for o in candidates)
             return

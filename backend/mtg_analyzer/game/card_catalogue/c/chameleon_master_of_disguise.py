@@ -10,12 +10,10 @@ def _chameleon_master_of_disguise() -> list[AbilitySpec]:
     Mayhem {2}{U} (You may cast this card from your graveyard for {2}{U} if you
     discarded it this turn. Timing rules still apply.)
 
-    — PLAY-ALL Step 2 (Wick Snail Boom). `enter_as_copy` over
-    ``creature_you_control`` with the new ``set_name`` ("…except his name is ~"):
-    the rename happens after the copied abilities are bound, because binding is
-    keyed by card name. **Documented gap: Mayhem is not castable** — RULE 702.186
-    (cast from the graveyard for {2}{U} if it was discarded this turn) has no
-    engine support at all; the creature is only castable from hand at {3}{U}.
+    — PLAY-ALL (Wick Snail Boom). `enter_as_copy` preserves Chameleon's
+    name. RULE 702.187 Mayhem uses the ordinary graveyard cast path at its
+    alternative cost after discarding this graveyard incarnation this turn;
+    normal timing applies and no exile-on-resolution replacement is added.
     """
     return [
         AbilitySpec(

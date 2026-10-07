@@ -139,6 +139,9 @@ and controller decisions, preserving library identities across rewind.
 Counter placement prohibitions use ordinary static groups and also guard
 entry counters (including the entrant's own abilities, RULE 614.12).
 Numeric keywords are recognized by object-filter and condition predicates.
+Mayhem uses discard-event incarnations and ordinary graveyard casting; Mobilize
+builds a creature-owned attack trigger with a token-specific delayed sacrifice.
+Coin flips emit player-owned result events for independent win triggers.
 Objects retain a stable instance ID plus a monotonic `zone_incarnation`
 for identifying a particular zone stay (RULE 400.7).
 Counter moves can prompt for a kind or an arbitrary subset; a prohibited

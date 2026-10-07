@@ -12,10 +12,10 @@ def _colfenor_s_urn() -> list[AbilitySpec]:
     """Whenever a creature with toughness 4 or greater is put into your graveyard from the battlefield, you may exile it.
     At the beginning of the end step, if three or more cards have been exiled with this artifact, sacrifice it. If you do, return those cards to the battlefield under their owner's control.
 
-    — PLAY-ALL (Abzan Armor). The exile trigger is the parser's plus ``track_exiled_with`` (the Urn remembers each card in
-    `GameObject.exiled_with_ids`). The end-step trigger carries its RULE 603.4 intervening-if on the ``exiled_with_count``
-    selector (on the trigger, re-checked as it resolves); the body sacrifices the Urn and then returns every tracked card to its
-    owner's battlefield (`return_all_exiled_with`, Abdel Adrian's) — "if you do" is the sacrifice, which cannot fail here.
+    — PLAY-ALL (Abzan Armor). The optional exile tracks linked cards.
+    The end-step intervening-if checks three linked cards. The sacrifice
+    and return sequence runs only while the trigger's controller can sacrifice
+    the Urn; removing it or changing its controller prevents the return.
     """
     gate = {"kind": "control_count", "selector": "exiled_with_count", "min": _CARDS_NEEDED}
     return [
@@ -32,7 +32,10 @@ def _colfenor_s_urn() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("sacrifice_self", {}), EffectSpec("return_all_exiled_with", {})],
+            [EffectSpec("seq", {"effects": [
+                {"type": "sacrifice_self", "params": {}},
+                {"type": "return_all_exiled_with", "params": {}},
+            ]}, condition={"kind": "source_controlled_by_you"})],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}, "active_if": dict(gate)},
         ),
     ]

@@ -403,6 +403,9 @@ The scoped offer also supports graveyard cards, paid casting, an exile
 replacement after casting, and a post-cast lock on further spells. These
 permissions expire on decline and preserve the original graveyard cast zone.
 Optional additional life payments suspend the same offer until casting finishes.
+Repeated hand offers preserve their zone, spell-only scope and mana-value cap;
+no offered spell resolves between casts. Temporary spell-only exile permissions
+exclude ordinary and modal land plays.
 
 ### Revealed permanents and entry choices (RULE 614.12)
 
@@ -1540,6 +1543,13 @@ to every gathered target. Foretell cards read "cast from exile" as the `foretold
 
 ## Triggered Abilities & Trigger Ordering
 
+### Coin-flip results and independent win triggers (RULE 705 / 603)
+
+`coin_flip` emits a player-owned `COIN_FLIP` event with its win/loss result.
+Payoffs can trigger independently of the effect that caused the flip; they
+use the ordinary stack and ignore other players' wins.
+
+
 ### Countering-controller attribution (RULE 701.5 / 603)
 
 Counter effects use the resolving ability's controller even without a source
@@ -2009,6 +2019,14 @@ Copies use the existing spell-copy primitive and do not count as casts.
 
 ## Continuous Effects & Layer System
 
+### Durations bounded by source control (RULE 611.2b)
+
+`source_controlled_by_you` compares the source's live controller with the
+captured creating player, also requiring the source to remain on the battlefield.
+Losing control permanently ends the floating effect, even if control returns.
+The same predicate can gate sacrifice-dependent resolving sequences.
+
+
 ### Perpetual P/T and keyword changes (MEC-98, Alchemy "perpetually")
 
 - **What:** "`<subject>` perpetually gets +N/+N [and gains `<kw>`]" / "… perpetually gains `<kw>`". `GameObject.perpetual_power`/`perpetual_toughness`/`perpetual_keywords` (+ display-only `perpetual_effects`) are never cleared: not at cleanup, not by `reset_derived`, and not by `reset_as_new_object`. That makes them the one exception to RULE 400.7's "effects are not retained". `continuous.recompute` folds them into layer 7d (beside the until-EOT pump) and layer 6, traced with `duration="permanent"`. The off-battlefield `power`/`toughness` fallback adds them too, so a card in hand shows its perpetual size. `copy_perpetual_from` carries them onto a copy (`copy_permanent` token copies, `conjure_duplicate_into_hand`). Engine entry: `PumpEffect.perpetual` writes to these fields instead of `temp_*`, keeping every pump addressing mode. `card_zones` + `card_type` + `subtypes` also reach the controller's cards in hand/library/graveyard, and are added to any `selector` group. Parser: `handlers._perpetual_pump_specs`, the `match_clause` fallback, rewrites the clause into its "… until end of turn" form, runs the ordinary pump table on it and flips the result to `perpetual`. It fails closed on anything but plain pumps (no "can't be blocked" rider, no parametric keyword). Its own zone-subject grammar covers "[creatures you control and] [each] creature card(s) in your hand/library/graveyard". PARSER_VERSION 497: +15 cards, 0 regressed. Stalwart Speartail's enrage is hand-authored on the same primitive (it had been dropped for lack of one).
@@ -2443,6 +2461,16 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 `active_player` scope so only the player whose turn it is gets the pay-or prompt.
 
 ## Casting & Costs
+
+### Mayhem (RULE 702.187)
+
+Mayhem uses a card's printed alternative cost from the graveyard after that
+player discarded the same graveyard incarnation during the current turn.
+Discard events retain the incarnation; milling, a new graveyard visit and
+later turns do not grant permission. Normal timing, costs and land limits
+apply. Costless Mayhem includes land plays; Mayhem does not exile a spell
+on resolution. The existing keyword parser needed no change.
+
 
 ### Cast-trigger grants of entry counters (RULE 603 / 614)
 
@@ -3241,6 +3269,13 @@ of their reminder text or catalogue entry.
 - **Files:** `game/effects/core.py`.
 
 ## Keyword Catalogue
+
+### Mobilize (RULE 702.181)
+
+The keyword builder creates a creature-owned attack trigger. It creates the
+printed number of tapped, attacking red Warriors and schedules a next-end-step
+sacrifice for exactly those tokens. The trigger remains after its source leaves.
+
 
 ### MEC-110: Empower Jace (RULE 701.71)
 

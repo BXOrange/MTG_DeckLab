@@ -10,9 +10,10 @@ def _thancred_waters() -> list[AbilitySpec]:
     Royal Guard — When Thancred Waters enters, another target legendary permanent you control gains indestructible for as long as you control Thancred Waters.
     Whenever you cast a noncreature spell, Thancred Waters gains indestructible until end of turn.
 
-    — PLAY-ALL (Scions & Spellcraft). Flash is the keyword's. The ETB is a `grant_until` (Shield Broker/Pyreswipe Hawk) of the
-    indestructible keyword on the new ``another_legendary_permanent_you_control`` target, bounded by ``source_on_battlefield``
-    (**simplification:** "as long as you control" is read as "while it remains on the battlefield"). The cast trigger is the parser's.
+    — PLAY-ALL (Scions & Spellcraft). The ETB grants indestructible for
+    as long as the trigger's controller controls Thancred on the battlefield.
+    Losing control ends the effect permanently (RULE 611.2b). The noncreature
+    cast trigger grants Thancred indestructible through the current turn.
     """
     return [
         AbilitySpec(
@@ -20,7 +21,7 @@ def _thancred_waters() -> list[AbilitySpec]:
             [EffectSpec("grant_until", {
                 "static": {"type": "grant_keyword", "params": {"keywords": ["indestructible"]}},
                 "target_kind": "another_legendary_permanent_you_control",
-                "condition": {"kind": "source_on_battlefield"},
+                "condition": {"kind": "source_controlled_by_you"},
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

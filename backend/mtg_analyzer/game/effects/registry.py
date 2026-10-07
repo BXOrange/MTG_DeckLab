@@ -899,6 +899,7 @@ EffectRegistry.register(
         exiled_this_way=bool(p.get("exiled_this_way", False)),
         permanent_only=bool(p.get("permanent_only", False)),
         any_color=bool(p.get("any_color", False)),
+        during_resolution=bool(p.get("during_resolution", False)),
     ),
 )
 EffectRegistry.register(
@@ -1182,6 +1183,7 @@ EffectRegistry.register(
         shares_type_with_trigger=bool(p.get("shares_type_with_trigger", False)),
         strictly_less_than_trigger=bool(p.get("strictly_less_than_trigger", False)),
         arm_all=bool(p.get("arm_all", False)),
+        during_resolution=bool(p.get("during_resolution", False)),
     ),
 )
 EffectRegistry.register(
@@ -3319,6 +3321,7 @@ EffectRegistry.register(
         mana_wildcard=p.get("mana_wildcard"),
         library_of=p.get("library_of"),  # Grenzo, Havoc Raiser: "that player's library"
         rest_to_bottom=bool(p.get("rest_to_bottom", False)),  # Florian, Voldaren Scion
+        only_spells=bool(p.get("only_spells", False)),
     ),
 )
 EffectRegistry.register(

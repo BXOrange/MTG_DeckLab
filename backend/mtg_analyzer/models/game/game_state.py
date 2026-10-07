@@ -632,6 +632,8 @@ class GameState:
         #: "…cast it from your graveyard **as an Adventure** until the end of your next turn." (Hildibrand Manderville) —
         #: the `temp_play_permissions` entries that only cover the Adventure half and only from the graveyard.
         self.temp_play_adventure_only: set[int] = set()
+        #: "You may cast" permissions exclude land plays, including modal land faces.
+        self.temp_play_spells_only: set[int] = set()
         #: "Once during each of your turns, you may cast …" standing grants (Demon of Fate's Design, One with the
         #: Multiverse) spent this turn: ``(kind, source instance id) → the internal turn number`` it was used on.
         self.once_per_turn_grants_used: dict[tuple[str, int], int] = {}

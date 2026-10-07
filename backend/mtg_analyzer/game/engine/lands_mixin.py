@@ -87,6 +87,7 @@ class LandsMixin:
             )
             or (
                 obj.zone == Zone.EXILE
+                and obj.instance_id not in self.state.temp_play_spells_only
                 and (
                     self._has_temp_play_permission(obj, player)
                     or self._has_conditional_exile_permission(obj, player)
@@ -95,7 +96,8 @@ class LandsMixin:
             or (
                 obj.zone == Zone.GRAVEYARD
                 and obj in player.graveyard
-                and (has_temporary_graveyard_play_permission(player, self.state)
+                and (self._mayhem_land_permission(obj)
+                     or has_temporary_graveyard_play_permission(player, self.state)
                      or graveyard_land_play_grant_for(player, self.state, card) is not None)
             )
         )
@@ -212,6 +214,10 @@ class LandsMixin:
         needed here beyond the `prepared_source_id` link existing.
         """
         return obj.adventure_castable or obj.prepared_source_id is not None
+
+    def _mayhem_land_permission(self, obj: GameObject) -> bool:
+        from ..mayhem import permits_land
+        return permits_land(self.state, obj)
     def _has_temp_play_permission(self, obj: GameObject, player: Player) -> bool:
         """RULE 601.3b analogue: a temporary "you may play this card"
         permission (Light Up the Stage-shaped impulsive draw,
@@ -277,6 +283,9 @@ class LandsMixin:
         if choice is not None and obj.instance_id in choice["instance_ids"]:
             return None  # This cast uses the resolving effect's permission, not a graveyard keyword's cost.
         params = getattr(obj, "parametric_keywords", None) or {}
+        from ..mayhem import available as mayhem_available
+        if mayhem_available(self.state, obj):
+            return "mayhem"
         if "flashback" in params:
             return "flashback"
         if "escape" in params:

@@ -378,6 +378,7 @@ class EventType:
     #: RULE 707.10: a spell copy was put on the stack, without being cast.
     #: The copier is player_id; instance_id/stack_id name the new copy.
     SPELL_COPIED = "SPELL_COPIED"
+    COIN_FLIP = "COIN_FLIP"
     SPELL_RESOLVED = "SPELL_RESOLVED"
     #: RULE 701.5a: a spell was countered. ``player_id`` is the controller of the spell or ability that
     #: countered it (what Baral, Chief of Compliance's "whenever a spell or ability *you control* counters a

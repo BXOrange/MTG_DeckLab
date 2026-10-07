@@ -1414,6 +1414,9 @@ class CastingMixin:
             keyword = self._graveyard_cast_keyword(obj)
             if keyword == "flashback":
                 alt_cost = self._flashback_cost(obj)
+            elif keyword == "mayhem":
+                payment = obj.parametric_keywords.get("mayhem", {}).get("cost")
+                alt_cost = ManaCost.parse(payment) if payment else None
             elif keyword == "escape":
                 escape_cost = self._escape_cost(obj)
                 alt_cost = escape_cost.mana if escape_cost is not None else None

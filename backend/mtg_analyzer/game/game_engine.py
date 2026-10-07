@@ -134,6 +134,9 @@ class GameEngine(
             self.state.resolution_play_followup = {
                 "player_id": player.id,
                 "instance_ids": [iid for iid in choice["instance_ids"] if iid != obj.instance_id],
+                "zone": choice.get("zone", "exile"),
+                "only_spells": choice.get("only_spells", False),
+                "max_mana_value": choice.get("max_mana_value"),
             }
         self._finish_resolution_play()
         return result
@@ -143,8 +146,13 @@ class GameEngine(
             followup = self.state.resolution_play_followup
             self.state.resolution_play_followup = None
             cards = [self.state.find_object(iid) for iid in followup["instance_ids"]]
-            cards = [obj for obj in cards if obj is not None and obj.zone.value == "exile"]
-            self.rules._request_resolution_play(self.state.player_by_id(followup["player_id"]), cards, repeat=True)
+            zone = followup.get("zone", "exile")
+            cards = [obj for obj in cards if obj is not None and obj.zone.value == zone]
+            self.rules._request_resolution_play(
+                self.state.player_by_id(followup["player_id"]), cards, repeat=True,
+                zone=zone, only_spells=followup.get("only_spells", False),
+                max_mana_value=followup.get("max_mana_value"),
+            )
         while not self.state.pending_choice and self.rules.resume_deferred_effects():
             pass
         if not self.state.pending_choice:

@@ -691,7 +691,8 @@ class GrantUntilEffect(GameEffect):
         ):
             return  # fail closed — nothing registered to grant
 
-        controller_id = getattr(self.source, "controller_id", None)
+        controller = _controller_of(self.source, context)
+        controller_id = controller.id if controller is not None else None
         # Chosen targets are resolved once and shared by every payload.
         chosen_ids: Optional[list[int]] = None
         if self.target_spec is not None or self.previous_subject or self.self_subject:
@@ -827,6 +828,7 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         exiled_this_way: bool = False,
         permanent_only: bool = False,
         any_color: bool = False,
+        during_resolution: bool = False,
     ) -> None:
         super().__init__(source)
         #: "…you may cast **permanent** spells from among them" (Arvinox) — instants and sorceries get no permission.
@@ -834,6 +836,7 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         #: "…and you may spend mana as though it were mana of any color to cast those spells" (Arvinox) — the
         #: card's `GameState.mana_wildcard_permission` (RULE 605.1a).
         self.any_color = bool(any_color)
+        self.during_resolution = during_resolution
         #: Read the cards a preceding `exile` clause moved (`GameContext.exiled_objects`) rather than the library
         #: batch `exile_top_of_library` surfaces on ``created_objects`` (Blue Mage's Cane: a graveyard exile).
         self.exiled_this_way = bool(exiled_this_way)
@@ -850,6 +853,9 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         if player is None:
             return
         pool = context.exiled_objects if self.exiled_this_way else getattr(context, "created_objects", [])
+        if self.during_resolution:
+            context.engine._request_resolution_play(player, list(pool or []), repeat=True)
+            return
         for obj in list(pool or []):
             card = getattr(obj, "card", None)
             if self.permanent_only and (getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False)):

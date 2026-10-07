@@ -221,6 +221,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "BECOMES_BLOCKED": "player_id",
     "SPELL_CAST": "player_id",
     "SPELL_COPIED": "player_id",
+    "COIN_FLIP": "player_id",
     "EXPEND": "player_id",  # RULE 700.14 (MEC-107) — "whenever you expend N"
     "PROLIFERATED": "player_id",
     # "When you play another land, …" (City of Traitors) / "Untap all
@@ -4326,7 +4327,29 @@ def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
 #: if/elif pattern. Each builder takes ``(obj, spec, n)`` and returns the
 #: real triggered abilities to synthesize for that keyword (or ``[]`` if
 #: its own ``n`` requirement isn't met) — see `_keyword_triggered_abilities`.
+def _kw_mobilize(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.181: attacking Warriors, then sacrifice exactly those tokens."""
+    if n is None:
+        return []
+    return [TriggeredAbility(
+        trigger_event=EventType.ATTACKS, source=obj,
+        condition=_self_only_condition(obj.instance_id),
+        description=_ability_description(obj, spec) or f"Mobilize {n}",
+        effects=build_effects([
+            EffectSpec("create_token", {
+                "count": int(n), "power": 1, "toughness": 1, "colors": ["R"],
+                "subtypes": ["Warrior"], "token_name": "Warrior", "tapped": True, "attacking": True,
+            }),
+            EffectSpec("create_delayed_trigger", {
+                "step": "end", "scope": "any", "capture": "created_objects",
+                "effects": [{"type": "sacrifice_specific", "params": {}}],
+            }),
+        ], obj),
+    )]
+
+
 _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[TriggeredAbility]]] = {
+    "mobilize": _kw_mobilize,
     "hideaway": _kw_hideaway,
     "soulbond": _kw_soulbond,
     "living_weapon": _kw_living_weapon,

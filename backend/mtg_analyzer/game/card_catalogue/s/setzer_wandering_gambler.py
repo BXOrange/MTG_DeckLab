@@ -13,9 +13,10 @@ def _setzer_wandering_gambler() -> list[AbilitySpec]:
     Whenever a Vehicle you control deals combat damage to a player, flip a coin.
     Whenever you win a coin flip, create two tapped Treasure tokens.
 
-    — PLAY-ALL (Revival Trance). The Blackjack is a legendary Vehicle token (Pia Nalaar's ``vehicle`` shape, with Crew from its
-    text). **Simplification:** the two coin clauses are one trigger — a Vehicle's combat damage flips a coin whose winning branch
-    creates the Treasures (`coin_flip`); a coin won through some other effect does not trigger Setzer.
+    — PLAY-ALL (Revival Trance). The Blackjack token has Flying and Crew 2.
+    Vehicle combat damage flips a coin. A separate COIN_FLIP trigger creates
+    tapped Treasures whenever Setzer's controller wins any coin flip, including
+    flips caused by other spells and abilities.
     """
     return [
         AbilitySpec(
@@ -29,14 +30,17 @@ def _setzer_wandering_gambler() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("coin_flip", {"win_effects": [
-                {"type": "create_token", "params": {"token_name": "Treasure", "count": _TREASURES, "tapped": True}},
-            ]})],
+            [EffectSpec("coin_flip", {})],
             trigger={
                 "event": EventType.DAMAGE,
                 "condition": {"subject": "group", "controller": "you", "other": False, "filter": {"subtype": "vehicle"}},
                 "filter": {"combat": True, "is_player": True},
             },
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"token_name": "Treasure", "count": _TREASURES, "tapped": True})],
+            trigger={"event": EventType.COIN_FLIP, "condition": {"subject": "you"}, "filter": {"won": True}},
         ),
     ]
 

@@ -111,6 +111,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # automatic, since a RULE 611 continuous effect otherwise outlives its
         # source (611.2b).
         "source_on_battlefield",
+        "source_controlled_by_you",
         # -- The subject's *characteristics* (RULE 109.3), as opposed to its
         # state above. Printed almost exclusively about an attached permanent
         # ("as long as enchanted permanent is a creature"/"…is red"/"…is a
@@ -707,11 +708,13 @@ def condition_holds(
             if is_artifact == want_artifact:
                 return True
         return False
-    if kind == "source_on_battlefield":
+    if kind in ("source_on_battlefield", "source_controlled_by_you"):
         if subject is None:
             return False
         instance_id = getattr(subject, "instance_id", None)
-        return any(o.instance_id == instance_id for o in state.permanents())
+        return any(o.instance_id == instance_id
+                   and (kind == "source_on_battlefield" or o.controller_id == controller_id)
+                   for o in state.permanents())
     if kind == "chosen_mode":
         if subject is None:
             return False

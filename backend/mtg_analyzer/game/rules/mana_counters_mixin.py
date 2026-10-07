@@ -304,9 +304,16 @@ class ManaCountersMixin:
         if not options:
             return None
         return options[self.random_int(len(options))]
-    def coin_flip(self) -> bool:
+    def coin_flip(self, player: Optional[Player] = None) -> bool:
         """A reproducible coin flip (RULE 705) — ``True`` for "heads"."""
-        return self.random_int(2) == 0
+        won = self.random_int(2) == 0
+        if player is None:
+            player = self.state.player_by_id(
+                self.context.acting_player_id or self.context.resolving_controller_id
+                or self.state.active_player.id,
+            )
+        self.state.fire_event(GameEvent(EventType.COIN_FLIP, player_id=player.id, won=won))
+        return won
     #: RULE 706.1a: a die must have at least two equally-likely faces; the
     #: upper bound is a sanity ceiling on a hostile/garbled ``sides`` (no
     #: printed die is bigger than a d20, `roll_die`'s own default), well

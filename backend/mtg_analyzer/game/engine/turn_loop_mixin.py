@@ -1022,6 +1022,7 @@ class TurnLoopMixin:
         self.state.temp_play_permission_same_turn_only &= set(self.state.temp_play_permissions)
         self.state.temp_play_permission_standing &= set(self.state.temp_play_permissions)
         self.state.temp_play_adventure_only &= set(self.state.temp_play_permissions)
+        self.state.temp_play_spells_only &= set(self.state.temp_play_permissions)
         self.state.temp_play_permission_source = {
             iid: name for iid, name in self.state.temp_play_permission_source.items()
             if iid in self.state.temp_play_permissions

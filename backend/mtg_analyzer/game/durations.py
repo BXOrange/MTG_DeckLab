@@ -111,7 +111,7 @@ def is_expired(ability: Any, state: "GameState", window: str) -> bool:
             data.get("condition"),
             state,
             getattr(ability, "source", None),
-            getattr(getattr(ability, "source", None), "controller_id", None),
+            data.get("player_id") or getattr(getattr(ability, "source", None), "controller_id", None),
             affected=_affected_object(ability, state),
         )
 

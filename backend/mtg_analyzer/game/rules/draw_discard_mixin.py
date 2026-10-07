@@ -525,6 +525,7 @@ class DrawDiscardMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
+                    zone_incarnation=obj.zone_incarnation,
                     # "…discards a permanent card." (Tergrid, God of
                     # Fright's own front face, MEC-43 round 4E) — the main
                     # printed type words *without* `GameObject.type_words`'
@@ -573,6 +574,7 @@ class DrawDiscardMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
+                    zone_incarnation=obj.zone_incarnation,
                     object_types=_main_type_words(obj.card),
                     cause_controller_id=cause_controller_id,
                 )
@@ -759,6 +761,7 @@ class DrawDiscardMixin:
         self.state.fire_event(
             GameEvent(
                 EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
+                zone_incarnation=obj.zone_incarnation,
                 object_types=_main_type_words(obj.card),  # see `discard`'s own comment
                 cause_controller_id=cause_controller_id,
             )

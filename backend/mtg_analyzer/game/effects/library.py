@@ -388,12 +388,14 @@ class ImpulsiveDrawEffect(GameEffect):
         mana_wildcard: Optional[str] = None,
         library_of: Optional[str] = None,
         rest_to_bottom: bool = False,
+        only_spells: bool = False,
     ) -> None:
         super().__init__(source)
         #: "Look at the top X cards of your library. Exile one of those cards and put the rest on the bottom of your library
         #: in a random order. You may play the exiled card this turn." (Florian, Voldaren Scion) — with ``choose_one``, the
         #: cards not picked go back to the bottom at random instead of staying exiled.
         self.rest_to_bottom = bool(rest_to_bottom)
+        self.only_spells = only_spells
         #: ``"that_player"``: exile from the library of the player the firing trigger names ("Exile the top
         #: card of **that player's** library", Grenzo, Havoc Raiser — the damaged player of a
         #: `DAMAGE`/`CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event, `targeting.trigger_player_antecedent`).
@@ -457,6 +459,8 @@ class ImpulsiveDrawEffect(GameEffect):
                 permission_player=permission_player, same_turn_only=self.same_turn_only,
                 grant=not self.choose_one, mana_wildcard=self.mana_wildcard,
             ))
+        if self.only_spells:
+            context.state.temp_play_spells_only.update(o.instance_id for o in exiled)
         if self.choose_one and exiled:
             context.engine._request_choose_objects(
                 permission_player, exiled,
