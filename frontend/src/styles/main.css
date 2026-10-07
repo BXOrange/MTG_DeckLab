@@ -134,6 +134,21 @@ body {
   max-width: min(70vw, 320px);
 }
 
+.app-brand-button {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.app-brand-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
 .app-header-left {
   display: flex;
   align-items: center;
@@ -407,6 +422,21 @@ body {
   font-weight: 600;
 }
 
+.app-brand-button.tab-button {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+}
+
+.app-brand-button.tab-button.active {
+  background: transparent;
+  border-color: transparent;
+  color: inherit;
+  font-weight: inherit;
+}
+
 .tab-button.icon-button {
   padding: 0;
   border-radius: 50%;
@@ -429,6 +459,131 @@ main {
 
 .view.active {
   display: block;
+}
+
+/* --- Home page --------------------------------------------------------- */
+
+.home-page {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: clamp(1rem, 4vw, 3rem);
+}
+
+.home-intro {
+  max-width: 720px;
+  margin: 1rem 0 2.5rem;
+}
+
+.home-eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-intro h2 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 3.5rem);
+}
+
+.home-description {
+  max-width: 64ch;
+  margin: 1rem 0 0;
+  color: var(--text-dim);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.home-overview {
+  padding: clamp(1rem, 3vw, 1.5rem);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.home-overview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.home-overview-heading h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.home-overview-heading button {
+  padding: 0.45rem 0.7rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.home-overview-heading button:hover {
+  border-color: var(--accent);
+}
+
+.home-overview-heading button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.home-stats-error {
+  margin: 0 0 0.75rem;
+  color: var(--error);
+}
+
+.home-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.home-stat {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 1.25rem 0.75rem;
+  background: var(--panel-alt);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.home-stat-icon {
+  font-size: 1.5rem;
+}
+
+.home-stat strong {
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-stat > span:last-child {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 560px) {
+  .home-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-stat {
+    grid-template-columns: auto 1fr;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .home-stat-icon {
+    grid-row: span 2;
+  }
 }
 
 /* --- Help tab --------------------------------------------------------- */
@@ -3397,6 +3552,29 @@ textarea {
 .gf-card-action:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.gf-mana-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.gf-mana-choice select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
+.gf-mana-choice .gf-card-action {
+  width: 100%;
+  white-space: normal;
 }
 
 /* A spell with no legal target (RULE 601.2c): shown but not castable. */

@@ -122,6 +122,11 @@ class DeckDatabase:
             ).fetchall()
         return [Deck.from_dict(json.loads(row[0])) for row in rows]
 
+    def count(self) -> int:
+        """How many decks are saved, without loading their stored data."""
+        with self._lock:
+            return self._connection.execute("SELECT COUNT(*) FROM decks").fetchone()[0]
+
     def save_deck(self, deck: Deck) -> None:
         """Insert or update a deck, keyed by its id. Names need not be unique."""
         with self._lock:

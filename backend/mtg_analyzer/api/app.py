@@ -33,6 +33,7 @@ from mtg_analyzer.api.multiplayer_ws import sweeper
 from mtg_analyzer.api.player_assets import router as player_assets_router
 from mtg_analyzer.api.saved_decks import router as saved_decks_router
 from mtg_analyzer.api.solo import router as solo_router
+from mtg_analyzer.api.stats import router as stats_router
 from mtg_analyzer.api.llm import router as llm_router
 from mtg_analyzer.api.narrative_analysis import router as narrative_analysis_router
 
@@ -146,6 +147,7 @@ def create_app() -> FastAPI:
     app.include_router(multiplayer_router)
     app.include_router(multiplayer_ws_router)
     app.include_router(solo_router)
+    app.include_router(stats_router)
     app.include_router(llm_router)
     app.include_router(narrative_analysis_router)
 

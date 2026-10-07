@@ -598,6 +598,11 @@ export async function fetchLobby() {
   return gameRequest('GET', '/api/multiplayer/lobby');
 }
 
+/** Lightweight counts for the DeckLab home page. */
+export async function fetchOverviewStats() {
+  return gameRequest('GET', '/api/stats');
+}
+
 /** Open a new table; the caller becomes its host and first seat. */
 export async function createMultiplayerGame(playerId, name = '', numPlayers = 2) {
   return gameRequest('POST', '/api/multiplayer/games', { playerId, name, numPlayers });

@@ -220,10 +220,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Zameck Guildmage | `<cost>: this turn, each creature you control enters with an additional +<n>/+<n> counter on it.` |  |
 | Zombie Apocalypse | `return all zombie creature cards from your graveyard to the battlefield tapped, then destroy all humans.` |  |
 
-### Turtle Power! - Teenage Mutant Ninja Turtles Commander Deck (9 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
 
 ## Batch 3 — 2026-09-21 re-evaluation of PAR-99…PAR-113 (PARSER_VERSION 447)
 

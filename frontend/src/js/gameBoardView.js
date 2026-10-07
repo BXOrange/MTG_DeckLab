@@ -2537,6 +2537,21 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    root.querySelectorAll('[data-mana-choice-activate]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.manaChoiceActivate);
+        const iid = Number(info.iid);
+        const option_index = Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value);
+        const send = { type: info.type, instance_id: iid, ability_index: info.ability_index, option_index };
+        if (info.has_x) send.x = readX(iid, null);
+        if (info.type === 'tap_for_mana') {
+          submitManaActivation(send);
+        } else {
+          act(send);
+        }
+      });
+    });
+
     root.querySelectorAll('[data-activate-x]').forEach((el) => {
       el.addEventListener('click', () => {
         const { iid, ability_index } = JSON.parse(el.dataset.activateX);
@@ -2627,6 +2642,9 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.tapChoiceStart);
         const iid = Number(info.iid);
+        const option_index = info.option_from_select
+          ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
+          : info.option_index;
         const action = (view?.legal_actions || []).find(
           (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
         );
@@ -2646,7 +2664,7 @@ export function createGameBoardView(opts = {}) {
         }));
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
-          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index: info.option_index };
+          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
           excludePicked: true, isTapChoice: true,
@@ -2659,6 +2677,9 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.sacrificeChoiceStart);
         const iid = Number(info.iid);
+        const option_index = info.option_from_select
+          ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
+          : info.option_index;
         const action = (view?.legal_actions || []).find(
           (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
         );
@@ -2672,7 +2693,7 @@ export function createGameBoardView(opts = {}) {
         if (secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
-          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index: info.option_index };
+          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
           excludePicked: true, isSacrificeChoice: true,
@@ -3762,59 +3783,76 @@ export function createGameBoardView(opts = {}) {
         const extraCost = a.cost_label && a.cost_label !== '{T}';
         if (a.has_x) {
           // ENG-51: "Sacrifice X Goats: Add X mana of any one color"
-          // (Springjack Pasture) — X is announced with the activation, so one
-          // X field serves every colour button.
-          const colorButtons = optsList.map((opt) => {
-            const info = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, option_index: opt.index });
-            return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${escapeHtml(a.cost_label || '')} → X·${opt.label || '⟳'}</button>`;
-          }).join('');
-          buttons.push(`
-            <div class="gf-cast-x">
-              <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-              ${colorButtons}
-            </div>
-          `);
+          // (Springjack Pasture) — X is announced with the activation.
+          if (optsList.length > 1) {
+            buttons.push(manaChoiceControlHtml(
+              a, optsList, 'tap_for_mana',
+              `⟳ ${escapeHtml(a.cost_label || '')} → X`,
+              { hasX: true },
+            ));
+          } else {
+            const colorButtons = optsList.map((opt) => {
+              const info = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, option_index: opt.index });
+              return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${escapeHtml(a.cost_label || '')} → X·${escapeHtml(opt.label || '⟳')}</button>`;
+            }).join('');
+            buttons.push(`
+              <div class="gf-cast-x">
+                <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
+                ${colorButtons}
+              </div>
+            `);
+          }
           if (a.any_combination) buttons.push(colorSplitHtml(a, 'tap_for_mana'));
           continue;
         }
-        for (const opt of optsList) {
-          const glyph = opt.label || '⟳';
+        if (optsList.length > 1) {
           const text = extraCost
-            ? `⟳ ${escapeHtml(a.cost_label)} → ${glyph}`
-            : (optsList.length > 1 ? `⟳ ${glyph}` : `⟳ Tappen`);
-          if (a.tap_cost) {
-            // Which Elves pay the "tap N" part is the player's own choice
-            // (RULE 602.1) — open the picker instead of sending right away.
-            const startInfo = JSON.stringify({
-              iid: a.instance_id, type: 'tap_for_mana',
-              ability_index: a.ability_index, option_index: opt.index,
-            });
-            buttons.push(
-              `<button type="button" class="gf-card-action" data-tap-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
-            );
-          } else if (a.sacrifice_cost) {
-            // A "Sacrifice a <type>: Add …" mana ability (Ashnod's Altar-
-            // shaped) — same cost choice as `tap_cost` above, just naming
-            // what to sacrifice instead of what to tap.
-            const startInfo = JSON.stringify({
-              iid: a.instance_id, type: 'tap_for_mana',
-              ability_index: a.ability_index, option_index: opt.index,
-            });
-            buttons.push(
-              `<button type="button" class="gf-card-action" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
-            );
-          } else {
-            buttons.push(
-              actionButton(
-                { type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
-                text
-              )
-            );
+            ? `⟳ ${escapeHtml(a.cost_label)} →`
+            : '⟳ Tappen';
+          buttons.push(manaChoiceControlHtml(
+            a, optsList, 'tap_for_mana', text,
+            { sacrificeCost: Boolean(a.sacrifice_cost) },
+          ));
+        } else {
+          for (const opt of optsList) {
+            const glyph = opt.label || '⟳';
+            const text = extraCost
+              ? `⟳ ${escapeHtml(a.cost_label)} → ${glyph}`
+              : '⟳ Tappen';
+            if (a.tap_cost) {
+              // Which Elves pay the "tap N" part is the player's own choice
+              // (RULE 602.1) — open the picker instead of sending right away.
+              const startInfo = JSON.stringify({
+                iid: a.instance_id, type: 'tap_for_mana',
+                ability_index: a.ability_index, option_index: opt.index,
+              });
+              buttons.push(
+                `<button type="button" class="gf-card-action" data-tap-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
+              );
+            } else if (a.sacrifice_cost) {
+              // A "Sacrifice a <type>: Add …" mana ability (Ashnod's Altar-
+              // shaped) — same cost choice as `tap_cost` above, just naming
+              // what to sacrifice instead of what to tap.
+              const startInfo = JSON.stringify({
+                iid: a.instance_id, type: 'tap_for_mana',
+                ability_index: a.ability_index, option_index: opt.index,
+              });
+              buttons.push(
+                `<button type="button" class="gf-card-action" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
+              );
+            } else {
+              buttons.push(
+                actionButton(
+                  { type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
+                  text
+                )
+              );
+            }
           }
         }
         // RULE 605.1a "any combination of colours" (Flamebraider/Gwenna/
         // Smokebraider/Selvala) — an additional split-across-colours option
-        // alongside the single-colour buttons above (still legal, just less
+        // alongside the single-colour choice above (still legal, just less
         // flexible).
         if (a.any_combination) buttons.push(colorSplitHtml(a, 'tap_for_mana'));
       } else if (a.type === 'activate_hand_mana') {
@@ -3823,15 +3861,22 @@ export function createGameBoardView(opts = {}) {
         // the cost is exiling the card itself, so there's no tap/summoning-
         // sickness framing to the button.
         const optsList = a.options || [{ index: 0, label: '⟳' }];
-        for (const opt of optsList) {
-          const glyph = opt.label || '⟳';
-          const text = `📤 ${escapeHtml(a.cost_label || 'Exilieren')} → ${glyph}`;
-          buttons.push(
-            actionButton(
-              { type: 'activate_hand_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
-              text
-            )
-          );
+        if (optsList.length > 1) {
+          buttons.push(manaChoiceControlHtml(
+            a, optsList, 'activate_hand_mana',
+            `📤 ${escapeHtml(a.cost_label || 'Exilieren')} →`,
+          ));
+        } else {
+          for (const opt of optsList) {
+            const glyph = opt.label || '⟳';
+            const text = `📤 ${escapeHtml(a.cost_label || 'Exilieren')} → ${glyph}`;
+            buttons.push(
+              actionButton(
+                { type: 'activate_hand_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
+                text
+              )
+            );
+          }
         }
         if (a.any_combination) buttons.push(colorSplitHtml(a, 'activate_hand_mana'));
       } else if (a.type === 'set_skip_untap') {
@@ -3885,7 +3930,7 @@ export function createGameBoardView(opts = {}) {
   // `a.options` (one option per colour the ability actually prints) rather
   // than a hardcoded WUBRG list — a *restricted* combination ability (Vivi
   // Ornitier's own "any combination of {U} and/or {R}") only ever offers
-  // its own printed subset here, same as the single-colour buttons above
+  // its own printed subset here, same as the single-colour dropdown above
   // already do; a bare "any combination of colours" (Flamebraider/Selvala)
   // still lists all five, since its own `options` already does too.
   function colorSplitHtml(a, kind) {
@@ -3907,6 +3952,30 @@ export function createGameBoardView(opts = {}) {
         <span class="gf-split-hint">Farbkombination (${label}):</span>
         ${inputs}
         <button type="button" class="gf-card-action" data-split-confirm>${t('bd.split.generate')}</button>
+      </div>`;
+  }
+
+  function manaChoiceControlHtml(a, options, type, buttonText, { hasX = false, sacrificeCost = false } = {}) {
+    const info = JSON.stringify({
+      type, iid: a.instance_id, ability_index: a.ability_index, has_x: hasX,
+    });
+    const choiceInfo = JSON.stringify({
+      type, iid: a.instance_id, ability_index: a.ability_index, option_from_select: true,
+    });
+    const buttonAction = sacrificeCost
+      ? `data-sacrifice-choice-start='${escapeAttr(choiceInfo)}'`
+      : `data-mana-choice-activate='${escapeAttr(info)}'`;
+    const optionHtml = options
+      .map((option) => `<option value="${option.index}">${escapeHtml(option.label || '⟳')}</option>`)
+      .join('');
+    const xInput = hasX
+      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />`
+      : '';
+    return `
+      <div class="gf-mana-choice${hasX ? ' gf-mana-choice--x' : ''}">
+        ${xInput}
+        <select data-mana-option aria-label="${escapeAttr(t('bd.mana.chooseOutput'))}">${optionHtml}</select>
+        <button type="button" class="gf-card-action" ${buttonAction}>${buttonText}</button>
       </div>`;
   }
 

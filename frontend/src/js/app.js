@@ -16,6 +16,7 @@ import { renderConnectionSettingsView } from './connectionSettingsView.js';
 import { renderProfileView } from './profileView.js';
 import { renderImplementationStatusView } from './implementationStatusView.js';
 import { renderHelpView } from './helpView.js';
+import { renderHomeView } from './homeView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
 import {
@@ -69,6 +70,7 @@ paintBoardScale();
 const tabButtons = document.querySelectorAll('.tab-button');
 const navGroups = document.querySelectorAll('.nav-group');
 const views = {
+  home: document.getElementById('view-home'),
   import: document.getElementById('view-import'),
   importDeck: document.getElementById('view-import-deck'),
   savedDecks: document.getElementById('view-saved-decks'),
@@ -84,6 +86,8 @@ const views = {
   status: document.getElementById('view-status'),
   help: document.getElementById('view-help'),
 };
+
+renderHomeView(views.home);
 
 function showTab(tabName) {
   for (const [name, el] of Object.entries(views)) {
@@ -189,4 +193,4 @@ renderProfileView(views.profile);
 renderImplementationStatusView(views.status);
 renderHelpView(views.help);
 
-showTab('savedDecks');
+showTab('home');

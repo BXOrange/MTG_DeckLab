@@ -1329,8 +1329,7 @@ class LegalActionsMixin:
                     "ability_index": ability_index,
                     "cost_label": ability.cost.label(),
                     # Each option is a distinct choice (dual-land "W or U");
-                    # the UI shows one button per option so the player picks
-                    # the colour.
+                    # the UI puts multiple choices in a dropdown.
                     "options": [
                         {"index": i, "mana": opt, "label": option_label(opt)}
                         for i, opt in enumerate(ability.options)
@@ -1347,7 +1346,7 @@ class LegalActionsMixin:
                     # this total across colours (`color_split`) instead of
                     # picking one of the single-colour ``options`` above;
                     # `gameBoardView.js`'s `colorSplitHtml` offers both: the
-                    # single-colour buttons as a still-legal fallback, plus
+                    # single-colour dropdown as a still-legal fallback, plus
                     # this split builder.
                     action["any_combination"] = True
                     action["combination_total"] = sum(ability.options[0].values())
