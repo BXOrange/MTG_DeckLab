@@ -3615,6 +3615,8 @@ class MiscSystemsMixin:
             "library_to_battlefield_cheap_bonus",
             # PAR-144: "put up to two land cards from among them onto the battlefield tapped".
             "library_to_battlefield_tapped",
+            # PAR-148 (RULE 508.4): "…from among them onto the battlefield tapped and attacking" (Jet, Rebel Leader).
+            "library_to_battlefield_attacking",
             # PAR-137: "exile the top two cards … choose 1 of them. You may play that card this turn /
             # until the end of your next turn" — the pick (already in exile) alone gets the permission.
             "grant_temp_play_same_turn", "grant_temp_play_next_turn",
@@ -4394,7 +4396,10 @@ class MiscSystemsMixin:
                 # `remember`'s accumulating sibling, same field
                 # `ExileEffect(track_exiled_with=True)` uses.
                 source.exiled_with_ids.append(obj.instance_id)
-        elif action in ("library_to_battlefield", "library_to_battlefield_tapped", "library_to_battlefield_cheap_bonus"):
+        elif action in (
+            "library_to_battlefield", "library_to_battlefield_tapped", "library_to_battlefield_attacking",
+            "library_to_battlefield_cheap_bonus",
+        ):
             # MEC-41 (Nissa, Steward of Elements' 0 ability): the object is
             # still sitting in the library at this point (unlike every
             # other action above, which acts on a battlefield permanent or
@@ -4407,7 +4412,9 @@ class MiscSystemsMixin:
             ):
                 obj.entry_bonus_counters["+1/+1"] = CHEAP_CREATURE_BONUS_COUNTERS  # "enters with" — see `_apply_entry_counters`
             self._put_searched_card(
-                player, obj, "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
+                player, obj,
+                "battlefield_attacking" if action.endswith("_attacking")
+                else "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
             )
         elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn"):
             self._grant_temp_play_permission(

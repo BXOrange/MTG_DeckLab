@@ -289,12 +289,13 @@ class Bot:
                 # RULE 109.5's "another target creature" (Pit Fight): the
                 # other half of the same clause already took one, and this
                 # requirement may not repeat it.
+                # ENG-52: a player pick is keyed by ``player_id`` ("any other target" can be a player).
                 taken = {
-                    pick.get("instance_id")
+                    (pick.get("player_id"), pick.get("instance_id"))
                     for group in groups for pick in group
-                    if pick.get("instance_id") is not None
+                    if pick.get("instance_id") is not None or pick.get("player_id") is not None
                 }
-                ranked = [o for o in ranked if o.get("instance_id") not in taken]
+                ranked = [o for o in ranked if (o.get("player_id"), o.get("instance_id")) not in taken]
             if requirement.get("distinct_controllers"):
                 # RULE 601.2c variant ("target creature *each opponent*
                 # controls"-shaped): one pick per controller, not N picks

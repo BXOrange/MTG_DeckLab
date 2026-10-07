@@ -226,6 +226,30 @@ def _fold_dies_long_form(text: str) -> str:
     return _DIES_LONG_FORM_RE.sub("dies", text)
 
 
+#: PAR-148: a card with several printed names is one object whose self-reference takes the plural verb
+#: ("Whenever Raph & Mikey **attack**", "Whenever Aang and Katara **enter or attack**"). The rules text is the
+#: same ability as its singular form, so a trigger head's bare verbs are folded to the third person the
+#: grammar reads. Only a trigger head ("whenever/when ~ <verb>") is touched — a bare "~ attack" never occurs
+#: in any other position, and an unlisted verb stays unclaimed rather than guessed.
+_PLURAL_SELF_VERBS = {
+    "attack": "attacks", "block": "blocks", "enter": "enters", "die": "dies", "deal": "deals",
+    "become": "becomes", "leave": "leaves",
+}
+_PLURAL_SELF_HEAD_RE = re.compile(
+    r"\b(?P<lead>whenever|when) ~ (?P<verbs>(?:attack|block|enter|die|deal|become|leave)"
+    r"(?: or (?:attack|block|enter|die|deal|become|leave))*)\b"
+)
+
+
+def _fold_plural_self_verbs(text: str) -> str:
+    return _PLURAL_SELF_HEAD_RE.sub(
+        lambda m: f"{m.group('lead')} ~ " + re.sub(
+            r"[a-z]+", lambda w: _PLURAL_SELF_VERBS.get(w.group(0), w.group(0)), m.group("verbs"),
+        ),
+        text,
+    )
+
+
 #: A sentence-*leading* "Until end of turn, <body>." (Triumph of the Hordes:
 #: "Until end of turn, creatures you control get +1/+1 and gain trample and
 #: infect.") means exactly the same thing as the far more common trailing
@@ -379,6 +403,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = _fold_self_name(text, name)
     text = text.lower()
     text = _fold_self_reference(text)
+    text = _fold_plural_self_verbs(text)
     text = _strip_ability_words(text)
     text = _strip_unregistered_keyword_labels(text, keywords)
     text = _rewrite_infinity_ability(text)

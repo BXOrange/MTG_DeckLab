@@ -32,17 +32,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-52 · Target-kind resolver drops "other"/"another" and the planeswalker half of "player or planeswalker".**
-  `subgrammars.resolve_target_kind` reads "any other target" as plain `any` and "another target `<X>`" as `<X>`
-  (no `distinct_from_others`, RULE 115.3 / 109.5), and "target player or planeswalker" as `player` — so a second
-  target can repeat the first, and a planeswalker can never be chosen. Wrong but `MODELED` for every card already
-  claimed through those rows, and the reason the compound "N damage to X and M damage to Y" (Arc Trail, Boulder Dash, Hungry
-  Flames, Punish the Enemy, Cunning Strike) is refused. Scope: a `player_or_planeswalker` target kind
-  (`TARGET_FRAMES`, label, offer pool), `distinct_from_others` set by the parser for "any other target" /
-  "another target …" across multi-target spells, then lift the refusal in `segmenter._ELIDED_TARGET_LOSS_RE`.
-  **Frontend:** `gameBoardView.js` must offer planeswalkers alongside players for the new kind and keep dropping
-  already-picked objects from a `distinct_from_others` pool (check the replay/solo/multiplayer boards too).
-
 ## PAR — Parser
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not closeable).** Strategy, coverage,
@@ -108,13 +97,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
   "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
   `engine_bench.py`, not parse verdicts.
-- **PAR-148 · "Tapped and attacking" residue (PAR-30 batches 179–191 shipped the common shapes).** 59
-  Commander-legal cards; the modifier alone blocks only 4 (Adeline, Flamerush Rider, Jet Rebel Leader, Leonin
-  Warleader). Axes: "whenever 1 or more `<X>` you control attack" head (13, General Kreat); named token plus
-  delayed sacrifice (Fire Navy Trebuchet, Boulder Jockey); "for each opponent … that player or a planeswalker
-  they control" defender (Adeline); reveal/look-until then put tapped and attacking (Hans Eriksson, Jet,
-  Raph & Mikey, Doors of Durin, Fireflux Squad); pay-then (Arni Metalbrow, Grim Reaper, Gut). Risk: a wrong
-  defender (RULE 508.4). Decision open: fold into PAR-132 or keep separate.
+- **PAR-148 · "Tapped and attacking" residue.** Open axes: a defender choice for "that player or a planeswalker
+  they control" (Adeline, Hans Eriksson, Zara; `put_onto_battlefield_attacking` only infers it); pay-then bodies
+  (Arni Metalbrow, Gut, Boulder Jockey); reveal-then branches (Doors of Durin, Fireflux Squad, Hans); token-copy
+  shapes (Flamerush Rider, Loki, Shaun, Satya, Phantom Steed, Calamity); blink "return tapped and attacking"
+  (The Neutrinos, Meandering Towershell, Noctis). Risk: a wrong defender (RULE 508.4).
 - **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
   checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
   step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a

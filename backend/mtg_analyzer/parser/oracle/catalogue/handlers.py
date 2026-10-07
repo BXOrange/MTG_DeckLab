@@ -5312,7 +5312,7 @@ _RETURN_FROM_GRAVEYARD_RE = _c(
     # RULE 122.1b keyword counter and its amount ("with a flying counter on it",
     # "with 2 +1/+1 counters on it").
         # "with an additional +1/+1 counter on it" (Prison Break) is the same counter: it adds to what the card enters with.
-    rf"(?: with (?P<ewc_n>a|an|\d+)(?: additional)? (?P<ewc_kind>-1/-1|\+1/\+1|corpse|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+    rf"(?: with (?P<ewc_n>a|an|\d+)(?: additional)? (?P<ewc_kind>-1/-1|\+1/\+1|corpse|finality|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
@@ -5431,7 +5431,8 @@ _REANIMATE_UNDER_YOUR_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under your control"
     # PAR-139: "…with a corpse counter on it" (From the Catacombs) — a named enters-with counter.
-    r"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>corpse) counters? on it)?"
+    # PAR-148: "…with a finality counter on it" (RULE 122.1h; Coalstoke Gearhulk, Grim Reaper's Scythe).
+    r"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>corpse|finality) counters? on it)?"
 )
 
 
@@ -7240,6 +7241,7 @@ _CHOOSE_TARGET_SINGLE_RE = _c(rf"choose {TARGET}")
 _DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "creature_you_control", "creature_you_dont_control", "player",
+        "player_or_planeswalker",
         # Sinstriker's Will: the combat-qualified creature is still a
         # creature recipient, with its legality supplied by TargetFrame.
         "attacking_or_blocking_creature",
@@ -8769,6 +8771,13 @@ _TOKEN_TAPPED_ATTACKING = (
 _ALL_COLORS = ("W", "U", "B", "R", "G")
 
 
+#: Words that cannot be part of a printed token name: the lazy ``tname`` capture swallowing a trailing
+#: timing/duration/measure clause means the clause is some other shape, which stays unclaimed.
+_TOKEN_NAME_TAIL_WORDS_RE = re.compile(
+    r"\b(?:at|until|that|where|for|equal|with|has|it|and|then|if)\b", re.IGNORECASE,
+)
+
+
 def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     """The shared ``create_token`` params for the inline-stats creature-token
     grammar (``p``/``t``/``mid``/``kw``/``n``/``tapped``/``legendary``/``who``
@@ -8847,9 +8856,21 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         params["per_opponent"] = True
     if m.groupdict().get("tapped"):  # RULE 110.5a — enters tapped, not tapped after
         params["tapped"] = True
-    if m.groupdict().get("tapped_attacking"):  # RULE 508.4 — enters tapped and attacking
+    if m.groupdict().get("tapped_attacking") or m.groupdict().get("pre_ta"):  # RULE 508.4 — enters tapped and attacking
         params["tapped"] = True
         params["attacking"] = True
+    tname = m.groupdict().get("tname")
+    if tname:  # PAR-148: the printed name replaces the subtype-derived one (RULE 111.4)
+        if _TOKEN_NAME_TAIL_WORDS_RE.search(tname):
+            return None  # "named Butterfly at the beginning of the next end step": the name stops before the timing
+        params["token_name"] = tname.strip().title()
+    token_ab = m.groupdict().get("token_ab")
+    if token_ab:
+        from .static_handlers import _quoted_ability_grant_effects_list  # function-scoped: static_handlers imports this module
+
+        if not _quoted_ability_grant_effects_list(token_ab):
+            return None  # an ability nothing models would leave the token silently without it
+        params["oracle_text"] = "\n".join(filter(None, (params.get("oracle_text"), token_ab.rstrip(" ,.;"))))
     return params
 
 
@@ -13803,6 +13824,8 @@ _DIG_UNTIL_PRED = {
     "a nonartifact, nonland": {"without_type": ["artifact", "land"]},
 }
 _DIG_UNTIL_HIT = {
+    # PAR-148 (RULE 508.4): listed first so the longer phrase wins the alternation.
+    "onto the battlefield tapped and attacking": "battlefield_attacking",
     "onto the battlefield": "battlefield",
     "into your hand": "hand",
 }
@@ -19988,16 +20011,22 @@ HANDLERS: list[EffectHandler] = [
         "create_token",
         _c(
             rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT_X} "
-            rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
+            # PAR-148: "create a **tapped and attacking** 1/1 red Devil creature token" (RULE 508.4).
+            rf"(?P<pre_ta>tapped and attacking )?(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
             # ``0-9`` in the keyword capture is ENG-31's "… token with
             # firebending N" (Fire Nation Attacks/Occupation).
-            rf"(?: with (?P<kw>[a-z0-9, ]+))?"
+            rf"(?: with (?P<kw>[a-z0-9, ]+?))?"
+            # PAR-148: "… token [with flying] **named ballistic boulder**" (Fire Navy Trebuchet, Boulder Jockey).
+            rf"(?: named (?P<tname>[a-z][a-z' -]*?))?"
             # "…creature token with \"when ~ dies, you gain N life.\"" — the
             # STX Pest token's own printed death trigger (Blight Mound,
             # Feral Appetite, Pest Rescuer, Hunt for Specimens, …). Baked
             # onto each token via `CreateTokenEffect.token_dies_gain_life`.
             rf'(?: with "when (?:~|it) dies, you gain (?P<dies_life>\d+) life\.?")?'
+            # PAR-148: (after the Pest's own `dies_life` row, which keeps its baked trigger) a quoted triggered ability the token carries ("with \"when ~ dies, it deals 1 damage to
+            # any target.\"" — the Devil tokens); only an ability the oracle parser fully models is accepted.
+            rf'(?: with "(?P<token_ab>(?:when|whenever|at the beginning of)[^"]+)")?'
             + rf'(?: (?:with|and) "(?P<quoted_cda>(?:this token|this creature|~)\'?s power[^\"]+)")?'
             # PAR-122: "…token that's all colors" (The Fish Brewer) — RULE 105.1's five colors.
             + r"(?P<all_colors> that'?s all colors| that are all colors)?"

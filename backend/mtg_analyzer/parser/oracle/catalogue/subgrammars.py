@@ -384,7 +384,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # "player or planeswalker" row below so its player half cannot choose
     # the controller.
     (r"target opponent or planeswalker", "opponent_or_planeswalker"),
-    (r"target player or planeswalker", "player"),
+    (r"target player or planeswalker", "player_or_planeswalker"),
     (r"target opponent", "player"),
     (r"target player", "player"),
 ]

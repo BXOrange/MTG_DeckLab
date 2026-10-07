@@ -131,6 +131,10 @@ def build_effects(effects: list[EffectSpec], source: Optional[Any] = None) -> li
         if spec.params.get("excluding_trigger_subject") and getattr(effect, "target_spec", None) is not None:
             # PAR-123: "…other than that creature" — the firing object is not a legal choice.
             effect.target_spec = dataclasses.replace(effect.target_spec, excluding_trigger_subject=True)
+        if spec.params.get("distinct_from_others") and getattr(effect, "target_spec", None) is not None:
+            # ENG-52 (RULE 109.5/115.3): "…another target creature gets -2/-2" — stamped here for every verb whose
+            # factory does not read the flag itself; the requirement then drops what an earlier one chose.
+            effect.target_spec = dataclasses.replace(effect.target_spec, distinct_from_others=True)
         if spec.condition is not None:
             effect = ConditionalEffect(spec.condition, effect, source=source)
         built.append(effect)
@@ -1260,6 +1264,9 @@ def _any_attacking_matches(
     excluded = [s.lower() for s in group_filter.get("excluded_subtypes") or []]
     want_type = group_filter.get("type")
     want_suspected = bool(group_filter.get("is_suspected"))
+    # PAR-148: "one or more Goblins and/or Orcs you control attack" — the attacker has any of the subtypes
+    # (RULE 205.3m; derived, so a changeling or a granted type counts).
+    subtypes_any = group_filter.get("subtypes_any") or []
     for obj in state.battlefield:
         if not getattr(obj, "attacking", False):
             continue
@@ -1271,6 +1278,11 @@ def _any_attacking_matches(
         # **suspected** creatures you control attack, …".
         if want_suspected and not getattr(obj, "is_suspected", False):
             continue
+        if subtypes_any:
+            from .. import continuous  # function-scoped, as the other layer-engine reads here
+
+            if not any(continuous.has_subtype(obj, s) for s in subtypes_any):
+                continue
         if excluded:
             obj_subs = {s.lower() for s in _card_subtypes(getattr(obj, "card", None))}
             if any(e in obj_subs for e in excluded):

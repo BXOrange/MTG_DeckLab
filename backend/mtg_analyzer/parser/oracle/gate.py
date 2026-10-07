@@ -3893,7 +3893,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 609: PLAY-ALL — the `moved_count` amount's ``card_type`` field ("for each creature card put into a graveyard this way").
 # 610: PLAY-ALL — the `greater_of` amount (``left``/``right``): "A or B, whichever is greater".
 # 611: PLAY-ALL — paired sacrifice cost "Sacrifice a Swamp and a Forest" (`ActivationCost.sacrifice_also`).
-PARSER_VERSION = "612"
+# 612: PLAY-ALL — the equip keyword regex skips "Equip legendary creature".
+# 613: ENG-52 + PAR-148 — `player_or_planeswalker` target kind and `distinct_from_others` stamping for "any other
+#      target"/"another target" (compound "N damage to X and M damage to Y"); inline token `named <Name>`, leading
+#      "tapped and attacking" and a quoted triggered ability; batch attack head naming creature subtypes; dig hits
+#      "onto the battlefield tapped and attacking"; plural self-reference verbs ("whenever Raph & Mikey attack");
+#      `finality` counter on a graveyard return.
+# 614: ENG-52 — `distinct_from_others` also stamped on pump/destroy/exile/tap/return_to_hand clauses (binder applies it).
+PARSER_VERSION = "614"
 
 
 def parser_source_hash() -> str:

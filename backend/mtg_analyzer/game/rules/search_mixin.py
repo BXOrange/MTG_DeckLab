@@ -2970,6 +2970,11 @@ class SearchMixin:
                 )
             return
         player.remove_from_zone(obj, Zone.EXILE)
+        if destination == "battlefield_attacking":
+            # RULE 508.4: "put that card onto the battlefield tapped and attacking" (Raph & Mikey) — the shared
+            # search-placement path taps it, fires the entry and puts it into combat.
+            self._put_searched_card(player, obj, "battlefield_attacking")
+            return
         if destination in ("battlefield", "battlefield_tapped"):
             obj.zone = Zone.BATTLEFIELD
             self.state.add_to_battlefield(obj)

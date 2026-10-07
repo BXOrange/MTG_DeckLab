@@ -118,7 +118,7 @@ class TestFrameWellFormedness:
     def test_players_first_only_with_opponents(self) -> None:
         for kind, frame in targeting.TARGET_FRAMES.items():
             if frame.players_first:
-                assert frame.with_opponents, (
+                assert frame.with_opponents or frame.with_all_players, (
                     f"{kind} orders players first but unions no players"
                 )
 

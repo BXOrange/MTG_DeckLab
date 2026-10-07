@@ -66,7 +66,7 @@ _SELECTION_RE = re.compile(
     r"(?P<quant>an?|one|up to \d+|any number of|all) (?P<crit>.+?) "
     r"(?P<where>from among (?:them|the revealed cards)|revealed this way)"
     r"(?P<andput> and put (?:it|that card|them|those cards|the revealed cards))?"
-    r" (?P<dest>into your hand|onto the battlefield(?: tapped)?)"
+    r" (?P<dest>into your hand|onto the battlefield(?: tapped(?: and attacking)?)?)"
     r"(?: and the rest (?P<rest>.+))?"
 )
 #: "the rest …" as the tail of the selection sentence, or its own following sentence.
@@ -87,6 +87,8 @@ _ACTION_BY_DEST = {
     "into your hand": "library_to_hand",
     "onto the battlefield": "library_to_battlefield",
     "onto the battlefield tapped": "library_to_battlefield_tapped",
+    # PAR-148 (RULE 508.4)
+    "onto the battlefield tapped and attacking": "library_to_battlefield_attacking",
 }
 
 

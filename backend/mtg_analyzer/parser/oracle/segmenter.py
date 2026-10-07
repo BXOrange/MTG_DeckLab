@@ -1597,7 +1597,35 @@ _CONNECTORS: tuple[str, ...] = (
 )
 #: "**target player|opponent** draws a card" … "and **loses** 2 life": a third-person-singular verb opening a
 #: later "and" part has no subject of its own (the bare "lose" of "you draw and lose" is the controller's).
-_ELIDED_TARGET_LOSS_RE = re.compile(r"\b(?:other|another|planeswalker)\b", re.IGNORECASE)
+_ELIDED_TARGET_LOSS_RE = re.compile(r"\b(?:other|another)\b", re.IGNORECASE)
+#: ENG-52 (RULE 109.5/115.3): a later clause naming "any other target" / "another target …" / "a third target" must
+#: not repeat what an earlier clause of the same ability chose. `resolve_target_kind` reads those words down to the
+#: plain kind, so the distinctness is stamped on the clause's own effect (`TargetSpec.distinct_from_others`).
+_OTHER_TARGET_PART_RE = re.compile(
+    r"\b(?:(?:any )?other|another|a third) target\b|\bup to (?:one|two|three|\d+) other targets?\b", re.IGNORECASE,
+)
+#: The single-requirement effect types the flag is stamped on (`binding.build_effects` applies it to the effect's
+#: `TargetSpec`; `damage`/`add_counters` also read it in their own factory). A verb with several requirements of
+#: its own (fight, damage equal to power) keeps its dedicated parameter.
+_DISTINCT_FROM_OTHERS_TYPES = frozenset({"damage", "add_counters", "pump", "destroy", "exile", "tap", "return_to_hand"})
+
+
+def _stamp_distinct_from_others(effects: list[EffectSpec]) -> tuple[list[EffectSpec], bool]:
+    """``effects`` with ``distinct_from_others`` set on each targeting effect that supports it, and whether
+    any was stamped (a clause whose effect has no such parameter keeps its old reading)."""
+    stamped = False
+    out: list[EffectSpec] = []
+    for effect in effects:
+        if (
+            effect.type in _DISTINCT_FROM_OTHERS_TYPES
+            and effect.params.get("selector") is None and effect.params.get("group") is None
+            and (effect.params.get("target_kind") is not None or effect.type in ("damage", "add_counters"))
+        ):
+            out.append(EffectSpec(effect.type, {**effect.params, "distinct_from_others": True}, condition=effect.condition))
+            stamped = True
+        else:
+            out.append(effect)
+    return out, stamped
 _ELIDED_AMOUNT_VERBS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     ("~ deals ", re.compile(r"^(?:\d+|x) damage\b", re.IGNORECASE)),
     ("you gain ", re.compile(r"^(?:\d+|x) life\b", re.IGNORECASE)),
@@ -4745,6 +4773,8 @@ def _with_after_tail(
     )
     if after_specs is None:
         return None
+    if specs and _OTHER_TARGET_PART_RE.search(after_text):
+        after_specs, _ = _stamp_distinct_from_others(after_specs)  # ENG-52, as in the clause loop
     return specs + after_specs
 
 
@@ -5576,16 +5606,18 @@ def parse_effect_body(
                     for verb_head, elided in _ELIDED_AMOUNT_VERBS:
                         if (
                             parts[idx - 1].lstrip().lower().startswith(verb_head) and elided.match(part)
-                            # "any other target" / "another …" / "player or planeswalker" lose their meaning in the
-                            # target-kind resolver (the second target would not be kept distinct / could not be a
-                            # planeswalker), so those compounds stay unclaimed.
-                            and not _ELIDED_TARGET_LOSS_RE.search(part)
                         ):
                             sub = parse_effect_body(
                                 f"{verb_head}{part}", self_subject=carry_self and not referent,
                                 previous_subject=referent, previous_selector=referent_selector,
                                 group_subject=group_subject,
                             )
+                            # "any other target" / "another …" is only kept distinct by the stamp (ENG-52); an
+                            # effect that cannot carry it leaves the compound unclaimed.
+                            if sub is not None and _ELIDED_TARGET_LOSS_RE.search(part):
+                                sub, distinct = _stamp_distinct_from_others(sub)
+                                if not distinct:
+                                    sub = None
                             break
                 if sub is None:
                     ok = False
@@ -5599,6 +5631,9 @@ def parse_effect_body(
                         break
                 if referent:
                     sub = _stamp_counters_on_referent(part, sub)
+                if collected and _OTHER_TARGET_PART_RE.search(part):
+                    # ENG-52: "…. ~ deals 2 damage to any other target": not the target an earlier clause chose.
+                    sub, _ = _stamp_distinct_from_others(sub)
                 last_len = len(sub)
                 collected.extend(sub)
                 prev_referent, prev_referent_selector = referent, referent_selector

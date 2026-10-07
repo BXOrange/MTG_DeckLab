@@ -340,6 +340,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # printed phrasing well beyond just those two) — a player who isn't
         # this ability's own controller, unioned with any planeswalker.
         "opponent_or_planeswalker",
+        # "target player or planeswalker" (ENG-52, RULE 115.1) — `opponent_or_planeswalker` with the
+        # controller's own seat a legal player too, as printed (Hungry Flames, Punish the Enemy).
+        "player_or_planeswalker",
         # "target Aura or Equipment attached to a creature you control"
         # (Halvar, God of Battle) — `attached_equipment_you_control` widened
         # to Auras, and narrowed to hosts you control.
@@ -757,6 +760,7 @@ class TargetSpec:
                 "Artefakt, Verzauberung oder nichtgrundlegendes Land",
             "opponent": "Gegner",
             "opponent_or_planeswalker": "Gegner oder Planeswalker",
+            "player_or_planeswalker": "Spieler oder Planeswalker",
             "artifact_creature_planeswalker_or_opponent":
                 "Artefakt, Kreatur, Planeswalker oder Gegner",
             "artifact_creature_enchantment_or_planeswalker":
@@ -1163,6 +1167,9 @@ class TargetFrame:
     #: "target … or opponent"). ``players_first`` preserves each branch's
     #: printed order, which is the order the UI offers.
     with_opponents: bool = False
+    #: ENG-52: as ``with_opponents`` but every living player, the controller included ("target player or
+    #: planeswalker" — RULE 115.1 names no controller restriction).
+    with_all_players: bool = False
     players_first: bool = False
     #: Attachment narrowing (RULE 701.3): ``"any"`` = attached to anything,
     #: ``"to_source"`` = attached to this ability's own source,
@@ -1467,6 +1474,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     # --- permanents unioned with the opponent players --------------------
     "opponent_or_planeswalker": TargetFrame(
         "planeswalker", with_opponents=True, players_first=True),
+    "player_or_planeswalker": TargetFrame(
+        "planeswalker", with_all_players=True, players_first=True),
     "battle_or_opponent": TargetFrame("battle", with_opponents=True),
     "artifact_creature_planeswalker_or_opponent": TargetFrame(
         "artifact_creature_or_planeswalker", with_opponents=True),
@@ -1614,12 +1623,12 @@ def _legal_from_frame(
             descriptor["controller_id"] = obj.controller_id
         objects.append(descriptor)
 
-    if not frame.with_opponents:
+    if not (frame.with_opponents or frame.with_all_players):
         return objects
     players = [
         {"player_id": p.id, "name": p.name}
         for p in state.living_players()
-        if p.id != controller_id
+        if frame.with_all_players or p.id != controller_id
     ]
     return players + objects if frame.players_first else objects + players
 

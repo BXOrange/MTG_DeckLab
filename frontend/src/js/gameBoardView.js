@@ -1899,8 +1899,11 @@ export function createGameBoardView(opts = {}) {
       // RULE 109.5's "**another** target creature" (Pit Fight, Ulvenwald
       // Tracker) — same exclusion, but across *requirements*: whatever the
       // other half of the clause already chose is off this round's pool.
-      const pickedIds = new Set(castTargeting.targets.map((t) => t.instance_id));
-      options = options.filter((o) => !pickedIds.has(o.instance_id));
+      // A player option has a `player_id` and no `instance_id`, so the key names which of the two it is
+      // (ENG-52: "any other target" can be a player; `undefined` must not exclude every player).
+      const targetKey = (o) => (o.player_id != null ? `p:${o.player_id}` : `i:${o.instance_id}`);
+      const pickedKeys = new Set(castTargeting.targets.map(targetKey));
+      options = options.filter((o) => !pickedKeys.has(targetKey(o)));
     }
     if (castTargeting.excludeControllers) {
       // Run Away Together/Protector of the Wastes-shaped "controlled by

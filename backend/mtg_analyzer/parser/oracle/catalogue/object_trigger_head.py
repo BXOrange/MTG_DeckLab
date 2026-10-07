@@ -297,7 +297,14 @@ def _parse_group_attack_head(cond: str) -> Optional[ObjectHead]:
     group_filter: dict[str, Any] = {}
     card_type = filt.pop("card_type", None)
     card_types = filt.pop("card_type_all", None)
-    if card_type != "creature":
+    # PAR-148: "one or more **Goblins** you control attack" — a creature subtype (or several, "Goblins and/or
+    # Orcs") names the creatures without saying "creatures"; any one attacker of those subtypes qualifies.
+    subtype = filt.pop("subtype", None)
+    subtype_any = filt.pop("subtype_any", None)
+    subtypes = list(subtype_any) if subtype_any else ([subtype] if subtype else [])
+    if subtypes:
+        group_filter["subtypes_any"] = subtypes
+    if card_type != "creature" and not (subtypes and card_type is None and not card_types):
         if not card_types or "creature" not in card_types or len(card_types) != 2:
             return None
         group_filter["type"] = next(kind for kind in card_types if kind != "creature")
