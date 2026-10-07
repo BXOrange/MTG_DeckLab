@@ -66,7 +66,7 @@ _WITH_KEYWORD = r"(?:\s+with\s+(?P<kw>defender|flying))?"
 #: with defender") and "enchanted creature" (the Aura's host).
 _SACRIFICE_RE = re.compile(
     r"sacrifice\s+(?P<whole>this\s+\w+|~|it\b|enchanted\s+creature\b"
-    r"|(?P<article>an?|another)\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>\w+)"
+    r"|(?P<article>an?|another)\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>(?!or\b)\w+)"
     r"(?:\s+(?P<tail>" + _TYPE_TAIL + r")\b)?" + _WITH_KEYWORD
     + r"(?:\s+or\s+(?:an?\s+|another\s+)?"
     r"(?!pay\b|discard\b|sacrifice\b|tap\b|exile\b|remove\b|return\b)(?P<alt>\w+))?)"

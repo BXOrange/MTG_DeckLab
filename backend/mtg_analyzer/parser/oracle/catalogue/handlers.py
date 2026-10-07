@@ -7648,8 +7648,7 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _MAY_COST_THEN_CLAUSE = (
     r"pay (?:\{[wubrgcx0-9/]+\})+"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
-    # ("token or a land" is excluded: `costs.py` encodes it as ``token_or`` and drops "a land".)
-    r"|sacrifice an? (?!token or )\w+(?: or (?:an? )?\w+)?"
+    r"|sacrifice an? \w+(?: or (?:an? )?\w+)?"
     r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
     r"|discard (?:your hand|a card|\d+ cards?|[a-z]+ cards?)"
     r"|pay \d+ life"
@@ -9016,8 +9015,9 @@ _CREATE_TOKEN_FOR_EACH_RE = _c(
     rf"(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT} "
     rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
     rf"(?P<mid>[a-z ]*?)creature tokens?"
-    rf"(?: with (?P<kw>[a-z, ]+))?"
-    r" for each (?:(?P<subtype>[a-z]+) you control|(?P<attacking>attacking creature))"
+    rf"(?: with (?P<kw>[a-z, ]+?))?" + _TOKEN_TAPPED_ATTACKING +
+    # PAR-148: "…tapped and attacking for each experience counter you have" (Otharri, Suns' Glory; Aang, Airbending Master).
+    r" for each (?:(?P<subtype>[a-z]+) you control|(?P<attacking>attacking creature)|(?P<exp>experience counter you have))"
 )
 
 
@@ -9025,7 +9025,10 @@ def _create_token_for_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _inline_create_token_params(m)
     if params is None:
         return None
-    selector = _count_selector_for_phrase(m.groupdict().get("subtype"), m.groupdict().get("attacking"))
+    selector = (
+        "experience_counters_you_have" if m.groupdict().get("exp")
+        else _count_selector_for_phrase(m.groupdict().get("subtype"), m.groupdict().get("attacking"))
+    )
     if selector is None:
         return None
     params.pop("count", None)
@@ -16848,7 +16851,8 @@ HANDLERS: list[EffectHandler] = [
     # counters.
     EffectHandler(
         "add_player_counters",
-        _c(rf"(?P<who>you |target player |target opponent |defending player )?gets? (?P<n>a|an|x|\d+) (?P<kind>rad|poison) counters?"),
+        # PAR-148: "you get an experience counter" (RULE 122.1; Kalemne, Otharri, Zuko, Katara, …) — the same primitive.
+        _c(rf"(?P<who>you |target player |target opponent |defending player )?gets? (?P<n>a|an|x|\d+) (?P<kind>rad|poison|experience) counters?"),
         _add_rad_counters,
     ),
     # "each player gets three rad counters" / "each opponent gets a poison

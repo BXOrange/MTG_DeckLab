@@ -310,10 +310,13 @@ def test_gut_sacrifices_a_creature_or_artifact_and_makes_a_tapped_attacking_skel
     assert fodder not in state.battlefield and gut in state.battlefield  # "another": the Treasure paid, not Gut
 
 
-def test_union_sacrifice_cost_shapes_that_the_cost_parser_mangles_stay_unclaimed():
-    assert parse_effect_body(
-        "you may sacrifice a token or a land. if you do, draw a card."
-    ) is None
+def test_a_token_first_union_sacrifice_cost_is_read_whole():
+    # `cost_text._SACRIFICE_RE` used to read "a token or a land" as the qualifier "token" plus the type "or".
+    from mtg_analyzer.game.costs import parse_activation_cost
+
+    assert parse_activation_cost("sacrifice a token or a land").sacrifice == "token_or_land"
+    (spec,) = parse_effect_body("you may sacrifice a token or a land. if you do, draw a card.")
+    assert spec.params["cost"] == "sacrifice a token or a land"
 
 
 # -- copy tail, entry origin, defender ------------------------------------------------
@@ -372,3 +375,35 @@ def test_the_if_you_do_half_waits_for_the_sacrifice_to_be_chosen():
     assert second not in state.battlefield and first in state.battlefield
     skeleton = [o for o in state.battlefield if o.name == "Skeleton"]
     assert len(skeleton) == 1 and skeleton[0].tapped and skeleton[0].attacking
+
+
+# -- experience counters ---------------------------------------------------------------
+
+
+def test_you_get_an_experience_counter_and_tokens_for_each_one_you_have():
+    specs = parse_effect_body(
+        "you get an experience counter. then create a 2/2 red rebel creature token that's tapped and "
+        "attacking for each experience counter you have."
+    )
+    counters, token = specs
+    assert counters.type == "add_player_counters" and counters.params["kind"] == "experience"
+    assert token.params["count_selector"] == "experience_counters_you_have"
+    assert token.params["tapped"] and token.params["attacking"]
+
+
+def test_otharri_makes_a_rebel_per_experience_counter_after_getting_one():
+    engine, state = _engine()
+    state.current_step = "main1"
+    p1 = state.player_by_id("p1")
+    p1.counters["experience"] = 1
+    otharri = _permanent(
+        state, "Otharri", "Legendary Creature — Phoenix", (
+            "Whenever Otharri attacks, you get an experience counter. Then create a 2/2 red Rebel creature "
+            "token that's tapped and attacking for each experience counter you have."
+        ), is_creature=True, power=3, toughness=3,
+    )
+    state.current_phase = "combat"
+    _attack(engine, state, [otharri])
+    assert p1.counters["experience"] == 2
+    rebels = [o for o in state.battlefield if o.name == "Rebel"]
+    assert len(rebels) == 2 and all(r.tapped and r.attacking for r in rebels)

@@ -41,8 +41,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-150` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-151`**; next free `MEC`: **`MEC-115`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-153` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-154`**; next free `MEC`: **`MEC-115`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -97,6 +97,22 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
   "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
   `engine_bench.py`, not parse verdicts.
+- **PAR-151 · Coin flips ("flip a coin. If you win/lose the flip, …").** 76 cached cards, 63 SOLO, and the parser has no coin row at
+  all: `CoinFlipEffect`/`RulesEngine.coin_flip` exist (hand-authored Ral, Setzer, Mana Crypt only). Axes: the single flip with a win
+  and/or lose branch (Boompile, Chaotic Goo, Bottle of Suleiman); "flip X/N coins. For each flip you win/lose, …" (Flock of Rabid
+  Sheep, Goblin Traprunner, Mutalith Vortex Beast); "flip a coin until you lose a flip" (Crazed Firecat, Fiery Gambit); "when you
+  win the flip" reflexive heads (Breeches); branches with a target or a referent ("destroy that creature", "target creature gets
+  +1/+1" — the branch's target must be announced with the spell). Risk: a branch's "may" and "unless you pay and repeat" (Crooked Scales).
+- **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
+  RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
+  Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal
+  (Fireflux Squad), a delayed return at the next declare-attackers step (Meandering/Meandered Towershell, Noctis, The Neutrinos), a
+  granted trigger on the returned card (Olivia, Thunderkin Awakener), plus Jocasta, Nemesis Phoenix, Paladin Elizabeth Taggerdy, Strefan,
+  Ultra Magnus, The Sprinkler of Stardust, Chorale of the Void, Zareth San.
+- **PAR-153 · Tapped-and-attacking token copies.** 10 cards: the referent is a subtype/"other than ~"/"up to 1 other" target (Loki,
+  Shaun, Satya), "the exiled card" (Phantom Steed), a graveyard card exiled first (Gyrus, Altaïr), a counted "for each attacking
+  modified creature"/"x tokens" (Mirror-Style Master, Nacatl War-Pride), a chosen saddler (Calamity) or a d20 row (Delina); each
+  reuses `copy_permanent` (`tapped`/`attacking`) with its own delayed exile/sacrifice.
 - **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
   checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
   step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a

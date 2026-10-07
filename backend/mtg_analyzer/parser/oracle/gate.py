@@ -3903,7 +3903,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 615: PAR-148 — "that player or a planeswalker they control" (`defender_planeswalker`), "enters from your hand/graveyard"
 #      self heads, copy "and that's tapped and attacking", type-union sacrifice in pay-then costs (source excluded for
 #      "another"), the one-card reveal-and-branch dig ("if it's a creature card, put it onto the battlefield … otherwise").
-PARSER_VERSION = "615"
+# 616: PAR-148 — "you get an experience counter", tokens "for each experience counter you have", and a token-first union
+#      sacrifice ("a token or a land") read whole by `cost_text._SACRIFICE_RE`.
+PARSER_VERSION = "616"
 
 
 def parser_source_hash() -> str:
