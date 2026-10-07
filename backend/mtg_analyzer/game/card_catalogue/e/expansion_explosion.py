@@ -12,8 +12,7 @@ def _expansion_explosion() -> list[AbilitySpec]:
     — Jeskai Striker deck batch. Only the front half needs authoring: the Explosion half parses on
     its own (`damage` + `draw`, both X) once the card is cast as its back face. The front is
     `copy_spell` with the new ``max_mana_value`` spell-target ceiling (RULE 115 — a spell with mana
-    value 5 or more is not a legal target). "May choose new targets" keeps the original's targets, the
-    `CopySpellEffect` simplification every copy card here shares.
+    value 5 or more is not a legal target). "May choose new targets" uses the shared copy-target choice before the copy enters the stack.
     """
     return [
         AbilitySpec(

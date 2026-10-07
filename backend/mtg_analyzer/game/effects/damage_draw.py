@@ -534,7 +534,7 @@ class DealDamageEffect(GameEffect):
                 if player is not None:
                     context.deal_damage(player, self._amount_for(obj, context), self.source)
             return
-        chosen = _chosen_targets(targets, len(targets or []) if self.target_spec.per_player else self.target_spec.effective_count, self.target)
+        chosen = _chosen_targets(targets, len(targets or []) if self.target_spec.per_player else self.target_spec.effective_count, self.target, preserve_slots=self.divided)
         if self.divided:
             override = self.each_target_if_mana_color_spent or {}
             paid = getattr(self.source, "mana_by_color_spent_to_cast", None) or {}
@@ -542,7 +542,8 @@ class DealDamageEffect(GameEffect):
                 # Sundering Stroke's Adamant branch replaces the divided pool
                 # with the full printed amount to every already chosen target.
                 for target in chosen:
-                    context.deal_damage(target, self._amount_for(target, context), self.source)
+                    if target is not None:
+                        context.deal_damage(target, self._amount_for(target, context), self.source)
                 return
             self._apply_divided(context, chosen)
             return
@@ -582,7 +583,7 @@ class DealDamageEffect(GameEffect):
             base, extra = divmod(total, len(targets))
             amounts = [base + (1 if i < extra else 0) for i in range(len(targets))]
         for target, amount in zip(targets, amounts):
-            if amount > 0:
+            if target is not None and amount > 0:
                 context.deal_damage(target, amount, self.source)
 
     def _apply_selector(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -2218,7 +2219,7 @@ def _mass_selector_objects(
     return result
 
 
-def _chosen_targets(targets: Optional[list[Any]], count: int, target: Any = None) -> list[Any]:
+def _chosen_targets(targets: Optional[list[Any]], count: int, target: Any = None, *, preserve_slots: bool = False) -> list[Any]:
     """RULE 115.1a "up to N target(s)" resolution: only this effect's own
     ``count`` targets, off the front of a possibly-shared list — a stack
     item's ``targets`` list is shared by every effect on it, so a
@@ -2231,7 +2232,8 @@ def _chosen_targets(targets: Optional[list[Any]], count: int, target: Any = None
     each reimplemented this identically.
     """
     if targets:
-        return targets[:count]
+        slots = targets[:count]
+        return slots if preserve_slots else [obj for obj in slots if obj is not None]
     return [target] if target is not None else []
 
 

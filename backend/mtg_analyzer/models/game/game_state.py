@@ -106,8 +106,12 @@ class StackItem:
         target_groups: Optional[list[list[Any]]] = None,
         trigger_event: Optional[GameEvent] = None,
         ability_key: Optional[str] = None,
+        cant_be_copied: bool = False,
     ) -> None:
         self.stack_id: int = next(_stack_id_counter)
+        self.cant_be_copied = cant_be_copied
+        self.ward_check_deferred = False
+        self.deferred_ward_triggers: list[StackItem] = []
         self.kind = kind
         self.controller_id = controller_id
         self.effects = effects or []
@@ -116,8 +120,10 @@ class StackItem:
         self.targets = targets or []
         self.target_groups = target_groups
         # RULE 400.7: retain each target's particular zone visit, including repeated targets.
-        self.target_incarnations = [getattr(t, "zone_incarnation", None) for t in self.targets]
+        self.target_incarnations = [getattr(t, "zone_incarnation", getattr(getattr(t, "obj", None), "zone_incarnation", None))
+                                    for t in self.targets]
         self.copy_target_roles: list[Any] = []
+        self.resolution_target_slots: Optional[list[Any]] = None
         #: RULE 603.1: the event that *caused* this triggered ability, kept
         #: so an effect whose behaviour depends on the specific firing
         #: ("that permanent"'s produced mana, "that spell"'s card types, the
@@ -1126,6 +1132,12 @@ class GameState:
                 return obj
         for item in self.stack:
             if item.obj is not None and item.obj.instance_id == instance_id:
+                return item.obj
+        # RULE 608.2m: a paused resolving spell still exists although it is
+        # no longer a targetable item in the ordinary stack list.
+        for frame in self.deferred_effects:
+            item = frame.get("stack_item")
+            if item is not None and item.obj is not None and item.obj.instance_id == instance_id:
                 return item.obj
         for player in self.players:
             for zone in player.zones.values():

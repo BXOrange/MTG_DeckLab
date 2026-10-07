@@ -21,9 +21,11 @@ def _unbound_flourishing() -> list[AbilitySpec]:
     that spell's mana cost or that ability's activation cost contains {X},
     copy that spell or ability. You may choose new targets for the copy.
 
-    Documented simplification: clause 2's "or activate an ability" half is
-    dropped (only spells are copied); clause 1 fires for every {X} spell you
-    cast and no-ops unless it is a permanent spell."""
+    Spell and activation events carry whether their mana portions contain {X},
+    independently of X's announced value. The permanent trigger is restricted
+    to permanent spells; copied abilities retain their source and chosen X.
+    Remaining requirement: retain a copiable firing snapshot when the original
+    spell/ability leaves the stack before this trigger resolves."""
     return [
         AbilitySpec(
             "triggered",
@@ -32,6 +34,7 @@ def _unbound_flourishing() -> list[AbilitySpec]:
                 "event": EventType.SPELL_CAST,
                 "condition": {"subject": "group", "controller": "you"},
                 "spell_has_x": True,
+                "spell_card_types": ["artifact", "creature", "enchantment", "planeswalker", "battle"],
             },
         ),
         AbilitySpec(
@@ -42,6 +45,15 @@ def _unbound_flourishing() -> list[AbilitySpec]:
                 "condition": {"subject": "group", "controller": "you"},
                 "spell_has_x": True,
                 "spell_card_types": ["instant", "sorcery"],
+            },
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("copy_ability", {"ability_from_trigger_event": "stack_id"})],
+            trigger={
+                "event": EventType.ACTIVATED_ABILITY,
+                "condition": {"subject": "group", "controller": "you"},
+                "spell_has_x": True,
             },
         ),
     ]

@@ -167,6 +167,7 @@ class LegalActionsMixin:
         sacrifice_x = bool(ability.cost.sacrifice_count) and ability.cost.sacrifice_count[0] == SACRIFICE_COUNT_X
         if mana.has_variable or remove_counters_x or sacrifice_x or ability.cost.pay_energy == PAY_ENERGY_X:
             action["has_x"] = True
+            action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
         requirements = self._ability_target_requirements(player, ability, source, mode=mode)
         if requirements:
@@ -807,12 +808,13 @@ class LegalActionsMixin:
         payable, or legal except for mana and payable via plain untapped
         sources (clicking it then silently auto-taps first, `Activation
         Mixin._auto_tap_for_activation_if_needed`)."""
-        if self.can_activate(player, source, ability):
+        minimum_x = ability.cost.minimum_x
+        if self.can_activate(player, source, ability, x=minimum_x):
             return True
-        if not self.can_activate(player, source, ability, assume_mana_available=True):
+        if not self.can_activate(player, source, ability, x=minimum_x, assume_mana_available=True):
             return False
         cost = ability.cost
-        mana = cost.mana.with_x(0) if cost.mana.has_variable else cost.mana
+        mana = cost.mana.with_x(minimum_x) if cost.mana.has_variable else cost.mana
         mana = self._reduced_activation_mana(source, mana, cost)
         if cost.spend_only_chosen_color:
             locked = self._chosen_color_locked_cost(source, mana)

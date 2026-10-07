@@ -8,20 +8,21 @@ def _chain_of_smog() -> list[AbilitySpec]:
     """Target player discards two cards. That player may copy this spell
     and may choose a new target for that copy.
 
-    — MEC-43. The discard is ordinary; the copy is the new
-    `CopySelfControlledByPreviousTargetEffect` — the discard target
-    (`GameContext.previous_targets`) becomes the copy's controller,
-    mirroring `CopySelfIfCastFromGraveyardEffect`'s own "may" simplification
-    (always copies, keeps the same target) rather than opening a fresh
-    interactive retarget.
+    — MEC-43. The targeted player decides whether to copy the resolving
+    spell, then may choose the copy's target before it enters the stack.
     """
     return [
         AbilitySpec(
             "spell_effect",
             [
                 EffectSpec("discard", {"count": 2, "target_kind": "player"}),
-                EffectSpec("copy_self_spell", {
-                    "controller": {"of": "target", "as": "self"},
+                EffectSpec("optional", {
+                    "player": {"of": "target", "as": "self"},
+                    "prompt": "Chain of Smog kopieren?",
+                    "effects": [{"type": "copy_self_spell", "params": {
+                        "controller": {"of": "target", "as": "self"},
+                        "choose_new_targets": True,
+                    }}],
                 }),
             ],
         ),

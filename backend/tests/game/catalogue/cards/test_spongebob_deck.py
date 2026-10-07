@@ -874,6 +874,9 @@ def test_gogo_copies_a_targeted_ability_on_the_stack_x_times():
     gogo_ability = next(i for i, a in enumerate(gogo.activated_abilities) if getattr(a, "cost", None) is not None)
     engine.activate_ability(p1, gogo, gogo_ability, x=2, targets=[{"stack_id": pending[0].stack_id}])
     engine.resolve_until_stable()
+    while engine.state.pending_choice and engine.state.pending_choice["kind"] == "copy_targets":
+        engine.rules.resolve_choice("decline")
+    engine.resolve_until_stable()
 
     assert bear.counters.get("+1/+1", 0) == 3  # the original plus two copies
     assert gogo.tapped

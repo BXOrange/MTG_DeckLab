@@ -489,6 +489,8 @@ class ActivationMixin:
         is_mana_ability: bool = False,
         sacrifice_also_choice: Optional[int] = None,
     ) -> bool:
+        if x < cost.minimum_x:
+            return False
         if cost.activation_condition and not static_conditions.condition_holds(
             cost.activation_condition, self.state, source=source, controller_id=player.id,
         ):
@@ -1681,6 +1683,8 @@ class ActivationMixin:
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no activated ability #{ability_index}")
         ability = abilities[ability_index]
+        if x < ability.cost.minimum_x:
+            raise ValueError(f"X must be at least {ability.cost.minimum_x}")
         resolved_effects = self._resolve_activation_mode(ability, mode)
         resolved_specs = effects_target_specs(resolved_effects)
         target_groups = per_player_target_groups(
@@ -1790,6 +1794,7 @@ class ActivationMixin:
             x=x,
             source=source,
             ability_key=ability.description or None,
+            cant_be_copied=ability.cost.cant_be_copied,
             # RULE 607.2a / 400.7: preserve this incarnation's links on
             # the ability, independently of a later source zone change.
             trigger_event=hideaway_event,
@@ -1812,6 +1817,7 @@ class ActivationMixin:
                 # has no `GameObject` of its own to name by `instance_id`
                 # (ENG-26, `StackItem.stack_id`).
                 stack_id=item.stack_id,
+                has_x=ability.cost.mana.has_variable,
             )
         )
         self.rules.check_ward(item, player)

@@ -13,7 +13,7 @@ def _venser_fervent_forger() -> list[AbilitySpec]:
       end step, sacrifice them.
 
     — PLAY-ALL (Multiverse Reforged). Flash is the keyword's. Mode 1 is `copy_spell` over ``spell_you_dont_control`` with
-    ``count`` 2 (**simplification:** the copies keep the original's targets — `CopySpellEffect` has no new-target choice).
+    ``count`` 2; both copies finish their optional target choices before the batch enters the stack.
     Mode 2 is `copy_permanent` (``count`` 2, ``haste``) plus the Reflection of Kiki-Jiki delayed end-step sacrifice over the
     tokens it created (``capture="created_objects"``).
     """

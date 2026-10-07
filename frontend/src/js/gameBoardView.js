@@ -96,7 +96,7 @@ const TARGET_OWNER_ZONES = ['graveyard', 'exile', 'hand', 'command'];
 // Pending-choice kinds that are RULE 115 target selections (an ability's
 // target, picked from the generic choice popup) — the ones whose candidates
 // can also be clicked on the board once the popup is pushed aside (VIS-14).
-const TARGET_CHOICE_KINDS = new Set(['trigger_target', 'trigger_target_multi']);
+const TARGET_CHOICE_KINDS = new Set(['trigger_target', 'trigger_target_multi', 'copy_targets']);
 
 /**
  * @param {object} [opts]

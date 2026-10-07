@@ -17,6 +17,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 
 
 def _apply(eng, spec, src, **kw):
@@ -128,10 +129,8 @@ def test_thunderclap_drake_copies_next_spell_per_commander_cast():
     spell = GameObject(card=Card(id="sp", name="Shock", type_line="Instant"),
                        owner_id=p1.id, zone=Zone.STACK)
     spell.controller_id = p1.id
-    eng.state.stack.append(type("SI", (), {"kind": "spell", "obj": spell,
-                                          "controller_id": p1.id, "targets": [],
-                                          "effects": [], "description": "Shock",
-                                          "x": 0, "target_groups": None})())
+    eng.state.stack.append(StackItem(kind="spell", obj=spell, controller_id=p1.id,
+                                     targets=[], effects=[], description="Shock"))
     eng.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id=p1.id,
                                    object_types=["instant"],
                                    instance_id=spell.instance_id, mana_value=1))

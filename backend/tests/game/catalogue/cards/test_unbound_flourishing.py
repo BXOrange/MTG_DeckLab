@@ -22,7 +22,7 @@ def _uf_card():
 def test_registered_and_binds():
     assert is_registered("Unbound Flourishing")
     specs = _REGISTRY["unbound flourishing"]()
-    assert [s.effects[0].type for s in specs] == ["double_cast_x", "copy_spell"]
+    assert [s.effects[0].type for s in specs] == ["double_cast_x", "copy_spell", "copy_ability"]
     src = GameObject(_uf_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
     src.controller_id = "p1"
     for s in specs:

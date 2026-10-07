@@ -41,6 +41,8 @@ previous player's prompt.
 
 from __future__ import annotations
 
+from ...models.game.player import Player
+
 from typing import Any, Optional
 
 from ...models.game.game_object import GameObject
@@ -492,6 +494,7 @@ class OptionalEffect(_CompositeEffect):
             # same way the ``previous_target_ids`` referent does, or the body
             # resumes with nothing to act on and the effect silently does
             # nothing (PAR-62).
+            "target_player_ids": [obj.id for obj in (targets or []) if isinstance(obj, Player)],
             "target_ids": [
                 getattr(obj, "instance_id", None)
                 for obj in (targets or [])
@@ -500,6 +503,10 @@ class OptionalEffect(_CompositeEffect):
             # RULE 608.2h: the referent an earlier clause chose has to survive
             # the pause, since the resolution that established it is over by
             # the time this is answered.
+            "previous_player_ids": [
+                obj.id for obj in (getattr(context, "previous_targets", []) or [])
+                if isinstance(obj, Player)
+            ],
             "previous_target_ids": [
                 getattr(obj, "instance_id", None)
                 for obj in (getattr(context, "previous_targets", []) or [])

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core import GameEffect
+from .. import continuations
 from ._runtime import install, register
 
 install(globals())
@@ -184,19 +185,18 @@ class CounterAbilityEffect(GameEffect):
 class CopyTargetAbilityEffect(GameEffect):
     """"Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry) —
     RULE 707.10, the *targeted* sibling of `CopyAbilityEffect` above (which copies "that ability", the one
-    that fired a trigger). The target is an ability item on the stack (``TargetSpec(kind="ability")``,
+    that fired a trigger). The target is an ability item on the stack (``TargetSpec(kind="ability_you_control")``,
     named by `StackItem.stack_id`); only one the effect's controller controls is copyable. ``X`` is the
-    spell/ability's own announced {X} (``GameObject.x_paid``); at X = 0 nothing is copied ("X can't be 0"
-    is a casting restriction this engine does not enforce — a 0-copy activation is simply a no-op).
+    spell/ability's own announced {X} (the resolving stack item), independent of later activations.
+    Gogo's minimum X is enforced by its activation cost.
 
-    **Documented simplification**, as for `CopyAbilityEffect`: "you may choose new targets for the copies"
-    keeps the original's targets.
+    Target changes are optional and complete before any copy enters the stack.
     """
 
     def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False) -> None:
         super().__init__(source)
         self.choose_new_targets = choose_new_targets
-        self.target_spec = TargetSpec(kind="ability")
+        self.target_spec = TargetSpec(kind="ability_you_control")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not targets:
@@ -204,10 +204,12 @@ class CopyTargetAbilityEffect(GameEffect):
         target = targets[0]
         stack_id = target.get("stack_id") if isinstance(target, dict) else getattr(target, "stack_id", None)
         item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
-        controller_id = getattr(self.source, "controller_id", None)
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
         if item is None or item.kind != "ability" or controller_id is None or item.controller_id != controller_id:
             return  # RULE 608.2b: the ability left the stack, or isn't one you control
-        for _ in range(max(0, int(getattr(self.source, "x_paid", 0) or 0))):
+        resolving = context.resolving_stack_item
+        announced_x = resolving.x if resolving is not None else getattr(self.source, "x_paid", 0)
+        for _ in range(max(0, int(announced_x or 0))):
             context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets, defer_choice=True)
         context.engine._advance_copy_targets()
 
@@ -223,9 +225,8 @@ class CopySpellEffect(GameEffect):
     copy is controlled by *this effect's source's controller* (RULE 707.10c
     — the copier), created by `RulesEngine.copy_spell`. "You may choose new
     targets for the copy" is a legal-but-optional refinement (RULE 707.10c);
-    this MVP keeps the original's targets (the default outcome), which every
-    real card in scope allows — a genuine new-target choice would open a
-    `pending_choice`, deferred until a card needs it.
+    the controller chooses through state-owned target rounds before any
+    copy is put on the stack, retaining any unchanged targets.
     """
 
     def __init__(
@@ -290,7 +291,7 @@ class CopySpellEffect(GameEffect):
             controller_id = (
                 event.get(self.controller_from_trigger_event)
                 if self.controller_from_trigger_event
-                else getattr(self.source, "controller_id", None)
+                else getattr(_controller_of(self.source, context), "id", None)
             )
             if controller_id is None:
                 return
@@ -300,14 +301,19 @@ class CopySpellEffect(GameEffect):
             return
         if not targets:
             return
-        controller_id = getattr(self.source, "controller_id", None)
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
         if controller_id is None:
             return
         n = self._copies(context, controller_id)
         if n <= 0:
             return
         for target in targets:
-            context.copy_spell(target, controller_id, n, choose_new_targets=self.choose_new_targets, defer_choice=True)
+            item = context.engine._stack_item_for(target)
+            if self.target_spec.kind == "spell_or_ability" and item is not None and item.kind == "ability":
+                for _ in range(n):
+                    context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets, defer_choice=True)
+            else:
+                context.copy_spell(target, controller_id, n, choose_new_targets=self.choose_new_targets, defer_choice=True)
         context.engine._advance_copy_targets()
 
     def _copies(self, context: GameContext, controller_id: str) -> int:
@@ -320,28 +326,88 @@ class CopySpellEffect(GameEffect):
 
 
 class DemonstrateCopyEffect(GameEffect):
-    """The body of RULE 702.144a's Demonstrate: "…you may copy it. If you do, choose an opponent
-    to also copy it." Run behind an ``optional`` wrapper (`RulesEngine._collect_demonstrate_triggers`),
-    so by now the controller has said yes; the source is the demonstrating spell itself.
+    """RULE 702.144a: own copy, opponent choice, then the opponent's copy.
 
-    The controller's copy and the chosen opponent's copy are both made by `RulesEngine.copy_spell`.
-    **Documented simplifications:** the opponent is auto-picked as the next living opponent in
-    seating order (there is no player chooser yet — the same convention `GainControlBySourceEffect`
-    documents), and "players may choose new targets for their copies" keeps the original targets.
+    Each copy finishes its targets before entering the stack. Ward checks
+    follow the whole instruction sequence, while target events fire as each
+    copy enters. Suspended stages use state-owned iteration frames and IDs.
     """
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        spell = self.source
-        controller = _controller_of(spell, context)
-        if spell is None or controller is None:
+    def __init__(self, stage="controller", controller_id=None, spell_stack_id=None,
+                 copy_ids=None, opponent_id=None, source=None):
+        super().__init__(source)
+        self.stage = stage
+        self.controller_id = controller_id
+        self.spell_stack_id = spell_stack_id
+        self.copy_ids = list(copy_ids or [])
+        self.opponent_id = opponent_id
+
+    def _continue(self, context, stage, spell, controller_id, copy_ids):
+        params = {"stage": stage, "spell_stack_id": spell.stack_id,
+                  "controller_id": controller_id, "copy_ids": copy_ids}
+        if context.state.pending_choice:
+            context.engine.defer_iteration([], [context.state.player_by_id(controller_id)],
+                source=spell.obj, specs=[{"type": "demonstrate_copy", "params": params}])
+        else:
+            DemonstrateCopyEffect(**params).apply(context)
+
+    def apply(self, context, targets=None):
+        if self.stage == "wards":
+            for stack_id in self.copy_ids:
+                item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
+                if item is not None and item.ward_check_deferred:
+                    item.ward_check_deferred = False
+                    living = {p.id for p in context.state.living_players()}
+                    context.state.stack.extend(ward for ward in item.deferred_ward_triggers
+                                               if ward.controller_id in living)
+                    item.deferred_ward_triggers = []
             return
-        players = context.state.living_players()
-        if controller not in players:
+        spell = (context.engine._stack_item_for(self.source) if self.stage == "controller"
+                 else next((i for i in context.state.stack if i.stack_id == self.spell_stack_id), None))
+        if spell is None:
+            DemonstrateCopyEffect(stage="wards", copy_ids=self.copy_ids).apply(context)
             return
-        context.copy_spell(spell, controller.id, 1)
-        after = players[players.index(controller) + 1:] + players[:players.index(controller)]
-        if after:
-            context.copy_spell(spell, after[0].id, 1)
+        controller_id = (getattr(_controller_of(self.source, context), "id", None)
+                         if self.stage == "controller" else self.controller_id)
+        if controller_id is None:
+            return
+        if self.stage == "opponent":
+            opponents = [p for p in context.state.living_players() if p.id != controller_id]
+            if len(opponents) == 1:
+                DemonstrateCopyEffect(stage="opponent_copy", controller_id=controller_id,
+                    spell_stack_id=spell.stack_id, copy_ids=self.copy_ids,
+                    opponent_id=opponents[0].id).apply(context)
+            elif opponents:
+                context.engine.open_choice({"kind": "demonstrate_opponent", "player_id": controller_id,
+                    "prompt": "Wähle einen Gegner für Demonstrate", "optional": False,
+                    "spell_stack_id": spell.stack_id, "copy_ids": self.copy_ids,
+                    "options": [{"id": p.id, "label": p.name} for p in opponents]})
+            else:
+                self._continue(context, "wards", spell, controller_id, self.copy_ids)
+            return
+        copier = controller_id if self.stage == "controller" else self.opponent_id
+        copies = context.copy_spell(spell, copier, 1, choose_new_targets=True, defer_choice=True)
+        if not copies:
+            if self.stage != "controller":
+                self._continue(context, "wards", spell, controller_id, self.copy_ids)
+            return
+        for copy in copies:
+            copy.ward_check_deferred = True
+        context.engine._advance_copy_targets()
+        copy_ids = self.copy_ids + [copy.stack_id for copy in copies]
+        self._continue(context, "opponent" if self.stage == "controller" else "wards",
+                       spell, controller_id, copy_ids)
+
+
+@continuations.choice("demonstrate_opponent", answer=continuations.ANSWER_STR, rule="702.144a")
+def _resume_demonstrate_opponent(rules, choice, answer):
+    living = {p.id for p in rules.state.living_players()}
+    if answer not in {o["id"] for o in choice["options"]} or answer not in living:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed living opponent")
+    DemonstrateCopyEffect(stage="opponent_copy", controller_id=choice["player_id"],
+        spell_stack_id=choice["spell_stack_id"], copy_ids=choice["copy_ids"],
+        opponent_id=answer).apply(rules.context)
 
 
 class ConjureDuplicateIntoHandEffect(GameEffect):
@@ -368,7 +434,7 @@ class ConjureDuplicateIntoHandEffect(GameEffect):
         target = context.state.find_object(instance_id) if instance_id is not None else None
         if target is None:
             return
-        controller_id = getattr(self.source, "controller_id", None)
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
         if controller_id is None:
             return
         duplicate = context.conjure_duplicate_into_hand(target, controller_id)
@@ -391,27 +457,26 @@ class CopyAbilityEffect(GameEffect):
     ``remember_trigger_stack_id=True`` (the trigger-event window has closed
     by the time this "if you do" branch actually runs).
 
-    **Documented simplification**, the same one `CopySpellEffect`'s own
-    docstring already establishes for a spell copy: "you may choose new
-    targets for the copy" keeps the original's targets rather than opening
-    a fresh interactive pick — no real card in scope needs a genuinely
-    different target on the copy.
+    The copy retains its source and firing event; optional target changes
+    are chosen before it is put on the stack.
     """
 
-    def __init__(self, source=None, choose_new_targets=False):
+    def __init__(self, source=None, choose_new_targets=False, ability_from_trigger_event=None):
         super().__init__(source)
         self.choose_new_targets = choose_new_targets
+        self.ability_from_trigger_event = ability_from_trigger_event
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        stack_id = getattr(self.source, "remembered_stack_id", None)
+        stack_id = ((context.trigger_event or {}).get(self.ability_from_trigger_event)
+                    if self.ability_from_trigger_event else getattr(self.source, "remembered_stack_id", None))
         if stack_id is None:
             return
         item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
         if item is None:
             return
-        controller_id = getattr(self.source, "controller_id", None)
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
         if controller_id is None:
             return
         context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets)
@@ -424,14 +489,12 @@ class CopySelfSpellEffect(GameEffect):
     targeted (`GameContext.previous_targets`, the same pronoun idiom
     `FightEffect`/`GoadEffect` use), not this spell's own caster.
 
-    **Documented simplification**, the same one `CopySpellEffect`'s own
-    docstring and `CopySelfIfCastFromGraveyardEffect` already establish:
-    "may" is read as unconditional (always copies — declining has no real
-    downside worth modeling) and "may choose a new target" keeps the
-    original target instead of opening a fresh interactive pick.
+    An optional composition wrapper asks whether to copy; this effect
+    then offers target changes using the resolving spell's original choices.
     """
 
-    def __init__(self, controller: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, controller: Any = None, source: Optional["GameObject"] = None,
+                 choose_new_targets: bool = False) -> None:
         super().__init__(source)
         self.choose_new_targets = choose_new_targets
         self.controller = controller
@@ -470,7 +533,7 @@ class CopySelfIfCastFromGraveyardEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not getattr(self.source, "cast_via_flashback", False):
             return
-        controller_id = getattr(self.source, "controller_id", None)
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
         if controller_id is None:
             return
         context.copy_self_spell(self.source, controller_id, targets=targets)
@@ -573,7 +636,7 @@ class GainControlOfSpellEffect(GameEffect):
         target = (targets[0] if targets else None) or self.target
         if target is None:
             return
-        controller_id = getattr(self.source, "controller_id", None)
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
         if controller_id is None:
             return
         context.change_target(target, optional=True, source=self.source)
@@ -757,6 +820,17 @@ class CounterUnlessPayEffect(GameEffect):
             parse_activation_cost(self.cost_text),
             ability_controller_id=ability_controller_id,
         )
+
+
+class CantBeCopiedEffect(GameEffect):
+    """RULE 101.2 / 707.10: a spell's own prohibition on creating a copy.
+
+    Read from the spell's bound static/instruction lists before creating a
+    copy, so it applies on the stack rather than at resolution.
+    """
+
+    def apply(self, context, targets=None):
+        return None
 
 
 class CantBeCounteredEffect(GameEffect):
@@ -1131,7 +1205,7 @@ class MillEffect(GameEffect):
         if self.count_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
 
-            controller_id = getattr(self.source, "controller_id", None)
+            controller_id = getattr(_controller_of(self.source, context), "id", None)
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
             )

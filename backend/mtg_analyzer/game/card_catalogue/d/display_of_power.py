@@ -13,15 +13,11 @@ def _display_of_power() -> list[AbilitySpec]:
     601.2c "any number" idiom Fire Covenant's own ``count=10`` UI cap
     already established, applied to `CopySpellEffect`'s ``target_count``
     (new — every prior copy-spell card only ever named one target).
-    **Documented simplification**: "This spell can't be copied" (RULE
-    707.12) isn't modeled — no spell-copy-immunity primitive exists yet,
-    and nothing in either deck tries to copy a spell that's still on the
-    stack as a copy target — so it's harmless in practice; "you may
-    choose new targets for the copies" is the same already-documented
-    MVP `CopySpellEffect` simplification every other copy-spell card in
-    this catalogue shares (keeps the original's targets).
+    Its static marker prohibits every spell-copy path, including forced
+    copies, while target changes use the shared copy-target rounds.
     """
     return [
+        AbilitySpec("static", [EffectSpec("cant_be_copied", {})]),
         AbilitySpec(
             "spell_effect",
             [EffectSpec("copy_spell", {

@@ -31,20 +31,8 @@ def _return_the_favor() -> list[AbilitySpec]:
     ("change_target", {"spell_or_ability": True})`, ENG-26's union
     spell-or-ability stack-item lookup, unchanged.
 
-    The first mode ("copy target … spell, activated ability, or triggered
-    ability … choose new targets") is hand-authored with the same two
-    simplifications every other targeted-copy catalogue entry already
-    carries (Reiterate/Narset's Reversal/Dualcaster Mage) —
-    `CopySpellEffect`'s own docstring names both: it only targets a real
-    spell (`TargetSpec(kind="spell")`, RULE 707.10's copiable-object rule
-    still applies fine to instants/sorceries but `RulesEngine.copy_spell`
-    has no path for an *ability* StackItem at all, whose `obj` is always
-    `None` — a real, separate primitive this card doesn't need to build to
-    become playable, tracked as its own future gap rather than silently
-    modeled here), and it keeps the original's targets rather than opening
-    an interactive "choose new targets" pick (`copy_spell`'s own
-    `new_targets` param exists but no caller wires an interactive choice to
-    it yet). Both match every real card sharing this template today.
+    The first mode targets both qualifying spells and activated/triggered
+    abilities, using their corresponding copy primitive and optional targets.
     """
     return [
         AbilitySpec(
@@ -55,7 +43,7 @@ def _return_the_favor() -> list[AbilitySpec]:
                 "at_least": True,
                 "mode_costs": ["{1}", "{1}"],
                 "options": [
-                    [EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"]})],
+                    [EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"], "target_kind": "spell_or_ability"})],
                     [EffectSpec("change_target", {"spell_or_ability": True})],
                 ],
                 "descriptions": [

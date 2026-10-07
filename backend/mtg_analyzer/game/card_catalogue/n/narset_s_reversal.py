@@ -22,9 +22,8 @@ def _narsets_reversal() -> list[AbilitySpec]:
     it twice. Order matters and is the card's whole trick — the copy is made
     **first**, so it survives the original being picked up.
 
-    **Documented simplification**: "You may choose new targets for the copy"
-    keeps the original's targets, the same MVP choice `CopySpellEffect`'s
-    own docstring already documents for every card in this family.
+    The controller finishes the copy's optional target choices before
+    the next instruction returns the original spell to its owner's hand.
     """
     return [
         AbilitySpec(

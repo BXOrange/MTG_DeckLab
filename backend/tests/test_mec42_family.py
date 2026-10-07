@@ -391,6 +391,10 @@ def test_sevinnes_reclamation_copies_itself_when_cast_via_flashback():
     # self-copy onto the stack (LIFO, so it resolves next) before the
     # original itself is done.
     eng.rules.resolve_top_of_stack()
+    assert state.pending_choice["kind"] == "composite_optional"
+    eng.rules.resolve_choice("yes")
+    if state.pending_choice and state.pending_choice["kind"] == "copy_targets":
+        eng.rules.resolve_choice("decline")
     assert len(state.stack) == 1
     assert getattr(state.stack[0].obj, "is_copy", False)
 

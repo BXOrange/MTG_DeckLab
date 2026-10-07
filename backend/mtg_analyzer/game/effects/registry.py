@@ -791,7 +791,8 @@ EffectRegistry.register(
     # ability-item sibling of ``"copy_spell"``; ``"that ability"`` is read
     # off `GameObject.remembered_stack_id`, not a target.
     "copy_ability",
-    lambda p: CopyAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False))),
+    lambda p: CopyAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False)),
+                                ability_from_trigger_event=p.get("ability_from_trigger_event")),
 )
 EffectRegistry.register(
     # "Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry)
@@ -919,6 +920,7 @@ EffectRegistry.register(
     "end_the_turn",
     lambda p: EndTheTurnEffect(),
 )
+EffectRegistry.register("cant_be_copied", lambda p: CantBeCopiedEffect())
 EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
 EffectRegistry.register(
     "grant_cant_be_countered",
@@ -926,7 +928,8 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "demonstrate_copy",  # RULE 702.144a — the body of a Demonstrate cast trigger
-    lambda p: DemonstrateCopyEffect(),
+    lambda p: DemonstrateCopyEffect(stage=p.get("stage", "controller"), controller_id=p.get("controller_id"),
+        spell_stack_id=p.get("spell_stack_id"), copy_ids=p.get("copy_ids"), opponent_id=p.get("opponent_id")),
 )
 EffectRegistry.register(
     "attacked_curse_gold",  # Curse of Opulence

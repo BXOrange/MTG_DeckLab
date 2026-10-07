@@ -168,7 +168,22 @@ the cast sequence run before priority returns. Spell-granted haste/end-step
 sacrifice follows the spell onto the battlefield and lasts until another zone
 change, rather than expiring at cleanup.
 
-**Suspended choices** preserve graveyard incarnations for remembered returns.
+**Copy targets** (RULE 707.10c) use `GameState` target rounds before a batch
+of copies enters the stack. Copies retain selected effects, X, source/event
+references and target incarnations; each controller may keep or replace targets.
+Ward triggers follow the completed batch and function on battlefield permanents.
+Resolution preserves target positions and allocated damage while skipping illegal
+occurrences. Aura/Bestow/Mutate targets and session rewind use the same mechanism.
+`ActivationCost.minimum_x` and `cant_be_copied` enforce Gogo's printed restrictions.
+Spell-copy prohibitions are static markers checked before creation; the spell/ability
+union dispatches to the corresponding primitive. Demonstrate chooses its opponent
+between its two copy instructions, retaining Ward trigger snapshots through the
+sequence. Activation events expose a printed mana {X} for Unbound Flourishing.
+Event-copy snapshots after the original leaves the stack remain in WorkingOn.
+See the delivered MEC-112 behavior in `Done_Backend.md`.
+
+**Suspended choices** preserve graveyard incarnations for remembered returns,
+player target referents, and the resolving spell through its last interactive instruction.
 Death events also capture copiable card values so a token copy reads the dying
 permanent’s face. Graveyard departures provide separate per-card and one-or-more
 events; damage-batch referents capture distinct source IDs. Paired activation

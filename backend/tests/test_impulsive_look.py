@@ -172,7 +172,9 @@ def test_cast_a_grisly_salvage_like_spell():
     choice = eng.state.pending_choice
     assert choice["kind"] == "impulsive_look"
     bear_id = next(e["instance_id"] for e in choice["eligible"] if e["name"] == "Bear")
+    assert spell.zone == Zone.STACK
     eng.rules.resolve_choice(bear_id)
+    eng.resolve_until_stable()
 
     assert [o.name for o in p1.hand] == ["Bear"]
     # The spell itself joins the graveyard too, same as any resolved sorcery.

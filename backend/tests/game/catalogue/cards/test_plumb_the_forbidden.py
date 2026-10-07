@@ -79,7 +79,7 @@ def test_scaled_tail_reads_graveyard_delta():
 
 @pytest.mark.parametrize("sacrifices", [0, 1, 2])
 @pytest.mark.parametrize("tokens", [False, True])
-def test_cast_plumb_counts_only_picks_after_spell_enters_graveyard(sacrifices, tokens):
+def test_cast_plumb_counts_only_selected_creatures_during_resolution(sacrifices, tokens):
     from mtg_analyzer.game.binding.core import bind_from_catalogue
     eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
     eng.advance_step()
@@ -100,10 +100,11 @@ def test_cast_plumb_counts_only_picks_after_spell_enters_graveyard(sacrifices, t
     p.mana_pool.add_many({"B": 1, "C": 1})
     eng.cast_spell(p, src)
     eng.resolve_until_stable()
-    assert src in p.graveyard
+    assert src.zone == Zone.STACK and src not in p.graveyard
     for victim in victims[:sacrifices]:
         eng.resolve_pending_choice(str(victim.instance_id))
     if eng.state.pending_choice:
         eng.resolve_pending_choice("decline")
+    assert src in p.graveyard
     assert len(p.hand) == 1 + sacrifices and p.life == 19 - sacrifices
     assert all(v.zone == Zone.BATTLEFIELD for v in victims[sacrifices:])

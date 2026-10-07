@@ -122,7 +122,7 @@ def _seal_copy_permission(value, permission):
     if not isinstance(value, dict):
         return value
     result = {k: _seal_copy_permission(v, permission) for k, v in value.items()}
-    if result.get("type") in _COPY_TARGET_TYPES:
+    if isinstance(result.get("type"), str) and result["type"] in _COPY_TARGET_TYPES:
         params = result.setdefault("params", {})
         params.setdefault("choose_new_targets", permission)
     return result
@@ -1747,7 +1747,7 @@ def _trigger_condition(
 
     # "Whenever you cast a spell with {X} in its mana cost, …"
     # (Elementalist's Palette, the Quandrix {X}-first-spell cluster, PAR-60)
-    # — reads `SPELL_CAST`'s own ``has_x`` bool.
+    # — reads the event's ``has_x`` bool: a mana {X} in SPELL_CAST or an activation cost.
     if trigger.get("spell_has_x"):
         def _spell_has_x_ok(event: Any, context: Any) -> bool:
             return bool(event.get("has_x"))

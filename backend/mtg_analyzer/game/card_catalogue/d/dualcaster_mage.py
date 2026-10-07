@@ -19,8 +19,7 @@ def _dualcaster_mage() -> list[AbilitySpec]:
     the first consumer of the new `copy_spell` effect (`RulesEngine.
     copy_spell`, RULE 707.10): it targets an instant/sorcery spell on the
     stack and puts a copy above it. "You may choose new targets" is the
-    effect's documented MVP simplification (keeps the original's targets —
-    always legal, RULE 707.10c).
+    shared optional target choice before the copy enters the stack (RULE 707.10c).
     """
     return [
         AbilitySpec(

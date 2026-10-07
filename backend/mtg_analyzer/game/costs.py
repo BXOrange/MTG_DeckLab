@@ -615,6 +615,11 @@ class ActivationCost:
     #: ENG-51: "Tap enchanted creature/land" — the source Aura's host.
     tap_attached: bool = False
 
+    #: RULE 602.2b: minimum announced X ("X can't be 0").
+    minimum_x: int = 0
+    #: RULE 101.2: "This ability can't be copied" travels with its stack item.
+    cant_be_copied: bool = False
+
     @property
     def is_loyalty(self) -> bool:
         """Whether this is a planeswalker loyalty ability (RULE 606.5c)."""
@@ -988,6 +993,10 @@ def parse_activation_cost(
         parsed.discard_land_type = str(cost["discard_land_type"])
     if cost.get("mana_source_kind"):
         parsed.mana_source_kind = str(cost["mana_source_kind"])
+    if "minimum_x" in cost:
+        parsed.minimum_x = max(0, int(cost["minimum_x"]))
+    if "cant_be_copied" in cost:
+        parsed.cant_be_copied = bool(cost["cant_be_copied"])
     if cost.get("attach_kind") is not None:
         kind = cost["attach_kind"]
         if kind not in {"equip", "fortify", "reconfigure"}:

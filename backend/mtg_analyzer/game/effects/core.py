@@ -1281,6 +1281,18 @@ def _simultaneous(state: Any) -> Any:
     return scope() if scope is not None else contextlib.nullcontext()
 
 
+def _effect_target_slots(effect, specs, targets):
+    """RULE 608.2b: ordinary plural effects skip illegal target slots.
+
+    Multiple requirements, composite bodies and divided damage retain empty
+    slots to preserve their positional meaning until the relevant operation.
+    """
+    if (len(specs) == 1 and not getattr(effect, "divided", False)
+            and not hasattr(effect, "inner_specs") and targets is not None):
+        return [target for target in targets if target is not None]
+    return targets
+
+
 def _apply_effects_partitioned(
     effects: list["GameEffect"],
     context: GameContext,
@@ -1442,11 +1454,11 @@ def _apply_effects_partitioned(
                         group.extend(target_groups[group_index])
                     group_index += 1
                 with _simultaneous(state):
-                    effect.apply(context, group)
+                    effect.apply(context, _effect_target_slots(effect, specs, group))
                 used = group
             else:
                 with _simultaneous(state):
-                    effect.apply(context, targets)
+                    effect.apply(context, _effect_target_slots(effect, specs, targets))
                 used = list(targets or [])
             if specs and used:
                 context.previous_targets = list(used)
@@ -1489,7 +1501,7 @@ def _apply_effects_partitioned(
                 # Hellkite) — the group is whoever the hit actually landed on
                 # (`damaged_this_way`), not a re-run of the damage selector.
                 context.previous_selector = DAMAGED_GROUP_SENTINEL
-            if state is None or position + 1 >= len(effects):
+            if state is None or (position + 1 >= len(effects) and stack_item is None):
                 continue
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not already_pending:

@@ -19,6 +19,9 @@ def _source(item):
 def _key(rules, target, incarnation=None):
     if isinstance(target, dict):
         if "stack_id" in target:
+            item = next((i for i in rules.state.stack if i.stack_id == target["stack_id"]), None)
+            if item is not None and item.obj is not None:
+                return _key(rules, item.obj, incarnation)
             return ("stack", target["stack_id"])
         if "instance_id" in target:
             obj = rules.state.find_object(target["instance_id"])
@@ -27,6 +30,8 @@ def _key(rules, target, incarnation=None):
     if isinstance(target, GameObject):
         return ("object", target.instance_id, target.zone_incarnation if incarnation is None else incarnation)
     if hasattr(target, "stack_id"):
+        if target.obj is not None:
+            return _key(rules, target.obj, incarnation)
         return ("stack", target.stack_id)
     return ("player", getattr(target, "id", None))
 
@@ -48,7 +53,8 @@ def _spec_options(rules, item, specs, prior_target=None):
         combined = None
         for spec in specs:
             if spec.prior_target_antecedent and prior_target is not None:
-                spec = dataclasses.replace(spec, scoped_player_id=getattr(prior_target, "id", None))
+                spec = dataclasses.replace(spec, scoped_player_id=(getattr(prior_target, "id", None)
+                                                                or getattr(prior_target, "controller_id", None)))
             rounds = [spec]
             if spec.per_player in targeting.PER_PLAYER_SCOPES:
                 rounds, _ = targeting.expand_counts([spec], rules.state, item.controller_id, source)
@@ -65,7 +71,13 @@ def _spec_options(rules, item, specs, prior_target=None):
 
 
 def make_frame(rules, item, may_choose):
-    specs = targeting.effects_target_specs(item.effects)
+    body = item.effects
+    if len(body) == 1 and hasattr(body[0], "effects"):
+        body = body[0].effects
+    specs = targeting.effects_target_specs(body)
+    if item.kind == "spell" and item.obj is not None and not specs:
+        specs = ([targeting.TargetSpec(kind="non_human_creature_you_own")]
+                 if item.obj.cast_via_mutate else targeting.spell_target_specs(item.obj))
     groups = item.target_groups or targeting.partition_targets(specs, item.targets)
     if groups is not None and len(groups) == len(specs):
         groups = [list(group) for group in groups]
@@ -121,6 +133,36 @@ def _constraints_ok(frame, keys, targets, considered):
     return True
 
 
+
+def _prior(frame, slot):
+    group = frame["groups"][slot["group"] - 1] if slot["group"] else []
+    return group[0] if group else None
+
+
+def _can_finish(rules, frame, start):
+    """Reject partial changes that leave no legal completion (including swaps)."""
+    if start == len(frame["slots"]):
+        return _constraints_ok(frame, frame["keys"], _flat(frame), range(start))
+    slot = frame["slots"][start]
+    if (_constraints_ok(frame, frame["keys"], _flat(frame), range(start + 1))
+            and _can_finish(rules, frame, start + 1)):
+        return True
+    old_target = frame["groups"][slot["group"]][slot["index"]]
+    old_key, old_changed = frame["keys"][start], frame["changed"][start]
+    try:
+        for option in _spec_options(rules, frame["item"], slot["specs"], _prior(frame, slot)):
+            frame["groups"][slot["group"]][slot["index"]] = _descriptor_target(rules, option)
+            frame["keys"][start] = _key(rules, option)
+            frame["changed"][start] = True
+            if (_constraints_ok(frame, frame["keys"], _flat(frame), range(start + 1))
+                    and _can_finish(rules, frame, start + 1)):
+                return True
+        return False
+    finally:
+        frame["groups"][slot["group"]][slot["index"]] = old_target
+        frame["keys"][start], frame["changed"][start] = old_key, old_changed
+
+
 def stage(rules, items, *, may_choose=False, defer=False):
     rules.state.pending_stack_copies.extend(make_frame(rules, item, may_choose) for item in items)
     if not defer and not rules.state.pending_choice:
@@ -137,17 +179,25 @@ def advance(rules):
                 index = frame["index"]
                 slot = frame["slots"][index]
                 targets = _flat(frame)
-                prior = frame["groups"][slot["group"] - 1] if slot["group"] else []
+                prior = _prior(frame, slot)
                 options = []
-                for descriptor in _spec_options(rules, item, slot["specs"], prior[0] if prior else None):
+                for descriptor in _spec_options(rules, item, slot["specs"], prior):
                     key = _key(rules, descriptor)
                     if key == frame["keys"][index]:
                         continue
                     trial_keys, trial_targets = list(frame["keys"]), list(targets)
                     trial_keys[index], trial_targets[index] = key, _descriptor_target(rules, descriptor)
+                    old_keys, old_changed = frame["keys"], frame["changed"][index]
+                    old_target = frame["groups"][slot["group"]][slot["index"]]
+                    frame["keys"] = trial_keys
+                    frame["groups"][slot["group"]][slot["index"]] = trial_targets[index]
                     frame["changed"][index] = True
-                    valid = _constraints_ok(frame, trial_keys, trial_targets, range(index + 1))
-                    frame["changed"][index] = False
+                    try:
+                        valid = (_constraints_ok(frame, trial_keys, trial_targets, range(index + 1))
+                                 and _can_finish(rules, frame, index + 1))
+                    finally:
+                        frame["keys"], frame["changed"][index] = old_keys, old_changed
+                        frame["groups"][slot["group"]][slot["index"]] = old_target
                     if valid:
                         options.append({"id": f"target-{len(options)}", "label": descriptor["name"],
                                         **descriptor})
@@ -157,10 +207,11 @@ def advance(rules):
                 keep = []
                 if _constraints_ok(frame, frame["keys"], targets, range(len(targets))):
                     keep.append({"id": "decline", "label": "Alle übrigen Ziele behalten"})
-                if _constraints_ok(frame, frame["keys"], targets, range(index + 1)):
+                if (_constraints_ok(frame, frame["keys"], targets, range(index + 1))
+                        and _can_finish(rules, frame, index + 1)):
                     keep.append({"id": "keep", "label": "Dieses Ziel behalten"})
                 rules.open_choice({"kind": "copy_targets", "player_id": item.controller_id,
-                                   "copy_stack_id": item.stack_id, "optional": bool(keep),
+                                   "copy_stack_id": item.stack_id, "optional": any(o["id"] == "decline" for o in keep),
                                    "prompt": f"{item.description}: Ziel {index + 1} von {len(targets)}",
                                    "options": [*keep, *options]})
                 return
@@ -176,11 +227,17 @@ def advance(rules):
     for item in ready:
         if item.kind == "spell":
             rules._fire_spell_copied(item)
-        rules.check_ward(item, state.player_by_id(item.controller_id))
+        if item.ward_check_deferred:
+            item.deferred_ward_triggers = rules.check_ward(item, state.player_by_id(item.controller_id),
+                                                          defer_stack=True)
+        else:
+            rules.check_ward(item, state.player_by_id(item.controller_id))
 
 
 @continuations.choice("copy_targets", answer=continuations.ANSWER_STR, rule="707.10c")
 def resume(rules, choice, answer):
+    if answer is None:
+        answer = "decline"
     frame = rules.state.pending_stack_copies[0]
     if frame["item"].stack_id != choice["copy_stack_id"]:
         raise ValueError("the pending copy changed")
@@ -196,7 +253,7 @@ def resume(rules, choice, answer):
     else:
         slot = frame["slots"][index]
         target = _descriptor_target(rules, option)
-        legal = {_key(rules, o) for o in _spec_options(rules, frame["item"], slot["specs"])}
+        legal = {_key(rules, o) for o in _spec_options(rules, frame["item"], slot["specs"], _prior(frame, slot))}
         if target is None or _key(rules, option) not in legal:
             rules.open_choice(choice)
             raise ValueError("the new target is no longer legal")
@@ -209,6 +266,34 @@ def resume(rules, choice, answer):
 
 
 def target_is_legal(rules, item, index, target):
-    if index >= len(item.copy_target_roles):
+    if hasattr(target, "stack_id") and target not in rules.state.stack:
+        return False  # A former spell/ability item cannot refer to a later casting of its card.
+    if index >= len(item.copy_target_roles) or not item.copy_target_roles[index]:
         return True
-    return _key(rules, target) in {_key(rules, o) for o in _spec_options(rules, item, item.copy_target_roles[index])}
+    frame = make_frame(rules, item, False)
+    prior = _prior(frame, frame["slots"][index])
+    return _key(rules, target) in {_key(rules, o) for o in _spec_options(rules, item, item.copy_target_roles[index], prior)}
+
+
+def resolution_targets(rules, item):
+    """RULE 608.2b: mask illegal occurrences without shifting target slots.
+
+    Legality is checked once as resolution begins. Instructions and suspended
+    continuations receive the same slots, including absent targets, so a later
+    target cannot inherit an earlier target's clause or allocated damage.
+    """
+    legal = []
+    for index, target in enumerate(item.targets):
+        incarnation = item.target_incarnations[index] if index < len(item.target_incarnations) else None
+        obj = target if isinstance(target, GameObject) else getattr(target, "obj", None)
+        same_object = obj is None or incarnation in (None, obj.zone_incarnation)
+        legal.append(same_object and target_is_legal(rules, item, index, target))
+    targets = [target if valid else None for target, valid in zip(item.targets, legal)]
+    groups = None
+    if item.target_groups is not None:
+        groups = []
+        offset = 0
+        for group in item.target_groups:
+            groups.append(targets[offset:offset + len(group)])
+            offset += len(group)
+    return targets, groups, legal

@@ -148,6 +148,7 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 _SPELL_COPY_CHOICES = (
     "kicker_count", "kicker_x_paid", "additional_cost_paid", "teamwork_paid", "bargained",
     "gift_promised", "gift_recipient_id", "blitz_cost_paid", "offered_additional_costs",
+    "bestowed", "cast_via_mutate", "mutate_under",
     "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
     "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected",
 )
@@ -181,7 +182,11 @@ class CopiesMixin:
         for original in item.effects:
             spec = getattr(original, "_bound_spec", None)
             if spec is not None:
-                effects.extend(build_effects([copy.deepcopy(spec, memo)], obj))
+                rebound = build_effects([copy.deepcopy(spec, memo)], obj)
+                for effect in rebound:
+                    if getattr(original, "division", None) is not None:
+                        effect.division = copy.deepcopy(original.division)
+                effects.extend(rebound)
             else:
                 effects.append(copy.deepcopy(original, memo))
         return effects
@@ -323,6 +328,15 @@ class CopiesMixin:
                                  if getattr(target, "instance_id", None) is not None],
         ))
 
+    @staticmethod
+    def _spell_copy_prohibited(obj, item=None):
+        from ..effects.core import CantBeCopiedEffect
+
+        return bool(getattr(item, "cant_be_copied", False)) or any(
+            isinstance(effect, CantBeCopiedEffect)
+            for effect in [*getattr(obj, "static_effects", []), *getattr(obj, "spell_effects", []),
+                           *getattr(item, "effects", [])])
+
     def copy_spell(
         self,
         target: Any,
@@ -357,6 +371,8 @@ class CopiesMixin:
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
             return []
+        if self._spell_copy_prohibited(item.obj, item):
+            return []
         # RULE 707.10 / 715.3c: copy the spell's characteristics on the stack,
         # including an Adventure half rather than the card's creature face.
         copiable = item.obj.card
@@ -379,6 +395,8 @@ class CopiesMixin:
             # RULE 707.10: copying a spell copies alternative-cost decisions.
             copy_obj.blitz_cost_paid = item.obj.blitz_cost_paid
             bind_from_catalogue(copy_obj)
+            if copy_obj.bestowed:
+                self._begin_bestow(copy_obj)
             copy_item = StackItem(
                 kind="spell",
                 controller_id=controller_id,
@@ -439,24 +457,14 @@ class CopiesMixin:
         """Put a copy of the activated ability ``target`` onto the stack
         (RULE 707.10 — Rings of Brighthearth's "copy that ability").
 
-        The ability-item sibling of `copy_spell` above. An ability
-        `StackItem` has no `GameObject` of its own to clone (`.obj` is
-        ``None`` — RULE 707.10/ENG-26's `StackItem.stack_id` identity
-        exists for exactly this), and its `ActivatedAbility` effect object
-        (`.effects[0]`, bound once at bind-on-load to the permanent whose
-        ability this is) is a stateless wrapper around its own ``effects``/
-        ``source`` — nothing about it is per-activation, so the copy safely
-        *reuses* the original's `effects` list rather than needing a fresh
-        rebuild the way a spell copy's freshly-bound `spell_effects` does.
-        Controlled by ``controller_id`` (RULE 707.10, the copier — always
-        this same player for Rings, since it only copies abilities *you*
-        activate). Keeps the original's targets by default (RULE 707.10c,
-        extended to abilities by RULE 707.10); ``new_targets`` overrides
-        that for "you may choose new targets for the copy". Pushed above
-        the original so it resolves first (RULE 608.2 — LIFO).
+        Ability copies keep their source, event and resolution-count key,
+        with independent effect instances. Explicit ``new_targets`` supply
+        a forced choice; ``choose_new_targets`` opens optional target rounds
+        before the copy is placed above the original. A stack-item prohibition
+        on copying is enforced before creating any copy (RULE 101.2).
         """
         item = self._stack_item_for(target)
-        if item is None or item.kind != "ability":
+        if item is None or item.kind != "ability" or item.cant_be_copied:
             return None
         copy_item = StackItem(
             kind="ability",
@@ -493,17 +501,15 @@ class CopiesMixin:
         copy directly off ``obj`` (still a valid `GameObject` reference)
         instead.
 
-        ``targets`` keeps the original's own already-gathered targets by
-        default (RULE 707.10c's default outcome) — the same "no genuine
-        new-target choice, MVP keeps the original's" simplification
-        `copy_spell` already documents for every other consumer, not a
-        fresh gap. Passing ``self.source``'s own resolving ``targets``
-        (the shared list every effect on the same stack item reads) is
-        what makes the copy actually reanimate something instead of
-        finding no target at all and quietly doing nothing.
+        The resolving or suspended original supplies its selected effects,
+        announced X and target incarnations. Optional target changes finish
+        before the copy enters the stack; the resolving original itself is
+        excluded from the candidates.
         """
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
+        if self._spell_copy_prohibited(obj):
+            return None
         original = self.context.resolving_stack_item
         if original is None or original.obj is not obj:
             original = next((frame.get("stack_item") for frame in reversed(self.state.deferred_effects)
@@ -512,9 +518,11 @@ class CopiesMixin:
             # Temporarily expose the resolving item to the ordinary copy primitive.
             self.state.stack.append(original)
             try:
-                copies = self.copy_spell(original, controller_id, choose_new_targets=choose_new_targets)
+                copies = self.copy_spell(original, controller_id, choose_new_targets=choose_new_targets,
+                                         defer_choice=True)
             finally:
                 self.state.stack.remove(original)
+            self._advance_copy_targets()
             return copies[0] if copies else None
         copy_obj = GameObject(obj.card.as_copy(), owner_id=controller_id, zone=Zone.STACK)
         copy_obj.is_token = copy_obj.is_copy = True

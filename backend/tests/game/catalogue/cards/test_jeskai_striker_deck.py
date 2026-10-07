@@ -225,6 +225,9 @@ def test_demonstrate_copies_for_the_caster_and_an_opponent_when_accepted():
     assert engine.state.pending_choice and engine.state.pending_choice["kind"] == "composite_optional"
     engine.resolve_pending_choice("yes")
     engine.resolve_until_stable()
+    while engine.state.pending_choice and engine.state.pending_choice["kind"] == "copy_targets":
+        engine.resolve_pending_choice("decline")
+    engine.resolve_until_stable()
     # original + own copy + the opponent's copy, all aimed at p2 → 3 × 3 damage
     assert p2.life == 11
 
@@ -298,6 +301,9 @@ def test_expansion_copy_resolves_for_the_caster():
     card = _card(engine, "Expansion // Explosion", zone=Zone.HAND)
     p1.mana_pool.add("R", 2)
     engine.cast_spell(p1, card, targets=[stack_target.obj], target_groups=None)
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice["kind"] == "copy_targets"
+    engine.resolve_pending_choice("decline")
     engine.resolve_until_stable()
     assert p1.life == 20 - 3 - 3  # the original and the copy both hit p1 (the original's target is kept)
 

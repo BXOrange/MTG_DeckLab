@@ -147,6 +147,9 @@ def test_dualcaster_mage_copies_the_spell_it_targets():
     eng.rules.resolve_choice(bolt_option["id"])
     eng.resolve_until_stable()
 
+    assert state.pending_choice["kind"] == "copy_targets"
+    eng.resolve_pending_choice("decline")
+    eng.resolve_until_stable()
     # Copy (3) + original Bolt (3) both hit p2.
     assert p2.life == start - 6
 

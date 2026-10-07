@@ -132,9 +132,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-112 · "You may choose new targets for the copy" (RULE 707.10c).** Spell/ability copies always keep the original's targets
-  (`copy_spell`/`copy_ability` take a caller-supplied `new_targets`, no interactive choice exists). 225 cached cards carry the
-  text (e.g. Gogo, Sevinne's Reclamation); the 78 already covered silently take the default.
 - **MEC-114 · Myriad (RULE 702.116).** The keyword is recognised (`keywords.py`) but has no engine behaviour: "whenever this
   creature attacks, for each opponent other than defending player, you may create a token copy that's tapped and attacking that
   player or a planeswalker they control; exile the tokens at end of combat" never fires. 23 cached cards print it, plus the

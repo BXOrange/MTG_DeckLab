@@ -9,21 +9,15 @@ def _gogo_master_of_mimicry() -> list[AbilitySpec]:
     times. You may choose new targets for the copies. This ability can't be
     copied and X can't be 0. (Mana abilities can't be targeted.)
 
-    — PLAY-ALL Step 2 (SpongeBob). The new `copy_target_ability` effect
-    (`stack.CopyTargetAbilityEffect`): a ``TargetSpec(kind="ability")`` target
-    (an ability item on the stack, by `stack_id`), then ``X`` calls to
-    `copy_ability` — the targeted sibling of Rings of Brighthearth's "copy that
-    ability". The ``{X}{X}`` cost announces X once (``x_paid``). Documented
-    simplifications: the copies keep the original's targets; "can't be 0" is
-    not enforced as a casting rule (X = 0 just copies nothing); "this ability
-    can't be copied" holds trivially since Gogo's own ability has already left
-    the stack by the time it resolves.
+    — PLAY-ALL: announces a positive X, targets an ability you control,
+    and offers each copy's targets before any copy enters the stack.
+    The stack item retains the prohibition on copying this ability.
     """
     return [
         AbilitySpec(
             "activated",
             [EffectSpec("copy_target_ability", {})],
-            cost={"text": "{X}{X}, {T}"},
+            cost={"text": "{X}{X}, {T}", "minimum_x": 1, "cant_be_copied": True},
         ),
     ]
 

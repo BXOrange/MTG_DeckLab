@@ -5418,7 +5418,10 @@ class MiscSystemsMixin:
         anything else can key a trigger off "became a target" the same way
         it already can for damage/counters/etc.
         """
-        for target in item.targets or []:
+        for index, target in enumerate(item.targets or []):
+            if (isinstance(target, GameObject) and index < len(item.target_incarnations)
+                    and item.target_incarnations[index] not in (None, target.zone_incarnation)):
+                continue  # RULE 400.7 / 707.10c: an unchanged stale target is not this new object.
             if isinstance(target, GameObject):
                 is_player = False
                 instance_id: Optional[str] = target.instance_id
@@ -5442,7 +5445,7 @@ class MiscSystemsMixin:
                 item_kind=item.kind,
                 stack_id=item.stack_id,
             ))
-    def check_ward(self, item: StackItem, caster: Player) -> None:
+    def check_ward(self, item: StackItem, caster: Player, *, defer_stack: bool = False) -> list[StackItem]:
         """RULE 702.21/601.2c/603.3: after ``item`` (a spell, activated
         ability, or triggered ability) is placed on the stack with its final
         targets — fire MEC-19's RULE 603.1 "becomes the target of a spell/
@@ -5477,10 +5480,16 @@ class MiscSystemsMixin:
         from — a second, sibling call at each of the three sites would risk
         a future call site adding one but not the other.
         """
+        # Sequential copy instructions capture the trigger now but place it
+        # after their choices finish, preserving source/controller/cost LKI.
         self._fire_becomes_target_events(item)
-        for target in item.targets or []:
-            if not isinstance(target, GameObject):
-                continue  # ward is on permanents (RULE 702.21) — never a player
+        wards = []
+        for index, target in enumerate(item.targets or []):
+            if (isinstance(target, GameObject) and index < len(item.target_incarnations)
+                    and item.target_incarnations[index] not in (None, target.zone_incarnation)):
+                continue  # RULE 400.7 / 707.10c: an unchanged stale target is not this new object.
+            if not isinstance(target, GameObject) or target not in self.state.permanents():
+                continue  # RULE 702.21: ward functions on battlefield permanents.
             ward = (getattr(target, "parametric_keywords", None) or {}).get("ward")
             cost_text = ward.get("cost") if ward else None
             if not cost_text:
@@ -5497,7 +5506,7 @@ class MiscSystemsMixin:
             if not cost_text:
                 continue  # no ward, or cost couldn't be recognized from the card text
             cost = parse_activation_cost(cost_text)
-            self.state.stack.append(
+            wards.append(
                 StackItem(
                     kind="ability",
                     controller_id=target.controller_id,
@@ -5506,6 +5515,9 @@ class MiscSystemsMixin:
                     source=target,
                 )
             )
+        if not defer_stack:
+            self.state.stack.extend(wards)
+        return wards
     def resolve_ward_effect(
         self,
         item: StackItem,

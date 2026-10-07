@@ -1814,6 +1814,8 @@ class CastingResolutionMixin:
                 for instance_id in (choice.get("previous_target_ids") or [])
             ) if obj is not None
         ]
+        previous.extend(self.state.player_by_id(player_id)
+                        for player_id in choice.get("previous_player_ids", []))
         from ..binding.core import build_effects  # function-scoped: binder cycle
         from ...parser.oracle.spec import EffectSpec
 
@@ -1832,6 +1834,8 @@ class CastingResolutionMixin:
                 for instance_id in (choice.get("target_ids") or [])
             ) if obj is not None
         ]
+        announced.extend(self.state.player_by_id(player_id)
+                         for player_id in choice.get("target_player_ids", []))
         revealed_id = choice.get("revealed_card_id")
         revealed = self.state.find_object(revealed_id) if revealed_id is not None else None
         # PAR-117: "its controller may `<effect>`" — the same RULE 603.1
@@ -2012,6 +2016,13 @@ class CastingResolutionMixin:
             (spec, item.targets or []) for spec in specs
         )
 
+        resolution_targets, resolution_groups = item.targets, item.target_groups
+        copy_legal = None
+        if item.copy_target_roles:
+            from ..stack_copy_targets import resolution_targets as copy_resolution_targets
+
+            resolution_targets, resolution_groups, copy_legal = copy_resolution_targets(self, item)
+            item.resolution_target_slots = resolution_targets
         def still_in_target_zone(spec, target):
             # Stack targets are StackItems, unlike battlefield/graveyard
             # targets. A zone move cannot leave an untargeted rider alive.
@@ -2025,11 +2036,6 @@ class CastingResolutionMixin:
                                        or item.target_incarnations[i] in (None, target.zone_incarnation)
                                        for i in indices):
                     return False
-                if item.copy_target_roles:
-                    from ..stack_copy_targets import target_is_legal
-
-                    if indices and not any(target_is_legal(self, item, i, target) for i in indices):
-                        return False
                 if "graveyard" in spec.kind:
                     return target.zone == Zone.GRAVEYARD and any(
                         target in player.graveyard for player in self.state.players
@@ -2041,9 +2047,11 @@ class CastingResolutionMixin:
                 return target.zone == Zone.BATTLEFIELD and target in self.state.battlefield
             return True
 
-        if item.targets and specs and not any(
+        any_legal = (any(copy_legal) if copy_legal is not None else any(
             still_in_target_zone(spec, target) for spec, group in checks for target in group
-        ):
+        ))
+        fallback_creature = (item.obj is not None and (item.obj.bestowed or item.obj.cast_via_mutate))
+        if item.targets and (specs or copy_legal is not None) and not any_legal and not fallback_creature:
             if item.kind == "spell" and item.obj is not None:
                 obj = item.obj
                 if obj.cast_via_flashback:
@@ -2075,7 +2083,7 @@ class CastingResolutionMixin:
             # partitioned`). Pass `target_groups` straight through rather
             # than treating the wrapper itself as "one targeting effect".
             self._substitute_x(item.effects[0].effects, item.x)
-            item.effects[0].apply(self.context, item.targets, item.target_groups)
+            item.effects[0].apply(self.context, resolution_targets, resolution_groups)
         else:
             self._substitute_x(item.effects, item.x)
             # RULE 115.1/601.2c: each effect gets only *its own* slice of
@@ -2086,7 +2094,7 @@ class CastingResolutionMixin:
             # (MEC-37) is what lets `resume_deferred_effects` find its way
             # back here once a paused remainder finally finishes.
             if _apply_effects_partitioned(
-                item.effects, self.context, item.targets, item.target_groups, stack_item=item,
+                item.effects, self.context, resolution_targets, resolution_groups, stack_item=item,
             ):
                 # RULE 608.2m: one of this spell's own effects opened an
                 # interactive choice — it isn't actually done resolving
@@ -2238,6 +2246,7 @@ class CastingResolutionMixin:
         self.state.pending_permanent_entry = {"item": item, "obj": obj}
 
         def _finish() -> None:
+            target_slots = item.resolution_target_slots if item.resolution_target_slots is not None else item.targets
             self.state.pending_permanent_entry = None
             if obj.cast_via_mutate:
                 # RULE 702.140b-d: a mutate spell never enters the
@@ -2245,7 +2254,7 @@ class CastingResolutionMixin:
                 # creature it targeted, which stays the surviving object
                 # (and so fires no ENTERS_BATTLEFIELD, RULE 702.140c).
                 obj.cast_via_mutate = False
-                host = next((t for t in item.targets if isinstance(t, GameObject)), None)
+                host = next((t for t in target_slots if isinstance(t, GameObject)), None)
                 if host is not None and host in self.state.permanents():
                     self.mutate_onto(obj, host, under=obj.mutate_under)
                 else:
@@ -2288,7 +2297,7 @@ class CastingResolutionMixin:
             self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
             resolve_blitz(self.state, obj, item.controller_id)
             if self._attachment_kind(obj) == "enchant":
-                targets = [t for t in item.targets if isinstance(t, (GameObject, Player))]
+                targets = [t for t in target_slots if isinstance(t, (GameObject, Player))]
                 target = targets[0] if targets else None
                 # RULE 303.4f (MEC-34): "Enchant creature card in a
                 # graveyard" — the target isn't a permanent at all, so it

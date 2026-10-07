@@ -25,9 +25,8 @@ def _rings_of_brighthearth() -> list[AbilitySpec]:
     `apply()`, since the "if you do" branch only runs once the pay-or-not
     choice is answered, by which point `context.trigger_event` has closed.
 
-    **Documented simplification**: "you may choose new targets for the
-    copy" keeps the original's targets, the same MVP `CopySpellEffect`
-    already establishes for a spell copy.
+    The copied ability offers optional new targets after payment,
+    before entering the stack, while retaining its original source.
     """
     return [
         AbilitySpec(
