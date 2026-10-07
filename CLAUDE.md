@@ -190,6 +190,9 @@ Death events also capture copiable card values so a token copy reads the dying
 permanent’s face. Graveyard departures provide separate per-card and one-or-more
 events; damage-batch referents capture distinct source IDs. Paired activation
 sacrifices accept both selected IDs through the shared board and session API.
+Standing graveyard cast costs expose a separate card picker; selected exile IDs
+are validated before payment. Borrowed mana abilities resolve variable production
+against their recipient and the current board, using the existing amount resolver.
 
 **Cleanup discards** (RULE 514.1) use the shared pending-choice card picker.
 The active player selects excess hand cards before damage and temporary effects

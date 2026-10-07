@@ -12,7 +12,7 @@ def _steward_of_the_harvest() -> list[AbilitySpec]:
     — PLAY-ALL Step 2 (Sultai Arisen). The ETB is `exile` over up to three own-graveyard land cards with
     ``track_exiled_with`` (the accumulating `GameObject.exiled_with_ids` list Agatha's Soul Cauldron reads). The static
     is the same `grant_borrowed_activated_ability` — here ``creature_only=False`` because the donors are land cards —
-    so every creature you control gets one fresh copy of each exiled land's activated abilities (RULE 113.7c), mana
+    so every creature you control gets one fresh copy of each exiled land's activated abilities (RULE 201.5b), mana
     abilities included.
     """
     return [

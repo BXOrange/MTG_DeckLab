@@ -22,6 +22,9 @@ def test_kotis_exiles_selected_three_and_preserves_the_oldest_cards():
 @pytest.mark.parametrize('bad_kind', ['duplicate', 'spell', 'too_few', 'too_many', 'foreign', 'left_zone'])
 def test_invalid_exile_selection_rejects_before_paying_any_cost(bad_kind):
     engine, player, kotis, spell, fodder = _kotis_game(5)
+    spell.card.mana_cost_string = '{1}{G}'
+    spell.card.mana_cost = {'generic': 1, 'G': 1}
+    player.mana_pool.add_many({'C': 1, 'G': 1})
     picks = [card.instance_id for card in fodder[2:]]
     if bad_kind == 'duplicate':
         picks[1] = picks[0]
@@ -32,7 +35,7 @@ def test_invalid_exile_selection_rejects_before_paying_any_cost(bad_kind):
     elif bad_kind == 'too_many':
         picks.append(fodder[0].instance_id)
     elif bad_kind == 'foreign':
-        foreign = _filler(engine, 'Foreign', 'Sorcery', zone=Zone.GRAVEYARD, owner='p2')
+        foreign = _filler(engine, 'Foreign', 'Sorcery', zone=Zone.GRAVEYARD, player='p2')
         picks[0] = foreign.instance_id
     else:
         player.graveyard.remove(fodder[2])

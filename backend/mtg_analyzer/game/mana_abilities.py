@@ -1339,7 +1339,11 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             ManaAbility(cost=u["cost"], options=[dict(opt) for opt in u["options"]])
             for u in upgrades
         ]
-    return printed + granted + list(getattr(obj, "_borrowed_mana_abilities", [])) + derived_basic
+    borrowed = [
+        dataclass_replace(ability, options=resolve_options(ability, obj, state), amount_selector=None)
+        for ability in getattr(obj, "_borrowed_mana_abilities", [])
+    ]
+    return printed + granted + borrowed + derived_basic
 
 
 def _cost_shape(cost: ActivationCost) -> ActivationCost:

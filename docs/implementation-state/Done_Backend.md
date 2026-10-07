@@ -505,6 +505,12 @@ finds distinct objects for both sacrifices. Payment occurs during casting;
 overlapping permissions without this cost remain available. Additional land
 play grants now honor their live conditions, including charge-counter thresholds.
 
+### Sultai Arisen: exile-cost choices and borrowed nonbasic-land abilities
+
+- **Kotis:** The cast offer exposes every eligible other graveyard card. The shared cost picker sends three distinct IDs, separate from targets; selection is validated before mana/payment, and only chosen cards are exiled. Canceling the picker pays nothing; countering the resulting spell does not refund its costs (RULE 601.2c/h). API and rewind regression tests cover alternate selections and invalid/foreign/current-zone inputs.
+- **Steward of the Harvest:** Borrowed mana definitions now use the existing amount resolver against the recipient and current board, rather than leaving variable production at its one-mana placeholder. Cabal Coffers therefore counts controlled Swamps correctly. Integration tests also exercise Yavimaya Coast's self-damage, summoning sickness, War Room's commander-color life cost, and Myriad Landscape's sacrifice of the recipient (RULE 201.5b / 605.1a).
+- **Validation:** `tests/test_kotis_cost_choices.py`, `tests/test_steward_nonbasic_lands.py`, and the complete Sultai Arisen card suite. Chromium verified choosing an alternate trio over HTTP, with no payment during selection.
+
 ### Composed graveyard recovery and linked casting permissions
 
 `MillEffect.capture_milled` and `ReturnFromGraveyardEffect.previous_pool` restrict

@@ -15,8 +15,8 @@ def _kotis_sibsig_champion() -> list[AbilitySpec]:
     from a graveyard, put two +1/+1 counters on Kotis.
 
     — PLAY-ALL Step 2 (Sultai Arisen). The permission is a `graveyard_cast_permission` for creature spells, once per
-    turn, active on your turn only, with the new ``exile_graveyard_cards`` additional cost (the engine takes the
-    oldest three other graveyard cards — documented simplification: no pick is offered). The counters are a RULE 603.2c
+    turn, active on your turn only, with an ``exile_graveyard_cards`` additional cost. The shared board offers
+    all eligible other cards; the backend validates the selected three before paying costs. The counters are a RULE 603.2c
     batch trigger over your creatures entering (the same members one at a time would be a per-creature trigger), each
     counted when it entered from a graveyard or its spell was cast from one (new ``from_zone_or_cast_from`` trigger
     key over the ENTERS event's ``from_zone``/``cast_from_zone``).
