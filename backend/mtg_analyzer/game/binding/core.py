@@ -3669,6 +3669,7 @@ def _transmute_activated_ability(
         effects=build_effects([EffectSpec("search", {
             "criteria": {"min_mana_value": obj.mana_value, "max_mana_value": obj.mana_value},
             "destination": "hand",
+            "reveal": True,
         })], source=obj),
         cost=cost,
         source=obj,

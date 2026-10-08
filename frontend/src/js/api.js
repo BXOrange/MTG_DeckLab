@@ -251,10 +251,10 @@ export async function getComboDatabaseStatus() {
 }
 
 /**
- * Lazily initialize the local combo database if needed and find variants
- * whose named card uses are contained in the deck.
+ * Lazily initialize the local combo database if needed and find completed
+ * variants plus related variants with missing named card uses.
  * @param {{name: string, quantity: number}[]} cards
- * @returns {Promise<{combos: object[], database: object} | null>} null on request failure
+ * @returns {Promise<{combos: object[], recommendations: object[], database: object} | null>} null on request failure
  */
 export async function findDeckCombos(cards) {
   let response;

@@ -36,6 +36,7 @@ from ..costs import (
     PAY_ENERGY_X,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
+    RETURN_SELF_TO_HAND,
     SACRIFICE_COUNT_X,
     SACRIFICE_COUNT_ANY,
     ActivationCost,
@@ -193,6 +194,17 @@ class LegalActionsMixin:
             action["exile_cost"] = {"count": count, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._sacrifice_count_pool(player, word, source)
+            ]}
+        if ability.cost.return_to_hand and ability.cost.return_to_hand != RETURN_SELF_TO_HAND:
+            action["return_cost"] = {"count": 1, "options": [
+                {"instance_id": obj.instance_id, "name": obj.name}
+                for obj in self._return_to_hand_pool(player, ability.cost.return_to_hand)
+            ]}
+        elif ability.cost.return_to_hand_count:
+            count, word = ability.cost.return_to_hand_count
+            action["return_cost"] = {"count": count, "options": [
+                {"instance_id": obj.instance_id, "name": obj.name}
+                for obj in self._return_count_pool(player, word)
             ]}
         if ability.cost.sacrifice and ability.cost.sacrifice != "self":
             # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is

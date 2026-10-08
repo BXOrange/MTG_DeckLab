@@ -884,11 +884,15 @@ export function createGameBoardView(opts = {}) {
       const card = message.card_name || t('bd.chat.faceDownSpell');
       const text = message.kind === 'emote' ? message.text
         : t(`bd.chat.${message.action}`, { card }) + (message.ability_text ? ` ${message.ability_text}` : '');
+      const reveal = message.action === 'reveal' && message.card_id
+        ? `<img class="gf-chat-reveal" src="${escapeAttr(cardImageUrl(message.card_id))}" alt="${escapeAttr(card)}" data-hover-card="${escapeAttr(card)}" loading="lazy">`
+        : '';
       // No whitespace between tags: .gf-chat-message is white-space: pre-wrap, so
       // template-literal indentation would render as leading space.
       return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">`
         + `<span class="gf-chat-author">${escapeHtml(message.author)}</span>`
         + `<span>${escapeHtml(text)}</span>`
+        + reveal
         + '</li>';
     }).join('');
     return `<section class="gf-chat" aria-label="${escapeAttr(t('bd.chat.heading'))}">
@@ -1139,7 +1143,7 @@ export function createGameBoardView(opts = {}) {
       );
       if (action) {
         const expanded = expandMultiTargetRequirements(action.targets || [], ct.x || 0);
-        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice
+        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice || ct.isReturnChoice
           ? Array.isArray(ct.requirements)
           : expanded.requirements.length === (ct.requirements || []).length;
         if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
@@ -1969,7 +1973,7 @@ export function createGameBoardView(opts = {}) {
   function pickablesForBoard() {
     const out = [];
     if (castTargeting && castTargetAside && !castTargeting.isTapChoice
-        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice) {
+        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice && !castTargeting.isReturnChoice) {
       for (const o of castTargetOptions()) {
         const payload = { instance_id: castTargeting.instanceId, target: targetOptionPayload(o), controller_id: o.controller_id ?? null };
         out.push({ instanceId: o.instance_id, playerId: o.player_id, activate: () => pickCastTarget(payload) });
@@ -2869,9 +2873,11 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     const ct = castTargeting;
-    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice } = ct;
+    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice } = ct;
     let payload;
-    if (isSacrificeCountChoice) {
+    if (isReturnChoice) {
+      payload = { ...send, return_choices: targets.map((t) => t.instance_id) };
+    } else if (isSacrificeCountChoice) {
       payload = { ...send, sacrifice_choices: targets.map((t) => t.instance_id) };
     } else if (isGraveyardExileChoice) {
       payload = { ...send, graveyard_exile_choices: targets.map((t) => t.instance_id) };
@@ -2889,6 +2895,18 @@ export function createGameBoardView(opts = {}) {
     const action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz);
+    if (!payload.return_choices && action?.return_cost) {
+      const { count, options } = action.return_cost;
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: Array.from({ length: count }, () => ({
+          label: t('bd.return.costCard'), options, optional: false,
+        })),
+        reqIndex: 0, targets: [], excludePicked: true, isReturnChoice: true,
+      };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
     if (!payload.sacrifice_choices && action?.sacrifice_count_cost) {
       const { count, count_max: maximum, options } = action.sacrifice_count_cost;
       const minimum = count === 'x' ? (payload.x || 0) : count;
@@ -3784,7 +3802,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
         );
-      } else if (a.type === 'activate_ability' && a.requires_target) {
+      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost)) {
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'activate_ability' && a.has_x) {
         buttons.push(`
@@ -4046,8 +4064,8 @@ export function createGameBoardView(opts = {}) {
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice;
-    const modalGlyph = (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice;
+    const modalGlyph = castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,

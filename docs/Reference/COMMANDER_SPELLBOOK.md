@@ -32,7 +32,9 @@ bulk endpoint on first combo use or an explicit update.
   server startup and a status check do not download anything.
 - `GET /api/combos/status` reports the local snapshot without initializing it.
 - The first `POST /api/combos/matches` initializes a missing or uninitialized
-  database. `POST /api/combos/update` explicitly refreshes it.
+  database. The response contains complete `combos` and partial
+  `recommendations` whose fixed card uses overlap the submitted deck;
+  `POST /api/combos/update` explicitly refreshes the snapshot.
 - SQLite lives at `DATA_DIR/commander_spellbook.db`, separate from the
   disposable Scryfall card cache.
 - Import detects gzip by its file signature and streams either compressed or
@@ -54,6 +56,13 @@ whitespace-collapsed, and case-folded; each variant is returned only when the
 deck contains every fixed named use at the required quantity. This is name
 matching, not Oracle-ID matching. The frontend sends canonical card names
 after its existing card-resolution step.
+
+The same indexed candidate scan also returns incomplete variants as
+recommendations when at least one fixed card use is present. Each
+recommendation includes the matched and missing card quantities; results are
+ordered by the number of matched copies, then by the number of missing
+copies, and capped at 20. This is a discovery aid, not a claim that adding
+the missing cards makes the variant playable.
 
 Template requirements are returned for display, but this integration does not
 evaluate their Scryfall query predicates. Treat such a match as a candidate,
@@ -100,8 +109,8 @@ When changing the API shape or matching rules:
    the status endpoint.
 2. Keep the complete source JSON so new upstream fields survive refreshes.
 3. Keep card-use indexing synchronized with the same snapshot transaction.
-4. Test initial import, no-download status, name/quantity matching, changed /
-   removed rows, and failure preservation.
+4. Test initial import, no-download status, complete and partial name/quantity
+   matching, changed/removed rows, and failure preservation.
 5. Keep the Bracket signal narrower than the visible combo list: explicit
    infinite output, exactly two used cards, and no unverified template
    requirement.

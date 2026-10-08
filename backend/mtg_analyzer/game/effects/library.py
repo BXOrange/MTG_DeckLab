@@ -69,6 +69,8 @@ class SearchLibraryEffect(GameEffect):
       mana cost" permission instead — Bring to Light, MEC-41).
     * ``count`` — how many cards (search for "up to N"); the choice is
       offered one card at a time.
+    * ``reveal`` — publicly reveal each find before moving it (RULE 701.20),
+      opt-in so searches without a reveal instruction keep the find private.
     * ``zones`` — *where* to look: ``["library"]`` (default, RULE 701.19)
       or ``["library", "graveyard"]``/``["graveyard"]`` for "search your
       library and/or graveyard" (backgrounds/Lurrus-shaped).
@@ -136,8 +138,10 @@ class SearchLibraryEffect(GameEffect):
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict[str, Any]]] = None,
+        reveal: bool = False,
     ) -> None:
         super().__init__(source)
+        self.reveal = bool(reveal)
         #: "…put it onto the battlefield tapped, then shuffle. Then if you
         #: control N or more lands, untap that land." (Fabled Passage) — a
         #: conditional, applied to the just-fetched land by
@@ -297,6 +301,7 @@ class SearchLibraryEffect(GameEffect):
             track_exiled_with=self.track_exiled_with,
             untap_if_lands_at_least=self.untap_if_lands_at_least,
             then_specs=self.then_specs or None,
+            reveal=self.reveal,
         )
 
 

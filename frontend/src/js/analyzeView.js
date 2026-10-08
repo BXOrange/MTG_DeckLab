@@ -1,10 +1,9 @@
 // "Deck analysieren" tab: once a deck is loaded, its analysis is split
-// into three sub-tabs under the deck title/commander line — Statische
+// into four sub-tabs under the deck title/commander line — Statische
 // Analyse (mana curve, card types, mana value, opening-hand land odds,
-// color pips vs. sources, functional categories), the not-yet-implemented
-// Dynamische Analyse (archetype/synergy/coherence — see
-// docs/implementation-state/BACKLOG.md ANA-1), and Bracket-Analyse
-// (a heuristic approximation of WotC's "Commander Brackets" system).
+// color pips vs. sources, functional categories), Dynamische Analyse,
+// Bracket-Analyse, and Advice (mana-curve guidance plus related Spellbook
+// variants).
 // Sub-tab switching (`wireAnalyzeTabs`) is a local, ad hoc show/hide of
 // `.analyze-subtab-panel` elements — separate from and not reusing the
 // app-level `.tab-button`/`.view` mechanism in app.js, which only knows
@@ -46,6 +45,21 @@ function cardNameHtml(name, qty = 1) {
 const COLOR_NAMES = { W: t('common.color.W'), U: t('common.color.U'), B: t('common.color.B'), R: t('common.color.R'), G: t('common.color.G') };
 const COLOR_CLASS = { W: 'w', U: 'u', B: 'b', R: 'r', G: 'g' };
 
+// Frank Karsten's Commander model (TCGplayer, updated 2025-08-28):
+// expected 99-card curve by commander's mana value; rocks and lands are
+// separate from the 1–6 MV spell counts.
+const COMMANDER_CURVE_REFERENCE = {
+  2: { curve: [9, 0, 20, 14, 9, 4], rocks: 1, lands: 42 },
+  3: { curve: [8, 19, 0, 16, 10, 3], rocks: 1, lands: 42 },
+  4: { curve: [6, 12, 13, 0, 13, 8], rocks: 8, lands: 39 },
+  5: { curve: [6, 12, 10, 13, 0, 10], rocks: 9, lands: 39 },
+  6: { curve: [6, 12, 10, 14, 9, 0], rocks: 10, lands: 38 },
+};
+const GUIDE_BASE_LANDS = 42;
+const GUIDE_BASE_MANA_ROCKS = 1;
+const GUIDE_MIN_MIDRANGE_LANDS = 37;
+const GUIDE_ROCKS_PER_LAND_CUT = { min: 2, max: 3 };
+
 /**
  * @returns {{loadDeck: (savedDeck: object) => void, onShown: () => void}}
  *   lets savedDecksView.js hand a saved deck over (id/name/commanderText/
@@ -70,6 +84,7 @@ export function renderAnalyzeView(container) {
 
   container.innerHTML = emptyShellHtml();
   wireDeckPicker();
+  wireAdviceCurveView(container);
 
   async function loadDecks() {
     decksLoading = true;
@@ -224,9 +239,9 @@ export function renderAnalyzeView(container) {
         container.querySelector('#toc-combos').innerHTML = comboAnalysisSectionHtml(initialStats, 'error');
         container.querySelector('#bracket-analysis-content').innerHTML =
           bracketAnalysisSectionHtml(initialStats, 'error');
-        container.querySelector('#combo-analysis-retry')?.addEventListener('click', () =>
-          loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats, setDynamicCombos)
-        );
+        container.querySelector('#advice-content').innerHTML =
+          adviceSectionHtml(initialStats, 'error');
+        wireComboAnalysisRetry(savedDeck, parsed, resolved, myRequestId, initialStats, setDynamicCombos);
         return;
       }
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved, data);
@@ -234,6 +249,16 @@ export function renderAnalyzeView(container) {
       container.querySelector('#toc-combos').innerHTML = comboAnalysisSectionHtml(stats, 'loaded');
       container.querySelector('#bracket-analysis-content').innerHTML =
         bracketAnalysisSectionHtml(stats, 'loaded');
+      container.querySelector('#advice-content').innerHTML =
+        adviceSectionHtml(stats, 'loaded', data);
+    });
+  }
+
+  function wireComboAnalysisRetry(savedDeck, parsed, resolved, myRequestId, initialStats, setDynamicCombos) {
+    const retry = () =>
+      loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats, setDynamicCombos);
+    container.querySelectorAll('[data-combo-analysis-retry]').forEach((button) => {
+      button.addEventListener('click', retry);
     });
   }
 
@@ -279,6 +304,7 @@ const ANALYZE_SUBTABS = [
   { key: 'static', label: t('an.subtab.static') },
   { key: 'dynamic', label: t('an.subtab.dynamic') },
   { key: 'bracket', label: t('an.subtab.bracket') },
+  { key: 'advice', label: t('an.subtab.advice') },
 ];
 
 function analyzeSubtabsHtml() {
@@ -297,6 +323,22 @@ function wireAnalyzeTabs(container) {
     btn.addEventListener('click', () => {
       buttons.forEach((b) => b.classList.toggle('active', b === btn));
       panels.forEach((p) => p.classList.toggle('active', p.dataset.subtabPanel === btn.dataset.subtab));
+    });
+  });
+}
+
+function wireAdviceCurveView(container) {
+  container.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-advice-curve-view]');
+    if (!button) return;
+    const card = button.closest('[data-advice-curve-card]');
+    if (!card) return;
+    const view = button.dataset.adviceCurveView;
+    card.querySelectorAll('[data-advice-curve-view]').forEach((toggle) => {
+      toggle.setAttribute('aria-pressed', String(toggle === button));
+    });
+    card.querySelectorAll('[data-advice-curve-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.adviceCurvePanel !== view;
     });
   });
 }
@@ -360,6 +402,10 @@ function resultShellHtml(deckName, stats, pickerHtml, comboState) {
 
       <div class="analyze-subtab-panel" data-subtab-panel="bracket">
         <div id="bracket-analysis-content">${bracketAnalysisSectionHtml(stats, comboState)}</div>
+      </div>
+
+      <div class="analyze-subtab-panel" data-subtab-panel="advice">
+        <div id="advice-content">${adviceSectionHtml(stats, comboState)}</div>
       </div>
     </div>
   `;
@@ -898,7 +944,7 @@ function comboAnalysisSectionHtml(stats, state) {
         <h3>${t('an.combos.heading')}</h3>
         <p class="hint">${escapeHtml(t('an.combos.hint'))}</p>
         <p class="server-status warning">${t('an.combos.unavailable')}</p>
-        <button type="button" id="combo-analysis-retry">${t('an.combos.retry')}</button>
+        <button type="button" id="combo-analysis-retry" data-combo-analysis-retry>${t('an.combos.retry')}</button>
       </section>`;
   }
 
@@ -1044,5 +1090,317 @@ function bracketAnalysisSectionHtml(stats, comboState) {
         </div>
       </div>
     </section>
+  `;
+}
+
+// --- Advice (Commander mana-curve guide + related Spellbook variants) -----
+
+function adviceSectionHtml(stats, comboState, comboData = null) {
+  return `
+    <section class="analyze-section">
+      <h3>${t('an.advice.heading')}</h3>
+      <p class="hint"><a href="https://www.tcgplayer.com/content/article/What-s-an-Optimal-Mana-Curve-and-Land-Ramp-Count-for-Commander/e22caad1-b04b-4f8a-951b-a41e9f08da14/" target="_blank" rel="noopener noreferrer">${escapeHtml(t('an.advice.guideLink'))}</a></p>
+      ${adviceCurveHtml(stats)}
+      ${adviceManaBaseHtml(stats)}
+      ${relatedComboAdviceHtml(comboState, comboData)}
+    </section>
+  `;
+}
+
+function adviceCurveHtml(stats) {
+  const manaRocks = stats.accelerants.manaRocks;
+  const commanderGuides = stats.commanders.map((commander) => {
+    const reference = COMMANDER_CURVE_REFERENCE[commander.cmc];
+    if (!reference) {
+      return `<p class="hint">${escapeHtml(t('an.advice.noCommanderModel', { commander: commander.name, cmc: commander.cmc }))}</p>`;
+    }
+
+    const rows = reference.curve
+      .map((expected, index) => {
+        const manaValue = index + 1;
+        const bucket = stats.manaCurve.find((item) => Number(item.cmc) === manaValue);
+        const rocksAtValue = manaRocks
+          .filter((rock) => rock.cmc === manaValue)
+          .reduce((sum, rock) => sum + rock.qty, 0);
+        const current = Math.max(0, (bucket?.count || 0) - rocksAtValue);
+        return `<tr><td>${manaValue}</td><td>${current}</td><td>${expected}</td></tr>`;
+      })
+      .join('');
+    const maxCount = Math.max(
+      1,
+      ...reference.curve.map((expected, index) => {
+        const manaValue = index + 1;
+        const bucket = stats.manaCurve.find((item) => Number(item.cmc) === manaValue);
+        const rocksAtValue = manaRocks
+          .filter((rock) => rock.cmc === manaValue)
+          .reduce((sum, rock) => sum + rock.qty, 0);
+        return Math.max(0, (bucket?.count || 0) - rocksAtValue, expected);
+      })
+    );
+    const chartRows = reference.curve
+      .map((expected, index) => {
+        const manaValue = index + 1;
+        const bucket = stats.manaCurve.find((item) => Number(item.cmc) === manaValue);
+        const rocksAtValue = manaRocks
+          .filter((rock) => rock.cmc === manaValue)
+          .reduce((sum, rock) => sum + rock.qty, 0);
+        const current = Math.max(0, (bucket?.count || 0) - rocksAtValue);
+        return `
+          <div class="advice-curve-col">
+            <div class="advice-curve-pair">
+              <div class="advice-curve-series">
+                <span class="advice-curve-value">${current}</span>
+                <div class="advice-curve-track">
+                  <span class="advice-curve-bar advice-curve-bar--deck" style="height:${current / maxCount * 100}%"></span>
+                </div>
+              </div>
+              <div class="advice-curve-series">
+                <span class="advice-curve-value">${expected}</span>
+                <div class="advice-curve-track">
+                  <span class="advice-curve-bar advice-curve-bar--model" style="height:${expected / maxCount * 100}%"></span>
+                </div>
+              </div>
+            </div>
+            <strong class="advice-curve-mv">${manaValue}</strong>
+          </div>
+        `;
+      })
+      .join('');
+    const modeledLands = stats.landArchetypes.find((item) => item.key === 'mdfc_land')?.count || 0;
+    const effectiveLands = stats.manaValue.landCount + modeledLands / 2;
+    const currentRocks = manaRocks.reduce((sum, rock) => sum + rock.qty, 0);
+
+    return `
+      <div class="analyze-chart-card">
+        <h4>${escapeHtml(t('an.advice.modelForCommander', { commander: commander.name, cmc: commander.cmc }))}</h4>
+        <p class="hint">${escapeHtml(t('an.advice.modelCounts', {
+          lands: fmt(effectiveLands),
+          targetLands: reference.lands,
+          rocks: currentRocks,
+          targetRocks: reference.rocks,
+        }))}</p>
+        <div data-advice-curve-card>
+          <div class="advice-curve-controls" role="group" aria-label="${escapeAttr(t('an.advice.curveViewLabel'))}">
+            <button type="button" data-advice-curve-view="table" aria-pressed="true">${t('an.advice.curveViewTable')}</button>
+            <button type="button" data-advice-curve-view="chart" aria-pressed="false">${t('an.advice.curveViewChart')}</button>
+          </div>
+          <div data-advice-curve-panel="table">
+            <table class="analyze-table">
+              <thead><tr><th>${t('an.col.mv')}</th><th>${t('an.advice.currentSpells')}</th><th>${t('an.advice.referenceSpells')}</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <div class="advice-curve-chart" data-advice-curve-panel="chart" hidden>
+            <div class="advice-curve-legend">
+              <span><i class="advice-curve-bar advice-curve-bar--deck"></i>${t('an.advice.currentSpells')}</span>
+              <span><i class="advice-curve-bar advice-curve-bar--model"></i>${t('an.advice.referenceSpells')}</span>
+            </div>
+            <div class="advice-curve-columns">${chartRows}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  const nonRockSpellCount = Math.max(
+    0,
+    stats.manaValue.nonlandCount - manaRocks.reduce((sum, rock) => sum + rock.qty, 0)
+  );
+  const spellsAtTwoToFour = [2, 3, 4].reduce((sum, manaValue) => {
+    const bucket = stats.manaCurve.find((item) => Number(item.cmc) === manaValue);
+    const rocksAtValue = manaRocks
+      .filter((rock) => rock.cmc === manaValue)
+      .reduce((subtotal, rock) => subtotal + rock.qty, 0);
+    return sum + Math.max(0, (bucket?.count || 0) - rocksAtValue);
+  }, 0);
+  const curveGuidance = nonRockSpellCount
+    ? spellsAtTwoToFour / nonRockSpellCount > 0.5
+      ? t('an.advice.curveBalanced', { count: spellsAtTwoToFour, total: nonRockSpellCount })
+      : t('an.advice.curveShift', { count: spellsAtTwoToFour, total: nonRockSpellCount })
+    : t('an.advice.curveNoSpells');
+
+  return `
+    <div class="analyze-chart-card">
+      <h4>${t('an.advice.curveHeading')}</h4>
+      <p>${escapeHtml(curveGuidance)}</p>
+      ${commanderGuides.length ? commanderGuides.join('') : `<p class="hint">${t('an.advice.noCommander')}</p>`}
+      <p class="hint">${escapeHtml(t('an.advice.curveCaveat'))}</p>
+    </div>
+  `;
+}
+
+function adviceManaBaseHtml(stats) {
+  const mdfcCount = stats.landArchetypes.find((item) => item.key === 'mdfc_land')?.count || 0;
+  const effectiveLands = stats.manaValue.landCount + mdfcCount / 2;
+  const manaRocks = stats.accelerants.manaRocks;
+  const rockCount = manaRocks.reduce((sum, rock) => sum + rock.qty, 0);
+  const includesSolRing = manaRocks.some((rock) => rock.name.trim().toLowerCase() === 'sol ring');
+  const advice = [];
+  const commanderTargets = stats.commanders
+    .map((commander) => {
+      const reference = COMMANDER_CURVE_REFERENCE[commander.cmc];
+      if (!reference) return null;
+      const landDifference = reference.lands - effectiveLands;
+      const rockDifference = reference.rocks - rockCount;
+      const landAdvice = landDifference > 0
+        ? t('an.advice.landIncreaseTarget', {
+            count: Math.ceil(landDifference),
+            target: reference.lands,
+          })
+        : t('an.advice.landAtTarget', {
+            actual: fmt(effectiveLands),
+            target: reference.lands,
+          });
+      const rockAdvice = rockDifference > 0
+        ? t('an.advice.rockIncreaseTarget', {
+            actual: rockCount,
+            count: rockDifference,
+            target: reference.rocks,
+          })
+        : t('an.advice.rockAtTarget', {
+            actual: rockCount,
+            target: reference.rocks,
+          });
+      return [
+        t('an.advice.commanderManaTarget', {
+          commander: commander.name,
+          lands: reference.lands,
+          rocks: reference.rocks,
+          actualLands: fmt(effectiveLands),
+          actualRocks: rockCount,
+        }),
+        landAdvice,
+        rockAdvice,
+      ];
+    })
+    .filter(Boolean);
+  commanderTargets.forEach((targets) => advice.push(...targets));
+
+  if (!commanderTargets.length) {
+    if (includesSolRing) {
+      const additionalRocks = Math.max(0, rockCount - GUIDE_BASE_MANA_ROCKS);
+      const fewerLandTarget = Math.max(
+        GUIDE_MIN_MIDRANGE_LANDS,
+        GUIDE_BASE_LANDS - Math.floor(additionalRocks / GUIDE_ROCKS_PER_LAND_CUT.min)
+      );
+      const moreLandTarget = Math.max(
+        GUIDE_MIN_MIDRANGE_LANDS,
+        GUIDE_BASE_LANDS - Math.floor(additionalRocks / GUIDE_ROCKS_PER_LAND_CUT.max)
+      );
+      const targetRange = [fewerLandTarget, moreLandTarget].sort((a, b) => a - b);
+      advice.push(t('an.advice.rockAdjustedLandTarget', {
+        actual: fmt(effectiveLands),
+        min: targetRange[0],
+        max: targetRange[1],
+        rocks: rockCount,
+      }));
+      if (effectiveLands < targetRange[0]) {
+        advice.push(t('an.advice.landIncreaseTarget', {
+          count: Math.ceil(targetRange[0] - effectiveLands),
+          target: targetRange[0],
+        }));
+      }
+    } else {
+      advice.push(t('an.advice.landBaseline', {
+        lands: GUIDE_BASE_LANDS,
+        rocks: GUIDE_BASE_MANA_ROCKS,
+        actualLands: fmt(effectiveLands),
+        actualRocks: rockCount,
+      }));
+      if (effectiveLands < GUIDE_BASE_LANDS) {
+        advice.push(t('an.advice.landIncreaseTarget', {
+          count: Math.ceil(GUIDE_BASE_LANDS - effectiveLands),
+          target: GUIDE_BASE_LANDS,
+        }));
+      }
+    }
+  }
+
+  if (effectiveLands < GUIDE_MIN_MIDRANGE_LANDS) {
+    advice.push(t('an.advice.landFloor', {
+      actual: fmt(effectiveLands),
+      floor: GUIDE_MIN_MIDRANGE_LANDS,
+    }));
+  }
+
+  const totalPipDemand = Object.values(stats.colorPips.cards).reduce((sum, count) => sum + count, 0);
+  const totalPotentialSources = Object.values(stats.colorPips.sources).reduce(
+    (sum, count) => sum + count,
+    0
+  );
+  const colorGaps = Object.keys(COLOR_NAMES)
+    .filter((color) => {
+      const demandShare = totalPipDemand ? stats.colorPips.cards[color] / totalPipDemand : 0;
+      const sourceShare = totalPotentialSources
+        ? stats.colorPips.sources[color] / totalPotentialSources
+        : 0;
+      return demandShare > sourceShare;
+    })
+    .map((color) => {
+      const demandShare = totalPipDemand ? stats.colorPips.cards[color] / totalPipDemand : 0;
+      const sourceShare = totalPotentialSources
+        ? stats.colorPips.sources[color] / totalPotentialSources
+        : 0;
+      return (
+      t('an.advice.colorGap', {
+        color: COLOR_NAMES[color],
+        demand: fmt(demandShare * 100),
+        sources: fmt(sourceShare * 100),
+      })
+      );
+    });
+  advice.push(
+    colorGaps.length
+      ? t('an.advice.colorReview', { gaps: colorGaps.join('; ') })
+      : t('an.advice.colorBalanced')
+  );
+
+  return `
+    <div class="analyze-chart-card">
+      <h4>${t('an.advice.manaBaseHeading')}</h4>
+      <ul class="issue-list">${advice.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+      <p class="hint">${escapeHtml(t('an.advice.manaBaseCaveat', { mdfc: fmt(mdfcCount / 2) }))}</p>
+    </div>
+  `;
+}
+
+function relatedComboAdviceHtml(state, comboData) {
+  if (state === 'loading') {
+    return `<div class="analyze-chart-card"><h4>${t('an.advice.combosHeading')}</h4><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('an.advice.combosLoading')}</p></div>`;
+  }
+  if (state === 'incomplete') {
+    return `<div class="analyze-chart-card"><h4>${t('an.advice.combosHeading')}</h4><p class="server-status warning">${t('an.advice.combosIncomplete')}</p></div>`;
+  }
+  if (state === 'error') {
+    return `<div class="analyze-chart-card"><h4>${t('an.advice.combosHeading')}</h4><p class="server-status warning">${t('an.advice.combosError')}</p><button type="button" data-combo-analysis-retry>${t('an.combos.retry')}</button></div>`;
+  }
+
+  const recommendations = comboData?.recommendations || [];
+  if (!recommendations.length) {
+    return `<div class="analyze-chart-card"><h4>${t('an.advice.combosHeading')}</h4><p class="empty-state">${t('an.advice.combosNone')}</p></div>`;
+  }
+
+  const rows = recommendations.map((combo) => {
+    const missing = combo.missing
+      .map((use) => cardNameHtml(use.name, use.quantity))
+      .join(', ');
+    const matched = combo.matched
+      .map((use) => `${use.name}${use.quantity > 1 ? ` ×${use.quantity}` : ''}`)
+      .join(', ');
+    const produces = combo.produces?.length
+      ? `<p>${escapeHtml(t('an.advice.comboProduces', { results: combo.produces.join(', ') }))}</p>`
+      : '';
+    const requirements = combo.requirements?.length
+      ? `<p class="hint">${escapeHtml(t('an.advice.comboRequirements', { requirements: combo.requirements.join(', ') }))}</p>`
+      : '';
+    return `<li><strong>${missing}</strong><p class="hint">${escapeHtml(t('an.advice.comboRelatedTo', { cards: matched }))}</p>${produces}${requirements}</li>`;
+  }).join('');
+
+  return `
+    <div class="analyze-chart-card">
+      <h4>${t('an.advice.combosHeading')}</h4>
+      <p class="hint">${escapeHtml(t('an.advice.combosHint'))}</p>
+      <ul class="card-list">${rows}</ul>
+    </div>
   `;
 }

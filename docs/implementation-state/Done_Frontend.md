@@ -313,6 +313,11 @@ repointed there.
 - **Files:** `gameBoardView.js` (`data-discard-choice-start` branch + handler, `isDiscardChoice` in `finishCastIfReady`/`castTargetModalHtml`/draft-restore), `game/engine/legal_actions_mixin.py` (`_cast_action` surfaces `discard_cost` = `{count, options}`), `services/game_session.py` (`_dispatch_cast_spell` now resolves and forwards `sacrifice_choice`/`discard_choices`).
 - **Bug fixed:** the engine (`_resolve_discard_cost`, ENG-3) had accepted `discard_choices` on `cast_spell` since the cost-payment-choices batch, but `_dispatch_cast_spell` silently dropped the field (same shape as the earlier `kicked` bug) and the board never prompted — so a rummage spell always auto-discarded the front of the hand with no way to choose. Fixed all three layers together; covered by `test_game_session.py::test_cast_spell_forwards_discard_choices_for_an_additional_cost`.
 
+### Activated return-cost picker (RULE 602.2b / 601.2h)
+
+- **What:** Wirewood Symbiote and other activated return costs open a separate “Welche Karte auf die Hand zurück?” choice after target selection. The shared board submits the selected IDs as `return_choices` and preserves the target payload through that cost round. Counted costs prevent duplicate picks; cancelling sends no activation, and UI drafts retain the return-choice round.
+- **Files:** `gameBoardView.js`, `locales/{de,en}.js`.
+
 ## Multiplayer Lobby
 
 ### Setup/Board split + lobby presence
@@ -349,6 +354,7 @@ repointed there.
 
 - **What:** The shared board shows a table feed below the stack/trigger feed in the left rail. Players send only preset emotes (👍, 👏, GG, 🤔, ⏳), without a free-text input or a priority requirement. Public land plays, spell casts and ability activations are announced with player names; priority passes are omitted. Observers can read the feed. New messages follow the scroll position only when the reader is already near the bottom.
 - **Files:** `gameBoardView.js`, `soloView.js`, `locales/en.js`, `locales/de.js`, `main.css`.
+- **Public reveals (RULE 701.20):** REVEAL announcements show the named card and, when its card ID is available, a thumbnail in the table feed for players and observers. Transmute emits this announcement before the searched card moves to hand; the rest of the hand and library remain hidden. Verified in Chromium for the searching player and an observer.
 - **Layout:** On desktop and landscape tablets the left rail fills the available viewport height, accounting for board zoom. The message feed expands into remaining space; short viewports keep controls reachable through scrolling. Narrow screens retain the horizontal layout above the board. Verified in Chromium at desktop/tablet widths and 75–150% board zoom.
 
 ### Redacted opponent hands + observer mode
@@ -482,6 +488,11 @@ repointed there.
 
 - **What:** Static browser-side deck metrics plus a lazy backend match against Commander Spellbook's locally stored snapshot; matched fixed-card variants display their uses, outputs, mana-value total and curve-estimated earliest turn. Unresolved card lists skip combo matching, and template requirements remain explicitly unverified.
 - **Files:** `analyzeView.js`, `deckAnalysis.js`
+
+### Advice sub-tab
+
+- **What:** Adds an Advice sub-tab beside Bracket analysis. It compares the deck's detected spell curve, mana rocks and effective lands against Frank Karsten's TCGplayer Commander model, surfaces the article's land-count and color-source guidance, and lists missing fixed-card ingredients from related Commander Spellbook variants. Partial variants never affect the Bracket estimate; the model and source-count heuristics are labeled as guidance rather than definitive deckbuilding rules.
+- **Files:** `analyzeView.js`, `api.js`, `locales/{de,en}.js`; related-variant lookup in the backend Commander Spellbook database.
 
 ### Dynamic simulation UI (ANA-4)
 

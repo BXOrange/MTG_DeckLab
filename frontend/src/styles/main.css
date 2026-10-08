@@ -1952,6 +1952,118 @@ textarea {
   font-weight: 600;
 }
 
+.advice-curve-controls {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.advice-curve-controls button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0.3rem 0.65rem;
+}
+
+.advice-curve-controls button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.advice-curve-chart {
+  margin-top: 0.8rem;
+}
+
+.advice-curve-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.7rem;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.advice-curve-columns {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  min-height: 160px;
+}
+
+.advice-curve-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.advice-curve-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.advice-curve-pair {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.15rem;
+  width: 100%;
+}
+
+.advice-curve-mv {
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.advice-curve-series {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 2.4rem;
+}
+
+.advice-curve-bar {
+  display: inline-block;
+  width: 100%;
+  border-radius: 3px;
+}
+
+.advice-curve-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  height: 120px;
+}
+
+.advice-curve-track .advice-curve-bar {
+  min-height: 0;
+}
+
+.advice-curve-bar--deck {
+  background: var(--accent);
+}
+
+.advice-curve-bar--model {
+  background: var(--info);
+}
+
+.advice-curve-value {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  min-height: 1em;
+}
+
 .analyze-card-name {
   border-bottom: 1px dotted var(--text-dim);
 }
@@ -2386,6 +2498,7 @@ textarea {
 .gf-chat-message { padding: 0.35rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; white-space: pre-wrap; }
 .gf-chat-author { font-weight: 700; margin-right: 0.3rem; }
 .gf-chat-message.is-announcement { opacity: 0.8; }
+.gf-chat-reveal { display: block; width: 6rem; max-width: 100%; height: auto; border-radius: 0.35rem; margin-top: 0.35rem; }
 .gf-chat-emotes { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
 .gf-chat-emotes button { flex: 1; padding: 0.3rem; font-size: 0.8rem; }
 .gf-chat-error { font-size: 0.75rem; color: var(--danger, #f99); }

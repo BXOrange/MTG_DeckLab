@@ -677,6 +677,7 @@ class GameContext:
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict]] = None,
+        reveal: bool = False,
     ) -> None:
         self.engine._request_search(
             player, criteria, destination, count, optional,
@@ -692,6 +693,7 @@ class GameContext:
             track_exiled_with=track_exiled_with,
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs=then_specs,
+            reveal=reveal,
         )
 
     def _request_intuition(

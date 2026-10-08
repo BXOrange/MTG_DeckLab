@@ -2,8 +2,8 @@
 
 Die Analyse eines Decks öffnest du über **Decks verwalten** →
 **Deck analysieren** in der jeweiligen Deck-Zeile. Der Tab zeigt drei
-Unter-Tabs: **Statische Analyse**, **Dynamische Analyse** und
-**Bracket-Analyse**.
+Unter-Tabs: **Statische Analyse**, **Dynamische Analyse**,
+**Bracket-Analyse** und **Empfehlungen**.
 
 Alles außer dem Combo-Abgleich wird **lokal im Browser** aus den
 Kartendaten des Decks berechnet — es gibt keinen KI-/LLM-Aufruf. Die
@@ -128,3 +128,36 @@ sowie die tatsächlichen Karten hinter jedem Signal. Das Fehlen eines
 Signals belegt nie, dass ein Deck in Bracket 1–3 gehört — nur die
 Feinabstimmungs-Absicht (die sich nicht aus einer Liste ablesen lässt)
 unterscheidet diese drei wirklich.
+
+## Empfehlungen
+
+Der Unter-Tab vergleicht die Manakurve mit Frank Karstens Commander-
+Referenzmodell aus dem [TCGplayer-Leitfaden](https://www.tcgplayer.com/content/article/What-s-an-Optimal-Mana-Curve-and-Land-Ramp-Count-for-Commander/e22caad1-b04b-4f8a-951b-a41e9f08da14/).
+Für Commander-Manawerte von 2 bis 6 zeigt er die Beispielzahlen des
+Artikels für Zauber, Manarocks und Länder neben den erkannten Deckwerten.
+Die Referenzkurve lässt sich als Tabelle oder Balkengrafik anzeigen. Der
+Mana-Basis-Abschnitt nennt die Modellwerte für Länder und Manarocks sowie
+die Differenz zwischen diesen Zielen und den Deckwerten.
+Der Leitfaden empfiehlt einen Schwerpunkt auf Zwei-, Drei- und
+Vier-Manazaubern, weniger Karten auf dem Manawert des Commanders und
+generell mehr Länder, als viele verbreitete Vorlagen vorsehen. Das
+vereinfachte Modell ist eine Referenz, keine Vorschrift; Synergien und
+der konkrete Deckplan können Abweichungen rechtfertigen.
+
+Modale doppelseitige Zauber/Land-Karten zählen in den Länderhinweisen als
+halbes Land. Wo verfügbar, vergleicht die Mana-Basis die Länder- und
+Rock-Zahlen mit dem Commander-spezifischen Referenzmodell. Sie zeigt
+außerdem die grobe Untergrenze von 37 Ländern und den allgemeinen
+Startpunkt von 42 Ländern plus Sol Ring. Außerhalb der Commander-
+Referenzmodelle wird bei vorhandenem Sol Ring aus dem Rock-Länder-
+Verhältnis ein grober Zielbereich abgeleitet. Das sind Richtwerte, keine
+Regeln. Farbquellen-Hinweise verwenden
+die heuristischen Zählungen der statischen Analyse; Verfügbarkeit,
+getappte Länder und exakte Manakosten werden nicht berücksichtigt.
+
+Der Combo-Abschnitt schlägt fehlende feste Kartenbestandteile aus
+Commander-Spellbook-Varianten vor, die mindestens eine Karte mit dem
+Deck gemeinsam haben. Die Vorschläge stammen aus dem lokalen
+Spellbook-Snapshot und prüfen weder Template-Voraussetzungen noch die
+tatsächliche Spielbarkeit der Combo. Sie ändern die Bracket-Schätzung
+nicht.

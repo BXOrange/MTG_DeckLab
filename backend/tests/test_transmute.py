@@ -9,6 +9,8 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.services.game_session import GameSession
 
 
 def _setup(name="Muddle the Mixture", mana_cost="{U}{U}", mana_value=2):
@@ -63,6 +65,10 @@ def test_transmute_is_offered_and_searches_for_source_mana_value(name, mana_cost
     with patch.object(engine.rules, "shuffle_library", wraps=engine.rules.shuffle_library) as shuffle:
         engine.rules.resolve_choice(choice["eligible"][0]["instance_id"])
         shuffle.assert_called_once_with(player)
+    reveals = [e for e in engine.state.event_log if e.type == EventType.REVEAL]
+    assert len(reveals) == 1
+    assert reveals[0].get("object") == f"Artifact {mana_value}"
+    assert reveals[0].get("from_zone") == "library"
     assert any(o.name == f"Artifact {mana_value}" for o in player.hand)
 
 
@@ -96,3 +102,39 @@ def test_transmute_may_fail_to_find_and_still_shuffles():
         shuffle.assert_called_once_with(player)
     assert player.hand == []
     assert obj in player.graveyard
+    assert not any(e.type == EventType.REVEAL for e in engine.state.event_log)
+
+
+def test_transmute_reveal_is_public_without_exposing_the_remaining_hand_or_library():
+    engine, player, obj = _setup()
+    session = GameSession(engine, mode="replay", require_setup=False)
+    engine.activate_ability(player, obj, 0)
+    engine.resolve_until_stable()
+    choice = engine.state.pending_choice
+    picked = choice["eligible"][0]["instance_id"]
+    session.apply_action({"type": "choose", "instance_id": picked})
+    own = session.view(perspective=player.id)
+    observer = session.observer_view()
+    reveal = own["table_messages"][-1]
+    assert reveal["action"] == "reveal"
+    assert reveal["card_name"] == "Artifact 2"
+    assert reveal["card_id"] == "2"
+    assert observer["table_messages"][-1] == reveal
+    assert observer["state"]["players"][0]["hand"] == []
+    assert observer["state"]["players"][0]["library"] == []
+    session.rewind()
+    assert session.observer_view()["table_messages"] == []
+
+
+@pytest.mark.parametrize("reveal", [False, True])
+def test_search_reveal_flag_survives_multiple_picks_and_is_opt_in(reveal):
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+
+    engine, player, _ = _setup()
+    effect = EffectRegistry.create("search", {"count": 2, "reveal": reveal})
+    effect.apply(engine.rules.context)
+    for _ in range(2):
+        choice = engine.state.pending_choice
+        engine.rules.resolve_choice(choice["eligible"][0]["instance_id"])
+    reveals = [e for e in engine.state.event_log if e.type == EventType.REVEAL]
+    assert len(reveals) == (2 if reveal else 0)

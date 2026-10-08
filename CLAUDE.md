@@ -191,6 +191,12 @@ refreshing their last-known values at departure. Public choices carry recipe IDs
 payment/optional continuations and rewind retain the same original identity.
 See the delivered MEC-112 behavior in `Done_Backend.md`.
 
+**Announced return costs** expose `return_cost` pools on activated-ability
+legal actions. The shared board gathers targets before asking which controlled
+permanent returns to hand, then submits `return_choices`. Singular subtype and
+counted permanent costs validate those IDs before payment; omitted choices keep
+the non-interactive fallback. See `tests/test_return_cost_choices.py`.
+
 **Announced sacrifice costs** use `ActivationCost.sacrifice_count` for X or
 optional one-or-more creature payments. The shared board gathers targets before
 separate cost choices. Casting events are deferred until all costs are paid
@@ -801,6 +807,8 @@ for the upstream contract and limits.
   temporary grants can offer one spell from a shared batch in any graveyard.
   Transmute (RULE 702.53) binds to a hand-zone discard ability at sorcery
   speed, using the ordinary search choice for the source's exact mana value.
+  Its search publicly reveals the find before moving it; public REVEAL events
+  appear in the shared table feed with card images when an ID is available.
 - **One-shot effect library** — damage, draw, discard, destroy, counter,
   search/tutor, mill, exile, tap, counters, pump, scry/surveil, token
   creation, copy, cascade/discover, proliferate, fight, board wipes, and

@@ -2,8 +2,8 @@
 
 Open a deck's analysis via **Decks verwalten** (manage decks) →
 **Deck analysieren** (analyze deck) on the deck's row. The tab shows
-three sub-tabs: **Statische Analyse**, **Dynamische Analyse**, and
-**Bracket-Analyse**.
+four sub-tabs: **Static analysis**, **Dynamic analysis**,
+**Bracket analysis**, and **Advice**.
 
 Everything except combo matching is computed **locally in your
 browser** from the deck's card data — there is no AI/LLM call involved.
@@ -120,3 +120,34 @@ The tab shows a suggested **minimum bracket** with its reasoning, plus
 the actual cards behind each signal. Absence of a signal never proves
 a deck belongs in bracket 1–3 — only bracket-tuning intent (not
 checkable from a list) actually separates those three.
+
+## Advice
+
+The Advice sub-tab compares the deck's mana curve with Frank Karsten's
+Commander reference model from the [TCGplayer guide](https://www.tcgplayer.com/content/article/What-s-an-Optimal-Mana-Curve-and-Land-Ramp-Count-for-Commander/e22caad1-b04b-4f8a-951b-a41e9f08da14/).
+For commander mana values 2–6 it shows the guide's sample spell counts,
+mana-rock counts, and land count alongside the deck's detected counts.
+The reference curve can be switched between a table and a bar chart. The
+mana-base section gives the model's land and rock targets and how far
+the deck's effective land and rock counts differ from them.
+The guide favors a mix of two-, three-, and four-mana spells, a somewhat
+thinner slot at the commander's own mana value, and generally more lands
+than many common templates suggest. Its simplified model is a reference,
+not a prescription; synergy and the deck's actual plan can justify
+deviations.
+
+Land guidance treats modal double-faced spell/land cards as half a land.
+It compares the deck's effective land and rock counts with the
+commander-specific reference numbers where available, and shows the
+guide's rough 37-land floor and 42-land-plus-Sol-Ring general starting
+point. Outside the commander-specific models, it estimates a land range
+from the guide's rock-to-land tradeoff when Sol Ring is present.
+These are approximate targets, not rules. Colored-source flags
+reuse the static analysis's heuristic counts; they do not account for
+availability, tapped lands, or exact mana costs.
+
+The Combo database section suggests missing fixed card ingredients from
+Commander Spellbook variants that share at least one card with the deck.
+Recommendations are drawn from the local Spellbook snapshot and do not
+verify template requirements or prove the combo is playable. Combo
+recommendations are not used to change the Bracket estimate.

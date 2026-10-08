@@ -42,10 +42,12 @@ in English and German:
   database — see `Done_Frontend.md` "Deck Import & Backend Integration".
 - **Decks verwalten**: saved decks (`savedDecksView.js`) — list/load/
   delete, per-deck legality badge, sleeve picker.
-- **Deck analysieren**: local/static deck analysis (`analyzeView.js` +
-  `deckAnalysis.js`) — mana curve, type distribution, land archetypes,
-  Command Zone categories, and a Commander-Brackets-style heuristic. Pure
-  client-side, no backend call — see `Done_Frontend.md` "Deck Analysis (frontend)".
+- **Deck analysieren**: local/static deck analysis and advice
+  (`analyzeView.js` + `deckAnalysis.js`) — mana curve, type distribution,
+  land archetypes, Command Zone categories, a Commander-Brackets-style
+  heuristic, and mana-curve / Commander Spellbook combo recommendations.
+  Combo matching uses the local backend snapshot; see
+  `Done_Frontend.md` "Deck Analysis (frontend)".
 - **Goldfisch**: solo play against the real backend rules engine
   (`goldfishView.js`/`gameBoardView.js` → `POST /api/game/*`). Pick a
   saved (legal) deck, mulligan, then step through the turn — play lands,

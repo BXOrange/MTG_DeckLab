@@ -73,6 +73,7 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 ### Commander Spellbook combo snapshot
 
 - **What:** A lazy `CommanderSpellbookDatabase` downloads Spellbook's compressed full variants/aliases export only when the first combo match needs it (or via explicit update), streams it into staging SQLite, then transactionally syncs full JSON records, indexed card uses, checksums, version and source timestamp. Refresh reports added/changed/removed variant and alias counts; failed download/import leaves the old snapshot intact. `GET /api/combos/status` never initializes it, `POST /api/combos/matches` initializes only if needed, and `POST /api/combos/update` forces refresh.
+- **Related-card suggestions:** The deck match response also includes up to 20 incomplete variants sharing at least one fixed card use with the submitted list, with matched/missing quantities. Complete matches retain their existing shape and semantics; partial variants do not enter Bracket analysis.
 - **Files:** `services/commander_spellbook_database.py`, `api/combos.py`, `api/dependencies.py`, `config.py`, `api/schemas.py`
 - **Why:** The upstream OpenAPI documentation explicitly says not to paginate through the whole `/variants/` API; use the compressed bulk snapshot with a named User-Agent. The durable local SQLite copy avoids repeated upstream calls and exposes source diffs. Full implementation and contract limits: [COMMANDER_SPELLBOOK.md](../Reference/COMMANDER_SPELLBOOK.md).
 
@@ -2755,6 +2756,8 @@ pending cast after an invalid answer. Regression coverage lives in
 - **What:** A spell's own additional-cost "sacrifice/discard" (RULE 601.2b) and a plain "discard N cards" activation cost both gained the same choice shape as ENG-2, but as…
 - **Files:** `game/game_engine.py`, `game/costs.py`
 
+- **Return-cost choices:** Activated abilities with singular subtype or counted permanent returns accept `return_choices`, validate count, distinctness and eligibility before payment, and expose a separate `return_cost` pool. Wirewood Symbiote returns the selected controlled Elf while keeping its untap target and once-per-turn restriction. Omitted choices preserve non-interactive callers. Tests: `tests/test_return_cost_choices.py`.
+
 ### Conditional cast prohibition (`cast_prohibition` static)
 
 - **What:** The conditional sibling of the flat per-turn `cast_limit` static (RULE 601.3a), evaluated against the *casting* player's own board (e.g.
@@ -3588,7 +3591,7 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 
 ### Transmute activation (RULE 702.53)
 
-- **What:** Parser-recognized Transmute now binds to a real hand-zone activated ability. Pay the printed mana cost and discard the source at sorcery speed; resolution uses the ordinary library search choice for exactly its mana value, followed by a shuffle. Muddle the Mixture retains its separate counterspell effect.
+- **What:** Parser-recognized Transmute now binds to a real hand-zone activated ability. Pay the printed mana cost and discard the source at sorcery speed; resolution uses the ordinary library search choice for exactly its mana value, publicly reveals the find before putting it into hand, then shuffles. The search effect's opt-in `reveal` flag survives multiple picks; failed searches emit no reveal. Public REVEAL events reach all viewers through the table feed without exposing other hidden cards, and undo removes their announcements. Muddle the Mixture retains its separate counterspell effect.
 - **Files:** `game/binding/core.py`; regression coverage in `tests/test_transmute.py` for offers, stack use, costs, timing, exact mana value and failing to find.
 
 ### "Choose a Background" keyword recognition (PAR-12, RULE 702.124)

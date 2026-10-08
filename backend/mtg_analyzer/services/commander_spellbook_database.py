@@ -33,6 +33,8 @@ _REQUEST_TIMEOUT_SECONDS = 120.0
 _DOWNLOAD_CHUNK_BYTES = 1 << 20
 _JSON_BUFFER_SIZE = 64 * 1024
 _DB_BATCH_SIZE = 1000
+# Keep the Advice tab's related-variant list useful without overwhelming it.
+MAX_RELATED_COMBO_RECOMMENDATIONS = 20
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS variants (
@@ -446,6 +448,15 @@ class CommanderSpellbookDatabase:
         as verified card ingredients; callers can avoid using such conditional
         matches as definitive bracket signals.
         """
+        return self.analyze_deck(cards)["combos"]
+
+    def analyze_deck(
+        self,
+        cards: list[dict[str, object]],
+        *,
+        include_recommendations: bool = False,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Return complete combo matches and partial variants related to the deck."""
         self.ensure_initialized()
         available: dict[str, int] = {}
         for card in cards:
@@ -455,7 +466,7 @@ class CommanderSpellbookDatabase:
                 key = _normalize_name(name)
                 available[key] = available.get(key, 0) + quantity
         if not available:
-            return []
+            return {"combos": [], "recommendations": []}
 
         with self._lock:
             connection = self._open(create=False)
@@ -469,11 +480,34 @@ class CommanderSpellbookDatabase:
             ).fetchall()
 
         matches = []
+        recommendations = []
         for (raw_variant,) in candidates:
             variant = json.loads(raw_variant)
             uses = _card_uses(variant)
-            if not all(available.get(name, 0) >= quantity for name, quantity in uses.items()):
+            if not include_recommendations and not all(
+                available.get(name, 0) >= quantity for name, quantity in uses.items()
+            ):
                 continue
+            matched_uses = []
+            missing_uses = []
+            use_names = {
+                _normalize_name(use["card"]["name"]): use["card"]["name"]
+                for use in variant.get("uses", [])
+                if isinstance(use, dict)
+                and isinstance(use.get("card"), dict)
+                and isinstance(use["card"].get("name"), str)
+            }
+            for name, quantity in uses.items():
+                count = available.get(name, 0)
+                if count:
+                    matched_uses.append(
+                        {"name": use_names[name], "quantity": min(count, quantity)}
+                    )
+                if count < quantity:
+                    missing_uses.append(
+                        {"name": use_names[name], "quantity": quantity - count}
+                    )
+
             produces = [
                 item.get("feature", {}).get("name", "")
                 for item in variant.get("produces", [])
@@ -489,20 +523,41 @@ class CommanderSpellbookDatabase:
                 and isinstance(item.get("template"), dict)
                 and isinstance(item.get("template", {}).get("name"), str)
             ]
-            matches.append(
-                {
-                    "id": variant["id"],
-                    "uses": [
-                        {"name": use.get("card", {}).get("name", ""), "quantity": use.get("quantity", 1)}
-                        for use in variant.get("uses", [])
-                    ],
-                    "cardCount": sum(uses.values()),
-                    "produces": [name for name in produces if name],
-                    "producesInfinite": produces_infinite,
-                    "description": variant.get("description", ""),
-                    "requirements": [name for name in requirements if name],
-                    "bracketTag": variant.get("bracketTag"),
-                }
-            )
+            result = {
+                "id": variant["id"],
+                "uses": [
+                    {"name": use.get("card", {}).get("name", ""), "quantity": use.get("quantity", 1)}
+                    for use in variant.get("uses", [])
+                ],
+                "cardCount": sum(uses.values()),
+                "produces": [name for name in produces if name],
+                "producesInfinite": produces_infinite,
+                "description": variant.get("description", ""),
+                "requirements": [name for name in requirements if name],
+                "bracketTag": variant.get("bracketTag"),
+            }
+            if missing_uses:
+                result.update(
+                    {
+                        "matched": matched_uses,
+                        "missing": missing_uses,
+                        "matchedCardCount": sum(use["quantity"] for use in matched_uses),
+                        "missingCardCount": sum(use["quantity"] for use in missing_uses),
+                    }
+                )
+                recommendations.append(result)
+            else:
+                matches.append(result)
+
         matches.sort(key=lambda combo: (combo["cardCount"], combo["id"]))
-        return matches
+        recommendations.sort(
+            key=lambda combo: (
+                -combo["matchedCardCount"],
+                combo["missingCardCount"],
+                combo["id"],
+            )
+        )
+        return {
+            "combos": matches,
+            "recommendations": recommendations[:MAX_RELATED_COMBO_RECOMMENDATIONS],
+        }

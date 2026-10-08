@@ -1271,6 +1271,7 @@ class GameSession:
             target_groups=target_groups, sacrifice_choice=sacrifice_choice,
             sacrifice_also_choice=self._resolve_sacrifice_choice(action.get("sacrifice_also_choice")),
             discard_choices=discard_choices, hand_card_choices=hand_card_choices,
+            return_choices=self._resolve_hand_card_choices(action.get("return_choices")),
         )
 
     def _dispatch_declare_attackers(self, action: dict[str, Any], active: Player) -> None:

@@ -14,6 +14,7 @@ ANNOUNCED_EVENTS = {
     EventType.TAPPED_FOR_MANA: ("tap_for_mana", "object"),
     EventType.MANA_ABILITY_ACTIVATED: ("activate_hand_mana", "object"),
     EventType.TURNED_FACE_UP: ("turn_face_up", "object"),
+    EventType.REVEAL: ("reveal", "object"),  # RULE 701.20: public information.
     # RULE 709.5h (MEC-111): a Room door unlocked (cast, special action or effect) — named by the half's own name.
     EventType.DOOR_UNLOCKED: ("unlock_door", "door_name"),
 }
@@ -58,6 +59,8 @@ class TableFeed:
             name = event.get(name_key) or (getattr(source, "name", None) if source else None)
             self.append(kind="action", action=action, actor_id=actor.id, author=actor.name,
                         card_name=name, ability_text=item.description if item else None,
+                        **({"card_id": event.get("card_id") or (source.card.id if source else None)}
+                           if event.type == EventType.REVEAL else {}),
                         turn=state.turn_nr, move_index=move_index)
 
     def trim_moves(self, move_count):

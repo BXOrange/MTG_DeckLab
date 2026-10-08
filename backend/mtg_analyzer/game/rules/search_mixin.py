@@ -1156,6 +1156,7 @@ class SearchMixin:
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict]] = None,
+        reveal: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1291,6 +1292,7 @@ class SearchMixin:
             then_specs=then_specs,
             then_source_id=getattr(source, "instance_id", None),
             track_exiled_with=track_exiled_with,
+            reveal=reveal,
         ))
 
     def _request_intuition(
@@ -1560,6 +1562,7 @@ class SearchMixin:
                 then_specs=choice.get("then_specs"),
                 then_source_id=choice.get("then_source_id"),
                 track_exiled_with=choice.get("track_exiled_with", False),
+                reveal=choice.get("reveal", False),
             ))
             return
 
@@ -1576,6 +1579,7 @@ class SearchMixin:
             track_exiled_with=choice.get("track_exiled_with", False),
             track_source_id=choice.get("then_source_id"),
             untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
+            reveal=choice.get("reveal", False),
         )
         # "…if you don't put a card … this way, <body>." (The Vast Scrier) —
         # the search finished and nothing was picked.
@@ -1613,6 +1617,7 @@ class SearchMixin:
         then_specs: Optional[list[dict]] = None,
         then_source_id: Optional[int] = None,
         track_exiled_with: bool = False,
+        reveal: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
@@ -1651,6 +1656,7 @@ class SearchMixin:
             prompt += f" (noch {count - len(found)})"
         return {
             "kind": "search",
+            "reveal": bool(reveal),
             "player_id": (chooser or player).id,
             "library_owner_id": player.id,
             "destination": destination,
@@ -1710,6 +1716,7 @@ class SearchMixin:
         track_exiled_with: bool = False,
         track_source_id: Optional[int] = None,
         untap_if_lands_at_least: Optional[int] = None,
+        reveal: bool = False,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -1719,6 +1726,17 @@ class SearchMixin:
         zones = list(zones) if zones else ["library"]
         chosen: list[GameObject] = []
         for instance_id in found:
+            if reveal:
+                # RULE 701.20a/b: publicly show the find before moving it;
+                # revealing itself does not change its zone.
+                hit = next((o for o in self._search_zone_objects(player, zones)
+                            if o.instance_id == instance_id), None)
+                if hit is not None:
+                    self.state.fire_event(GameEvent(
+                        EventType.REVEAL, player_id=player.id, object=hit.name,
+                        instance_id=hit.instance_id, card_id=hit.card.id,
+                        from_zone=hit.zone.value,
+                    ))
             obj = self._remove_search_hit(player, instance_id, zones)
             if obj is not None:
                 chosen.append(obj)

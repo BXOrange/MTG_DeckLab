@@ -113,6 +113,41 @@ class TestCommanderSpellbookDatabase:
         assert matches[0]["requirements"] == ["You control a creature"]
         assert database.status()["initialized"] is True
 
+    def test_analyze_deck_returns_partial_combo_recommendations(self, tmp_path):
+        database = CommanderSpellbookDatabase(tmp_path / "spellbook.sqlite")
+        snapshot = _write_snapshot(
+            tmp_path / "snapshot.json.gz",
+            [
+                _variant("complete", [("Alpha", 1), ("Beta", 1)]),
+                _variant("needs-copy", [("Alpha", 2), ("Gamma", 1)]),
+                _variant("needs-two", [("Alpha", 1), ("Delta", 1), ("Epsilon", 1)]),
+                _variant("unrelated", [("Zeta", 1), ("Eta", 1)]),
+            ],
+        )
+        database.ingest_snapshot(snapshot)
+
+        analysis = database.analyze_deck(
+            [{"name": "Alpha", "quantity": 1}, {"name": "Beta", "quantity": 1}],
+            include_recommendations=True,
+        )
+
+        assert [combo["id"] for combo in analysis["combos"]] == ["complete"]
+        assert [combo["id"] for combo in analysis["recommendations"]] == [
+            "needs-copy",
+            "needs-two",
+        ]
+        assert analysis["recommendations"][0]["matched"] == [
+            {"name": "Alpha", "quantity": 1}
+        ]
+        assert analysis["recommendations"][0]["missing"] == [
+            {"name": "Alpha", "quantity": 1},
+            {"name": "Gamma", "quantity": 1},
+        ]
+        assert analysis["recommendations"][1]["missing"] == [
+            {"name": "Delta", "quantity": 1},
+            {"name": "Epsilon", "quantity": 1},
+        ]
+
     def test_snapshot_refresh_reports_added_changed_and_removed_variants(self, tmp_path):
         database = CommanderSpellbookDatabase(tmp_path / "spellbook.sqlite")
         first = _write_snapshot(

@@ -53,8 +53,9 @@ def match_deck_combos(
 ) -> dict[str, object]:
     try:
         database.ensure_initialized()
-        matches = database.matches(
-            [{"name": card.name, "quantity": card.quantity} for card in request.cards]
+        analysis = database.analyze_deck(
+            [{"name": card.name, "quantity": card.quantity} for card in request.cards],
+            include_recommendations=True,
         )
     except (httpx.HTTPError, OSError, ValueError) as exc:
         logger.warning("Commander Spellbook initial download failed: %s", exc)
@@ -62,4 +63,4 @@ def match_deck_combos(
             status_code=502,
             detail="The combo database could not be initialized or queried; retry after checking the server connection.",
         ) from exc
-    return {"combos": matches, "database": database.status()}
+    return {**analysis, "database": database.status()}
