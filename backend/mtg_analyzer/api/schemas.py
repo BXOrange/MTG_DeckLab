@@ -27,6 +27,7 @@ class ComboAnalysisRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     cards: list[ComboDeckCard] = Field(default_factory=list)
+    color_identity: Optional[list[str]] = Field(default=None, alias="colorIdentity")
 
 
 class SaveDeckRequest(BaseModel):

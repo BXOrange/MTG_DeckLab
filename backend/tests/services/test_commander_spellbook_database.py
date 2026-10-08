@@ -10,10 +10,11 @@ from mtg_analyzer.services import commander_spellbook_database as spellbook
 from mtg_analyzer.services.commander_spellbook_database import CommanderSpellbookDatabase
 
 
-def _variant(variant_id, cards, *, produces=(), requirements=()):
+def _variant(variant_id, cards, *, produces=(), requirements=(), identity=""):
     return {
         "id": variant_id,
         "status": "OK",
+        "identity": identity,
         "uses": [
             {"card": {"name": name}, "quantity": quantity}
             for name, quantity in cards
@@ -119,7 +120,9 @@ class TestCommanderSpellbookDatabase:
             tmp_path / "snapshot.json.gz",
             [
                 _variant("complete", [("Alpha", 1), ("Beta", 1)]),
-                _variant("needs-copy", [("Alpha", 2), ("Gamma", 1)]),
+                _variant("needs-copy", [("Alpha", 2), ("Beta", 1)]),
+                _variant("needs-card", [("Alpha", 1), ("Gamma", 1)]),
+                _variant("needs-two-copies", [("Alpha", 1), ("Gamma", 2)]),
                 _variant("needs-two", [("Alpha", 1), ("Delta", 1), ("Epsilon", 1)]),
                 _variant("unrelated", [("Zeta", 1), ("Eta", 1)]),
             ],
@@ -133,20 +136,67 @@ class TestCommanderSpellbookDatabase:
 
         assert [combo["id"] for combo in analysis["combos"]] == ["complete"]
         assert [combo["id"] for combo in analysis["recommendations"]] == [
-            "needs-copy",
-            "needs-two",
-        ]
-        assert analysis["recommendations"][0]["matched"] == [
-            {"name": "Alpha", "quantity": 1}
+            "needs-copy", "needs-card",
         ]
         assert analysis["recommendations"][0]["missing"] == [
             {"name": "Alpha", "quantity": 1},
-            {"name": "Gamma", "quantity": 1},
         ]
         assert analysis["recommendations"][1]["missing"] == [
-            {"name": "Delta", "quantity": 1},
-            {"name": "Epsilon", "quantity": 1},
+            {"name": "Gamma", "quantity": 1},
         ]
+
+    def test_recommendations_are_not_capped(self, tmp_path):
+        database = CommanderSpellbookDatabase(tmp_path / "spellbook.sqlite")
+        database.ingest_snapshot(_write_snapshot(
+            tmp_path / "snapshot.json.gz",
+            [_variant(f"combo-{i}", [("Alpha", 1), (f"Missing-{i}", 1)])
+             for i in range(25)],
+        ))
+        analysis = database.analyze_deck(
+            [{"name": "Alpha", "quantity": 1}], include_recommendations=True,
+        )
+        assert len(analysis["recommendations"]) == 25
+        assert all(combo["missingCardCount"] == 1 for combo in analysis["recommendations"])
+
+    def test_analyze_deck_filters_recommendations_by_color_identity(self, tmp_path):
+        database = CommanderSpellbookDatabase(tmp_path / "spellbook.sqlite")
+        snapshot = _write_snapshot(
+            tmp_path / "snapshot.json.gz",
+            [
+                _variant("blue-combo", [("Alpha", 1), ("BlueCard", 1)], identity="U"),
+                _variant("red-combo", [("Alpha", 1), ("RedCard", 1)], identity="UR"),
+                _variant("colorless-combo", [("Alpha", 1), ("ArtifactCard", 1)], identity="C"),
+            ],
+        )
+        database.ingest_snapshot(snapshot)
+
+        # Deck with mono-blue color identity should only get blue and colorless recommendations
+        analysis = database.analyze_deck(
+            [{"name": "Alpha", "quantity": 1}],
+            include_recommendations=True,
+            allowed_color_identity=["U"],
+        )
+
+        rec_ids = [c["id"] for c in analysis["recommendations"]]
+        assert "blue-combo" in rec_ids
+        assert "colorless-combo" in rec_ids
+        assert "red-combo" not in rec_ids
+
+        colorless = database.analyze_deck(
+            [{"name": "Alpha", "quantity": 1}],
+            include_recommendations=True,
+            allowed_color_identity=[],
+        )
+        assert [combo["id"] for combo in colorless["recommendations"]] == ["colorless-combo"]
+
+        multicolor = database.analyze_deck(
+            [{"name": "Alpha", "quantity": 1}],
+            include_recommendations=True,
+            allowed_color_identity=["U", "R"],
+        )
+        assert {combo["id"] for combo in multicolor["recommendations"]} == {
+            "blue-combo", "red-combo", "colorless-combo",
+        }
 
     def test_snapshot_refresh_reports_added_changed_and_removed_variants(self, tmp_path):
         database = CommanderSpellbookDatabase(tmp_path / "spellbook.sqlite")

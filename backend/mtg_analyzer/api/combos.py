@@ -56,6 +56,7 @@ def match_deck_combos(
         analysis = database.analyze_deck(
             [{"name": card.name, "quantity": card.quantity} for card in request.cards],
             include_recommendations=True,
+            allowed_color_identity=request.color_identity,
         )
     except (httpx.HTTPError, OSError, ValueError) as exc:
         logger.warning("Commander Spellbook initial download failed: %s", exc)

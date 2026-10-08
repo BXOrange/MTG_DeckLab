@@ -232,7 +232,11 @@ export function renderAnalyzeView(container) {
         return card ? { name: card.name, quantity: entry.qty } : null;
       })
       .filter(Boolean);
-    findDeckCombos(cards).then((data) => {
+    const identityEntries = parsed.commanders.length ? parsed.commanders : parsed.mainDeck;
+    const colorIdentity = [...new Set(identityEntries.flatMap((entry) =>
+      resolved.get(entry.name.trim().toLowerCase())?.card?.color_identity || []
+    ))];
+    findDeckCombos(cards, colorIdentity).then((data) => {
       if (myRequestId !== requestId || !document.body.contains(container)) return;
       if (!data) {
         setDynamicCombos([], 'error');
@@ -1098,17 +1102,170 @@ function bracketAnalysisSectionHtml(stats, comboState) {
 function adviceSectionHtml(stats, comboState, comboData = null) {
   return `
     <section class="analyze-section">
-      <h3>${t('an.advice.heading')}</h3>
-      <p class="hint"><a href="https://www.tcgplayer.com/content/article/What-s-an-Optimal-Mana-Curve-and-Land-Ramp-Count-for-Commander/e22caad1-b04b-4f8a-951b-a41e9f08da14/" target="_blank" rel="noopener noreferrer">${escapeHtml(t('an.advice.guideLink'))}</a></p>
+      ${adviceHeaderHtml()}
+      ${adviceSummaryBarHtml(stats, comboState, comboData)}
       ${adviceCurveHtml(stats)}
       ${adviceManaBaseHtml(stats)}
-      ${relatedComboAdviceHtml(comboState, comboData)}
+      ${relatedComboAdviceHtml(comboState, comboData, stats)}
     </section>
+  `;
+}
+
+function adviceHeaderHtml() {
+  return `
+    <div class="advice-header-card">
+      <div class="advice-header-content">
+        <div class="advice-header-text">
+          <h3>${t('an.advice.heading')}</h3>
+          <p class="advice-header-subtitle">${escapeHtml(t('an.advice.guideSub'))}</p>
+        </div>
+        <a href="https://www.tcgplayer.com/content/article/What-s-an-Optimal-Mana-Curve-and-Land-Ramp-Count-for-Commander/e22caad1-b04b-4f8a-951b-a41e9f08da14/"
+           class="advice-guide-button" target="_blank" rel="noopener noreferrer">
+          <span>${escapeHtml(t('an.advice.guideLink'))}</span>
+          <span class="advice-external-icon" aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+function adviceSummaryBarHtml(stats, comboState, comboData) {
+  const mdfcCount = stats.landArchetypes.find((item) => item.key === 'mdfc_land')?.count || 0;
+  const effectiveLands = stats.manaValue.landCount + mdfcCount / 2;
+  const manaRocks = stats.accelerants.manaRocks;
+  const rockCount = manaRocks.reduce((sum, rock) => sum + rock.qty, 0);
+  const includesSolRing = manaRocks.some((rock) => rock.name.trim().toLowerCase() === 'sol ring');
+
+  let targetLands = GUIDE_BASE_LANDS;
+  let targetRocks = GUIDE_BASE_MANA_ROCKS;
+  let hasCommanderRef = false;
+
+  for (const cmdr of stats.commanders) {
+    const ref = COMMANDER_CURVE_REFERENCE[cmdr.cmc];
+    if (ref) {
+      targetLands = ref.lands;
+      targetRocks = ref.rocks;
+      hasCommanderRef = true;
+      break;
+    }
+  }
+
+  if (!hasCommanderRef && includesSolRing) {
+    const additionalRocks = Math.max(0, rockCount - GUIDE_BASE_MANA_ROCKS);
+    targetLands = Math.max(
+      GUIDE_MIN_MIDRANGE_LANDS,
+      GUIDE_BASE_LANDS - Math.floor(additionalRocks / GUIDE_ROCKS_PER_LAND_CUT.min)
+    );
+    targetRocks = rockCount;
+  }
+
+  const landDiff = targetLands - effectiveLands;
+  let landPill;
+  if (effectiveLands < GUIDE_MIN_MIDRANGE_LANDS) {
+    landPill = `<span class="advice-status-pill advice-status-pill--warn">&lt; 37 Floor</span>`;
+  } else if (landDiff > 0) {
+    landPill = `<span class="advice-status-pill advice-status-pill--warn">−${Math.ceil(landDiff)}</span>`;
+  } else {
+    landPill = `<span class="advice-status-pill advice-status-pill--ok">✓ ${t('an.advice.statusTargetReached')}</span>`;
+  }
+
+  const rockDiff = targetRocks - rockCount;
+  let rockPill;
+  if (rockDiff > 0) {
+    rockPill = `<span class="advice-status-pill advice-status-pill--warn">−${rockDiff}</span>`;
+  } else {
+    rockPill = `<span class="advice-status-pill advice-status-pill--ok">✓ ${t('an.advice.statusTargetReached')}</span>`;
+  }
+
+  const nonRockSpellCount = Math.max(0, stats.manaValue.nonlandCount - rockCount);
+  const spellsAtTwoToFour = [2, 3, 4].reduce((sum, manaValue) => {
+    const bucket = stats.manaCurve.find((item) => Number(item.cmc) === manaValue);
+    const rocksAtValue = manaRocks
+      .filter((rock) => rock.cmc === manaValue)
+      .reduce((subtotal, rock) => subtotal + rock.qty, 0);
+    return sum + Math.max(0, (bucket?.count || 0) - rocksAtValue);
+  }, 0);
+  const curveRatio = nonRockSpellCount ? Math.round((spellsAtTwoToFour / nonRockSpellCount) * 100) : 0;
+  const curvePill = curveRatio >= 50
+    ? `<span class="advice-status-pill advice-status-pill--ok">✓ ${t('an.advice.statusOptimal')}</span>`
+    : `<span class="advice-status-pill advice-status-pill--warn">⚠ ${t('an.advice.statusReview')}</span>`;
+
+  const totalPipDemand = Object.values(stats.colorPips.cards).reduce((sum, count) => sum + count, 0);
+  const totalPotentialSources = Object.values(stats.colorPips.sources).reduce((sum, count) => sum + count, 0);
+  const colorGaps = Object.keys(COLOR_NAMES).filter((color) => {
+    const demandShare = totalPipDemand ? stats.colorPips.cards[color] / totalPipDemand : 0;
+    const sourceShare = totalPotentialSources ? stats.colorPips.sources[color] / totalPotentialSources : 0;
+    return demandShare > sourceShare && ((stats.colorPips.cards[color] || 0) > 0 || (stats.colorPips.sources[color] || 0) > 0);
+  });
+  const colorPill = colorGaps.length === 0
+    ? `<span class="advice-status-pill advice-status-pill--ok">✓ ${t('an.advice.statusBalanced')}</span>`
+    : `<span class="advice-status-pill advice-status-pill--warn">⚠ ${colorGaps.length} ${t('an.advice.statusDeficit')}</span>`;
+
+  const currentCombosCount = stats?.bracketAnalysis?.combos?.length || 0;
+  let comboValue = String(currentCombosCount);
+  let comboPill = `<span class="advice-status-pill advice-status-pill--neutral">—</span>`;
+  if (comboState === 'loading') {
+    comboValue = `${currentCombosCount} <small style="font-size:0.8rem;color:var(--text-dim);font-weight:normal">/ <span class="spinner" aria-hidden="true"></span></small>`;
+    comboPill = `<span class="advice-status-pill advice-status-pill--neutral">${t('an.advice.combosLoading')}</span>`;
+  } else if (comboState === 'loaded') {
+    const recCount = comboData?.recommendations?.length || 0;
+    comboValue = `${currentCombosCount} <small style="font-size:0.8rem;color:var(--text-dim);font-weight:normal">/ +${recCount} mögl.</small>`;
+    comboPill = `<span class="advice-status-pill advice-status-pill--${currentCombosCount > 0 ? 'ok' : 'info'}">${t('an.advice.combosCurrentVsPossible', { current: currentCombosCount, possible: recCount })}</span>`;
+  } else {
+    comboPill = `<span class="advice-status-pill advice-status-pill--neutral">${t('an.advice.combosCurrentInDeck', { count: currentCombosCount })}</span>`;
+  }
+
+  return `
+    <div class="advice-summary-grid">
+      <div class="advice-summary-tile">
+        <span class="advice-summary-label">${t('an.advice.summaryLands')}</span>
+        <span class="advice-summary-value">${fmt(effectiveLands)} <small style="font-size:0.8rem;color:var(--text-dim);font-weight:normal">/ ${targetLands}</small></span>
+        ${landPill}
+      </div>
+      <div class="advice-summary-tile">
+        <span class="advice-summary-label">${t('an.advice.summaryRocks')}</span>
+        <span class="advice-summary-value">${rockCount} <small style="font-size:0.8rem;color:var(--text-dim);font-weight:normal">/ ${targetRocks}</small></span>
+        ${rockPill}
+      </div>
+      <div class="advice-summary-tile">
+        <span class="advice-summary-label">${t('an.advice.summaryCurveFocus')}</span>
+        <span class="advice-summary-value">${curveRatio}%</span>
+        ${curvePill}
+      </div>
+      <div class="advice-summary-tile">
+        <span class="advice-summary-label">${t('an.advice.summaryColors')}</span>
+        <span class="advice-summary-value" style="font-size:1.05rem;line-height:1.5">${colorGaps.length === 0 ? t('an.advice.statusBalanced') : `${colorGaps.length} ${t('an.advice.statusDeficit')}`}</span>
+        ${colorPill}
+      </div>
+      <div class="advice-summary-tile">
+        <span class="advice-summary-label">${t('an.advice.summaryCombos')}</span>
+        <span class="advice-summary-value">${comboValue}</span>
+        ${comboPill}
+      </div>
+    </div>
   `;
 }
 
 function adviceCurveHtml(stats) {
   const manaRocks = stats.accelerants.manaRocks;
+  const nonRockSpellCount = Math.max(
+    0,
+    stats.manaValue.nonlandCount - manaRocks.reduce((sum, rock) => sum + rock.qty, 0)
+  );
+  const spellsAtTwoToFour = [2, 3, 4].reduce((sum, manaValue) => {
+    const bucket = stats.manaCurve.find((item) => Number(item.cmc) === manaValue);
+    const rocksAtValue = manaRocks
+      .filter((rock) => rock.cmc === manaValue)
+      .reduce((subtotal, rock) => subtotal + rock.qty, 0);
+    return sum + Math.max(0, (bucket?.count || 0) - rocksAtValue);
+  }, 0);
+  const isBalanced = nonRockSpellCount && (spellsAtTwoToFour / nonRockSpellCount > 0.5);
+  const curveGuidance = nonRockSpellCount
+    ? isBalanced
+      ? t('an.advice.curveBalanced', { count: spellsAtTwoToFour, total: nonRockSpellCount })
+      : t('an.advice.curveShift', { count: spellsAtTwoToFour, total: nonRockSpellCount })
+    : t('an.advice.curveNoSpells');
+
   const commanderGuides = stats.commanders.map((commander) => {
     const reference = COMMANDER_CURVE_REFERENCE[commander.cmc];
     if (!reference) {
@@ -1123,9 +1280,30 @@ function adviceCurveHtml(stats) {
           .filter((rock) => rock.cmc === manaValue)
           .reduce((sum, rock) => sum + rock.qty, 0);
         const current = Math.max(0, (bucket?.count || 0) - rocksAtValue);
-        return `<tr><td>${manaValue}</td><td>${current}</td><td>${expected}</td></tr>`;
+        const diff = current - expected;
+        const diffClass = diff > 0 ? 'plus' : diff < 0 ? 'minus' : 'zero';
+        const diffText = diff > 0 ? `+${diff}` : String(diff);
+        const maxPair = Math.max(1, current, expected);
+        const currentPct = Math.round((current / maxPair) * 100);
+        const expectedPct = Math.round((expected / maxPair) * 100);
+
+        return `
+          <tr>
+            <td><strong>${manaValue}</strong></td>
+            <td>${current}</td>
+            <td>${expected}</td>
+            <td><span class="advice-diff advice-diff--${diffClass}">${diffText}</span></td>
+            <td>
+              <div class="advice-mini-compare" title="Deck: ${current} | Modell: ${expected}">
+                <span class="advice-mini-compare-bar advice-curve-bar--deck" style="width:${Math.max(2, Math.round(currentPct * 0.45))}px"></span>
+                <span class="advice-mini-compare-bar advice-curve-bar--model" style="width:${Math.max(2, Math.round(expectedPct * 0.45))}px"></span>
+              </div>
+            </td>
+          </tr>
+        `;
       })
       .join('');
+
     const maxCount = Math.max(
       1,
       ...reference.curve.map((expected, index) => {
@@ -1137,6 +1315,7 @@ function adviceCurveHtml(stats) {
         return Math.max(0, (bucket?.count || 0) - rocksAtValue, expected);
       })
     );
+
     const chartRows = reference.curve
       .map((expected, index) => {
         const manaValue = index + 1;
@@ -1145,8 +1324,11 @@ function adviceCurveHtml(stats) {
           .filter((rock) => rock.cmc === manaValue)
           .reduce((sum, rock) => sum + rock.qty, 0);
         const current = Math.max(0, (bucket?.count || 0) - rocksAtValue);
+        const diff = current - expected;
+        const titleText = `MW ${manaValue}: Deck ${current}, Modell ${expected} (${diff >= 0 ? '+' : ''}${diff})`;
+
         return `
-          <div class="advice-curve-col">
+          <div class="advice-curve-col" title="${escapeAttr(titleText)}">
             <div class="advice-curve-pair">
               <div class="advice-curve-series">
                 <span class="advice-curve-value">${current}</span>
@@ -1166,65 +1348,64 @@ function adviceCurveHtml(stats) {
         `;
       })
       .join('');
+
     const modeledLands = stats.landArchetypes.find((item) => item.key === 'mdfc_land')?.count || 0;
     const effectiveLands = stats.manaValue.landCount + modeledLands / 2;
     const currentRocks = manaRocks.reduce((sum, rock) => sum + rock.qty, 0);
 
     return `
-      <div class="analyze-chart-card">
-        <h4>${escapeHtml(t('an.advice.modelForCommander', { commander: commander.name, cmc: commander.cmc }))}</h4>
+      <div class="advice-model-block" data-advice-curve-card>
+        <div class="advice-model-header">
+          <h4>👑 ${escapeHtml(commander.name)} (${t('an.col.mv')} ${commander.cmc}) ${colorPipBadgesHtml(commander.colorIdentity)}</h4>
+          <span class="advice-status-pill advice-status-pill--info">Modell MW ${commander.cmc}</span>
+        </div>
         <p class="hint">${escapeHtml(t('an.advice.modelCounts', {
           lands: fmt(effectiveLands),
           targetLands: reference.lands,
           rocks: currentRocks,
           targetRocks: reference.rocks,
         }))}</p>
-        <div data-advice-curve-card>
-          <div class="advice-curve-controls" role="group" aria-label="${escapeAttr(t('an.advice.curveViewLabel'))}">
-            <button type="button" data-advice-curve-view="table" aria-pressed="true">${t('an.advice.curveViewTable')}</button>
-            <button type="button" data-advice-curve-view="chart" aria-pressed="false">${t('an.advice.curveViewChart')}</button>
+        <div class="advice-curve-controls" role="group" aria-label="${escapeAttr(t('an.advice.curveViewLabel'))}">
+          <button type="button" data-advice-curve-view="table" aria-pressed="true">${t('an.advice.curveViewTable')}</button>
+          <button type="button" data-advice-curve-view="chart" aria-pressed="false">${t('an.advice.curveViewChart')}</button>
+        </div>
+        <div data-advice-curve-panel="table">
+          <table class="analyze-table advice-curve-table">
+            <thead>
+              <tr>
+                <th>${t('an.col.mv')}</th>
+                <th>${t('an.advice.currentSpells')}</th>
+                <th>${t('an.advice.referenceSpells')}</th>
+                <th>${t('an.advice.diff')}</th>
+                <th>${t('an.advice.visualRatio')}</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="advice-curve-chart" data-advice-curve-panel="chart" hidden>
+          <div class="advice-curve-legend">
+            <span><i class="advice-curve-bar advice-curve-bar--deck"></i>${t('an.advice.currentSpells')}</span>
+            <span><i class="advice-curve-bar advice-curve-bar--model"></i>${t('an.advice.referenceSpells')}</span>
           </div>
-          <div data-advice-curve-panel="table">
-            <table class="analyze-table">
-              <thead><tr><th>${t('an.col.mv')}</th><th>${t('an.advice.currentSpells')}</th><th>${t('an.advice.referenceSpells')}</th></tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-          <div class="advice-curve-chart" data-advice-curve-panel="chart" hidden>
-            <div class="advice-curve-legend">
-              <span><i class="advice-curve-bar advice-curve-bar--deck"></i>${t('an.advice.currentSpells')}</span>
-              <span><i class="advice-curve-bar advice-curve-bar--model"></i>${t('an.advice.referenceSpells')}</span>
-            </div>
-            <div class="advice-curve-columns">${chartRows}</div>
-          </div>
+          <div class="advice-curve-columns">${chartRows}</div>
         </div>
       </div>
     `;
   });
 
-  const nonRockSpellCount = Math.max(
-    0,
-    stats.manaValue.nonlandCount - manaRocks.reduce((sum, rock) => sum + rock.qty, 0)
-  );
-  const spellsAtTwoToFour = [2, 3, 4].reduce((sum, manaValue) => {
-    const bucket = stats.manaCurve.find((item) => Number(item.cmc) === manaValue);
-    const rocksAtValue = manaRocks
-      .filter((rock) => rock.cmc === manaValue)
-      .reduce((subtotal, rock) => subtotal + rock.qty, 0);
-    return sum + Math.max(0, (bucket?.count || 0) - rocksAtValue);
-  }, 0);
-  const curveGuidance = nonRockSpellCount
-    ? spellsAtTwoToFour / nonRockSpellCount > 0.5
-      ? t('an.advice.curveBalanced', { count: spellsAtTwoToFour, total: nonRockSpellCount })
-      : t('an.advice.curveShift', { count: spellsAtTwoToFour, total: nonRockSpellCount })
-    : t('an.advice.curveNoSpells');
-
   return `
     <div class="analyze-chart-card">
       <h4>${t('an.advice.curveHeading')}</h4>
-      <p>${escapeHtml(curveGuidance)}</p>
+      <div class="advice-callout advice-callout--${isBalanced ? 'ok' : 'warn'}">
+        <span class="advice-callout-icon">${isBalanced ? '✓' : '⚠'}</span>
+        <div>${escapeHtml(curveGuidance)}</div>
+      </div>
       ${commanderGuides.length ? commanderGuides.join('') : `<p class="hint">${t('an.advice.noCommander')}</p>`}
-      <p class="hint">${escapeHtml(t('an.advice.curveCaveat'))}</p>
+      <div class="advice-caveat">
+        <span class="advice-caveat-icon">ℹ</span>
+        <p>${escapeHtml(t('an.advice.curveCaveat'))}</p>
+      </div>
     </div>
   `;
 }
@@ -1235,48 +1416,39 @@ function adviceManaBaseHtml(stats) {
   const manaRocks = stats.accelerants.manaRocks;
   const rockCount = manaRocks.reduce((sum, rock) => sum + rock.qty, 0);
   const includesSolRing = manaRocks.some((rock) => rock.name.trim().toLowerCase() === 'sol ring');
-  const advice = [];
-  const commanderTargets = stats.commanders
-    .map((commander) => {
-      const reference = COMMANDER_CURVE_REFERENCE[commander.cmc];
-      if (!reference) return null;
-      const landDifference = reference.lands - effectiveLands;
-      const rockDifference = reference.rocks - rockCount;
-      const landAdvice = landDifference > 0
-        ? t('an.advice.landIncreaseTarget', {
-            count: Math.ceil(landDifference),
-            target: reference.lands,
-          })
-        : t('an.advice.landAtTarget', {
-            actual: fmt(effectiveLands),
-            target: reference.lands,
-          });
-      const rockAdvice = rockDifference > 0
-        ? t('an.advice.rockIncreaseTarget', {
-            actual: rockCount,
-            count: rockDifference,
-            target: reference.rocks,
-          })
-        : t('an.advice.rockAtTarget', {
-            actual: rockCount,
-            target: reference.rocks,
-          });
-      return [
-        t('an.advice.commanderManaTarget', {
-          commander: commander.name,
-          lands: reference.lands,
-          rocks: reference.rocks,
-          actualLands: fmt(effectiveLands),
-          actualRocks: rockCount,
-        }),
-        landAdvice,
-        rockAdvice,
-      ];
-    })
-    .filter(Boolean);
-  commanderTargets.forEach((targets) => advice.push(...targets));
+  const dorkCount = stats.accelerants.manaDorks?.reduce((s, d) => s + d.qty, 0) || 0;
+  const rampSpellCount = stats.accelerants.landRampSpells?.reduce((s, r) => s + r.qty, 0) || 0;
 
-  if (!commanderTargets.length) {
+  const landAdviceItems = [];
+  const rockAdviceItems = [];
+
+  let targetLands = GUIDE_BASE_LANDS;
+  let targetRocks = GUIDE_BASE_MANA_ROCKS;
+  let hasCommanderRef = false;
+
+  stats.commanders.forEach((commander) => {
+    const reference = COMMANDER_CURVE_REFERENCE[commander.cmc];
+    if (!reference) return;
+    hasCommanderRef = true;
+    targetLands = reference.lands;
+    targetRocks = reference.rocks;
+    const landDifference = reference.lands - effectiveLands;
+    const rockDifference = reference.rocks - rockCount;
+
+    landAdviceItems.push(
+      landDifference > 0
+        ? t('an.advice.landIncreaseTarget', { count: Math.ceil(landDifference), target: reference.lands })
+        : t('an.advice.landAtTarget', { actual: fmt(effectiveLands), target: reference.lands })
+    );
+
+    rockAdviceItems.push(
+      rockDifference > 0
+        ? t('an.advice.rockIncreaseTarget', { actual: rockCount, count: rockDifference, target: reference.rocks })
+        : t('an.advice.rockAtTarget', { actual: rockCount, target: reference.rocks })
+    );
+  });
+
+  if (!hasCommanderRef) {
     if (includesSolRing) {
       const additionalRocks = Math.max(0, rockCount - GUIDE_BASE_MANA_ROCKS);
       const fewerLandTarget = Math.max(
@@ -1288,27 +1460,31 @@ function adviceManaBaseHtml(stats) {
         GUIDE_BASE_LANDS - Math.floor(additionalRocks / GUIDE_ROCKS_PER_LAND_CUT.max)
       );
       const targetRange = [fewerLandTarget, moreLandTarget].sort((a, b) => a - b);
-      advice.push(t('an.advice.rockAdjustedLandTarget', {
+      targetLands = targetRange[0];
+      targetRocks = rockCount;
+      landAdviceItems.push(t('an.advice.rockAdjustedLandTarget', {
         actual: fmt(effectiveLands),
         min: targetRange[0],
         max: targetRange[1],
         rocks: rockCount,
       }));
       if (effectiveLands < targetRange[0]) {
-        advice.push(t('an.advice.landIncreaseTarget', {
+        landAdviceItems.push(t('an.advice.landIncreaseTarget', {
           count: Math.ceil(targetRange[0] - effectiveLands),
           target: targetRange[0],
         }));
       }
     } else {
-      advice.push(t('an.advice.landBaseline', {
+      targetLands = GUIDE_BASE_LANDS;
+      targetRocks = GUIDE_BASE_MANA_ROCKS;
+      landAdviceItems.push(t('an.advice.landBaseline', {
         lands: GUIDE_BASE_LANDS,
         rocks: GUIDE_BASE_MANA_ROCKS,
         actualLands: fmt(effectiveLands),
         actualRocks: rockCount,
       }));
       if (effectiveLands < GUIDE_BASE_LANDS) {
-        advice.push(t('an.advice.landIncreaseTarget', {
+        landAdviceItems.push(t('an.advice.landIncreaseTarget', {
           count: Math.ceil(GUIDE_BASE_LANDS - effectiveLands),
           target: GUIDE_BASE_LANDS,
         }));
@@ -1317,54 +1493,160 @@ function adviceManaBaseHtml(stats) {
   }
 
   if (effectiveLands < GUIDE_MIN_MIDRANGE_LANDS) {
-    advice.push(t('an.advice.landFloor', {
+    landAdviceItems.push(t('an.advice.landFloor', {
       actual: fmt(effectiveLands),
       floor: GUIDE_MIN_MIDRANGE_LANDS,
     }));
   }
 
   const totalPipDemand = Object.values(stats.colorPips.cards).reduce((sum, count) => sum + count, 0);
-  const totalPotentialSources = Object.values(stats.colorPips.sources).reduce(
-    (sum, count) => sum + count,
-    0
-  );
-  const colorGaps = Object.keys(COLOR_NAMES)
-    .filter((color) => {
-      const demandShare = totalPipDemand ? stats.colorPips.cards[color] / totalPipDemand : 0;
-      const sourceShare = totalPotentialSources
-        ? stats.colorPips.sources[color] / totalPotentialSources
-        : 0;
-      return demandShare > sourceShare;
-    })
-    .map((color) => {
-      const demandShare = totalPipDemand ? stats.colorPips.cards[color] / totalPipDemand : 0;
-      const sourceShare = totalPotentialSources
-        ? stats.colorPips.sources[color] / totalPotentialSources
-        : 0;
-      return (
-      t('an.advice.colorGap', {
-        color: COLOR_NAMES[color],
-        demand: fmt(demandShare * 100),
-        sources: fmt(sourceShare * 100),
-      })
+  const totalPotentialSources = Object.values(stats.colorPips.sources).reduce((sum, count) => sum + count, 0);
+
+  const activeColors = Object.keys(COLOR_NAMES).filter((color) => {
+    return (stats.colorPips.cards[color] || 0) > 0 || (stats.colorPips.sources[color] || 0) > 0;
+  });
+
+  const colorGaps = [];
+  const colorTableRows = activeColors.map((color) => {
+    const cardCount = stats.colorPips.cards[color] || 0;
+    const sourceCount = stats.colorPips.sources[color] || 0;
+    const demandShare = totalPipDemand ? cardCount / totalPipDemand : 0;
+    const sourceShare = totalPotentialSources ? sourceCount / totalPotentialSources : 0;
+    const isDeficit = demandShare > sourceShare;
+
+    if (isDeficit) {
+      colorGaps.push(
+        t('an.advice.colorGap', {
+          color: COLOR_NAMES[color],
+          demand: fmt(demandShare * 100),
+          sources: fmt(sourceShare * 100),
+        })
       );
-    });
-  advice.push(
-    colorGaps.length
-      ? t('an.advice.colorReview', { gaps: colorGaps.join('; ') })
-      : t('an.advice.colorBalanced')
-  );
+    }
+
+    const statusPill = isDeficit
+      ? `<span class="advice-status-pill advice-status-pill--warn">⚠ −${fmt((demandShare - sourceShare) * 100)}%</span>`
+      : `<span class="advice-status-pill advice-status-pill--ok">✓ ${t('an.advice.colorStatusCovered')}</span>`;
+
+    return `
+      <tr>
+        <td>
+          <div class="advice-color-cell">
+            <span class="color-pip color-pip--${COLOR_CLASS[color]}">${color}</span>
+            <span>${COLOR_NAMES[color]}</span>
+          </div>
+        </td>
+        <td>
+          <div class="advice-color-bar-wrapper">
+            <span>${fmt(demandShare * 100)}% <small style="color:var(--text-dim)">(${cardCount})</small></span>
+            <span class="advice-color-bar-track">
+              <span class="advice-color-bar-fill advice-color-bar-fill--demand" style="width:${Math.min(100, Math.round(demandShare * 100))}%"></span>
+            </span>
+          </div>
+        </td>
+        <td>
+          <div class="advice-color-bar-wrapper">
+            <span>${fmt(sourceShare * 100)}% <small style="color:var(--text-dim)">(${sourceCount})</small></span>
+            <span class="advice-color-bar-track">
+              <span class="advice-color-bar-fill advice-color-bar-fill--source" style="width:${Math.min(100, Math.round(sourceShare * 100))}%"></span>
+            </span>
+          </div>
+        </td>
+        <td>${statusPill}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const colorReviewText = colorGaps.length
+    ? t('an.advice.colorReview', { gaps: colorGaps.join('; ') })
+    : t('an.advice.colorBalanced');
 
   return `
     <div class="analyze-chart-card">
       <h4>${t('an.advice.manaBaseHeading')}</h4>
-      <ul class="issue-list">${advice.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-      <p class="hint">${escapeHtml(t('an.advice.manaBaseCaveat', { mdfc: fmt(mdfcCount / 2) }))}</p>
+      <div class="advice-mana-grid">
+        <div class="advice-subcard">
+          <h5>⛰ ${t('an.advice.landsSection')}</h5>
+          <div class="advice-kpi-block">
+            <div class="advice-kpi-row">
+              <span class="advice-kpi-value">${fmt(effectiveLands)}</span>
+              <span class="advice-kpi-target">Ziel: ~${targetLands}</span>
+            </div>
+            <div class="advice-kpi-detail">
+              ${stats.manaValue.landCount} ${t('an.advice.regularLands')}${mdfcCount > 0 ? ` + ${mdfcCount} MDFCs (${fmt(mdfcCount / 2)} eff.)` : ''}
+            </div>
+            <div class="advice-progress-track">
+              <div class="advice-progress-fill" style="width:${Math.min(100, Math.round((effectiveLands / targetLands) * 100))}%"></div>
+            </div>
+          </div>
+          <div class="advice-kpi-block">
+            <div class="advice-kpi-row">
+              <span class="advice-kpi-value">${rockCount}</span>
+              <span class="advice-kpi-target">Ziel: ~${targetRocks}</span>
+            </div>
+            <div class="advice-kpi-detail">
+              ${rockCount} ${t('an.advice.manaRocksCount')} (${includesSolRing ? t('an.advice.solRingPresent') : t('an.advice.solRingMissing')})
+              ${(dorkCount > 0 || rampSpellCount > 0) ? `<br><small style="color:var(--text-dim)">+ ${t('an.advice.dorksAndRamp', { dorks: dorkCount, ramp: rampSpellCount })}</small>` : ''}
+            </div>
+            <div class="advice-progress-track">
+              <div class="advice-progress-fill" style="width:${targetRocks ? Math.min(100, Math.round((rockCount / targetRocks) * 100)) : 100}%"></div>
+            </div>
+          </div>
+          <ul class="issue-list" style="margin:0">
+            ${[...landAdviceItems, ...rockAdviceItems].map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+          </ul>
+        </div>
+
+        <div class="advice-subcard">
+          <h5>🎨 ${t('an.advice.colorSection')}</h5>
+          ${activeColors.length ? `
+            <table class="advice-color-table">
+              <thead>
+                <tr>
+                  <th>${t('an.advice.colorTableHeaderColor')}</th>
+                  <th>${t('an.advice.colorTableHeaderDemand')}</th>
+                  <th>${t('an.advice.colorTableHeaderSources')}</th>
+                  <th>${t('an.advice.colorTableHeaderStatus')}</th>
+                </tr>
+              </thead>
+              <tbody>${colorTableRows}</tbody>
+            </table>
+          ` : `<p class="empty-state">${t('an.noCards')}</p>`}
+          <div class="advice-callout advice-callout--${colorGaps.length === 0 ? 'ok' : 'warn'}">
+            <span class="advice-callout-icon">${colorGaps.length === 0 ? '✓' : '⚠'}</span>
+            <div>${escapeHtml(colorReviewText)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="advice-caveat">
+        <span class="advice-caveat-icon">ℹ</span>
+        <p>${escapeHtml(t('an.advice.manaBaseCaveat', { mdfc: fmt(mdfcCount / 2) }))}</p>
+      </div>
     </div>
   `;
 }
 
-function relatedComboAdviceHtml(state, comboData) {
+function renderComboInfoPoint(combo) {
+  const hasDesc = Boolean(combo.description && combo.description.trim());
+  const hasReq = Boolean(combo.requirements && combo.requirements.length);
+  if (!hasDesc && !hasReq) return '';
+
+  return `
+    <details class="advice-combo-info-point">
+      <summary class="advice-combo-info-summary" title="${escapeAttr(t('an.advice.comboShowExplanation'))}">
+        <span class="advice-info-icon" aria-hidden="true">ℹ</span>
+        <span>${t('an.advice.comboExplanation')}</span>
+      </summary>
+      <div class="advice-combo-info-content">
+        ${hasDesc ? `<p class="advice-combo-desc">${escapeHtml(combo.description)}</p>` : ''}
+        ${hasReq ? `<p class="advice-combo-req"><span style="font-weight:600">${escapeHtml(t('an.advice.combosPrereq'))}:</span> ${escapeHtml(combo.requirements.join('; '))}</p>` : ''}
+      </div>
+    </details>
+  `;
+}
+
+function relatedComboAdviceHtml(state, comboData, stats = null) {
   if (state === 'loading') {
     return `<div class="analyze-chart-card"><h4>${t('an.advice.combosHeading')}</h4><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('an.advice.combosLoading')}</p></div>`;
   }
@@ -1380,27 +1662,125 @@ function relatedComboAdviceHtml(state, comboData) {
     return `<div class="analyze-chart-card"><h4>${t('an.advice.combosHeading')}</h4><p class="empty-state">${t('an.advice.combosNone')}</p></div>`;
   }
 
-  const rows = recommendations.map((combo) => {
-    const missing = combo.missing
-      .map((use) => cardNameHtml(use.name, use.quantity))
-      .join(', ');
-    const matched = combo.matched
-      .map((use) => `${use.name}${use.quantity > 1 ? ` ×${use.quantity}` : ''}`)
-      .join(', ');
-    const produces = combo.produces?.length
-      ? `<p>${escapeHtml(t('an.advice.comboProduces', { results: combo.produces.join(', ') }))}</p>`
+  const currentCombosCount = stats?.bracketAnalysis?.combos?.length || 0;
+
+  // Group combos with the same "Already in deck:" cards and the same effects together
+  const groups = new Map();
+  for (const combo of recommendations) {
+    const matchedNames = (combo.matched || [])
+      .map((m) => m.name.trim())
+      .sort((a, b) => a.localeCompare(b));
+    const matchedKey = matchedNames.join(' + ');
+    const producesList = (combo.produces || [])
+      .slice()
+      .sort((a, b) => a.localeCompare(b));
+    const producesKey = producesList.join(' | ');
+    const requirementsKey = JSON.stringify([...(combo.requirements || [])].sort());
+    const groupKey = `${matchedKey}:::${producesKey}:::${requirementsKey}`;
+
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        matched: combo.matched,
+        produces: combo.produces,
+        requirements: combo.requirements || [],
+        options: [],
+      });
+    }
+    groups.get(groupKey).options.push(combo);
+  }
+
+  const groupCards = Array.from(groups.values()).map((group) => {
+    const matchedCards = group.matched
+      .map((use) => `<span class="advice-card-pill advice-card-pill--matched">${cardNameHtml(use.name, use.quantity)}</span>`)
+      .join(' ');
+    const producesTags = group.produces?.length
+      ? group.produces.map((prod) => `<span class="advice-combo-tag">${escapeHtml(prod)}</span>`).join(' ')
       : '';
-    const requirements = combo.requirements?.length
-      ? `<p class="hint">${escapeHtml(t('an.advice.comboRequirements', { requirements: combo.requirements.join(', ') }))}</p>`
-      : '';
-    return `<li><strong>${missing}</strong><p class="hint">${escapeHtml(t('an.advice.comboRelatedTo', { cards: matched }))}</p>${produces}${requirements}</li>`;
+
+    // Deduplicate options that recommend the exact same missing cards
+    const deduplicatedOptions = [];
+    const seenMissingKeys = new Set();
+    for (const opt of group.options) {
+      const missingKey = (opt.missing || [])
+        .map((m) => `${m.name}:${m.quantity}`)
+        .sort()
+        .join(' | ');
+      if (!seenMissingKeys.has(missingKey)) {
+        seenMissingKeys.add(missingKey);
+        deduplicatedOptions.push(opt);
+      }
+    }
+
+    let optionsHtml = '';
+    if (deduplicatedOptions.length === 1) {
+      const opt = deduplicatedOptions[0];
+      const missingCards = opt.missing
+        .map((use) => `<span class="advice-card-pill advice-card-pill--missing">${cardNameHtml(use.name, use.quantity)}</span>`)
+        .join(' ');
+      optionsHtml = `
+        <div class="advice-combo-option-row">
+          <div class="advice-combo-option-header">
+            <span class="advice-combo-sublabel">${t('an.advice.combosMissingCards')}:</span>
+          </div>
+          <div class="advice-combo-option-cards">${missingCards}</div>
+          ${renderComboInfoPoint(opt)}
+        </div>
+      `;
+    } else {
+      const optionRows = deduplicatedOptions.map((opt, idx) => {
+        const missingCards = opt.missing
+          .map((use) => `<span class="advice-card-pill advice-card-pill--missing">${cardNameHtml(use.name, use.quantity)}</span>`)
+          .join(' ');
+        return `
+          <div class="advice-combo-option-row">
+            <div class="advice-combo-option-header">
+              <span class="advice-combo-option-num">Option ${idx + 1}</span>
+            </div>
+            <div class="advice-combo-option-cards">${missingCards}</div>
+            ${renderComboInfoPoint(opt)}
+          </div>
+        `;
+      }).join('');
+
+      optionsHtml = `
+        <div class="advice-combo-options-list">
+          <span class="advice-combo-sublabel">${t('an.advice.combosRecommendedOptions', { count: deduplicatedOptions.length })}:</span>
+          <div class="advice-combo-options-grid">${optionRows}</div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="advice-combo-card">
+        <div class="advice-combo-card-header">
+          <div class="advice-combo-matched-box">
+            <span class="advice-combo-sublabel">${t('an.advice.combosPresentCards')}:</span>
+            <div class="advice-combo-card-names">${matchedCards}</div>
+          </div>
+          ${group.requirements.length ? `<div class="advice-combo-prerequisites">
+            <span class="advice-combo-sublabel">${escapeHtml(t('an.advice.combosPrereq'))}:</span>
+            <div>${escapeHtml(group.requirements.join('; '))}</div>
+          </div>` : ''}
+          ${producesTags ? `<div class="advice-combo-tags">${producesTags}</div>` : ''}
+        </div>
+        <div class="advice-combo-card-body">
+          ${optionsHtml}
+        </div>
+      </div>
+    `;
   }).join('');
 
   return `
     <div class="analyze-chart-card">
-      <h4>${t('an.advice.combosHeading')}</h4>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem">
+        <h4 style="margin:0">${t('an.advice.combosHeading')}</h4>
+        <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+          <span class="advice-status-pill advice-status-pill--ok">${t('an.advice.combosCurrentInDeck', { count: currentCombosCount })}</span>
+          <span class="advice-status-pill advice-status-pill--info">${t('an.advice.combosPossibleCount', { count: recommendations.length })}</span>
+        </div>
+      </div>
       <p class="hint">${escapeHtml(t('an.advice.combosHint'))}</p>
-      <ul class="card-list">${rows}</ul>
+      <div class="advice-combo-grid">${groupCards}</div>
     </div>
   `;
 }

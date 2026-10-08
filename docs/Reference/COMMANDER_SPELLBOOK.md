@@ -58,10 +58,16 @@ matching, not Oracle-ID matching. The frontend sends canonical card names
 after its existing card-resolution step.
 
 The same indexed candidate scan also returns incomplete variants as
-recommendations when at least one fixed card use is present. Each
+recommendations when at least one fixed card use is present and exactly one
+additional card copy is missing. Each
 recommendation includes the matched and missing card quantities; results are
 ordered by the number of matched copies, then by the number of missing
-copies, and capped at 20. This is a discovery aid, not a claim that adding
+copies, without a result cap. Analyze submits the combined commander colour
+identity (or the combined main-deck identity when no commander is present),
+including an empty identity for colourless decks. Partial variants must have an
+identity contained in that set; colourless variants remain eligible. Complete
+matches are unaffected. Advice displays template prerequisites beside the
+already-present cards and groups variants only when those prerequisites agree. This is a discovery aid, not a claim that adding
 the missing cards makes the variant playable.
 
 Template requirements are returned for display, but this integration does not

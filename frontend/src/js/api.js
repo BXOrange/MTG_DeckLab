@@ -254,15 +254,20 @@ export async function getComboDatabaseStatus() {
  * Lazily initialize the local combo database if needed and find completed
  * variants plus related variants with missing named card uses.
  * @param {{name: string, quantity: number}[]} cards
+ * @param {string[] | null} [colorIdentity=null]
  * @returns {Promise<{combos: object[], recommendations: object[], database: object} | null>} null on request failure
  */
-export async function findDeckCombos(cards) {
+export async function findDeckCombos(cards, colorIdentity = null) {
   let response;
   try {
+    const payload = { cards };
+    if (Array.isArray(colorIdentity)) {
+      payload.colorIdentity = colorIdentity;
+    }
     response = await fetch(`${getServerUrl()}/api/combos/matches`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cards }),
+      body: JSON.stringify(payload),
     });
   } catch {
     return null;

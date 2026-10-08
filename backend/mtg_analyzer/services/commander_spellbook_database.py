@@ -33,8 +33,6 @@ _REQUEST_TIMEOUT_SECONDS = 120.0
 _DOWNLOAD_CHUNK_BYTES = 1 << 20
 _JSON_BUFFER_SIZE = 64 * 1024
 _DB_BATCH_SIZE = 1000
-# Keep the Advice tab's related-variant list useful without overwhelming it.
-MAX_RELATED_COMBO_RECOMMENDATIONS = 20
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS variants (
@@ -455,9 +453,21 @@ class CommanderSpellbookDatabase:
         cards: list[dict[str, object]],
         *,
         include_recommendations: bool = False,
+        allowed_color_identity: list[str] | set[str] | str | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         """Return complete combo matches and partial variants related to the deck."""
         self.ensure_initialized()
+        allowed_set: set[str] | None = None
+        if allowed_color_identity is not None:
+            if isinstance(allowed_color_identity, str):
+                allowed_set = {c.upper() for c in allowed_color_identity if c.upper() in {"W", "U", "B", "R", "G"}}
+            else:
+                allowed_set = {
+                    c.upper()
+                    for item in allowed_color_identity
+                    for c in item
+                    if c.upper() in {"W", "U", "B", "R", "G"}
+                }
         available: dict[str, int] = {}
         for card in cards:
             name = card.get("name")
@@ -525,6 +535,7 @@ class CommanderSpellbookDatabase:
             ]
             result = {
                 "id": variant["id"],
+                "identity": variant.get("identity", ""),
                 "uses": [
                     {"name": use.get("card", {}).get("name", ""), "quantity": use.get("quantity", 1)}
                     for use in variant.get("uses", [])
@@ -537,6 +548,15 @@ class CommanderSpellbookDatabase:
                 "bracketTag": variant.get("bracketTag"),
             }
             if missing_uses:
+                if sum(use["quantity"] for use in missing_uses) != 1:
+                    continue
+                if allowed_set is not None:
+                    variant_identity = variant.get("identity", "")
+                    variant_colors = {
+                        c.upper() for c in variant_identity if c.upper() in {"W", "U", "B", "R", "G"}
+                    }
+                    if not variant_colors.issubset(allowed_set):
+                        continue
                 result.update(
                     {
                         "matched": matched_uses,
@@ -559,5 +579,5 @@ class CommanderSpellbookDatabase:
         )
         return {
             "combos": matches,
-            "recommendations": recommendations[:MAX_RELATED_COMBO_RECOMMENDATIONS],
+            "recommendations": recommendations,
         }
