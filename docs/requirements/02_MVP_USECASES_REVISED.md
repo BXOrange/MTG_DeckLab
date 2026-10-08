@@ -28,6 +28,41 @@ MVP stammt, ist das ausdrücklich markiert.
 
 ---
 
+# PROJECT GOALS
+
+## Deck building tool
+
+**Status:** Neues, geplantes Feature; Umsetzung siehe
+[VIS-15 im Backlog](../implementation-state/BACKLOG.md#vis--visuals).
+
+DeckLab soll einen eigenen Bereich **„Deck building tool“** erhalten, in dem
+Benutzer Commander-Decks von Grund auf zusammenstellen oder bestehende Decks
+gezielt bearbeiten können. Der Bereich verbindet Kartenauswahl, Deckbearbeitung
+und Analyse zu einem durchgängigen Deckbau-Workflow.
+
+### Geplanter Funktionsumfang
+
+- Ein neues Deck beginnen oder ein gespeichertes Deck zur Bearbeitung laden.
+- Commander auswählen und Karten über Suche und Filter in der vorhandenen
+  Kartendatenbank finden; Kartendetails vor der Auswahl anzeigen.
+- Karten hinzufügen, entfernen und Mengen ändern; Deckgröße, Mana-Kurve und
+  Farbverteilung während der Bearbeitung anzeigen.
+- Unvollständige Decks als Entwürfe bearbeiten und speichern; Legalitätsprobleme
+  sichtbar machen und die vorhandene serverseitige Validierung wiederverwenden.
+- Das fertige Deck als neues Deck speichern oder das geladene Deck bewusst
+  aktualisieren und anschließend für Analyse und Spielmodi verwenden.
+
+### Abnahmekriterien
+
+Der neue Bereich ist über die Hauptnavigation erreichbar. Benutzer können ein
+Deck ohne eingefügte Deckliste aufbauen, einen Entwurf speichern und erneut
+öffnen sowie ein bestehendes Deck bearbeiten, ohne es versehentlich zu
+überschreiben. Änderungen werden in den Deckkennzahlen und der
+Legalitätsrückmeldung abgebildet; ein vollständiges, legales gespeichertes Deck
+ist in den vorhandenen Analyse- und Spielabläufen verfügbar.
+
+---
+
 # PART 1: REVISED USE CASES
 
 ## USE CASE 1: Deckliste Laden & Validieren

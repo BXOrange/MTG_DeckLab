@@ -42,7 +42,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-153` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-154`**; next free `MEC`: **`MEC-115`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
+  > **`PAR-154`**; next free `MEC`: **`MEC-115`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -154,6 +154,10 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## VIS — Visuals
 
+- **VIS-15 · Deck building tool.** Add a dedicated navigation section for creating and editing
+  Commander decks with card search/filtering, commander selection, card quantities, live deck
+  metrics, server-authoritative legality feedback and saved drafts/decks for analysis and play;
+  scope and acceptance criteria: [project goal](../requirements/02_MVP_USECASES_REVISED.md#deck-building-tool).
 - **VIS-8 · Keyboard shortcuts.** docs/05 PART 9 (Space/Enter/E for pass and yield already exist).
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.

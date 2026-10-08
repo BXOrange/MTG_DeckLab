@@ -43,5 +43,7 @@ finest-grained/most current detail:
 
 ## Orientation
 
+- Project goals: [Deck building tool](requirements/02_MVP_USECASES_REVISED.md#deck-building-tool)
+  — planned deck-building section, scope and acceptance criteria (VIS-15).
 - [`../CLAUDE.md`](../CLAUDE.md) — the top-level orientation doc (start
   here first if you're new to the repo); it links into all of the above.
