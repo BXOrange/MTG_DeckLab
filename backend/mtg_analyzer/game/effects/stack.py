@@ -874,26 +874,27 @@ class CantBeCounteredEffect(GameEffect):
 
 
 class LookAtCardsEffect(GameEffect):
-    """"Look at the top card of target player's library."/"Look at a card at
-    random in target player's hand." (Mishra's Bauble/Urza's Bauble) — a
-    genuine RULE 115 target (so hexproof/protection still matters), but no
-    game-state consequence: this engine has no reason to hide the peeked
-    card from the querying player in the first place (a solo/goldfish board
-    already shows every zone to its one real player, and a bot never reads
-    hidden information regardless), so there's nothing left for "look" to
-    actually *do*. Kept as its own effect rather than dropped to an empty
-    ``effects`` list precisely so the target requirement survives.
-    """
+    """Keep the target requirement for printed targeted looks. An untargeted
+    top-card look opens the existing private dialog before later instructions."""
 
     def __init__(
         self, target: Any = None, source: Optional["GameObject"] = None, target_kind: str = "player",
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        return None
+        if self.target_spec is None:
+            player = _controller_of(self.source, context)
+            if player is None or not player.library:
+                return
+            top = player.library[-1]
+            context.engine.open_choice({
+                "kind": "look_hand", "player_id": player.id, "owner_id": player.id,
+                "prompt": "Oberste Karte deiner Bibliothek", "source_name": self.source.name if self.source else None,
+                "options": [{"id": "ok", "label": top.name, "instance_id": top.instance_id, "card_id": top.card.id}],
+            })
 
 
 class MarkCantBeCounteredEffect(GameEffect):

@@ -443,18 +443,14 @@ def test_blue_mage_cane_job_select_attaches_a_hero_that_steals_a_spell_to_cast_f
     assert "wizard" in continuous.derived_subtype_words(hero)
     bolt = _filler(engine, "Their Bolt", "Instant", mv=2, zone=Zone.GRAVEYARD, player="p2")
     _attack(engine, [hero])
-    for _ in range(4):
-        choice = engine.state.pending_choice
-        if choice is None:
-            break
-        ids = [str(o["id"]) for o in choice.get("options", [])]
-        engine.resolve_pending_choice(str(bolt.instance_id) if str(bolt.instance_id) in ids else ids[0])
+    engine.resolve_pending_choice(str(bolt.instance_id))
     assert bolt.zone == Zone.EXILE
-    engine.state.current_step = "main1"
-    p1.mana_pool.add_many({"C": 3})  # {3} rather than its {2} mana cost
-    engine.cast_spell(p1, bolt, targets=None, target_groups=None)
+    copied = next(o for o in p1.exile if getattr(o, 'is_copy', False))
+    assert copied is not bolt and engine.state.resolution_play_choice
+    p1.mana_pool.add_many({"C": 3})
+    engine.play_resolution_card(p1, copied, targets=None, target_groups=None)
     engine.resolve_until_stable()
-    assert bolt.zone == Zone.GRAVEYARD  # cast (for exactly the {3}) and resolved
+    assert bolt.zone == Zone.EXILE and copied not in p1.exile and copied not in p1.graveyard
 
 
 def test_urianger_gains_life_from_exile_plays_and_exiles_face_down_with_a_discount():

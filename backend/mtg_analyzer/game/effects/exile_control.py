@@ -761,9 +761,30 @@ class CopyImprintedCardEffect(GameEffect):
     copy, which stays real (an offered, not forced, action).
     """
 
+    def __init__(self, from_previous=False, cast_cost=None, source=None):
+        super().__init__(source)
+        self.from_previous = from_previous
+        self.cast_cost = cast_cost
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
         if source is None:
+            return
+        if self.from_previous:
+            exiled = next((obj for obj in context.previous_targets if obj is not None and obj.zone == Zone.EXILE), None)
+            player = _controller_of(source, context)
+            if exiled is None or player is None:
+                return
+            from ...models.game.game_object import GameObject
+            from ..binding.core import bind_from_catalogue
+
+            copy_obj = GameObject(exiled.card.as_copy(), owner_id=player.id, zone=Zone.EXILE)
+            copy_obj.is_copy = True
+            bind_from_catalogue(copy_obj)
+            player.add_to_zone(copy_obj, Zone.EXILE)
+            if self.cast_cost:
+                context.state.exile_cast_cost_override[copy_obj.instance_id] = self.cast_cost
+            context.engine._request_resolution_play(player, [copy_obj], free=not bool(self.cast_cost), only_spells=True)
             return
         exiled_id = getattr(source, "linked_exile_id", None)
         if exiled_id is None:

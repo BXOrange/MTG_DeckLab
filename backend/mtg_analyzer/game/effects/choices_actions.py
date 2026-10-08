@@ -1314,6 +1314,7 @@ class ChooseObjectsEffect(GameEffect):
         require_untapped: bool = False,
         else_effects: Optional[list[dict[str, Any]]] = None,
         card_types_any: Optional[list[str]] = None,
+        permanent_filter: Optional[dict[str, Any]] = None,
         then_that_many: Optional[dict[str, Any]] = None,
         distinct_card_types: bool = False,
         pool_zone: str = "battlefield",
@@ -1334,6 +1335,7 @@ class ChooseObjectsEffect(GameEffect):
         #: return, Time Wipe): `then` is skipped in that case, so the unconditional tail rides both.
         self.else_effects = else_effects
         self.card_types_any = card_types_any
+        self.permanent_filter = permanent_filter
         self.then_that_many = then_that_many
         self.distinct_card_types = distinct_card_types
         self.pool_zone = pool_zone
@@ -1358,6 +1360,8 @@ class ChooseObjectsEffect(GameEffect):
         self.require_untapped = require_untapped
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import combat
+
         from ..rules_engine import _matches_permanent_type
 
         if self.player_selector == "target":
@@ -1396,6 +1400,7 @@ class ChooseObjectsEffect(GameEffect):
             obj
             for obj in pool
             if _matches_permanent_type(obj, self.what)
+            and combat.matches_object_filter(obj, self.permanent_filter, reference=self.source, state=context.state)
             and (self.card_types_any is None or set(self.card_types_any) & obj.type_words)
             and (not self.mana_value_less_than_trigger
                  or obj.mana_value < (context.trigger_event or {}).get("mana_value", 0))

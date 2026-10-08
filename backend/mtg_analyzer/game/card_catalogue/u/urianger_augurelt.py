@@ -10,10 +10,7 @@ def _urianger_augurelt() -> list[AbilitySpec]:
     Draw Arcanum — {T}: Look at the top card of your library. You may exile it face down.
     Play Arcanum — {T}: Until end of turn, you may play cards exiled with Urianger Augurelt. Spells you cast this way cost {2} less to cast.
 
-    — PLAY-ALL (Scions & Spellcraft). Two life triggers (the parser's ``spell_cast_from: exile`` and LAND_PLAYED's ``from_exile``).
-    Draw Arcanum is a free `pay_cost_then` ("you may") over `exile_top_of_library` (face down, linked via ``track_exiled_with``) — the
-    look is implicit (the card is exiled face down). Play Arcanum is the new `play_cards_exiled_with_source`: a same-turn play
-    permission on the linked cards (lands included) plus a {2} discount that only those cards' spells get.
+    Draw Arcanum privately shows the top card before the optional linked exile choice.
     """
     return [
         AbilitySpec(
@@ -28,7 +25,7 @@ def _urianger_augurelt() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("pay_cost_then", {
+            [EffectSpec("look_at_cards", {"target_kind": None}), EffectSpec("pay_cost_then", {
                 "cost": "", "prompt": "Oberste Karte verdeckt ins Exil legen?",
                 "effects": [{"type": "exile_top_of_library", "params": {"face_down": True, "track_exiled_with": True}}],
             })],

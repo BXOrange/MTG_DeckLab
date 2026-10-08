@@ -12,9 +12,7 @@ def _summon_good_king_mog_xii() -> list[AbilitySpec]:
     IV — Put two +1/+1 counters on each other Moogle you control.
     Flying, lifelink
 
-    — PLAY-ALL (Scions & Spellcraft). Chapters I and IV are the parser's. Chapters II and III are `create_turn_trigger`
-    (RULE 603.7a, Indulge // Excess's shape): this turn, each noncreature spell you cast makes a `copy_permanent` of a token
-    you control. **Simplification:** the token is a target of the copy trigger (``token_you_control``) rather than an untargeted choice.
+    The turn-long cast trigger chooses a non-Saga token while resolving, without targeting.
     """
     return [
         AbilitySpec(
@@ -32,7 +30,11 @@ def _summon_good_king_mog_xii() -> list[AbilitySpec]:
                     "event": "SPELL_CAST", "condition": {"subject": "you"},
                     "spell_filter": {"without_card_type": "creature"},
                 },
-                "effects": [{"type": "copy_permanent", "params": {"target_kind": "token_you_control"}}],
+                "effects": [{"type": "choose_objects", "params": {
+                    "action": "select_referent", "what": "permanent", "count": 1,
+                    "permanent_filter": {"token": True, "without_subtype": "Saga"},
+                    "then": [{"type": "copy_permanent", "params": {"target_kind": None, "referent": "previous"}}],
+                }}],
             })],
             trigger={"event": EventType.SAGA_CHAPTER, "chapter": [2, 3]},
         ),

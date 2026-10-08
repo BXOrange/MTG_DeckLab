@@ -10,7 +10,7 @@ def _estinien_varlineau() -> list[AbilitySpec]:
     At the beginning of your second main phase, you draw X cards and lose X life, where X is the number of your opponents who were dealt combat damage by Estinien Varlineau or a Dragon this turn.
 
     — PLAY-ALL (Scions & Spellcraft). The cast trigger is the parser's. The second-main trigger measures the new
-    ``opponents_dealt_combat_damage_by_self_or_dragon_this_turn`` count selector (event-derived, dealers found in any zone).
+    ``opponents_dealt_combat_damage_by_self_or_dragon_this_turn`` count selector (event-derived, using source incarnations and subtypes at damage time).
     """
     return [
         AbilitySpec(

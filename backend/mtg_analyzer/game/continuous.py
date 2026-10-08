@@ -1397,22 +1397,22 @@ def count_selector(
             hit |= victims
         return len(hit & opponent_ids)
     if selector.startswith("opponents_dealt_combat_damage_by_self_or_") and selector.endswith("_this_turn"):
-        # "…where X is the number of your opponents who were dealt combat damage by ~ or a Dragon this turn."
-        # (Estinien Varlineau) — `opponents_dealt_combat_damage_this_turn` narrowed to dealers that are the source
-        # itself or a creature of the named subtype (read in any zone: the dealer may have died, RULE 400.7).
         if controller_id is None:
             return 0
+        from ..models.game.events import EventType
+
         wanted = selector[len("opponents_dealt_combat_damage_by_self_or_"):-len("_this_turn")].lower()
-        opponent_ids = {p.id for p in state.living_players() if p.id != controller_id}
-        hit: set[str] = set()
-        for dealer_id, victims in state.combat_damage_to_players_this_turn.items():
-            dealer = state.find_object(dealer_id)
-            if dealer is None:
+        opponents = {p.id for p in state.living_players() if p.id != controller_id}
+        hit = set()
+        for event in state.events_this_turn():
+            if (event.type != EventType.DAMAGE or not event.get("combat") or not event.get("is_player")
+                    or int(event.get("amount", 0)) <= 0):
                 continue
-            if dealer is source or wanted in {w.lower() for w in derived_subtype_words(dealer)} \
-                    or wanted in dealer.card.type_line.lower().partition("—")[2].split():
-                hit |= victims
-        return len(hit & opponent_ids)
+            own_source = (source is not None and event.get("source_id") == source.instance_id
+                          and event.get("source_zone_incarnation") == source.zone_incarnation)
+            if own_source or wanted in {word.lower() for word in event.get("source_subtypes", [])}:
+                hit.add(event.get("target_id"))
+        return len(hit & opponents)
     if selector == "noncombat_damage_to_opponents_this_turn":
         # "This spell costs {X} less to cast, where X is the total amount
         # of noncombat damage dealt to your opponents this turn." (Chandra's

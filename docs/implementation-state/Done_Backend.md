@@ -536,6 +536,14 @@ play grants now honor their live conditions, including charge-counter thresholds
 - **Betor, Ancestor's Voice:** One end-step trigger announces two independently optional targets. An empty target group (`stop`) preserves the other instruction; counters precede the graveyard return and read life gained at resolution. The existing target-slot mask now applies to multiple trigger requirements. Multiplayer target/mode/order choices finish announcement and retain the ability on the stack for responses (RULE 603.3d / 608.2c / 117.5).
 - **Validation:** `tests/test_abzan_residue.py`, the Abzan Armor card suite, copy-target and priority regressions. Chromium verified Reunion's bounded target selection/early finish and Betor's skipped first target with the second selected before one visible stack item, through the shared board and HTTP. PARSER_VERSION 620 records the return-effect operands.
 
+### Scions & Spellcraft: real card copies, private looks and damage history
+
+- **Blue Mage's Cane:** The attack trigger targets only an instant/sorcery in the defending player's graveyard (RULE 508.5). Exiling it produces a separate real card copy, offered for {3} during that resolution through the existing casting interface (RULE 707.12); the original remains exiled. The prescribed cost excludes another alternative cost and forces printed X to zero. Declined, resolved or countered copies cease under the shared state-based checks; the cost override is removed with the copy (RULE 704.5e).
+- **Good King Mog XII:** Chapter II/III's turn trigger chooses an owned non-Saga token while resolving, using `choose_objects` with the existing permanent filter and an untargeted copy referent. Shroud/ward do not affect that choice; no target is announced.
+- **Urianger:** Draw Arcanum privately shows the top card before the optional face-down exile. The existing look dialog and continuation preserve library order on decline and linked exile on acceptance. Opponent/observer views hide the looked card; face-down exile redaction also hides names, mana and printed power/toughness, and private-look acknowledgements omit card names from the shared move log (RULE 400.2 / 406.3).
+- **Estinien:** DAMAGE events capture the dealer's subtype set and zone incarnation. The second-main selector counts distinct opponents actually dealt combat damage by that incarnation of Estinien or a Dragon at damage time, retaining departed Dragons and ignoring later subtype changes/noncombat damage.
+- **Validation:** `tests/test_scions_residue.py`, the Scions & Spellcraft card suite and resolution-play regressions. Chromium verified the defending-player target and immediate paid copy cast, plus Urianger’s look/exile sequence and opponent-view privacy through HTTP. PARSER_VERSION 621 records the new copy/choice operands.
+
 ### Composed graveyard recovery and linked casting permissions
 
 `MillEffect.capture_milled` and `ReturnFromGraveyardEffect.previous_pool` restrict

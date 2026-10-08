@@ -3910,7 +3910,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      the Eerie label, "unlocked doors among Rooms you control" counts/conditions, the "…unlock doors" spend restriction;
 #      a Room card's verdict now reads both halves (`_room_halves`), not just the front; "target Room [you control]";
 #      "put N +1/+1 counters on that creature" after a create/manifest-dread clause.
-PARSER_VERSION = "620"
+PARSER_VERSION = "621"
 
 
 def parser_source_hash() -> str:

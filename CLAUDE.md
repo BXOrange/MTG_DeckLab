@@ -214,6 +214,17 @@ group (`stop`), separately from declining a whole optional ability. Betor uses
 one trigger with two targets. Multiplayer trigger-placement choices leave the
 announced ability on the stack for responses instead of auto-resolving it.
 
+**Card copies cast during resolution** use a real copied object in the original
+zone and the shared resolution-play choices (RULE 707.12). Blue Mage's Cane
+scopes its graveyard target to the attack event's defending player, offers the
+copy for its prescribed alternative cost, and keeps the original exiled. Copies
+not cast cease before priority returns; fixed costs suppress other alternative
+costs and force printed X to zero. Private top-card looks use the existing look
+dialog before optional exile; acknowledgements keep card names out of the shared
+move log, and face-down exile views conceal names and printed characteristics. Untargeted object choices accept ordinary permanent
+filters; Good King Mog XII chooses a non-Saga token at resolution. Damage events
+snapshot source subtypes and incarnations for Estinien's historical hit count.
+
 **Suspended choices** preserve graveyard incarnations for remembered returns,
 player target referents, and the resolving spell through its last interactive instruction.
 Death events also capture copiable card values so a token copy reads the dying

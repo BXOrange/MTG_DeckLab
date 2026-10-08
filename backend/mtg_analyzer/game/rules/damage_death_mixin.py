@@ -312,6 +312,8 @@ class DamageDeathMixin:
             # you control" / "combat damage" / "a red source" — see
             # `_double_damage_replacement`/`_additional_damage_replacement`.
             source_id=source.instance_id if source is not None else None,
+            source_zone_incarnation=source.zone_incarnation if source is not None else None,
+            source_subtypes=sorted(continuous.derived_subtype_words(source)) if source is not None else [],
             source_controller_id=source.controller_id if source is not None else None,
             source_colors=tuple(getattr(source.card, "color_identity", None) or ()) if source is not None else (),
             # Gratuitous Violence-shaped "a *creature* you control" doubling

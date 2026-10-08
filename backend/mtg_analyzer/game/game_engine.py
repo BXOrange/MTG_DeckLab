@@ -101,6 +101,12 @@ class GameEngine(
             "free", "alt_cost", "evoke", "surge", "mutate", "exile_discount",
         ))):
             raise ValueError("cannot combine alternative costs with this free cast")
+        override = self.state.exile_cast_cost_override.get(obj.instance_id)
+        if override is not None and (face in ("face_down", "bestow", "fuse") or any(cast_options.get(key) for key in (
+                "free", "alt_cost", "evoke", "surge", "mutate", "exile_discount"))):
+            raise ValueError("this cast must use the offered alternative cost")
+        if override is not None and x and "{X}" not in override.upper() and "{X}" in (obj.card.mana_cost_string or "").upper():
+            raise ValueError("X must be zero with the offered alternative cost")
         card = self._face_card(obj, face)
         if card is None:
             raise ValueError("this card has no playable requested face")
@@ -173,6 +179,7 @@ class GameEngine(
             pass
         if not self.state.pending_choice:
             self.state.resolution_play_waiting = False
+            self.rules.check_state_based_actions()
             self.give_priority(self.state.active_player)
 
     def resolution_play_actions(self, player):
@@ -200,10 +207,14 @@ class GameEngine(
                     elif self.can_cast(player, obj, face=face):
                         actions.append(self._cast_action(player, obj, face=face))
         for action in actions:
-            if action["type"] == "cast_spell" and choice.get("free", True):
+            override = self.state.exile_cast_cost_override.get(action.get("instance_id"))
+            if action["type"] == "cast_spell" and (choice.get("free", True) or (override and "{X}" not in override.upper())):
                 action["has_x"] = False
                 action["max_x"] = 0
         if not choice.get("free", True):
-            return actions  # RULE 601.2b: a paid offer permits ordinary alternative costs.
+            return [action for action in actions
+                    if self.state.exile_cast_cost_override.get(action.get("instance_id")) is None
+                    or (action.get("face") not in ("face_down", "bestow", "fuse") and not any(
+                        action.get(key) for key in ("free", "alt_cost", "evoke", "surge", "mutate", "exile_discount")))]
         return [action for action in actions if action.get("face") not in ("face_down", "bestow", "fuse")
                 and not any(action.get(key) for key in ("free", "alt_cost", "evoke", "surge", "mutate", "exile_discount"))]

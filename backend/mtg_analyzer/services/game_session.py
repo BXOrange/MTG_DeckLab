@@ -295,6 +295,9 @@ def build_multiplayer_engine(
 _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
     "card_id": None,
     "name": "",
+    "names": [],
+    "mana_value": None,
+    "mana_cost": "",
     "type_line": "",
     "has_back_face": False,
     "is_creature": False,
@@ -307,6 +310,9 @@ _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
     "is_token": False,
     "power": None,
     "toughness": None,
+    "base_power": None,
+    "base_toughness": None,
+    "room_doors": None,
     "loyalty": None,
     "defense": None,
     "saga_final_chapter": None,
@@ -788,6 +794,8 @@ class GameSession:
                 raise GameActionError("pass priority instead — the step ends when everyone passes")
             return self._apply_advance_to_decision()
         label = self._describe(action)
+        if (action["type"] == "choose" and (self.engine.state.pending_choice or {}).get("kind") == "look_hand"):
+            label = "choose"  # The acknowledged card's identity is private (RULE 400.2).
         self._snapshot(label, actor.id)
         event_start = len(self.engine.state.event_log)
         try:

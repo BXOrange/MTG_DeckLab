@@ -41,6 +41,7 @@ _GRAVEYARD_SCOPE_PREFIXES: dict[str, str] = {
     "graveyard": "own",
     "any_graveyard": "any",
     "opponent_graveyard": "opponent",
+    "defending_graveyard": "defending",
     # "choose up to one target creature card in **that player's** graveyard" (Afterlife from the Loam) — the player
     # a `per_player` round is scoped to (`TargetSpec.scoped_player_id`).
     "that_player_graveyard": "that_player",
@@ -466,6 +467,7 @@ _GRAVEYARD_SCOPE_LABELS: dict[str, str] = {
     "own": "in deinem Friedhof",
     "any": "in einem Friedhof",
     "opponent": "im Friedhof eines Gegners",
+    "defending": "im Friedhof des verteidigenden Spielers",
     "that_player": "im Friedhof dieses Spielers",
 }
 
@@ -2172,6 +2174,9 @@ def _legal_targets_for(
                 graveyards = []
         elif scope == "opponent":
             graveyards = [p.graveyard for p in state.living_players() if p.id != controller_id]
+        elif scope == "defending":
+            defending = (trigger_event or {}).get("defending_player_id")
+            graveyards = [p.graveyard for p in state.living_players() if p.id == defending]
         elif scope == "that_player":
             graveyards = [p.graveyard for p in state.living_players() if p.id == spec.scoped_player_id]
         else:  # "any": every player's graveyard, including the controller's own

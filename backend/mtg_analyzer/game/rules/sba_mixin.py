@@ -580,7 +580,8 @@ class StateBasedActionsMixin:
                 cards = player.zones[zone]
                 for obj in cards:
                     if (
-                        obj.is_token
+                        (obj.is_token or getattr(obj, "is_copy", False))
+                        and obj.instance_id not in ((self.state.resolution_play_choice or {}).get("instance_ids", []))
                         and not self._is_prepared_copy(obj)
                         # Only exempt while it's still sitting in the hand it
                         # was conjured into — once cast (leaves this sweep's
@@ -589,6 +590,7 @@ class StateBasedActionsMixin:
                         and not (zone == Zone.HAND and getattr(obj, "conjured_into_hand", False))
                         and obj.instance_id not in self.state.free_cast_instance_ids
                     ):
+                        self.state.exile_cast_cost_override.pop(obj.instance_id, None)
                         cards.remove(obj)
                         return True
         return False

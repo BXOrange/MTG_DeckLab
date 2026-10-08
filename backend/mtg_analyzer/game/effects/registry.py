@@ -1134,7 +1134,7 @@ EffectRegistry.register(
     # without paying its mana cost." (Isochron Scepter) — see
     # `CopyImprintedCardEffect`.
     "copy_imprinted_card",
-    lambda p: CopyImprintedCardEffect(),
+    lambda p: CopyImprintedCardEffect(from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost")),
 )
 EffectRegistry.register(
     # RULE 601.2b-adjacent "as ~ enters, you may choose a nonland
@@ -2370,6 +2370,7 @@ EffectRegistry.register(
     "choose_objects",
     lambda p: ChooseObjectsEffect(
         card_types_any=p.get("card_types_any"),
+        permanent_filter=p.get("permanent_filter"),
         then_that_many=p.get("then_that_many"),
         distinct_card_types=bool(p.get("distinct_card_types", False)),
         pool_zone=p.get("pool_zone", "battlefield"),
