@@ -146,6 +146,25 @@ These are approximate targets, not rules. Colored-source flags
 reuse the static analysis's heuristic counts; they do not account for
 availability, tapped lands, or exact mana costs.
 
+The separate **Empirical land estimate and ramp consistency** comparison
+uses Karsten's published 2022 formula: 31.42 + 3.13 × average nonland mana
+value − 0.28 × cheap draw/ramp count. It excludes the commander from the
+average. Cheap normally means mana value at most two, with one-mana cycling
+also qualifying. Cards count once. The ordinary-land target subtracts the
+published MDFC credit (0.38 non-mythic / 0.74 mythic) and rounds the result.
+Missing MDFC rarity withholds that target. This is an approximate 99-card
+reference derived from 60-card tournament data, not a deck-specific optimum.
+
+The ramp table shows exact odds of drawing at least one recognized early
+ramp card, plus joint land/ramp draw odds. Select a 70%, 80% or 90% reliability
+preference to see the early-ramp count needed by turn 2, and set explicit
+opening-hand land/ramp requirements. These probabilities use your actual
+library size, assume no mulligans or extra draw, and include the turn-one draw.
+They measure cards drawn, not available colored mana or successfully cast
+ramp. MDFCs are excluded from probability land/ramp categories. Early ramp
+uses a narrower definition than the regression; both input lists and the
+limitations are available under **Inputs, assumptions and sources**.
+
 The Combo database section suggests missing fixed card ingredients from
 Commander Spellbook variants that share at least one card with the deck.
 Recommendations are drawn from the local Spellbook snapshot and do not

@@ -2446,6 +2446,18 @@ textarea {
   gap: 0.6rem;
 }
 
+.mana-advice-table-scroll {
+  overflow-x: auto;
+}
+
+[data-mana-advice] details {
+  margin-top: 0.75rem;
+}
+
+[data-mana-advice] summary {
+  cursor: pointer;
+}
+
 .advice-combo-missing-box {
   display: flex;
   flex-direction: column;

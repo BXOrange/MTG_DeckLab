@@ -761,6 +761,17 @@ version is the frontend **Engine-Status tab**
 coverage changes. Search those for a mechanic's name rather than re-deriving
 its state from the code or duplicating detail here.
 
+**Deck Advice: empirical lands and ramp probabilities.** Alongside the
+Karsten curve table, `frontend/src/js/manaAdvice.js` implements the published
+2022 land-count regression and exact hypergeometric/multivariate draw odds.
+`manaAdviceView.js` shows quantity-weighted inputs, MDFC credits, early-ramp
+reliability preferences (70/80/90%) and joint opening-hand requirements.
+Regression cheap ramp/draw and probability early ramp are intentionally
+different categories, displayed with their input cards. All advice is
+synchronous; there is no Advice simulation worker or gameplay optimiser.
+See [the model reference](docs/Reference/MANA_ADVICE.md).
+Browser regression command: `backend/venv/bin/python frontend/tests/test_mana_advice.py`.
+
 **Deck analysis: Commander Spellbook combos.** The backend's local
 `CommanderSpellbookDatabase` (`services/commander_spellbook_database.py`)
 downloads Spellbook's compressed bulk snapshot only on first combo matching

@@ -155,6 +155,27 @@ Regeln. Farbquellen-Hinweise verwenden
 die heuristischen Zählungen der statischen Analyse; Verfügbarkeit,
 getappte Länder und exakte Manakosten werden nicht berücksichtigt.
 
+Der zusätzliche Vergleich **Empirische Länderschätzung und Ramp-Konsistenz**
+nutzt Karstens veröffentlichte Formel von 2022: 31,42 + 3,13 × mittlerer
+Nichtland-Manawert − 0,28 × günstige Zieh-/Ramp-Karten. Commander gehören
+nicht zum Mittelwert. Günstig bedeutet meist Manawert höchstens zwei;
+Ein-Mana-Cycling zählt ebenfalls. Jede Karte zählt einmal. Das gewöhnliche
+Länderziel zieht den veröffentlichten MDFC-Anteil ab (0,38 nicht-mythic /
+0,74 mythic) und rundet. Fehlt die Seltenheit, wird dieses Ziel zurückgehalten.
+Das ist eine ungefähre 99-Karten-Referenz aus 60-Karten-Turnierdaten, kein
+Deck-spezifisches Optimum.
+
+Die Ramp-Tabelle zeigt exakte Chancen, mindestens eine erkannte frühe
+Ramp-Karte sowie gemeinsam Länder und Ramp zu ziehen. Mit einer
+Zuverlässigkeitspräferenz von 70%, 80% oder 90% erhältst du die nötige frühe
+Ramp-Zahl bis Zug 2. Anforderungen an Länder und Ramp in der Starthand sind
+separat wählbar. Die Rechnung verwendet die tatsächliche Bibliotheksgröße,
+keine Mulligans oder zusätzlichen Kartenzüge und schließt Ziehen in Zug 1 ein.
+Sie misst gezogene Karten, nicht verfügbares farbiges Mana oder gewirkte
+Ramp. MDFCs zählen in diesen Wahrscheinlichkeiten weder als Länder noch als
+Ramp. Frühe Ramp ist enger definiert als die Ramp der Regression. Beide
+Eingabelisten und Grenzen stehen unter **Eingaben, Annahmen und Quellen**.
+
 Der Combo-Abschnitt schlägt fehlende feste Kartenbestandteile aus
 Commander-Spellbook-Varianten vor, die mindestens eine Karte mit dem
 Deck gemeinsam haben. Die Vorschläge stammen aus dem lokalen

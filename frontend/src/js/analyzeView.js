@@ -18,6 +18,8 @@
 import { parseDeckSections } from './parser.js';
 import { resolveCardImages } from './cardImages.js';
 import { analyzeDeck } from './deckAnalysis.js';
+import { analyzeManaAdvice } from './manaAdvice.js';
+import { manaAdviceHtml, wireManaAdviceControls } from './manaAdviceView.js';
 import { escapeHtml } from './cardTile.js';
 import { renderDynamicAnalysisPanel } from './dynamicAnalysisPanel.js';
 import {
@@ -85,6 +87,7 @@ export function renderAnalyzeView(container) {
   container.innerHTML = emptyShellHtml();
   wireDeckPicker();
   wireAdviceCurveView(container);
+  const restoreManaAdviceControls = wireManaAdviceControls(container);
 
   async function loadDecks() {
     decksLoading = true;
@@ -179,10 +182,12 @@ export function renderAnalyzeView(container) {
     resolveCardImages(names).then((resolved) => {
       if (myRequestId !== requestId) return; // superseded by a later loadDeck() call
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved);
+      stats.manaAdvice = analyzeManaAdvice(parsed, resolved);
       const comboState = stats.unresolvedNames.length ? 'incomplete' : 'loading';
       container.innerHTML = resultShellHtml(savedDeck.name, stats, deckPickerHtml(), comboState);
       wireDeckPicker();
       wireAnalyzeTabs(container);
+      restoreManaAdviceControls();
 
       const deckSource = savedDeck.id
         ? { deckId: savedDeck.id }
@@ -245,16 +250,19 @@ export function renderAnalyzeView(container) {
           bracketAnalysisSectionHtml(initialStats, 'error');
         container.querySelector('#advice-content').innerHTML =
           adviceSectionHtml(initialStats, 'error');
+        restoreManaAdviceControls();
         wireComboAnalysisRetry(savedDeck, parsed, resolved, myRequestId, initialStats, setDynamicCombos);
         return;
       }
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved, data);
+      stats.manaAdvice = initialStats.manaAdvice;
       setDynamicCombos(stats.bracketAnalysis.combos, 'ready');
       container.querySelector('#toc-combos').innerHTML = comboAnalysisSectionHtml(stats, 'loaded');
       container.querySelector('#bracket-analysis-content').innerHTML =
         bracketAnalysisSectionHtml(stats, 'loaded');
       container.querySelector('#advice-content').innerHTML =
         adviceSectionHtml(stats, 'loaded', data);
+      restoreManaAdviceControls();
     });
   }
 
@@ -1106,6 +1114,7 @@ function adviceSectionHtml(stats, comboState, comboData = null) {
       ${adviceSummaryBarHtml(stats, comboState, comboData)}
       ${adviceCurveHtml(stats)}
       ${adviceManaBaseHtml(stats)}
+      <div class="analyze-chart-card" data-mana-advice>${manaAdviceHtml(stats.manaAdvice)}</div>
       ${relatedComboAdviceHtml(comboState, comboData, stats)}
     </section>
   `;
@@ -1563,7 +1572,7 @@ function adviceManaBaseHtml(stats) {
 
   return `
     <div class="analyze-chart-card">
-      <h4>${t('an.advice.manaBaseHeading')}</h4>
+      <h4>${t('an.advice.manaBaseHeading')} — ${t('an.manaAdvice.reference')}</h4>
       <div class="advice-mana-grid">
         <div class="advice-subcard">
           <h5>⛰ ${t('an.advice.landsSection')}</h5>
