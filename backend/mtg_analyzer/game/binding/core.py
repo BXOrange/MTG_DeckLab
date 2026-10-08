@@ -3457,6 +3457,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     name = str(keyword.get("name") or "")
     if name == "cycling":
         return _cycling_activated_ability(obj, spec, keyword)
+    if name == "transmute":
+        return _transmute_activated_ability(obj, spec, keyword)
     if name == "crew":
         return _crew_activated_ability(obj, spec, keyword)
     if name == "saddle":
@@ -3651,6 +3653,26 @@ def _cycling_activated_ability(
         cost=cost,
         source=obj,
         description=_ability_description(obj, spec) or "Cycling",
+    )
+
+
+def _transmute_activated_ability(
+    obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
+) -> Optional[ActivatedAbility]:
+    """RULE 702.53a: discard from hand to tutor for the same mana value."""
+    cost_text = keyword.get("cost")
+    if not cost_text:
+        return None
+    cost = parse_activation_cost(f"{cost_text}, Discard this card")
+    cost.sorcery_speed_only = True
+    return ActivatedAbility(
+        effects=build_effects([EffectSpec("search", {
+            "criteria": {"min_mana_value": obj.mana_value, "max_mana_value": obj.mana_value},
+            "destination": "hand",
+        })], source=obj),
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or f"Transmute {cost_text}",
     )
 
 

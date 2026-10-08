@@ -799,6 +799,8 @@ for the upstream contract and limits.
   before their target selection. Graveyard grants can require a current-turn
   arrival from outside the battlefield and make a cast permanent enter tapped;
   temporary grants can offer one spell from a shared batch in any graveyard.
+  Transmute (RULE 702.53) binds to a hand-zone discard ability at sorcery
+  speed, using the ordinary search choice for the source's exact mana value.
 - **One-shot effect library** — damage, draw, discard, destroy, counter,
   search/tutor, mill, exile, tap, counters, pump, scry/surveil, token
   creation, copy, cascade/discover, proliferate, fight, board wipes, and

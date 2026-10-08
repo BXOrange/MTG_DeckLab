@@ -311,6 +311,7 @@ export default [
               ['full', 'Buyback (702.27)'],
               ['full', 'Flashback / Escape (702.34/702.138)'],
               ['full', 'Channel / Cycling (702.29/702.28)'],
+              ['full', 'Transmute (702.53) — discard from hand, search for the same mana value, sorcery speed only'],
               ['full', 'Crew (702.122) — Vehicles become real artifact creatures with their own stats'],
               ['full', 'Conditional instant speed (702.8b/606.3)'],
               ['full', 'Split Second (702.61) — while the spell/ability is on the stack, no spells can be cast and no abilities activated'],

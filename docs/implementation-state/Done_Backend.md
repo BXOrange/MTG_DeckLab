@@ -3586,6 +3586,11 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 - **What:** A bare, unregistered "Cycling `<cost>`" keyword line was claimed for the coverage gate but bound to nothing.
 - **Files:** `game/binding/core.py`
 
+### Transmute activation (RULE 702.53)
+
+- **What:** Parser-recognized Transmute now binds to a real hand-zone activated ability. Pay the printed mana cost and discard the source at sorcery speed; resolution uses the ordinary library search choice for exactly its mana value, followed by a shuffle. Muddle the Mixture retains its separate counterspell effect.
+- **Files:** `game/binding/core.py`; regression coverage in `tests/test_transmute.py` for offers, stack use, costs, timing, exact mana value and failing to find.
+
 ### "Choose a Background" keyword recognition (PAR-12, RULE 702.124)
 
 - **What:** Registered as a bare FLAG keyword purely so a card whose only other lines are ordinary effects reaches `MODELED` instead of parking on this deckbuilding-only cl…

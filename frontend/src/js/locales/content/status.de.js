@@ -311,6 +311,7 @@ export default [
               ['full', 'Buyback (702.27)'],
               ['full', 'Flashback / Escape (702.34/702.138)'],
               ['full', 'Channel / Cycling (702.29/702.28)'],
+              ['full', 'Transmute (702.53) — aus der Hand abwerfen, Suche nach gleichem Manawert, nur als Hexerei'],
               ['full', 'Crew (702.122) — Fahrzeuge werden echte artefakte Kreaturen mit ihren eigenen Werten'],
               ['full', 'Bedingte Sofort-Geschwindigkeit (702.8b/606.3)'],
               ['full', 'Split Second (702.61) — während die Zauberei/Fähigkeit auf dem Stack liegt, keine Zauberei-/Fähigkeitsaktivierung möglich'],
