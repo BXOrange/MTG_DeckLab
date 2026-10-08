@@ -225,6 +225,15 @@ move log, and face-down exile views conceal names and printed characteristics. U
 filters; Good King Mog XII chooses a non-Saga token at resolution. Damage events
 snapshot source subtypes and incarnations for Estinien's historical hit count.
 
+**Miracle** (printed or granted by Aminatou) offers a private first-draw
+reveal, then places a real linked trigger on the stack. Its resolution alone
+opens the ordinary hand-cast dialog for the Miracle alternative cost. Decline,
+countering, or a different hand incarnation closes that permission; the card
+remains publicly revealed through the applicable trigger/cast window. Draw
+instructions pause before later cards, and multi-player draws use the existing
+instruction continuation so separate reveal choices cannot overwrite each other.
+The shared target picker retains the alternative-cost flag on submission.
+
 **Suspended choices** preserve graveyard incarnations for remembered returns,
 player target referents, and the resolving spell through its last interactive instruction.
 Death events also capture copiable card values so a token copy reads the dying

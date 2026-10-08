@@ -679,7 +679,7 @@ class GameState:
         self.exile_cast_cost_override: dict[int, str] = {}
 
         #: RULE 702.94 Miracle (PAR-26) — instance ids of hand cards whose
-        #: same-turn "cast for the miracle cost" window is currently open
+        #: resolving "cast for the miracle cost" window is currently open
         #: (the first card their controller drew this turn). Torn down at
         #: cleanup by `GameEngine._step_cleanup`; `GameEngine._offer_cast`
         #: gates the miracle-cost cast offer on membership.

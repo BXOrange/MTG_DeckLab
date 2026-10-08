@@ -186,7 +186,8 @@ def test_aminatou_veil_piercer_surveils_and_gives_enchantments_miracle_for_four_
     shrine = _lib(engine, "Big Shrine", "Enchantment", mv=5)
     shrine.card.mana_cost = {"generic": 3, "W": 2}
     engine.rules.draw(p1, 1)
-    assert shrine.zone == Zone.HAND and getattr(shrine, "miracle_armed", False)
+    assert shrine.zone == Zone.HAND and not getattr(shrine, "miracle_armed", False)
+    engine.resolve_pending_choice("reveal")
     engine.state.current_step = "main1"
     p1.mana_pool.add_many({"W": 1})  # {3}{W}{W} reduced by {4} is {W}{W}... generic can't go below zero: {W}{W}
     actions = engine.legal_actions(p1)
@@ -194,7 +195,7 @@ def test_aminatou_veil_piercer_surveils_and_gives_enchantments_miracle_for_four_
                and a.get("alt_cost")]
     assert miracle, "the granted miracle cost is offered"
     p1.mana_pool.add_many({"W": 1})
-    engine.cast_spell(p1, shrine, targets=None, target_groups=None, alt_cost=True)
+    engine.play_resolution_card(p1, shrine, targets=None, target_groups=None, alt_cost=True)
     engine.resolve_until_stable()
     assert shrine.zone == Zone.BATTLEFIELD
     second = _lib(engine, "Another Shrine", "Enchantment", mv=5)

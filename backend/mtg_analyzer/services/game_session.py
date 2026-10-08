@@ -379,7 +379,7 @@ def _redact_hidden_zones(
             player.get("id") == perspective or player.get("id") in reveal_hands
         )
         if not own:
-            player["hand"] = []
+            player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")]
         # A library is hidden even from its owner (they don't know their own
         # draw order); only a card an effect actually reveals is kept.
         top_visible = own and (top_library_visible or {}).get(player.get("id"))
@@ -794,7 +794,7 @@ class GameSession:
                 raise GameActionError("pass priority instead — the step ends when everyone passes")
             return self._apply_advance_to_decision()
         label = self._describe(action)
-        if (action["type"] == "choose" and (self.engine.state.pending_choice or {}).get("kind") == "look_hand"):
+        if (action["type"] == "choose" and (self.engine.state.pending_choice or {}).get("kind") in {"look_hand", "miracle_reveal"}):
             label = "choose"  # The acknowledged card's identity is private (RULE 400.2).
         self._snapshot(label, actor.id)
         event_start = len(self.engine.state.event_log)

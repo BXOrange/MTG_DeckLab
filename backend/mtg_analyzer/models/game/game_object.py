@@ -451,11 +451,11 @@ class GameObject:
         self.madness_exiled: bool = False
         #: RULE 702.94 (PAR-26): whether this card has Miracle — set at bind
         #: alongside `alt_cast_cost` (the miracle cost). `draw_discard_mixin.
-        #: _arm_miracle` sets `miracle_armed` when it's the first card drawn
-        #: this turn; `_offer_cast` offers the miracle-cost cast only while
-        #: `miracle_armed` (torn down at cleanup).
+        #: _arm_miracle` offers the first-draw reveal. `miracle_armed` is
+        #: set only while the resulting trigger offers its resolving cast.
         self.miracle: bool = False
         self.miracle_armed: bool = False
+        self.miracle_revealed_incarnation: Optional[int] = None
         #: RULE 702.62 (MEC-42, Delay): whether this object has Suspend
         #: *granted* onto it rather than printed ("If it doesn't have
         #: suspend, it gains suspend.") — `_has_suspend` (`game/rules/
@@ -2119,6 +2119,7 @@ class GameObject:
             "instance_id": self.instance_id,
             "card_id": self.card.id,
             "name": self.card.name,
+            "miracle_revealed": self.miracle_revealed_incarnation == self.zone_incarnation,
             "names": list(self.names),
             "mana_value": self.mana_value,
             "mana_cost": self.mana_cost_string,

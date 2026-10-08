@@ -97,6 +97,9 @@ class GameEngine(
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "play_during_resolution" or not self._has_resolution_play_permission(player, obj):
             raise ValueError("this card is not offered for playing during resolution")
+        if choice.get("miracle") and (not cast_options.get("alt_cost") or face != "front" or any(
+                cast_options.get(key) for key in ("free", "evoke", "surge", "mutate", "bestow", "exile_discount"))):
+            raise ValueError("this cast must use the miracle cost")
         if choice.get("free", True) and (face in ("face_down", "bestow", "fuse") or any(cast_options.get(key) for key in (
             "free", "alt_cost", "evoke", "surge", "mutate", "exile_discount",
         ))):
@@ -206,6 +209,8 @@ class GameEngine(
                         self._offer_cast(actions, player, obj)
                     elif self.can_cast(player, obj, face=face):
                         actions.append(self._cast_action(player, obj, face=face))
+        if choice.get("miracle"):
+            actions = [action for action in actions if action.get("alt_cost") or action["type"] == "decline"]
         for action in actions:
             override = self.state.exile_cast_cost_override.get(action.get("instance_id"))
             if action["type"] == "cast_spell" and (choice.get("free", True) or (override and "{X}" not in override.upper())):

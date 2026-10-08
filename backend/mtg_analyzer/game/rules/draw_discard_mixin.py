@@ -233,8 +233,11 @@ class DrawDiscardMixin:
             if resolved is None:
                 return
             n = resolved.get("count", count)
-            for _ in range(n):
+            for index in range(n):
                 self._single_draw(player)
+                if (self.state.pending_choice or {}).get("kind") == "miracle_reveal":
+                    self.state.pending_choice["remaining_instruction"] = n - index - 1
+                    return
 
         self.apply_replacements(event, on_resolved=_finish)
     def _single_draw(self, player: Player) -> None:
@@ -267,20 +270,22 @@ class DrawDiscardMixin:
             if resolved.type == EventType.MILL:
                 self.mill(player, resolved.get("count", 1))
                 return
-            # A DRAW event (possibly with a bumped count).
-            n = resolved.get("count", 1)
-            if len(player.library) < n:
-                # Trying to draw from an empty library is a loss (RULE
-                # 704.5c), flagged for the SBA check rather than raising.
-                player.loss_reason = player.loss_reason or "draw_from_empty"
-                player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
-            drawn = player.draw(n)
+            self._finish_draw_batch(player, resolved.get("count", 1), first_in_draw_step)
+
+        self.apply_replacements(event, on_resolved=_finish)
+    def _finish_draw_batch(self, player, count, first_in_draw_step=False):
+        # A DRAW event (possibly with a bumped count).
+        n = count
+        if len(player.library) < n:
+            # Trying to draw from an empty library is a loss (RULE
+            # 704.5c), flagged for the SBA check rather than raising.
+            player.loss_reason = player.loss_reason or "draw_from_empty"
+            player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
+        for draw_index in range(n):
+            drawn = player.draw(1)
             if drawn:
-                # RULE 702.94a Miracle (PAR-26): "You may cast this card for
-                # its miracle cost when you draw it if it's the first card
-                # you've drawn this turn." Arm the same-turn miracle-cost
-                # cast window on the first drawn card, before the count is
-                # bumped below (see `_arm_miracle`).
+                # RULE 702.94a: offer the first-draw reveal before the
+                # completed draw increments this turn's count.
                 if self.state.cards_drawn_this_turn.get(player.id, 0) == 0:
                     self._arm_miracle(player, drawn[0])
                 self.state.record_stat(player.id, "draw", amount=len(drawn))
@@ -304,7 +309,11 @@ class DrawDiscardMixin:
                         draw_step_ordinal=None if ordinal is None else ordinal + index + 1,
                     ))
 
-        self.apply_replacements(event, on_resolved=_finish)
+            if (self.state.pending_choice or {}).get("kind") == "miracle_reveal":
+                self.state.pending_choice["remaining_batch"] = n - draw_index - 1
+                return
+            first_in_draw_step = False
+
     def _maybe_offer_dredge(self, player: Player) -> bool:
         """RULE 702.52a-c — if ``player`` would draw a card and has one or
         more Dredge cards in their graveyard with at least that card's N in
@@ -475,24 +484,40 @@ class DrawDiscardMixin:
         return False
 
     def _arm_miracle(self, player: Player, obj: GameObject) -> None:
-        """RULE 702.94a-b: if ``obj`` (the first card ``player`` drew this
-        turn) has Miracle, make it castable from hand for its miracle cost
-        (`obj.alt_cast_cost`, bound alongside `obj.miracle`) this turn.
-        Deliberately a whole-turn window rather than RULE 702.94b's narrow
-        "before you get priority" one — a documented simplification (PAR-26).
-        The window is torn down at cleanup (`GameEngine._step_cleanup`) and
-        the moment the card is cast or otherwise leaves the hand.
-        """
-        if not getattr(obj, "miracle", False):
-            # A *granted* Miracle (Aminatou, Veil Piercer): its cost is the card's own mana cost reduced by the grant.
-            granted = continuous.granted_miracle_cost_for(self.state, player, obj)
-            if granted is None:
-                return
-            obj.alt_cast_cost = ActivationCost(mana=granted)
-            obj.miracle = True
-            obj.miracle_granted = True
-        obj.miracle_armed = True
-        self.state.miracle_armed_ids.add(obj.instance_id)
+        """RULE 702.94a: reveal the first drawn card before committing its trigger."""
+        granted = None if obj.miracle else continuous.granted_miracle_cost_for(self.state, player, obj)
+        cost = obj.alt_cast_cost.mana if obj.miracle and obj.alt_cast_cost else granted
+        if cost is None:
+            return
+        self.open_choice({
+            "kind": "miracle_reveal", "player_id": player.id, "instance_id": obj.instance_id,
+            "incarnation": obj.zone_incarnation, "cost": cost.render(), "granted": granted is not None,
+            "prompt": "Erste gezogene Karte für Miracle vorzeigen?",
+            "options": [{"id": "reveal", "label": obj.name, "card_id": obj.card.id},
+                        {"id": "decline", "label": "Nicht vorzeigen"}],
+        })
+
+    @continuations.choice("miracle_reveal", answer=continuations.ANSWER_STR, rule="702.94a")
+    def _resume_miracle_reveal(self, choice, answer):
+        player = self.state.player_by_id(choice["player_id"])
+        obj = self.state.find_object(choice["instance_id"])
+        if (answer == "reveal" and obj is not None and obj in player.hand
+                and obj.zone_incarnation == choice["incarnation"]):
+            from ..binding.core import build_effects
+            from ...parser.oracle.spec import EffectSpec
+            from ..effects.core import TriggeredAbility
+
+            obj.miracle_revealed_incarnation = obj.zone_incarnation
+            effect = EffectSpec("miracle_cast", {"cost": choice["cost"], "incarnation": choice["incarnation"],
+                                                 "granted": choice["granted"]})
+            ability = TriggeredAbility(EventType.DRAW, build_effects([effect], obj), source=obj,
+                                       controller_id=player.id, description=f"Miracle — {obj.name}")
+            event = GameEvent(EventType.DRAW, player_id=player.id, miracle_instance_id=obj.instance_id)
+            self.pending_triggers.append((ability, event))
+        if choice.get("remaining_batch"):
+            self._finish_draw_batch(player, choice["remaining_batch"], False)
+        for _ in range(choice.get("remaining_instruction", 0)):
+            self._single_draw(player)
 
     @_one_event
     def discard(self, player: Player, count: int = 1, cause: Optional[GameObject] = None) -> None:

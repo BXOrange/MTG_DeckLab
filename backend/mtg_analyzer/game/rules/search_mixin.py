@@ -221,6 +221,16 @@ class SearchMixin:
         choice = self.state.resolution_play_choice
         if choice is None:
             return
+        if choice.get("miracle"):
+            for iid in choice["instance_ids"]:
+                obj = self.state.find_object(iid)
+                if obj is not None:
+                    obj.miracle_armed = False
+                    obj.miracle_revealed_incarnation = None
+                    if getattr(obj, "miracle_granted", False):
+                        obj.miracle = obj.miracle_granted = False
+                        obj.alt_cast_cost = None
+                self.state.miracle_armed_ids.discard(iid)
         ids = set(choice["instance_ids"])
         self.state.free_cast_instance_ids.difference_update(ids)
         self.state.free_cast_instance_ids.update(iid for iid in choice["prior_free"] if iid != played_id)

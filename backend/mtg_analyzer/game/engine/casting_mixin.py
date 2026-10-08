@@ -685,6 +685,8 @@ class CastingMixin:
         ``"both"``) prices identically regardless of ``mode``, so passing it
         is harmless there too.
         """
+        if alt_cost and obj.miracle and not (obj.miracle_armed and self._has_resolution_play_permission(player, obj)):
+            return False
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
         # previous cast from there) isn't modeled yet. An Adventure creature

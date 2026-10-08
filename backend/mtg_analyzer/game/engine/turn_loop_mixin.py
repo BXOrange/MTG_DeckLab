@@ -974,10 +974,8 @@ class TurnLoopMixin:
         # MEC-46 (RULE 701.38f): "You choose how each player votes this
         # turn." (Illusion of Choice) lapses on the same RULE 514.2 window.
         self.state.forced_vote_controller_id = None
-        # RULE 702.94b (PAR-26): a Miracle card's "cast for the miracle
-        # cost" window is torn down here (the simplification is that it
-        # lasts the whole turn rather than only until priority is next
-        # received — see `draw_discard_mixin._arm_miracle`).
+        # RULE 702.94: defensive cleanup for an interrupted cast window;
+        # ordinary Miracle offers close with their resolving trigger.
         if self.state.miracle_armed_ids:
             for pl in self.state.players:
                 for o in pl.hand:
@@ -1186,24 +1184,12 @@ class TurnLoopMixin:
                 self.state.priority_player_index = index
                 return
     def resolve_pending_choice(self, answer: Any) -> None:
-        """Answer whatever choice is pending, then keep resolving the stack.
+        """Answer the choice through its registered continuation.
 
-        ``answer`` is the chosen option's ``id`` (a string like ``"cast"`` /
-        ``"hand"`` / ``"decline"`` or a card's instance id as a string), or —
-        for backward compatibility — a bare ``int`` instance id / ``None`` to
-        decline.
-
-        ENG-35: this used to be a 367-line ``if kind == …`` cascade, one
-        branch per choice kind, each naming a bespoke
-        `RulesEngine.resolve_*_choice` method and inlining that kind's answer
-        coercion. Both halves now live with the handler itself, registered in
-        `game/continuations.py`, so this is the client-facing wrapper it
-        always should have been: resume, then settle the board.
-
-        The split is deliberate. `RulesEngine.resolve_choice` is the rules
-        primitive — one step, like every other `RulesEngine` method — and
-        `resolve_until_stable` is the turn-loop's job, which is why it lives
-        here and not there.
+        Multiplayer trigger announcements return for responses. Choices
+        inside a resolution finish its deferred instructions; solo play then
+        settles the stack. Cast-payment and immediate-play windows retain
+        their own resumption paths.
         """
         choice_kind = (self.state.pending_choice or {}).get("kind", "")
         placing_trigger = choice_kind.startswith("trigger_") or choice_kind == "order_triggers"
@@ -1211,6 +1197,10 @@ class TurnLoopMixin:
         immediate_play = self.state.resolution_play_waiting
         cleanup_discard = self.state.cleanup_discard_pending
         self.rules.resolve_choice(answer)
+        if self.interactive_priority and choice_kind == "miracle_reveal":
+            while not self.state.pending_choice and self.rules.resume_deferred_effects():
+                pass
+            return
         if self.interactive_priority and placing_trigger:
             return  # RULE 117.5 / 603.3: finish announcement, then allow responses.
         if cast_payment:

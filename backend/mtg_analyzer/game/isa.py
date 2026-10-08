@@ -803,6 +803,7 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    "miracle_cast": "702.94",
     "reveal_split_piles": "608.2d",
     "sacrifice_source_then": "616",
     "reveal_creatures_give_opponents": "608.2d",

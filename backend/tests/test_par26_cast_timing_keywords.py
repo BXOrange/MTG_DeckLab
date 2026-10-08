@@ -222,6 +222,8 @@ def test_miracle_offers_the_miracle_cost_only_on_the_first_draw_of_the_turn():
 
     eng.rules.draw(p1, 1)  # draws the miracle card (first this turn)
     miracle_obj = next(o for o in p1.hand if getattr(o, "miracle", False))
+    assert not miracle_obj.miracle_armed
+    eng.resolve_pending_choice("reveal")
     assert miracle_obj.miracle_armed
 
     casts = [a for a in eng.legal_actions(p1)
@@ -234,7 +236,7 @@ def test_miracle_offers_the_miracle_cost_only_on_the_first_draw_of_the_turn():
     assert not getattr(filler, "miracle_armed", False)
 
 
-def test_miracle_window_closes_at_cleanup():
+def test_miracle_window_closes_when_its_cast_offer_is_declined():
     eng = _engine()
     state = eng.state
     p1 = state.player_by_id("p1")
@@ -243,7 +245,11 @@ def test_miracle_window_closes_at_cleanup():
     p1.add_to_zone(o, Zone.LIBRARY)
     _to_main(eng)
     eng.rules.draw(p1, 1)
+    eng.resolve_pending_choice("reveal")
     assert o.miracle_armed
+    eng.resolve_pending_choice("decline")
+    assert not o.miracle_armed
+
 
     while state.current_step != "cleanup":
         eng.advance_step()

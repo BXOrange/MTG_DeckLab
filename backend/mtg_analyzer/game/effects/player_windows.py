@@ -6,6 +6,33 @@ from .core import EffectRegistry, GameEffect, _apply_effects_partitioned
 from .counters_tokens import GrantUntilEffect
 
 
+class MiracleCastEffect(GameEffect):
+    """RULE 702.94: the revealed card may be cast only during this trigger."""
+
+    def __init__(self, cost, incarnation, granted=False, source=None):
+        super().__init__(source)
+        self.cost = cost
+        self.incarnation = incarnation
+        self.granted = granted
+
+    def apply(self, context, targets=None):
+        from ...models.game.game_object import Zone
+        from ...models.mana.mana_cost import ManaCost
+        from ..costs import ActivationCost
+
+        obj = self.source
+        if obj is None or obj.zone != Zone.HAND or obj.zone_incarnation != self.incarnation:
+            return
+        player = context.state.player_by_id(context.acting_player_id or obj.controller_id)
+        obj.alt_cast_cost = ActivationCost(mana=ManaCost.parse(self.cost))
+        obj.miracle = obj.miracle_armed = True
+        obj.miracle_granted = self.granted
+        obj.miracle_revealed_incarnation = obj.zone_incarnation
+        context.state.miracle_armed_ids.add(obj.instance_id)
+        context.engine._request_resolution_play(player, [obj], zone="hand", free=False, only_spells=True)
+        context.state.resolution_play_choice["miracle"] = True
+
+
 class RestrictTargetPlayerThisTurnEffect(GameEffect):
     """RULE 611.2: fix the player when the targeted spell resolves."""
 
@@ -303,3 +330,5 @@ EffectRegistry.register('end_combat_phase', lambda p: EndCombatPhaseEffect())
 EffectRegistry.register('return_exiled_batch_to_hand', lambda p: ReturnExiledBatchToHandEffect(p.get('ids')))
 EffectRegistry.register('exile_hand_may_play_owner_draws', lambda p: ExileHandMayPlayOwnerDrawsEffect())
 EffectRegistry.register('reveal_creatures_give_opponents', lambda p: RevealCreaturesGiveOpponentsEffect())
+
+EffectRegistry.register("miracle_cast", lambda p: MiracleCastEffect(p["cost"], p["incarnation"], bool(p.get("granted", False))))

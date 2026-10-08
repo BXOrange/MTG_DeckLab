@@ -754,6 +754,8 @@ export function createGameBoardView(opts = {}) {
     if (action.type === 'cast_spell' && action.has_x) {
       send.x = readX(action.instance_id, action.face, action.blitz);
     }
+    if (action.alt_cost) send.alt_cost = true;
+    if (action.free) send.free = true;
     if (action.evoke) send.evoke = true;
     if (action.surge) send.surge = true;
     if (action.blitz != null) send.blitz = action.blitz;
@@ -2584,7 +2586,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(
           iid, info.type, info.ability_index, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz,
+          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost,
         );
         if (!action) return;
         const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
@@ -2594,7 +2596,7 @@ export function createGameBoardView(opts = {}) {
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
           : {
             type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
-            mode: info.mode, entwine: info.entwine, evoke: action.evoke, surge: action.surge, blitz: action.blitz, pay_additional: action.pay_additional,
+            mode: info.mode, entwine: info.entwine, alt_cost: action.alt_cost, free: action.free, evoke: action.evoke, surge: action.surge, blitz: action.blitz, pay_additional: action.pay_additional,
             bargained: action.bargained, gift_opponent_id: action.gift_opponent_id,
           };
         const {
@@ -2811,7 +2813,7 @@ export function createGameBoardView(opts = {}) {
   // Compared via JSON (not `===`) since a "choose N" mode is an array of
   // indices; absent on both sides (a non-modal spell/activated ability)
   // normalizes to the same `null` key either way.
-  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge, blitz) {
+  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge, blitz, altCost) {
     const modeKey = JSON.stringify(mode ?? null);
     return (view?.legal_actions || []).find(
       (a) =>
@@ -2820,6 +2822,7 @@ export function createGameBoardView(opts = {}) {
         (type !== 'activate_ability' || a.ability_index === abilityIndex) &&
         (a.face || undefined) === (face || undefined) &&
         JSON.stringify(a.mode ?? null) === modeKey &&
+        (altCost == null || Boolean(a.alt_cost) === Boolean(altCost)) &&
         Boolean(a.pay_additional) === Boolean(payAdditional) &&
         Boolean(a.bargained) === Boolean(bargained) &&
         Boolean(a.evoke) === Boolean(evoke) &&
@@ -4023,7 +4026,7 @@ export function createGameBoardView(opts = {}) {
       : '';
     const startInfo = JSON.stringify({
       iid, type: a.type, ability_index: a.ability_index, face: a.face,
-      mode: a.mode, entwine: a.entwine, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional,
+      mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional,
       bargained: a.bargained, gift_opponent_id: a.gift_opponent_id,
     });
     const label = a.type === 'activate_ability'

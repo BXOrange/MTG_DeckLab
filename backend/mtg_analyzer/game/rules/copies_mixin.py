@@ -341,6 +341,10 @@ class CopiesMixin:
         from ..copy_event_state import capture_departure
 
         capture_departure(self, item)
+        miracle_id = (item.trigger_event or {}).get("miracle_instance_id")
+        obj = self.state.find_object(miracle_id) if miracle_id is not None else None
+        if obj is not None:
+            obj.miracle_revealed_incarnation = None
 
     def copy_spell(
         self,

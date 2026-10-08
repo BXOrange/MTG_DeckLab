@@ -933,9 +933,10 @@ class DrawCardEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         count = self._measured(self.count, context, targets)
         if self.target_spec is not None and (self.target_spec.count > 1 or self.target_spec.optional):
-            for chosen in list(targets or [])[: self.target_spec.count]:
-                if getattr(chosen, "instance_id", None) is None and getattr(chosen, "id", None) is not None:
-                    context.draw(chosen, count)
+            drawers = [chosen for chosen in list(targets or [])[:self.target_spec.count]
+                       if getattr(chosen, "instance_id", None) is None and getattr(chosen, "id", None) is not None]
+            _apply_effects_partitioned([DrawCardEffect(count=count, player=p, source=self.source) for p in drawers],
+                                      context, None, None, self.source)
             return
         if self.selector == "event_player":
             # "…you and the controller of those creatures each draw a card." (Nelly Borca,
@@ -963,10 +964,10 @@ class DrawCardEffect(GameEffect):
             return
         if self.selector in ("each_player", "each_opponent"):
             controller_id = getattr(self.source, "controller_id", None)
-            for p in context.state.living_players():
-                if self.selector == "each_opponent" and p.id == controller_id:
-                    continue
-                context.draw(p, count)
+            drawers = [p for p in context.state.living_players()
+                       if self.selector != "each_opponent" or p.id != controller_id]
+            _apply_effects_partitioned([DrawCardEffect(count=count, player=p, source=self.source) for p in drawers],
+                                      context, None, None, self.source)
             return
         # Like `GainLifeEffect`/`LoseLifeEffect`: only consume the shared
         # `targets` list when this effect actually declared a target_spec

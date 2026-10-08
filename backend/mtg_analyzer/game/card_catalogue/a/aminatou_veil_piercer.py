@@ -9,9 +9,7 @@ def _aminatou_veil_piercer() -> list[AbilitySpec]:
     """At the beginning of your upkeep, surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)
     Each enchantment card in your hand has miracle. Its miracle cost is equal to its mana cost reduced by {4}. (You may cast a card for its miracle cost when you draw it if it's the first card you drew this turn.)
 
-    — PLAY-ALL (Miracle Worker). The surveil is the parser's upkeep trigger. The new ``grant_miracle`` static
-    (`continuous.granted_miracle_cost_for`) gives an enchantment card in hand Miracle at its mana cost minus {4}: `_arm_miracle` arms it
-    when it is the first card drawn this turn (the same whole-turn window printed Miracle uses) and the grant lapses at cleanup.
+    Enchantments use the shared first-draw reveal and resolving Miracle trigger.
     """
     return [
         AbilitySpec(
