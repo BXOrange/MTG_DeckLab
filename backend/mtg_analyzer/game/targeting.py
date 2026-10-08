@@ -647,6 +647,8 @@ class TargetSpec:
     #: `requirements_with_targets`/`gameBoardView.js` (how many rounds to
     #: offer, and where the "stop early" boundary sits).
     count_max: Optional[int] = None
+    any_number: bool = False
+    total_power_max: Optional[int] = None
     #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
     #: (see `_cast_time_flag` just below) that, when true for this
     #: requirement's own spell/ability ``source``, drops every narrowing
@@ -2569,6 +2571,13 @@ def requirements_with_targets(
             "distinct_from_others": spec.distinct_from_others,
             "polarity": spec.polarity,
         }
+        if spec.any_number:
+            entry.update(any_number=True, count=0, count_max=len(entry["options"]))
+        if spec.total_power_max is not None:
+            entry["total_power_max"] = spec.total_power_max
+            for option in entry["options"]:
+                obj = state.find_object(option.get("instance_id"))
+                option["power"] = obj.power or 0 if obj is not None else 0
         if spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
             entry["count_from_x"] = 2 if spec.count_selector == "source_twice_x_paid" else 1
         if spec.count_max is not None:

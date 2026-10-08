@@ -589,7 +589,7 @@ export function createGameBoardView(opts = {}) {
     let excludeControllers = false;
     for (const [reqIndex, req] of requirements.entries()) {
       const minimum = req.count_from_x ? x * req.count_from_x : (req.count ?? 1);
-      const total = req.count_max || minimum;
+      const total = req.any_number ? (req.count_max || 0) : (req.count_max || minimum);
       if (total > 1) excludePicked = true;
       if (req.distinct_controllers) excludeControllers = true;
       for (let i = 0; i < total; i += 1) {
@@ -1922,6 +1922,12 @@ export function createGameBoardView(opts = {}) {
       const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
       options = options.filter((o) => !pickedControllers.has(o.controller_id));
     }
+    if (req.total_power_max != null) {
+      const owner = castTargeting.owners?.[castTargeting.reqIndex];
+      const picked = castTargeting.groups?.[owner] || [];
+      const used = picked.reduce((sum, target) => sum + (req.options.find((o) => o.instance_id === target.instance_id)?.power || 0), 0);
+      options = options.filter((o) => used + (o.power || 0) <= req.total_power_max);
+    }
     return options;
   }
 
@@ -1940,6 +1946,13 @@ export function createGameBoardView(opts = {}) {
       // the server) purely for `excludeControllers`'s client-side
       // per-round filtering — see `castTargetOptions`.
       (castTargeting.pickedControllers ||= []).push(controllerId ?? null);
+    }
+    const requirement = castTargeting.requirements[castTargeting.reqIndex];
+    if (target === null && requirement?.any_number) {
+      const owner = castTargeting.owners[castTargeting.reqIndex];
+      while (castTargeting.owners[castTargeting.reqIndex] === owner) castTargeting.reqIndex += 1;
+      finishCastIfReady();
+      return;
     }
     castTargeting.reqIndex = target === null && castTargeting.isSacrificeCountChoice
       ? castTargeting.requirements.length : castTargeting.reqIndex + 1;

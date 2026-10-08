@@ -1714,12 +1714,11 @@ class TriggerCollectionMixin:
         # is a *different* answer from the "you may" decline just above —
         # stopping keeps the ability and resolves it against however many
         # were picked, declining abandons it — so it is its own option rather
-        # than an overloaded "decline". Only offered on a requirement that
-        # was actually expanded into several rounds; a plain "up to one"
-        # keeps expressing "none" through the decline it already had.
+        # than an overloaded "decline". A single optional target also has
+        # an empty group without abandoning later requirements.
         _, span_len = self._span_bounds(spans, idx)
-        if spec.optional and span_len > 1:
-            choice["options"].append({"id": "stop", "label": "Keine weiteren"})
+        if spec.optional:
+            choice["options"].append({"id": "stop", "label": "Keine weiteren" if span_len > 1 else "Kein Ziel"})
         self.open_choice(choice)
         return False
     def _trigger_modal_choice_config(self, ability: "TriggeredAbility") -> tuple[int, bool]:
@@ -2139,6 +2138,10 @@ class TriggerCollectionMixin:
                 and (event or {}).get("instance_id") == getattr(ability.source, "instance_id", None)
             ) else 0,
         )
+        if target_groups is not None and len(target_groups) > 1:
+            from ..stack_copy_targets import make_frame
+
+            item.copy_target_roles = [slot["specs"] for slot in make_frame(self, item, False)["slots"]]
         self.state.stack.append(item)
         self._note_crime(item)
         try:

@@ -1205,10 +1205,14 @@ class TurnLoopMixin:
         `resolve_until_stable` is the turn-loop's job, which is why it lives
         here and not there.
         """
-        cast_payment = (self.state.pending_choice or {}).get("kind") == "cast_pip_life_payment"
+        choice_kind = (self.state.pending_choice or {}).get("kind", "")
+        placing_trigger = choice_kind.startswith("trigger_") or choice_kind == "order_triggers"
+        cast_payment = choice_kind == "cast_pip_life_payment"
         immediate_play = self.state.resolution_play_waiting
         cleanup_discard = self.state.cleanup_discard_pending
         self.rules.resolve_choice(answer)
+        if self.interactive_priority and placing_trigger:
+            return  # RULE 117.5 / 603.3: finish announcement, then allow responses.
         if cast_payment:
             self._resume_cast_pip_life_payment()
             return  # Like an ordinary cast, this leaves its spell on the stack.

@@ -2228,7 +2228,8 @@ class CastingMixin:
                 target_groups = partition_targets(spell_target_specs(obj), targets)
             validate_that_player_groups(spell_target_specs(obj), target_groups, obj.name)
             if (self.state.resolution_play_choice is not None
-                    or (additional is not None and additional.sacrifice_count)):
+                    or (additional is not None and additional.sacrifice_count)
+                    or any(spec.any_number for spec in spell_target_specs(obj))):
                 # Announced choices use the ordinary modal target specs
                 # after the selected mode has been applied, not a targetless
                 # cast_without_paying shortcut (RULE 601.2c).
@@ -2240,6 +2241,10 @@ class CastingMixin:
                     minimum = 0 if spec.optional else resolved_count(spec, self.state, player.id, obj)
                     maximum = spec.count_max if spec.count_max is not None else resolved_count(spec, self.state, player.id, obj)
                     options = legal_targets(self.state, player.id, spec, source=obj)
+                    if spec.any_number:
+                        maximum = len(options)
+                    if spec.total_power_max is not None and sum(pick.power or 0 for pick in picks) > spec.total_power_max:
+                        raise ValueError("target creatures exceed the total power limit")
                     legal_ids = {option.get("instance_id", option.get("player_id")) for option in options}
                     picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", None)) for pick in picks]
                     if not minimum <= len(picks) <= maximum or len(set(picked_ids)) != len(picked_ids) or any(pid not in legal_ids for pid in picked_ids):

@@ -205,6 +205,15 @@ incarnations. Battlefield exile costs expose `exile_cost` choices through the
 shared cost picker; activation events snapshot paid IDs/incarnations so later
 activations cannot replace the cards referenced by Primordial Mist's permission.
 
+**Target groups with a power bound** use `TargetSpec.any_number` and
+`total_power_max`. Casting, copy target changes and resolution check the whole
+group; the shared board permits finishing early and filters further picks by
+the remaining budget. Reunion of the House reuses ordinary simultaneous
+reanimation. Multiple optional trigger requirements can each keep an empty
+group (`stop`), separately from declining a whole optional ability. Betor uses
+one trigger with two targets. Multiplayer trigger-placement choices leave the
+announced ability on the stack for responses instead of auto-resolving it.
+
 **Suspended choices** preserve graveyard incarnations for remembered returns,
 player target referents, and the resolving spell through its last interactive instruction.
 Death events also capture copiable card values so a token copy reads the dying

@@ -238,10 +238,7 @@ def test_reunion_of_the_house_returns_creatures_up_to_total_power_ten_and_exiles
     b = _filler(engine, "B", "Creature — Elf", power=4, toughness=1, zone=Zone.GRAVEYARD)
     c = _filler(engine, "C", "Creature — Elf", power=1, toughness=1, zone=Zone.GRAVEYARD)
     spell = _card(engine, "Reunion of the House", zone=Zone.HAND)
-    _cast(engine, spell, {"W": 2, "C": 5})
-    _answer(engine, pick=lambda ch: next((str(o["id"]) for o in ch["options"] if o["id"] == str(a.instance_id)), None))
-    _answer(engine, pick=lambda ch: next((str(o["id"]) for o in ch["options"] if o["id"] == str(b.instance_id)), None))
-    _answer(engine, pick=lambda ch: "decline")
+    _cast(engine, spell, {"W": 2, "C": 5}, targets=[a, b])
     assert a.zone == Zone.BATTLEFIELD and b.zone == Zone.BATTLEFIELD
     assert c.zone == Zone.GRAVEYARD  # 6 + 4 + 1 would be 11
     assert spell.zone == Zone.EXILE

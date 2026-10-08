@@ -1626,6 +1626,8 @@ EffectRegistry.register(
         lose_life_equal_mv=bool(p.get("lose_life_equal_mv", False)),
         count=p.get("count", 1),
         count_max=p.get("count_max"),
+        any_number=bool(p.get("any_number", False)),
+        total_power_max=p.get("total_power_max"),
         shuffle_after=bool(p.get("shuffle_after", False)),
         subtype=p.get("subtype"),
         max_mana_value=p.get("max_mana_value"),

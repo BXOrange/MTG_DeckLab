@@ -1076,8 +1076,10 @@ class CastingResolutionMixin:
         from ..targeting import effects_target_specs, partition_targets
 
         specs = effects_target_specs(item.effects)
-        if any(spec.per_player for spec in specs):
+        if any(spec.per_player or spec.any_number for spec in specs):
             groups = item.target_groups or partition_targets(specs, item.targets)
+            if groups is None and len(specs) == 1:
+                groups = [item.targets]
             if groups is not None:
                 item.copy_target_roles = [
                     [dataclasses.replace(spec, per_player=None, scoped_player_id=target.controller_id)

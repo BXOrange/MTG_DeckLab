@@ -130,6 +130,13 @@ def _constraints_ok(frame, keys, targets, considered):
                 limit = max(1, slot["specs"][0].count)
             if any(count > limit for count in Counter(controllers).values()):
                 return False
+    for group_index in range(len(frame["groups"])):
+        indices = [i for i, slot in enumerate(frame["slots"]) if slot["group"] == group_index]
+        if not indices or not all(i in considered for i in indices) or not any(frame["changed"][i] for i in indices):
+            continue
+        for spec in frame["slots"][indices[0]]["specs"]:
+            if spec.total_power_max is not None and sum(getattr(targets[i], "power", 0) or 0 for i in indices) > spec.total_power_max:
+                return False
     return True
 
 
@@ -288,6 +295,15 @@ def resolution_targets(rules, item):
         obj = target if isinstance(target, GameObject) else getattr(target, "obj", None)
         same_object = obj is None or incarnation in (None, obj.zone_incarnation)
         legal.append(same_object and target_is_legal(rules, item, index, target))
+    frame = make_frame(rules, item, False)
+    for group_index in range(len(frame["groups"])):
+        indices = [i for i, slot in enumerate(frame["slots"]) if slot["group"] == group_index]
+        specs = frame["slots"][indices[0]]["specs"] if indices else []
+        for spec in specs:
+            if spec.total_power_max is not None and sum(
+                    getattr(item.targets[i], "power", 0) or 0 for i in indices if legal[i]) > spec.total_power_max:
+                for i in indices:
+                    legal[i] = False
     targets = [target if valid else None for target, valid in zip(item.targets, legal)]
     groups = None
     if item.target_groups is not None:

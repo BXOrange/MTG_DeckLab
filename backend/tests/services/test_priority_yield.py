@@ -252,4 +252,9 @@ def test_skip_to_end_step_stops_for_ophidian_eye_optional_combat_draw():
     assert not session._yield_wants_pass(state.player_by_id("ann"))
     before = len(state.player_by_id("ann").hand)
     act(session, "choose", "ann", option_id="do")
+    # Accepting the trigger leaves its ability available for responses.
+    assert len(state.player_by_id("ann").hand) == before
+    assert len(state.stack) == 1
+    for _ in state.living_players():
+        act(session, "pass_priority", state.priority_player.id)
     assert len(state.player_by_id("ann").hand) == before + 1

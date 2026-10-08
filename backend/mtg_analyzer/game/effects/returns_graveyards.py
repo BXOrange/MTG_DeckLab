@@ -610,6 +610,8 @@ class ReturnFromGraveyardEffect(GameEffect):
         lose_life_equal_mv: bool = False,
         count: int = 1,
         count_max: Optional[int] = None,
+        any_number: bool = False,
+        total_power_max: Optional[int] = None,
         shuffle_after: bool = False,
         subtype: Optional[str] = None,
         haste: bool = False,
@@ -788,7 +790,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         self._kind = target_kind
         spec = (
             TargetSpec(
-                kind=target_kind, optional=optional, count=count, count_max=count_max,
+                kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number, total_power_max=total_power_max,
                 subtype=subtype, max_mana_value=max_mana_value,
                 # "…creature card with mana value X…" (Isareth the Awakener, PAR-139): an exact match,
                 # ``"x"`` until `RulesEngine._substitute_x` binds it.
@@ -1109,14 +1111,14 @@ class ReturnFromGraveyardEffect(GameEffect):
                 return  # the card must still be in a graveyard (RULE 400.7: otherwise it is a new object)
             self._apply_one(context, target)
             return
-        if self.count_selector or self.target_spec.effective_count != 1:
+        if self.count_selector or self.target_spec.any_number or self.target_spec.effective_count != 1:
             # A ``count_selector`` spec's real count is resolved by the
             # targeting layer at cast (`resolved_count`), so ``targets``
             # already holds exactly the X picks it offered — take them all
             # rather than the printed ``effective_count`` (still 1 here).
             cap = (
                 len(targets or [])
-                if self.count_selector and targets is not None
+                if (self.count_selector or self.target_spec.any_number) and targets is not None
                 else self.target_spec.effective_count
             )
             with context.state.simultaneous():
