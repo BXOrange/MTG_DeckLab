@@ -10,15 +10,15 @@ def _proteus_staff() -> list[AbilitySpec]:
     the bottom of their library in any order. Activate only as a sorcery.
 
     — PLAY-ALL (Multiverse Reforged). `replace_target_with_revealed` with ``removal="bottom"`` and
-    ``revealer="target_controller"`` (read before the creature leaves). **Simplification:** "in any order" is the random
-    bottom order.
+    ``revealer="target_controller"`` (read before the creature leaves). Entry choices are prepared first;
+    then that player chooses the revealed misses' bottom-of-library order.
     """
     return [
         AbilitySpec(
             "activated",
             [EffectSpec("replace_target_with_revealed", {
                 "target_kind": "creature", "removal": "bottom", "revealer": "target_controller",
-                "criteria": {"type": "Creature"},
+                "criteria": {"type": "Creature"}, "rest_order": "any",
             })],
             cost={"text": "{2}{U}, {T}", "sorcery_speed_only": True},
         ),

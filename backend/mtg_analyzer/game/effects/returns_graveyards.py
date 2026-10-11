@@ -1393,18 +1393,19 @@ class ReplaceTargetWithRevealedEffect(GameEffect):
 
     ``removal`` is how the target leaves (``"exile"`` or ``"bottom"`` of its owner's library); ``revealer`` is who reveals
     (``"controller"`` of this ability, or the ``"target_controller"`` as it was before the target left). ``criteria`` is a
-    `card_query` dict. **Simplification:** "in any order" is the random bottom order.
+    `card_query` dict. ``rest_order="any"`` prepares entry choices before offering the revealer's bottom order.
     """
 
     def __init__(
         self, target_kind: str = "creature", removal: str = "exile", revealer: str = "controller",
-        criteria: Any = None, source: Optional["GameObject"] = None,
+        criteria: Any = None, source: Optional["GameObject"] = None, rest_order: str = "random",
     ) -> None:
         super().__init__(source)
         self.removal = removal if removal in ("exile", "bottom") else "exile"
         self.revealer = revealer if revealer in ("controller", "target_controller") else "controller"
         self.criteria = criteria if criteria is not None else {"type": "Creature"}
         self.target_spec = TargetSpec(kind=target_kind)
+        self.rest_order = rest_order
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = targets[0] if targets else None
@@ -1421,9 +1422,37 @@ class ReplaceTargetWithRevealedEffect(GameEffect):
             revealer = context.state.player_by_id(revealer_id)
         except (KeyError, ValueError):
             return
+        if self.rest_order == "any":
+            from ...models.cards import card_query
+            from .battlefield_batches import BattlefieldBatchEffect
+
+            hits, rest = [], []
+            for obj in reversed(list(revealer.library)):
+                context.state.fire_event(GameEvent(EventType.REVEAL, player_id=revealer.id,
+                    instance_id=obj.instance_id, object=obj.name, from_zone="library"))
+                if card_query.matches(obj.characteristic_card(), self.criteria):
+                    hits.append(obj.instance_id)
+                    break
+                rest.append(obj.instance_id)
+            _apply_effects_partitioned([
+                BattlefieldBatchEffect(hits, revealer.id, self.source),
+                _OrderRevealedBottomEffect(rest, revealer.id, self.source),
+            ], context, None, None, source=self.source)
+            return
         context.engine.reveal_until_matching(
             revealer, self.criteria, count=1, hit_destination="battlefield", rest_destination="library_bottom_random",
         )
+
+
+class _OrderRevealedBottomEffect(GameEffect):
+    def __init__(self, ids, player_id, source=None):
+        super().__init__(source)
+        self.ids, self.player_id = list(ids), player_id
+
+    def apply(self, context, targets=None):
+        player = context.state.player_by_id(self.player_id)
+        ids = [iid for iid in self.ids if any(obj.instance_id == iid for obj in player.library)]
+        context.engine._advance_look_top_select(player, ids, [], "library_bottom", "any")
 
 
 class RevealOpponentLibraryStealEffect(GameEffect):
@@ -1432,8 +1461,7 @@ class RevealOpponentLibraryStealEffect(GameEffect):
     puts the rest of the revealed cards on the bottom of their library in a random order." (Jhoira, Weatherlight Corsair)
 
     The hit is taken from the *opponent's* library but enters under this ability's controller (RULE 110.2); the life loss
-    reads the card's mana value as it was revealed. **Simplification:** the rest go to the bottom in random order rather
-    than an order the opponent picks.
+    reads the card's mana value as it was revealed. The printed random bottom order is preserved.
     """
 
     def __init__(self, criteria: Any = None, source: Optional["GameObject"] = None) -> None:

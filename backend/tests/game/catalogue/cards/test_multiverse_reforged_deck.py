@@ -810,6 +810,27 @@ def test_proteus_staff_swaps_a_creature_for_the_top_creature_of_its_controller()
     assert victim in opp.library and opp.library[0] in (victim, junk) and staff.tapped
 
 
+def test_proteus_staff_preserves_entry_choices_then_lets_the_revealer_order_the_bottom():
+    engine = _game()
+    staff = _card(engine, "Proteus Staff")
+    victim = _filler(engine, "Victim", player="p2", power=2, toughness=2)
+    revoker = _card(engine, "Phyrexian Revoker", player="p2", zone=Zone.LIBRARY)
+    first = _filler(engine, "First miss", "Instant", player="p2", zone=Zone.LIBRARY)
+    second = _filler(engine, "Second miss", "Sorcery", player="p2", zone=Zone.LIBRARY)
+    _stack_library(engine, "p2", revoker, second, first)
+    engine.state.player_by_id("p1").mana_pool.add_many({"U": 1, "C": 2})
+    _activate(engine, staff, targets=[victim])
+    assert engine.state.pending_choice["kind"] == "choose_card_name"
+    assert revoker.zone == Zone.LIBRARY
+    engine.resolve_pending_choice("Sol Ring")
+    assert revoker.zone == Zone.BATTLEFIELD and revoker.chosen_card_name == "Sol Ring"
+    assert engine.state.pending_choice["player_id"] == "p2"
+    engine.resolve_pending_choice(str(first.instance_id))
+    if engine.state.pending_choice:
+        engine.resolve_pending_choice(str(second.instance_id))
+    assert engine.state.player_by_id("p2").library[:2] == [second, first]
+
+
 def test_jhoira_steals_the_first_historic_permanent_and_pays_its_mana_value():
     engine = _game()
     rock = _filler(engine, "Rock", type_line="Artifact", mv=3, player="p2", zone=Zone.LIBRARY)

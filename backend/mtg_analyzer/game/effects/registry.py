@@ -178,6 +178,7 @@ EffectRegistry.register(
     lambda p: ReplaceTargetWithRevealedEffect(
         target_kind=p.get("target_kind", "creature"), removal=p.get("removal", "exile"),
         revealer=p.get("revealer", "controller"), criteria=p.get("criteria"),
+        rest_order=p.get("rest_order", "random"),
     ),
 )
 EffectRegistry.register(
