@@ -651,6 +651,42 @@ def test_omnath_grows_with_unspent_mana_and_keeps_it_as_colorless():
     assert me.mana_pool.total() == 3 and me.mana_pool.pool["C"] == 3 and me.mana_pool.pool["R"] == 0
 
 
+def test_omnath_converts_restricted_mana_without_losing_its_restrictions():
+    from mtg_analyzer.models.mana.mana_cost import ManaCost
+
+    engine = _game()
+    source = _card(engine, "Omnath, Locus of the Void")
+    player = engine.state.player_by_id("p1")
+    restriction = {"kind": "creature_spells"}
+    player.mana_pool.add("G", 2, restriction=restriction, source_kind="creature")
+    for _ in range(2):
+        continuous.empty_mana_pool(engine.state, player)
+        assert player.mana_pool.restricted == [
+            {"restriction": restriction, "amounts": {"C": 2}, "source_kind": "creature"}]
+    assert not player.mana_pool.can_pay(ManaCost.parse("{2}"))
+    assert player.mana_pool.can_pay(ManaCost.parse("{2}"), allows_restriction=lambda r: r == restriction)
+    engine.rules.exile(source)
+    continuous.empty_mana_pool(engine.state, player)
+    assert player.mana_pool.total() == 0
+
+
+def test_emissary_kindred_protects_the_player_from_targeting_as_well_as_damage():
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    engine = _game()
+    emissary = _card(engine, "Serra's Emissary", zone=Zone.HAND)
+    _cast(engine, emissary, RICH)
+    assert "kindred" in {option["id"] for option in engine.state.pending_choice["options"]}
+    engine.resolve_pending_choice("kindred")
+    source = _filler(engine, "Kindred source", "Kindred Instant — Goblin", player="p2", zone=Zone.HAND)
+    ordinary = _filler(engine, "Ordinary source", "Instant", player="p2", zone=Zone.HAND)
+    assert "p1" not in {option["player_id"] for option in legal_targets(engine.state, "p2", TargetSpec("player"), source)}
+    assert "p1" in {option["player_id"] for option in legal_targets(engine.state, "p2", TargetSpec("player"), ordinary)}
+    player = engine.state.player_by_id("p1")
+    engine.rules.deal_damage(player, 3, source=source)
+    assert player.life == 20
+
+
 def test_omnath_landfall_adds_two_colorless():
     engine = _game()
     _card(engine, "Omnath, Locus of the Void")
@@ -683,6 +719,8 @@ def test_teferis_reproach_shields_and_phases_out_the_opponents_nonland_permanent
     engine.rules.deal_damage(opp, 3, source=mine)
     engine.rules.gain_life(opp, 5)
     assert opp.life == life
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+    assert "p2" not in {option["player_id"] for option in legal_targets(engine.state, "p1", TargetSpec("player"), mine)}
     assert reproach.zone == Zone.EXILE
 
 

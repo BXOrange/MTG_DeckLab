@@ -1702,8 +1702,10 @@ def legal_targets(
 
     found = [
         t for t in found
-        if "player_id" not in t or t["player_id"] == controller_id
-        or not continuous.player_has_hexproof(state, t["player_id"])
+        if "player_id" not in t or (
+            (t["player_id"] == controller_id or not continuous.player_has_hexproof(state, t["player_id"]))
+            and not continuous.player_protected_from_source(state, state.player_by_id(t["player_id"]), source)
+        )
     ]
     if not spec.excluding_trigger_subject:
         return found

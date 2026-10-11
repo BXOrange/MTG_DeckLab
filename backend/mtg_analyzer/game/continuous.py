@@ -2357,6 +2357,20 @@ def player_static_protections(state: "GameState", player: "Player") -> set[str]:
     return quals
 
 
+def player_protected_from_source(state, player, source) -> bool:
+    """RULE 702.16b: player protection excludes targeting, including own sources."""
+    from . import combat
+
+    if any(getattr(effect, "player_protected_from_everything", False) for effect in player.player_effects):
+        return True
+    if source is None:
+        return False
+    if any(getattr(effect, "protected_from_player_id", None) == source.controller_id
+           for effect in player.player_effects):
+        return True
+    return combat.protection_qualities_cover(player_static_protections(state, player), source)
+
+
 #: Mirrors `effect_binder._SUBJECT_EVENT_KEYS` — which event-data key
 #: identifies *which object* a grantable event is about. Kept as a local
 #: copy rather than imported (`continuous.py` stays free of `effect_binder`
@@ -6286,6 +6300,7 @@ def empty_mana_pool(state: "GameState", player: "Player", expire: tuple[str, ...
         for ability in _battlefield_static_abilities(state)
     )
     before = dict(pool.pool)
+    restricted_before = [{**lot, "amounts": dict(lot["amounts"])} for lot in pool.restricted]
     pool.empty(expire=expire)
     lost_to_colorless = (
         sum(n - pool.pool.get(c, 0) for c, n in before.items() if n and c not in keep) if to_colorless else 0
@@ -6294,6 +6309,12 @@ def empty_mana_pool(state: "GameState", player: "Player", expire: tuple[str, ...
         pool.add(color, amount)
     if lost_to_colorless:
         pool.add("C", lost_to_colorless)
+    if to_colorless:
+        # RULE 106.6/614.1: changing a mana type does not remove spending restrictions or provenance.
+        for lot in restricted_before:
+            amount = sum(lot["amounts"].values())
+            if amount:
+                pool.restricted.append({**lot, "amounts": {"C": amount}})
 
 
 #: A `combat_restriction` entry → the one-line description the board's

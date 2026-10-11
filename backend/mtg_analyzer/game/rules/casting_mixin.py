@@ -226,6 +226,8 @@ _BASIC_LAND_TYPE_OPTIONS: list[str] = ["Plains", "Island", "Swamp", "Mountain", 
 _CARD_TYPE_OPTIONS: list[tuple[str, str]] = [
     ("artifacts", "Artifact"), ("battles", "Battle"), ("creatures", "Creature"), ("enchantments", "Enchantment"),
     ("instants", "Instant"), ("lands", "Land"), ("planeswalkers", "Planeswalker"), ("sorceries", "Sorcery"),
+    ("kindred", "Kindred"), ("conspiracy", "Conspiracy"), ("dungeon", "Dungeon"),
+    ("phenomenon", "Phenomenon"), ("plane", "Plane"), ("scheme", "Scheme"), ("vanguard", "Vanguard"),
 ]
 
 

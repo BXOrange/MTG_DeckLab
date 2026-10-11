@@ -12,8 +12,8 @@ def _omnath_locus_of_the_void() -> list[AbilitySpec]:
 
     — PLAY-ALL (Multiverse Reforged). The P/T clause is `anthem`'s ``power_count``/``toughness_count`` over the new
     ``unspent_mana_you_have`` count selector (`continuous.count_selector`, the controller's whole pool). The replacement is the
-    ``unspent_mana_colorless`` static, read by `continuous.empty_mana_pool`: unrestricted mana that would empty stays as
-    colourless. **Simplification:** restricted mana lots still empty as ever. Landfall is the parser's own claim.
+    ``unspent_mana_colorless`` static, read by `continuous.empty_mana_pool`: mana that would empty stays as
+    colourless, including restricted lots with their restrictions and source provenance intact. Landfall is the parser's own claim.
     """
     return [
         AbilitySpec(

@@ -13,7 +13,7 @@ def _serras_emissary() -> list[AbilitySpec]:
     replacement (`ChooseCardTypeReplacement`, stored on `GameObject.chosen_type` as the plural protection-quality word). The
     protection is `grant_protection_static`'s ``protection_from_chosen_type`` over ``creatures_you_control`` plus the new
     ``protects_controller`` half (`continuous.player_static_protections`, consulted by `RulesEngine.deal_damage` — damage is
-    the only DEBT letter a player is subject to here). **Simplification:** Kindred is not offered as a card type.
+    and targeting paths enforce the player's protection too). The choice includes Kindred and all RULE 205.2a card types.
     """
     return [
         AbilitySpec("enter_replacement", [EffectSpec("choose_card_type_on_enter", {})]),
