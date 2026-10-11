@@ -538,10 +538,19 @@ on the *whole run*, for the rarer hang the per-test timer can't reach
 (collection, a session-scoped fixture, or a true C-level block) — it kills
 the process group and reports the last test that had started.
 
-## Claude Code skills
+## Project skills — Claude Code and Codex
 
-Seven project-scoped skills live in `.claude/skills/` and should be invoked
-(not reimplemented ad hoc) for the work they cover:
+Seven project-scoped skills have their canonical workflows and helpers in
+`.claude/skills/`. Codex discovers matching entrypoints in `.agents/skills/`;
+each loads the shared workflow and resolves resources at their original paths.
+Use the relevant skill (not an ad hoc reimplementation) for the work it covers.
+In Codex, invoke a skill explicitly with `$extend-parser`, `$game-engine`, etc.,
+or let automatic selection choose it. Start a new session after adding skills
+if the current session's skill catalog has not refreshed.
+Maintain workflows, scripts and references in `.claude/skills/`; keep the Codex
+entrypoint's name and concise trigger description aligned when its scope changes.
+On Windows, run helpers with the available backend venv's `Scripts/python.exe`
+and adapt Bash examples to PowerShell while preserving their working directory.
 
 - **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
   the oracle-text parser (`parser/oracle/`): add/widen an effect/static/
