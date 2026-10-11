@@ -261,6 +261,33 @@ def test_espers_exiles_only_opponents_graveyards_and_creates_artifact_only_copy(
     assert not copies[0].is_creature and copies[0].power is None
 
 
+def test_espers_optional_target_is_chosen_from_this_exile_batch_only():
+    engine = _game(players=3)
+    small = _grave(engine, "Small chosen", "p2", mv=1)
+    large = _grave(engine, "Large unchosen", "p3", mv=8)
+    previous = _filler(engine, "Earlier exile", player="p2", zone=Zone.EXILE, power=2, toughness=2)
+    _cast(engine, _card(engine, "Espers to Magicite", zone=Zone.HAND), RICH)
+    options = {option.get("instance_id") for option in engine.state.pending_choice["options"]}
+    assert {small.instance_id, large.instance_id} <= options and previous.instance_id not in options
+    engine.resolve_pending_choice(str(small.instance_id))
+    assert len(_named(engine, small.name)) == 1 and not _named(engine, large.name)
+
+
+def test_espers_can_decline_copy_and_invalidates_a_returned_exile_incarnation():
+    for decline in (True, False):
+        engine = _game()
+        card = _grave(engine, "Exiled creature", "p2")
+        _cast(engine, _card(engine, "Espers to Magicite", zone=Zone.HAND), RICH)
+        engine.interactive_priority = True
+        engine.resolve_pending_choice("decline" if decline else str(card.instance_id))
+        if not decline:
+            assert engine.state.stack
+            engine.rules.return_to_hand(card)
+            engine.rules.exile(card)
+            engine.resolve_until_stable()
+        assert not _named(engine, card.name)
+
+
 def test_flayer_undying_return_really_triggers_damage_from_the_returned_creature():
     e = _game()
     flayer = _card(e, 'Flayer of the Hatebound')
