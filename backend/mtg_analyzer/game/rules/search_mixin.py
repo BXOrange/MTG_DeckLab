@@ -1566,6 +1566,20 @@ class SearchMixin:
             ))
             return
 
+        if choice["destination"] == "battlefield_tapped_or_hand" and found:
+            # RULE 608.2d: reveal the find, then choose its destination before moving it/shuffling.
+            obj = self.state.find_object(found[0])
+            if choice.get("reveal"):
+                self.state.fire_event(GameEvent(EventType.REVEAL, player_id=player.id,
+                    instance_id=obj.instance_id, object=obj.name, card_id=obj.card.id, from_zone=obj.zone.value))
+            self.open_choice({
+                "kind": "search_destination", "player_id": chooser_id, "optional": False,
+                "prompt": "Die gefundene Karte getappt ins Spiel oder auf die Hand legen?",
+                "search_choice": {**choice, "reveal": False}, "instance_id": found[0],
+                "options": [{"id": "battlefield_tapped", "label": "Getappt ins Spiel"},
+                            {"id": "hand", "label": "Auf die Hand"}],
+            })
+            return
         self._finish_search(
             player, found, choice["destination"],
             zones=zones, destinations=choice.get("destinations"),
@@ -1593,6 +1607,14 @@ class SearchMixin:
                 list(choice["then_specs"]),
                 self._object_by_instance_id(choice.get("then_source_id")),
             )
+    @continuations.choice("search_destination", rule="608.2d")
+    def _resume_search_destination(self, choice, answer):
+        if answer not in {"battlefield_tapped", "hand"}:
+            self.open_choice(choice)
+            raise ValueError("Choose the found card's destination")
+        search_choice = {**choice["search_choice"], "destination": answer}
+        self._resume_search(search_choice, choice["instance_id"])
+
     def _search_choice(
         self,
         player: Player,
