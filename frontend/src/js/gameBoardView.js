@@ -2895,6 +2895,18 @@ export function createGameBoardView(opts = {}) {
     const action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz);
+    if (!payload.tap_choices && action?.tap_cost) {
+      const { count, options } = action.tap_cost;
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: Array.from({ length: count }, () => ({
+          label: 'zu tappende bleibende Karte', options, optional: false,
+        })),
+        reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
+      };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
     if (!payload.return_choices && action?.return_cost) {
       const { count, options } = action.return_cost;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
