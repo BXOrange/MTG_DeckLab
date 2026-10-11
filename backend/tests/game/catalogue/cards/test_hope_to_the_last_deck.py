@@ -446,6 +446,28 @@ def test_angel_of_destiny_does_not_make_a_player_lose_that_it_never_attacked():
     assert not p2.has_lost
 
 
+def test_angel_of_destiny_attacking_a_planeswalker_or_battle_does_not_attack_its_defending_player():
+    # RULE 508.1b/508.3e: attacking a permanent is distinct from attacking a player.
+    for kind in ("planeswalker", "battle"):
+        engine = _game(players=3)
+        angel = _card(engine, "Angel of Destiny")
+        if kind == "planeswalker":
+            permanent = _filler(engine, "Walker", "Planeswalker", player="p2")
+            permanent.counters["loyalty"] = 5
+        else:
+            permanent = _filler(engine, "Siege", "Battle — Siege", player="p1")
+            permanent.protector_id = "p2"
+            permanent.counters["defense"] = 5
+        engine.state.current_phase, engine.state.current_step = "combat", "declare_attackers"
+        player = engine.state.player_by_id("p1")
+        player.life = player.starting_life + 15
+        defender = next(d for d in engine.legal_defenders_for(player) if d.get("kind") == kind)
+        engine.declare_attackers(player, [{"attacker": angel, "defender": defender}])
+        engine.resolve_until_stable()
+        _step(engine, "end")
+        assert not engine.state.player_by_id("p2").has_lost
+
+
 def test_ajani_gains_life_makes_a_growing_cat_and_exiles_opposing_boards_at_fifteen_over():
     engine = _game()
     p1, p2 = engine.state.players

@@ -23,6 +23,19 @@ def make_card(**overrides) -> Card:
 
 
 class TestSaveAndGet:
+    def test_batch_preserves_name_replacement_and_persists_on_reopen(self, tmp_path):
+        path = tmp_path / "cards.db"
+        with CardDatabase(path) as db:
+            db.save_cards([
+                make_card(id="first", name="Bolt"),
+                make_card(id="second", name="BOLT", flavor_name="Alternate Bolt"),
+                make_card(id="third", name="Another card"),
+            ])
+        with CardDatabase(path) as db:
+            assert db.count() == 2
+            assert db.get_card_by_id("first") is None
+            assert db.get_card("Alternate Bolt").id == "second"
+
     def test_get_card_by_exact_name(self):
         db = CardDatabase()
         db.save_card(make_card())

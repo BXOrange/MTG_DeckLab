@@ -20,7 +20,7 @@ import re
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 
 from mtg_analyzer.config import CACHE_DIR, DB_PATH
 from mtg_analyzer.models.cards.card import Card
@@ -214,9 +214,13 @@ class CardDatabase:
         the rest of the app's card-identity model (Card lookup is always
         by name, never by printing).
         """
-        with self._lock:
-            self._connection.execute(
+        self.save_cards([card])
+
+    def save_cards(self, cards: Iterable[Card]) -> None:
+        """Store a batch atomically, using the same ID/name replacement rules."""
+        rows = [(card.id, card.name, card.flavor_name, json.dumps(card.to_dict())) for card in cards]
+        with self._lock, self._connection:
+            self._connection.executemany(
                 "INSERT OR REPLACE INTO cards (id, name, flavor_name, data) VALUES (?, ?, ?, ?)",
-                (card.id, card.name, card.flavor_name, json.dumps(card.to_dict())),
+                rows,
             )
-            self._connection.commit()

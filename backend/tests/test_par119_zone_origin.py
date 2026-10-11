@@ -94,7 +94,7 @@ def test_every_entry_emitter_explicitly_supplies_an_origin():
     game = Path(__file__).parents[1] / "mtg_analyzer" / "game"
     emitters = []
     for path in game.rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call) or not node.args:
                 continue
             event = node.args[0]

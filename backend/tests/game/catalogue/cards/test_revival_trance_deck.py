@@ -382,6 +382,10 @@ def test_rejoin_opponents_choose_distinct_cards_starting_after_caster():
     spell = _card(e, 'Rejoin the Fight', 'p2', Zone.HAND)
     _cast(e, spell, RICH)
     assert e.state.pending_choice['player_id'] == 'p3'
+    e.resolve_pending_choice(str(hits[0].instance_id))
+    assert all(card.zone == Zone.GRAVEYARD for card in hits)
+    assert e.state.pending_choice['player_id'] == 'p1'
+    assert hits[0].instance_id not in {option.get('instance_id') for option in e.state.pending_choice['options']}
     _answer(e)
     assert all(o.zone == Zone.BATTLEFIELD and o.controller_id == 'p2' for o in hits)
 
@@ -401,6 +405,23 @@ def test_sepulchral_may_return_one_creature_from_each_opponents_graveyard():
     _cast(e, _card(e, 'Sepulchral Primordial', zone=Zone.HAND), RICH)
     _answer(e)
     assert all(o.zone == Zone.BATTLEFIELD and o.controller_id == 'p1' for o in hits)
+
+
+def test_sepulchral_announces_scoped_targets_before_responses_and_rechecks_them():
+    engine = _game(players=3)
+    hits = [_grave(engine, "Opponent two", "p2"), _grave(engine, "Opponent three", "p3")]
+    _cast(engine, _card(engine, "Sepulchral Primordial", zone=Zone.HAND), RICH)
+    engine.interactive_priority = True
+    assert engine.state.pending_choice["kind"].startswith("trigger_target")
+    first_options = {option.get("instance_id") for option in engine.state.pending_choice["options"]}
+    assert hits[0].instance_id in first_options and hits[1].instance_id not in first_options
+    engine.resolve_pending_choice(str(hits[0].instance_id))
+    engine.resolve_pending_choice(str(hits[1].instance_id))
+    assert engine.state.stack and all(card.zone == Zone.GRAVEYARD for card in hits)
+    engine.rules.exile(hits[0])  # An opponent can remove an announced target before resolution.
+    engine.resolve_until_stable()
+    assert hits[0].zone == Zone.EXILE
+    assert hits[1].zone == Zone.BATTLEFIELD and hits[1].controller_id == "p1"
 
 
 def test_setzer_blackjack_can_crew_attack_and_win_coin_for_tapped_treasures(monkeypatch):
@@ -452,6 +473,38 @@ def test_snort_each_player_can_accept_or_decline_and_only_accepting_opponents_ta
     assert len(e.state.player_by_id('p1').hand) == len(e.state.player_by_id('p3').hand) == 5
     assert e.state.player_by_id('p2').life == 20 and e.state.player_by_id('p3').life == 15
     assert e.can_cast(e.state.player_by_id('p1'), snort)  # real flashback permission
+
+
+def test_snort_collects_apnap_choices_before_drawing_and_damages_after_all_draws():
+    engine = _game(players=3)
+    engine.state.active_player_index = 1
+    _card(engine, "Vedalken Orrery")
+    snort = _card(engine, "Snort", zone=Zone.HAND)
+    _cast(engine, snort, RICH)
+    for player_id in ("p2", "p3", "p1"):
+        assert engine.state.pending_choice["player_id"] == player_id
+        assert all(not player.hand and player.life == 20 for player in engine.state.players)
+        engine.resolve_pending_choice("do")
+    assert all(len(player.hand) == 5 for player in engine.state.players)
+    assert [player.life for player in engine.state.players] == [20, 15, 15]
+    events = engine.state.event_log
+    draws = [index for index, event in enumerate(events) if event.type == EventType.DRAW]
+    damage = [index for index, event in enumerate(events) if event.type == EventType.DAMAGE]
+    assert draws and damage and max(draws) < min(damage)
+
+
+def test_snort_waits_for_miracle_draw_choice_before_damage():
+    engine = _game(players=3)
+    _card(engine, "Terminus", player="p3", zone=Zone.LIBRARY)
+    _cast(engine, _card(engine, "Snort", zone=Zone.HAND), RICH)
+    for _ in range(3):
+        engine.resolve_pending_choice("do")
+    assert engine.state.pending_choice["kind"] == "miracle_reveal"
+    assert all(player.life == 20 for player in engine.state.players)
+    engine.resolve_pending_choice("decline")
+    engine.resolve_until_stable()
+    assert [player.life for player in engine.state.players] == [20, 15, 15]
+    assert all(len(player.hand) == 5 for player in engine.state.players)
 
 
 def test_strago_digs_opponents_library_creature_has_haste_and_end_step_sacrifice():

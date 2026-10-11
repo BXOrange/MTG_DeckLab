@@ -415,6 +415,33 @@ def test_rebbec_protects_artifacts_from_sources_matching_a_mana_value_among_your
     assert combat.is_protected_from(rock, peer) and not combat.is_protected_from(rock, other)
 
 
+def test_rebbec_uses_announced_x_in_a_spells_mana_value():
+    engine = _game()
+    _card(engine, "Rebbec, Architect of Ascension")
+    rock = _filler(engine, "Rock", "Artifact", mv=5)
+    spell = _filler(engine, "X spell", "Instant", mv=2)
+    spell.card.mana_cost_string = "{X}{2}"
+    spell.zone = Zone.STACK
+    spell.x_paid = 3
+    engine.recompute_continuous_effects()
+    assert spell.mana_value == 5
+    assert combat.is_protected_from(rock, spell)
+    spell.x_paid = 0
+    assert not combat.is_protected_from(rock, spell)
+
+
+def test_calendar_does_not_trigger_when_no_permanent_untaps():
+    engine = _game()
+    calendar = _card(engine, "The Millennium Calendar")
+    engine._step_untap()
+    assert not engine.rules.pending_triggers
+    calendar.tapped = True
+    engine._step_untap()
+    assert engine.rules.pending_triggers
+    engine.resolve_until_stable()
+    assert calendar.counters["time"] == 1
+
+
 def test_the_millennium_calendar_counts_untapped_permanents_doubles_and_eventually_wins():
     engine = _game()
     p1, p2 = engine.state.players

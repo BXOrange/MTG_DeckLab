@@ -126,6 +126,7 @@ def _seed_cache_from_store(store: RawCardStore, db_path: Path, limit: int | None
     """Convert raw store → app cache. Returns (saved, skipped, failed)."""
     db = CardDatabase(db_path)
     saved = skipped = failed = 0
+    batch = []
     started = time.monotonic()
     for data in store.iter_raw():
         if limit is not None and saved >= limit:
@@ -134,8 +135,11 @@ def _seed_cache_from_store(store: RawCardStore, db_path: Path, limit: int | None
             skipped += 1
             continue
         try:
-            db.save_card(card_from_scryfall_data(data))
+            batch.append(card_from_scryfall_data(data))
             saved += 1
+            if len(batch) >= 1000:
+                db.save_cards(batch)
+                batch.clear()
         except Exception as exc:  # one bad card must not abort a 30k seed
             failed += 1
             if failed <= 20:
@@ -143,6 +147,7 @@ def _seed_cache_from_store(store: RawCardStore, db_path: Path, limit: int | None
         if saved and saved % 5000 == 0:
             rate = saved / (time.monotonic() - started)
             print(f"  ... {saved} seeded ({rate:.0f}/s)")
+    db.save_cards(batch)
     db.close()
     return saved, skipped, failed
 

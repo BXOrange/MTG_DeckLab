@@ -44,6 +44,8 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ### Data Layer: CardDatabase + Scryfall integration + LazyCardLoader
 
+- Full-cache reseeding uses `CardDatabase.save_cards` in batches of 1,000 cards, keeping each batch atomic and retaining the single-card ID/name replacement rules. This avoids one disk-synchronized transaction per card on Windows. The batch replacement and persistence regression is in `tests/services/test_card_database.py`.
+
 - **What:** SQLite card cache storing each card's `to_dict()` JSON so the schema stays in sync with `Card`; `ScryfallIntegration` batches lookups via Scryfall's `/cards/col…
 - **Files:** `services/card_database.py`, `services/scryfall_client.py`, `services/lazy_card_loader.py`, `services/image_cache.py`
 

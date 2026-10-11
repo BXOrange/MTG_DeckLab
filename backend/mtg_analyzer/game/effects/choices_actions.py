@@ -763,7 +763,7 @@ class BackFromTheBrinkEffect(GameEffect):
         controller = _controller_of(self.source, context)
         if controller is None:
             return
-        candidates = [o for o in controller.graveyard if o.card.is_creature]
+        candidates = [o for o in controller.graveyard if o.is_creature]
         if not candidates:
             return
         context.engine._request_choose_objects(
@@ -1318,6 +1318,7 @@ class ChooseObjectsEffect(GameEffect):
         then_that_many: Optional[dict[str, Any]] = None,
         distinct_card_types: bool = False,
         pool_zone: str = "battlefield",
+        minimum_card_types: int = 0,
         pool_player_selector: str = "chooser",
         pool_zones: Optional[list[str]] = None,
         mana_value_less_than_trigger: bool = False,
@@ -1338,6 +1339,7 @@ class ChooseObjectsEffect(GameEffect):
         self.permanent_filter = permanent_filter
         self.then_that_many = then_that_many
         self.distinct_card_types = distinct_card_types
+        self.minimum_card_types = minimum_card_types
         self.pool_zone = pool_zone
         self.pool_zones = list(pool_zones) if pool_zones else None
         self.mana_value_less_than_trigger = bool(mana_value_less_than_trigger)
@@ -1419,6 +1421,7 @@ class ChooseObjectsEffect(GameEffect):
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
             else_specs=self.else_effects, then_that_many=self.then_that_many,
             distinct_card_types=self.distinct_card_types,
+            minimum_card_types=self.minimum_card_types,
         )
 
 
@@ -3341,9 +3344,9 @@ class CheatCreatureFromHandEffect(GameEffect):
 
         candidates = [
             obj for obj in player.hand
-            if obj.card.is_creature
+            if obj.is_creature
             and (self.max_total_pt is None or (
-                (obj.card.power or 0) + (obj.card.toughness or 0) <= self.max_total_pt
+                (obj.power or 0) + (obj.toughness or 0) <= self.max_total_pt
             ))
             # RULE 702.73a: changeling is visible in every zone, including
             # the hand, through `continuous.has_subtype`.

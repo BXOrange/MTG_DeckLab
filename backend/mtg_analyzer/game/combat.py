@@ -514,6 +514,7 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         "cant_block_self_filtered",
         # Attack/block *permission* restrictions (RULE 508.1a/509.1a):
         "cant_attack_unless",  # + ``condition``
+        "attacks_other_player_if_able",  # RULE 508.1d/611.2c: Kardur's game-rule modifier
         "cant_block_unless",  # + ``condition``
         "cant_attack_alone",  # needs a fellow attacker
         "cant_block_alone",  # needs a fellow blocker
@@ -1339,7 +1340,11 @@ def protection_qualities_cover(quals: "frozenset[str] | set[str]", source: "Game
     source_card = getattr(source, "card", None)
     if source_card is not None:
         other_quals = quals - set(_COLOUR_WORDS.values()) - {"creatures", "all_colors", "everything"}
-        if any(_quality_matches_type(q, source_card) for q in other_quals):
+        # RULE 202.3/702.16: current mana value includes X on the stack and DFC/Room rules.
+        if any(q.startswith("mv:") and q[3:].isdigit() and source.mana_value == int(q[3:])
+               for q in other_quals):
+            return True
+        if any(_quality_matches_type(q, source_card) for q in other_quals if not q.startswith("mv:")):
             return True
     return False
 

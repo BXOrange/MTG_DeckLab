@@ -597,7 +597,7 @@ class ExileOpponentGraveyardsCopyCreatureEffect(GameEffect):
                 continue
             for obj in list(opponent.graveyard):
                 context.exile(obj)
-                if obj.card.is_creature and obj.zone == Zone.EXILE:
+                if obj.is_creature and obj.zone == Zone.EXILE:
                     candidates.append(obj)
         if candidates:
             obj = max(candidates, key=lambda o: int(o.mana_value or 0))

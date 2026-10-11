@@ -4,7 +4,7 @@ from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
 #: "If an Insect card was milled this way" — also true of Grist herself (an Insect creature card outside the battlefield).
-_INSECT_MILLED = {"kind": "milled_subtype_this_way", "subtype": "insect", "name": "source"}
+_INSECT_MILLED = {"kind": "milled_subtype_this_way", "subtype": "insect"}
 
 
 def _grist_the_hunger_tide() -> list[AbilitySpec]:
@@ -14,12 +14,15 @@ def _grist_the_hunger_tide() -> list[AbilitySpec]:
     −5: Each opponent loses life equal to the number of creature cards in your graveyard.
 
     — PLAY-ALL (Death Toll). The +1 is Hoarder's Greed's `repeat_process`, whose ``repeat_while`` now also takes an `effect_conditions` dict
-    (`milled_subtype_this_way`, read after each pass). **Documented simplification**: the "isn't on the battlefield, it's a 1/1 Insect
-    creature" static is not a characteristic-changing effect off the battlefield; its two observable consequences are authored directly —
-    Grist milled by her own +1 counts as an Insect card (``name: "source"``), and Grist in your graveyard adds one to the −5's count
-    (``cards_named_source_in_all_graveyards``). The −2 is `sacrifice_chosen_then` with a RULE 603.12 reflexive trigger.
+    (`milled_subtype_this_way`, read after each pass). Its own zone-scoped type-changing static applies in every zone
+    except the battlefield (RULE 113.6c), without changing its printed/copiable card. The −5 counts creature cards
+    in the controller's graveyard only. The −2 is `sacrifice_chosen_then` with a RULE 603.12 reflexive trigger.
     """
     return [
+        AbilitySpec("static", [EffectSpec("type_change", {
+            "outside_battlefield_self": True, "add_types": ["creature"],
+            "add_subtypes": ["insect"], "power": 1, "toughness": 1,
+        })]),
         AbilitySpec(
             "activated",
             [EffectSpec("repeat_process", {
@@ -49,10 +52,9 @@ def _grist_the_hunger_tide() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("lose_life", {
                 "selector": "each_opponent",
-                "amount": {"kind": "count_selector", "selector": {"terms": [
-                    {"zone": "graveyard", "of": "you", "filter": {"card_type": "creature"}},
-                    "cards_named_source_in_all_graveyards",
-                ]}},
+                "amount": {"kind": "count_selector", "selector": {
+                    "zone": "graveyard", "of": "you", "filter": {"card_type": "creature"},
+                }},
             })],
             cost={"loyalty": -5},
         ),

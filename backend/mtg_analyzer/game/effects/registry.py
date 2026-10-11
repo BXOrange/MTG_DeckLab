@@ -1620,6 +1620,7 @@ EffectRegistry.register(
     lambda p: ReturnFromGraveyardEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "graveyard_creature"),
+        per_player=p.get("per_player"),
         destination=p.get("destination", "battlefield"),
         under_your_control=bool(p.get("under_your_control", False)),
         optional=bool(p.get("optional", False)),
@@ -2374,6 +2375,7 @@ EffectRegistry.register(
         then_that_many=p.get("then_that_many"),
         distinct_card_types=bool(p.get("distinct_card_types", False)),
         pool_zone=p.get("pool_zone", "battlefield"),
+        minimum_card_types=int(p.get("minimum_card_types", 0)),
         pool_zones=p.get("pool_zones"),
         mana_value_less_than_trigger=bool(p.get("mana_value_less_than_trigger", False)),
         pool_player_selector=p.get("pool_player_selector", "chooser"),
@@ -4227,6 +4229,7 @@ EffectRegistry.register(
         affects=p.get("affects", "self"),
         params={
             "from_linked_exile": bool(p.get("from_linked_exile", False)),  # Duplicant
+            "outside_battlefield_self": bool(p.get("outside_battlefield_self", False)),
             "add_types": list(p.get("add_types", [])),
             # "…and loses all other card types…" (Vraska, Betrayal's
             # Sting's -2) — the removal-side mirror of `add_types`.

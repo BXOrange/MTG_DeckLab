@@ -9,6 +9,42 @@ from ..targeting import graveyard_card_matches, legal_targets
 install(globals())
 
 
+def _continue_opponent_graveyard_batch(rules, frame):
+    """RULE 608.2d: choose every card before returning the selected group."""
+    from .battlefield_batches import start_battlefield_batch
+
+    controller = rules.state.player_by_id(frame["player_id"])
+    selected = {record["id"] for record in frame["selected"]}
+    while frame["remaining_players"]:
+        chooser = frame["remaining_players"].pop(0)
+        pool = [obj for obj in controller.graveyard if obj.is_creature and obj.instance_id not in selected]
+        if not pool:
+            continue
+        rules.open_choice({
+            "kind": "opponent_graveyard_batch", "player_id": chooser,
+            "prompt": "Eine noch nicht gewählte Kreaturenkarte auswählen", "optional": False,
+            "frame": frame,
+            "options": [{"id": str(obj.instance_id), "instance_id": obj.instance_id, "label": obj.name}
+                        for obj in pool],
+        })
+        return
+    objects = [obj for record in frame["selected"]
+               if (obj := rules.state.find_object(record["id"])) is not None
+               and obj.zone == Zone.GRAVEYARD and obj.zone_incarnation == record["incarnation"]]
+    start_battlefield_batch(rules, objects, controller.id)
+
+
+@continuations.choice("opponent_graveyard_batch", answer=continuations.ANSWER_INT_REQUIRED, rule="608.2d")
+def _resume_opponent_graveyard_batch(rules, choice, answer):
+    if answer not in {option["instance_id"] for option in choice["options"]}:
+        rules.open_choice(choice)
+        raise ValueError("Choose an offered creature card")
+    obj = rules.state.find_object(answer)
+    frame = choice["frame"]
+    frame["selected"].append({"id": obj.instance_id, "incarnation": obj.zone_incarnation})
+    _continue_opponent_graveyard_batch(rules, frame)
+
+
 class PlayHideawayCardEffect(GameEffect):
     """RULE 607.2a / 608.2g: play a captured linked exile card now."""
 
@@ -49,7 +85,7 @@ class LivingDeathEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         returning = [obj for p in context.state.living_players()
-                     for obj in list(p.graveyard) if obj.card.is_creature]
+                     for obj in list(p.graveyard) if obj.is_creature]
         with context.state.simultaneous():
             for obj in returning:
                 context.exile(obj)
@@ -643,6 +679,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         else_destination: Optional[str] = None,
         pick_mode: Optional[str] = None,
         attach_to_previous: bool = False,
+        per_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -791,6 +828,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number, total_power_max=total_power_max,
+                per_player=per_player,
                 subtype=subtype, max_mana_value=max_mana_value,
                 # "…creature card with mana value X…" (Isareth the Awakener, PAR-139): an exact match,
                 # ``"x"`` until `RulesEngine._substitute_x` binds it.
@@ -918,6 +956,12 @@ class ReturnFromGraveyardEffect(GameEffect):
         kind = self._kind or "graveyard_creature"
         action = "return_from_graveyard_tapped" if self.tapped else "return_from_graveyard"
         controller = _controller_of(self.source, context)
+        if self.pick_mode == "each_opponent_from_yours" and controller is not None:
+            _continue_opponent_graveyard_batch(context.engine, {
+                "player_id": controller.id, "remaining_players": [player.id for player in players],
+                "selected": [], "source_id": getattr(self.source, "instance_id", None),
+            })
+            return
         for i, player in enumerate(players):
             if self.pick_mode == "controller_from_each_opponent":
                 pool_owner, chooser, optional = player, controller, True
@@ -965,7 +1009,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         original = self.destination
         try:
             for card in drawn:
-                if self.else_destination and not card.card.is_creature:
+                if self.else_destination and not card.is_creature:
                     self.destination = self.else_destination
                 else:
                     self.destination = original
@@ -1053,7 +1097,7 @@ class ReturnFromGraveyardEffect(GameEffect):
             if player is None:
                 return
             creature = next(
-                (o for o in reversed(player.graveyard) if o.card.is_creature), None
+                (o for o in reversed(player.graveyard) if o.is_creature), None
             )
             if creature is not None:
                 with context.state.simultaneous():
@@ -1154,7 +1198,7 @@ class ReturnCreatureCardsWithTotalMVEffect(GameEffect):
         if player is None or self.budget < 0:
             return
         owners = [player] if self.own_graveyard else list(context.state.living_players())
-        candidates = [obj for owner in owners for obj in owner.graveyard if obj.card.is_creature]
+        candidates = [obj for owner in owners for obj in owner.graveyard if obj.is_creature]
         is_power = self.measure == "power"
         context.engine._request_choose_objects(
             player, candidates, "return_from_graveyard", count=len(candidates), optional=True,

@@ -236,43 +236,18 @@ class RevealCreaturesGiveOpponentsEffect(GameEffect):
         hits = []
         for obj in reversed(list(player.library)):
             context.state.fire_event(GameEvent(EventType.REVEAL, player_id=player.id, object=obj.name))
-            if obj.card.is_creature:
+            if obj.is_creature:
                 hits.append(obj)
                 if len(hits) == len(opponents):
                     break
-        effects = []
+        from .battlefield_batches import BattlefieldBatchEffect
+
+        effects = [BattlefieldBatchEffect([obj.instance_id for obj in hits], player.id, self.source)]
         for obj in hits:
-            effects.extend([
-                _EnterRevealedCreatureEffect(obj.instance_id, self.source),
-                _GoadRevealedCreatureEffect(obj.instance_id, player.id, self.source),
-            ])
+            effects.append(_GoadRevealedCreatureEffect(obj.instance_id, player.id, self.source))
         effects.append(_GiveRevealedCreaturesEffect(
             player.id, [o.instance_id for o in hits], opponents, self.source))
         _apply_effects_partitioned(effects, context, None, None, source=self.source)
-
-
-class _EnterRevealedCreatureEffect(GameEffect):
-    def __init__(self, instance_id, source):
-        super().__init__(source)
-        self.instance_id = instance_id
-
-    def apply(self, context, targets=None):
-        obj = context.state.find_object(self.instance_id)
-        if obj is not None:
-            # Reuse the casting entry choosers after the zone-change reset, so
-            # a revealed Revoker/Image chooses before entering, without its
-            # answer being discarded by a second reset.
-            owner = context.state.player_by_id(obj.owner_id)
-            context.engine._remove_from_current_zone(owner, obj)
-            obj.reset_as_new_object()
-            obj.controller_id = owner.id
-            def finish():
-                context.engine._put_searched_card(owner, obj, 'battlefield')
-            if obj.enter_as_copy_effects:
-                context.engine._offer_enter_as_copy(
-                    obj, lambda: context.engine._offer_enter_choices(obj, finish))
-            else:
-                context.engine._offer_enter_choices(obj, finish)
 
 
 class _GoadRevealedCreatureEffect(GameEffect):

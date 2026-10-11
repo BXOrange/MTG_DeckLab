@@ -119,7 +119,8 @@ class CombatMixin:
         active = self.state.active_player
         for obj in self.state.permanents_controlled_by(active.id):
             if (
-                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj) or obj.must_attack_player_id)
+                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj) or obj.must_attack_player_id
+                 or combat.combat_restrictions(obj, "attacks_other_player_if_able"))
                 and not obj.attacking
                 and self._can_attack(active, obj)
             ):
@@ -175,6 +176,20 @@ class CombatMixin:
         for obj in self.state.battlefield:
             if not obj.attacking or obj.controller_id != active.id:
                 continue
+            # RULE 611.2c/508.1d: Kardur's rule modifier includes later arrivals and is not goad.
+            for requirement in combat.combat_restrictions(obj, "attacks_other_player_if_able"):
+                avoid = requirement.get("avoid_player_id")
+                attacked = self._defending_player(obj.combat_defender)
+                if (obj.combat_defender or {}).get("kind", "player") == "player" and attacked is not None and attacked.id != avoid:
+                    continue
+                if any(
+                    spec.get("kind", "player") == "player"
+                    and (defender := self._defending_player(spec)) is not None and defender.id != avoid
+                    and self._attack_conditions_ok(obj, active, defender)
+                    and (not combat.has_defender(obj) or self._defender_attack_permission(obj, active, defender, "player"))
+                    for spec in self.legal_defenders_for(active)
+                ):
+                    raise ValueError(f"{obj.name} must attack another player if able")
             goaded_by = combat.goaders(obj)
             if not goaded_by:
                 continue

@@ -13,8 +13,8 @@ def _specs() -> list[AbilitySpec]:
     those permanents, choose a different opponent. Each opponent gains control of the
     permanent for which they were chosen.
 
-    Known limitation: creatures enter through sequential entry chooser calls, rather than
-    one simultaneous entry batch.
+    Entry choices are prepared before the revealed creatures enter simultaneously (RULE 614.12/603.6a).
+    Goad and distinct opponent control choices follow that entry batch.
     """
     return [
         AbilitySpec(

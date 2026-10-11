@@ -17,7 +17,8 @@ def _winter_cynical_opportunist() -> list[AbilitySpec]:
 
     — PLAY-ALL (Death Toll). Deathtouch and the attack mill are the parser's. The end step is a `choose_objects` over your graveyard that only *selects*
     (``select_only``: the set's legality depends on all of its members, so nothing is applied pick by pick; declining ends the selection),
-    then `exile_selected_then_return_one` judges the set — fewer than four card types does nothing — exiles it and lets you pick a permanent card
+    The chooser permits finishing only with four or more card types, or cancelling without exiling (RULE 608.2d).
+    Then `exile_selected_then_return_one` exiles the legal set and lets you pick a permanent card
     to enter with a finality counter (the new RULE 122.1h replacement in `_move_to_graveyard`: it is exiled instead of going to the graveyard).
     """
     return [
@@ -30,6 +31,7 @@ def _winter_cynical_opportunist() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("choose_objects", {
                 "action": "select_only", "what": "permanent", "pool_zone": "graveyard", "count": _ANY_NUMBER, "optional": True,
+                "minimum_card_types": _MIN_CARD_TYPES,
                 "prompt": "Karten aus dem Friedhof wählen (mindestens vier Kartentypen)",
                 "then": [{"type": "exile_selected_then_return_one", "params": {
                     "instance_ids": {"kind": "chosen_instance_ids"}, "min_card_types": _MIN_CARD_TYPES,

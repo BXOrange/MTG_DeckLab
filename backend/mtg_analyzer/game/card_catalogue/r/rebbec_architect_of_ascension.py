@@ -10,7 +10,7 @@ def _rebbec_architect_of_ascension() -> list[AbilitySpec]:
 
     — PLAY-ALL (Shorikai Vehicles). Partner is a keyword. The static is `grant_protection_static` over ``artifacts_you_control`` with the new
     ``protection_from_mana_values_among_artifacts``: one ``mv:N`` quality per distinct mana value among your artifacts, re-derived every layer pass
-    (`combat._quality_matches_type` matches it against the source's printed mana value), so an artifact is protected from any source whose mana value
+    (`combat.protection_qualities_match` uses the source object's current mana value, including announced X), so an artifact is protected from any source whose mana value
     equals one of theirs.
     """
     return [

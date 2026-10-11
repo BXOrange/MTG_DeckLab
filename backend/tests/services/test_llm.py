@@ -1,5 +1,6 @@
 """LLM credentials, provider contracts and persistent ANA-1 cache."""
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 import httpx2 as httpx
 import pytest
@@ -28,7 +29,9 @@ def test_settings_secret_preservation_permissions_environment_and_clear(tmp_path
     settings = store(tmp_path)
     assert 'secret' not in json.dumps(settings.get().public())
     assert 'api_key' not in settings.get().public()
-    assert settings.path.stat().st_mode & 0o777 == 0o600
+    # Windows stat/chmod do not represent POSIX owner/group/other permissions.
+    if os.name == "posix":
+        assert settings.path.stat().st_mode & 0o777 == 0o600
     settings.update(LLMSettingsPatch(api_key='', model='new-model'))
     assert settings.get().api_key == 'secret'
     monkeypatch.setenv('MTG_LLM_MODEL', 'environment-model')

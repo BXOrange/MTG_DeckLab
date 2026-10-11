@@ -23,3 +23,11 @@ def test_lock_file_matches_current_parser_version_and_source():
         "behavior-neutral (e.g. a comment/docstring edit), re-run "
         "`python scripts/update_parser_version_lock.py` to update the pin."
     )
+
+
+def test_parser_fingerprint_ignores_checkout_line_endings(monkeypatch):
+    baseline = parser_source_hash()
+    read_bytes = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda path:
+                        read_bytes(path).replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    assert parser_source_hash() == baseline

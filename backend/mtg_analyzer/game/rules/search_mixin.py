@@ -3101,7 +3101,7 @@ class SearchMixin:
                     from_zone="library",
                 )
             )
-            if obj.card.is_creature:
+            if obj.is_creature:
                 has_changeling = "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords
                 if has_changeling:
                     hits.append(obj)
@@ -3321,7 +3321,7 @@ class SearchMixin:
                 if not obj.card.is_land:
                     return False
             if filter_criteria.get("is_creature"):
-                if not obj.card.is_creature:
+                if not obj.is_creature:
                     return False
             subtypes = filter_criteria.get("subtypes")
             if subtypes:
@@ -3330,12 +3330,12 @@ class SearchMixin:
                 if not has_changeling:
                     _, _, sub = obj.card.type_line.lower().partition("—")
                     subs = {s.strip() for s in sub.split() if s.strip()}
-                    if not (norm_subtypes & subs):
+                    if not any(continuous.has_subtype(obj, subtype) for subtype in norm_subtypes):
                         return False
             return True
 
         def _matches_all(obj: GameObject) -> bool:
-            return _matches(obj) and (not criteria or card_query.matches(obj.card, criteria))
+            return _matches(obj) and (not criteria or card_query.matches(obj.characteristic_card(), criteria))
 
         candidates = [o for o in inspected if _matches_all(o)]
         rest_ids = [o.instance_id for o in inspected]

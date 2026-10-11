@@ -1,10 +1,63 @@
 """Destruction, life, prevention, sacrifice, and player-resource effects."""
 from __future__ import annotations
 
-from .core import GameEffect
+from .core import GameEffect, EffectRegistry
 from ._runtime import install, register
+from .. import continuations
 
 install(globals())
+
+
+class SnortEffect(GameEffect):
+    """Choose in APNAP order, then discard/draw, then deal the printed damage."""
+    def apply(self, context, targets=None):
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        _continue_snort(context.engine, {
+            "players": [player.id for player in context.state.living_players_apnap()],
+            "accepted": [], "controller_id": controller.id,
+            "source_id": getattr(self.source, "instance_id", None),
+        })
+
+
+def _continue_snort(rules, frame):
+    if frame["players"]:
+        rules.open_choice({
+            "kind": "snort_decision", "player_id": frame["players"][0], "optional": True,
+            "prompt": "Hand abwerfen und 5 Karten ziehen?", "frame": frame,
+            "options": [{"id": "do", "label": "Ja"}, {"id": "decline", "label": "Nein"}],
+        })
+        return
+    from .core import GameContext, _apply_effects_partitioned
+    from .damage_draw import DrawCardEffect, DealDamageEffect
+
+    source = rules.state.find_object(frame["source_id"])
+    players = [player for pid in frame["accepted"]
+               if (player := rules.state.player_by_id(pid)) is not None and not player.has_lost]
+    context = GameContext(rules.state, rules)
+    with rules.state.simultaneous():
+        for player in players:
+            rules.discard(player, len(player.hand), cause=source)
+    effects = [DrawCardEffect(count=5, player=player, source=source) for player in players]
+    effects.extend(DealDamageEffect(amount=5, target=player, target_kind=None, source=source)
+                   for player in players if player.id != frame["controller_id"])
+    _apply_effects_partitioned(effects, context, None, None, source=source)
+
+
+@continuations.choice("snort_decision", rule="101.4")
+def _resume_snort(rules, choice, answer):
+    if answer not in (None, "do"):
+        rules.open_choice(choice)
+        raise ValueError("Choose whether to discard your hand")
+    frame = choice["frame"]
+    player_id = frame["players"].pop(0)
+    if answer == "do":
+        frame["accepted"].append(player_id)
+    _continue_snort(rules, frame)
+
+
+EffectRegistry.register("snort", lambda params: SnortEffect())
 
 class DestroyEffect(GameEffect):
     """Destroy a target permanent — or, with ``count`` > 1, every one of a

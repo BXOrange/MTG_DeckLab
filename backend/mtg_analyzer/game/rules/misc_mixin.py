@@ -3794,6 +3794,7 @@ class MiscSystemsMixin:
         then_that_many: Optional[dict] = None,
         distinct_card_types: bool = False,
         total_power_budget: Optional[int] = None,
+        minimum_card_types: int = 0,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -3896,6 +3897,12 @@ class MiscSystemsMixin:
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
         pool = [obj for obj in candidates if obj is not None]
+        if minimum_card_types:
+            from ..continuous import card_types_of
+
+            # RULE 608.2d: an impossible optional set cannot be selected.
+            if len(set().union(*(card_types_of(obj) for obj in pool))) < minimum_card_types:
+                return
         if distinct_card_types:
             pool = [obj for obj in pool if _card_type_words(obj)]
         if total_mana_value_budget is not None:
@@ -3954,6 +3961,7 @@ class MiscSystemsMixin:
             then_that_many=then_that_many,
             distinct_card_types=distinct_card_types,
             total_power_budget=total_power_budget,
+            minimum_card_types=minimum_card_types,
         ))
     @staticmethod
     def _power_for_budget(obj: GameObject) -> int:
@@ -4033,6 +4041,7 @@ class MiscSystemsMixin:
         then_that_many: Optional[dict] = None,
         distinct_card_types: bool = False,
         total_power_budget: Optional[int] = None,
+        minimum_card_types: int = 0,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -4041,7 +4050,14 @@ class MiscSystemsMixin:
             if obj.instance_id not in picked
         ]
         if optional:
-            options.append({"id": "decline", "label": "Nichts wählen"})
+            from ..continuous import card_types_of
+
+            picked_types = set().union(*(card_types_of(obj) for obj in
+                (self._object_by_instance_id(i) for i in picked) if obj is not None))
+            if not picked or len(picked_types) >= minimum_card_types:
+                options.append({"id": "decline", "label": "Auswahl abschließen" if picked and minimum_card_types else "Nichts wählen"})
+            elif minimum_card_types:
+                options.append({"id": "-1", "label": "Nichts ins Exil schicken"})
         remaining = count - len(picked)
         label = prompt or "Wähle ein Objekt"
         return {
@@ -4097,6 +4113,7 @@ class MiscSystemsMixin:
             "total_mana_value_budget": total_mana_value_budget,
             "total_power_budget": total_power_budget,
             "distinct_card_types": bool(distinct_card_types),
+            "minimum_card_types": minimum_card_types,
             "then_that_many": dict(then_that_many) if then_that_many else None,
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
@@ -4106,6 +4123,20 @@ class MiscSystemsMixin:
         decline — RULE 601.2c's "up to"/"may" shape)."""
         player = self.state.player_by_id(choice["player_id"])
         picked: list[int] = list(choice["picked"])
+        if instance_id == -1 and choice.get("minimum_card_types") and any(
+            option["id"] == "-1" for option in choice["options"]
+        ):
+            self.state.pending_choice = None
+            self.state.release_batches()
+            return
+        if instance_id is None and picked and choice.get("minimum_card_types"):
+            from ..continuous import card_types_of
+
+            selected_types = set().union(*(card_types_of(obj) for obj in
+                (self._object_by_instance_id(i) for i in picked) if obj is not None))
+            if len(selected_types) < choice["minimum_card_types"]:
+                self.state.pending_choice = choice
+                raise ValueError("Choose a set with enough card types, or cancel the selection")
         if instance_id is None and not choice.get("optional"):
             self.state.pending_choice = choice
             raise ValueError("This choice is mandatory")
@@ -4220,6 +4251,7 @@ class MiscSystemsMixin:
             then_that_many=choice.get("then_that_many"),
             distinct_card_types=bool(choice.get("distinct_card_types")),
             total_power_budget=choice.get("total_power_budget"),
+            minimum_card_types=int(choice.get("minimum_card_types", 0)),
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["commander_taken"] = commander_taken

@@ -436,6 +436,21 @@ def test_dack_fayden_reveals_one_creature_per_opponent_then_chooses_distinct_rec
     assert second.controller_id == 'p3'
 
 
+def test_dack_revealed_creatures_enter_together_and_see_each_others_entry():
+    engine = _game(players=3)
+    text = "Whenever another creature enters under your control, you gain 1 life."
+    first = _filler(engine, "First watcher", power=2, toughness=2, zone=Zone.LIBRARY, oracle_text=text)
+    second = _filler(engine, "Second watcher", power=2, toughness=2, zone=Zone.LIBRARY, oracle_text=text)
+    dack = _filler(engine, "Dack Fayden, Helping Hand", "Legendary Creature — Human Advisor",
+                   mv=6, power=4, toughness=6, zone=Zone.HAND)
+    _cast(engine, dack, RICH)
+    engine.resolve_pending_choice("p2")
+    engine.resolve_pending_choice("p3")
+    engine.resolve_until_stable()
+    assert first.zone == second.zone == Zone.BATTLEFIELD
+    assert engine.state.player_by_id("p1").life == 22
+
+
 def test_apple_of_eden_exiles_opponents_hand_plays_with_any_mana_and_returns_unused_cards():
     e = _game()
     p1, p2 = e.state.players

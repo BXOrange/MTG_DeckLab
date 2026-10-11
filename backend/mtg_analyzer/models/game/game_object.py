@@ -1731,8 +1731,13 @@ class GameObject:
         if rooms.has_doors(self.card):
             doors = (self.unlocked_doors if self.zone == Zone.BATTLEFIELD
                      else (rooms.LEFT,) if self.zone == Zone.STACK else rooms.DOORS)
-            return sum(rooms.door_cost(self.card, door).converted_mana_cost for door in doors)
-        return self.card.converted_mana_cost
+            value = sum(rooms.door_cost(self.card, door).converted_mana_cost for door in doors)
+        else:
+            value = self.card.converted_mana_cost
+        # RULE 202.3e: each X contributes the announced value only on the stack.
+        if self.zone == Zone.STACK:
+            value += self.mana_cost_string.upper().count("{X}") * self.x_paid
+        return value
 
     @property
     def is_creature(self) -> bool:
@@ -1741,11 +1746,50 @@ class GameObject:
         # until it ceases to be bestowed (702.103e/f).
         if self.bestowed:
             return False
+        if "creature" in self.outside_battlefield_characteristics().get("add_types", []):
+            return True
         # Printed creature (unless a layer-4 effect strips it, RULE 702.151b),
         # or made one by a layer-4 type-changing effect.
         if self.card.is_creature:
             return "creature" not in self._removed_types
         return "creature" in self._added_types
+
+    def outside_battlefield_characteristics(self) -> dict:
+        """RULE 113.6c: self characteristics from abilities excluding the battlefield.
+
+        Read the object's own bound ability, without changing the shared printed
+        card or the copiable values (RULE 707.2). Zone changes apply immediately.
+        """
+        if self.zone == Zone.BATTLEFIELD or self.face_down or self.face_down_in_exile:
+            return {}
+        result = {}
+        for ability in getattr(self, "static_effects", []):
+            params = getattr(ability, "params", {})
+            if params.get("outside_battlefield_self") and getattr(ability, "source", None) is self:
+                result.update(params)
+        return result
+
+    def characteristic_card(self) -> Card:
+        """A read-only query projection; never replace the object's copiable card."""
+        from copy import copy
+
+        outside = self.outside_battlefield_characteristics()
+        if not outside:
+            return self.card
+        card = copy(self.card)
+        added = set(outside.get("add_types", []))
+        if "creature" in added:
+            card.is_creature = True
+        main, _, subtypes = card.type_line.partition("—")
+        extra_types = [kind.title() for kind in sorted(added) if kind not in main.lower().split()]
+        extra_subtypes = [str(kind).title() for kind in outside.get("add_subtypes", [])
+                          if str(kind).lower() not in subtypes.lower().split()]
+        main = " ".join([main.strip(), *extra_types])
+        subtypes = " ".join([subtypes.strip(), *extra_subtypes]).strip()
+        card.type_line = main + (" — " + subtypes if subtypes else "")
+        card.power = outside.get("power", card.power)
+        card.toughness = outside.get("toughness", card.toughness)
+        return card
 
     @property
     def is_land(self) -> bool:
@@ -1797,6 +1841,7 @@ class GameObject:
         main = self.card.type_line.partition("—")[0]
         words = {w for w in re.split(r"\s+", main.strip().lower()) if w}
         words |= self._added_types
+        words.update(self.outside_battlefield_characteristics().get("add_types", []))
         words -= self._removed_types
         words.add("permanent")
         if self.bestowed:
@@ -1876,6 +1921,9 @@ class GameObject:
         power plus counters when no layer pass has run (off-battlefield, unit
         tests). None only for something that is not a creature and has no
         layer-7 value (so an animated land still reports its P/T)."""
+        outside = self.outside_battlefield_characteristics()
+        if outside.get("power") is not None:
+            return outside["power"]
         if self._derived_power is not None:
             return self._derived_power
         if self.card.power is None:
@@ -1885,6 +1933,9 @@ class GameObject:
     @property
     def toughness(self) -> Optional[int]:
         """Effective toughness (RULE 613 layer 7); see `power`."""
+        outside = self.outside_battlefield_characteristics()
+        if outside.get("toughness") is not None:
+            return outside["toughness"]
         if self._derived_toughness is not None:
             return self._derived_toughness
         if self.card.toughness is None:

@@ -3935,7 +3935,8 @@ def parser_source_hash() -> str:
     digest = hashlib.sha1()
     for path in files:
         digest.update(path.relative_to(root).as_posix().encode("utf-8"))
-        digest.update(path.read_bytes())
+        # Git's Windows checkout can use CRLF; identical source must keep the same fingerprint.
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
     return digest.hexdigest()
 
 

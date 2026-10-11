@@ -1173,7 +1173,7 @@ class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
         self.source.exiled_with_ids = [
             obj.instance_id for obj in revealed if obj.card.is_land
         ]
-        creature_candidates = [obj for obj in revealed if obj.card.is_creature]
+        creature_candidates = [obj for obj in revealed if obj.is_creature]
         land_pick = [{"type": "ojer_kaslem_land_pick", "params": {}}]
         context.engine._request_choose_objects(
             player, creature_candidates, "library_to_battlefield", count=1, optional=True,

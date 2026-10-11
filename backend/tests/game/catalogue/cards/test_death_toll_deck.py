@@ -324,6 +324,51 @@ def test_grist_minus_two_sacrifices_a_creature_then_destroys_a_creature_or_plane
     assert fodder not in engine.state.battlefield and victim not in engine.state.battlefield
 
 
+def test_grist_has_creature_characteristics_only_outside_the_battlefield():
+    engine = _game()
+    grist = _card(engine, "Grist, the Hunger Tide", zone=Zone.HAND)
+    for zone in (Zone.HAND, Zone.LIBRARY, Zone.GRAVEYARD, Zone.EXILE, Zone.STACK, Zone.COMMAND):
+        grist.zone = zone
+        assert grist.is_creature and grist.is_planeswalker
+        assert {"creature", "planeswalker"} <= continuous.card_types_of(grist)
+        assert continuous.has_subtype(grist, "insect")
+        assert (grist.power, grist.toughness) == (1, 1)
+        assert not grist.card.is_creature  # Printed/copiable card stays untouched.
+    grist.zone = Zone.BATTLEFIELD
+    engine.state.add_to_battlefield(grist)
+    engine.recompute_continuous_effects()
+    assert not grist.is_creature and not continuous.has_subtype(grist, "insect")
+    assert (grist.power, grist.toughness) == (None, None)
+
+
+def test_grist_minus_five_counts_only_creatures_in_its_controllers_graveyard():
+    engine = _game()
+    grist = _walker(engine, "Grist, the Hunger Tide", 6)
+    _card(engine, "Grist, the Hunger Tide", zone=Zone.GRAVEYARD)
+    _card(engine, "Grist, the Hunger Tide", player="p2", zone=Zone.GRAVEYARD)
+    life = engine.state.player_by_id("p2").life
+    _loyalty(engine, grist, -5)
+    assert engine.state.player_by_id("p2").life == life - 1
+
+
+def test_grist_can_be_reanimated_as_a_creature_card_and_enters_as_a_planeswalker():
+    engine = _game()
+    grist = _card(engine, "Grist, the Hunger Tide", zone=Zone.GRAVEYARD)
+    spell = _card(engine, "Reanimate", zone=Zone.HAND)
+    _cast(engine, spell, {"B": 1}, targets=[grist])
+    assert grist.zone == Zone.BATTLEFIELD and grist.is_planeswalker and not grist.is_creature
+    assert grist.loyalty == 3
+
+
+def test_grist_is_not_taxed_as_a_noncreature_spell():
+    engine = _game()
+    _card(engine, "Thalia, Guardian of Thraben")
+    grist = _card(engine, "Grist, the Hunger Tide", zone=Zone.HAND)
+    player = engine.state.player_by_id("p1")
+    cost = engine.effective_cast_cost(player, grist)
+    assert cost.converted_mana_cost == 3
+
+
 def test_grist_minus_five_drains_each_opponent_by_creature_cards_in_your_graveyard():
     engine = _game()
     grist = _walker(engine, "Grist, the Hunger Tide", 6)
@@ -372,6 +417,62 @@ def test_into_the_pit_casts_the_top_card_only_by_sacrificing_a_nonland_permanent
     engine.resolve_until_stable()
     assert bolt.zone == Zone.GRAVEYARD
     assert sum(o.zone == Zone.GRAVEYARD for o in (pit, fodder)) == 1  # exactly one nonland permanent was sacrificed
+
+
+def test_into_the_pit_requires_distinct_printed_and_permission_sacrifices():
+    import pytest
+    from mtg_analyzer.game.costs import ActivationCost
+
+    engine = _game(library=0)
+    player = engine.state.player_by_id("p1")
+    pit = _card(engine, "Into the Pit")
+    spell = _filler(engine, "Sacrifice spell", "Instant", zone=Zone.LIBRARY)
+    spell.additional_cast_cost = ActivationCost(sacrifice="creature")
+    creature = _filler(engine, "Cost creature", "Creature", power=1, toughness=1)
+    engine.state.current_step = "main1"
+    assert not engine.can_cast(player, spell, sacrifice_choice=creature.instance_id,
+                               graveyard_sacrifice_choice=creature.instance_id)
+    with pytest.raises(ValueError):
+        engine.cast_spell(player, spell, sacrifice_choice=creature.instance_id,
+                          graveyard_sacrifice_choice=creature.instance_id)
+    assert spell.zone == Zone.LIBRARY and creature.zone == Zone.BATTLEFIELD
+    engine.cast_spell(player, spell, sacrifice_choice=creature.instance_id,
+                      graveyard_sacrifice_choice=pit.instance_id)
+    assert creature.zone == Zone.GRAVEYARD and pit.zone == Zone.GRAVEYARD
+
+
+def test_into_the_pit_automatic_sacrifices_pay_both_independent_costs():
+    from mtg_analyzer.game.costs import ActivationCost
+
+    engine = _game(library=0)
+    player = engine.state.player_by_id("p1")
+    creature = _filler(engine, "First creature", "Creature", power=1, toughness=1)
+    pit = _card(engine, "Into the Pit")
+    spell = _filler(engine, "Sacrifice spell", "Instant", zone=Zone.LIBRARY)
+    spell.additional_cast_cost = ActivationCost(sacrifice="creature")
+    engine.state.current_step = "main1"
+    assert engine.can_cast(player, spell)
+    engine.cast_spell(player, spell)
+    assert creature.zone == Zone.GRAVEYARD and pit.zone == Zone.GRAVEYARD
+
+
+def test_into_the_pit_counted_sacrifices_do_not_reuse_the_permission_payment():
+    import pytest
+    from mtg_analyzer.game.costs import ActivationCost
+
+    engine = _game(library=0)
+    player = engine.state.player_by_id("p1")
+    creatures = [_filler(engine, f"Cost {i}", "Creature", power=1, toughness=1) for i in range(2)]
+    pit = _card(engine, "Into the Pit")
+    spell = _filler(engine, "Sacrifice spell", "Instant", zone=Zone.LIBRARY)
+    spell.additional_cast_cost = ActivationCost(sacrifice_count=(2, "creature"))
+    engine.state.current_step = "main1"
+    with pytest.raises(ValueError):
+        engine.cast_spell(player, spell, sacrifice_choices=[o.instance_id for o in creatures],
+                          graveyard_sacrifice_choice=creatures[0].instance_id)
+    assert spell.zone == Zone.LIBRARY and all(o.zone == Zone.BATTLEFIELD for o in creatures)
+    engine.cast_spell(player, spell)
+    assert pit.zone == Zone.GRAVEYARD and all(o.zone == Zone.GRAVEYARD for o in creatures)
 
 
 def test_rendmaw_gives_every_player_a_tapped_goaded_bird_on_enter_and_on_multi_type_plays():
@@ -526,8 +627,25 @@ def test_winter_does_nothing_for_a_set_with_fewer_than_four_card_types():
     _card(engine, "Winter, Cynical Opportunist")
     a = _gy_filler(engine, "Instant", "I")
     b = _gy_filler(engine, "Sorcery", "S")
-    _winter_end_step(engine, [a, b])
+    _step(engine, "end")
     assert a.zone == Zone.GRAVEYARD and b.zone == Zone.GRAVEYARD and engine.state.pending_choice is None
+
+
+def test_winter_cannot_finish_an_illegal_partial_set_but_can_cancel():
+    import pytest
+
+    engine = _game()
+    _card(engine, "Winter, Cynical Opportunist")
+    cards = [_gy_filler(engine, kind, kind) for kind in ("Land", "Instant", "Sorcery", "Creature")]
+    _step(engine, "end")
+    engine.resolve_pending_choice(str(cards[0].instance_id))
+    assert "decline" not in {option["id"] for option in engine.state.pending_choice["options"]}
+    with pytest.raises(ValueError, match="enough card types"):
+        engine.resolve_pending_choice("decline")
+    assert engine.state.pending_choice is not None
+    engine.resolve_pending_choice("-1")
+    assert engine.state.pending_choice is None
+    assert all(card.zone == Zone.GRAVEYARD for card in cards)
 
 
 def test_wrenn_and_seven_plus_one_puts_revealed_lands_in_hand_and_the_rest_in_the_graveyard():

@@ -392,19 +392,49 @@ def test_massacre_girl_chains_minus_one_minus_one_through_every_death_this_turn(
     assert girl in engine.state.battlefield and girl.toughness == 4  # "other than Massacre Girl"
 
 
-def test_kardur_goads_opposing_creatures_and_drains_when_an_attacker_dies():
+def test_kardur_requires_opposing_creatures_to_attack_and_drains_when_an_attacker_dies():
     engine = _game()
     p1, p2 = engine.state.players
     theirs = _filler(engine, "Theirs", "Creature — Bear", power=2, toughness=2, player="p2")
     _put_on_battlefield(engine, "Kardur, Doomscourge")
-    assert theirs.goaded_by
+    assert combat.combat_restrictions(theirs, "attacks_other_player_if_able")
+    assert not combat.is_goaded(theirs)
 
     attacker = _filler(engine, "Attacker", "Creature — Bear", power=1, toughness=1, player="p2")
+    engine.recompute_continuous_effects()
+    assert combat.combat_restrictions(attacker, "attacks_other_player_if_able")
     attacker.attacking = True
     life1, life2 = p1.life, p2.life
     engine.rules.destroy(attacker)
     engine.resolve_until_stable()
     assert p1.life == life1 + 1 and p2.life == life2 - 1
+
+
+def test_kardur_later_arrivals_must_attack_and_effect_survives_source_until_next_turn():
+    import pytest
+
+    engine = _game(players=3)
+    source = _put_on_battlefield(engine, "Kardur, Doomscourge")
+    engine.rules.destroy(source)
+    engine.resolve_until_stable()
+    engine.begin_turn()
+    late = _filler(engine, "Late arrival", "Creature", player="p2", power=2, toughness=2)
+    late.summoning_sick = False
+    engine.recompute_continuous_effects()
+    with pytest.raises(ValueError, match="attacks each combat"):
+        engine._enforce_attacks_if_able()
+    engine.state.current_phase, engine.state.current_step = "combat", "declare_attackers"
+    player = engine.state.player_by_id("p2")
+    defender = next(d for d in engine.legal_defenders_for(player)
+                    if d.get("kind") == "player" and engine._defending_player(d).id == "p1")
+    engine.declare_attackers(player, [{"attacker": late, "defender": defender}])
+    with pytest.raises(ValueError, match="another player"):
+        engine._enforce_goad_requirements()
+    assert not combat.is_goaded(late)
+    engine.begin_turn()
+    engine.begin_turn()
+    engine.recompute_continuous_effects()
+    assert not combat.combat_restrictions(late, "attacks_other_player_if_able")
 
 
 def test_mogis_pings_an_opponent_each_upkeep_unless_they_sacrifice_a_creature():

@@ -1605,15 +1605,20 @@ def _trigger_condition(
         target_creature_you_control = bool(filt.get("target_creature_you_control"))
         exact = {
             k: v for k, v in dict(filt).items()
-            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control")
+            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control", "event_minimums")
         }
+        event_minimums = dict(filt.get("event_minimums") or {})
 
         def _filter_ok(
             event: Any, context: Any, f=exact, want_by_you=by_you,
             want_player_or_planeswalker=player_or_planeswalker, want_not_you=recipient_not_you,
             want_own_creature_target=target_creature_you_control,
+            minimums=event_minimums,
         ) -> bool:
             if not all(event.get(k) == v for k, v in f.items()):
+                return False
+            if any(not isinstance(event.get(key), (int, float)) or event.get(key) < minimum
+                   for key, minimum in minimums.items()):
                 return False
             if want_own_creature_target:
                 if event.get("is_player") or event.get("target_controller_id") != getattr(source, "controller_id", None):

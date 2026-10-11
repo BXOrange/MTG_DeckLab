@@ -75,6 +75,7 @@ from ..top_library import (
     may_play_land_from_top_of_library,
     record_top_library_use,
     top_library_life_payment_required,
+    top_library_sacrifice_type,
 )
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
@@ -224,7 +225,7 @@ class CastingMixin:
             # cast a card face down" default, and `can_cast` fails closed.
             kind = face_down.cast_face_down_kind(obj)
             return face_down.face_down_card(kind) if kind else None
-        return obj.card
+        return obj.characteristic_card()
     def _flashback_cost(self, obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.34b: ``obj``'s Flashback cost as a `ManaCost`, or
         ``None`` if it carries no Flashback keyword (or one with no parsed
@@ -1118,6 +1119,11 @@ class CastingMixin:
         required, victim = self._top_library_sacrifice_victim(player, obj, card, graveyard_sacrifice_choice)
         if required and victim is None:
             return False  # Into the Pit: nothing to sacrifice for the top-of-library cast (RULE 601.2b)
+        if required and self._permission_sacrifice_payment(
+            player, obj, top_library_sacrifice_type(player, self.state, card),
+            graveyard_sacrifice_choice, sacrifice_choice, pay_additional, x=x,
+        ) is None:
+            return False
         if grant is not None and grant.exile_graveyard_cards and (
             len([o for o in player.graveyard if o is not obj]) < grant.exile_graveyard_cards
         ):
@@ -1150,9 +1156,15 @@ class CastingMixin:
                 or self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
                 or self._self_graveyard_or_exile_cast_permission(obj, player)):
             return None
-        return graveyard_cast_grant_for(player, self.state, obj.card)
+        return graveyard_cast_grant_for(player, self.state, obj.characteristic_card())
 
     def _graveyard_sacrifice_payment(self, player, obj, grant, chosen_id, printed_choice, pay_additional):
+        return self._permission_sacrifice_payment(
+            player, obj, grant.sacrifice_type, chosen_id, printed_choice, pay_additional,
+        )
+
+    def _permission_sacrifice_payment(self, player, obj, sacrifice_type, chosen_id, printed_choice,
+                                      pay_additional, x=0, sacrifice_choices=None):
         """Find two distinct sacrifices when the spell has its own cost too.
 
         Explicit choices stay fixed; unspecified choices may use any payable
@@ -1161,18 +1173,34 @@ class CastingMixin:
         cost = getattr(obj, "additional_cast_cost", None)
         if cost is not None and pay_additional and cost.either_alt is not None:
             cost = cost.either_alt
-        if grant.sacrifice_type != "land" and continuous.cost_restricted(
+        if sacrifice_type != "land" and continuous.cost_restricted(
             self.state, "sacrifice_nonland_permanent"
         ):
             return None
         candidates = [
             o for o in self.state.permanents_controlled_by(player.id)
-            if self._matches_sacrifice_type(o, grant.sacrifice_type, state=self.state)
+            if self._matches_sacrifice_type(o, sacrifice_type, state=self.state)
             and not o.cant_be_sacrificed_this_turn
             and (chosen_id is None or o.instance_id == chosen_id)
         ]
         printed_required = (cost is not None and cost.sacrifice
                             and (not getattr(obj, "additional_cast_cost_optional", False) or pay_additional))
+        if cost is not None and cost.sacrifice_count and (
+            not getattr(obj, "additional_cast_cost_optional", False) or pay_additional
+        ):
+            for candidate in candidates:
+                picks = self._cast_sacrifice_selection(player, obj, cost, x, sacrifice_choices)
+                if picks is None:
+                    continue
+                if candidate in picks:
+                    if sacrifice_choices is not None:
+                        continue
+                    available = [o.instance_id for o in self._sacrifice_count_pool(player, cost.sacrifice_count[1], obj)
+                                 if o is not candidate and not o.cant_be_sacrificed_this_turn]
+                    picks = self._cast_sacrifice_selection(player, obj, cost, x, available[:len(picks)])
+                if picks is not None:
+                    return None, candidate
+            return None
         if not printed_required:
             return (None, candidates[0]) if candidates else None
         choices = ([printed_choice] if printed_choice is not None else
@@ -2284,7 +2312,24 @@ class CastingMixin:
             # is still the top card.
             top_library_victim = None
             if bool(player.library) and obj is player.library[-1]:
-                _, top_library_victim = self._top_library_sacrifice_victim(player, obj, None, graveyard_sacrifice_choice)
+                required, _ = self._top_library_sacrifice_victim(player, obj, None, graveyard_sacrifice_choice)
+                if required:
+                    payment = self._permission_sacrifice_payment(
+                        player, obj, top_library_sacrifice_type(player, self.state, obj.card),
+                        graveyard_sacrifice_choice, sacrifice_choice, pay_additional,
+                        x=x, sacrifice_choices=sacrifice_choices,
+                    )
+                    if payment is None:
+                        raise ValueError("Choose distinct permanents for each sacrifice cost")
+                    printed_victim, top_library_victim = payment
+                    if printed_victim is not None:
+                        sacrifice_choice = printed_victim.instance_id
+                    if paying and additional.sacrifice_count and sacrifice_choices is None:
+                        picks = self._cast_sacrifice_selection(player, obj, additional, x, None)
+                        if top_library_victim in picks:
+                            available = [o.instance_id for o in self._sacrifice_count_pool(player, additional.sacrifice_count[1], obj)
+                                         if o is not top_library_victim and not o.cant_be_sacrificed_this_turn]
+                            sacrifice_choices = available[:len(picks)]
                 record_top_library_use(player, self.state, obj.card)
             # MEC-44: RULE 601.3a — remembered once, here, since whether a
             # sorcery could have been cast depends on the board at THIS

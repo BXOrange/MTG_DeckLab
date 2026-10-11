@@ -401,13 +401,14 @@ def _context_holds(
         return any(type_sets[i] == type_sets[j] for i in range(len(type_sets)) for j in range(i + 1, len(type_sets)))
 
     if kind == "milled_subtype_this_way":
+        from .continuous import has_subtype
         milled = getattr(context, "milled_objects", None)
         if milled is None:
             return None
         subtype = str(condition.get("subtype", "")).lower()
         own_name = getattr(source, "name", None) if condition.get("name") == "source" else None
         return any(
-            subtype in (obj.card.type_line or "").lower().split("—")[-1].split()
+            has_subtype(obj, subtype)
             or (own_name is not None and obj.name == own_name)
             for obj in milled
         )

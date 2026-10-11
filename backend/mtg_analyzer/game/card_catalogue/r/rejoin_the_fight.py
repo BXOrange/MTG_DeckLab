@@ -11,8 +11,8 @@ def _rejoin_the_fight() -> list[AbilitySpec]:
     """Mill three cards. Then starting with the next opponent in turn order, each opponent chooses a creature card in your graveyard that hasn't been chosen. Return each card chosen this way to the battlefield under your control.
 
     — PLAY-ALL (Revival Trance). A `seq` of the mill and `return_from_graveyard` ``pick_mode="each_opponent_from_yours"``
-    (each opponent, in turn order, picks from the controller's graveyard; a chosen card has already left it, so none is
-    chosen twice).
+    (each opponent, in turn order, chooses an unchosen card from the controller's graveyard). Cards remain there
+    until every choice is complete, then entry choices are prepared and the group enters simultaneously.
     """
     return [
         AbilitySpec(

@@ -129,6 +129,9 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     replaces the set outright.
     """
     override = getattr(obj, "_derived_subtypes", None)
+    outside = obj.outside_battlefield_characteristics()
+    if subtype.lower() in {str(s).lower() for s in outside.get("add_subtypes", [])}:
+        return True
     if override is not None:
         words = {s.lower() for s in override}
         return subtype.lower() in words or (ALL_CREATURE_TYPES in words and subtype.lower().replace("’", "'") in CREATURE_SUBTYPES)
@@ -164,7 +167,8 @@ def derived_subtype_words(obj: "GameObject") -> frozenset[str]:
         changeling = ALL_CREATURE_TYPES in words
     else:
         _, _, printed = str(getattr(getattr(obj, "card", None), "type_line", "") or "").partition("—")
-        added = getattr(obj, "_added_subtypes", None) or ()
+        added = set(getattr(obj, "_added_subtypes", None) or ())
+        added.update(obj.outside_battlefield_characteristics().get("add_subtypes", []))
         words = { *printed.lower().split(), *(str(s).lower() for s in added) }
         changeling = ALL_CREATURE_TYPES in words or "changeling" in obj.intrinsic_keywords
     if changeling:
@@ -224,9 +228,13 @@ def _has_card_type(obj: "GameObject", card_type: str) -> bool:
     printed identity (an artifact staying an artifact regardless of any
     other layer effect in play). ``"permanent"`` (RULE 110.1) always
     matches — everything on the battlefield is one."""
+    from ..models.game.game_object import Zone
+
     if card_type == "permanent":
         return True
     attr = _CARD_TYPE_ATTRS.get(card_type)
+    if attr and getattr(obj, "zone", None) != Zone.BATTLEFIELD and hasattr(obj, "characteristic_card"):
+        return bool(getattr(obj.characteristic_card(), attr, False))
     return bool(attr and getattr(obj.card, attr, False))
 
 
@@ -923,7 +931,7 @@ def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]
     it happens to affect entered the battlefield — those can differ by an
     arbitrary number of other events in between.
     """
-    picked = [a for a in abilities if a.layer == layer]
+    picked = [a for a in abilities if a.layer == layer and not a.params.get("outside_battlefield_self")]
     return sorted(
         picked,
         key=lambda a: a.timestamp if getattr(a, "timestamp", None) is not None
@@ -2046,7 +2054,7 @@ def count_selector(
             player = state.player_by_id(controller_id) if controller_id else None
         except KeyError:
             player = None
-        return sum(1 for c in player.graveyard if c.card.is_creature) if player is not None else 0
+        return sum(1 for c in player.graveyard if c.is_creature) if player is not None else 0
     if selector.startswith("devotion_to_"):
         # RULE 202.2f/700.5: "your devotion to <colour>" is the number of
         # mana symbols of that colour in the mana costs of permanents you
@@ -3533,6 +3541,8 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
             for k in ("kind", "filter", "count", "condition", "defender_kind")
             if ability.params.get(k) is not None
         }
+        if entry.get("kind") == "attacks_other_player_if_able":
+            entry["avoid_player_id"] = (ability.duration_data or {}).get("player_id") or getattr(ability.source, "controller_id", None)
         for obj in affected_objects(state, ability):
             obj._combat_restrictions.append(dict(entry))
             # A *string* layer label, not a number: this bucket isn't a RULE
@@ -3800,7 +3810,7 @@ def _spell_type_matches(obj: "GameObject", spell_type: Union[str, list]) -> bool
     if isinstance(spell_type, list):
         return any(_spell_type_matches(obj, t) for t in spell_type)
     if spell_type == "noncreature":
-        return not obj.card.is_creature
+        return not obj.is_creature
     return _has_card_type(obj, spell_type)
 
 
@@ -6292,6 +6302,8 @@ def empty_mana_pool(state: "GameState", player: "Player", expire: tuple[str, ...
 #: `_describe_ability` string.
 def _describe_combat_restriction(entry: dict[str, Any]) -> str:
     kind = entry.get("kind")
+    if kind == "attacks_other_player_if_able":
+        return "attacks each combat and another player if able"
     if kind == "cant_be_blocked_by":
         return "can't be blocked by " + _describe_filter(entry.get("filter"))
     if kind == "only_blocked_by":
