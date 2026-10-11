@@ -319,6 +319,26 @@ def test_scholar_of_new_horizons_fetches_a_plains_to_hand_or_battlefield():
     assert any(p.zone == Zone.BATTLEFIELD and p.tapped for p in plains)
 
 
+def test_scholar_can_choose_hand_despite_an_opponent_controlling_more_lands():
+    engine = game()
+    plains = filler(engine, "Searched Plains", "Basic Land — Plains", zone=Zone.LIBRARY)
+    scholar = card(engine, "Scholar of New Horizons", zone=Zone.HAND)
+    cast(engine, scholar)
+    scholar.summoning_sick = False
+    filler(engine, "Opposing land", "Basic Land — Forest", player="p2")
+    before = len(engine.state.event_log)
+    activate(engine, scholar)
+    engine.resolve_pending_choice(str(plains.instance_id))
+    assert engine.state.pending_choice["kind"] == "search_destination"
+    assert plains.zone == Zone.LIBRARY
+    events = engine.state.event_log[before:]
+    assert any(event.type == EventType.REVEAL and event.get("instance_id") == plains.instance_id for event in events)
+    assert not any(event.type == EventType.SHUFFLE for event in events)
+    engine.resolve_pending_choice("hand")
+    assert plains.zone == Zone.HAND and not plains.tapped
+    assert any(event.type == EventType.SHUFFLE for event in engine.state.event_log[before:])
+
+
 def test_forge_of_heroes_counters_a_commander_that_entered_this_turn():
     engine = game()
     forge = card(engine, "Forge of Heroes")
