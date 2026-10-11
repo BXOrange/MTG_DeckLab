@@ -9,8 +9,8 @@ def _espers_to_magicite() -> list[AbilitySpec]:
 
     — PLAY-ALL (Revival Trance). The new `exile_opponent_graveyards_copy_creature` exiles every opponent's graveyard and
     makes the artifact-only token copy (``Card.as_copy(only_types=…)``) of one creature card among them.
-    **Simplification:** the copied card is picked for you — the creature card of highest mana value — rather than as a
-    reflexive target.
+    A separate reflexive trigger announces an optional target among the cards actually exiled this way;
+    its allowed zone incarnations survive responses and copy-target changes (RULE 603.12/400.7).
     """
     return [
         AbilitySpec("spell_effect", [EffectSpec("exile_opponent_graveyards_copy_creature", {})]),

@@ -2089,6 +2089,10 @@ class CastingResolutionMixin:
                     return target.zone == Zone.GRAVEYARD and any(
                         target in player.graveyard for player in self.state.players
                     )
+                if spec.kind == "exiled_creature_card":
+                    return target.zone == Zone.EXILE and any(
+                        target in player.exile for player in self.state.players
+                    )
                 if spec.kind in {"spell", "spell_you_control", "spell_you_dont_control", "spell_or_ability"} or (
                     "spell" in spec.kind and target.zone == Zone.STACK
                 ):

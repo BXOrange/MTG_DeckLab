@@ -581,28 +581,51 @@ EffectRegistry.register("cast_exiled_with_source", lambda p: CastExiledWithSourc
 
 
 class ExileOpponentGraveyardsCopyCreatureEffect(GameEffect):
-    """Exile opponents' graveyards and make an artifact-only copy of a creature.
-
-    The draft's explicit simplification selects the greatest mana value,
-    rather than opening the printed reflexive optional target choice.
-    """
+    """Exile opponents' graveyards, then announce the reflexive optional target."""
 
     def apply(self, context, targets=None):
         player = _controller_of(self.source, context)
         if player is None:
             return
         candidates = []
-        for opponent in context.state.living_players_apnap():
-            if opponent.id == player.id:
-                continue
-            for obj in list(opponent.graveyard):
-                context.exile(obj)
-                if obj.is_creature and obj.zone == Zone.EXILE:
-                    candidates.append(obj)
+        with context.state.simultaneous():
+            for opponent in context.state.living_players_apnap():
+                if opponent.id == player.id:
+                    continue
+                for obj in list(opponent.graveyard):
+                    context.exile(obj)
+                    if obj.is_creature and obj.zone == Zone.EXILE:
+                        candidates.append(obj)
         if candidates:
-            obj = max(candidates, key=lambda o: int(o.mana_value or 0))
-            copy = obj.card.as_copy(only_types=['Artifact'])
-            context.created_objects.extend(context.create_token(player.id, copy, 1) or [])
+            context.enqueue_reflexive_trigger([{"type": "copy_exiled_creature_as_artifact", "params": {
+                "records": [{"id": obj.instance_id, "incarnation": obj.zone_incarnation} for obj in candidates],
+            }}], self.source)
+
+
+class CopyExiledCreatureAsArtifactEffect(GameEffect):
+    def __init__(self, records=None, source=None):
+        super().__init__(source)
+        records = list(records or [])
+        self.target_spec = TargetSpec(kind="exiled_creature_card", optional=True,
+            object_ids=tuple(record["id"] for record in records),
+            zone_incarnations={record["id"]: record["incarnation"] for record in records})
+
+    def apply(self, context, targets=None):
+        from ..targeting import legal_targets
+
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        legal = {option["instance_id"] for option in legal_targets(
+            context.state, controller.id, self.target_spec, source=self.source)}
+        for obj in targets or []:
+            if obj is not None and obj.instance_id in legal:
+                copy = obj.card.as_copy(only_types=["Artifact"])
+                context.created_objects.extend(context.create_token(controller.id, copy, 1) or [])
+
+
+EffectRegistry.register("copy_exiled_creature_as_artifact",
+                        lambda params: CopyExiledCreatureAsArtifactEffect(params.get("records")))
 
 
 EffectRegistry.register('exile_opponent_graveyards_copy_creature', lambda p: ExileOpponentGraveyardsCopyCreatureEffect())

@@ -254,6 +254,8 @@ def test_espers_exiles_only_opponents_graveyards_and_creates_artifact_only_copy(
     other = _grave(e, 'Other', 'p3', kind='Instant')
     _cast(e, _card(e, 'Espers to Magicite', zone=Zone.HAND), RICH)
     assert mine.zone == Zone.GRAVEYARD and chosen.zone == other.zone == Zone.EXILE
+    assert e.state.pending_choice['kind'].startswith('trigger_target')
+    e.resolve_pending_choice(str(chosen.instance_id))
     copies = _named(e, 'Chosen')
     assert len(copies) == 1 and copies[0].is_token and copies[0].card.is_artifact
     assert not copies[0].is_creature and copies[0].power is None

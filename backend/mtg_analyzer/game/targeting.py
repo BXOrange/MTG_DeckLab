@@ -435,7 +435,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # assigned via `GameObject.blocking`/`additional_blocking`.
         "creature_source_is_blocking",
     }
-) | _GRAVEYARD_TARGET_KINDS
+) | _GRAVEYARD_TARGET_KINDS | {"exiled_creature_card"}
 
 #: German noun phrase per `_GRAVEYARD_TYPE_FILTERS` suffix, for `_graveyard_label`.
 _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
@@ -688,6 +688,9 @@ class TargetSpec:
     #: The player one expanded `per_player` round is scoped to — read by the
     #: ``SCOPE_THAT_PLAYER`` frames ahead of the trigger event's antecedent.
     scoped_player_id: Optional[str] = None
+    #: Runtime pools for "target card exiled this way"; identity includes its zone stay (RULE 400.7).
+    object_ids: Optional[tuple[int, ...]] = None
+    zone_incarnations: Optional[dict[int, int]] = None
     #: A preceding target requirement supplies this spec's "that player"
     #: antecedent.  This is stamped only after the full ordered requirement
     #: list is known; a standalone spec therefore remains fail-closed.
@@ -1687,6 +1690,12 @@ def legal_targets(
     """The currently legal targets for ``spec`` — see `_legal_targets_for`, less the object a
     group trigger fired for when the spec says "other than that creature" (PAR-123)."""
     found = _legal_targets_for(state, controller_id, spec, source, trigger_event)
+    if spec.object_ids is not None:
+        found = [option for option in found if option.get("instance_id") in spec.object_ids]
+    if spec.zone_incarnations is not None:
+        found = [option for option in found
+                 if (obj := state.find_object(option.get("instance_id"))) is not None
+                 and obj.zone_incarnation == spec.zone_incarnations.get(obj.instance_id)]
     # RULE 702.11b: a player with hexproof can't be targeted by an opponent's spell or ability
     # (their own can; see `continuous.player_has_hexproof`).
     from . import continuous  # function-scoped: continuous imports this module
@@ -2154,6 +2163,10 @@ def _legal_targets_for(
             if p.id != controller_id
             and (not spec.active_player_only or p is state.active_player)
         ]
+    if kind == "exiled_creature_card":
+        return [{"instance_id": obj.instance_id, "name": obj.name}
+                for player in state.living_players() for obj in player.exile
+                if obj.zone == Zone.EXILE and obj.is_creature and not obj.face_down_in_exile]
     if kind in _GRAVEYARD_TARGET_KINDS:
         # RULE 115: a card of some type in some graveyard — the Regrowth/
         # Reanimate ("your graveyard"), Deathrite Shaman/Virtue of
