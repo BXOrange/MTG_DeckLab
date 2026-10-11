@@ -356,6 +356,12 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Manakosten nicht bezahlbar"
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        escalate_count = self._escalate_tap_count(obj, mode)
+        if escalate_count:
+            action["tap_cost"] = {"count": escalate_count, "options": [
+                {"instance_id": candidate.instance_id, "name": candidate.name}
+                for candidate in self._escalate_tap_candidates(player)
+            ]}
         if teamwork:
             # Preview the conditional modal header with this optional cost
             # announced; the real cast sets the same ephemeral marker before

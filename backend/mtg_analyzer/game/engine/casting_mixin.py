@@ -1681,6 +1681,7 @@ class CastingMixin:
         teamwork_choices: Optional[list[int]] = None,
         gift_opponent_id: Optional[str] = None,
         pip_life_payments: Optional[dict[str, int]] = None,
+        tap_choices: Optional[list[int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1808,7 +1809,7 @@ class CastingMixin:
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
                     sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
-                    pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
+                    pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -1832,7 +1833,7 @@ class CastingMixin:
                 target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                 mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
-                pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
+                pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices,
             )
         finally:
             delattr(obj, "_modal_announced_kicked")
@@ -2168,6 +2169,7 @@ class CastingMixin:
         pay_additional: bool = False,
         teamwork: bool = False,
         teamwork_choices: Optional[list[int]] = None,
+        tap_choices: Optional[list[int]] = None,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -2190,6 +2192,12 @@ class CastingMixin:
             if not entwine or self._entwine_cost(obj) is None:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
+            escalate_count = self._escalate_tap_count(obj, mode)
+            escalate_victims = self._resolve_pool_cost(
+                self._escalate_tap_candidates(player), escalate_count, tap_choices,
+            )
+            if escalate_victims is None:
+                raise ValueError("Choose distinct untapped creatures for the Escalate cost")
             additional = getattr(obj, "additional_cast_cost", None)
             paying = additional is not None and (not getattr(obj, "additional_cast_cost_optional", False) or pay_additional)
             if sacrifice_choices is not None and (not paying or not additional.sacrifice_count):
@@ -2357,7 +2365,7 @@ class CastingMixin:
             # before resolution, so there's no ordering bug to fix there.
             # RULE 702.120: Escalate—"Tap an untapped creature you control" for each mode beyond the first (Collective Effort).
             # **Simplification:** the creatures are chosen automatically (lowest power first).
-            for creature in self._escalate_tap_candidates(player)[: self._escalate_tap_count(obj, mode)]:
+            for creature in escalate_victims:
                 self.rules.set_tapped(creature, True, reason="escalate")
             obj.teamwork_paid = False
             if teamwork:

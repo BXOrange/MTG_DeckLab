@@ -164,6 +164,33 @@ def test_collective_effort_escalate_taps_one_creature_per_extra_mode():
     assert their_wolf.counters.get("+1/+1") is None
 
 
+def test_collective_effort_uses_the_announced_tap_cost_and_rejects_duplicate_payment():
+    import pytest
+    from mtg_analyzer.services.game_session import GameSession, GameActionError
+
+    engine = game()
+    spell = card(engine, "Collective Effort", zone=Zone.HAND)
+    target = filler(engine, "Big target", player="p2", power=5, toughness=5)
+    small = filler(engine, "Small untapped", power=1, toughness=2)
+    chosen = filler(engine, "Chosen powerful", power=4, toughness=4)
+    engine.state.current_step = "main1"
+    engine.state.player_by_id("p1").mana_pool.add_many(RICH)
+    action = next(action for action in engine.legal_actions(engine.state.player_by_id("p1"))
+                  if action.get("instance_id") == spell.instance_id and action.get("mode") == [0, 2])
+    assert action["tap_cost"]["count"] == 1
+    session = GameSession(engine, require_setup=False)
+    payment = {"type": "cast_spell", "instance_id": spell.instance_id, "mode": [0, 2],
+               "targets": [{"instance_id": target.instance_id}, {"player_id": "p1"}],
+               "tap_choices": [chosen.instance_id, chosen.instance_id]}
+    with pytest.raises(GameActionError, match="Escalate"):
+        session.apply_action(payment)
+    assert not small.tapped and not chosen.tapped
+    payment["tap_choices"] = [chosen.instance_id]
+    session.apply_action(payment)
+    current = session.engine.state.find_object(chosen.instance_id)
+    assert current.tapped and not session.engine.state.find_object(small.instance_id).tapped
+
+
 def test_collective_effort_cannot_pay_escalate_without_untapped_creatures():
     import pytest
 

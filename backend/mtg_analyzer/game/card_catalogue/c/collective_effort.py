@@ -13,7 +13,8 @@ def _collective_effort() -> list[AbilitySpec]:
 
     — PLAY-ALL (Counter Blitz). A "choose one or more" modal block (``at_least``) whose Escalate cost is a creature tap rather than mana:
     ``escalate_tap_creature`` makes `GameEngine._escalate_tap_count` tap one untapped creature per mode beyond the first (`can_cast`
-    requires them; **simplification:** the creatures are chosen automatically, lowest power first). Modes: `destroy` over a creature with
+    requires them; explicit ``tap_choices`` announce distinct eligible creatures, with the default for noninteractive callers retained).
+    The shared board asks for cost cards after targets. Modes: `destroy` over a creature with
     ``min_power`` 4, `destroy` over an enchantment, and `add_counters` over the targeted player's creatures (``group_player``).
     """
     return [
