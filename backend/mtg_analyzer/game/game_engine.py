@@ -55,14 +55,15 @@ class GameEngine(
     turn/game setup — see that module for both.
     """
 
-    def __init__(self, state: "GameState") -> None:
+    def __init__(self, state: "GameState", *, rules=None) -> None:
         self.state = state
-        self.rules = RulesEngine(state)
+        self.rules = rules if rules is not None else RulesEngine(state)
         #: Cursor for interactive step-by-step play (see ``start`` /
         #: ``advance_step``): the current turn's ``(phase, step)`` list and
         #: how far through it we are. ``run_turn``/``run_goldfish_turn`` do
         #: not use these — they run a whole turn at once.
-        self._cursor = 0
+        if rules is None:
+            self._cursor = 0
         #: RULE 117: whether every priority window is *played out* by real
         #: players (multiplayer) instead of auto-drained. Off by default, so
         #: every solo path — goldfish, replay, every existing test — keeps

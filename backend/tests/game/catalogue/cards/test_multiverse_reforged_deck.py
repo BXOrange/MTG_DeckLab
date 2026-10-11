@@ -847,6 +847,18 @@ def test_jhoira_steals_the_first_historic_permanent_and_pays_its_mana_value():
     assert land in opp.library and bear in opp.library
 
 
+def test_jhoira_skips_legendary_nonpermanents_and_uses_the_printed_random_order():
+    engine = _game()
+    rock = _filler(engine, "Historic hit", "Artifact", mv=3, player="p2", zone=Zone.LIBRARY)
+    spell = _filler(engine, "Legendary sorcery", "Legendary Sorcery", player="p2", zone=Zone.LIBRARY)
+    miss = _filler(engine, "Ordinary miss", "Instant", player="p2", zone=Zone.LIBRARY)
+    _stack_library(engine, "p2", rock, spell, miss)
+    _put_on_battlefield(engine, "Jhoira, Weatherlight Corsair")
+    _answer(engine)
+    assert rock.zone == Zone.BATTLEFIELD and rock.controller_id == "p1"
+    assert spell.zone == miss.zone == Zone.LIBRARY and engine.state.pending_choice is None
+
+
 def test_plan_for_all_outcomes_lets_the_owner_pick_top_or_bottom():
     engine = _game()
     plan = _card(engine, "Plan for All Outcomes", zone=Zone.HAND)
@@ -1020,6 +1032,32 @@ def test_jace_lets_the_active_opponent_pay_two_to_keep_attacking_jaces():
     engine.resolve_until_stable()
     defenders = engine.legal_defenders_for(engine.state.player_by_id("p2"))
     assert any(d.get("instance_id") == jace.instance_id for d in defenders)
+
+
+def test_jace_attack_restriction_applies_to_later_jaces_based_on_controller():
+    engine = _game(players=3)
+    _card(engine, "Jace, Multiverse Architect")
+    _begin_combat_on_p2s_turn(engine)
+    late = _filler(engine, "Late Jace", "Planeswalker — Jace", player="p3")
+    late.controller_id = "p1"
+    owned = _filler(engine, "Owned Jace", "Planeswalker — Jace", player="p1")
+    owned.controller_id = "p3"
+    late.counters["loyalty"] = owned.counters["loyalty"] = 5
+    defenders = engine.legal_defenders_for(engine.state.player_by_id("p2"))
+    assert late.instance_id not in {defender.get("instance_id") for defender in defenders}
+    assert owned.instance_id in {defender.get("instance_id") for defender in defenders}
+
+
+def test_jace_payment_can_tap_lands_during_the_existing_payment_prompt():
+    engine = _game()
+    jace = _card(engine, "Jace, Multiverse Architect")
+    lands = [_card(engine, name, player="p2") for name in ("Island", "Forest")]
+    _begin_combat_on_p2s_turn(engine)
+    assert engine.state.pending_choice["player_id"] == "p2"
+    engine.resolve_pending_choice("pay")
+    assert all(land.tapped for land in lands)
+    assert any(defender.get("instance_id") == jace.instance_id
+               for defender in engine.legal_defenders_for(engine.state.player_by_id("p2")))
 
 
 def test_tamiyo_uses_one_trigger_for_a_combat_damage_batch_and_each_dealer_once():

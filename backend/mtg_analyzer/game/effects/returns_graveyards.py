@@ -1487,7 +1487,7 @@ class RevealOpponentLibraryStealEffect(GameEffect):
                 GameEvent(EventType.REVEAL, player_id=opponent.id, object=obj.name,
                           instance_id=obj.instance_id, from_zone="library")
             )
-            if card_query.matches(obj.card, self.criteria):
+            if card_query.matches(obj.card, self.criteria) and not (obj.card.is_instant or obj.card.is_sorcery):
                 hit = obj
         rest = [o for o in revealed if o is not hit]
         random.shuffle(rest)

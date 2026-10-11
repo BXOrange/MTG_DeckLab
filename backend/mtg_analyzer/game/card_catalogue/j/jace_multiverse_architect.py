@@ -17,8 +17,9 @@ def _jace_multiverse_architect() -> list[AbilitySpec]:
     opponent whose turn it is is asked) over `prevent_attacking_planeswalkers_this_turn` (a ``(they, you, "jace")`` bar that
     `GameEngine.legal_defenders_for` honours). The +1 is `draw` plus `choose_hand_card_to_library_bottom` (a real hand pick). The −3
     is `replace_target_with_revealed` over the new ``another_creature_or_planeswalker_you_control`` target frame. The commander
-    clause is the card's own (no engine effect). **Simplification:** the opponent's {2} is paid from their pool/lands as the
-    shared pay-or prompt does it; the bar covers every Jace the controller owns, not only those in play when the trigger resolves.
+    clause is the card's own (no engine effect). The opponent may pay using available mana abilities through the shared
+    pay-or prompt (RULE 117.12b). Its game-rule restriction includes later Jaces controlled by the ability's controller
+    (RULE 611.2c), independently of ownership.
     """
     return [
         AbilitySpec(

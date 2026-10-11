@@ -5627,7 +5627,13 @@ class MiscSystemsMixin:
         if cost.mana.symbols and not player.mana_pool.can_pay(
             cost.mana, life_available=player.life
         ):
-            return False
+            from ..game_engine import GameEngine
+            from ..mana_potential import find_tap_plan
+
+            # RULE 117.12b: a resolving payment permits mana abilities without priority.
+            # Reuse these rules/listeners and preserve the live turn cursor.
+            if find_tap_plan(GameEngine(self.state, rules=self), player, cost.mana) is None:
+                return False
         if cost.pay_life and player.life < cost.pay_life:
             return False
         if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
@@ -5699,6 +5705,10 @@ class MiscSystemsMixin:
         payment primitives `GameEngine.activate_ability` charges an activated
         ability's cost with. The payment half of `_can_pay_player_cost`."""
         if cost.mana.symbols:
+            if not player.mana_pool.can_pay(cost.mana, life_available=player.life):
+                from ..game_engine import GameEngine
+
+                GameEngine(self.state, rules=self).auto_tap_for(player, cost=cost.mana)
             life_spent = player.mana_pool.pay(cost.mana, life_available=player.life)
             self.lose_life(player, life_spent, cause="cost")
         if cost.pay_life:

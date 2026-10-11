@@ -12,8 +12,8 @@ def _jhoira_weatherlight_corsair() -> list[AbilitySpec]:
     legendaries, and Sagas are historic.)
 
     — PLAY-ALL (Multiverse Reforged). Two triggers (enters, attacks) over `reveal_opponent_library_steal`; "historic permanent
-    card" is the `card_query` ``type`` OR-list Artifact / Legendary / Saga (an instant or sorcery is never a permanent card,
-    and none is legendary or an artifact).
+    card" is the `card_query` ``type`` OR-list Artifact / Legendary / Saga, excluding instant and sorcery cards.
+    The printed random bottom order is preserved.
     """
     def _steal() -> list[EffectSpec]:
         return [EffectSpec("reveal_opponent_library_steal", {"criteria": {"type": ["Artifact", "Legendary", "Saga"]}})]
