@@ -778,6 +778,22 @@ def test_kellan_ignores_spells_cast_from_the_hand():
     assert engine.state.pending_choice is None
 
 
+def test_kellan_triggers_from_a_real_flashback_cast_out_of_the_graveyard():
+    """Casting from the graveyard fires the cast event itself (RULE 601.2); no hand-fired event."""
+    engine, p1, cheap, dear, bolt, land, _ = _kellan_game()
+    thinking = GameObject(CardDatabase(DB_PATH).get_card("Think Twice"), owner_id="p1", zone=Zone.GRAVEYARD)
+    thinking.controller_id = "p1"
+    bind_from_catalogue(thinking)
+    p1.add_to_zone(thinking, Zone.GRAVEYARD)
+    p1.mana_pool.add_many({"U": 3})  # Flashback {2}{U}; Think Twice's mana value stays 2 on the stack
+    engine.cast_spell(p1, thinking)
+    engine.resolve_until_stable()
+    choice = engine.state.pending_choice
+    assert choice is not None
+    offered = {o.get("instance_id") for o in choice["options"]} - {None}
+    assert offered == {cheap.instance_id}  # mana value 2: not the MV 6 dragon, instant or land
+
+
 def _inga_game(creatures_for_mana):
     card = CardDatabase(DB_PATH).get_card("Inga and Esika")
     engine, p1 = _game()
