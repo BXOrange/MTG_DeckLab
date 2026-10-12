@@ -515,9 +515,10 @@ class DealDamageEffect(GameEffect):
             elif who == "trigger_subject":
                 ev = context.trigger_event or {}
                 obj = context.state.find_object(ev.get("instance_id"))
-                # RULE 400.7: a dies/blocks event's object may already be
-                # gone — fall back to the controller id the event stamped.
-                if obj is None and ev.get("controller_id") is not None:
+                # RULE 608.2h / 400.7: a death event records its controller
+                # before the move. A returned creature is a new object whose
+                # current controller cannot replace that last-known value.
+                if (obj is None or getattr(ev, "type", None) == EventType.DIES) and ev.get("controller_id") is not None:
                     try:
                         player = context.state.player_by_id(ev["controller_id"])
                     except (KeyError, ValueError):

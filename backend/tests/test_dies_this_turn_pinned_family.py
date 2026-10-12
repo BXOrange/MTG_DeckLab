@@ -37,6 +37,38 @@ def test_virulent_wound_is_modeled():
     assert result.coverage == "MODELED"
 
 
+def test_searing_blood_is_modeled_with_the_creatures_controller_body():
+    assert parse_oracle(CardDatabase(DB_PATH).get_card("Searing Blood")).modeled
+
+
+@pytest.mark.parametrize("toughness,life", [(2, 17), (4, 20)])
+def test_searing_blood_damages_only_the_controller_if_its_target_dies(toughness, life):
+    from tests.support.deck_batch import game, card, filler, cast
+
+    engine = game()
+    spell = card(engine, "Searing Blood", zone=Zone.HAND)
+    victim = filler(engine, "Victim", player="p2", power=1, toughness=toughness)
+    cast(engine, spell, targets=[victim])
+    assert engine.state.player_by_id("p2").life == life
+    assert engine.state.player_by_id("p1").life == 20
+
+
+def test_searing_blood_uses_the_death_controller_after_the_creature_returns():
+    from tests.support.deck_batch import game, card, filler, cast
+
+    engine = game()
+    spell = card(engine, "Searing Blood", zone=Zone.HAND)
+    victim = filler(engine, "Victim", player="p2", power=1, toughness=4)
+    cast(engine, spell, targets=[victim])
+    engine.rules.destroy(victim)
+    engine.rules.return_from_graveyard(victim, "battlefield", controller_id="p1")
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert victim.controller_id == "p1"
+    assert engine.state.player_by_id("p2").life == 17
+    assert engine.state.player_by_id("p1").life == 20
+
+
 def _cast_wound(toughness):
     cards = [CardDatabase(DB_PATH).get_card("Virulent Wound")]
     engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=1, starting_life=20)

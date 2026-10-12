@@ -483,7 +483,7 @@ def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: target of this effect's own.
 _DAMAGE_TO_SUBJECT_CONTROLLER_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}(?:also )?deals? "
-    r"(?P<n>\d+) damage to that (?:creature|permanent)'?s controller"
+    r"(?P<n>\d+) damage to (?:that|the) (?:creature|permanent)'?s controller"
 )
 
 
