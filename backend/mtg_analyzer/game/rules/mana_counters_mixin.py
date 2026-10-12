@@ -332,6 +332,7 @@ class ManaCountersMixin:
         count: int = 1,
         ignore_lowest: int = 0,
         ignore_highest: int = 0,
+        modifier: int = 0,
     ) -> list[int]:
         """RULE 706: ``player`` rolls ``count`` dice of ``sides`` faces each
         and returns the **kept** natural results (RULE 706.2 — the number on
@@ -348,6 +349,12 @@ class ManaCountersMixin:
         706.3's ignore rider), then `EventType.DICE_ROLLED` fires once for
         the whole instruction (RULE 706.3b) carrying the kept results, every
         rolled result, their total, and RULE 706.5's ``doubles`` flag.
+
+        ``modifier`` is the roll instruction's own "roll a d20 **and add N**"
+        (RULE 706.4): it changes the *result*, never the natural roll. The
+        returned list and the events' ``natural_results``/``highest`` stay
+        natural; ``total`` / ``die_result`` (what "the result" reads) include
+        it. A modifier on a multi-die roll modifies the total only.
 
         **Documented simplifications**: RULE 706.2's *other* modifier sources
         (a flat "+N to the result" from a separate effect, the RULE 706.2b
@@ -389,7 +396,8 @@ class ManaCountersMixin:
             kept.remove(min(kept))
         for _ in range(min(ignore_highest, max(0, len(kept) - 1))):
             kept.remove(max(kept))
-        total = sum(kept)
+        modifier = int(modifier)
+        total = sum(kept) + modifier  # RULE 706.4: the modified result
         doubles = len(kept) > 1 and len(set(kept)) == 1  # RULE 706.5
         self._last_die_roll_results = list(kept)
         self._last_die_roll_total = total
@@ -399,6 +407,7 @@ class ManaCountersMixin:
             controller_id=player.id,
             results=list(kept),
             natural_results=list(natural),
+            modifier=modifier,
             total=total,
             die_result=total,  # "the result" for a "whenever you roll one or more dice" effect (Vexing Puzzlebox)
             sides=sides,
@@ -410,8 +419,11 @@ class ManaCountersMixin:
                 EventType.DIE_RESULT,
                 player_id=player.id,
                 controller_id=player.id,
-                die_result=result,
-                amount=result,  # "put that many counters" (Atomwheel Acrobats) reads the die's result
+                # A single die carries the roll's modifier in its result (RULE 706.4); "highest" and the
+                # natural face stay natural ("highest natural result").
+                die_result=result + (modifier if len(kept) == 1 else 0),
+                natural_result=result,
+                amount=result + (modifier if len(kept) == 1 else 0),  # "put that many counters" (Atomwheel Acrobats)
                 sides=sides,
                 highest=result == sides,
             ))

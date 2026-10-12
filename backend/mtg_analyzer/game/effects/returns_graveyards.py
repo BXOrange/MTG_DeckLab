@@ -924,8 +924,9 @@ class ReturnFromGraveyardEffect(GameEffect):
                 context.engine.put_onto_battlefield_attacking(target)
             if self.extra_counters:
                 kind = str(self.extra_counters.get("kind", "-1/-1"))
-                count = int(self.extra_counters.get("count", 1) or 1)
-                context.add_counters(target, count, kind, source=self.source)
+                count = int(self.extra_counters.get("count", 1))
+                if count > 0:  # a measured "X counters" can be 0
+                    context.add_counters(target, count, kind, source=self.source)
         if self.shuffle_after and owner_id is not None:
             owner = context.state.player_by_id(owner_id)
             context.shuffle_library(owner)

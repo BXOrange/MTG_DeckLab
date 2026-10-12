@@ -916,8 +916,11 @@ class FreeCastFromHandEffect(GameEffect):
         strictly_less_than_trigger: bool = False,
         arm_all: bool = False,
         during_resolution: bool = False,
+        instant_sorcery_only: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…cast **an instant or sorcery spell** …" (Arcane Endeavor) — only instant and sorcery cards are offered.
+        self.instant_sorcery_only = bool(instant_sorcery_only)
         #: "You may cast **any number of** spells from your hand without paying their mana costs." (Aetherflux
         #: Conduit) — every eligible hand card is armed in `GameState.free_cast_instance_ids` at once (RULE 118.9),
         #: and the caster then casts as many as they like through the ordinary cast action. **Simplification:** the
@@ -984,6 +987,7 @@ class FreeCastFromHandEffect(GameEffect):
             if not obj.card.is_land
             and (not self.noncreature_only or not obj.is_creature)
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
+            and (not self.instant_sorcery_only or (obj.card.is_instant or obj.card.is_sorcery))
             and (not isinstance(max_mv, int) or (obj.mana_value or 0) <= max_mv)
             and (shared_types is None or bool(continuous.card_types_of(obj) & shared_types))
         ]

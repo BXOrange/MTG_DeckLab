@@ -1329,9 +1329,18 @@ class RollDieEffect(GameEffect):
         source: Optional["GameObject"] = None,
         count_amount: Optional[dict[str, Any]] = None,
         choose: int = 0,
+        modifier: int = 0,
+        modifier_amount: Optional[dict[str, Any]] = None,
+        modifier_subtract: bool = False,
     ) -> None:
         super().__init__(source)
         self.sides = int(sides)
+        #: RULE 706.4 "roll a d20 **and add / subtract N**": a fixed ``modifier`` or an `effect_amounts` measurement
+        #: taken when the roll happens (``modifier_amount``; ``modifier_subtract`` negates it). It changes the
+        #: result (`GameContext.die_result`), never the natural dice in ``die_results``.
+        self.modifier = int(modifier)
+        self.modifier_amount = dict(modifier_amount) if modifier_amount else None
+        self.modifier_subtract = bool(modifier_subtract)
         #: "Roll two d8 and **choose one result**" (the Endeavor cycle): the roller picks which kept die is "that
         #: result"; the unpicked one is "the other result" (`GameContext.die_choice`). ``0`` = no choice.
         self.choose = int(choose)
@@ -1349,9 +1358,6 @@ class RollDieEffect(GameEffect):
         self.then_trigger = list(then_trigger or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
-        from ...parser.oracle.spec import EffectSpec
-
         player = _controller_of(self.source, context)
         count = self.count
         if self.count_amount is not None:
@@ -1364,15 +1370,23 @@ class RollDieEffect(GameEffect):
             context.die_result = 0
             context.rolled_doubles = False
             return
+        modifier = self.modifier
+        if self.modifier_amount is not None:
+            from .. import effect_amounts  # function-scoped: effects↔amounts cycle
+
+            modifier = effect_amounts.amount_of(self.modifier_amount, context, self.source, targets)
+        if self.modifier_subtract:
+            modifier = -modifier
         results = context.engine.roll_die(
             player,
             sides=self.sides,
             count=int(count),
             ignore_lowest=self.ignore_lowest,
             ignore_highest=self.ignore_highest,
+            modifier=modifier,
         )
         context.die_results = list(results)
-        context.die_result = sum(results)
+        context.die_result = sum(results) + modifier  # RULE 706.4: "the result" is the modified one
         context.rolled_doubles = len(results) > 1 and len(set(results)) == 1
         context.die_choice = None
         if self.choose and len(results) == 2:
@@ -1406,11 +1420,10 @@ class RollDieEffect(GameEffect):
             if hi is not None and total > int(hi):
                 continue
             specs = row.get("effects") or []
-            inner = build_effects(
-                [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in specs],
-                self.source,
-            )
-            for effect in inner:
+            # RULE 107.3: a row's "draw X cards" reads the spell's announced {X}, like any composed body.
+            from .composition import _build  # function-scoped: composition imports this package
+
+            for effect in _build(specs, self.source):
                 effect.apply(context, targets)
 
 

@@ -1167,6 +1167,7 @@ EffectRegistry.register(
         strictly_less_than_trigger=bool(p.get("strictly_less_than_trigger", False)),
         arm_all=bool(p.get("arm_all", False)),
         during_resolution=bool(p.get("during_resolution", False)),
+        instant_sorcery_only=bool(p.get("instant_sorcery_only", False)),
     ),
 )
 EffectRegistry.register(
@@ -3395,6 +3396,9 @@ EffectRegistry.register(
         then_trigger=p.get("then_trigger"),
         count_amount=p.get("count_amount"),
         choose=p.get("choose", 0),
+        modifier=p.get("modifier", 0),
+        modifier_amount=p.get("modifier_amount"),
+        modifier_subtract=p.get("modifier_subtract", False),
     ),
 )
 EffectRegistry.register(

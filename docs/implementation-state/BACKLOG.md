@@ -95,8 +95,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
-- **PAR-147 · Dice grammar — remaining axes.** Roll modifiers ("and add/subtract N"), results tables blocked on other
-  primitives, the Endeavor halves, one-off result readers; residue in `workingOn.md`.
+- **PAR-147 · Dice grammar — remaining axes.** Per-card referents for the roll-modifier cards, results tables blocked on other
+  primitives, one-off result readers; residue in `workingOn.md`.
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal

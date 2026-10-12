@@ -3926,7 +3926,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      "if you rolled 2, 3, or 12", doubles / any-die), per-die "whenever you roll a die / a N or higher / highest natural result",
 #      "for each even/odd/different result", roll X dice, as-enters roll + counters, results tables with label / pre-effect /
 #      cost headers and the "indicated effect" style, dice ability-word labels, "mill X cards", "+X/+0".
-PARSER_VERSION = "634"
+# 635: PAR-147 — roll modifiers ("roll a d20 and add / subtract <amount>", RULE 706.4: the result is modified, the natural roll is
+#      not), the Endeavor halves (search for X / a fixed N basic lands, "return a creature card … with X +1/+1 counters on it",
+#      "cast an instant or sorcery spell with mana value less than or equal to the other result"), and the results-table rows now
+#      read the spell's announced X ("Draw X cards"); a table row's "create N of those tokens" repeats an earlier row's token.
+PARSER_VERSION = "635"
 
 
 def parser_source_hash() -> str:
@@ -4140,6 +4144,28 @@ _DICE_INDICATED_TAIL_RE = re.compile(
     r"\s*(?:this ability has|~ has|~ gets) the indicated (?:effect|result)\.?$", re.IGNORECASE,
 )
 _DICE_INDICATED_ROW_RE = re.compile(r"^(?P<lo>\d+)\s*[—–-]\s*(?P<body>.+?)\.?$")
+#: "Create a 1/1 red Goblin creature token." then, in a later row, "Create 2 of those tokens." (Swarming Goblins): the
+#: later row names the earlier row's token, so it is that row's text with the count changed.
+_DICE_ONE_TOKEN_ROW_RE = re.compile(r"^create an? (?P<token>.+?) tokens?$", re.IGNORECASE)
+_DICE_OF_THOSE_TOKENS_RE = re.compile(r"^create (?P<n>\d+) of those tokens$", re.IGNORECASE)
+
+
+def _expand_of_those_tokens(
+    rows: list[tuple[Optional[int], Optional[int], str]],
+) -> list[tuple[Optional[int], Optional[int], str]]:
+    """``rows`` with each "create N of those tokens" spelled out as the token an earlier row of the table created."""
+    token: Optional[str] = None
+    out: list[tuple[Optional[int], Optional[int], str]] = []
+    for lo, hi, body in rows:
+        plural = _DICE_OF_THOSE_TOKENS_RE.match(body.strip())
+        if plural is not None and token is not None:
+            body = f"create {plural.group('n')} {token} tokens"
+        else:
+            single = _DICE_ONE_TOKEN_ROW_RE.match(body.strip())
+            if single is not None and "token" not in single.group("token"):
+                token = single.group("token")
+        out.append((lo, hi, body))
+    return out
 
 
 #: ``target_kind`` values that name a referent an earlier instruction established rather than asking for a RULE 115
@@ -5133,7 +5159,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         )
         self_referent = spec.ability_kind != "triggered" or (spec.trigger or {}).get("condition") == {"subject": "self"}
         outcomes: list[dict[str, Any]] = []
-        for lo, hi, body in rows:
+        for lo, hi, body in _expand_of_those_tokens(rows):
             # "it" in a row is whatever the header established: a chosen target, else the ability's own source.
             body_specs = parse_effect_body(body) or (
                 parse_effect_body(body, previous_subject=True) if referent

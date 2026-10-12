@@ -4189,7 +4189,7 @@ _EQUAL_TO_AGGREGATE_RE = re.compile(
     re.IGNORECASE,
 )
 #: The params an X can sit in once an X-capable handler has parsed the body.
-_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness")
+_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value")
 
 
 #: "`<effect with x>`, where x is the sacrificed creature's power" (Ghoulcaller Gisa, Atogatog) — X as an
@@ -4258,6 +4258,25 @@ _TOKENS_EQUAL_DIE_RE = re.compile(
 )
 
 
+#: "search your library for a number of basic land cards equal to the other result, put them onto the battlefield
+#: tapped, then shuffle" (Wild Endeavor) is "search your library for X basic land cards, …".
+_SEARCH_NUMBER_DIE_RE = re.compile(
+    rf"^(?P<head>search your library for) a number of (?P<what>.+?) equal to (?P<phrase>{_DIE_RESULT_PHRASE})"
+    rf"{_DIE_MINUS_TAIL}(?P<tail>,.*)$", re.IGNORECASE,
+)
+#: "you may cast an instant or sorcery spell with mana value less than or equal to the other result from your hand
+#: without paying its mana cost" (Arcane Endeavor) is "… with mana value X or less …".
+_CAST_MV_DIE_RE = re.compile(
+    rf"^(?P<pre>.+? with mana value) less than or equal to (?P<phrase>{_DIE_RESULT_PHRASE})"
+    rf"{_DIE_MINUS_TAIL}(?P<post> from your hand.*)$", re.IGNORECASE,
+)
+#: "return a creature card from your graveyard to the battlefield with a number of +1/+1 counters on it equal to
+#: that result" (Grave Endeavor) is "… with X +1/+1 counters on it".
+_RETURN_COUNTERS_DIE_RE = re.compile(
+    rf"^(?P<head>return .+? to the battlefield) with a number of (?P<kind>[+\-]\d+/[+\-]\d+|[a-z]+) counters on it"
+    rf" equal to (?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}$", re.IGNORECASE,
+)
+
 _DESTROY_POWER_AT_LEAST_DIE_RE = re.compile(
     rf"destroy each creature with power greater than or equal to (?P<phrase>{_DIE_RESULT_PHRASE})", re.IGNORECASE,
 )
@@ -4288,9 +4307,21 @@ def _die_x_rest(text: str) -> "Optional[tuple[str, dict[str, Any]]]":
                 rest = f"put x {kind + ' ' if kind else ''}counters on {m.group('where')}"
             else:
                 m = _TOKENS_EQUAL_DIE_RE.match(text)
-                if m is None:
-                    return None
-                rest = f"create x {m.group('what_token')} tokens{m.group('with') or ''}"
+                if m is not None:
+                    rest = f"create x {m.group('what_token')} tokens{m.group('with') or ''}"
+                else:
+                    m = _SEARCH_NUMBER_DIE_RE.match(text)
+                    if m is not None:
+                        rest = f"{m.group('head')} x {m.group('what')}{m.group('tail')}"
+                    else:
+                        m = _CAST_MV_DIE_RE.match(text)
+                        if m is not None:
+                            rest = f"{m.group('pre')} x or less{m.group('post')}"
+                        else:
+                            m = _RETURN_COUNTERS_DIE_RE.match(text)
+                            if m is None:
+                                return None
+                            rest = f"{m.group('head')} with x {m.group('kind')} counters on it"
     amount: dict[str, Any] = dict(_DIE_PHRASE_AMOUNTS[m.group("phrase").lower()])
     if m.group("minus"):
         # RULE 107.1b: a negative X is 0.
@@ -4416,7 +4447,11 @@ def _bind_x_specs(
         if any(v == "-x" for k, v in params.items() if k not in _X_PARAM_KEYS):
             return None
         holders = [k for k in _X_PARAM_KEYS if params.get(k) in ("x", "-x")]
-        if several and not holders:
+        nested = False
+        if not holders and isinstance(params.get("then_effects"), list):
+            # An X inside the effects that follow a pick ("return a creature card … with X counters on it").
+            params["then_effects"], nested = _replace_x(params["then_effects"])
+        if several and not (holders or nested):
             # "put a +1/+1 counter on ~, then create X tokens, where X is the number of
             # counters on ~" (Anim Pakal) measures *after* the first effect; a bind
             # measures once, before all of them. Only a sentence whose every effect
@@ -4424,7 +4459,7 @@ def _bind_x_specs(
             return None
         for key in holders:
             params[key] = "-$n" if key in negated else "$n"
-        bound_any = bound_any or bool(holders)
+        bound_any = bound_any or bool(holders) or nested
         entry = {"type": spec.type, "params": params}
         if spec.condition is not None:
             entry["condition"] = dict(spec.condition)

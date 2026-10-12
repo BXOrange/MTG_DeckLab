@@ -2170,7 +2170,7 @@ _FREE_CAST_FROM_HAND_RE = _c(
     # Expertise cycle) and "…spell from your hand with mana value N or
     # less…" (Marvo, Deep Operative). Two positions for the cap, read back
     # by `_free_cast_from_hand` as ``n`` or ``n_after``.
-    rf"(?:you may )?cast an? (?P<noncreature>noncreature )?spell"
+    rf"(?:you may )?cast (?:an? (?P<noncreature>noncreature )?spell|(?P<isorc>an instant or sorcery spell))"
     rf"(?: with mana value {COUNT_X} or less)? from your hand"
     rf"(?: with mana value (?P<n_after>a|an|x|\d+) or less)? "
     rf"without paying its mana cost(?P<selector>, where x is the number of attacking creatures)?"
@@ -2181,6 +2181,10 @@ def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {}
     if m.groupdict().get("noncreature"):
         params["noncreature_only"] = True
+    if m.groupdict().get("isorc"):
+        # RULE 608.2g: Arcane Endeavor casts it while the spell resolves, not later in the turn.
+        params["instant_sorcery_only"] = True
+        params["during_resolution"] = True
     cap = m.groupdict().get("n") or m.groupdict().get("n_after")
     if m.group("selector"):
         params["max_mana_value_selector"] = "attacking_creatures"
@@ -5647,6 +5651,8 @@ _RETURN_PICK_FROM_GRAVEYARD_RE = _c(
     rf"return an? (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
     rf"(?: with mana value (?P<mv>\d+) or less)? from (?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand)(?P<tapped> tapped)?"
+    # RULE 614.1c: "…to the battlefield with a +1/+1 counter on it" — the counters follow the picked card.
+    rf"(?: with (?P<ewc_n>a|an|\d+|x)(?: additional)? (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
     r"|"
     rf"put an? (?:(?P<type2>{_GRAVEYARD_TYPE_WORD}) )?card from (?P<scope2>{_GRAVEYARD_SCOPE_WORD}) graveyard "
     r"onto the battlefield(?P<tapped2> tapped)? under your control)"
@@ -5674,6 +5680,13 @@ def _return_pick_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["under_your_control"] = True
     if groups.get("mv") is not None:
         params["max_mana_value"] = int(groups["mv"])
+    if groups.get("ewc_kind"):
+        if destination != "battlefield":
+            return None
+        # The counters belong to the card the controller picked, so they ride its pick (`then_effects` run on it).
+        params["then_effects"] = [{"type": "add_counters", "params": {
+            "count": count_or_x_of(groups["ewc_n"]), "kind": groups["ewc_kind"], "previous_subject": True,
+        }}]
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -5876,7 +5889,9 @@ _SEARCH_SUBTYPE_WORD = r"rebel|mercenary"
 #: dropped qualifier can never cause a wrong pick in practice.
 _SEARCH_AURA_ENCHANT_CREATURE_TAIL = r"(?:\s+with enchant creature)?"
 _SEARCH_CRITERIA = (
-    r"(?:up to (?P<count>\d+)|an?)\s+"
+    # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
+    # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
+    r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
     rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
     rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+permanent\s+)?"
@@ -6061,8 +6076,10 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     return crit
 
 
-def _search_count_from_match(m: re.Match[str]) -> Optional[int]:
+def _search_count_from_match(m: re.Match[str]) -> "Optional[int | str]":
     count = m.groupdict().get("count")
+    if count == "x":
+        return "x"
     return int(count) if count is not None else None
 
 
@@ -12819,7 +12836,9 @@ _ROLL_DIE_RE = _c(
     r"(?:d(?P<sides_d>\d+)|(?P<sides_s>\d+)-sided (?:die|dice))"
     # RULE 706 (PAR-147): "roll X six-sided dice, where X is the number of Bobbleheads you control" — the count is
     # measured when the roll happens (a `bind` would lose the kept dice to the nested resolution).
-    r"(?:, where x is (?P<where>.+)| and choose (?P<choose>1|one) result)?"
+    r"(?:, where x is (?P<where>.+)| and choose (?P<choose>1|one) result"
+    # RULE 706.4 (PAR-147): "roll a d20 and add the number of cards in your hand" — the modifier changes the result.
+    r"| and (?P<mod_op>add|subtract) (?P<mod>.+))?"
 )
 
 
@@ -12840,6 +12859,22 @@ def _roll_die(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return [EffectSpec("roll_die", params)]
     if m.group("where"):
         return None  # a "where x is" tail only defines a rolled-X count
+    if m.group("mod"):
+        from .count_phrase import parse_amount_phrase
+
+        if word != "a":  # a modifier on a multi-die roll is not a printed shape
+            return None
+        phrase = m.group("mod").strip().rstrip(".")
+        if phrase.isdigit():
+            params["modifier"] = int(phrase)
+        else:
+            counted = parse_amount_phrase(phrase)
+            if counted is None:
+                return None
+            params["modifier_amount"] = {"kind": "count_selector", "selector": counted}
+        if m.group("mod_op") == "subtract":
+            params["modifier_subtract"] = True
+        return [EffectSpec("roll_die", params)]
     if m.group("choose"):
         params["choose"] = 1  # the Endeavor cycle: roll two, keep one result (RULE 706.2)
     count = int(word) if word.isdigit() else _DICE_COUNT_WORDS.get(word)

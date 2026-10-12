@@ -569,3 +569,254 @@ def test_mill_x_binds_the_measured_count():
     [spec] = parse_effect_body("target player mills x cards, where x is the number of lands you control")
     assert spec.type == "bind" and spec.params["effects"][0]["params"]["count"] == "$n"
     assert parse_effect_body("target player mills x cards")[0].params["count"] == "x"
+
+
+# --- roll modifiers: "roll a d20 and add / subtract <amount>" (RULE 706.4) --------------------------------
+
+
+_PORTENT = _card(
+    "Diviner's Portent", "Instant",
+    "Roll a d20 and add the number of cards in your hand.\n1—14 | Draw X cards.\n15+ | Scry X, then draw X cards.",
+    mana_cost_string="{X}{U}{U}{U}", is_instant=True,
+)
+
+
+def test_roll_modifier_parses_a_fixed_or_measured_amount():
+    [fixed] = parse_effect_body("roll a d20 and add 3")
+    assert fixed.params == {"sides": 20, "modifier": 3}
+    [measured] = parse_effect_body("roll a d20 and subtract the number of cards in your hand")
+    assert measured.params["modifier_subtract"] is True
+    assert measured.params["modifier_amount"]["selector"] == {"zone": "hand", "of": "you"}
+    assert parse_effect_body("roll two d6 and add 3") is None  # a modifier on several dice is not a printed shape
+    assert parse_oracle(_PORTENT).modeled
+
+
+def _portent_engine(hand_extra):
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    for i in range(hand_extra):
+        p1.hand.append(GameObject(_creature_card(f"Held {i}", ""), owner_id="p1", zone=Zone.HAND))
+    return eng, p1
+
+
+def test_modified_result_picks_the_table_row_but_the_natural_roll_is_kept(script_dice):
+    # natural 9 + 7 held cards = 16 -> the "15+" row (scry X, then draw X).
+    eng, p1 = _portent_engine(7)
+    script_dice(9)
+    _cast(eng, _PORTENT, x=2)
+    assert eng.rules._last_die_roll_results == [9]  # RULE 706.4: the natural roll is untouched
+    assert eng.rules._last_die_roll_total == 16
+    assert eng.state.pending_choice["kind"] == "scry"  # the 15+ row scries X first
+
+
+def test_modified_result_below_the_threshold_takes_the_low_row(script_dice):
+    # natural 9 + 2 held cards = 11 -> "1-14": draw X, no scry.
+    eng, p1 = _portent_engine(2)
+    before = len(p1.hand)
+    script_dice(9)
+    _cast(eng, _PORTENT, x=2)
+    assert eng.rules._last_die_roll_total == 11
+    assert eng.state.pending_choice is None
+    assert len(p1.hand) == before + 2
+
+
+def test_modifier_never_changes_the_highest_natural_result(script_dice):
+    eng = _engine()
+    _put(eng, _PUZZLE_WARD)
+    p1 = eng.state.player_by_id("p1")
+    before = len(p1.hand)
+    script_dice(3)
+    _roll(eng, sides=6, modifier=3)  # the result is 6 but the natural roll is 3
+    eng.resolve_until_stable()
+    assert len(p1.hand) == before
+    script_dice(6)
+    _roll(eng, sides=6, modifier=-4)  # the result is 2 but the natural roll is the highest face
+    eng.resolve_until_stable()
+    assert len(p1.hand) == before + 1
+
+
+_DECK = _card(
+    "Modifier Tester", "Artifact",
+    "{T}: Roll a d20 and subtract the number of cards in your hand. If the result is 0 or less, you lose 3 life.",
+)
+
+
+def test_subtracted_result_can_go_to_zero_or_less(script_dice):
+    eng, p1 = _portent_engine(5)
+    tester = _put(eng, _DECK)
+    script_dice(4)
+    eng.activate_ability(p1, tester)
+    eng.resolve_until_stable()
+    assert eng.rules._last_die_roll_total == -1 and eng.rules._last_die_roll_results == [4]
+    assert p1.life == 17
+
+
+# --- the remaining Endeavor halves: Wild (search), Grave (reanimate with counters), Arcane (free cast) -----
+
+
+def _forest(i):
+    return _card(f"Forest {i}", "Basic Land — Forest", "", is_land=True)
+
+
+_WILD = _card(
+    "Wild Endeavor", "Sorcery",
+    "Roll two d4 and choose one result. Create a number of 3/3 green Beast creature tokens equal to that result. "
+    "Then search your library for a number of basic land cards equal to the other result, put them onto the "
+    "battlefield tapped, then shuffle.",
+    is_sorcery=True,
+)
+
+
+def test_wild_endeavor_makes_beasts_and_fetches_lands_by_the_two_results(script_dice):
+    assert parse_oracle(_WILD).modeled
+    eng = make_engine([_forest(i) for i in range(6)], [_creature_card("Other", "")], hand=0)
+    eng.state.current_step = "main1"
+    script_dice(3, 2)
+    _cast(eng, _WILD)
+    eng.resolve_pending_choice("0")  # choose the 3: three Beasts, two lands
+    for _ in range(4):  # the search offers one card at a time
+        if eng.state.pending_choice is None:
+            break
+        options = eng.state.pending_choice.get("options") or []
+        eng.resolve_pending_choice(options[0]["id"] if options else "0")
+        eng.resolve_until_stable()
+    assert len(_on_battlefield(eng, "Beast")) == 3
+    lands = [o for o in eng.state.battlefield if o.card.is_land and o.controller_id == "p1"]
+    assert len(lands) == 2 and all(o.tapped for o in lands)
+
+
+_GRAVE = _card(
+    "Grave Endeavor", "Sorcery",
+    "Roll two d10 and choose one result. Return a creature card from your graveyard to the battlefield with a "
+    "number of +1/+1 counters on it equal to that result. Then each opponent loses X life and you gain X life, "
+    "where X is the other result.",
+    is_sorcery=True,
+)
+
+
+def test_grave_endeavor_returns_with_the_chosen_result_as_counters(script_dice):
+    assert parse_oracle(_GRAVE).modeled
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    corpse = GameObject(_creature_card("Corpse", "", power=1, toughness=1), owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.graveyard.append(corpse)
+    script_dice(4, 9)
+    _cast(eng, _GRAVE)
+    eng.resolve_pending_choice("1")  # choose the 9
+    while eng.state.pending_choice is not None:
+        options = eng.state.pending_choice.get("options") or []
+        eng.resolve_pending_choice(options[0]["id"] if options else "0")
+        eng.resolve_until_stable()
+    assert corpse.zone == Zone.BATTLEFIELD and corpse.counters.get("+1/+1") == 9
+    assert p2.life == 20 - 4 and p1.life == 20 + 4  # the other result drains
+
+
+_ARCANE = _card(
+    "Arcane Endeavor", "Sorcery",
+    "Roll two d8 and choose one result. Draw cards equal to that result. Then you may cast an instant or sorcery "
+    "spell with mana value less than or equal to the other result from your hand without paying its mana cost.",
+    is_sorcery=True,
+)
+
+
+def test_arcane_endeavor_casts_only_an_instant_or_sorcery_within_the_other_result(script_dice):
+    assert parse_oracle(_ARCANE).modeled
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    cheap = GameObject(_card("Cheap Bolt", "Instant", "You gain 1 life.", is_instant=True,
+                             converted_mana_cost=2, mana_cost_string="{1}{R}"), owner_id="p1", zone=Zone.HAND)
+    pricey = GameObject(_card("Pricey Bolt", "Sorcery", "You gain 1 life.", is_sorcery=True,
+                              converted_mana_cost=5, mana_cost_string="{4}{R}"), owner_id="p1", zone=Zone.HAND)
+    creature = GameObject(_creature_card("Cheap Bear", "", converted_mana_cost=1), owner_id="p1", zone=Zone.HAND)
+    for obj in (cheap, pricey, creature):
+        bind_from_catalogue(obj)
+        p1.hand.append(obj)
+    script_dice(1, 3)
+    _cast(eng, _ARCANE)
+    eng.resolve_pending_choice("0")  # choose the 1: draw one; the other result is 3
+    choice = eng.state.resolution_play_choice
+    assert choice is not None and choice["max_mana_value"] is not None
+    offered = set(choice["instance_ids"])
+    assert cheap.instance_id in offered
+    assert pricey.instance_id not in offered and creature.instance_id not in offered
+
+
+def test_search_and_reanimate_count_words_parse():
+    [fixed] = parse_effect_body("search your library for 2 basic land cards, put them onto the battlefield tapped, then shuffle")
+    assert fixed.params["count"] == 2
+    [announced] = parse_effect_body("search your library for x basic land cards, put them onto the battlefield tapped, then shuffle")
+    assert announced.params["count"] == "x"
+    [pick] = parse_effect_body("return a creature card from your graveyard to the battlefield with 2 +1/+1 counters on it")
+    assert pick.params["pick"] is True and pick.params["then_effects"][0]["params"]["count"] == 2
+    [free] = parse_effect_body("you may cast an instant or sorcery spell with mana value 3 or less from your hand without paying its mana cost")
+    assert free.params["instant_sorcery_only"] and free.params["max_mana_value"] == 3
+
+
+# --- collateral: the search count may be an announced X or a fixed number --------------------------------
+
+
+def _finish_choices(eng):
+    for _ in range(12):
+        if eng.state.pending_choice is None:
+            break
+        options = eng.state.pending_choice.get("options") or []
+        eng.resolve_pending_choice(options[0]["id"] if options else "0")
+        eng.resolve_until_stable()
+
+
+_REVELATION = _card(
+    "Diabolic Revelation", "Sorcery", "Search your library for up to X cards, put those cards into your hand, then shuffle.",
+    mana_cost_string="{X}{3}{B}", is_sorcery=True,
+)
+
+
+def test_search_for_up_to_x_cards_finds_the_announced_x():
+    assert parse_oracle(_REVELATION).modeled
+    eng = make_engine([_forest(i) for i in range(6)], [_creature_card("Other", "")], hand=0)
+    eng.state.current_step = "main1"
+    p1 = eng.state.player_by_id("p1")
+    _cast(eng, _REVELATION, x=2)
+    _finish_choices(eng)
+    assert len(p1.hand) == 2
+
+
+def test_search_for_a_fixed_number_of_basic_lands_fetches_that_many():
+    sac = _card("Fixed Fetch", "Sorcery",
+                "Search your library for two basic land cards, put them onto the battlefield tapped, then shuffle.",
+                is_sorcery=True)
+    assert parse_oracle(sac).modeled
+    eng = make_engine([_forest(i) for i in range(6)], [_creature_card("Other", "")], hand=0)
+    eng.state.current_step = "main1"
+    _cast(eng, sac)
+    _finish_choices(eng)
+    assert len([o for o in eng.state.battlefield if o.card.is_land and o.tapped]) == 2
+
+
+def test_enters_trigger_searches_for_the_x_the_creature_was_cast_with():
+    chimney = _creature_card(
+        "Spore Test", "Defender\nWhen this creature enters, search your library for up to X basic land cards, "
+        "put them onto the battlefield tapped, then shuffle.", mana_cost_string="{X}{G}",
+    )
+    eng = make_engine([_forest(i) for i in range(6)], [_creature_card("Other", "")], hand=0)
+    eng.state.current_step = "main1"
+    _cast(eng, chimney, x=3)
+    _finish_choices(eng)
+    assert len([o for o in eng.state.battlefield if o.card.is_land and o.tapped]) == 3
+
+
+_SWARMING = _creature_card(
+    "Swarming Goblins Test",
+    "When this creature enters, roll a d20.\n1—9 | Create a 1/1 red Goblin creature token.\n"
+    "10—19 | Create two of those tokens.\n20 | Create three of those tokens.",
+)
+
+
+@pytest.mark.parametrize("face,goblins", [(4, 1), (15, 2), (20, 3)])
+def test_of_those_tokens_rows_repeat_the_first_rows_token(script_dice, face, goblins):
+    assert parse_oracle(_SWARMING).modeled
+    eng = _engine()
+    obj = _put(eng, _SWARMING)
+    script_dice(face)
+    _enter(eng, obj)
+    eng.resolve_until_stable()
+    assert len(_on_battlefield(eng, "Goblin")) == goblins
