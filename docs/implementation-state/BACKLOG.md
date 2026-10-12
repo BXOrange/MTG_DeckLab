@@ -34,6 +34,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
+- **PAR-154 · Named dies-this-turn residue.** Model Reincarnation, Rushed Rebirth, Fatal Fissure, Time to Feed, Sandals of Abdallah and Initiate of Blood with correct target announcement, object/source incarnation and controller/owner referents; Initiate requires MEC-115.
+
 - **PAR-12 · The indefinite long tail (methodology pointer, not closeable).** Strategy, coverage,
   worked examples and the Commander-legal tail taxonomy (`scripts/commander_tail_report.py`) live in
   [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Two tracks: **basic mechanics** (generic shapes,
@@ -41,8 +43,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-153` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-154`**; next free `MEC`: **`MEC-115`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-154` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-155`**; next free `MEC`: **`MEC-116`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -131,6 +133,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Tidebinder). Verify with `engine_bench.py`, not parse verdicts.
 
 ## MEC — Game mechanic
+
+- **MEC-115 · Flip-card status (RULE 710).** Implement one-way flipping and alternate battlefield characteristics while preserving color/mana cost, resetting status on zone changes and handling copies; bind a reusable `flip` effect/parser body and validate Initiate of Blood // Goka the Unjust. Local raw corpus: 26 flip cards.
 
 - **MEC-114 · Myriad (RULE 702.116).** The keyword is recognised (`keywords.py`) but has no engine behaviour: "whenever this
   creature attacks, for each opponent other than defending player, you may create a token copy that's tapped and attacking that

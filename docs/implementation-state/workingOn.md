@@ -55,7 +55,7 @@ Block template (do not change this, copy below the line, fill in there):
 
 ### Remaining scope
 
-- Dies-this-turn bodies: Reincarnation, Rushed Rebirth, Fatal Fissure's earthbend, Sandals of Abdallah / Initiate of Blood source-referencing bodies, Time to Feed.
+- PAR-154: Reincarnation, Rushed Rebirth, Fatal Fissure's earthbend, Sandals of Abdallah / Initiate of Blood source-referencing bodies, Time to Feed. Initiate requires MEC-115 (flip-card status and correct alternate characteristics); these tickets remain part of this goal's required scope.
 - Broader mana-ability counter riders.
 - Counter/pump-then-fight.
 - Flicker with riders.
