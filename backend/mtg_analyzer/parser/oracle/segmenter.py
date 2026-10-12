@@ -6871,7 +6871,7 @@ _TARGET_CREATURE_SUBJECT_RE = re.compile(r"^target creature (?P<verb>.+)$", re.I
 #: PAR-102: "Target creature gets +2/+0 until end of turn. When **that creature** dies this turn, …" — the
 #: subject is the creature the *preceding clause* chose, so it is only read as such when the caller says
 #: a previous clause did (`previous_subject`); otherwise "that creature" names nothing and stays unclaimed.
-_THAT_CREATURE_SUBJECT_RE = re.compile(r"^that creature (?P<verb>(?:dies|leaves the battlefield))$", re.IGNORECASE)
+_THAT_CREATURE_SUBJECT_RE = re.compile(r"^(?:that creature|it) (?P<verb>(?:dies|leaves the battlefield))$", re.IGNORECASE)
 
 
 def _turn_trigger_segment(
@@ -6903,18 +6903,38 @@ def _turn_trigger_segment(
         allow_spell_effect=False, provenance=provenance,
     )
     unclaimed = Segment(raw=line.strip())
+    pinned = target_kind is not None or that_creature is not None
+    if pinned and (not inner.claimed or inner.spec is None) and condition == "~ dies":
+        # The body names the dying creature's controller/owner ("its controller gets a poison counter"): a self
+        # subject can't say that, but the same body under a group head can — its effects carry the group-subject
+        # referent, which the binder resolves for a chosen-object trigger too. The trigger shell stays the self one.
+        group = segment_line(
+            f"{keyword} a creature dies, {m.group('body')}",
+            allow_spell_effect=False, provenance=provenance,
+        )
+        shell = segment_line(f"{keyword} {condition}, draw a card.", allow_spell_effect=False, provenance=provenance)
+        if group.claimed and group.spec is not None and shell.claimed and shell.spec is not None:
+            group.spec.trigger = shell.spec.trigger
+            inner = group
     if not inner.claimed or inner.spec is None or inner.extra_specs:
         return unclaimed
     spec = inner.spec
     if spec.ability_kind != "triggered" or not spec.effects or isinstance(spec.trigger.get("event"), list):
         return unclaimed
+    effect_dicts = [e.to_dict() for e in spec.effects]
+    if pinned:
+        # "…, return **it** to the battlefield": the pinned trigger is bound to the spell/ability, so a bare "it" must
+        # name the creature that died (the trigger's subject), not the source — as "return that card" already does.
+        for effect in effect_dicts:
+            if effect.get("type") == "return_self_to_battlefield" and "target_kind" not in effect["params"]:
+                effect["params"] = {**effect["params"], "target_kind": "trigger_subject"}
     return Segment(
         raw=line.strip(),
         spec=AbilitySpec(
             "spell_effect",
             effects=[EffectSpec("create_turn_trigger", {
                 "trigger": spec.trigger,
-                "effects": [e.to_dict() for e in spec.effects],
+                "effects": effect_dicts,
                 "optional": bool(spec.optional),
                 **({"once": True} if once else {}),
                 **({"target_kind": target_kind} if target_kind else {}),

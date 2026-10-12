@@ -3008,7 +3008,9 @@ def _retarget_implicit_subject_effects(
     subject = condition.get("subject")
     if subject == "attached_permanent":
         retarget_fields = _ATTACHED_PERMANENT_RETARGET_FIELDS
-    elif subject in ("group", "self_or_group"):
+    elif subject in ("group", "self_or_group") or (subject == "self" and "instance_id_override" in condition):
+        # A turn-long trigger pinned to one chosen object ("When that creature dies this turn, its controller …")
+        # reads its firing object off the event exactly like a group trigger does.
         retarget_fields = {}
     else:
         return effect_specs
