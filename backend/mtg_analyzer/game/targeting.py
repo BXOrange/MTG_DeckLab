@@ -1714,6 +1714,45 @@ def legal_targets(
     return [option for option in found if option.get("instance_id") != firing]
 
 
+def _announce_relative(spec: TargetSpec) -> bool:
+    """Whether ``spec`` is measured against something that existed only while the target was announced.
+
+    Such a requirement can't be re-evaluated from the board at resolution, so `target_meets_restrictions`
+    leaves it to the announce-time check (RULE 601.2c): a "that player" or defending-player scope and a
+    per-opponent round come from the firing event or the round being expanded, an antecedent target is
+    another slot's pick, and a string-valued mana-value bound is a sentinel resolved from the trigger
+    event, X or a count read when the spell or ability was put on the stack."""
+    frame = TARGET_FRAMES.get(spec.kind)
+    if frame is not None and frame.scope in (SCOPE_DEFENDING, SCOPE_THAT_PLAYER):
+        return True
+    return bool(
+        spec.per_player or spec.prior_target_antecedent or spec.excluding_trigger_subject
+        or isinstance(spec.max_mana_value, str) or isinstance(spec.exact_mana_value, str)
+        or isinstance(spec.min_mana_value, str)
+    )
+
+
+def target_meets_restrictions(
+    state: GameState,
+    controller_id: str,
+    spec: TargetSpec,
+    target: GameObject,
+    source: Optional[GameObject] = None,
+    trigger_event: Optional[dict[str, Any]] = None,
+) -> bool:
+    """RULE 608.2b: whether a battlefield permanent chosen for ``spec`` is still a legal target as the spell
+    or ability resolves: the type, controller, colour, mana-value and ``creature_filter`` (keyword,
+    tapped/attacking, power/toughness, ...) restrictions, *and* targetability (hexproof RULE 702.11b judged
+    against the resolving source's controller, shroud 702.18, protection 702.16b judged against the source's
+    qualities, read as last known information if it has left its zone, RULE 113.7a). All of it is evaluated
+    by the very predicate that offered the target (`legal_targets`), not a second list of keys. Requirements
+    measured against announce-time state (`_announce_relative`) are not re-evaluated."""
+    if _announce_relative(spec):
+        return True
+    offered = legal_targets(state, controller_id, spec, source, trigger_event)
+    return any(option.get("instance_id") == target.instance_id for option in offered)
+
+
 def _legal_targets_for(
     state: GameState,
     controller_id: str,

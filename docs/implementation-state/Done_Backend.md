@@ -1226,6 +1226,21 @@ to every gathered target. Resolution conditions can read the actual `cast_from_e
 
 - Authored restricted attachment abilities can set `cost.attach_kind`; the binder carries it to the live ability for keyword-specific cost effects. Restricted Equip abilities use controller-scoped targets and sorcery timing, matching the ordinary keyword path.
 
+### Target legality rechecked at resolution (RULE 608.2b, BUG-3)
+
+`casting_mixin._apply_stack_item` rechecks each battlefield target with `targeting.target_meets_restrictions`, which
+re-runs the announce-time predicate (`legal_targets`) instead of a key list: type, controller, colour, mana value,
+every `creature_filter` key (keyword, tapped, attacking, power/toughness — the PAR-160 `_STAT_BOUND_KEYS` path is
+folded in) and targetability, so hexproof (judged against the resolving source's controller), shroud and protection
+gained in response make the target illegal (RULE 702.11b/702.18/702.16b). Requirements measured against
+announce-time state stay announce-only (`_announce_relative`: "that player"/defending-player scopes, per-opponent
+rounds, antecedent slots, excluded trigger subjects, sentinel mana-value bounds); copy-target rounds (RULE 707.10c)
+keep their own path. With several targets, `_mask_restricted_targets` blanks only the failed slots, keeping positions;
+the item is countered only when every target is illegal. "You" in a requirement is the chooser (RULE 601.2c,
+`_trigger_controller_id` — Confusion in the Ranks). An Aura spell's `enchant` requirement is rechecked too, so an
+Aura whose target became illegal goes to the graveyard (RULE 303.4a/608.3b); graveyard-card Auras and bestow are
+unchanged. Left open: player targets (BUG-4). Tests: `tests/test_bug3_resolution_target_restrictions.py`.
+
 ### Optional player groups and Equipment slots (RULE 115 / 601.2c)
 
 The target-count selector `players` supplies an optional group of distinct

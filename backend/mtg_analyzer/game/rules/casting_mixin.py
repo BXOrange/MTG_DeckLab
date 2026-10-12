@@ -80,7 +80,7 @@ from ..effects.core import (
     WardEffect,
     WinConditionEffect,
 )
-from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets, target_meets_restrictions
 from .. import continuations
 
 #: RULE 702.108a Converge's colors — the five WUBRG colors, never colorless
@@ -93,12 +93,6 @@ _FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
 #: the spell.  Keep this separate from Converge's intentionally narrower
 #: vocabulary above.
 _ADAMANT_MANA_TYPES: tuple[str, ...] = ("C", *_FIVE_COLORS)
-
-#: PAR-160: the `TargetSpec.creature_filter` keys re-checked as an ability/spell resolves (RULE 608.2b) — a
-#: "with toughness N or less" bound is a restriction on the target, so the target must still meet it. The
-#: other filter keys (keywords, tapped/attacking state, ...) are announce-time only, as before.
-_STAT_BOUND_KEYS: frozenset[str] = frozenset({"min_power", "max_power", "min_toughness", "max_toughness"})
-
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -2064,6 +2058,30 @@ class CastingResolutionMixin:
             if not self._finish_spell_routing(stack_item):
                 self.check_state_based_actions()
         return True
+    def _mask_restricted_targets(self, item, groups, verdicts, targets, target_groups):
+        """RULE 608.2b: blank (``None``) the slots of battlefield targets that failed their requirement.
+
+        ``verdicts`` parallels ``zip(specs, groups)``. Slots keep their positions so later clauses and
+        allocated damage still line up (as for copies, `stack_copy_targets.resolution_targets`)."""
+        flat = [target for group in (groups or []) for target in group]
+        failed = {
+            id(target)
+            for group, flags in zip(groups or [], verdicts)
+            for target, ok in zip(group, flags)
+            if not ok and isinstance(target, GameObject) and target.zone == Zone.BATTLEFIELD
+            and target in self.state.battlefield
+        }
+        if not failed or len(flat) != len(item.targets) or any(a is not b for a, b in zip(flat, item.targets)):
+            return targets, target_groups
+        masked = [None if id(t) in failed else t for t in item.targets]
+        if item.target_groups is None:
+            return masked, None
+        regrouped, offset = [], 0
+        for group in item.target_groups:
+            regrouped.append(masked[offset:offset + len(group)])
+            offset += len(group)
+        return masked, regrouped
+
     def _apply_stack_item(self, item: StackItem) -> Optional[StackItem]:
         """Apply an already-popped stack item's effects and route the card
         that produced it (RULE 608.2m/608.3) — `resolve_top_of_stack`'s body,
@@ -2071,11 +2089,21 @@ class CastingResolutionMixin:
         `GameContext.trigger_event` window."""
         # RULE 608.2b: an untargeted rider (including Empower Jace) must
         # not run when every announced target of the whole item is illegal.
-        from ..targeting import effects_target_specs, partition_targets
+        from ..targeting import effects_target_specs, partition_targets, spell_target_specs
         body = item.effects
         if len(body) == 1 and hasattr(body[0], "effects"):
             body = body[0].effects
         specs = effects_target_specs(body)
+        if (
+            not specs and item.kind == "spell" and item.obj is not None and item.targets
+            and self._attachment_kind(item.obj) == "enchant"
+            and all(isinstance(t, Player) or (isinstance(t, GameObject) and t.zone == Zone.BATTLEFIELD)
+                    for t in item.targets)
+        ):
+            # RULE 303.4a / 608.3b: an Aura spell's "enchant" quality is its target requirement (it has no
+            # effect clause to carry one); with an illegal target it doesn't resolve and goes to the graveyard.
+            # A graveyard-card Aura (RULE 303.4f) is skipped: its target is not a permanent.
+            specs = spell_target_specs(item.obj)
         groups = item.target_groups or partition_targets(specs, item.targets)
         checks = zip(specs, groups) if groups is not None else (
             (spec, item.targets or []) for spec in specs
@@ -2088,6 +2116,12 @@ class CastingResolutionMixin:
 
             resolution_targets, resolution_groups, copy_legal = copy_resolution_targets(self, item)
             item.resolution_target_slots = resolution_targets
+        # RULE 601.2c: "you" in a requirement is whoever chose the targets; for a trigger whose event
+        # controller chooses (Confusion in the Ranks) that is not the stack item's controller.
+        chooser_id = item.controller_id
+        if len(item.effects) == 1 and getattr(item.effects[0], "controller_from_trigger_event", False):
+            chooser_id = self._trigger_controller_id(item.effects[0], item.trigger_event)
+
         def still_in_target_zone(spec, target):
             # Stack targets are StackItems, unlike battlefield/graveyard
             # targets. A zone move cannot leave an untargeted rider alive.
@@ -2115,18 +2149,29 @@ class CastingResolutionMixin:
                     return any(entry.obj is target for entry in self.state.stack)
                 if not (target.zone == Zone.BATTLEFIELD and target in self.state.battlefield):
                     return False
-                # RULE 608.2b / 115.1c: a "with toughness N or less" bound is part of what makes the target
-                # legal, so a creature whose power/toughness moved out of it since announcement is illegal now.
-                bounds = {k: v for k, v in (spec.creature_filter or {}).items() if k in _STAT_BOUND_KEYS}
-                return not bounds or not target.is_creature or combat.matches_object_filter(
-                    target, bounds, reference=item.source, state=self.state,
+                # RULE 608.2b / 115.1c: every restriction in the requirement ("with flying", "tapped",
+                # "attacking", a power/toughness bound, controller, colour, ...) must still hold, and so must
+                # targetability (hexproof/shroud/protection gained in response, RULE 702.11b/18/16b) -- all judged
+                # by the same predicate that offered the target at announcement.
+                return target_meets_restrictions(
+                    self.state, chooser_id, spec, target,
+                    source=item.source or item.obj, trigger_event=item.trigger_event,
                 )
             return True
 
-        any_legal = (any(copy_legal) if copy_legal is not None else any(
-            still_in_target_zone(spec, target) for spec, group in checks for target in group
-        ))
         fallback_creature = (item.obj is not None and (item.obj.bestowed or item.obj.cast_via_mutate))
+        if copy_legal is not None:
+            any_legal = any(copy_legal)
+        else:
+            verdicts = [[still_in_target_zone(spec, target) for target in group] for spec, group in checks]
+            any_legal = any(v for group in verdicts for v in group)
+            if any_legal and not fallback_creature:
+                # RULE 608.2b: a target that no longer meets its restriction is simply not affected while the
+                # legal ones still are. Only restriction failures are masked (as `resolution_targets` does for
+                # copies); a target that merely left its zone is already skipped by each instruction.
+                resolution_targets, resolution_groups = self._mask_restricted_targets(
+                    item, groups, verdicts, resolution_targets, resolution_groups,
+                )
         if item.targets and (specs or copy_legal is not None) and not any_legal and not fallback_creature:
             if item.kind == "spell" and item.obj is not None:
                 obj = item.obj

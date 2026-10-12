@@ -46,7 +46,7 @@ def _forest(owner: str) -> GameObject:
     card = Card(
         id=f"forest-{owner}", name="Forest",
         type_line="Basic Land — Forest",
-        oracle_text="({T}: Add {G}.)",
+        oracle_text="({T}: Add {G}.)", is_land=True,  # BUG-3: resolution re-checks the "land" requirement
     )
     obj = GameObject(card, owner_id=owner, zone=Zone.BATTLEFIELD)
     obj.summoning_sick = False
