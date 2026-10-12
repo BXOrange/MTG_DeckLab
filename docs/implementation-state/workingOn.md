@@ -36,19 +36,9 @@ Block template (do not change this, copy below the line, fill in there):
 - **Goal of this run:** <which part of the ticket this run closes>
 - **Done (built + tested):** <bullets — what is finished, with file/test names>
 - **In progress:** <what is half-built right now, and in which files>
-- **Next step:** PAR-154 and MEC-115 are closed (parser v629: 21,075/35,046 = 60.1%, Commander-legal 20,300/32,068 = 63.3%; docs synced; `Done_Backend.md` filed). Continue with the remaining required scope below, starting with broader mana-ability counter riders. Baseline for diffs: take a `parser_probe.py` snapshot at v629 first.
-- **Validation commands (cwd `backend`, Windows):** Use `./venv_win/Scripts/python.exe` directly. Broad: `-m pytest -q --full-cache --timeout=120` (~12 min). Parser diff: `-X utf8 ../.claude/skills/extend-parser/scripts/parser_probe.py diff <snapshot>`. Measurements: `-X utf8 scripts/coverage_report.py --top 40` and `--commander-legal-only --top 40`. Regenerate the lock after parser edits with `scripts/update_parser_version_lock.py`.
-- **Verified baseline:** All 41 saved decks rechecked: every non-cube deck N/N. Optional Commander Cube: 570/749.
-- **Documentation / tickets:** PAR-154 covers the five remaining named cards; MEC-115 is the Flip-card prerequisite for Initiate. Coverage must be synchronized in `CLAUDE.md`, `PARSER_LONG_TAIL.md`, `status.de.js` and `status.en.js`.
-- **Push:** Earlier automatic approval review rejected pushing; no explicit user answer. Do not bypass. Intended remote `https://github.com/BXOrange/MTG_DeckLab`, branch `Backlog-Extension`; recheck the actual remote before publishing.
-- **Decisions:** Prefer deck-by-deck work and reusable primitives; hand-author isolated gaps. Alchemy is a permanent non-goal. MODELED/AUTHORED coverage alone does not prove rules-exact behavior. RULE 701.66a explicitly returns the land under the bender's control; do not substitute its owner's control or a two-sided transform for RULE 710 flipping.
-
-### Remaining required scope
-
-- Broader mana-ability counter riders.
-- Counter/pump-then-fight.
-- Flicker with riders.
-- Multi-event attack/block/target heads.
-- Equipped-creature X pump.
-
-Remove this block only after all remaining required scope has been implemented and verified. Commit and push after successful tests, subject to the outstanding push approval.
+- **Next step:** <the exact next action — command to run or change to make>
+- **Decisions:** <choices made and why, so they aren't re-litigated>
+- **Baselines / artefacts:** <snapshot paths, measured numbers, PARSER_VERSION>
+- **Known failures:** <red tests and whether they are ours or pre-existing>
+- **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
+```
