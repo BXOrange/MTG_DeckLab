@@ -102,10 +102,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
   "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
   `engine_bench.py`, not parse verdicts.
-- **PAR-160 · Small verified residue batch (coin-flip close-out).** One sub-bullet per shape, each sized with
-  `parser_probe.py blocked`:
-  - target "creature you control with toughness N or less" (2 SOLO: Goblin Kites — its delayed flip is already
-    built — and Phantasmal Mount).
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal
@@ -208,3 +204,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   "and loses …" now carries `previous_subject` (direct triggers and spells are right: Vault Plunderer, Bloodgift
   Demon); check that Unscrupulous Contractor's reflexive trigger and Fell Stinger's exploit trigger make the
   *targeted* player lose the life, not the controller.
+- **BUG-3 · Target restrictions other than power/toughness bounds are not rechecked at resolution.** RULE 608.2b
+  rechecks every target restriction; `casting_mixin.still_in_target_zone` rechecks zone plus the min/max power/toughness
+  keys (`_STAT_BOUND_KEYS`), but `creature_filter` keywords and tapped/attacking state are announce-time only, so e.g. a
+  "target creature with flying" spell still resolves after the target lost flying. Extend the recheck to the whole filter.

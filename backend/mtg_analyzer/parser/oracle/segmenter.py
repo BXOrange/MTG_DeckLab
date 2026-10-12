@@ -5725,7 +5725,7 @@ def parse_effect_body(
                 # -subject row without any earlier clause having chosen anything, and must not
                 # turn that into a chain a later "it" would read as a real target.
                 if not referent and prev_referent and any(
-                    s.params.get("previous_subject") for s in sub
+                    s.params.get("previous_subject") or s.params.get("bake_previous_objects") for s in sub
                 ):
                     referent = True
                 # MEC-28: the mass-selector sibling — "untap all attacking
@@ -6929,7 +6929,13 @@ _TARGET_CREATURE_SUBJECT_RE = re.compile(r"^target creature (?P<verb>.+)$", re.I
 #: PAR-102: "Target creature gets +2/+0 until end of turn. When **that creature** dies this turn, …" — the
 #: subject is the creature the *preceding clause* chose, so it is only read as such when the caller says
 #: a previous clause did (`previous_subject`); otherwise "that creature" names nothing and stays unclaimed.
-_THAT_CREATURE_SUBJECT_RE = re.compile(r"^(?:that creature|it) (?P<verb>(?:dies|leaves the battlefield))$", re.IGNORECASE)
+#: PAR-160: "the creature" is the same referent when worded that way (Phantasmal Mount's second rider).
+_THAT_CREATURE_SUBJECT_RE = re.compile(
+    r"^(?:that creature|the creature|it) (?P<verb>(?:dies|leaves the battlefield))$", re.IGNORECASE,
+)
+#: PAR-160: "When **~** leaves the battlefield this turn, sacrifice **that creature**." — the trigger is the
+#: source's own and the body names the creature an earlier clause chose (`previous_subject`), baked in at creation.
+_SOURCE_LEAVES_RE = re.compile(r"^~ (?:dies|leaves the battlefield)$", re.IGNORECASE)
 
 
 def _turn_trigger_segment(
@@ -6956,11 +6962,36 @@ def _turn_trigger_segment(
         if not previous_subject:
             return Segment(raw=line.strip())
         condition = f"~ {that_creature.group('verb')}"
+    unclaimed = Segment(raw=line.strip())
+    if (
+        _SOURCE_LEAVES_RE.match(condition.strip()) and previous_subject and target_kind is None
+        and m.group("body").strip().lower() == "sacrifice that creature"
+    ):
+        # The shell supplies the trigger dict; the body is the baked `sacrifice_specific` (no re-parse of "that creature").
+        shell = segment_line(
+            f"{keyword} {condition}, draw a card.", allow_spell_effect=False, provenance=provenance,
+        )
+        if not shell.claimed or shell.spec is None or isinstance(shell.spec.trigger.get("event"), list):
+            return unclaimed
+        return Segment(
+            raw=line.strip(),
+            spec=AbilitySpec(
+                "spell_effect",
+                effects=[EffectSpec("create_turn_trigger", {
+                    "trigger": shell.spec.trigger,
+                    "effects": [{"type": "sacrifice_specific", "params": {}}],
+                    "optional": False,
+                    "bake_previous_objects": True,
+                    "description": line.strip(),
+                })],
+                raw_text=line.strip(), parser=provenance,
+            ),
+            claimed=True,
+        )
     inner = segment_line(
         f"{keyword} {condition}, {m.group('body')}",
         allow_spell_effect=False, provenance=provenance,
     )
-    unclaimed = Segment(raw=line.strip())
     pinned = target_kind is not None or that_creature is not None
     if pinned and (not inner.claimed or inner.spec is None) and condition == "~ dies":
         # The body names the dying creature's controller/owner ("its controller gets a poison counter"): a self

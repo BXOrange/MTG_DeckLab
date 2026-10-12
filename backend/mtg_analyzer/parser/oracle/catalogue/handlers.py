@@ -6452,7 +6452,6 @@ def _gain_control_by_opponent(m: re.Match[str]) -> list[EffectSpec]:
 #: RULE-115-target-doubling-risky) untap/haste effect here.
 _GAIN_CONTROL_EOT_RE = _c(
     rf"gain control of (?P<another>another )?{TARGET}"
-    r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))?"
     r"(?: with mana value (?P<mv>\d+) or less"
     # PAR-74: "…with **that spell's** mana value." (Skyfire Kirin) — the
     # exact-match sibling of the literal-digit ceiling just above,
@@ -6477,9 +6476,10 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # RULE 115.1c. "another" (Akroan Conscriptor) is accepted but its RULE
     # 601.2c self-exclusion isn't enforced (documented simplification —
     # these are all trigger/ETB bodies with no reason to grab the source).
-    if m.group("pn"):
-        key = "max_power" if m.group("pcmp") == "less" else "min_power"
-        params["creature_filter"] = {key: int(m.group("pn"))}
+    # PAR-160: the power bound is now `TARGET`'s own quality slot.
+    quality = target_quality_filter(m.group("target"))
+    if quality:
+        params["creature_filter"] = quality
     return [EffectSpec("gain_control_until_eot", params)]
 
 
@@ -6493,7 +6493,6 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: the full match leaves it unclaimed for its own row.
 _GAIN_CONTROL_PERMANENT_RE = _c(
     rf"gain control of (?P<another>another )?{TARGET}"
-    r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))?"
     r"(?: with mana value (?P<mv>\d+) or less)?"
     r"(?P<untap>\.\s*untap (?:it|that (?:creature|permanent|artifact|land)))?"
 )
@@ -6515,9 +6514,9 @@ def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     }
     if m.group("mv"):
         params["max_mana_value"] = int(m.group("mv"))
-    if m.group("pn"):
-        key = "max_power" if m.group("pcmp") == "less" else "min_power"
-        params["creature_filter"] = {key: int(m.group("pn"))}
+    quality = target_quality_filter(m.group("target"))  # PAR-160: "with power N or less" (TARGET's quality slot)
+    if quality:
+        params["creature_filter"] = quality
     return [EffectSpec("gain_control_until_eot", params)]
 
 

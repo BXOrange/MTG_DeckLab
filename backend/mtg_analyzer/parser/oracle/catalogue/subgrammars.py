@@ -456,10 +456,19 @@ _QUALITY_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
 #: the negated keyword/counter above. The word is read back by `isnt_a_filter`; one outside that
 #: vocabulary makes the kind unresolved (`resolve_target_kind`) rather than a silently dropped filter.
 _ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
+#: PAR-160: a *bound on the target's power or toughness* ("target creature you control **with toughness 2 or
+#: less**", Goblin Kites / Phantasmal Mount / Errant Doomsayers / Skymark Roc / Suspension Field) — the same
+#: slot, read back as `combat.matches_object_filter`'s ``min_/max_power|toughness`` (RULE 208.1; checked on
+#: announce by `targeting`, and again at resolution, RULE 608.2b). "Power or toughness N" is a disjunction
+#: (a different shape) and is deliberately outside it.
+#: Ungrouped here (the tail is embedded in handler regexes that may carry two `TARGET`s); `_STAT_BOUND_RE` reads it.
+_STAT_BOUND_TAIL = r" with (?:power|toughness) \d+ or (?:less|greater)"
+_STAT_BOUND_RE = re.compile(r" with (?P<stat>power|toughness) (?P<stat_n>\d+) or (?P<stat_cmp>less|greater)", re.IGNORECASE)
 TARGET_QUALITY_TAIL = (
     r"(?: (?:without|that doesn't have|that has no) "
     rf"(?:(?:{_QUALITY_KEYWORDS})|(?:an? )?(?:(?:\+1/\+1|-1/-1|[a-z]+) )?counters? on it)"
-    rf"|{_ISNT_A_TAIL})"
+    rf"|{_ISNT_A_TAIL}"
+    rf"|{_STAT_BOUND_TAIL})"
 )
 #: The pools whose `targeting.TargetFrame` applies ``creature_filter`` — the only kinds a quality
 #: may narrow (any other would carry a filter nothing reads).
@@ -816,7 +825,11 @@ def target_quality_filter(phrase: str) -> dict:
     if quality is not None:
         head = _QUALITY_OBJECT_RE.match(quality.group(0))
         isnt = _ISNT_A_RE.match(quality.group(0))
-        if head:
+        stat = _STAT_BOUND_RE.fullmatch(quality.group(0))
+        if stat is not None:
+            bound = "min" if stat.group("stat_cmp").lower() == "greater" else "max"
+            fragment[f"{bound}_{stat.group('stat').lower()}"] = int(stat.group("stat_n"))
+        elif head:
             fragment.update(parse_absent_quality(quality.group(0)[head.end():]) or {})
         elif isnt:
             fragment.update(isnt_a_filter(isnt.group("word")) or {})

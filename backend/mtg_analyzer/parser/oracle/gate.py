@@ -3917,7 +3917,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 632: PAR-151 — per-object flips ("flip a coin for each opponent / creature that isn't a …", "for each blocking creature, flip a
 #      coin", "each player flips a coin" with per-pass `coin_won` branches), the reflexive "when you win/lose the flip" pair
 #      (Breeches), delayed flips ("flip a coin at end of combat / the beginning of the next end step"), "~ deals N damage to itself".
-PARSER_VERSION = "632"
+# 633: PAR-160 — a power/toughness bound as a `{TARGET}` quality ("target creature you control with toughness 2 or less",
+#      `subgrammars._STAT_BOUND_TAIL` -> ``creature_filter`` ``min_/max_power|toughness``, re-checked at resolution, RULE 608.2b);
+#      "when ~ leaves the battlefield this turn, sacrifice that creature" / "when the creature leaves …, sacrifice ~"
+#      (Phantasmal Mount, ``create_turn_trigger.bake_previous_objects``).
+PARSER_VERSION = "633"
 
 
 def parser_source_hash() -> str:

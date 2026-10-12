@@ -1748,6 +1748,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         previous_subject=bool(p.get("previous_subject", False)),
         creature_filter=p.get("creature_filter"),
+        bake_previous_objects=bool(p.get("bake_previous_objects", False)),
     ),
 )
 EffectRegistry.register(

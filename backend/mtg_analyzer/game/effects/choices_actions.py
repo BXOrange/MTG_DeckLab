@@ -620,6 +620,7 @@ class CreateTurnTriggerEffect(GameEffect):
         target_kind: Optional[str] = None,
         previous_subject: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
+        bake_previous_objects: bool = False,
     ) -> None:
         super().__init__(source)
         self.trigger = dict(trigger or {})
@@ -635,6 +636,12 @@ class CreateTurnTriggerEffect(GameEffect):
         #: turn, draw a card." — the trigger's subject is whatever the *preceding clause* chose
         #: (`GameContext.previous_targets`), not a target of its own.
         self.previous_subject = bool(previous_subject)
+        #: PAR-160: "Target creature gets +1/+1 until end of turn. When ~ leaves the battlefield this turn,
+        #: sacrifice **that creature**." (Phantasmal Mount) — the *body* names the preceding clause's chosen
+        #: creature while the trigger's own subject is something else (here the source), so the chosen
+        #: object is baked into the body's `sacrifice_specific` at creation (the delayed-trigger
+        #: ``previous_targets`` capture) together with its zone stay (RULE 400.7).
+        self.bake_previous_objects = bool(bake_previous_objects)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import bind_ability  # function-scoped: effects↔binder cycle
@@ -677,9 +684,16 @@ class CreateTurnTriggerEffect(GameEffect):
         )
         ability = bind_ability(spec, source=self.source)
         controller = _controller_of(self.source, context)
+        baked_objects = [t for t in context.previous_targets if t is not None] if self.bake_previous_objects else []
+        if self.bake_previous_objects and not baked_objects:
+            return  # RULE 608.2b: the earlier clause's target was illegal, so "that creature" names nothing
         for one in ability if isinstance(ability, list) else [ability]:
             if controller is not None:
                 one.controller_id = controller.id
+            for effect in getattr(one, "effects", []) if baked_objects else []:
+                if isinstance(effect, SacrificeSpecificEffect):
+                    effect.objects = list(baked_objects)
+                    effect.incarnations = {o.instance_id: o.zone_incarnation for o in baked_objects}
             context.state.turn_scoped_triggers.append(
                 TurnScopedTrigger(one, context.state.internal_turn.number, once=self.once)
             )
@@ -2658,6 +2672,9 @@ class SacrificeSpecificEffect(GameEffect):
         super().__init__(source)
         self.objects = objects
         self.delay_step = delay_step
+        #: instance id -> the zone stay it was baked in; when set, an object that has since left and come
+        #: back is a new object (RULE 400.7) and is not sacrificed (PAR-160).
+        self.incarnations: Optional[dict[str, int]] = None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.delay_step:
@@ -2677,6 +2694,8 @@ class SacrificeSpecificEffect(GameEffect):
             )
             return
         for obj in list(self.objects):
+            if self.incarnations is not None and self.incarnations.get(obj.instance_id) != obj.zone_incarnation:
+                continue
             if obj in context.state.battlefield:
                 # RULE 701.17a: a sacrifice is a non-destructive move to the
                 # graveyard, so it can't be stopped by a regeneration shield

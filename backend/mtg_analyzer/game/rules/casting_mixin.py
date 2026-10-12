@@ -94,6 +94,11 @@ _FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
 #: vocabulary above.
 _ADAMANT_MANA_TYPES: tuple[str, ...] = ("C", *_FIVE_COLORS)
 
+#: PAR-160: the `TargetSpec.creature_filter` keys re-checked as an ability/spell resolves (RULE 608.2b) — a
+#: "with toughness N or less" bound is a restriction on the target, so the target must still meet it. The
+#: other filter keys (keywords, tapped/attacking state, ...) are announce-time only, as before.
+_STAT_BOUND_KEYS: frozenset[str] = frozenset({"min_power", "max_power", "min_toughness", "max_toughness"})
+
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -2108,7 +2113,14 @@ class CastingResolutionMixin:
                     "spell" in spec.kind and target.zone == Zone.STACK
                 ):
                     return any(entry.obj is target for entry in self.state.stack)
-                return target.zone == Zone.BATTLEFIELD and target in self.state.battlefield
+                if not (target.zone == Zone.BATTLEFIELD and target in self.state.battlefield):
+                    return False
+                # RULE 608.2b / 115.1c: a "with toughness N or less" bound is part of what makes the target
+                # legal, so a creature whose power/toughness moved out of it since announcement is illegal now.
+                bounds = {k: v for k, v in (spec.creature_filter or {}).items() if k in _STAT_BOUND_KEYS}
+                return not bounds or not target.is_creature or combat.matches_object_filter(
+                    target, bounds, reference=item.source, state=self.state,
+                )
             return True
 
         any_legal = (any(copy_legal) if copy_legal is not None else any(

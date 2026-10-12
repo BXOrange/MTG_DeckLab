@@ -1278,6 +1278,7 @@ Equipment slot independent of a mandatory creature target.
 
 - **What:** New `TargetSpec.creature_filter` narrows `DestroyEffect`/`ExileEffect`'s target pool by power/toughness threshold or a closed keyword list (flying, first strike…
 - **Files:** `game/targeting.py`, `parser/oracle/catalogue/handlers.py`
+- **Any `{TARGET}` with a stat bound (PAR-160, PARSER_VERSION 633, +17):** "with power|toughness N or less|greater" is a quality in `subgrammars.TARGET_QUALITY_TAIL`, read back by `target_quality_filter` as `min_/max_power|toughness`, so every target verb and the "you control" / "an opponent controls" scopes inherit it (Goblin Kites, Errant Doomsayers, Suspension Field, Kor Line-Slinger, Mosstodon, …); the gain-control rows dropped their private power suffix for it. "Power or toughness N" (a disjunction) stays unclaimed. At resolution `casting_mixin.still_in_target_zone` rechecks these bounds (RULE 608.2b, `_STAT_BOUND_KEYS`); the other filter keys are still announce-time only (BUG-3). Phantasmal Mount's "when ~ / that creature leaves the battlefield this turn, sacrifice …" riders use `create_turn_trigger.bake_previous_objects` and an incarnation-checked `sacrifice_specific` (RULE 400.7). Left open: Kjeldoran Guard / Elite Guard, Heart Wolf, Runesword (same rider, blocked elsewhere, unverified); Repel Calamity, Rootless Yew, Stern Scolding, Tetsuko Umezawa (disjunction). Tests: `tests/test_par160_toughness_bound_target.py`.
 
 ### N>=2 Multi-Target Generalization (RULE 115.1a)
 
