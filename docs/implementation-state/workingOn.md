@@ -84,7 +84,7 @@ Coverage completion does not close these recorded limitations; confirm them agai
 
 - **Counter Blitz:** Collective Effort announces distinct Escalate tap choices through the session API and the shared board after targets. Three backend regressions and a Chromium test with actual HTTP/GameSession payment pass, including freely choosing two creatures and excluding duplicates. Scholar of New Horizons still always puts the Plains onto the battlefield when an opponent controls more lands.
 
-- **Limit Break:** Professor Hojo reads "creature you control" off the ability's target kinds and counts triggered abilities too; Foretell cards read "cast from exile" as `foretold` (Lifestream's Blessing measures X at resolution; Ultimate Magic: Meteor picks the greatest-mana-value artifact or land per opponent); Yuffie's control lasts while Yuffie stays on the battlefield;
+- **Limit Break:** Professor Hojo reads "creature you control" off the ability's target kinds and counts triggered abilities too; Foretell cards read "cast from exile" as `foretold` (Lifestream's Blessing measures X at resolution; Ultimate Magic: Meteor picks the greatest-mana-value artifact or land per opponent); Yuffie's control lasts for as long as her controller controls her (`source_controlled_by_you`, ends permanently, RULE 611.2b).
 
 ### Residue · follow-ups outside individual card coverage
 

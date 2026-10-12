@@ -401,6 +401,21 @@ def test_yuffie_steals_a_noncreature_artifact_and_attaches_an_equipment():
     assert rock.controller_id == "p1" and helm.attached_to == yuffie.instance_id
 
 
+def test_yuffies_control_effect_ends_when_an_opponent_gains_control_of_yuffie():
+    engine = game()
+    rock = filler(engine, "Their Rock", type_line="Artifact", player="p2")
+    yuffie = put_on_battlefield(engine, "Yuffie, Materia Hunter")
+    answer(engine, pick_label("Their Rock"))
+    engine.resolve_pending_choice("decline") if engine.state.pending_choice else None
+    assert rock.controller_id == "p1"
+    yuffie.controller_id = "p2"  # "for as long as you control Yuffie" (not merely while she stays in play)
+    engine.recompute_continuous_effects()
+    assert rock.controller_id == "p2"
+    yuffie.controller_id = "p1"
+    engine.recompute_continuous_effects()
+    assert rock.controller_id == "p2"  # RULE 611.2b: the duration ended for good
+
+
 def test_cait_sith_exiles_the_top_card_and_pumps_for_its_mana_value():
     engine = game()
     cait = card(engine, "Cait Sith, Fortune Teller")
