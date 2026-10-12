@@ -5472,6 +5472,7 @@ class MiscSystemsMixin:
                 # (Thunderbreak Regent): `event_player` reads ``player_id``.
                 player_id=item.controller_id,
                 item_kind=item.kind,
+                item_category=item.category,
                 stack_id=item.stack_id,
             ))
     def check_ward(self, item: StackItem, caster: Player, *, defer_stack: bool = False) -> list[StackItem]:

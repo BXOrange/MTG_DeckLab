@@ -1836,6 +1836,8 @@ def count_selector(
             if o.is_creature and o.controller_id == controller_id and (o.attacking or not attacking_only)
             and any(a.attached_to == o.instance_id and _has_subtype(a, "equipment") for a in bf)
         )
+    if selector == "greatest_creature_power_as_cast":
+        return int(getattr(source, "greatest_creature_power_as_cast", 0))
     if selector == "greatest_power_among_creatures_you_control":
         # "…the greatest power among creatures you control" (Lifestream's Blessing's X).
         return max(
@@ -4737,6 +4739,7 @@ _SET_COST_TO_ZERO_REDUCTION = 1000
 
 def activation_cost_reduction_for(
     state: "GameState", source: "GameObject", is_mana_ability: bool = False, cost: Any = None,
+    targets_own_creature: Optional[bool] = None, activating_player_id: Optional[str] = None,
 ) -> tuple[int, int]:
     """Net generic-mana reduction for *activating* ``source``'s own
     activated ability (Power Artifact-shaped "Enchanted artifact's
@@ -4786,7 +4789,9 @@ def activation_cost_reduction_for(
             # "The first activated ability you activate during your turn that targets a creature you control costs {2} less to activate."
             # (Professor Hojo): this ability must target a creature you control, and no earlier activation of yours this turn did.
             player_id = getattr(ability.source, "controller_id", None)
-            if source.controller_id != player_id or not getattr(cost, "targets_own_creature", False):
+            qualifying = (getattr(cost, "targets_own_creature", False)
+                          if targets_own_creature is None else targets_own_creature)
+            if (activating_player_id or source.controller_id) != player_id or not qualifying:
                 continue
             gate = ability.params.get("active_if")
             if gate and not static_conditions.condition_holds(gate, state, ability.source, player_id):

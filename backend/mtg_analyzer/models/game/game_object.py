@@ -437,6 +437,9 @@ class GameObject:
         #: Stamped at cast time and carried on its `ENTERS_BATTLEFIELD` event as ``cast_from_zone`` ("…or was cast
         #: from a graveyard", Kotis, Sibsig Champion).
         self.cast_from_zone: Optional[str] = None
+        #: Greatest creature power controlled by the caster when this spell
+        #: was cast (Lifestream's Blessing); independent of later board changes.
+        self.greatest_creature_power_as_cast: int = 0
         #: RULE 702.35 (PAR-26): whether this card has Madness — set at
         #: bind alongside `alt_cast_cost` (the madness cost). `draw_discard_
         #: mixin._maybe_madness` reads it to exile the card on discard
@@ -1520,6 +1523,7 @@ class GameObject:
         self.cast_via_dash = False
         self.convoked_by_ids = []
         self.cast_from_zone = None
+        self.greatest_creature_power_as_cast = 0
         self.granted_suspend_haste = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False

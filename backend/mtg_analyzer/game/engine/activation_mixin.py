@@ -96,6 +96,15 @@ def _names_other(word: str) -> bool:
 class ActivationMixin:
     """Activated abilities: legality, cost payment, the cost-choice families."""
 
+    def _activation_probe_targets(self, player, source, ability):
+        """Possible targets for a target-dependent activation-cost probe."""
+        if not any(static.params.get("first_targeting_own_creature")
+                   for static in continuous._battlefield_static_abilities(self.state)):
+            return []
+        return [self.state.find_object(option.get("instance_id"))
+                for spec in ability_target_specs(ability)
+                for option in legal_targets(self.state, player.id, spec, source=source)]
+
     def can_activate(
         self,
         player: Player,
@@ -109,6 +118,7 @@ class ActivationMixin:
         assume_mana_available: bool = False,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        targets: Optional[list[Any]] = None,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
 
@@ -237,11 +247,17 @@ class ActivationMixin:
             source, ability.cost.class_level
         ):
             return False
+        if targets is None:
+            # A legal-action probe has no announced picks yet. Check whether
+            # a legal own-creature target exists; real activations pass their
+            # exact picks, including an explicit empty list.
+            targets = self._activation_probe_targets(player, source, ability)
         return self._can_pay_activation_cost(
             player, source, ability.cost, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices, return_choices=return_choices,
             assume_mana_available=assume_mana_available,
+            targets=targets,
         )
     def _sorcery_speed_ok(self, player: Player) -> bool:
         """RULE 117.1a-style sorcery-speed timing: the controller's main
@@ -404,6 +420,8 @@ class ActivationMixin:
         mana: "ManaCost",
         cost: Optional["ActivationCost"] = None,
         is_mana_ability: bool = False,
+        targets: Optional[list[Any]] = None,
+        activating_player_id: Optional[str] = None,
     ) -> "ManaCost":
         """Apply any "activated abilities cost {N} less/more to activate"
         static scoped to ``source`` (Power Artifact-shaped reduction, RULE
@@ -435,6 +453,12 @@ class ActivationMixin:
         """
         reduction, floor = continuous.activation_cost_reduction_for(
             self.state, source, is_mana_ability=is_mana_ability, cost=cost,
+            targets_own_creature=(None if targets is None else any(
+                isinstance(target, GameObject) and target.is_creature
+                and target.controller_id == (activating_player_id or source.controller_id)
+                for target in targets
+            )),
+            activating_player_id=activating_player_id,
         )
         colored_reduction: dict[str, int] = {}
         if cost is not None and cost.dynamic_reduction:
@@ -491,6 +515,7 @@ class ActivationMixin:
         is_mana_ability: bool = False,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        targets: Optional[list[Any]] = None,
     ) -> bool:
         if x < cost.minimum_x:
             return False
@@ -506,7 +531,8 @@ class ActivationMixin:
         if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
         mana = self._activation_mana_with_x(cost, x)
-        mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability)
+        mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability,
+                                             targets=targets, activating_player_id=player.id)
         if cost.spend_only_chosen_color:
             # Throne of Eldraine-shaped colour-lock: the whole mana cost must
             # be paid with mana of the source's chosen colour (RULE 601.2b) —
@@ -1286,6 +1312,7 @@ class ActivationMixin:
         is_mana_ability: bool = False,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        targets: Optional[list[Any]] = None,
     ) -> None:
         """Charge every component of ``cost`` (RULE 601.2h analogue for
         abilities) — tap/untap the source, tap other permanents, pay mana,
@@ -1296,6 +1323,11 @@ class ActivationMixin:
         ``tap_choices``/``sacrifice_choice``/``discard_choices``/
         ``hand_card_choices``, if any).
         """
+        # RULE 602.2b / 601.2f: determine the total mana cost before any
+        # cost payment can sacrifice Hojo or a targeted creature.
+        mana = self._activation_mana_with_x(cost, x)
+        mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability,
+                                             targets=targets, activating_player_id=player.id)
         # MEC-43: cleared unconditionally, same as `_pay_additional_cast_
         # cost`'s own reset — a stale value from a *previous* activation of
         # this same permanent's sacrifice cost must not leak into a later
@@ -1352,8 +1384,6 @@ class ActivationMixin:
                 count = x  # see `_can_pay_activation_cost`'s matching branch
             for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices, source) or []:
                 self.rules.put_into_graveyard(obj)
-        mana = self._activation_mana_with_x(cost, x)
-        mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability)
         treasure_before = sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
         if cost.spend_only_chosen_color:
             # See `_can_pay_activation_cost` — pay the whole cost as
@@ -1593,6 +1623,7 @@ class ActivationMixin:
         hand_card_choices: Optional[list[int]] = None,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        targets: Optional[list[Any]] = None,
     ) -> None:
         """"Automatisches Tappen" for an ordinary activated ability's own
         mana cost — the `activate_ability` counterpart of `CastingMixin.
@@ -1605,6 +1636,7 @@ class ActivationMixin:
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices, return_choices=return_choices,
+            targets=targets,
         ):
             return
         if not self.can_activate(
@@ -1612,11 +1644,12 @@ class ActivationMixin:
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices, return_choices=return_choices,
             assume_mana_available=True,
+            targets=targets,
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = ability.cost
         mana = self._activation_mana_with_x(cost, x)
-        mana = self._reduced_activation_mana(source, mana, cost)
+        mana = self._reduced_activation_mana(source, mana, cost, targets=targets, activating_player_id=player.id)
         if cost.spend_only_chosen_color:
             locked = self._chosen_color_locked_cost(source, mana)
             if locked is None:
@@ -1743,15 +1776,19 @@ class ActivationMixin:
                     raise ValueError("illegal targets for the ability")
         finally:
             source.x_paid = previous_x
+        targets_own_creature = any(isinstance(target, GameObject) and target.is_creature
+                                   and target.controller_id == player.id for target in targets or [])
         self._auto_tap_for_activation_if_needed(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices, return_choices=return_choices,
+            targets=targets or [],
         )
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices, return_choices=return_choices,
+            targets=targets or [],
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
@@ -1771,6 +1808,7 @@ class ActivationMixin:
                 player, source, ability.cost, x, tap_choices=tap_choices,
                 sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
                 hand_card_choices=hand_card_choices, return_choices=return_choices,
+                targets=targets or [],
             )
         if ability.cost.exile_others:
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
@@ -1828,7 +1866,7 @@ class ActivationMixin:
                 # activated ability) — no card frame, so no type words.
                 object_types=sorted(getattr(source, "type_words", None) or []),
                 # Professor Hojo: whether this activation's effects target a creature its controller controls.
-                targets_own_creature=bool(getattr(ability.cost, "targets_own_creature", False)),
+                targets_own_creature=targets_own_creature,
                 # RULE 707.10 (Rings of Brighthearth): the ability's own
                 # stack identity, so a "copy that ability" trigger can find
                 # the exact `StackItem` just pushed above — an ability item

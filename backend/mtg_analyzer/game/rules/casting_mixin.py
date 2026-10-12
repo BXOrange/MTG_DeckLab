@@ -980,6 +980,10 @@ class CastingResolutionMixin:
         cast_from_zone = obj.zone.value
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
+        continuous.recompute(self.state)
+        obj.greatest_creature_power_as_cast = continuous.count_selector(
+            self.state, player.id, "greatest_power_among_creatures_you_control", source=obj,
+        )
         # RULE 702.35a: the only way to cast a madness-exiled card from exile is for its madness cost.
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
@@ -1192,6 +1196,10 @@ class CastingResolutionMixin:
         cast_from_zone = obj.zone.value
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
+        continuous.recompute(self.state)
+        obj.greatest_creature_power_as_cast = continuous.count_selector(
+            self.state, player.id, "greatest_power_among_creatures_you_control", source=obj,
+        )
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
         # RULE 702.174a: a cast that pays no additional costs promises no gift (and must not

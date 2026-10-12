@@ -859,7 +859,10 @@ class LegalActionsMixin:
             return False
         cost = ability.cost
         mana = cost.mana.with_x(minimum_x) if cost.mana.has_variable else cost.mana
-        mana = self._reduced_activation_mana(source, mana, cost)
+        mana = self._reduced_activation_mana(
+            source, mana, cost, targets=self._activation_probe_targets(player, source, ability),
+            activating_player_id=player.id,
+        )
         if cost.spend_only_chosen_color:
             locked = self._chosen_color_locked_cost(source, mana)
             if locked is None:

@@ -413,6 +413,7 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         # `GameEngine.cast_spell` — was ``additional_cost_paid``.
         "additional_cost_paid",
         "was_cast",  # RULE 601.2 — was ``source_was_cast``
+        "cast_from_exile",  # RULE 601.2a: actual origin, independent of Foretell.
         "foretold",  # RULE 702.143d — was ``source_was_foretold``
         "cast_via_escape",  # RULE 702.139 — was ``cast_via_escape``
         # RULE 601.3a (Necromancy) — was ``cast_outside_sorcery_speed``.

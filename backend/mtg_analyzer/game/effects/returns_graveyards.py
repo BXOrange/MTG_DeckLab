@@ -1612,28 +1612,53 @@ class EachOpponentReturnsGreatestManaValueCreatureEffect(GameEffect):
             })
 
 
+def _offer_meteor_permanent(rules, frame):
+    remaining = list(frame["remaining_player_ids"])
+    selected = list(frame["selected"])
+    while remaining:
+        opponent_id = remaining.pop(0)
+        pool = [o for o in rules.state.permanents_controlled_by(opponent_id)
+                if "artifact" in o.type_words or o.is_land]
+        if not pool:
+            continue
+        rules.open_choice({**frame, "kind": "meteor_permanent", "optional": False,
+                           "remaining_player_ids": remaining, "selected": selected,
+                           "prompt": "Meteor: ein Artefakt oder Land dieses Gegners wählen",
+                           "options": [{"id": str(o.instance_id), "instance_id": o.instance_id,
+                                        "incarnation": o.zone_incarnation, "label": o.name} for o in pool]})
+        return
+    # RULE 608.2d: collect all choices before destroying the chosen group.
+    with rules.state.simultaneous():
+        for record in selected:
+            obj = rules.state.find_object(record["instance_id"])
+            if (obj is not None and obj in rules.state.battlefield
+                    and obj.zone_incarnation == record["incarnation"]):
+                rules.destroy(obj)
+
+
+@continuations.choice("meteor_permanent", answer=continuations.ANSWER_INT, rule="608.2d")
+def _resume_meteor_permanent(rules, choice, answer):
+    option = next((o for o in choice["options"] if o["instance_id"] == answer), None)
+    if option is None:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed artifact or land")
+    _offer_meteor_permanent(rules, {**choice, "selected": [*choice["selected"], {
+        "instance_id": answer, "incarnation": option["incarnation"],
+    }]})
+
+
 class DestroyArtifactOrLandPerOpponentEffect(GameEffect):
-    """"For each opponent, choose an artifact or land that player controls. Destroy the chosen permanents." (Ultimate Magic: Meteor, when cast from
-    exile) — one pick per living opponent, all destroyed together. **Simplification:** the controller's choice is automatic: the permanent
-    with the greatest mana value, an artifact before a land on a tie."""
+    """Meteor: its controller chooses one permanent per opponent, then destroys them together."""
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         me = _controller_of(self.source, context)
         if me is None:
             return
-        chosen: list[Any] = []
-        for player in context.state.living_players():
-            if player.id == me.id:
-                continue
-            pool = [
-                o for o in context.state.battlefield
-                if o.controller_id == player.id and (o.card.is_artifact or o.is_land)
-            ]
-            if pool:
-                chosen.append(max(pool, key=lambda o: (int(getattr(o, "mana_value", 0) or 0),
-                                                        bool(o.card.is_artifact))))
-        for obj in chosen:
-            context.destroy(obj)
+        _offer_meteor_permanent(context.engine, {
+            "player_id": me.id,
+            "remaining_player_ids": [p.id for p in context.state.living_players_apnap() if p.id != me.id],
+            "selected": [],
+        })
 
 
 class ReturnTriggerSubjectToHandEffect(GameEffect):

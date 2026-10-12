@@ -1,5 +1,6 @@
 """Gameplay regressions for the Limit Break (Final Fantasy Commander) deck batch."""
 from mtg_analyzer.game import combat, continuous
+import pytest
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import Zone
 from tests.support.deck_batch import (
@@ -257,6 +258,37 @@ def test_ultimate_magic_meteor_deals_seven_to_each_creature():
     assert small.zone == Zone.GRAVEYARD and big.zone == Zone.BATTLEFIELD and big.damage_marked == 7
 
 
+def test_meteor_cast_from_exile_allows_free_choices_before_simultaneous_destruction():
+    engine = game(players=4)
+    meteor = card(engine, "Ultimate Magic: Meteor", zone=Zone.EXILE)
+    small = filler(engine, "Small Rock", type_line="Artifact", mv=1, player="p2")
+    large = filler(engine, "Large Rock", type_line="Artifact", mv=8, player="p2")
+    land = filler(engine, "Their Land", type_line="Land", player="p3")
+    own = filler(engine, "Our Land", type_line="Land")
+    # An exile permission other than Foretell must enable the printed rider.
+    engine.state.temp_play_permissions[meteor.instance_id] = engine.state.internal_turn.number
+    cast(engine, meteor)
+    choice = engine.state.pending_choice
+    assert choice["player_id"] == "p1"
+    assert {o["instance_id"] for o in choice["options"]} == {small.instance_id, large.instance_id}
+    engine.resolve_pending_choice(str(small.instance_id))
+    assert small.zone == Zone.BATTLEFIELD and land.zone == Zone.BATTLEFIELD
+    assert engine.state.pending_choice["player_id"] == "p1"
+    engine.resolve_pending_choice(str(land.instance_id))
+    engine.resolve_until_stable()
+    assert small.zone == land.zone == Zone.GRAVEYARD
+    assert large.zone == own.zone == Zone.BATTLEFIELD
+    assert engine.state.pending_choice is None  # the opponent without candidates is skipped
+
+
+def test_meteor_cast_from_hand_does_not_destroy_artifacts_or_lands():
+    engine = game()
+    meteor = card(engine, "Ultimate Magic: Meteor", zone=Zone.HAND)
+    land = filler(engine, "Their Land", type_line="Land", player="p2")
+    cast(engine, meteor)
+    assert land.zone == Zone.BATTLEFIELD and engine.state.pending_choice is None
+
+
 def test_lifestreams_blessing_draws_for_the_greatest_power():
     engine = game()
     blessing = card(engine, "Lifestream's Blessing", zone=Zone.HAND)
@@ -266,6 +298,58 @@ def test_lifestreams_blessing_draws_for_the_greatest_power():
     hand = len(me.hand) - 1  # the Blessing itself leaves the hand
     cast(engine, blessing)
     assert len(me.hand) == hand + 4
+
+
+def test_lifestreams_blessing_keeps_cast_time_power_after_board_changes():
+    engine = game(library=30)
+    blessing = card(engine, "Lifestream's Blessing", zone=Zone.HAND)
+    big = filler(engine, "Big", power=4, toughness=4)
+    me = engine.state.player_by_id("p1")
+    main_phase(engine)
+    me.mana_pool.add_many(RICH)
+    engine.cast_spell(me, blessing)
+    hand = len(me.hand)
+    engine.rules.destroy(big)
+    filler(engine, "Later giant", power=8, toughness=8)
+    engine.resolve_until_stable()
+    assert len(me.hand) == hand + 4
+    assert me.life == 20  # cast from hand: no life rider
+
+
+def test_lifestreams_blessing_nonforetell_exile_cast_gains_twice_the_stored_power():
+    engine = game()
+    blessing = card(engine, "Lifestream's Blessing", zone=Zone.EXILE)
+    big = filler(engine, "Big", power=4, toughness=4)
+    me = engine.state.player_by_id("p1")
+    main_phase(engine)
+    engine.rules.cast_without_paying(me, blessing)
+    hand = len(me.hand)
+    engine.rules.destroy(big)
+    engine.resolve_until_stable()
+    assert len(me.hand) == hand + 4 and me.life == 28
+
+
+def test_lifestreams_blessing_uncast_copy_has_no_cast_time_power_reading():
+    engine = game(library=30)
+    blessing = card(engine, "Lifestream's Blessing", zone=Zone.HAND)
+    filler(engine, "Our Big", power=4, toughness=4)
+    filler(engine, "Their Small", power=1, toughness=1, player="p2")
+    me = engine.state.player_by_id("p1")
+    opponent = engine.state.player_by_id("p2")
+    main_phase(engine)
+    me.mana_pool.add_many(RICH)
+    engine.cast_spell(me, blessing)
+    copied = engine.rules.copy_spell(engine.state.stack[-1], "p2")[0]
+    assert copied.obj.greatest_creature_power_as_cast == 0
+    engine.resolve_until_stable()
+    assert len(me.hand) == 4 and len(opponent.hand) == 0
+
+
+def test_lifestreams_blessing_with_no_creatures_draws_zero():
+    engine = game()
+    blessing = card(engine, "Lifestream's Blessing", zone=Zone.HAND)
+    cast(engine, blessing)
+    assert len(engine.state.player_by_id("p1").hand) == 0
 
 
 def test_unfinished_business_returns_a_creature_with_its_equipment():
@@ -383,6 +467,77 @@ def test_professor_hojo_discounts_the_first_creature_targeting_ability_and_draws
     activate(engine, helm, 0, targets=[other])  # the second one pays full price
     assert helm.attached_to == other.instance_id and me.mana_pool.total() == 0
     assert len(me.hand) == hand + 1  # only once each turn
+
+
+def test_hojo_discount_reads_actual_unrestricted_targets_and_does_not_consume_on_opponents():
+    engine = game()
+    card(engine, "Professor Hojo")
+    source = filler(engine, "Pump machine", type_line="Artifact",
+                    oracle_text="{2}: Target creature gets +1/+1 until end of turn.")
+    own = filler(engine, "Our runner", power=2, toughness=2)
+    other = filler(engine, "Their runner", power=2, toughness=2, player="p2")
+    me = engine.state.player_by_id("p1")
+    me.mana_pool.add_many({"C": 2})
+    activate(engine, source, targets=[other])
+    assert me.mana_pool.total() == 0 and other.power == 3
+    hand = len(me.hand)
+    activate(engine, source, targets=[own])  # unrestricted target kind, actual own creature
+    assert own.power == 3 and len(me.hand) == hand + 1
+    me.mana_pool.add_many({"C": 2})
+    activate(engine, source, targets=[own])
+    assert me.mana_pool.total() == 0 and len(me.hand) == hand + 1
+
+
+def test_hojo_does_not_draw_for_a_real_targeted_triggered_ability():
+    engine = game()
+    card(engine, "Professor Hojo")
+    runner = filler(engine, "Our runner", power=2, toughness=2)
+    me = engine.state.player_by_id("p1")
+    hand = len(me.hand)
+    put_on_battlefield(engine, "Man-o'-War")
+    answer(engine, pick_label("Our runner"))
+    assert runner.zone == Zone.HAND
+    assert len(me.hand) == hand + 1  # only the returned creature, no Hojo draw
+
+
+def test_hojo_draws_for_an_opponents_activated_ability_targeting_our_creature():
+    engine = game()
+    card(engine, "Professor Hojo")
+    source = filler(engine, "Their pump machine", type_line="Artifact", player="p2",
+                    oracle_text="{2}: Target creature gets +1/+1 until end of turn.")
+    runner = filler(engine, "Our runner", power=2, toughness=2)
+    me = engine.state.player_by_id("p1")
+    opponent = engine.state.player_by_id("p2")
+    opponent.mana_pool.add_many({"C": 2})
+    hand = len(me.hand)
+    activate(engine, source, targets=[runner], player="p2")
+    assert len(me.hand) == hand + 1 and opponent.mana_pool.total() == 0
+
+
+def test_hojo_cannot_discount_an_opponent_target_just_because_own_targets_exist():
+    engine = game()
+    card(engine, "Professor Hojo")
+    source = filler(engine, "Pump machine", type_line="Artifact",
+                    oracle_text="{2}: Target creature gets +1/+1 until end of turn.")
+    own = filler(engine, "Our runner", power=2, toughness=2)
+    other = filler(engine, "Their runner", power=2, toughness=2, player="p2")
+    me = engine.state.player_by_id("p1")
+    main_phase(engine)
+    assert engine.can_activate(me, source, source.activated_abilities[0])
+    with pytest.raises(ValueError, match="cannot activate"):
+        engine.activate_ability(me, source, targets=[other])
+    activate(engine, source, targets=[own])  # the rejected attempt did not consume the discount
+    assert own.power == 3
+
+
+def test_hojo_discount_is_locked_before_sacrificing_hojo_as_an_activation_cost():
+    engine = game()
+    hojo = card(engine, "Professor Hojo")
+    source = filler(engine, "Sacrifice machine", type_line="Artifact",
+                    oracle_text="{2}, Sacrifice a creature: Target creature gets +1/+1 until end of turn.")
+    runner = filler(engine, "Our runner", power=2, toughness=2)
+    activate(engine, source, targets=[runner], sacrifice_choice=hojo.instance_id)
+    assert hojo.zone == Zone.GRAVEYARD and runner.power == 3
 
 
 def _chapter(engine, saga, chapter):

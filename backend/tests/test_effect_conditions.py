@@ -181,9 +181,19 @@ class TestVocabularyIsClosed:
         assert not (ec.CONTEXT_CONDITION_KINDS & sc.STATIC_CONDITION_KINDS)
 
     def test_no_flag_is_dead(self) -> None:
+        from mtg_analyzer.game.card_catalogue.u.ultimate_magic_meteor import _ultimate_magic_meteor
+        from mtg_analyzer.game.card_catalogue.l.lifestream_s_blessing import _lifestream_s_blessing
+
+        # New cards may emit structured conditions directly, without adding
+        # an unnecessary legacy spelling just to satisfy this vocabulary audit.
+        conditions = [condition for _, _, condition in _translated()]
+        conditions.extend(effect.condition
+                          for abilities in (_ultimate_magic_meteor(), _lifestream_s_blessing())
+                          for ability in abilities for effect in ability.effects
+                          if effect.condition is not None)
         used = {
             node["flag"]
-            for _, _, condition in _translated()
+            for condition in conditions
             for node in _walk(condition)
             if "flag" in node
         }

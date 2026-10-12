@@ -1211,13 +1211,13 @@ removal/placement; a destination counter prohibition prevents removal (RULE
 Equipment: the parser's equip keyword regex skips "Equip legendary creature {N}" (PARSER_VERSION 612), so the plain `Equip {M}` ability keeps its own cost and the legendary
 variant is a hand-authored `attach` with a `creature_filter`; `attach_equipment` moves an Equipment you control onto the source or a chosen creature (Cloud, Barret, Yuffie);
 `continuous.activation_cost_reduction_for` takes the `ActivationCost` and honours `set_to_zero` for a named `attach_kind` ("Equipment you control have equip {0}", Puresteel
-Paladin) and `first_targeting_own_creature` (Professor Hojo: the cost carries `targets_own_creature`, stamped at bind time, and `ACTIVATED_ABILITY` events carry it).
+Paladin) and `first_targeting_own_creature` (announced own-creature targets, including unrestricted target kinds; the cost is locked before sacrifices, and `ACTIVATED_ABILITY` events record the actual qualifying selection). Legal-action and mana-planning probes consider legal own-creature candidates without substituting them for a submitted target list.
 Other shared pieces: a `BECOMES_TARGET` filter key `target_creature_you_control`; the sacrifice cost stamps the victim's last-known counters and attached Equipment
 (`sacrificed_cost_counters`/`_attached_ids`, Zack Fair); "Sacrifice a modified creature" (`_matches_sacrifice_type` now takes `state`); count selectors for equipped creatures,
 greatest power, opponents with more creatures; graveyard target filters `aura_or_equipment`, `equipment_or_vehicle`, `non_assassin_historic`; `return_from_graveyard`
 `attach_to_previous` (Unfinished Business); `gain_control_until_eot` `player_from_trigger_event` (Hellkite Tyrant); `spell_help_pay_grant` (Inspiring Statuary's improvise
 for nonartifact spells, read by `_help_pay_keyword`); `GameState.temp_play_permission_standing` for "until you exile another card" (Furious Rise); `phase_out` now applies
-to every gathered target. Foretell cards read "cast from exile" as the `foretold` flag. Tests: `tests/game/catalogue/cards/test_limit_break_deck.py`.
+to every gathered target. Resolution conditions can read the actual `cast_from_exile` flag independently of Foretell. Cast-time greatest creature power is stored for paid and free casts and cleared on a new incarnation; an uncast copy has no such reading (RULE 107.2 / 707.10). `BECOMES_TARGET.item_category` distinguishes activated and triggered abilities. Per-opponent destruction choices are gathered before simultaneous destruction. Tests: `tests/game/catalogue/cards/test_limit_break_deck.py`, effect-condition, activation-cost and mana-planning regressions.
 
 ## Targeting
 
