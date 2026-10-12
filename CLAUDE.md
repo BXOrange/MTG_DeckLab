@@ -56,400 +56,15 @@ recomputes these counts, including when moving backwards. Blocking offers expose
 per-creature mana taxes; the shared board confirms payment before submission,
 and explicit API declines leave mana and combat unchanged (RULE 509.1c–f).
 
-**Solo bot updates** use one action per response: human POSTs return before
-bots answer; each subsequent GET applies at most one bot action. The Solo
-board polls once per second while `bot_action_pending` is true, including AI
-choices and bot blockers. Human priority is never passed server-side; the
-shared board's Multiplayer timers and empty-window handling apply unchanged.
+## Subsystem notes (moved out; load on demand)
 
-**Multiplayer** (UC4) is a real game of **two to four players** against the
-same engine, not a stub (`services/lobby.py`'s `MIN_SEATS`/`MAX_SEATS`;
-four is where the board UI stops being readable, not a rules limit — the
-engine has been N-player throughout). Two layers, strictly separated:
-`services/lobby.py` is
-**rules-free** (people and tables — `LobbyPlayer` with a presence state of
-`online`/`available`/`playing`, `LobbyGame` with seats, deck picks, an
-agreed mulligan style and a per-seat "accept"), and `services/
-game_session.py` is the game (one `GameEngine`, as always).
-`api/multiplayer.py` is the only bridge: it resolves each seat's saved
-deck exactly like `api/game.py` resolves a goldfish deck (same
-`expand_entries`, same legality gate) and hands `Lobby.start()` a built
-session id. Four things make a session *shared* rather than solo:
-**actions carry an actor** (`apply_action(action, actor_id=...)`) so the
-engine's own per-player validation decides what a non-active seat may do;
-**`view(perspective=...)` redacts hidden zones server-side** (RULE 400.2 —
-an opponent's hand never leaves the process, `observer_view()` hides
-everyone's); **`/ws/lobby`** (`api/multiplayer_ws.py`) is presence *and*
-the push channel, sending each participant their own view rather than one
-shared payload; and **priority is played out for real** (below).
-The shared board's **table feed** (VIS-4, `services/table_feed.py`) appears
-below the stack/trigger feed: preset emotes only, plus engine-event
-announcements for land plays, casts and ability activations; no priority
-passes. `GameSession.view()` includes the latest 200 entries. Emotes do not
-advance gameplay; multiplayer broadcasts them without driving bots.
-Observers read the feed, undo trims action announcements, and restart clears it.
-A seat also carries one purely cosmetic thing, `Seat.banner_color`
-(`normalize_banner_color` — any subset of WUBRG, or grey for colourless,
-defaulting to the deck's colour identity when a deck is picked): the
-colours the shared board paints that player's title bar in. It lives in
-the lobby rather than in the game state (it's a property of the person at
-the table, and Setup must show it before there is a game), so it reaches
-the board through the same `seatStatus` hook as connection state; the
-palette and all 32 combinations are derived from six hexes in
-`frontend/src/js/bannerColors.js` rather than enumerated in CSS.
-`RulesEngine.concede` (RULE 104.3a) defers the RULE 800.4a board cleanup
-to the next turn (`GameState.pending_leave_ids`) so a concession doesn't
-yank a board away mid-turn. Frontend: `multiplayerView.js` +
-`lobbySocket.js`, driving the shared `gameBoardView.js` through an
-injected transport.
+Invariants that must hold everywhere; details are in `docs/Reference/`:
 
-**RULE 117 priority** is opt-in per session (`GameSession.
-interactive_priority`, on only for `MULTIPLAYER`; the engine flag is
-`GameEngine.interactive_priority`). Off, `_run_step` auto-drains the stack
-exactly as it always has — every solo path is untouched. On, a step only
-puts triggers on the stack, the active player holds priority, and
-`GameSession._pass_priority` drives `GameEngine.pass_priority(player)`
-(which already owned the APNAP round: record the pass, hand priority on,
-resolve the top of the stack once everyone has passed). The half the
-engine can't do is RULE 117.4's *other* branch — all passed on an **empty**
-stack ends the step — so the session does that (`_advance_to_priority_
-window`, which runs through untap/cleanup since those give nobody
-priority). Consequence worth knowing: **there is no "advance the turn"
-action in a shared game**; `advance_step` is refused and the board's
-primary button becomes "Passen" (on the priority holder's own board
-banner — the left rail carries only table/layout controls). Only the
-priority holder may act, enforced
-in `_dispatch` and not merely filtered out of `legal_actions` (a client
-could post an action it was never offered) — except RULE 509.1a's
-declare-blockers, a turn-based action the *defending* player takes while
-the attacker still holds priority (and "declares no blocks" is itself a
-complete, submittable answer — an empty `assignments` list — not a state
-the UI can just fail to reach).
-
-**Aura/Equipment trigger predicates** resolve their source by instance ID
-from the current state. Snapshot callbacks retain Python closures, so reading
-a captured GameObject directly can silently use pre-rollback attachment data
-after an action error or take-back (`tests/test_ophidian_eye_trigger.py`).
-
-**Malcolm / Kediss damage:** Malcolm counts both combat and noncombat Pirate
-damage. Noncombat damage instructions emit a `DAMAGE` batch; the trigger
-counts distinct opponents, so Kediss copying Malcolm's damage yields Treasures
-for the other opponents as well. See `tests/test_malcolm_noncombat_damage.py`.
-
-**Exile until departure** (RULE 610.3) uses `ExileEffect.until_source_leaves`
-and state-owned source/exile incarnation links. Actual battlefield removals
-emit a separate notification; its batch returns linked cards immediately and
-simultaneously, without a leaves trigger. A source that already left or blinked
-cannot exile through its old ability. Ordinary two-ability linked exile remains
-on the separate-trigger path.
-
-**Object choices** (`effects/choices_actions.py`, `choose_objects`) support
-hand-only pools and targeted player choosers. `then_that_many` counts selected
-sacrifices directly, including tokens; graveyard size is not a reliable count. Delayed
-`return_captured_graveyard_card` uses the captured graveyard incarnation and
-ability controller; leaving and re-entering the graveyard breaks the link.
-`effects/piles.py` offers public revealed-card piles with separate opponent
-and controller decisions, preserving library identities across rewind.
-Counter placement prohibitions use ordinary static groups and also guard
-entry counters (including the entrant's own abilities, RULE 614.12).
-Numeric keywords are recognized by object-filter and condition predicates.
-Activation costs can announce X energy, and mill effects can target any number
-of players with amounts measured separately. Damage effects expose actual
-excess damage through the resolution tally for ordinary composed payoffs.
-Mayhem uses discard-event incarnations and ordinary graveyard casting; Mobilize
-builds a creature-owned attack trigger with a token-specific delayed sacrifice.
-Coin flips emit player-owned result events for independent win triggers.
-Objects retain a stable instance ID plus a monotonic `zone_incarnation`
-for identifying a particular zone stay (RULE 400.7).
-Counter moves can prompt for a kind or an arbitrary subset; a prohibited
-placement leaves the source counters intact (RULE 122.5). Melee uses the
-completed attack declaration and includes dynamically granted instances.
-Spell mana provenance preserves artifact-creature membership in both types.
-Continuous characteristics are recomputed between resolving instructions,
-without running state-based actions inside a resolution (RULE 613/704).
-
-**Resolution casts** can offer library cards without changing their zone,
-perform one immediate graveyard cast per player, or repeat an exile cast sequence.
-Paid offers preserve alternative costs and scoped mana flexibility. Payoffs after
-the cast sequence run before priority returns. Spell-granted haste/end-step
-sacrifice follows the spell onto the battlefield and lasts until another zone
-change, rather than expiring at cleanup.
-
-**Copy targets** (RULE 707.10c) use `GameState` target rounds before a batch
-of copies enters the stack. Copies retain selected effects, X, source/event
-references and target incarnations; each controller may keep or replace targets.
-Ward triggers follow the completed batch and function on battlefield permanents.
-Resolution preserves target positions and allocated damage while skipping illegal
-occurrences. Aura/Bestow/Mutate targets and session rewind use the same mechanism.
-`ActivationCost.minimum_x` and `cant_be_copied` enforce Gogo's printed restrictions.
-Spell-copy prohibitions are static markers checked before creation; the spell/ability
-union dispatches to the corresponding primitive. Demonstrate chooses its opponent
-between its two copy instructions, retaining Ward trigger snapshots through the
-sequence. Activation events expose a printed mana {X} for Unbound Flourishing.
-Untargeted event copies retain state-owned stack recipes when the original leaves,
-refreshing their last-known values at departure. Public choices carry recipe IDs;
-payment/optional continuations and rewind retain the same original identity.
-See the delivered MEC-112 behavior in `Done_Backend.md`.
-
-**Announced return costs** expose `return_cost` pools on activated-ability
-legal actions. The shared board gathers targets before asking which controlled
-permanent returns to hand, then submits `return_choices`. Singular subtype and
-counted permanent costs validate those IDs before payment; omitted choices keep
-the non-interactive fallback. See `tests/test_return_cost_choices.py`.
-
-**Announced sacrifice costs** use `ActivationCost.sacrifice_count` for X or
-optional one-or-more creature payments. The shared board gathers targets before
-separate cost choices. Casting events are deferred until all costs are paid
-(RULE 601.2i); `CAST_COST_PAID` supports reflexive self-stack triggers with an
-immutable paid count. Plumb the Forbidden uses ordinary draw/life effects and
-real event-derived stack copies, including after the original is countered.
-
-**Per-opponent spell targets** retain their announced controller scopes and
-reuse per-occurrence legality checks at resolution (RULE 608.2b). Disorienting
-Choice offers exile only for legal targets and counts their original battlefield
-incarnations. Battlefield exile costs expose `exile_cost` choices through the
-shared cost picker; activation events snapshot paid IDs/incarnations so later
-activations cannot replace the cards referenced by Primordial Mist's permission.
-
-**Target groups with a power bound** use `TargetSpec.any_number` and
-`total_power_max`. Casting, copy target changes and resolution check the whole
-group; the shared board permits finishing early and filters further picks by
-the remaining budget. Reunion of the House reuses ordinary simultaneous
-reanimation. Multiple optional trigger requirements can each keep an empty
-group (`stop`), separately from declining a whole optional ability. Betor uses
-one trigger with two targets. Multiplayer trigger-placement choices leave the
-announced ability on the stack for responses instead of auto-resolving it.
-
-**Card copies cast during resolution** use a real copied object in the original
-zone and the shared resolution-play choices (RULE 707.12). Blue Mage's Cane
-scopes its graveyard target to the attack event's defending player, offers the
-copy for its prescribed alternative cost, and keeps the original exiled. Copies
-not cast cease before priority returns; fixed costs suppress other alternative
-costs and force printed X to zero. Private top-card looks use the existing look
-dialog before optional exile; acknowledgements keep card names out of the shared
-move log, and face-down exile views conceal names and printed characteristics. Untargeted object choices accept ordinary permanent
-filters; Good King Mog XII chooses a non-Saga token at resolution. Damage events
-snapshot source subtypes and incarnations for Estinien's historical hit count.
-
-**Miracle** (printed or granted by Aminatou) offers a private first-draw
-reveal, then places a real linked trigger on the stack. Its resolution alone
-opens the ordinary hand-cast dialog for the Miracle alternative cost. Decline,
-countering, or a different hand incarnation closes that permission; the card
-remains publicly revealed through the applicable trigger/cast window. Draw
-instructions pause before later cards, and multi-player draws use the existing
-instruction continuation so separate reveal choices cannot overwrite each other.
-The shared target picker retains the alternative-cost flag on submission.
-
-**Suspended choices** preserve graveyard incarnations for remembered returns,
-player target referents, and the resolving spell through its last interactive instruction.
-Death events also capture copiable card values so a token copy reads the dying
-permanent’s face. Graveyard departures provide separate per-card and one-or-more
-events; damage-batch referents capture distinct source IDs. Paired activation
-sacrifices accept both selected IDs through the shared board and session API.
-Standing graveyard cast costs expose a separate card picker; selected exile IDs
-are validated before payment. Borrowed mana abilities resolve variable production
-against their recipient and the current board, using the existing amount resolver.
-
-**Cleanup discards** (RULE 514.1) use the shared pending-choice card picker.
-The active player selects excess hand cards before damage and temporary effects
-are cleared; shared-game advancement pauses and resumes after the last pick.
-Other seats see `waiting_on_choice` as a centered, non-blocking popup with the
-current prompt and the shared push-aside/show controls; it takes no layout space.
-
-**Take-backs** (`GameSession.take_back`) are a table-configured, RULE-free
-undo convenience — not `rewind`, which is a solo-practice, whole-history
-tool disabled in multiplayer. Host-set in Setup (`LobbyGame.
-takebacks_per_player`), legal regardless of priority (same exemption as
-`concede`), and scoped to *the caller's own* last `_history` entry — which,
-since there is only one shared timeline, also discards anything an
-opponent did afterward. `_history` now carries each entry's actor id for
-exactly this; slice it (and `move_log`) by a tail-relative depth, never an
-absolute index — `_history` drops its oldest entries past `MAX_HISTORY`
-but `move_log` never does, so the two can differ in length.
-
-**Presence, reconnects and timers.** A lobby player is identified by
-**name** (`services/lobby.py`'s `normalize_name`), not by the server-issued
-id: that's what survives a page reload, so reconnecting with the same
-Profil name walks back into the same seat mid-game. The trade is explicit —
-two people sharing a name share a seat, and the second to connect takes
-over (the old socket is closed with a `replaced` reason) — **unless**
-either browser has ever saved a Profil name, which mints it a random
-`client_token` (PLR-4 stub, `settings.js`'s `mtg_client_token` cookie,
-90-day sliding validity): once a client presents one, `Lobby.connect`
-resolves it by that token instead of by name at all, so two browsers
-sharing a display name stay distinct players rather than merging. Not real
-auth (unsigned, client-trusted, still PLR-9 to actually close) — just
-enough for one browser to keep recognizing itself without colliding with
-someone else's. A token unused for `MTG_CLIENT_TOKEN_VALIDITY` (default 90
-days, never while connected or mid-game) is forgotten, along with that
-name's `player_assets.py` uploads if no other still-recognized player
-shares it (`Lobby.expired_token_players`/`name_in_use_by_other`, swept
-alongside the timers below). Losing a socket
-doesn't forfeit: `Lobby.disconnect` starts a grace period
-(`MTG_MULTIPLAYER_DISCONNECT_GRACE`, default 90s) and meanwhile the server
-**passes priority for the absent player** (`pass_for_absent_players`) so
-the table keeps moving; letting it lapse concedes for them. A player who
-holds priority and is silent past `MTG_MULTIPLAYER_IDLE_TIMEOUT` (default
-120s) has their socket closed — not to police slow play, but because a tab
-that died without a clean close would otherwise hold the table forever.
-Both timers are swept once a second by `api/multiplayer_ws.sweep_once`,
-run from the app's lifespan. Client-side, a **per-priority countdown** runs
-whenever this client holds priority **on another player's turn** — the
-response window a phase hands round once the active player passes
-(`gameBoardView.js`'s `autoPassArmed`/`railTimerHtml` gate on
-`reactTimerSuppressedHere()`). On your **own** turn it's suppressed during
-your main phases and combat (you're the one acting there, RULE 117; a
-half-finished turn mustn't tick away under you), but still runs whenever
-there's something on the stack to respond to, or during the passive
-upkeep/draw/end steps — an absent active player otherwise is the
-`MTG_MULTIPLAYER_IDLE_TIMEOUT`'s job. When it does run it auto-passes at
-zero (a shrinking progress bar in the board's left rail —
-`gameBoardView.js`'s repurposed `autoPassArmed`/`syncAutoPass`); any
-interaction with the board, or the rail's "interrupt" button, cancels it
-for that window. It is always on (no opt-in checkbox any more) and its
-length is a **server** setting, not a cookie:
-`config.MULTIPLAYER_SPELL_TIMER_SECONDS` (`MTG_MULTIPLAYER_SPELL_TIMER`,
-default 20s, 0 = off), per-table overridable by the host in Setup
-(`LobbyGame.spell_timer_seconds`, carried to the board on
-`view()["priority"]["timer_seconds"]`). **"Pass this turn" / "Skip to end step"** (VIS-12) are the deliberate opposite
-of that suppression, and live on the **server**: `set_yield` arms a one-shot
-yield (`GameSession._yields`, shown to everyone as `view()["priority"]["yields"]`)
-and `_auto_pass_followups` (next to the RULE 720 controller auto-pass, so it
-works in Solo too) passes the seat's priority windows — for the rest of an
-*opponent's* turn (`turn`, "Pass this turn") or, on your own turn, up to the end
-step (`end_step`) — regardless of what `legal_actions` offers. It never
-passes with another player's spell/ability on the stack, never answers a
-`pending_choice`, is cancelled by any real action of that seat or a take-back, and
-needs no priority to arm/cancel. `set_stops` keeps a seat's standing **stops**
-(per step, own turn vs. opponents' turns; main phases locked on your own): a step
-without one is passed for that seat on an empty stack. Both are opt-in per seat —
-a seat with neither is passed for never, exactly as before. Board: yield buttons
-on your own banner, a Stops panel in the rail (saved in a cookie, re-sent per
-game), the board's "Pass" button names where passing leads ("To combat →",
-from `view()["priority"]["next_step"]` = `GameEngine.next_priority_step`), keys Space = pass, Enter = pass this turn (opponents' turns), E = skip to end step (your turn).
-
-**Bots (UC5, `services/bots.py`)** fill a seat at such a table — they are
-players, not a mode. The load-bearing rule is that a bot plays through the
-*client* surface and nothing else: it reads `session.view(perspective=<its
-own id>)` (so RULE 400.2 redaction means an opponent's hand and every
-library simply aren't in its data) and may only submit entries from its own
-`legal_actions` via `apply_action(action, actor_id=...)`. Never read
-`engine.state` from a bot — the engine's per-seat validation is what makes
-a bot legal, and every bot game doubles as a test of the redaction. `Bot`
-fixes the *order* a seat handles things in (`decide`: pending choice →
-mulligan → RULE 509.1a declare-blockers, which the defender takes while the
-attacker holds priority → `play()` only if it holds priority) and
-subclasses override policy only — `GoldfishBot` (lands, else pass) and
-`GreedyBot` (everything, immediately, first legal target), `ManaMaximizerBot`
-(diagnostic mana ceiling), `SmartBot` (deck-aware heuristic opponent), and
-`AIBot` (configured LLM, with Smart fallback).
-`SmartBot` is the default in Solo, Multiplayer and dynamic analysis, including
-API requests that omit the bot kind; explicitly selected policies are preserved.
-Dynamic analysis offers 1–3 passive opponents (`opponentCount`, default 1),
-with independent hidden hands/libraries and no turns of their own. The selected
-count is preserved in background/process workers and reported in results;
-card-advantage baselines account for the first draw in multiplayer games.
-Classes live individually in
-`services/bot_policies/`; `services/bots.py` reexports them and owns the registry
-and driver. `prepare(session)` attaches policy context before each fresh view.
-All bot policies accept offered opening-hand permissions (RULE 103.6), including
-Leylines and Gemstone Caverns, and complete their mandatory follow-up choices.
-Smart Bot ranks the pregame hand-card exile by card value and combo protection;
-AI Bot delegates pregame choices to this deterministic policy without an LLM call.
-Human pregame actions use the shared board's existing pending-choice dialog.
-AI requests run in bounded background workers and preserve priority while pending;
-solo view polling and the multiplayer watchdog collect completed decisions.
-All bot policies retain position-scoped rejection feedback across policy rebuilds
-and try another selection before passing. Rejected blocks can be replaced by an
-empty block declaration; choice failures exclude only the rejected option.
-AI requests carry
-the rejected action and engine reason, retaining feedback across policy rebuilds
-only for the same visible position. Three rejections bound correction attempts;
-the Smart fallback excludes rejected offers and existing LLM call budgets apply.
-Settings exposes Claude/Anthropic and compatible endpoints with automatically
-loaded model dropdowns and manual fallback; the same transport
-implements ANA-1 narrative analysis, structured validation and persistent caching.
-See [LLM integration](docs/Reference/LLM_INTEGRATION.md); ANA-2 narrative UI and
-ANA-3 cache-age presentation remain open.
-Smart Bot detects colour identity, archetype and commander themes from its
-own unordered setup deck list (`services/bot_strategy.py`), caches local
-Spellbook matches per session without downloading at game start, ranks visible
-combo progress/tutor choices, fixes mana colours, preserves combo pieces in
-combat and responds with counters/removal. Oracle + Demonic Consultation has
-an explicit engine-tested win sequence, including coherent UU+B mana planning
-and card naming through a parameterized `free_text` choice offer. Other combos
-are assembly priorities, not guaranteed executable winning lines. Repeatable
-abilities require visible progress and are capped at 64 uses per ability/turn;
-this memory survives lobby bot rebuilds and clears on restart. See
-[Smart Bot design and sources](docs/Reference/SMART_BOT.md). A bot accepts "Pass this turn" too (VIS-12): `Bot.decide` posts `set_yield` on
-an opponent's turn when its policy's `can_pass_turn` says every empty-stack window
-would be a pass (Goldfish/Greedy/Mana-Maximizer always; Smart unless its own Oracle
-trigger is up; AI only when the LLM has nothing to weigh) — the server still hands it
-priority for any opponent stack item, so counters/removal keep working, and Solo
-stops spending one bot tick per window. Bots have no
-loop of their own: `run_bots(session, bots)` is called after each human
-action, right after `lobby.start()` (so a bot keeps its opening hand before
-the humans see the mulligan screen), and once a second by the sweeper —
-which is what drives a table with no humans at it. It runs *before* the
-broadcast, so a human's move and every bot answer to it are one push.
-`MAX_BOT_ACTIONS` is a yield point, not an error budget. In the lobby a bot
-is an ordinary `LobbyPlayer`/`Seat` (+`Seat.bot_kind`), so the engine never
-learns bots exist; the differences are all social — a bot seat with a deck
-counts as ready, bots are kept out of presence sweeps, the host acts for
-them (`add_bot`/`remove_bot`/`set_deck(seat_id=…)`), and a table whose last
-*human* leaves is dropped rather than left playing itself.
-
-**Player-uploaded art** (**Profil** tab): a player can upload art for
-tokens that have no real Scryfall art (matched by token name) and a
-library of card-back "sleeve" designs, one of which can be picked per
-saved deck (`Deck.sleeve_id`). Stored server-side keyed by the free-text
-player name (this app has no auth) — set on the same **Profil** tab
-(`profileView.js`), read via `getSettings().playerName` — via `services/
-player_assets.py` / `api/player_assets.py` rather than client-side,
-specifically so a shared backend can serve them to an opponent too at a
-multiplayer table.
-The goldfish/Replay board (`gameBoardView.js` `resolveImageUrl`) renders
-a token's uploaded art when present, and falls back to the active
-sleeve for a face-down/transformed token with none — real transformed
-DFCs keep their genuine Scryfall back-face art, so the sleeve fallback
-has no visible effect yet until a face-down permanent state
-(morph/manifest, not yet modeled) can reach that branch.
-
-The **Profil** tab also carries two more per-player preferences
-alongside the player name and asset uploads: **favorite decks** — a starred subset of the
-saved-decks list (`services/player_assets.py`'s third table,
-`favorite_decks`, same `player_name`-keyed storage as sleeves/token
-art — decks aren't owned in this single shared `DeckDatabase`, so the
-star can't live on `Deck` itself) that `goldfishView.js`'s and
-`multiplayerView.js`'s deck pickers list first; and **multiplayer
-default settings** (format, mulligan style, takebacks, RULE 103.1/103.2
-randomization) — purely client-side cookies (`settings.js`, same
-convention as the auto-pass toggles on the same tab), applied once by
-`multiplayerView.js`'s `createGame()` via the same host-only
-`setMultiplayerOptions` call the table's own option rows use, right
-after a table is created.
-
-A saved `Deck` also carries a free-text, optional `author` field (a
-descriptive credit, not an owner/auth concept — this app still has no user
-accounts) — set on the deck-import/edit tab and shown read-only in the
-saved-decks list, preserved-on-omission the same way `sleeve_id` is
-(`api/saved_decks.py`'s `save_deck`: a re-save that doesn't send `author`
-keeps the existing value). The saved-decks list also gained client-side
-color-identity/legality filters, the same checkbox-fieldset pattern the
-card cache view uses (`savedDecksView.js`/`cachedCardsView.js`).
-
-A saved `Deck` can also be flagged `is_cube` (`models/deck.py`) — a card
-pool (e.g. a curated "cEDH staples" reference list) rather than a real,
-legal Commander deck. When set, `services/deck_validation.py` skips both
-the structural Commander checks (100-card total, singleton,
-`parser/deckliste_parser.py`) and the semantic ones (ban list, color
-identity, Partner — `services/commander_legality.py`) entirely, rather
-than reporting the pool's inherent "violations" as errors — same
-preserved-on-omission save semantics as `author`/`sleeve_id`. Set via a
-"Als Cube behandeln" checkbox on the deck-import/edit tab
-(`deckImportView.js`); the saved-decks list shows a 🧊 badge instead of
-the usual legality check (`savedDecksView.js`) and gained a matching
-"Art" (Deck/Cube) filter, same checkbox-fieldset pattern as color/legality.
+- **Multiplayer**: `services/lobby.py` is rules-free (people/tables), `services/game_session.py` is the game. Actions carry an actor; `view(perspective=...)` redacts hidden zones server-side (RULE 400.2); RULE 117 priority is opt-in per session and only the priority holder may act. See [MULTIPLAYER.md](docs/Reference/MULTIPLAYER.md).
+- **Bots** play only through the client surface (`session.view(perspective=<own id>)` + own `legal_actions` via `apply_action(..., actor_id=...)`); never read `engine.state` from a bot. See [BOTS.md](docs/Reference/BOTS.md).
+- **Per-mechanic engine behaviour** (choices, copies, costs, Miracle, take-backs of resolution state, …): [ENGINE_MECHANICS_NOTES.md](docs/Reference/ENGINE_MECHANICS_NOTES.md).
+- **Profil / uploaded art / saved-deck fields** (`author`, `is_cube`, `sleeve_id`; preserved-on-omission on re-save): [PLAYER_PROFILE.md](docs/Reference/PLAYER_PROFILE.md).
+- **Deck analysis**: [MANA_ADVICE.md](docs/Reference/MANA_ADVICE.md) (land/ramp odds), [COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md) (combo snapshot, Bracket signals).
 
 ## Run & test
 
@@ -552,60 +167,12 @@ entrypoint's name and concise trigger description aligned when its scope changes
 On Windows, run helpers with the available backend venv's `Scripts/python.exe`
 and adapt Bash examples to PowerShell while preserving their working directory.
 
-- **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
-  the oracle-text parser (`parser/oracle/`): add/widen an effect/static/
-  trigger handler to raise `MODELED` coverage, close a `PAR-*` ticket, or
-  make specific cards parse. Ships `parser_probe.py` (~5s against the full
-  34k-card cache: which real cards a change would unlock, whether a regex
-  edit broke anything).
-- **`game-engine`** (`.claude/skills/game-engine/SKILL.md`) — engine work in
-  `game/`: implement a mechanic or `MEC`/`ENG` ticket, add an effect/
-  trigger/replacement/static/interactive choice, fix layer-system or combat
-  behaviour, or debug a card's live behaviour. Ships `engine_bench.py`
-  (boards/casts/resolves/fights a real card against a real `GameEngine`
-  from one command — event trace + board diff, no throwaway test file —
-  and searches existing registries for a primitive before you build a new
-  one).
-- **`hand-author-card`** (`.claude/skills/hand-author-card/SKILL.md`) —
-  hand-authoring a specific card's abilities into `game/card_catalogue/`
-  (a replacement effect, a triggered ability with a real conditional
-  predicate, or any card the oracle-text parser can't fully claim) rather
-  than a parser handler. Ships `author_card.py`: pulls the card's real
-  oracle text, shows what the parser already claims for free (so you copy
-  that part instead of re-deriving it), finds the closest-shaped existing
-  catalogue entry to adapt, and assembles a paste-ready factory function +
-  `register()` call + test skeleton in one command.
-- **`singleton-sweeper`** (`.claude/skills/singleton-sweeper/SKILL.md`) —
-  re-checks a queued parser singleton against unclaimed clauses across the
-  entire cached card pool, groups exact and fuzzy text neighbors, and promotes
-  confirmed shared shapes into one PAR ticket while removing related rows
-  from `singletons.md`.
-- **`inspect-db`** (`.claude/skills/inspect-db/SKILL.md`) — read-only
-  lookups against the five SQLite stores (card cache, raw Scryfall data,
-  parser-coverage ledger, saved decks, player assets). A short routing
-  SKILL.md points at exactly one lean `reference/<store>.md` per store
-  (path, schema, gotchas), so a lookup only ever loads the one store that
-  matters. Ships `query.py`, a read-only SQL runner that resolves each
-  store's real on-disk path itself and refuses non-`SELECT` statements.
-- **`understand-card`** (`.claude/skills/understand-card/SKILL.md`) — the
-  read-and-explain step *before* the other four: what does a card do under
-  the Comprehensive Rules, and how far does the pipeline already get. Ships
-  `understand_card.py` (`card`/`clause`/`check`/`term`/`rulings`) — raw vs
-  `normalize`d text, per-clause `MODELED`/`UNMODELED` verdict, every keyword +
-  the RULE that defines it, a governing-rules roll-up from the glossary terms
-  in the text (the two-hop `rules_wiki` lookup done for you), a `check` that
-  cross-references parser coverage against what `bind_from_catalogue` actually
-  produces, and `rulings` — Scryfall's "Notes and Rules Information" fetched
-  once (project UA + rate limit) and cached under `<CACHE_DIR>/rulings/`, with
-  the `RULE <n>`s each ruling cites resolved to passages and any ruling that
-  looks like it explains an `UNCLAIMED` clause flagged. Reads only (bar that
-  one rulings fetch); hands off to `parser_probe.py` / `engine_bench.py` /
-  `author_card.py` for the work itself.
-- **`ticket-management`** (`.claude/skills/ticket-management/SKILL.md`) —
-  create, resume, refine, park, and close tickets while keeping
-  `BACKLOG.md`, `workingOn.md`, `DEFERRED.md`, and the topic-organized
-  `Done_*.md` worklogs consistent. Organizes ticket state; does not implement
-  the ticket unless asked.
+Skills: `extend-parser`, `game-engine`, `hand-author-card`, `singleton-sweeper`,
+`inspect-db`, `understand-card`, `ticket-management`. Each skill's `SKILL.md` documents its helper scripts.
+
+Agents (`.claude/agents/`): **`ticket-grinder`** (run as the main-thread agent:
+`claude --agent ticket-grinder`; loops over eligible backlog tickets, commits and
+pushes) delegates each ticket to **`ticket-worker`** (Sonnet, medium effort).
 
 ## Architecture & data flow
 
@@ -769,33 +336,6 @@ version is the frontend **Engine-Status tab**
 (`frontend/src/js/implementationStatusView.js`) — keep it in sync when engine
 coverage changes. Search those for a mechanic's name rather than re-deriving
 its state from the code or duplicating detail here.
-
-**Deck Advice: empirical lands and ramp probabilities.** Alongside the
-Karsten curve table, `frontend/src/js/manaAdvice.js` implements the published
-2022 land-count regression and exact hypergeometric/multivariate draw odds.
-`manaAdviceView.js` shows quantity-weighted inputs, MDFC credits, early-ramp
-reliability preferences (70/80/90%) and joint opening-hand requirements.
-Regression cheap ramp/draw and probability early ramp are intentionally
-different categories, displayed with their input cards. All advice is
-synchronous; there is no Advice simulation worker or gameplay optimiser.
-See [the model reference](docs/Reference/MANA_ADVICE.md).
-Browser regression command: `backend/venv/bin/python frontend/tests/test_mana_advice.py`.
-
-**Deck analysis: Commander Spellbook combos.** The backend's local
-`CommanderSpellbookDatabase` (`services/commander_spellbook_database.py`)
-downloads Spellbook's compressed bulk snapshot only on first combo matching
-or explicit refresh, stores canonical variant/alias JSON plus indexed card
-uses and checksums in SQLite, and reports snapshot diffs. The static deck
-analysis lists exact-name fixed-use matches; template requirements are
-displayed but not verified. Only two-card matches with explicit infinite
-outputs and no template requirements affect the unofficial Bracket estimate.
-Its early/late split schedules the individual combo-card mana values across
-the deck's max-expected per-turn curve (no mana carries over; ramp payments
-are subtracted so they aren't spent twice) through turn 6; it assumes all
-pieces are available and is a project heuristic, not an official WotC numeric
-rule. See
-[docs/Reference/COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md)
-for the upstream contract and limits.
 
 **The rules engine is broadly complete.** Implemented, in brief:
 
@@ -1054,6 +594,23 @@ English and German.
   `escapeAttr`. Client-only prefs persist via cookies (`cookies.js`).
 - **Commits**: only when asked; branch first if on `main`. End commit messages
   with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+- **Anti-proliferation — keep this file small.** Every session loads it in
+  full, so it is orientation only: purpose, run/test commands, invariants that
+  must never be violated, conventions and the "Where to look first" table.
+  Before adding a line, ask whether an agent working elsewhere needs it
+  *every time*; if not, it belongs in `docs/Reference/` (or a folder-local
+  `CLAUDE.md`) behind a one-line pointer. Do not create a new `docs/` file for
+  something an existing doc already covers (grep first, extend that doc); do not
+  duplicate a fact in two places; do not add a new top-level section for one
+  feature.
+- **Anti-worklog — no "what shipped" narrative here.** A mechanic's delivery
+  story ("X now does Y, see test Z"), card names, ticket IDs, coverage numbers
+  that change per batch and per-card behaviour do not go in `CLAUDE.md`. They go
+  in `Done_Backend.md` / `Done_Frontend.md` (shipped narrative), the card's code
+  and tests (per-card behaviour), or `BACKLOG.md` / `workingOn.md` (open work).
+  `CLAUDE.md` keeps only the rule or invariant a future change must respect.
+  When closing a ticket, do not touch this file unless a convention or
+  invariant itself changed.
 - **Backlog/worklog split discipline**: `BACKLOG.md` is read in full often
   (by humans and Claude) and, unlike `Done_*.md`, isn't a durable catalogue
   — it holds *only* open work. **Closing a ticket = deleting it from
@@ -1168,34 +725,7 @@ English and German.
 
 ## Local bug reports
 
-The bug icon beside Settings opens a report dialog. `POST /api/bug-reports`
-saves gzip-compressed UTF-8 JSON (`.json.gz`, report version 2) in the Git-ignored **`bug-reports/`** directory at the repo
-root (override: `MTG_BUG_REPORT_DIR` or config.json `paths.bug_report_dir`).
-Reports include the description, originating view, session mode, current
-portable replay and diagnostic state, plus the last **12 actions** by default
-(user-selectable up to the retained history limit). Each retained action has
-its label, actor, step cursor, pre-action replay and diagnostic state. Reports
-outside a game have `game: null`. Files contain hidden game zones and are local
-user data; do not commit them or delete them without an explicit request.
-
-Report v2 stores card descriptors once (content-keyed variants preserve tokens,
-transforms and copies) and one chronological base position plus lossless deltas
-for subsequent pre-action positions and the current position. These are storage
-changes only; gameplay HTTP/WebSocket views are unchanged. Read both legacy v1
-JSON and v2 gzip reports with `services.bug_report_codec.load_report(path)`.
-To expand for inspection, run from the repo root:
-`PYTHONPATH=backend backend/venv/bin/python -m mtg_analyzer.services.bug_report_codec bug-reports/<id>.json.gz /tmp/mtg-report-expanded.json`
-(the destination must not already exist).
-
-When asked to analyze a bug report, inspect this folder (or its configured
-location), expand it with the codec and start with `description` and
-`game.recent_actions` in chronological order. Extract `game.replay` or an
-entry's `replay_before` into a temporary JSON file to import in Replay mode.
-Use `state`/`state_before` to inspect stack, pending choices and other diagnostic
-context. Portable Replay restores an editable board, not every runtime engine
-continuation; do not assume it faithfully reproduces a pending stack/choice.
-Action labels are descriptive, not executable action payloads. Reproduce the
-reported interaction, consult the Rules-Wiki when rules are involved, and add
-an appropriate regression test before fixing it. Keep investigation notes
-in temporary unversioned files; record only verified lasting conclusions in
-project documentation. Preserve the original report.
+The bug icon beside Settings opens a report dialog; `POST /api/bug-reports` saves
+gzip JSON in the Git-ignored `bug-reports/` (never commit or delete them without an
+explicit request; they contain hidden zones). To analyze one, read
+[docs/Reference/BUG_REPORTS.md](docs/Reference/BUG_REPORTS.md) first.
