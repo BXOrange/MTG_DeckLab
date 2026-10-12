@@ -1227,9 +1227,11 @@ class ReturnChosenCreatureTypeFromGraveyardEffect(GameEffect):
         chosen = str(getattr(self.source, "chosen_type", "") or "").lower()
         if not chosen:
             return
+        from .. import continuous  # function-scoped: continuous imports effects.core at load
         cards = [
             obj for obj in list(player.graveyard)
-            if obj.card.is_creature and chosen in obj.card.type_line.lower().split()
+            if obj.is_creature and (chosen in obj.card.type_line.lower().split()
+                                    or continuous.has_subtype(obj, chosen))
         ]
         if getattr(self.source, "foretold", False):
             with context.state.simultaneous():

@@ -971,6 +971,8 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 _SPECIAL_TYPES: dict[str, str] = {
     "exile_opponent_graveyards_copy_creature": "Espers to Magicite",
     "living_death": "Living Death's three simultaneous zone-change batches",
+    "copy_exiled_creature_as_artifact": "Espers to Magicite's reflexive exile-batch copy",
+    "snort": "Snort's APNAP-ordered simultaneous discards, draws and damage",
     # Bookkeeping, not a rules action: records that an ability's action was performed this turn so its
     # "Do this only once each turn." gate (`action_unused_this_turn`) can refuse a second one (PAR-135).
     "action_stamp": "\"Do this only once each turn\" (Ondu Spiritdancer family)",

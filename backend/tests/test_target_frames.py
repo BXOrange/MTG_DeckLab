@@ -49,6 +49,8 @@ IRREDUCIBLE_KINDS = frozenset({
     "spell_or_creature", "spell_or_nonland_permanent_you_dont_control",
     # the stack, the battlefield and every graveyard at once (Endless Detour) — no single zone for a frame to read
     "spell_nonland_permanent_or_graveyard_card",
+    # a creature card in any exile zone (Espers to Magicite's reflexive target) — exile is not a frame zone
+    "exiled_creature_card",
 })
 
 
@@ -206,7 +208,9 @@ class TestDispatchIsStructural:
         # `opponent` — it cannot be a battlefield frame.
         # Bumped 16 -> 17 for `spell_nonland_permanent_or_graveyard_card` (Endless Detour): one target spanning the stack, the
         # battlefield and every graveyard, so it can be neither a battlefield frame nor a graveyard-family kind.
-        assert branches <= 17, (
+        # Bumped 17 -> 18 for `exiled_creature_card` (Espers to Magicite): a creature card in exile, which is
+        # neither a battlefield frame nor a graveyard-family kind.
+        assert branches <= 18, (
             f"{branches} name branches left in legal_targets; the frame "
             f"dispatch was supposed to absorb them"
         )

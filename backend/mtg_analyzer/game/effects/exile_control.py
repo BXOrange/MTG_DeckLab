@@ -982,7 +982,7 @@ class FreeCastFromHandEffect(GameEffect):
         candidates = [
             obj for obj in player.hand
             if not obj.card.is_land
-            and (not self.noncreature_only or not obj.card.is_creature)
+            and (not self.noncreature_only or not obj.is_creature)
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
             and (not isinstance(max_mv, int) or (obj.mana_value or 0) <= max_mv)
             and (shared_types is None or bool(continuous.card_types_of(obj) & shared_types))

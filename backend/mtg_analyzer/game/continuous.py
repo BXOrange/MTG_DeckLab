@@ -3694,7 +3694,7 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
             for player in state.players:
                 donors.extend(player.graveyard)
             if creature_only:
-                donors = [d for d in donors if d.card.is_creature]
+                donors = [d for d in donors if d.is_creature]
         if not donors:
             continue
         for obj in affected_objects(state, ability):

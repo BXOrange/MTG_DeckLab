@@ -298,4 +298,6 @@ class TestBacklogSizes:
         # Revival Trance adds the reviewed cross-zone artifact-only copy adapter
         # for Espers to Magicite. Its documented automatic selection remains a
         # card-specific limitation; the copy itself uses Card.as_copy's type mask.
-        assert n <= 63, f"one-card specials grew to {n}"
+        # Revival Trance's reflexive Espers copy (`copy_exiled_creature_as_artifact`) and Snort's APNAP
+        # discard/draw/damage batch (`snort`) are examined one-card specials: 63 -> 65.
+        assert n <= 65, f"one-card specials grew to {n}"

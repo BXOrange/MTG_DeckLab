@@ -454,7 +454,7 @@ def _context_holds(
             and other.is_creature and other.name == name
             for other in context.state.permanents()
         ) or any(
-            card.card.is_creature and card.name == name
+            card.is_creature and card.name == name
             for card in getattr(player, "graveyard", []) or []
         )
         return not shares

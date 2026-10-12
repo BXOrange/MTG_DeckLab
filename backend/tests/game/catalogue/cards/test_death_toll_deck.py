@@ -691,3 +691,18 @@ def test_wrenn_and_seven_minus_eight_returns_every_permanent_card_and_removes_th
     _loyalty(engine, wrenn, -8)
     assert bear in p1.hand and land in p1.hand and spell in p1.graveyard
     assert len(p1.emblems) == 1
+
+
+def test_grist_in_hand_is_a_creature_card_for_noncreature_free_cast_filters():
+    from mtg_analyzer.game.effects.core import GameContext
+    from mtg_analyzer.game.effects.exile_control import FreeCastFromHandEffect
+
+    engine = _game()
+    source = _filler(engine, "Source")
+    grist = _card(engine, "Grist, the Hunger Tide", zone=Zone.HAND)
+    spell = _filler(engine, "Plain Sorcery", "Sorcery", mv=1, zone=Zone.HAND)
+    FreeCastFromHandEffect(noncreature_only=True, arm_all=True, source=source).apply(
+        GameContext(engine.state, engine))
+    # Off the battlefield Grist is a 1/1 Insect creature (RULE 205.1b), so "noncreature" skips her.
+    assert spell.instance_id in engine.state.free_cast_instance_ids
+    assert grist.instance_id not in engine.state.free_cast_instance_ids
