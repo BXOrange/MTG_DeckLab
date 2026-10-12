@@ -9281,6 +9281,7 @@ def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]
 #: whenever a new named token is added there.
 _NAMED_TOKEN_WORDS: dict[str, str] = {
     "treasure": "Treasure", "clue": "Clue", "food": "Food", "blood": "Blood", "mutagen": "Mutagen",
+    "powerstone": "Powerstone",
 }
 
 

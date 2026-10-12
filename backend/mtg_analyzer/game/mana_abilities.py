@@ -710,12 +710,26 @@ def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None
         cost.once_per_turn = True
 
 
+#: RULE 605.3a's negative form, printed by the Powerstone token: "This mana can't be spent to cast a nonartifact
+#: spell." Everything except casting a nonartifact spell stays legal (abilities, artifact spells, special actions).
+_CANT_CAST_NONARTIFACT_RE = re.compile(
+    r"this mana can'?t be spent to cast (?:a |any )?nonartifact spells?\.?", re.IGNORECASE
+)
+#: Restriction kind for the above (see `_restriction_allows_cast`).
+NONARTIFACT_CAST_BAN_KIND = "no_nonartifact_spell"
+
+
 def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
     """A "Spend this mana only ..." clause (RULE 605.3a) in ``effect_text``
     as a restriction dict, or ``None`` when there's no such clause at all
     *or* it's outside the recognised vocabulary (fail-soft — the "Add ..."
     production still parses either way, just unrestricted; see the module
     docstring for exactly which shapes this covers)."""
+    if _CANT_CAST_NONARTIFACT_RE.search(effect_text):
+        # Powerstone: a ban rather than an allow-list — abilities, unlocking and turning face up are not casts.
+        return {
+            "kind": NONARTIFACT_CAST_BAN_KIND, "allow_ability": True, "allow_unlock": True, "allow_face_up": True,
+        }
     m = _RESTRICTION_CLAUSE_RE.search(effect_text)
     if m is None:
         return None
@@ -775,6 +789,10 @@ def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool)
     if kind == "contains_x":
         return has_x
     card = getattr(obj, "card", obj)
+    if kind == NONARTIFACT_CAST_BAN_KIND:
+        # RULE 605.3a (Powerstone): only an artifact spell may be paid with this mana.
+        types = getattr(obj, "type_words", None)
+        return "artifact" in types if types is not None else bool(getattr(card, "is_artifact", False))
     if kind == "creature_spell":
         return bool(getattr(card, "is_creature", False))
     if kind == "type_spell":
@@ -823,6 +841,8 @@ def _restriction_allows_activation(restriction: dict[str, Any], source: Any, has
     # here, so they simply never authorize paying an ability's cost.
     if not restriction.get("allow_ability"):
         return False
+    if kind == NONARTIFACT_CAST_BAN_KIND:
+        return True  # not a cast: any ability may be paid with Powerstone mana
     if kind == "creature_spell":
         return bool(getattr(source, "is_creature", False))
     if kind == "type_spell":
