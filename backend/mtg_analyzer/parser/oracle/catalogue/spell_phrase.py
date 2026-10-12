@@ -106,9 +106,19 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
     m = _SPELL_PHRASE.match(phrase)
     if m is None:
         return None
-    obj_filter = parse_characteristic_phrase(m.group("head"))
+    head = m.group("head").strip()
+    # "a white **permanent** spell" (the Defilers): a permanent spell is a spell of any permanent type (RULE 110.1),
+    # so — unlike the empty noun "permanent" on the battlefield — it excludes instants and sorceries.
+    permanent_spell = head == "permanent" or head.endswith(" permanent")
+    if permanent_spell:
+        head = head[: -len("permanent")].strip()
+    obj_filter = parse_characteristic_phrase(head)
     if obj_filter is None:
         return None
+    if permanent_spell:
+        if any(k in obj_filter for k in ("card_type", "card_type_all", "card_type_any", "any_of")):
+            return None
+        obj_filter["card_type_any"] = list(_PERMANENT_TYPES)
     keys: dict[str, Any] = dict(ordinal_keys)
     tail = m.group("tail").strip()
     while tail:

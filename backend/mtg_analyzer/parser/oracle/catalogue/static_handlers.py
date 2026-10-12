@@ -4591,6 +4591,16 @@ def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: RULE 110.1 — a "permanent spell" is a spell of any of these types (the Defilers' filter).
+_PERMANENT_SPELL_TYPES = ("creature", "artifact", "enchantment", "land", "planeswalker", "battle")
+_COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+_PIP_LIFE_OPTION_RE = re.compile(
+    r"as an additional cost to cast (?P<c>white|blue|black|red|green) permanent spells, you may pay 2 life\. "
+    r"those spells cost (?P<pip>\{[wubrg]\}) less to cast if you paid life this way\. "
+    r"this effect reduces only the amount of (?P<c2>white|blue|black|red|green) mana you pay"
+)
+
+
 def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a static anthem/keyword-grant ``clause``, or ``None``.
 
@@ -4616,6 +4626,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     match = re.fullmatch(r"creature spells you cast from your hand have blitz ((?:\{[^}]+\})+)", text)
     if match:
         return [EffectSpec("grant_blitz", {"from_hand": True, "cost": match.group(1)})]
+    # The Defilers (RULE 601.2b/118.8): one coloured pip of a coloured permanent spell may be paid with 2 life instead.
+    defiler = _PIP_LIFE_OPTION_RE.fullmatch(text)
+    if defiler is not None and defiler.group("c") == defiler.group("c2"):
+        letter = _COLOR_LETTERS[defiler.group("c")]
+        if defiler.group("pip") == "{" + letter.lower() + "}":
+            return [EffectSpec("pip_life_option", {
+                "color": letter, "pips": 1, "spell_color": letter, "spell_type": list(_PERMANENT_SPELL_TYPES),
+            })]
     if text == "instant and sorcery spells you cast have storm":
         return [EffectSpec("grant_keyword", {
             "affects": "instant_sorcery_spells_you_cast", "keywords": ["storm"],
