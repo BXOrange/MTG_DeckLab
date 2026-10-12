@@ -192,6 +192,31 @@ def test_giggling_skitterspike_hits_every_opponent_for_its_power_when_it_attacks
     assert engine.state.player_by_id("p1").life == 20
 
 
+def test_giggling_skitterspike_hits_the_attacker_s_controller_when_it_blocks():
+    engine, spike = _skitterspike_game(opponents=2)
+    p1 = engine.state.player_by_id("p1")
+    p2 = engine.state.player_by_id("p2")
+    p3 = engine.state.player_by_id("p3")
+    raider = GameObject(
+        Card(id="Raider", name="Raider", type_line="Creature — Goblin", is_creature=True, power=1, toughness=1),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    raider.controller_id = "p2"
+    raider.summoning_sick = False
+    engine.state.add_to_battlefield(raider)
+    engine.state.active_player_index = 1
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(p2, [{"attacker": raider, "defender": p1}])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    engine.state.current_step = "declare_blockers"
+    engine.declare_blockers(p1, [{"blocker": spike, "attacker": raider}])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert p2.life == 20 - spike.power and p3.life == 20 - spike.power  # every opponent of the spike's controller
+    assert p1.life == 20
+
+
 def test_giggling_skitterspike_also_triggers_when_a_spell_targets_it():
     engine, spike = _skitterspike_game()
     p2 = engine.state.player_by_id("p2")
