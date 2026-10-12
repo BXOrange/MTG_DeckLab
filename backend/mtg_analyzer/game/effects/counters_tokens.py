@@ -1091,6 +1091,18 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
             event = context.trigger_event or {}
             iid = event.get(self.trigger_event_key)
             obj = context.state.find_object(iid) if iid is not None else None
+            if obj is not None:
+                expected_zone = event.get("to_zone")
+                expected_incarnation = event.get("graveyard_incarnation")
+                if getattr(event, "type", None) == EventType.DIES:
+                    expected_zone = "graveyard"
+                if event.get("zone_incarnation") is not None:
+                    expected_incarnation = event["zone_incarnation"] + 1
+                if expected_zone in ("graveyard", "exile") and (
+                    obj.zone.value != expected_zone or obj.is_token
+                    or (expected_incarnation is not None and obj.zone_incarnation != expected_incarnation)
+                ):
+                    return  # RULE 400.7: return only the card this event moved.
         if obj is None:
             return
         if self.face_down_kind is not None:

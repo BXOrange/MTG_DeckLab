@@ -19657,7 +19657,7 @@ HANDLERS: list[EffectHandler] = [
     # becomes a 0/0 haste creature that's still a land + N +1/+1 counters.
     EffectHandler(
         "earthbend",
-        _c(r"earthbend (?P<n>\d+)"),
+        _c(r"(?:you )?earthbend (?P<n>\d+)"),
         _earthbend,
     ),
     # "airbend that creature / it" (RULE 701.65) — a trigger-subject pronoun

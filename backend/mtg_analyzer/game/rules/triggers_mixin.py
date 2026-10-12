@@ -815,12 +815,21 @@ class TriggerCollectionMixin:
         turn = self.state.internal_turn.number
         remaining = []
         for entry in entries:
-            if entry.install_turn != turn:
+            if entry.install_turn is not None and entry.install_turn != turn:
                 continue
+            controller_id = entry.ability.controller_id
+            if controller_id is not None and not any(
+                p.id == controller_id and not p.has_lost for p in self.state.players
+            ):
+                continue  # RULE 800.4a: a departed player's effects leave with them.
             if entry.ability.check_trigger(event, self.context):
                 self.pending_triggers.append((entry.ability, event))
                 if entry.once:
                     continue
+            if entry.bound_object_id is not None:
+                bound = self.state.find_object(entry.bound_object_id)
+                if bound is None or bound.zone_incarnation != entry.bound_incarnation:
+                    continue  # RULE 400.7: this object's future event can no longer occur.
             remaining.append(entry)
         self.state.turn_scoped_triggers = remaining
 

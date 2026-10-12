@@ -371,7 +371,10 @@ def group_selector_objects(
         # drops out, which is RULE 611.2c: the effect keeps applying to the
         # others.
         wanted = set(params.get("object_ids") or [])
-        result = [o for o in battlefield if o.instance_id in wanted]
+        incarnations = params.get("object_incarnations") or {}
+        result = [o for o in battlefield if o.instance_id in wanted
+                  and (not incarnations or o.zone_incarnation == incarnations.get(
+                      o.instance_id, incarnations.get(str(o.instance_id))))]
     elif affects == "self":
         result = [src] if src is not None and src in battlefield else []
     elif affects == "all_creatures":

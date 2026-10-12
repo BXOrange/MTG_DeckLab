@@ -863,7 +863,8 @@ class ManaCountersMixin:
             for obj in self.state.battlefield
         )
     def earthbend(
-        self, land: Optional[GameObject], amount: int, source: Optional[GameObject] = None
+        self, land: Optional[GameObject], amount: int, source: Optional[GameObject] = None,
+        controller_id: Optional[str] = None,
     ) -> None:
         """"Earthbend N" (RULE 701.66 — Avatar: The Last Airbender): the
         target land ``land`` you control **becomes a 0/0 creature with haste
@@ -878,15 +879,33 @@ class ManaCountersMixin:
         The +1/+1 counters go on through `add_counters` (RULE 122.5 triggers,
         RULE 704.5f/q SBAs apply).
 
-        **Documented simplification:** the reminder text's third sentence —
-        "When it dies or is exiled, return it to the battlefield tapped." —
-        is not modeled (an edge case for solo practice; the land just goes
-        to the graveyard/exile like any other permanent).
+        The one-shot return trigger persists across turns and refers only
+        to this battlefield incarnation (RULE 603.7 / 400.7).
         """
         from ..effects.core import EffectRegistry  # function-scoped: effects↔rules cycle
 
         if land is None or land not in self.state.battlefield:
             return
+        from ...models.game.game_state import TurnScopedTrigger
+        from ..effects.core import ReturnSelfToBattlefieldEffect, TriggeredAbility
+
+        bender_id = controller_id or getattr(source, "controller_id", None) or land.controller_id
+        incarnation = land.zone_incarnation
+        # RULE 701.66 / 603.7b: a one-shot delayed trigger without a turn expiry.
+        # LEAVES_BATTLEFIELD supplies the exact pre-move object and destination.
+        def returns_after_leave(event, context, iid=land.instance_id, epoch=incarnation):
+            return (event.get("instance_id") == iid and event.get("zone_incarnation") == epoch
+                    and (event.get("to_zone") == "exile"
+                         or (event.get("to_zone") == "graveyard"
+                             and "creature" in (event.get("object_types") or []))))
+
+        returning = TriggeredAbility(
+            EventType.LEAVES_BATTLEFIELD,
+            [ReturnSelfToBattlefieldEffect(tapped=True, under_your_control=True,
+                                           source=source, target_kind="trigger_subject")],
+            condition=returns_after_leave, source=source, controller_id=bender_id,
+            description="Earthbend: Land getappt zurückbringen",
+        )
         for spec_type, params in (
             # `_added_types`/keyword sets are lowercase (`GameObject.
             # is_creature`, `combat.keywords_of`).
@@ -899,19 +918,22 @@ class ManaCountersMixin:
             ability.source = source
             ability.timestamp = self.state.next_timestamp()
             ability.duration = "rest_of_game"
-            ability.duration_data = {"player_id": getattr(source, "controller_id", None)}
+            ability.duration_data = {"player_id": bender_id}
             ability.affects = "objects"
             ability.object_ids = [land.instance_id]
+            ability.params["object_incarnations"] = {land.instance_id: incarnation}
             self.state.floating_statics.append(ability)
         if amount > 0:
             self.add_counters(land, amount, "+1/+1", source=source)
-        self.check_state_based_actions()
+        self.state.turn_scoped_triggers.append(TurnScopedTrigger(
+            returning, None, once=True, bound_object_id=land.instance_id, bound_incarnation=incarnation,
+        ))
         # RULE 701.6x: the earthbend is complete — fire EventType.BENT so a
         # "whenever you earthbend" trigger (Avatar Aang) sees it.
-        bender_id = getattr(source, "controller_id", None)
         bender = self.state.player_by_id(bender_id) if bender_id else None
         if bender is not None:
             self.record_bend(bender, "earthbend", amount, source=source)
+        self.check_state_based_actions()
     def _request_remove_counters_choice(
         self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:

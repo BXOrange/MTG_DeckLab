@@ -2616,7 +2616,9 @@ class EarthbendEffect(GameEffect):
             amount = max(0, min(int(self._measured(self.amount, context, targets)), MAX_EFFECT_MAGNITUDE))
         except (TypeError, ValueError):
             amount = 0  # unresolved "x" sentinel — nothing to add
-        context.engine.earthbend(lands[0], max(0, amount), source=self.source)
+        controller = _controller_of(self.source, context)
+        context.engine.earthbend(lands[0], max(0, amount), source=self.source,
+                                 controller_id=controller.id if controller is not None else None)
 
 
 class SacrificeSpecificEffect(GameEffect):

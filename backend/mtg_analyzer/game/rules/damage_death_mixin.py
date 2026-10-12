@@ -744,6 +744,7 @@ class DamageDeathMixin:
                     EventType.LEAVES_BATTLEFIELD,
                     # Where it went — "leaves the battlefield without dying" (PAR-119).
                     to_zone="exile",
+                    zone_incarnation=obj.zone_incarnation,
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
@@ -2240,6 +2241,7 @@ class DamageDeathMixin:
                     EventType.LEAVES_BATTLEFIELD,
                     # Where it went — "leaves the battlefield without dying" (PAR-119).
                     to_zone="graveyard",
+                    zone_incarnation=obj.zone_incarnation,
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,

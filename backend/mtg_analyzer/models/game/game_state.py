@@ -312,13 +312,17 @@ class TurnScopedTrigger:
     ``install_turn`` is the internal turn it was created in — it is dropped as soon as
     that is no longer the current turn. ``once`` is the "the next time" variant
     ("when you next cast an instant or sorcery spell this turn"): it fires once and is
-    removed. Deep-copies with `GameState.clone`.
+    removed. ``install_turn=None`` retains an object-bound delayed trigger
+    across turns, as Earthbend requires. Deep-copies with `GameState.clone`.
     """
 
-    def __init__(self, ability: Any, install_turn: int, once: bool = False) -> None:
+    def __init__(self, ability: Any, install_turn: Optional[int], once: bool = False,
+                 bound_object_id: Optional[int] = None, bound_incarnation: Optional[int] = None) -> None:
         self.ability = ability
         self.install_turn = install_turn
         self.once = once
+        self.bound_object_id = bound_object_id
+        self.bound_incarnation = bound_incarnation
 
     def __repr__(self) -> str:
         return f"TurnScopedTrigger(turn={self.install_turn}, once={self.once}, {self.ability.description!r})"
