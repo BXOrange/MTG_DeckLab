@@ -477,7 +477,8 @@ class CastingResolutionMixin:
             # "As ~ enters, roll X d6. It enters with a number of +1/+1 counters equal to the total" (Neverwinter
             # Hydra, RULE 706): X is the announced {X}; the controller rolls and the kept results are summed.
             roller = self.state.player_by_id(obj.controller_id)
-            dice = int(getattr(obj, "x_paid", 0) or 0)
+            # A printed "roll a 6-sided die" (Hammer Jammer, PAR-147) fixes the count at one.
+            dice = int(condition.get("roll_dice_count") or getattr(obj, "x_paid", 0) or 0)
             rolled = self.roll_die(roller, sides=int(condition["roll_x_dice_sides"]), count=dice) if dice > 0 else []
             amount = condition["count"] * sum(rolled)
         elif condition.get("mana_spent_scale"):
@@ -2045,6 +2046,7 @@ class CastingResolutionMixin:
                 clash_won=resumed.get("clash_won"),
                 clashed_opponent=resumed.get("clashed_opponent"),
                 coin_outcome=resumed.get("coin_outcome"),
+                die_state=resumed.get("die_state"),
                 stack_item=stack_item,
             )
         finally:

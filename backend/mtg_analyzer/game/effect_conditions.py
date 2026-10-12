@@ -139,6 +139,11 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # RULE 705: "if you win the flip" — the last flip `CoinFlipEffect` recorded on
         # `GameContext.coin_outcome` this resolution. ``None`` (neither branch) with no flip.
         "coin_won",
+        # RULE 706.5 / 706.3: "if both results are the same" / "if any of those results was 10 or higher" —
+        # the dice the last `RollDieEffect` of this resolution kept (`GameContext.die_results`); for a
+        # roll-triggered ability, the firing `DICE_ROLLED` event's own kept ``results`` / ``doubles``.
+        "rolled_doubles",
+        "any_die_result",
         # RULE 702.142a — the firing `EXERTED` event's own snapshot. Read
         # from the event and not `GameObject.exerted_this_turn`, which is
         # already `True` by the time the trigger resolves; only the event's
@@ -371,6 +376,19 @@ def _context_holds(
     if kind == "coin_won":
         outcome = getattr(context, "coin_outcome", None)
         return None if not outcome else bool(outcome.get("won"))
+
+    if kind in ("rolled_doubles", "any_die_result"):
+        results = list(getattr(context, "die_results", None) or [])
+        event = getattr(context, "trigger_event", None)
+        if not results and event is not None:
+            results = list(event.get("results") or [])
+        if not results:
+            return None  # nothing was rolled in scope: neither branch
+        if kind == "rolled_doubles":
+            return len(results) > 1 and len(set(results)) == 1
+        value = int(condition.get("value", 0))
+        compare = (lambda r: r <= value) if condition.get("op") == "le" else (lambda r: r >= value)
+        return any(compare(r) for r in results)
 
     if kind == "amount_compare":
         from . import effect_amounts  # function-scoped: effect_amounts imports this module

@@ -38,7 +38,10 @@ _VERBS: dict[str, str] = {
     "attack": "PLAYER_ATTACKED", "attack a player": "PLAYER_ATTACKED",
     "clash": "CLASHED", "win a clash": "WON_CLASH", "clash and win": "WON_CLASH",
     "collect evidence": "COLLECTED_EVIDENCE", "forage": "FORAGED",
-    "roll a die": "DICE_ROLLED", "roll 1 or more dice": "DICE_ROLLED",
+    # RULE 706 (PAR-147): "roll a die" is per die (`DIE_RESULT`, one event for each kept die);
+    # "roll one or more dice" is per roll instruction (`DICE_ROLLED`).
+    "roll a die": "DIE_RESULT", "rolls a die": "DIE_RESULT",
+    "roll 1 or more dice": "DICE_ROLLED", "rolls 1 or more dice": "DICE_ROLLED",
     "discard a card": "DISCARD_CARD", "discard another card": "DISCARD_CARD",
     # RULE 702.174c (MEC-106): "whenever you give a gift" — `GIFT_GIVEN`, fired when a promised gift is given.
     "give a gift": "GIFT_GIVEN", "gives a gift": "GIFT_GIVEN",
@@ -70,6 +73,13 @@ _EXPEND = re.compile(r"^expends? (?P<n>\d+)$")
 #: RULE 705 (PAR-151): "you win a coin flip" / "a player loses a coin flip" — one `COIN_FLIP` per flip
 #: (`RulesEngine.coin_flip`), whose ``won`` payload the head filters on.
 _COIN_FLIP_RESULT = re.compile(r"^(?P<res>win|wins|lose|loses) a coin flip$")
+#: RULE 706 (PAR-147): "you roll a 6" / "a 4 or higher [on a die]" / "a 1 or 2" / "a die's highest natural
+#: result" — one `DIE_RESULT` per kept die, filtered on its natural result (``event_minimums`` /
+#: ``event_maximums`` bound the range, an exact ``die_result`` pins a single face).
+_DIE_RESULT_HEAD = re.compile(
+    r"^rolls? an? (?:(?P<lo>\d+)(?: or (?P<cmp>higher|more|greater|lower|less|fewer|(?P<hi>\d+)))?"
+    r"(?: on a die)?|die'?s highest natural result)$"
+)
 _MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
 _PLAYER_ATTACKS = re.compile(r"^attacks?(?: with (?P<n>\d+) or more creatures)?$")
@@ -161,6 +171,22 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if coin:
         trigger["filter"] = {"won": coin.group("res").startswith("win")}
         return "COIN_FLIP", condition, trigger
+    die = _DIE_RESULT_HEAD.fullmatch(rest)
+    if die:
+        if die.group("lo") is None:
+            trigger["filter"] = {"highest": True}
+        elif die.group("cmp") is None:
+            trigger["filter"] = {"die_result": int(die.group("lo"))}
+        elif die.group("hi") is not None:
+            lo, hi = sorted((int(die.group("lo")), int(die.group("hi"))))
+            if hi - lo != 1:
+                return None  # "a 1 or 3" is not one contiguous range
+            trigger["filter"] = {"event_minimums": {"die_result": lo}, "event_maximums": {"die_result": hi}}
+        elif die.group("cmp") in ("higher", "more", "greater"):
+            trigger["filter"] = {"event_minimums": {"die_result": int(die.group("lo"))}}
+        else:
+            trigger["filter"] = {"event_maximums": {"die_result": int(die.group("lo"))}}
+        return "DIE_RESULT", condition, trigger
     expend = _EXPEND.fullmatch(rest)
     if expend:
         trigger["filter"] = {"amount": int(expend.group("n"))}

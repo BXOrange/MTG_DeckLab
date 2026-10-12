@@ -346,6 +346,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # `RulesEngine.roll_die` fires `DICE_ROLLED` per roll instruction,
     # keyed by ``player_id``, same convention as CLASHED/SCRY above.
     "DICE_ROLLED": "player_id",
+    "DIE_RESULT": "player_id",  # PAR-147: one event per kept die ("whenever you roll a 4 or higher")
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -1605,20 +1606,25 @@ def _trigger_condition(
         target_creature_you_control = bool(filt.get("target_creature_you_control"))
         exact = {
             k: v for k, v in dict(filt).items()
-            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control", "event_minimums")
+            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control", "event_minimums",
+                         "event_maximums")
         }
         event_minimums = dict(filt.get("event_minimums") or {})
+        event_maximums = dict(filt.get("event_maximums") or {})  # PAR-147: "a 1 or 2" is min 1 + max 2
 
         def _filter_ok(
             event: Any, context: Any, f=exact, want_by_you=by_you,
             want_player_or_planeswalker=player_or_planeswalker, want_not_you=recipient_not_you,
             want_own_creature_target=target_creature_you_control,
-            minimums=event_minimums,
+            minimums=event_minimums, maximums=event_maximums,
         ) -> bool:
             if not all(event.get(k) == v for k, v in f.items()):
                 return False
             if any(not isinstance(event.get(key), (int, float)) or event.get(key) < minimum
                    for key, minimum in minimums.items()):
+                return False
+            if any(not isinstance(event.get(key), (int, float)) or event.get(key) > maximum
+                   for key, maximum in maximums.items()):
                 return False
             if want_own_creature_target:
                 if event.get("is_player") or event.get("target_controller_id") != getattr(source, "controller_id", None):

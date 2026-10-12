@@ -719,6 +719,16 @@ class EventType:
     #: more dice, …" (Farideh, Devil's Chosen / Vrondiss, Rage of Ancients /
     #: Barbarian Class).
     DICE_ROLLED = "DICE_ROLLED"
+    #: RULE 706 (PAR-147): one kept die of a roll — fired by `RulesEngine.roll_die`
+    #: once **per die** that was not ignored (RULE 706.6: an ignored roll "never
+    #: happened", so it triggers nothing), right after `DICE_ROLLED`. Powers "whenever
+    #: you roll a die" / "whenever you roll a 4 or higher (on a die)" / "whenever you
+    #: roll a die's highest natural result", which care about each die rather than the
+    #: instruction. Carries ``player_id``/``controller_id``, ``die_result`` (the natural
+    #: result of this die, the number "the result" reads for the trigger's effect),
+    #: ``amount`` (the same number, for "that many"), ``sides`` and ``highest`` (the result is the
+    #: die's highest face).
+    DIE_RESULT = "DIE_RESULT"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

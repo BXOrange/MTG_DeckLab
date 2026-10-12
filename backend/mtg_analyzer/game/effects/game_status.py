@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .core import GameEffect
 from ._runtime import install, register
+from .. import continuations
 
 install(globals())
 
@@ -1320,16 +1321,25 @@ class RollDieEffect(GameEffect):
     def __init__(
         self,
         sides: int = 20,
-        count: int = 1,
+        count: Any = 1,
         ignore_lowest: int = 0,
         ignore_highest: int = 0,
         outcomes: Optional[list[dict[str, Any]]] = None,
         then_trigger: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        count_amount: Optional[dict[str, Any]] = None,
+        choose: int = 0,
     ) -> None:
         super().__init__(source)
         self.sides = int(sides)
-        self.count = int(count)
+        #: "Roll two d8 and **choose one result**" (the Endeavor cycle): the roller picks which kept die is "that
+        #: result"; the unpicked one is "the other result" (`GameContext.die_choice`). ``0`` = no choice.
+        self.choose = int(choose)
+        #: How many dice: a number, ``"x"`` (the announced {X}, RULE 107.3 — "roll X six-sided dice", substituted
+        #: at cast like any other X), or — via ``count_amount`` — an `effect_amounts` measurement taken when the
+        #: roll happens ("roll X dice, where X is the number of Bobbleheads you control"). Zero rolls nothing.
+        self.count = count if count == "x" else int(count)
+        self.count_amount = dict(count_amount) if count_amount else None
         self.ignore_lowest = int(ignore_lowest)
         self.ignore_highest = int(ignore_highest)
         self.outcomes = list(outcomes or [])
@@ -1343,16 +1353,41 @@ class RollDieEffect(GameEffect):
         from ...parser.oracle.spec import EffectSpec
 
         player = _controller_of(self.source, context)
+        count = self.count
+        if self.count_amount is not None:
+            from .. import effect_amounts  # function-scoped: effects↔amounts cycle
+
+            count = effect_amounts.amount_of(self.count_amount, context, self.source, targets)
+        if count == "x" or int(count) <= 0:
+            # An unannounced X is 0 (RULE 107.3): no die is rolled, so nothing is kept for a following clause.
+            context.die_results = []
+            context.die_result = 0
+            context.rolled_doubles = False
+            return
         results = context.engine.roll_die(
             player,
             sides=self.sides,
-            count=self.count,
+            count=int(count),
             ignore_lowest=self.ignore_lowest,
             ignore_highest=self.ignore_highest,
         )
         context.die_results = list(results)
         context.die_result = sum(results)
         context.rolled_doubles = len(results) > 1 and len(set(results)) == 1
+        context.die_choice = None
+        if self.choose and len(results) == 2:
+            if len(set(results)) == 1:
+                # Two equal dice leave nothing to choose between.
+                context.die_choice = {"chosen": results[0], "other": results[1]}
+            else:
+                context.engine.open_choice({
+                    "kind": CHOOSE_DIE_RESULT_KIND, "player_id": player.id, "optional": False,
+                    "prompt": "Wähle ein Würfelergebnis",
+                    "results": list(results),
+                    "options": [{"id": str(i), "label": str(r)} for i, r in enumerate(results)],
+                    "source_id": getattr(self.source, "instance_id", None),
+                })
+                # The effects after this roll are parked by the caller; the answer lands in their ``die_state``.
         if self.then_trigger:
             # A reflexive trigger resolves in a fresh context, so carry the
             # just-rolled result on its triggering event as well.
@@ -1377,6 +1412,25 @@ class RollDieEffect(GameEffect):
             )
             for effect in inner:
                 effect.apply(context, targets)
+
+
+CHOOSE_DIE_RESULT_KIND = "choose_die_result"
+
+
+@continuations.choice(CHOOSE_DIE_RESULT_KIND, answer=continuations.ANSWER_INT_REQUIRED, rule="706.2")
+def _resume_choose_die_result(rules, choice, answer):
+    """RULE 706: record which kept die is "that result" in the parked remainder's ``die_state``."""
+    results = list(choice["results"])
+    if answer not in range(len(results)):
+        rules.open_choice(choice)
+        raise ValueError("Choose one of the listed results")
+    chosen = results[answer]
+    others = results[:answer] + results[answer + 1:]
+    for entry in reversed(rules.state.deferred_effects):
+        die_state = entry.get("die_state") if isinstance(entry, dict) else None
+        if die_state is not None and die_state.get("die_choice") is None and "effects" in entry:
+            die_state["die_choice"] = {"chosen": chosen, "other": others[0] if others else chosen}
+            return
 
 
 class RandomNumberEffect(GameEffect):

@@ -447,6 +447,8 @@ class TestOnePeelerRule:
         "this game, draw a card",
         "draw a card unless her additional cost was paid",
         "if you win the flip, draw a card",
+        "if the result is 3 or less, draw a card",
+        "on a 3 or 4, draw a card",
     ]
 
     @pytest.mark.parametrize("body", BODIES)

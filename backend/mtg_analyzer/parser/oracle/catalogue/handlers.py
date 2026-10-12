@@ -4572,7 +4572,8 @@ def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "you mill N" / bare "mill N" → self; "target player/opponent mills N" → targeted.
     who = (m.groupdict().get("who") or "").strip()
     count_word = m.group("n").lower()
-    params: dict = {"count": "twice_x" if count_word == "twice x" else 1 if count_word == "a" else int(count_word)}
+    # "x" is the announced {X} (RULE 107.3c) or a ``bind``-measured X ("…mills x cards, where x is the result").
+    params: dict = {"count": "twice_x" if count_word == "twice x" else "x" if count_word == "x" else 1 if count_word == "a" else int(count_word)}
     if who in ("target player", "target opponent"):
         params["target_kind"] = "player"
     return [EffectSpec("mill", params)]
@@ -10254,6 +10255,28 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+def _pump_x_power_only(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """`_pump_x`'s power-only sibling — "+x/+0" (the toughness is untouched)."""
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    params: dict = {"power": "x", "toughness": 0}
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
+    return [EffectSpec("pump", params)]
+
+
 #: "Target Sliver creature gets +2/+2 until end of turn." (Firewake
 #: Sliver) — a subtype-filtered creature target, using the same target
 #: filter that regenerate/destroy/exile already carry.
@@ -12792,17 +12815,36 @@ def _coin_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # `<cost>:`/`when ~ enters,` wrappers pick up once the roll parses.
 _DICE_COUNT_WORDS = {"a": 1, "two": 2, "three": 3, "2": 2, "3": 3}
 _ROLL_DIE_RE = _c(
-    r"roll (?:a|(?P<c>two|three|\d+)) "
+    r"roll (?:a|(?P<c>two|three|x|\d+)) "
     r"(?:d(?P<sides_d>\d+)|(?P<sides_s>\d+)-sided (?:die|dice))"
+    # RULE 706 (PAR-147): "roll X six-sided dice, where X is the number of Bobbleheads you control" — the count is
+    # measured when the roll happens (a `bind` would lose the kept dice to the nested resolution).
+    r"(?:, where x is (?P<where>.+)| and choose (?P<choose>1|one) result)?"
 )
 
 
-def _roll_die(m: re.Match[str]) -> list[EffectSpec]:
+def _roll_die(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     sides = int(m.group("sides_d") or m.group("sides_s"))
-    count = _DICE_COUNT_WORDS.get((m.group("c") or "a").lower())
+    word = (m.group("c") or "a").lower()
+    params: dict = {"sides": sides}
+    if word == "x":
+        if m.group("where"):
+            from .count_phrase import parse_amount_phrase
+
+            counted = parse_amount_phrase(m.group("where"))
+            if counted is None:
+                return None
+            params["count_amount"] = {"kind": "count_selector", "selector": counted}
+        else:
+            params["count"] = "x"  # the announced {X} (0 when nothing announced one)
+        return [EffectSpec("roll_die", params)]
+    if m.group("where"):
+        return None  # a "where x is" tail only defines a rolled-X count
+    if m.group("choose"):
+        params["choose"] = 1  # the Endeavor cycle: roll two, keep one result (RULE 706.2)
+    count = int(word) if word.isdigit() else _DICE_COUNT_WORDS.get(word)
     if count is None:  # a spelled count outside the small known set — fail closed
         return None
-    params: dict = {"sides": sides}
     if count != 1:
         params["count"] = count
     return [EffectSpec("roll_die", params)]
@@ -17405,7 +17447,7 @@ HANDLERS: list[EffectHandler] = [
     # "mill 3 cards" / "you mill 3 cards" / "target player mills a card"
     EffectHandler(
         "mill",
-        _c(r"(?:(?P<who>you|target player|target opponent) )?mills? (?P<n>\d+|a|twice x) cards?"),
+        _c(r"(?:(?P<who>you|target player|target opponent) )?mills? (?P<n>\d+|a|x|twice x) cards?"),
         _mill,
     ),
     EffectHandler("mill_half", _MILL_HALF_RE, _mill_half),
@@ -18913,6 +18955,16 @@ HANDLERS: list[EffectHandler] = [
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump_x,
+    ),
+    # "<subject> gets +x/+0 [and gains <kw>] until end of turn" — the power-only X pump (Painiac's "…, where x is
+    # the result" binds the X; PAR-147).
+    EffectHandler(
+        "pump_x_power_only",
+        _c(
+            rf"{_SUBJECT} gets? \+x/\+0"
+            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _pump_x_power_only,
     ),
     EffectHandler(
         "pump_subtype_target",
@@ -20442,6 +20494,16 @@ HANDLERS: list[EffectHandler] = [
         _CREATE_NAMED_TOKEN_PER_COUNTER_ON_IT_RE,
         _create_named_token_per_counter_on_it,
         group_subject_only=True,
+    ),
+    # "create X Treasure tokens" — X the announced {X}, or a ``bind``-measured one ("…a number of Treasure tokens
+    # equal to the result", PAR-147).
+    EffectHandler(
+        "create_named_token_x",
+        _c(rf"(?:you )?creates? x (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),
+        lambda m: [EffectSpec("create_token", {
+            "count": "x", "token_name": _NAMED_TOKEN_WORDS[m.group("name")],
+            **({"tapped": True} if m.group("tapped") else {}),
+        })],
     ),
     EffectHandler(
         "create_named_token",

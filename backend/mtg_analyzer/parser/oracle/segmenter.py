@@ -1581,7 +1581,7 @@ _PRONOUN_COMMA_CONNECTOR = r",\s+(?:and\s+)?(?=(?:it|that creature)\s+(?:gains?|
 #: PAR-139: From the Catacombs' "put … onto the battlefield … with a corpse counter on it. You take the
 #: initiative. If that creature would leave the battlefield, exile it instead …").
 _REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset(
-    {"clash", "coin_flip", "take_initiative", "become_monarch"}
+    {"clash", "coin_flip", "roll_die", "take_initiative", "become_monarch"}
 )
 
 #: PAR-137: the longest run of consecutive sentences a clause row may claim as one unit when a body
@@ -1916,6 +1916,104 @@ def _coin_flip_condition(m: "re.Match[str]") -> dict[str, Any]:
     return won if outcome in ("win", "won", "heads") else {"kind": "not", "condition": won}
 
 
+#: RULE 706 (PAR-147): a die roll's outcome as a branch condition — "if the result is 3 or less, `<effect>`",
+#: "if you roll a 6, …", "if you rolled 2, 3, or 12, …", "if both results are the same, …", "if any of those
+#: results was 10 or higher, …" and the "On a 3 or 4, `<effect>`." spelling. The roll leaves its kept dice on
+#: `GameContext.die_results` / ``die_result`` (the sum, "the result"), so the gate is an ordinary
+#: ``amount_compare`` over that amount — sibling specs gated on it announce their own targets at cast
+#: (RULE 601.2c) exactly like the ``coin_won`` branches, and "otherwise" is the negated gate.
+_DIE_VALUE_LIST = r"\d+(?:, \d+)*(?:,? or \d+)?(?: or (?:less|lower|fewer|more|higher|greater))?"
+_DIE_IF_RE = re.compile(
+    r"^if (?P<cond>(?:the (?:result|roll) (?:is|was) (?:a )?(?P<rvals>" + _DIE_VALUE_LIST + r")"
+    r"|the (?:result|roll) (?:is|was) equal to or (?P<eqdir>less|more|greater) than (?P<amt>the number of [^,]+?)"
+    r"|you (?:a )?roll(?:ed)? (?:a )?(?P<yvals>" + _DIE_VALUE_LIST + r")(?: exactly)?"
+    r"|you rolled (?P<face>\d+) exactly (?P<times>\d+) times"
+    r"|(?P<same>both results are the same|you rolled doubles)"
+    r"|any of those results was (?P<anyvals>\d+ or (?:higher|more|greater|lower|less)))),\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+_DIE_ON_A_RE = re.compile(
+    r"^on an? (?P<rvals>" + _DIE_VALUE_LIST + r"),\s*(?P<rest>.+)$", re.IGNORECASE,
+)
+_DIE_DIRECTION_OPS = {
+    "less": "le", "lower": "le", "fewer": "le", "more": "ge", "higher": "ge", "greater": "ge",
+}
+
+
+def _die_compare(op: str, right: "dict[str, Any]") -> "dict[str, Any]":
+    return {"kind": "amount_compare", "left": {"kind": "die_result"}, "right": right, "op": op}
+
+
+def _die_value_condition(values: str) -> "Optional[dict[str, Any]]":
+    """"3 or less" / "6" / "2, 3, or 12" / "7 or 11" → the ``die_result`` gate for that value list."""
+    direction = re.search(r" or (less|lower|fewer|more|higher|greater)$", values)
+    if direction is not None:
+        number = values[: direction.start()]
+        if not number.isdigit():
+            return None
+        return _die_compare(_DIE_DIRECTION_OPS[direction.group(1)], {"kind": "fixed", "amount": int(number)})
+    numbers = [int(n) for n in re.findall(r"\d+", values)]
+    if not numbers:
+        return None
+    equals = [_die_compare("eq", {"kind": "fixed", "amount": n}) for n in numbers]
+    return equals[0] if len(equals) == 1 else {"kind": "any", "conditions": equals}
+
+
+def _die_result_condition(m: "re.Match[str]") -> "Optional[dict[str, Any]]":
+    groups = m.groupdict()
+    if groups.get("times"):
+        # "if you rolled 6 exactly seven times": the number of kept dice showing that face.
+        return {
+            "kind": "amount_compare", "op": "eq",
+            "left": {"kind": "die_results", "which": "equal", "value": int(groups["face"])},
+            "right": {"kind": "fixed", "amount": int(groups["times"])},
+        }
+    if groups.get("same"):
+        return {"kind": "rolled_doubles"}
+    if groups.get("anyvals"):
+        number, _, direction = groups["anyvals"].partition(" or ")
+        return {"kind": "any_die_result", "op": _DIE_DIRECTION_OPS[direction], "value": int(number)}
+    if groups.get("amt"):
+        counted = parse_amount_phrase(groups["amt"])
+        if counted is None:
+            return None
+        return _die_compare(
+            "le" if groups["eqdir"] == "less" else "ge", {"kind": "count_selector", "selector": counted},
+        )
+    return _die_value_condition(groups.get("rvals") or groups.get("yvals") or "")
+
+
+_THAT_MUCH_RE = re.compile(r"\bthat much\b", re.IGNORECASE)
+
+
+def _die_that_much_specs(
+    rest: str, *, self_subject: bool, previous_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    """"…, you lose **that much** life" / "~ deals **that much** damage to you" after a die gate — "that much" is
+    the result just rolled (the gate's own roll), so it reads as X bound to ``die_result``."""
+    if _THAT_MUCH_RE.search(rest) is None:
+        return None
+    return _bind_x_specs(
+        _THAT_MUCH_RE.sub("x", rest), {"kind": "die_result"}, self_subject=self_subject,
+        previous_subject=previous_subject, group_subject=group_subject, previous_selector=False,
+    )
+
+
+def _is_die_gate(condition: "Optional[dict[str, Any]]") -> bool:
+    """Whether ``condition`` only reads this resolution's die roll (a fact no sibling branch changes)."""
+    if not condition:
+        return False
+    kind = condition.get("kind")
+    if kind in ("rolled_doubles", "any_die_result"):
+        return True
+    if kind == "amount_compare":
+        return (condition.get("left") or {}).get("kind") in ("die_result", "die_results")
+    if kind in ("any", "all"):
+        subs = condition.get("conditions") or []
+        return bool(subs) and all(_is_die_gate(sub) for sub in subs)
+    return False
+
+
 def _otherwise_specs(
     rest: str, preceding: "list[EffectSpec]", **flags: Any
 ) -> "Optional[list[EffectSpec]]":
@@ -1935,7 +2033,7 @@ def _otherwise_specs(
     inner = parse_effect_body(rest, **flags)
     if not inner or any(spec.condition is not None for spec in inner):
         return None
-    if gate in ({"kind": "clash_won"}, {"kind": "coin_won"}):
+    if gate in ({"kind": "clash_won"}, {"kind": "coin_won"}) or _is_die_gate(gate):
         # RULE 701.30d's clash outcome (and RULE 705's flip outcome) is a fact of the resolution
         # that no branch changes, so the two gated lists it always had are equivalent — and the
         # gated siblings announce their own targets (RULE 601.2c), which `if_else` cannot.
@@ -3405,6 +3503,9 @@ class _ConditionPrefix:
     #: an "X" inside a "was kicked" wrapper means Kicker's own announced {X}
     #: (`GameObject.kicker_x_paid`), a different sentinel from the spell's.
     rewrite_params: "Optional[Callable[[dict[str, Any], re.Match[str]], None]]" = None
+    #: An alternative reading of the gated effect text, tried before the ordinary grammar; ``None`` from
+    #: it means "no special reading". Called as ``parse_rest(rest, **parse_effect_body flags)``.
+    parse_rest: "Optional[Callable[..., Optional[list[EffectSpec]]]]" = None
 
 
 def _rewrite_kicker_x(params: dict[str, Any], match: "re.Match[str]") -> None:
@@ -3796,6 +3897,10 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "flip you won": {"kind": "coin_flips", "won": True},
     "flip you lose": {"kind": "coin_flips", "won": False},
     "flip you lost": {"kind": "coin_flips", "won": False},
+    # RULE 706 (PAR-147): the dice a roll kept, by what they show — "for each even result, …".
+    "even result": {"kind": "die_results", "which": "even"},
+    "odd result": {"kind": "die_results", "which": "odd"},
+    "different result": {"kind": "die_results", "which": "different"},
 }
 
 #: The params an effect states its own magnitude in. A ``bind`` body has to
@@ -4110,6 +4215,89 @@ _WHERE_X_THEN_RE = re.compile(
 
 _MINUS_TAIL_RE = re.compile(r"\s+minus (?P<n>\d+)$")
 
+#: RULE 706 (PAR-147): the number a die roll just produced, as the amount a sentence measures —
+#: "`<effect with x>`, where x is **the result**" (Numbing Jellyfish), "`<verb>` life/cards/damage
+#: equal to **the result**" (Big Boa Constrictor), "put a number of `<kind>` counters on `<where>` equal
+#: to the result" and "create a number of `<tokens>` equal to the result" (Mother Kangaroo, Box of
+#: Free-Range Goblins). The effect is parsed with a literal X and the X bound to the ``die_result``
+#: amount (`GameContext.die_result`, the sum of the kept dice — so a kept die after "ignore one" is
+#: what "the result" reads). "the total of those results" is the same sum; "minus N" floors at 0.
+_DIE_PHRASE_AMOUNTS: dict[str, dict[str, Any]] = {
+    "the result": {"kind": "die_result"},
+    "the total of those results": {"kind": "die_result"},
+    # The Endeavor cycle's "roll two dice and choose one result": the picked die and the one left over.
+    "that result": {"kind": "die_choice", "which": "chosen"},
+    "the other result": {"kind": "die_choice", "which": "other"},
+}
+_DIE_RESULT_PHRASE = "|".join(_DIE_PHRASE_AMOUNTS)
+_DIE_MINUS_TAIL = r"(?: minus (?P<minus>\d+))?"
+_DIE_DAMAGE_RECIPIENT = (
+    r"(?:any target|target [a-z ]+?|each opponent|each player|that player|you"
+    r"|each (?:creature|other creature|creature (?:you control|your opponents control|you don't control)))"
+)
+_WHERE_X_DIE_RE = re.compile(
+    rf"^(?P<rest>.+?),?\s+where x is (?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}$", re.IGNORECASE
+)
+_EQUAL_TO_DIE_RE = re.compile(
+    rf"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage) equal to (?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}"
+    rf"(?P<tail>\s+to {_DIE_DAMAGE_RECIPIENT})?$",
+    re.IGNORECASE,
+)
+_DAMAGE_TO_EQUAL_TO_DIE_RE = re.compile(
+    rf"^(?P<verb>.+?)\s+(?P<noun>damage)(?P<tail>\s+to {_DIE_DAMAGE_RECIPIENT})"
+    rf" equal to (?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}$", re.IGNORECASE,
+)
+_COUNTERS_EQUAL_DIE_RE = re.compile(
+    r"^put (?:a number of )?(?P<kind>[+\-]\d+/[+\-]\d+ |[a-z]+ )?counters? on (?P<where>.+?) equal to "
+    rf"(?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}$", re.IGNORECASE,
+)
+_TOKENS_EQUAL_DIE_RE = re.compile(
+    rf"^create a number of (?P<what_token>.+?) tokens?(?P<with> with [a-z, ]+?)? equal to "
+    rf"(?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}$",
+    re.IGNORECASE,
+)
+
+
+_DESTROY_POWER_AT_LEAST_DIE_RE = re.compile(
+    rf"destroy each creature with power greater than or equal to (?P<phrase>{_DIE_RESULT_PHRASE})", re.IGNORECASE,
+)
+_SCRY_NUMBER_OF_RE = re.compile(r"(?P<verb>scry|surveil) a number of", re.IGNORECASE)
+
+
+def _die_x_rest(text: str) -> "Optional[tuple[str, dict[str, Any]]]":
+    """``(rest, amount)`` for a sentence measuring the die result, with the X written literally in
+    ``rest``; ``None`` for any other sentence. See `_DIE_RESULT_PHRASE`."""
+    m = _WHERE_X_DIE_RE.match(text)
+    if m is not None:
+        rest = m.group("rest")
+    else:
+        m = _EQUAL_TO_DIE_RE.match(text) or _DAMAGE_TO_EQUAL_TO_DIE_RE.match(text)
+        if m is not None:
+            verb = m.group("verb")
+            scry = _SCRY_NUMBER_OF_RE.fullmatch(verb) if m.group("noun").startswith("card") else None
+            if scry is not None:  # "scry a number of cards equal to the result" is "scry X"
+                rest = f"{scry.group('verb')} x"
+            else:
+                rest = f"{verb} x {m.group('noun')}{m.groupdict().get('tail') or ''}"
+        else:
+            m = _COUNTERS_EQUAL_DIE_RE.match(text)
+            if m is not None:
+                kind = (m.group("kind") or "").strip()
+                if kind in ("a", "the", "that", "x"):  # "put a counter" / "put x counters": not a kind word
+                    return None
+                rest = f"put x {kind + ' ' if kind else ''}counters on {m.group('where')}"
+            else:
+                m = _TOKENS_EQUAL_DIE_RE.match(text)
+                if m is None:
+                    return None
+                rest = f"create x {m.group('what_token')} tokens{m.group('with') or ''}"
+    amount: dict[str, Any] = dict(_DIE_PHRASE_AMOUNTS[m.group("phrase").lower()])
+    if m.group("minus"):
+        # RULE 107.1b: a negative X is 0.
+        amount = {**amount, "minus": int(m.group("minus")), "minimum": 0}
+    return rest, amount
+
+
 
 def _where_x_specs(
     body: str, *, self_subject: bool, previous_subject: bool,
@@ -4137,6 +4325,20 @@ def _where_x_specs(
         head = _where_x_specs(f"{between.group('head')}, where x is {between.group('phrase')}", **kwargs)
         tail = parse_effect_body(between.group("tail").strip(), **kwargs) if head is not None else None
         return None if head is None or not tail else head + tail
+    power_bound = _DESTROY_POWER_AT_LEAST_DIE_RE.fullmatch(text)
+    if power_bound is not None:
+        # "destroy each creature with power greater than or equal to that result" (Valiant Endeavor): the bound
+        # is inside the mass filter, where the plain X holders of `_bind_x_specs` do not reach.
+        return [EffectSpec("bind", {
+            "name": "n", "amount": dict(_DIE_PHRASE_AMOUNTS[power_bound.group("phrase").lower()]),
+            "effects": [{"type": "destroy", "params": {"selector": "all_creatures", "filter": {"min_power": "$n"}}}],
+        })]
+    die_x = _die_x_rest(text)
+    if die_x is not None:
+        return _bind_x_specs(
+            die_x[0], die_x[1], self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject, previous_selector=previous_selector, several=several,
+        )
     m = _WHERE_X_RE.match(text)
     amount_m = _WHERE_X_AMOUNT_RE.match(text) if m is None else None
     if amount_m is not None:
@@ -4188,6 +4390,17 @@ def _where_x_specs(
             amount = {**amount, "minus": int(minus.group("n")), "minimum": 0}
     if amount is None:
         return None
+    return _bind_x_specs(
+        rest, amount, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector, several=several,
+    )
+
+
+def _bind_x_specs(
+    rest: str, amount: "dict[str, Any]", *, self_subject: bool, previous_subject: bool,
+    group_subject: bool, previous_selector: bool, several: bool = False,
+) -> "Optional[list[EffectSpec]]":
+    """``rest`` parsed with a literal X, the X bound to the measured ``amount`` (see `_where_x_specs`)."""
     inner = parse_effect_body(
         rest.strip(), self_subject=self_subject, previous_subject=previous_subject,
         group_subject=group_subject, previous_selector=previous_selector,
@@ -4383,7 +4596,7 @@ _ITERATION_REFERENTS = frozenset({"previous"})
 #: ``coin_flips`` amount (`_count_amount` reads the same phrase), so it fails closed on any body
 #: without exactly one scalable count.
 _LEADING_FOR_EACH_FLIP_RE = re.compile(
-    r"^for each (?P<what>flip you (?:win|lose|won|lost)),\s*(?P<rest>.+)$", re.IGNORECASE
+    r"^for each (?P<what>flip you (?:win|lose|won|lost)|(?:even|odd|different) result),\s*(?P<rest>.+)$", re.IGNORECASE
 )
 
 
@@ -4534,6 +4747,9 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
     _ConditionPrefix(_IF_YOU_WIN_CLASH_RE, lambda m: {"kind": "clash_won"}),
     # RULE 705: the coin-flip counterpart.
     _ConditionPrefix(_COIN_FLIP_RESULT_RE, _coin_flip_condition),
+    # RULE 706: the die-roll counterpart (PAR-147).
+    _ConditionPrefix(_DIE_IF_RE, _die_result_condition, parse_rest=_die_that_much_specs),
+    _ConditionPrefix(_DIE_ON_A_RE, _die_result_condition, parse_rest=_die_that_much_specs),
     # RULE 119.3, Frodo, Adventurous Hobbit — carries a ``trailing`` group,
     # because "if A, effect1. Then if B, effect2." is two independently
     # gated sentences and the naive greedy read would gate both with A.
@@ -4745,10 +4961,17 @@ def _peel_condition(
         match = row.pattern.match(body)
         if match is None:
             continue
-        inner = parse_effect_body(
-            match.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
+        inner = None
+        if row.parse_rest is not None:
+            inner = row.parse_rest(
+                match.group("rest"), self_subject=self_subject,
+                previous_subject=previous_subject, group_subject=group_subject,
+            )
+        if inner is None:
+            inner = parse_effect_body(
+                match.group("rest"), self_subject=self_subject,
+                previous_subject=previous_subject, group_subject=group_subject,
+            )
         if inner is None:
             return True, None
         condition = row.build(match)
@@ -5557,7 +5780,8 @@ def parse_effect_body(
     # connector split below would hand the tail to `<B>` alone and leave `<A>`'s X as
     # the (unpaid) spell X (Tendrils of Corruption dealt 0 damage and gained the life).
     one_x_text = body.strip().rstrip(".").strip()
-    one_x = _WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
+    one_x = (_WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
+             or _WHERE_X_DIE_RE.match(one_x_text))
     if one_x is not None and "." not in one_x.group("rest") and re.search(
         r"\s+and\s+", one_x.group("rest")
     ):

@@ -3921,7 +3921,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      `subgrammars._STAT_BOUND_TAIL` -> ``creature_filter`` ``min_/max_power|toughness``, re-checked at resolution, RULE 608.2b);
 #      "when ~ leaves the battlefield this turn, sacrifice that creature" / "when the creature leaves …, sacrifice ~"
 #      (Phantasmal Mount, ``create_turn_trigger.bake_previous_objects``).
-PARSER_VERSION = "633"
+# 634: PAR-147 — dice grammar (RULE 706): a die result as an amount ("equal to the result", "where X is the result [minus N]",
+#      "that/the other result" after "roll two dice and choose one"), result gates ("if the result is 3 or less", "On a 3 or 4",
+#      "if you rolled 2, 3, or 12", doubles / any-die), per-die "whenever you roll a die / a N or higher / highest natural result",
+#      "for each even/odd/different result", roll X dice, as-enters roll + counters, results tables with label / pre-effect /
+#      cost headers and the "indicated effect" style, dice ability-word labels, "mill X cards", "+X/+0".
+PARSER_VERSION = "634"
 
 
 def parser_source_hash() -> str:
@@ -4114,77 +4119,85 @@ _REFLEXIVE_MODAL_RE = re.compile(
 )
 
 
-#: RULE 706.1 roll header, optionally wrapped in a RULE 603.1 trigger — the
-#: line that a RULE 706.3a results table hangs off. ``pre`` is the trigger
-#: wrapper ("when ~ enters, " / "whenever ~ attacks, "), lifted the same way
-#: `_split_triggered_modal_block` lifts a modal block's wrapper: segment
-#: "<pre>draw a card." and take its `trigger` dict.
-_DICE_TABLE_HEADER_RE = re.compile(
-    r"^(?P<pre>(?:when|whenever|at)\b[^,]*,\s*)?"
-    r"roll (?:a|(?P<count>two|three|\d+)) "
-    r"(?:d(?P<sides_d>\d+)|(?P<sides_s>\d+)-sided (?:die|dice))\.?$",
-    re.IGNORECASE,
+#: RULE 706.1 roll instruction inside a header line — the line a RULE 706.3a results table hangs off. The header
+#: is any ordinary ability line (a trigger, a ``<cost>:`` activation, a spell, a pre-effect "choose target creature,
+#: then roll a d20", an "…and add the number of cards in your hand" modifier) whose last instruction is the roll;
+#: `_process_dice_table_block` parses it through `segment_line` like any other line and attaches the table.
+_DICE_HEADER_ROLL_RE = re.compile(
+    r"\broll (?:a|two|three|\d+) (?:d\d+|\d+-sided (?:die|dice))\b", re.IGNORECASE,
 )
 #: One striation of a RULE 706.3a results table: "1—9 | <effect>",
 #: "20 | <effect>", "10+ | <effect>" (`N+` is the single-endpoint form).
 #: The `|` separator and em/en-dash range are exactly what `normalize`
 #: leaves (see `Contact Other Plane` / `Delina, Wild Mage`).
 _DICE_TABLE_ROW_RE = re.compile(
-    r"^(?P<lo>\d+)(?:\s*[—–-]\s*(?P<hi>\d+)|(?P<plus>\+))?\s*\|\s*(?P<body>.+?)\.?$",
+    r"^(?P<lo>\d+)(?:\s*[—–-]\s*(?P<hi>\d+)|(?P<plus>\+)|\s+or\s+(?P<minus>less))?\s*\|\s*(?P<body>.+?)\.?$",
     re.IGNORECASE,
 )
-_DICE_TABLE_COUNT_WORDS = {"two": 2, "three": 3}
+#: The "indicated effect" table style — "Roll a six-sided die. This ability has the indicated effect." followed by
+#: "1 — <effect>" lines (Jack-in-the-Mox, Strategy, Schmategy, Urza's Science Fair Project): one face per row.
+_DICE_INDICATED_TAIL_RE = re.compile(
+    r"\s*(?:this ability has|~ has|~ gets) the indicated (?:effect|result)\.?$", re.IGNORECASE,
+)
+_DICE_INDICATED_ROW_RE = re.compile(r"^(?P<lo>\d+)\s*[—–-]\s*(?P<body>.+?)\.?$")
+
+
+#: ``target_kind`` values that name a referent an earlier instruction established rather than asking for a RULE 115
+#: target (a created token, the previous clause's pick, the trigger's firing object).
+_REFERENT_TARGET_KINDS: frozenset[str] = frozenset({
+    "created", "previous_target", "trigger_subject", "attached_permanent", "trigger_subject_controller",
+})
+
+
+def _announces_target(spec: EffectSpec) -> bool:
+    """Whether ``spec`` asks for a RULE 115 target (which a results-table row cannot announce: the roll comes later)."""
+    kind = spec.params.get("target_kind")
+    if kind is not None and kind not in _REFERENT_TARGET_KINDS:
+        return True
+    return any(spec.params.get(key) is not None for key in ("kinds", "target_kinds"))
 
 
 def _split_dice_table_block(
-    lines: list[str], start: int, provenance: ParserProvenance
-) -> Optional[tuple[Optional[dict[str, Any]], int, int, list[tuple[int, Optional[int], str]], int]]:
-    """A RULE 706 "Roll a d20." instruction followed by one or more
-    "<range> | <effect>" results-table rows (RULE 706.3a/706.3b — the roll,
-    its table and its modifiers are one ability). Bare or trigger-wrapped;
-    the "<cost>: roll …" + table and the "you may roll again" recursion
-    (Delina) are deliberately out of scope, falling through to per-line
-    dispatch (and staying UNMODELED) rather than being half-claimed.
+    lines: list[str], start: int,
+) -> Optional[tuple[str, list[tuple[Optional[int], Optional[int], str]], int]]:
+    """A RULE 706 roll instruction followed by one or more results-table rows (RULE 706.3a/706.3b — the roll,
+    its modifiers and its table are one ability).
 
-    Returns ``(trigger, sides, count, rows, next_index)`` where ``rows`` is
-    a list of ``(lo, hi_or_None, body_text)`` — ``hi`` ``None`` is the
-    ``N+`` open-ended endpoint — or ``None`` if ``lines[start]`` isn't this
-    shape, its wrapper isn't a recognised trigger, or a row is malformed
-    (fail-closed).
+    Returns ``(header, rows, next_index)`` where ``rows`` is a list of ``(lo, hi_or_None, body_text)`` — ``lo`` is
+    ``None`` for "N or less" (open below) and ``hi`` ``None`` is the ``N+`` open-ended endpoint — or ``None`` if
+    ``lines[start]`` isn't this shape or a row is malformed (fail-closed). The "you may roll again" recursion
+    (Delina) is deliberately out of scope: its rows fail to parse and the card stays UNMODELED.
     """
-    head = _DICE_TABLE_HEADER_RE.match(lines[start].strip())
-    if head is None:
+    header = lines[start].strip()
+    if _DICE_HEADER_ROLL_RE.search(header) is None:
         return None
-    # At least one table row must follow, or this is just a bare roll the
-    # ordinary effect handler already claims — nothing to do here.
-    rows: list[tuple[int, Optional[int], str]] = []
+    indicated = _DICE_INDICATED_TAIL_RE.search(header)
+    if indicated is not None:
+        header = header[: indicated.start()].strip()
+    rows: list[tuple[Optional[int], Optional[int], str]] = []
     j = start + 1
     while j < len(lines):
-        row = _DICE_TABLE_ROW_RE.match(lines[j].strip())
-        if row is None:
-            break
-        lo = int(row.group("lo"))
-        hi = None if row.group("plus") else int(row.group("hi") or lo)
-        rows.append((lo, hi, row.group("body").strip()))
+        text = lines[j].strip()
+        if indicated is not None:
+            row = _DICE_INDICATED_ROW_RE.match(text)
+            if row is None:
+                break
+            face = int(row.group("lo"))
+            rows.append((face, face, row.group("body").strip()))
+        else:
+            row = _DICE_TABLE_ROW_RE.match(text)
+            if row is None:
+                break
+            if row.group("minus"):
+                rows.append((None, int(row.group("lo")), row.group("body").strip()))
+            else:
+                lo = int(row.group("lo"))
+                hi = None if row.group("plus") else int(row.group("hi") or lo)
+                rows.append((lo, hi, row.group("body").strip()))
         j += 1
     if not rows:
         return None
-    trigger: Optional[dict[str, Any]] = None
-    pre = head.group("pre")
-    if pre:
-        probe = segment_line(pre + "draw a card.", allow_spell_effect=False, provenance=provenance)
-        if not probe.claimed or probe.spec is None or probe.spec.ability_kind != "triggered":
-            return None
-        trigger = probe.spec.trigger
-        if not trigger or trigger.get("event") is None:
-            return None
-    count_word = head.group("count")
-    count = (
-        _DICE_TABLE_COUNT_WORDS.get((count_word or "").lower(), int(count_word))
-        if count_word else 1
-    )
-    sides = int(head.group("sides_d") or head.group("sides_s"))
-    return (trigger, sides, count, rows, j)
+    return (header, rows, j)
 
 
 def _split_reflexive_modal_block(
@@ -5086,38 +5099,57 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_dice_table_block(
         header: str,
-        trigger: Optional[dict[str, Any]],
-        sides: int,
-        count: int,
-        rows: list[tuple[int, Optional[int], str]],
+        rows: list[tuple[Optional[int], Optional[int], str]],
     ) -> None:
-        """Emit one ``roll_die`` spec carrying a RULE 706.3a ``outcomes``
-        table — as a triggered ability if ``trigger`` is set, else a bare
-        spell/ability effect. Every row body must parse (fail-closed: one
-        unclaimed row leaves the whole card UNMODELED)."""
+        """Parse ``header`` as an ordinary ability line, then attach the RULE 706.3a ``outcomes`` table to its
+        final ``roll_die`` instruction. Every row body must parse (fail-closed: one unclaimed row leaves the whole
+        card UNMODELED), and a row may not announce a target of its own — the roll happens after targets were
+        chosen (RULE 601.2c), so only a referent an earlier instruction of the header established is usable."""
         nonlocal all_claimed
+
+        def _fail() -> None:
+            nonlocal all_claimed
+            all_claimed = False
+            unclaimed.append(header)
+            unclaimed.extend(f"{lo if lo is not None else ''} | {b}" for lo, _, b in rows)
+
+        seg = segment_line(
+            header, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
+        )
+        spec = seg.spec if seg.claimed else None
+        if spec is None or not spec.effects or spec.effects[-1].type != "roll_die" or spec.effects[-1].params.get(
+                "outcomes"):
+            _fail()
+            return
+        if any(e.type == "add_mana" for row in rows for e in (parse_effect_body(row[2]) or [])):
+            # RULE 605.1a/605.3b: a roll that can add mana is a mana ability, which resolves at once without the
+            # stack (Jack-in-the-Mox). The table path puts it on the stack, so the card stays unmodeled.
+            _fail()
+            return
+        referent = any(
+            any(effect.params.get(key) is not None for key in ("target_kind", "kinds", "target_kinds"))
+            or effect.type in ("choose_targets", "exile", "search", "reveal_top")
+            for effect in spec.effects[:-1]
+        )
+        self_referent = spec.ability_kind != "triggered" or (spec.trigger or {}).get("condition") == {"subject": "self"}
         outcomes: list[dict[str, Any]] = []
         for lo, hi, body in rows:
-            body_specs = parse_effect_body(body)
-            if body_specs is None:
-                all_claimed = False
-                unclaimed.append(header)
-                unclaimed.extend(f"{lo} | {b}" for _, _, b in rows)
+            # "it" in a row is whatever the header established: a chosen target, else the ability's own source.
+            body_specs = parse_effect_body(body) or (
+                parse_effect_body(body, previous_subject=True) if referent
+                else parse_effect_body(body, self_subject=True) if self_referent else None
+            )
+            if body_specs is None or any(_announces_target(s) for s in body_specs):
+                _fail()
                 return
-            row_out: dict[str, Any] = {"min": lo, "effects": [s.to_dict() for s in body_specs]}
+            row_out: dict[str, Any] = {"effects": [s.to_dict() for s in body_specs]}
+            if lo is not None:
+                row_out["min"] = lo
             if hi is not None:
                 row_out["max"] = hi
             outcomes.append(row_out)
-        params: dict[str, Any] = {"sides": sides, "outcomes": outcomes}
-        if count != 1:
-            params["count"] = count
-        effect_specs.append(AbilitySpec(
-            "triggered" if trigger is not None else "spell_effect",
-            [EffectSpec("roll_die", params)],
-            trigger=trigger,
-            raw_text=header,
-            parser=provenance,
-        ))
+        spec.effects[-1].params["outcomes"] = outcomes
+        effect_specs.append(spec)
 
     def _process_reflexive_modal_block(
         header: str, trigger: Optional[dict[str, Any]], cost: str, or_both: bool, or_more: bool,
@@ -5344,10 +5376,10 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 )
                 i = next_i
                 continue
-            dice_table = _split_dice_table_block(lines, i, provenance)
+            dice_table = _split_dice_table_block(lines, i)
             if dice_table is not None:
-                dt_trigger, dt_sides, dt_count, dt_rows, next_i = dice_table
-                _process_dice_table_block(lines[i], dt_trigger, dt_sides, dt_count, dt_rows)
+                dt_header, dt_rows, next_i = dice_table
+                _process_dice_table_block(dt_header, dt_rows)
                 i = next_i
                 continue
             _process_line(lines[i])

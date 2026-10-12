@@ -170,6 +170,14 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # (`GameContext.die_result`) — "…where X is the result." (Growth
         # Spurt, PAR-80). MEC-90's own missing half of the dice subsystem.
         "die_result",
+        # RULE 706 (PAR-147): how many of the dice the last roll kept satisfy ``which`` — "even" / "odd" results,
+        # "different" (distinct values), "equal" (exactly ``value``) or "all" — for "for each even result, …" and
+        # "if you rolled 6 exactly seven times".
+        "die_results",
+        # RULE 706 (PAR-147): "that result" / "the other result" of a roll-two-and-choose-one instruction (the
+        # Endeavor cycle) — ``which`` is ``"chosen"`` or ``"other"``. With nothing chosen, "that result" still
+        # names the roll's one die (or both equal dice); "the other result" is then undefined and measures 0.
+        "die_choice",
         # RULE 706's other randomization — "a number from A to B chosen at
         # random" (Hapato's Might, PAR-80): deliberately a *separate* field
         # from ``die_result`` (`GameContext.random_result`, set by
@@ -366,6 +374,30 @@ def _base(
         if result is None:
             result = (getattr(context, "trigger_event", None) or {}).get("die_result")
         return int(result) if isinstance(result, int) else 0
+
+    if kind == "die_choice":
+        choice = getattr(context, "die_choice", None)
+        kept = list(getattr(context, "die_results", None) or [])
+        if choice is not None:
+            return int(choice.get("chosen" if amount.get("which") == "chosen" else "other", 0))
+        if amount.get("which") == "chosen" and kept and len(set(kept)) == 1:
+            return kept[0]
+        return 0
+
+    if kind == "die_results":
+        kept = list(getattr(context, "die_results", None) or [])
+        if not kept:
+            kept = list((getattr(context, "trigger_event", None) or {}).get("results") or [])
+        which = amount.get("which")
+        if which == "even":
+            return sum(1 for r in kept if r % 2 == 0)
+        if which == "odd":
+            return sum(1 for r in kept if r % 2 == 1)
+        if which == "different":
+            return len(set(kept))
+        if which == "equal":
+            return sum(1 for r in kept if r == amount.get("value"))
+        return len(kept) if which == "all" else 0
 
     if kind == "coin_flips":
         outcome = getattr(context, "coin_outcome", None) or {}

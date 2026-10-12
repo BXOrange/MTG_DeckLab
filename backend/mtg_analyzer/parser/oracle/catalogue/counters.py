@@ -261,6 +261,16 @@ _ROLL_X_DICE_ENTRY_COUNTERS_RE = re.compile(
 )
 
 
+#: RULE 706 (PAR-147): the same roll for the printed-dice spellings — "As ~ enters, roll a 6-sided die. ~ enters with a
+#: number of +1/+1 counters on it equal to the result." (Hammer Jammer, Jumbo Imp, Temp of the Damned) and "roll X
+#: 6-sided dice … equal to the total of those results." (Hydradoodle). One die when the line says "a".
+_ROLL_DICE_ENTRY_COUNTERS_RE = re.compile(
+    rf"^as {_SUBJECT} enters, roll (?P<count>x|a) (?:d(?P<sides_d>\d+)|(?P<sides_s>\d+)-sided (?:dice|die))\. "
+    rf"(?:it|~) enters with a number of {_COUNTER_TYPE} counters on it equal to (?:the total of those results|the result)\.?$",
+    re.IGNORECASE,
+)
+
+
 #: "~ enters with a number of +1/+1 counters on it equal to the number of land cards in all graveyards."
 #: (Centaur Vinecrasher) — read live off the graveyards as it enters.
 _LAND_CARDS_IN_GRAVEYARDS_ENTRY_RE = re.compile(
@@ -357,6 +367,16 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": 1, "counter_type": match.group(2).lower(), "roll_x_dice_sides": int(match.group("sides")),
         }
+    match = _ROLL_DICE_ENTRY_COUNTERS_RE.match(line)  # Hammer Jammer, Hydradoodle (PAR-147)
+    if match is not None:
+        sides = int(match.group("sides_d") or match.group("sides_s"))
+        result: dict[str, Any] = {
+            "is_x": False, "count": 1, "counter_type": match.group(match.re.groups).lower(),
+            "roll_x_dice_sides": sides,
+        }
+        if match.group("count").lower() == "a":
+            result["roll_dice_count"] = 1  # a fixed single die rather than the announced {X}
+        return result
     match = _MANA_SPENT_ENTRY_COUNTERS_RE.match(line)  # Kurbis
     if match is not None:
         return {

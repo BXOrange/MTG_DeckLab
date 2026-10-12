@@ -248,6 +248,9 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
     "won": bool,  # RULE 705: the `coin_flips` amount counts won (True) or lost (False) flips
+    # RULE 706: the `die_results` amount counts the kept dice of the last roll by ``which`` (even / odd / different /
+    # equal ``value`` / all).
+    "which": str, "value": int,
     "condition": dict, "then": (int, dict), "otherwise": (int, dict),
     "left": (int, dict), "right": (int, dict),
 }

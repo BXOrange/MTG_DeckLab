@@ -118,7 +118,12 @@ _ABILITY_WORD_RE = re.compile(
     r"|split"
     # "Eerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, …" (Duskmourn):
     # decorative (RULE 207.2c); the compound trigger behind it is parsed on its own.
-    r"|eerie)\s*—\s*",
+    r"|eerie"
+    # RULE 207.2c, the dice-rolling ability words (PAR-147): "Wild Magic Surge — Whenever ~ attacks, roll a d20." and
+    # its Baldur's Gate / Commander Legends siblings. Pure labels; the trigger (and results table) behind them is
+    # an ordinary one once the label is gone.
+    r"|psionic spells|wild magic surge|sneak attack|siege monster|cone of cold|focus beam|perfect illumination"
+    r"|dark (?:one|1)'s own luck)\s*—\s*",
     re.MULTILINE,
 )
 

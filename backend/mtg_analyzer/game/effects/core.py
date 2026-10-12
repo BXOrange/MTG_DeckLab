@@ -256,6 +256,10 @@ class GameContext:
         self.die_result: Optional[int] = None
         self.die_results: list[int] = []
         self.rolled_doubles: bool = False
+        #: RULE 706 (PAR-147): "roll two dice and choose one result" — ``{"chosen": n, "other": m}`` once the roller
+        #: has chosen (the Endeavor cycle's "that result" / "the other result"), else ``None``. Same idiom as
+        #: ``die_result`` (and kept across a suspension in the deferred entry's ``die_state``).
+        self.die_choice: Optional[dict[str, int]] = None
         #: RULE 706's other randomization — "a number from A to B chosen at
         #: random" (`RandomNumberEffect`), deliberately separate from
         #: ``die_result`` since only a literal "roll a die" is subject to
@@ -1324,6 +1328,7 @@ def _apply_effects_partitioned(
     clashed_opponent: Optional[Any] = None,
     coin_outcome: Optional[dict[str, Any]] = None,
     stack_item: Optional[Any] = None,
+    die_state: Optional[dict[str, Any]] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -1412,6 +1417,7 @@ def _apply_effects_partitioned(
     outer_die_result = getattr(context, "die_result", None)
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
+    outer_die_choice = getattr(context, "die_choice", None)
     outer_random_result = getattr(context, "random_result", None)
     outer_target_groups = getattr(context, "resolution_target_groups", None)
     context.previous_targets = list(previous_targets or [])
@@ -1430,9 +1436,12 @@ def _apply_effects_partitioned(
     context.clash_won = clash_won
     context.clashed_opponent = clashed_opponent
     context.coin_outcome = coin_outcome
-    context.die_result = None
-    context.die_results = []
-    context.rolled_doubles = False
+    # RULE 706: a resumed remainder keeps the roll its paused predecessor made (see the deferred entry's ``die_state``).
+    die_state = die_state or {}
+    context.die_result = die_state.get("die_result")
+    context.die_results = list(die_state.get("die_results") or [])
+    context.rolled_doubles = bool(die_state.get("rolled_doubles", False))
+    context.die_choice = die_state.get("die_choice")
     context.random_result = None
     # A later rider can name a specific earlier target requirement rather
     # than merely the most recently resolved one (Outmuscle's first target
@@ -1539,6 +1548,10 @@ def _apply_effects_partitioned(
                         "clash_won": context.clash_won,
                         "clashed_opponent": context.clashed_opponent,
                         "coin_outcome": context.coin_outcome,
+                        "die_state": {
+                            "die_result": context.die_result, "die_results": list(context.die_results),
+                            "rolled_doubles": context.rolled_doubles, "die_choice": context.die_choice,
+                        },
                         "stack_item": stack_item,
                         "acting_player_id": context.acting_player_id,
                     }
@@ -1565,6 +1578,7 @@ def _apply_effects_partitioned(
         context.die_result = outer_die_result
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles
+        context.die_choice = outer_die_choice
         context.random_result = outer_random_result
         context.resolution_target_groups = outer_target_groups
 

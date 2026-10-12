@@ -400,9 +400,21 @@ class ManaCountersMixin:
             results=list(kept),
             natural_results=list(natural),
             total=total,
+            die_result=total,  # "the result" for a "whenever you roll one or more dice" effect (Vexing Puzzlebox)
             sides=sides,
             doubles=doubles,
         ))
+        # RULE 706.6: only the dice that were not ignored count as rolled.
+        for result in kept:
+            self.state.fire_event(GameEvent(
+                EventType.DIE_RESULT,
+                player_id=player.id,
+                controller_id=player.id,
+                die_result=result,
+                amount=result,  # "put that many counters" (Atomwheel Acrobats) reads the die's result
+                sides=sides,
+                highest=result == sides,
+            ))
         return kept
     def set_tapped(self, obj: GameObject, tapped: bool = True, reason: Optional[str] = None) -> None:
         """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point

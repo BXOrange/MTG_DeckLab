@@ -3393,6 +3393,8 @@ EffectRegistry.register(
         ignore_highest=p.get("ignore_highest", 0),
         outcomes=p.get("outcomes"),
         then_trigger=p.get("then_trigger"),
+        count_amount=p.get("count_amount"),
+        choose=p.get("choose", 0),
     ),
 )
 EffectRegistry.register(

@@ -95,13 +95,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
-- **PAR-147 · Dice grammar axes.** The engine exists (`RollDieEffect`, `roll_die`, `roll_dice_modifier`); 68
-  Commander-legal cards carry roll text, 38 with only roll clauses unclaimed. Axes, each a separate grammar
-  piece: a single die whose result is an amount/filter operand (21 cards, e.g. Bag of Devouring, Bag of
-  Tricks, Ebony Fly); d20 table rows `1—9 | …` (18, Aberrant Mind Sorcerer) — first check whether the IR can
-  express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
-  "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
-  `engine_bench.py`, not parse verdicts.
+- **PAR-147 · Dice grammar — remaining axes.** Roll modifiers ("and add/subtract N"), results tables blocked on other
+  primitives, the Endeavor halves, one-off result readers; residue in `workingOn.md`.
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal

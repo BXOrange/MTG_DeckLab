@@ -3609,6 +3609,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) or more (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
      lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
                 "min": _count_word(m.group("n"))}),
+    # PAR-147: the "there are" spelling — "then if there are 100 or more luck counters on ~, you win the game"
+    # (As Luck Would Have It) is the same count of the source's own counters as "~ has N or more … counters on it".
+    (re.compile(r"there are (?P<n>a|an|\d+) or more (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on (?:~|it)", re.I),
+     lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
+                "min": _count_word(m.group("n"))}),
     # PAR-135: "…has two **or fewer** judgment counters on it" (Faithbound Judge) is an upper bound — without its
     # own row the next one read "or fewer judgment" as the counter's name and a lower bound of 2, silently.
     (re.compile(r"(?:~|it) has (?P<n>\d+) or fewer (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
