@@ -110,6 +110,7 @@ class SearchLibraryEffect(GameEffect):
     checked at the *search*'s own resolution. Merged into ``criteria`` at
     resolution time as ``max_mana_value``/``mana_value``, so
     `models.cards.card_query` needs no dynamic vocabulary of its own.
+    ``{"source": "trigger_subject", "plus": -1}`` (Rushed Rebirth) reads the firing event's ``mana_value``.
 
     ``type_restriction`` is accepted as a deprecated alias for a string
     ``criteria`` so older fixtures keep working.
@@ -233,6 +234,13 @@ class SearchLibraryEffect(GameEffect):
                 context.state, getattr(self.source, "controller_id", None),
                 self.mana_value_from["count_selector"], source=self.source,
             )
+        elif self.mana_value_from.get("source") == "trigger_subject":
+            # "…a creature card with lesser mana value" (Rushed Rebirth, PAR-154) — the object the enclosing trigger
+            # fired for, as the event snapshotted it (a dying creature's last-known mana value, RULE 608.2h).
+            event = context.trigger_event if context is not None else None
+            base = (event or {}).get("mana_value") if event is not None else None
+            if base is None:
+                base = -1 - int(self.mana_value_from.get("plus", 0))  # no referent: nothing matches
         else:
             base = getattr(self.source, "sacrificed_cost_mana_value", None)
             if base is None:

@@ -93,6 +93,9 @@ class GameObject:
         #: (RULE 712.8). Combat/continuous read `card`, so a transform is just
         #: this swap — everything downstream sees the active face.
         self.transformed: bool = False
+        #: Whether a flip card's permanent is flipped (RULE 710.4: one-way; lost on any zone change, RULE 110.5).
+        #: ``card`` then holds the alternative half (`Card.flip_face`), as a transform holds the back face.
+        self.flipped: bool = False
         #: RULE 715.2b: while this object's Adventure instant/sorcery half is
         #: on the stack, the creature's pre-cast face snapshot (`snapshot_face`)
         #: is stashed here so resolution can restore it before exiling —
@@ -1464,10 +1467,26 @@ class GameObject:
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).
         self.turn_face_up()
-        if self.transformed:
-            self.card = self._front_card  # RULE 711.8: a new object presents its front face
+        was_flipped = self.flipped
+        if self.transformed or self.flipped:
+            self.card = self._front_card  # RULE 711.8 / 710.4: a new object presents its front face
         self._front_card = self.card
         self.transformed = False
+        self.flipped = False
+        if was_flipped:
+            # RULE 110.5 / 710.4: the flipped half's abilities were bound onto this object, so the front's must
+            # replace them now (a bound-once ability list is otherwise only rebuilt by an explicit bind).
+            from ...game.binding.core import bind_from_catalogue  # function-scoped: models/ must not import game/ at load
+
+            self.spell_effects = []
+            self.triggered_abilities = []
+            self.activated_abilities = []
+            self.static_effects = []
+            self.replacement_effects = []
+            self.enter_as_copy_effects = []
+            self.intrinsic_keywords = set()
+            self.parametric_keywords = {}
+            bind_from_catalogue(self)
         self.adventure_snapshot = None
         self.adventure_castable = False
         self.prepared = False
@@ -2137,6 +2156,19 @@ class GameObject:
             self.counters["loyalty"] = new_card.loyalty
         return True
 
+    def flip(self) -> bool:
+        """Flip a flip card's permanent (RULE 710): present the alternative half's name, type line, text and
+        power/toughness. One-way (RULE 710.4) — ``False`` when already flipped or when the card has no flip face.
+        Binding the new face's abilities is the rules layer's job (`RulesEngine._flip_permanent`)."""
+        if self.flipped:
+            return False
+        flipped_card = self._front_card.flip_face()
+        if flipped_card is None:
+            return False
+        self.card = flipped_card
+        self.flipped = True
+        return True
+
     def _room_doors(self) -> Optional[list[dict[str, Any]]]:
         """The wire form of a Room permanent's doors (RULE 709.5c): per door its key, its half's name and mana cost
         (what unlocking a locked one costs) and whether it is unlocked. Only on the battlefield — a Room spell or card
@@ -2184,6 +2216,8 @@ class GameObject:
             "tapped": self.tapped,
             # Whether a double-faced permanent is on its back face (RULE 712.8).
             "transformed": self.transformed,
+            # RULE 710: whether a flip card's permanent is flipped (the board turns its art upside down).
+            "flipped": self.flipped,
             # Whether this object *has* another face to show at all — read
             # off `_front_card` (stable across a transform) rather than the
             # currently-displayed `self.card`, so it stays true even while

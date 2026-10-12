@@ -147,6 +147,7 @@ class Card:
         back_image_uri_normal: str = "",
         back_image_uri_large: str = "",
         back_image_uri_png: str = "",
+        back_keywords: Optional[list[str]] = None,
     ) -> None:
         """Construct a Card, validating attributes per the data model spec.
 
@@ -234,6 +235,10 @@ class Card:
         self.back_image_uri_normal = back_image_uri_normal
         self.back_image_uri_large = back_image_uri_large
         self.back_image_uri_png = back_image_uri_png
+        #: The back face's own keyword abilities. Only a flip card (RULE 710) needs them apart from ``keywords``:
+        #: Scryfall lists one combined keyword array for both halves, and a flip card's halves are never both
+        #: in play at once, so each face must read only its own.
+        self.back_keywords = list(back_keywords or [])
 
     @property
     def is_planeswalker(self) -> bool:
@@ -345,6 +350,10 @@ class Card:
         captured."""
         if not self.back_name and not self.back_type_line:
             return None
+        if self.layout == "flip":
+            # RULE 710.1b/710.2: a flip card's lower half is never cast or played from a zone; it only
+            # replaces the normal characteristics of a flipped permanent (`flip_face`).
+            return None
         btl = self.back_type_line or self.type_line
         back_is_creature = "creature" in btl.lower()
         # RULE 202.3: the back's own mana value, from the back's own raw
@@ -380,6 +389,52 @@ class Card:
             image_uri_normal=self.back_image_uri_normal,
             image_uri_large=self.back_image_uri_large,
             image_uri_png=self.back_image_uri_png,
+        )
+
+    @property
+    def is_flip(self) -> bool:
+        """Whether this is a Kamigawa flip card with a captured alternative half (RULE 710)."""
+        # Scryfall also lays out the two-sided Role tokens ("Wicked // Cursed") as "flip"; a token is not a flip
+        # card (RULE 710 is a printed frame, and a token has no flip permanent to speak of).
+        return (
+            self.layout == "flip" and bool(self.back_name) and bool(self.back_type_line)
+            and "token" not in self.type_line.lower()
+        )
+
+    def flip_face(self) -> Optional["Card"]:
+        """The characteristics of this flip card once its permanent is flipped (RULE 710.1b/710.2), or None.
+
+        Name, type line, rules text and power/toughness are the alternative half's; the **mana cost and colour are
+        not** (RULE 710.1c) — the face carries the normal half's cost, so the object keeps both. It is a plain card
+        (no ``back_*`` of its own, layout cleared) that shares the one printed image, so everything downstream that
+        binds, parses or draws a `Card` treats it like any other."""
+        if not self.is_flip:
+            return None
+        btl = self.back_type_line
+        back_is_creature = "creature" in btl.lower()
+        return Card(
+            id=self.id,
+            name=self.back_name,
+            type_line=btl,
+            mana_cost=dict(self.mana_cost),
+            mana_cost_string=self.mana_cost_string,
+            converted_mana_cost=self.converted_mana_cost,
+            color_identity=set(self.color_identity),
+            is_creature=back_is_creature,
+            is_instant="instant" in btl.lower(),
+            is_sorcery="sorcery" in btl.lower(),
+            is_land="land" in btl.lower(),
+            power=self.back_power if back_is_creature else None,
+            toughness=self.back_toughness if back_is_creature else None,
+            oracle_text=self.back_oracle_text,
+            keywords=list(self.back_keywords),
+            is_legendary="legendary" in btl.lower(),
+            set_code=self.set_code,
+            rarity=self.rarity,
+            image_uri_small=self.image_uri_small,
+            image_uri_normal=self.image_uri_normal,
+            image_uri_large=self.image_uri_large,
+            image_uri_png=self.image_uri_png,
         )
 
     def fuse_face(self) -> Optional["Card"]:
@@ -610,6 +665,7 @@ class Card:
             back_image_uri_normal=self.back_image_uri_normal,
             back_image_uri_large=self.back_image_uri_large,
             back_image_uri_png=self.back_image_uri_png,
+            back_keywords=list(self.back_keywords),
         )
 
     @property
@@ -756,6 +812,7 @@ class Card:
             "back_image_uri_normal": self.back_image_uri_normal,
             "back_image_uri_large": self.back_image_uri_large,
             "back_image_uri_png": self.back_image_uri_png,
+            "back_keywords": list(self.back_keywords),
         }
 
     @classmethod
@@ -803,6 +860,7 @@ class Card:
             back_image_uri_normal=data.get("back_image_uri_normal", ""),
             back_image_uri_large=data.get("back_image_uri_large", ""),
             back_image_uri_png=data.get("back_image_uri_png", ""),
+            back_keywords=data.get("back_keywords") or [],
         )
         # Note: "has_back_face" in the dict is a derived, read-only
         # property (see to_dict); it is intentionally not a constructor

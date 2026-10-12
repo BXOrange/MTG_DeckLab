@@ -449,6 +449,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "time_travel": "time_travel",
     "transfer_event_counters": "put_counter",  # the departed object's snapshot counters (PAR-120)
     "transform": "transform",
+    "flip": "transform",  # RULE 710: a flip card's one-way face change, the same agent/patient shape as 701.27
     "untap_self": "untap",
     "venture": "venture",
     "vote": "vote",
@@ -694,6 +695,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_creatures_by_power_parity": "move_object",
     "return_dying_subject_to_battlefield": "move_object",
     "return_from_graveyard": "move_object",
+    "return_creature_to_dead_creature_owner": "move_object",  # Reincarnation: the pick returns for the dead creature's owner
     "return_remembered_graveyard_cards": "move_object",
     "return_captured_graveyard_card": "move_object",
     "return_linked_exile": "move_object",

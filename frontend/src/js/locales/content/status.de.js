@@ -374,6 +374,8 @@ export default [
               ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/715/722)'],
               ['full', 'Räume (709.5) — verriegelte/entriegelte Türen je Hälfte, jede Hälfte wirkbar, die Sonderhandlung „entriegeln" (116.2m), „wenn du diese Tür entriegelst", Eerie „vollständig entriegeln", Verriegeln/Entriegeln-Effekte'],
               ['partial', 'Raum-Kartentexte: 22 von 30 gecachten Räumen modelliert (die übrigen scheitern an fremden Effekt-Grammatiken — Konvoke-Vergabe, Mill-und-Zurückholen, …; Alchemy-Hälften sind dauerhaft ein Nicht-Ziel)'],
+              ['full', 'Flip-Karten (710) — einseitiges Umdrehen auf die alternative Hälfte (Name, Typ, Text, Stärke/Widerstandskraft; Manakosten und Farbe bleiben), bei jedem Zonenwechsel vergessen, verzögertes „Wenn diese Kreatur diesen Zug stirbt, drehe ~ um“; Replay und Spielfeld (Bild um 180° gedreht) behalten es'],
+              ['partial', 'Flip-Kartentexte: 4 von 21 gecachten Flip-Karten modelliert (nur wenn beide Hälften es sind) — Initiate of Blood, Bushi Tenderfoot, Jushi Apprentice und Orochi Eggwatcher; der Ki-Marken-Zyklus, Akki Lavarunner und die Essence-Hälften scheitern noch an fremden Klauseln'],
             ],
           },
           {
@@ -456,8 +458,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (60,1 % · 21.048 / 35.046, PARSER_VERSION 627)'],
-              ['partial', 'Davon Commander-legal (63,2 % · 20.273 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (60,1 % · 21.075 / 35.046, PARSER_VERSION 629)'],
+              ['partial', 'Davon Commander-legal (63,3 % · 20.300 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

@@ -3694,6 +3694,14 @@ def _destroy_equipment_attached_to_it(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("destroy", {"target_kind": "equipment_attached_to_source"})]
 
 
+#: "flip ~" (RULE 710, the Kamigawa flip cards) — the source flips itself.
+_FLIP_SELF_RE = _c(rf"flip {re.escape(SELF)}")
+
+
+#: "destroy ~" — the source destroys itself (Sandals of Abdallah, PAR-154); no RULE 115 target.
+_DESTROY_SELF_RE = _c(rf"destroy {re.escape(SELF)}")
+
+
 #: "destroy target Equipment" (Manriki-Gusari).  Equipment is an artifact
 #: subtype rather than a card type, so it deliberately is not part of the
 #: broad ``TARGET`` grammar used by the ordinary destroy row.  The targeting
@@ -3948,6 +3956,36 @@ def _damage_creature_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", {
         "amount": int(m.group("n")), "target_kind": kind, "creature_filter": filt,
     })]
+
+
+#: "target creature [an opponent controls] **that was dealt damage this turn**" (Initiate of Blood, Tail Spikes, Mercenary
+#: Informer-style removal; PAR-154/MEC-115) — RULE 115/601.2c's `TargetSpec.creature_filter` ``damaged_this_turn``
+#: (`combat.matches_object_filter`, RULE 514.2: marked damage this turn). The controller scope may sit before it.
+_DAMAGED_THIS_TURN_TAIL = rf"(?P<scope_pre>{NOT_YOU_TAIL})? that was dealt damage this turn"
+_DAMAGE_DAMAGED_CREATURE_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to target creature{_DAMAGED_THIS_TURN_TAIL}"
+)
+_DESTROY_DAMAGED_CREATURE_RE = _c(
+    rf"destroy target creature{_DAMAGED_THIS_TURN_TAIL}(?P<no_regen>\. it can'?t be regenerated)?"
+)
+
+
+def _damaged_creature_kind(m: re.Match[str]) -> str:
+    return "creature_you_dont_control" if m.group("scope_pre") else "creature"
+
+
+def _damage_damaged_creature(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "target_kind": _damaged_creature_kind(m),
+        "creature_filter": {"damaged_this_turn": True},
+    })]
+
+
+def _destroy_damaged_creature(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"target_kind": _damaged_creature_kind(m), "creature_filter": {"damaged_this_turn": True}}
+    if m.group("no_regen"):
+        params["can_be_regenerated"] = False
+    return [EffectSpec("destroy", params)]
 
 
 #: "destroy target non<word> creature[, optionally 'It can't be
@@ -6090,6 +6128,37 @@ def _search_mv_lands_qualifier(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     ]
 
 
+#: "return a creature card from its owner's graveyard to the battlefield under the control of that creature's owner"
+#: (Reincarnation, PAR-154) — "its/that creature's owner" is the owner of the object the enclosing DIES trigger fired
+#: for, so the handler is only meaningful under such a trigger (it reads the firing event's ``owner_id``).
+_RETURN_CREATURE_TO_DEAD_OWNER_RE = _c(
+    r"return a creature card from its owner's graveyard to the battlefield under the control of that creature's owner"
+)
+
+
+#: "search your library for a creature card with **lesser mana value**, put it onto the battlefield tapped, then
+#: shuffle." (Rushed Rebirth, PAR-154) — "lesser" than the object the enclosing trigger fired for (the creature that
+#: died, last-known, RULE 608.2h), so it maps onto `mana_value_from`'s ``trigger_subject`` source with a one-below
+#: ``plus``; outside a trigger there is no such object and the search fails closed at resolution.
+_SEARCH_LESSER_MV_RE = _c(
+    rf"search your library for an? (?P<types>{_SEARCH_TYPE_LIST}) card with lesser mana value,?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_lesser_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    return [EffectSpec("search", {
+        "criteria": _search_criteria_from_match(m),
+        "mana_value_from": {"source": "trigger_subject", "plus": -1, "cmp": "le"},
+        "destination": destination,
+    })]
+
+
 #: "search your library for a snow permanent card, a legendary card, or a
 #: Saga card, [reveal <pronoun>,] put <pronoun> <destination>, then
 #: shuffle." (Search for Glory, MEC-43 round 3) — a three-way OR across
@@ -6925,6 +6994,15 @@ def _fight_implicit(fighter_kind: Optional[str]):
     return build
 
 
+def _fight_chosen_vs_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    fighter = _fight_kind(m.group("target"))
+    if fighter is None:
+        return None
+    return [EffectSpec("fight", {
+        "fighter_kind": fighter, "other_kind": "previous_target", **_optional_param(m),
+    })]
+
+
 def _fight_previous_pair(m: re.Match[str]) -> list[EffectSpec]:
     """"Then those creatures fight each other." — both fighters come from the
     preceding "choose target … and target …" clause, so this clause announces
@@ -7114,6 +7192,11 @@ _FIGHT_PREVIOUS_RE = _c(
     rf"{_THEN}(?:have )?{_PREVIOUS_SUBJECT} fights? {_ANOTHER}{TARGET}(?P<same_mv> with the same mana value)?"
 )
 
+#: "Choose target creature an opponent controls. … **Target creature you control fights that creature.**" (Time to
+#: Feed) — the mirror of `_FIGHT_PREVIOUS_RE`: the *fighter* is a new RULE 115 requirement and the *other* creature is
+#: the earlier clause's pick, so the clause announces exactly one target of its own.
+_FIGHT_CHOSEN_OTHER_PREVIOUS_RE = _c(rf"{_THEN}{TARGET} fights {_PREVIOUS_SUBJECT}")
+
 #: Predatory Urge's pre-keyword-action wording for a fight.  The two damage
 #: sentences have RULE 701.14a's exact simultaneous semantics, so they must
 #: become one atomic `fight`, not two `damage_equal_to_power` effects.
@@ -7146,6 +7229,10 @@ _FIGHT_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     ("fight_attached", _FIGHT_ATTACHED_RE, _fight_implicit("attached_permanent"), {}),
     (
         "fight_previous", _FIGHT_PREVIOUS_RE, _fight_implicit("previous_target"),
+        {"previous_subject_only": True},
+    ),
+    (
+        "fight_chosen_vs_previous", _FIGHT_CHOSEN_OTHER_PREVIOUS_RE, _fight_chosen_vs_previous,
         {"previous_subject_only": True},
     ),
 ]
@@ -13950,6 +14037,10 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # entering tapped vs untapped is a real difference; fail closed.
     if re.match(r"(?i)^\s*tapped\b", tail):
         return None
+    # "…onto the battlefield **and attach ~ to it**" (Shifting Shadow) — the attachment is a separate instruction
+    # `dig_until` has no slot for; claiming the row would silently drop it.
+    if re.search(r"(?i)\battach\b", tail):
+        return None
     rest_dest = next((d for rx, d in _DIG_UNTIL_REST_RES if rx.search(tail)), None)
     if rest_dest is None:
         return None
@@ -16045,6 +16136,7 @@ HANDLERS: list[EffectHandler] = [
         _DAMAGE_CREATURE_FILTER_RE,
         _damage_creature_filter,
     ),
+    EffectHandler("damage_damaged_creature", _DAMAGE_DAMAGED_CREATURE_RE, _damage_damaged_creature),
     EffectHandler(
         "damage_target_and_selector",
         _DAMAGE_TARGET_AND_SELECTOR_RE,
@@ -16922,6 +17014,7 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"destroy target creature{_CREATURE_FILTER_SCOPED}"),
         _destroy_creature_filter,
     ),
+    EffectHandler("destroy_damaged_creature", _DESTROY_DAMAGED_CREATURE_RE, _destroy_damaged_creature),
     EffectHandler(
         "artifact_enchantment_or_creature_filter",
         _ARTIFACT_ENCHANTMENT_OR_CREATURE_FILTER_RE,
@@ -16950,6 +17043,12 @@ HANDLERS: list[EffectHandler] = [
         "destroy_equipment_attached_to_it",
         _DESTROY_EQUIPMENT_ATTACHED_TO_IT_RE,
         _destroy_equipment_attached_to_it,
+    ),
+    # "…, flip ~." (Initiate of Blood and the other Kamigawa flip cards).
+    EffectHandler("flip_self", _FLIP_SELF_RE, lambda m: [EffectSpec("flip", {"source_only": True})]),
+    # "…, destroy ~." (Sandals of Abdallah's "when that creature dies this turn") — the ability's own source.
+    EffectHandler(
+        "destroy_self", _DESTROY_SELF_RE, lambda m: [EffectSpec("destroy", {"source_only": True})],
     ),
     EffectHandler(
         "destroy_equipment",
@@ -17669,6 +17768,14 @@ HANDLERS: list[EffectHandler] = [
         "search_mv_lands_qualifier",
         _SEARCH_MV_LANDS_QUALIFIER_RE,
         _search_mv_lands_qualifier,
+    ),
+    # "search your library for a creature card with lesser mana value, ..." (Rushed Rebirth).
+    EffectHandler("search_lesser_mv", _SEARCH_LESSER_MV_RE, _search_lesser_mv),
+    # "return a creature card from its owner's graveyard to the battlefield under the control of that creature's
+    # owner." (Reincarnation).
+    EffectHandler(
+        "return_creature_to_dead_creature_owner", _RETURN_CREATURE_TO_DEAD_OWNER_RE,
+        lambda m: [EffectSpec("return_creature_to_dead_creature_owner", {})],
     ),
     # "search your library for a snow permanent card, a legendary card, or
     # a Saga card, ... then shuffle." (Search for Glory's own three-way OR

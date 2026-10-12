@@ -1120,6 +1120,25 @@ class TransformEffect(GameEffect):
             context.engine.transform_permanent(target)
 
 
+class FlipEffect(GameEffect):
+    """"Flip ~." (RULE 710, the Kamigawa flip cards) — the source flips (`RulesEngine._flip_permanent`). One-way, and only
+    while it is the permanent that created the effect: ``source_incarnation`` (stamped by `CreateTurnTriggerEffect` for a
+    delayed "When that creature dies this turn, flip ~") is the zone stay the ability came from, and a permanent that
+    left and returned is a new object (RULE 400.7) that is not flipped by it."""
+
+    def __init__(
+        self, source: Optional["GameObject"] = None, source_incarnation: Optional[int] = None,
+    ) -> None:
+        super().__init__(source)
+        self.source_incarnation = source_incarnation if isinstance(source_incarnation, int) else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None or (self.source_incarnation is not None and src.zone_incarnation != self.source_incarnation):
+            return
+        context.engine._flip_permanent(src)
+
+
 class RevealTopThenTransformEffect(GameEffect):
     """"Look at the top card of your library. If it's a[n] <criteria> card,
     transform ~." (RULE 712.8 conditional flip — Delver of Secrets-shaped).

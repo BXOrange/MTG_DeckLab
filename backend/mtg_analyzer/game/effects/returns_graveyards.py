@@ -1212,6 +1212,27 @@ class ReturnCreatureCardsWithTotalMVEffect(GameEffect):
         )
 
 
+class ReturnCreatureToDeadCreatureOwnerEffect(GameEffect):
+    """"Return a creature card from its owner's graveyard to the battlefield under the control of that creature's
+    owner." (Reincarnation, PAR-154) — the creature the enclosing DIES trigger fired for names a *player* (its
+    owner, as the event snapshotted it, RULE 608.2h): the pool is the creature cards in that player's graveyard and
+    the pick is made by this effect's own controller (not the owner), who need not be the card's owner, while the
+    chosen card enters under the owner's control. The pick happens as the trigger resolves, so the dying creature
+    itself is an ordinary candidate once it is back in the graveyard."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chooser = _controller_of(self.source, context)
+        owner_id = (context.trigger_event or {}).get("owner_id")
+        owner = context.state.player_by_id(owner_id) if owner_id is not None else None
+        if chooser is None or owner is None:
+            return
+        candidates = [obj for obj in owner.graveyard if obj.is_creature]
+        context.engine._request_choose_objects(
+            chooser, candidates, "return_from_graveyard", count=1, optional=False,
+            prompt="Kreaturenkarte zurückbringen", source=self.source, control_recipient_id=owner.id,
+        )
+
+
 class ReturnChosenCreatureTypeFromGraveyardEffect(GameEffect):
     """Resolve Haunting Voyage after its creature-type choice.
 

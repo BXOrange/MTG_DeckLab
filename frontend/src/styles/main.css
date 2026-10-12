@@ -3714,6 +3714,10 @@ textarea {
   border-color: var(--warn);
 }
 
+.card.flipped .gf-card-art img {
+  transform: rotate(180deg);
+}
+
 .card.summoning-sick {
   opacity: 0.7;
   border-style: dashed;

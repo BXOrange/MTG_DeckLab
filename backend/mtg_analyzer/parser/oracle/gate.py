@@ -3910,7 +3910,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      the Eerie label, "unlocked doors among Rooms you control" counts/conditions, the "…unlock doors" spend restriction;
 #      a Room card's verdict now reads both halves (`_room_halves`), not just the front; "target Room [you control]";
 #      "put N +1/+1 counters on that creature" after a create/manifest-dread clause.
-PARSER_VERSION = "627"
+PARSER_VERSION = "629"
 
 
 def parser_source_hash() -> str:
@@ -4334,7 +4334,13 @@ def parse_oracle(card: Any) -> ParseResult:
     cached = _PARSE_CACHE.get(key)
     if cached is None:
         halves = _room_halves(card)
-        cached = _merge_room_halves([parse_oracle(half) for half in halves]) if halves else _parse_oracle_uncached(card)
+        flip = _flip_halves(card)
+        if halves:
+            cached = _merge_room_halves([parse_oracle(half) for half in halves])
+        elif flip:
+            cached = _merge_flip_halves(parse_oracle(flip[0]), parse_oracle(flip[1]))
+        else:
+            cached = _parse_oracle_uncached(card)
         _PARSE_CACHE[key] = cached
     return copy.deepcopy(cached)
 
@@ -4355,6 +4361,33 @@ def _room_halves(card: Any) -> list[Any]:
     front.back_name = front.back_type_line = front.back_oracle_text = front.back_mana_cost_string = ""
     front.keywords = []
     return [front, back]
+
+
+def _flip_halves(card: Any) -> list[Any]:
+    """A Kamigawa flip card's two halves (RULE 710), each as a plain card, or ``[]`` for anything else: the normal
+    half (named and typed as printed, with no second face) and the flipped half (`Card.flip_face`, which keeps the
+    normal half's mana cost)."""
+    flipped = card.flip_face() if hasattr(card, "flip_face") else None
+    if flipped is None:
+        return []
+    front = copy.copy(card)
+    front.name = str(card.name).split("//")[0].strip()
+    front.layout = ""
+    front.back_name = front.back_type_line = front.back_oracle_text = front.back_mana_cost_string = ""
+    front.back_keywords = []
+    return [front, flipped]
+
+
+def _merge_flip_halves(front: ParseResult, flipped: ParseResult) -> ParseResult:
+    """A flip card is `MODELED` only when both halves are — a flipped half nobody can play would leave the permanent
+    half-working — but only the normal half's specs are bound up front: the flipped half's are bound by
+    `RulesEngine._flip_permanent` when (and if) the permanent flips, so concatenating both (as for a Room, whose
+    doors are all live) would hand an unflipped permanent its flipped half's abilities."""
+    if front.never_supported or flipped.never_supported:
+        coverage = NEVER_SUPPORTED
+    else:
+        coverage = MODELED if front.modeled and flipped.modeled else UNMODELED
+    return ParseResult(specs=list(front.specs), coverage=coverage, unclaimed=[*front.unclaimed, *flipped.unclaimed])
 
 
 def _merge_room_halves(results: list[ParseResult]) -> ParseResult:

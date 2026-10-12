@@ -34,7 +34,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-154 · Named dies-this-turn residue.** Model Reincarnation, Rushed Rebirth, Time to Feed, Sandals of Abdallah and Initiate of Blood with correct target announcement, object/source incarnation and controller/owner referents; Initiate requires MEC-115.
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not closeable).** Strategy, coverage,
   worked examples and the Commander-legal tail taxonomy (`scripts/commander_tail_report.py`) live in
@@ -135,7 +134,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 ## MEC — Game mechanic
 
 
-- **MEC-115 · Flip-card status (RULE 710).** Implement one-way flipping and alternate battlefield characteristics while preserving color/mana cost, resetting status on zone changes and handling copies; bind a reusable `flip` effect/parser body and validate Initiate of Blood // Goka the Unjust. Local raw corpus: 26 flip cards.
 
 - **MEC-114 · Myriad (RULE 702.116).** The keyword is recognised (`keywords.py`) but has no engine behaviour: "whenever this
   creature attacks, for each opponent other than defending player, you may create a token copy that's tapped and attacking that

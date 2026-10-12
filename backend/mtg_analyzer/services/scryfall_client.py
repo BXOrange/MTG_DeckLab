@@ -133,7 +133,7 @@ _TWO_IMAGE_LAYOUTS = frozenset(
 #: (RULE 715), or a preparation card's inset "prepare spell" (RULE 722).
 #: `back_image_uri_*` stays empty for these since their face entries carry
 #: no `image_uris` of their own, so `Card.has_back_face` is unaffected.
-_SECOND_FACE_LAYOUTS = _TWO_IMAGE_LAYOUTS | {"split", "adventure", "prepare"}
+_SECOND_FACE_LAYOUTS = _TWO_IMAGE_LAYOUTS | {"split", "adventure", "prepare", "flip"}
 
 
 def card_from_scryfall_data(data: dict[str, Any]) -> Card:
@@ -195,6 +195,15 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     vehicle_toughness = toughness if is_vehicle_or_spacecraft else None
 
     back = faces[1] if layout in _SECOND_FACE_LAYOUTS and len(faces) >= 2 else {}
+    keywords = list(data.get("keywords") or [])
+    back_keywords: list[str] = []
+    if layout == "flip" and back:
+        # RULE 710: one combined Scryfall array covers both halves, which are never in play together — split it
+        # by which half's rules text names the keyword, so the unflipped half doesn't have the flipped one's.
+        front_text = str(front.get("oracle_text", "")).lower()
+        back_text = str(back.get("oracle_text", "")).lower()
+        back_keywords = [k for k in keywords if k.lower() in back_text and k.lower() not in front_text]
+        keywords = [k for k in keywords if k not in back_keywords]
     back_image_uris = back.get("image_uris") or {}
     back_type_line = back.get("type_line", "")
     back_is_creature = "Creature" in back_type_line
@@ -221,7 +230,7 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         # front face carries it, so it rides the same merged `front`.
         defense=_parse_int(front.get("defense")),
         oracle_text=front.get("oracle_text", ""),
-        keywords=list(data.get("keywords") or []),
+        keywords=keywords,
         image_uri_small=image_uris.get("small", ""),
         image_uri_normal=image_uris.get("normal", ""),
         image_uri_large=image_uris.get("large", ""),
@@ -250,6 +259,7 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         back_image_uri_normal=back_image_uris.get("normal", ""),
         back_image_uri_large=back_image_uris.get("large", ""),
         back_image_uri_png=back_image_uris.get("png", ""),
+        back_keywords=back_keywords,
     )
 
 

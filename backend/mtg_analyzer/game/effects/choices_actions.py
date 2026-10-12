@@ -652,11 +652,19 @@ class CreateTurnTriggerEffect(GameEffect):
                 **dict(trigger.get("condition") or {}),
                 "instance_id_override": target.instance_id,
             }
+        # RULE 400.7: a body that acts on this ability's own source ("destroy ~") must not touch a later
+        # incarnation of it, so the zone stay it was created in rides along as a parameter.
+        source_stay = getattr(self.source, "zone_incarnation", None)
         spec = AbilitySpec(
             "triggered",
             effects=[
-                EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
-                           condition=d.get("condition"))
+                EffectSpec(
+                    type=d["type"],
+                    params={**(d.get("params") or {}),
+                            **({"source_incarnation": source_stay}
+                               if (d.get("params") or {}).get("source_only") else {})},
+                    condition=d.get("condition"),
+                )
                 for d in self.inner_specs
             ],
             trigger=trigger,

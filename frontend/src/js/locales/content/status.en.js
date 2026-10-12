@@ -374,6 +374,8 @@ export default [
               ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/715/722)'],
               ['full', 'Rooms (709.5) — locked/unlocked doors per half, casting either half, the unlock special action (116.2m), "when you unlock this door", Eerie "fully unlock", lock/unlock effects'],
               ['partial', 'Room texts: 22 of 30 cached Rooms modeled (the rest fail on unrelated effect grammars — convoke grants, mill-and-return, …; Alchemy halves are a permanent non-goal)'],
+              ['full', 'Flip cards (710) — one-way flip into the alternative half (name, type, text, power/toughness; mana cost and colour stay), forgotten on any zone change, delayed "when that creature dies this turn, flip ~"; Replay and the board (art turned 180°) keep it'],
+              ['partial', 'Flip card texts: 4 of 21 cached flip cards modeled (a card counts only when both halves are) — Initiate of Blood, Bushi Tenderfoot, Jushi Apprentice and Orochi Eggwatcher; the ki-counter cycle, Akki Lavarunner and the Essence halves still hit unrelated clauses'],
             ],
           },
           {
@@ -456,8 +458,8 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (60.1% · 21,048 / 35,046, PARSER_VERSION 627)'],
-              ['partial', 'Of which Commander-legal (63.2% · 20,273 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
+              ['partial', 'Total oracle-parser coverage (60.1% · 21,075 / 35,046, PARSER_VERSION 629)'],
+              ['partial', 'Of which Commander-legal (63.3% · 20,300 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],
             ],

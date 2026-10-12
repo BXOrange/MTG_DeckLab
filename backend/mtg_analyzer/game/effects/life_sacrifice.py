@@ -103,9 +103,17 @@ class DestroyEffect(GameEffect):
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
         count_selector: Optional[str] = None,
+        source_only: bool = False,
+        source_incarnation: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…When that creature dies this turn, destroy **~**." (Sandals of Abdallah, PAR-154) — the ability's own
+        #: source, no RULE 115 target. ``source_incarnation`` (stamped by `CreateTurnTriggerEffect` when it binds the
+        #: delayed body) is the zone stay the ability came from: a source that left and came back is a new object
+        #: (RULE 400.7) and is not destroyed.
+        self.source_only = bool(source_only)
+        self.source_incarnation = source_incarnation if isinstance(source_incarnation, int) else None
         #: "Destroy **X** target artifacts" (By Force) — `TargetSpec.count_selector`
         #: (``"source_x_paid"``), read at announce time off `GameObject.x_paid`.
         self._count_selector = count_selector
@@ -142,7 +150,7 @@ class DestroyEffect(GameEffect):
         if self.group is not None:
             if self.group_player in ("player", "opponent"):
                 self.target_spec = TargetSpec(kind=self.group_player)
-        elif self.selector is None and target_from_trigger_event is None:
+        elif self.selector is None and target_from_trigger_event is None and not self.source_only:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, color=color,
                 colors=self.colors,
@@ -154,6 +162,14 @@ class DestroyEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source_only:
+            src = self.source
+            if (
+                src is not None and src in context.state.battlefield
+                and (self.source_incarnation is None or src.zone_incarnation == self.source_incarnation)
+            ):
+                context.destroy(src, can_be_regenerated=self.can_be_regenerated)
+            return
         if self.target_from_trigger_event:
             event = context.trigger_event or {}
             source_id = event.get(self.target_from_trigger_event)

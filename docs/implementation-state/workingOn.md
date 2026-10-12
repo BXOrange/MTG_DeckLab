@@ -36,20 +36,7 @@ Block template (do not change this, copy below the line, fill in there):
 - **Goal of this run:** <which part of the ticket this run closes>
 - **Done (built + tested):** <bullets — what is finished, with file/test names>
 - **In progress:** <what is half-built right now, and in which files>
-- **Next step:** <the exact next action — command to run or change to make>
-- **Decisions:** <choices made and why, so they aren't re-litigated>
-- **Baselines / artefacts:** <snapshot paths, measured numbers, PARSER_VERSION>
-- **Known failures:** <red tests and whether they are ours or pre-existing>
-- **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
-```
-
----
-
-## PLAY-ALL · Make every saved deck playable
-
-- **Goal:** Bring every non-cube saved deck to N/N and close all originally recorded correctness gaps and parser follow-ups. Commander Cube remains optional; moving work into tickets does not reduce this goal's scope.
-- **Branch / committed baseline:** `Backlog-Extension`; MEC-116/Fatal Fissure closed at parser v627 (12,945 full-cache tests passed; 0 parser regressions; coverage 21,048/35,046 = 60.1%, Commander-legal 20,273/32,068 = 63.2%; all coverage docs synced).
-- **Next step:** PAR-154 remaining cards (Reincarnation, Rushed Rebirth, Time to Feed, Sandals of Abdallah; Initiate of Blood after MEC-115), then MEC-115, then the other axes below. Baseline for diffs: `parser_probe.py snapshot`/`diff` against v627.
+- **Next step:** PAR-154 and MEC-115 are closed (parser v629: 21,075/35,046 = 60.1%, Commander-legal 20,300/32,068 = 63.3%; docs synced; `Done_Backend.md` filed). Continue with the remaining required scope below, starting with broader mana-ability counter riders. Baseline for diffs: take a `parser_probe.py` snapshot at v629 first.
 - **Validation commands (cwd `backend`, Windows):** Use `./venv_win/Scripts/python.exe` directly. Broad: `-m pytest -q --full-cache --timeout=120` (~12 min). Parser diff: `-X utf8 ../.claude/skills/extend-parser/scripts/parser_probe.py diff <snapshot>`. Measurements: `-X utf8 scripts/coverage_report.py --top 40` and `--commander-legal-only --top 40`. Regenerate the lock after parser edits with `scripts/update_parser_version_lock.py`.
 - **Verified baseline:** All 41 saved decks rechecked: every non-cube deck N/N. Optional Commander Cube: 570/749.
 - **Documentation / tickets:** PAR-154 covers the five remaining named cards; MEC-115 is the Flip-card prerequisite for Initiate. Coverage must be synchronized in `CLAUDE.md`, `PARSER_LONG_TAIL.md`, `status.de.js` and `status.en.js`.
@@ -58,7 +45,6 @@ Block template (do not change this, copy below the line, fill in there):
 
 ### Remaining required scope
 
-- PAR-154: Reincarnation, Rushed Rebirth, Time to Feed, Sandals of Abdallah, Initiate of Blood; Initiate requires MEC-115. Recheck delayed target/source incarnation handling before claiming these correct.
 - Broader mana-ability counter riders.
 - Counter/pump-then-fight.
 - Flicker with riders.

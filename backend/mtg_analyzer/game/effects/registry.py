@@ -446,6 +446,7 @@ EffectRegistry.register(
         target_from_trigger_event=p.get("target_from_trigger_event"),
         group=p.get("group"), group_player=p.get("group_player"),
         count_selector=p.get("count_selector"),
+        source_only=bool(p.get("source_only", False)), source_incarnation=p.get("source_incarnation"),
     ),
 )
 EffectRegistry.register(
@@ -1615,6 +1616,9 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register("lose_life_for_milled_card_types", lambda p: LoseLifeForMilledCardTypesEffect())
+EffectRegistry.register(
+    "return_creature_to_dead_creature_owner", lambda p: ReturnCreatureToDeadCreatureOwnerEffect()
+)
 EffectRegistry.register(
     # "return target creature card from your graveyard to the battlefield/
     # your hand" (RULE 701.3, Regrowth/Reanimate-shaped)
@@ -3337,6 +3341,10 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
+)
+EffectRegistry.register(
+    # RULE 710 "flip ~" (flip cards) — see `FlipEffect`.
+    "flip", lambda p: FlipEffect(source_incarnation=p.get("source_incarnation"))
 )
 EffectRegistry.register(
     # RULE 701.42a "exile them, then meld them into <result>." — see `MeldEffect`.

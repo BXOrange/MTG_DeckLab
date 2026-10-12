@@ -3362,6 +3362,9 @@ export function createGameBoardView(opts = {}) {
     const isSummoningSick = o.zone === 'battlefield' && o.is_creature && o.summoning_sick && !hasHaste;
     if (imageUrl) classes.push('has-image');
     if (o.tapped) classes.push('tapped');
+    // RULE 710: a flipped flip-card permanent is the same card turned upside down (its alternative half is
+    // printed rotated 180° on the one shared image).
+    if (o.flipped) classes.push('flipped');
     if (isSummoningSick) classes.push('summoning-sick');
     if (o.attacking) classes.push('attacking');
     if (compactView) classes.push('compact-card');

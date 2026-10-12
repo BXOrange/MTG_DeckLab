@@ -76,6 +76,8 @@ def _serialize_object(obj: GameObject) -> dict[str, Any]:
         "name": front.name,
         "tapped": obj.tapped,
         "transformed": obj.transformed,
+        # RULE 710: a flipped flip-card permanent re-flips on import (the front is the resolved identity).
+        "flipped": obj.flipped,
         "summoning_sick": obj.summoning_sick,
         "damage_marked": obj.damage_marked,
         "counters": dict(obj.counters),
@@ -251,6 +253,8 @@ def build_object(
     # no `RulesEngine` yet to call it on.
     if inst.get("transformed"):
         obj.transform()
+    if inst.get("flipped"):
+        obj.flip()
     bind_from_catalogue(obj)  # card text → live abilities
     if inst.get("face_down"):
         # RULE 708.2, applied *after* binding: `turn_face_down` stashes the

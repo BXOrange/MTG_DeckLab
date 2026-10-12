@@ -690,6 +690,29 @@ class CopiesMixin:
                 )
             )
         return True
+    def _flip_permanent(self, obj: GameObject) -> bool:
+        """Flip a flip card's permanent (RULE 710): its alternative name, type line, text and power/toughness
+        replace the normal ones (RULE 710.2) while its mana cost and colour stay (RULE 710.1c). One-way (RULE
+        710.4) and only on the battlefield — ``False`` for an unflippable or already-flipped object.
+
+        `GameObject.flip` swaps ``card`` only, so, like `transform_permanent`, the half's own abilities are bound
+        afresh and the old half's cleared; counters, damage, attachments and tapped state are untouched (the
+        permanent is the same object, RULE 710.4 — this is not a zone change)."""
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
+
+        if obj not in self.state.battlefield or not obj.flip():
+            return False
+        obj.spell_effects = []
+        obj.triggered_abilities = []
+        obj.activated_abilities = []
+        obj.static_effects = []
+        obj.replacement_effects = []
+        obj.enter_as_copy_effects = []
+        obj.intrinsic_keywords = set()
+        obj.parametric_keywords = {}
+        bind_from_catalogue(obj)
+        return True
+
     def meld(
         self, obj_a: GameObject, obj_b: GameObject, result_name: str
     ) -> Optional[GameObject]:
