@@ -429,6 +429,27 @@ def test_patrolling_peacemaker_proliferates_when_an_opponent_commits_a_crime():
 
 
 
+def test_patrolling_peacemaker_proliferates_after_an_opponents_real_targeted_spell():
+    """The crime is committed by an actual cast (RULE 700.13), not a hand-fired event."""
+    engine, p1 = _game("Patrolling Peacemaker")
+    p1.mana_pool.add_many({"W": 1, "C": 2})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    peacemaker = next(o for o in engine.state.battlefield if o.name == "Patrolling Peacemaker")
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    rock.counters["charge"] = 1
+    p2 = engine.state.player_by_id("p2")
+    bolt = GameObject(CardDatabase(DB_PATH).get_card("Lightning Bolt"), owner_id="p2", zone=Zone.HAND)
+    bolt.controller_id = "p2"
+    bind_from_catalogue(bolt)
+    p2.hand.append(bolt)
+    p2.mana_pool.add_many({"R": 1})
+    engine.cast_spell(p2, bolt, targets=[peacemaker])
+    engine.resolve_until_stable()
+    assert rock.counters["charge"] == 2
+    assert peacemaker.counters["+1/+1"] == 3
+
+
 def test_lux_artillery_grants_sunburst_to_artifact_creature_spells_you_cast():
     engine, p1 = _game("Lux Artillery")
     artillery = p1.hand[0]
