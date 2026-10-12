@@ -23,6 +23,45 @@ def make_card(**overrides) -> Card:
 
 
 class TestSaveAndGet:
+    def test_multiple_printing_names_survive_canonical_replacement_and_reopen(self, tmp_path):
+        path = tmp_path / "cards.db"
+        with CardDatabase(path) as db:
+            db.save_card(make_card(id="hadoken", flavor_name="Hadoken"))
+            db.save_card(make_card(id="other", flavor_name="Another Bolt"))
+            db.save_card(make_card(id="ordinary", flavor_name=""))
+        with CardDatabase(path) as db:
+            assert db.count() == 1
+            assert db.get_card("hadoken").id == "ordinary"
+            assert db.get_card("Another Bolt").id == "ordinary"
+
+    def test_verified_alias_survives_schema_reset_and_offline_reseed(self, tmp_path, monkeypatch):
+        from mtg_analyzer.services import schema_version
+
+        path = tmp_path / "cards.db"
+        with CardDatabase(path) as db:
+            db.save_card(make_card())
+            db.save_alias("Hadoken", "Lightning Bolt")
+        monkeypatch.setattr(schema_version, "compute_schema_hash", lambda paths: "new-schema")
+        with CardDatabase(path) as db:
+            assert db.schema_reset and db.count() == 0
+            assert db.get_card("Hadoken") is None  # no stale card payload
+            db.save_card(make_card(id="reseeded"))
+            assert db.get_card("Hadoken").id == "reseeded"
+
+    def test_canonical_card_name_takes_precedence_over_a_registered_alias(self):
+        db = CardDatabase()
+        db.save_card(make_card())
+        db.save_alias("Other Card", "Lightning Bolt")
+        db.save_card(make_card(id="other", name="Other Card"))
+        assert db.get_card("Other Card").id == "other"
+
+    def test_alias_cannot_register_an_unknown_canonical_card(self):
+        import pytest
+
+        db = CardDatabase()
+        with pytest.raises(ValueError, match="cached canonical"):
+            db.save_alias("Hadoken", "Lightning Bolt")
+
     def test_batch_preserves_name_replacement_and_persists_on_reopen(self, tmp_path):
         path = tmp_path / "cards.db"
         with CardDatabase(path) as db:

@@ -56,6 +56,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cards_name ON cards (name COLLATE NOCASE);
 -- Not unique: most rows have a blank flavor_name (only Secret Lair
 -- "Godzilla"/Universes Beyond promos carry one, see Card.flavor_name).
 CREATE INDEX IF NOT EXISTS idx_cards_flavor_name ON cards (flavor_name COLLATE NOCASE);
+-- Keep all verified printing names independently of the current printing.
+-- Canonical names survive a printing-id replacement and offline reseeding.
+CREATE TABLE IF NOT EXISTS card_aliases (
+    alias TEXT PRIMARY KEY COLLATE NOCASE,
+    canonical_name TEXT NOT NULL COLLATE NOCASE
+);
+INSERT OR IGNORE INTO card_aliases (alias, canonical_name)
+SELECT flavor_name, name FROM cards WHERE flavor_name != '';
 """
 
 #: Source files that define the *stored format* of a cached card row: the
@@ -164,7 +172,29 @@ class CardDatabase:
                 "OR (flavor_name != '' AND flavor_name = ? COLLATE NOCASE)",
                 (name, f"{front} // %", name),
             ).fetchone()
+            if row is None:
+                row = self._connection.execute(
+                    "SELECT cards.data FROM card_aliases JOIN cards "
+                    "ON cards.name = card_aliases.canonical_name COLLATE NOCASE "
+                    "WHERE card_aliases.alias = ? COLLATE NOCASE",
+                    (name,),
+                ).fetchone()
         return Card.from_dict(json.loads(row[0])) if row else None
+
+    def save_alias(self, alias: str, canonical_name: str) -> None:
+        """Remember a provider-verified request name without changing card data."""
+        alias = alias.strip()
+        if not alias or alias.casefold() == canonical_name.casefold():
+            return
+        with self._lock, self._connection:
+            if self._connection.execute(
+                "SELECT 1 FROM cards WHERE name = ? COLLATE NOCASE", (canonical_name,),
+            ).fetchone() is None:
+                raise ValueError("An alias requires a cached canonical card")
+            self._connection.execute(
+                "INSERT OR REPLACE INTO card_aliases (alias, canonical_name) VALUES (?, ?)",
+                (alias, canonical_name),
+            )
 
     def get_card_by_id(self, scryfall_id: str) -> Optional[Card]:
         with self._lock:
@@ -223,4 +253,8 @@ class CardDatabase:
             self._connection.executemany(
                 "INSERT OR REPLACE INTO cards (id, name, flavor_name, data) VALUES (?, ?, ?, ?)",
                 rows,
+            )
+            self._connection.executemany(
+                "INSERT OR REPLACE INTO card_aliases (alias, canonical_name) VALUES (?, ?)",
+                [(flavor_name, name) for _, name, flavor_name, _ in rows if flavor_name],
             )

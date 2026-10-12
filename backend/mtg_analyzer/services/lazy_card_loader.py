@@ -157,6 +157,7 @@ class LazyCardLoader:
                     _front_face_name(requested_name).lower()
                 )
                 if card is not None:
+                    self._database.save_alias(requested_name, card.name)
                     result.cards[requested_name] = card
 
             # Report genuinely-unknown cards under the caller's own name.

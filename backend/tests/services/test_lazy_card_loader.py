@@ -8,7 +8,7 @@ import httpx2 as httpx
 
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
-from mtg_analyzer.services.scryfall_client import ScryfallIntegration
+from mtg_analyzer.services.scryfall_client import ScryfallIntegration, card_from_scryfall_data
 
 LIGHTNING_BOLT = {
     "id": "77c17415-56c9-4677-b6d5-e18641640e6f",
@@ -386,6 +386,27 @@ class TestFlavorNameFallback:
         assert result.cards["Godzilla, King of the Monsters"].name == "Zilortha, Strength Incarnate"
         # The cache row itself is reachable by flavor name too (CardDatabase.get_card).
         assert database.get_card("Godzilla, King of the Monsters") is not None
+
+    def test_named_fallback_without_flavor_field_is_cached_after_reopen(self, tmp_path):
+        calls = []
+
+        def handler(request):
+            calls.append(request)
+            if request.url.path == "/cards/collection":
+                return httpx.Response(200, json={"data": [], "not_found": [{"name": "Hadoken"}]})
+            assert request.url.params["exact"] == "Hadoken"
+            return httpx.Response(200, json=LIGHTNING_BOLT)  # no flavor_name
+
+        path = tmp_path / "cards.db"
+        client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.scryfall.com")
+        with CardDatabase(path) as database:
+            loader = LazyCardLoader(database, ScryfallIntegration(client=client))
+            assert loader.load_cards(["Hadoken"]).cards["Hadoken"].name == "Lightning Bolt"
+            database.save_card(card_from_scryfall_data({**LIGHTNING_BOLT, "id": "replacement"}))
+        with CardDatabase(path) as database:
+            loader = LazyCardLoader(database, ScryfallIntegration(client=client))
+            assert loader.load_cards(["Hadoken"]).cards["Hadoken"].id == "replacement"
+        assert len(calls) == 2
 
     def test_flavor_name_resolving_to_an_already_cached_name_does_not_crash(self):
         # Regression test for a real production crash: a decklist can list

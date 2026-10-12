@@ -52,6 +52,13 @@ Both halves populate lazily and independently:
   (which requires the card to already be in the DB, since that's where
   its Scryfall image URLs come from).
 
+`cards.db` also contains `card_aliases`: verified requested printing names
+mapped to canonical card names. These mappings survive replacement of the
+representative printing and schema invalidation of card payloads. After an
+offline reseed, known aliases resolve again without a network request.
+Aliases travel with a database export; deleting the entire cache removes
+them and the loader learns them again on the next request.
+
 Because of this, the cache is entirely regenerable — deleting all of
 `backend/cache/` is always safe; the next request just re-fetches from
 Scryfall and rebuilds it, slower.

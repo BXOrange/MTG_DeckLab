@@ -1039,21 +1039,16 @@ English and German.
   **scryfall-primary** behavior of always refetching a stale row. A name
   that's never been cached at all is *always* fetched once either way —
   that part isn't a policy choice.
-- **`Card.flavor_name` only resolves if the *cached* printing happens to
-  carry it.** `CardDatabase.get_card` matches a lookup name against both
-  `name` and `flavor_name` (e.g. "Godzilla, King of the Monsters" →
-  Zilortha), so a Universes Beyond alternate-name printing *can* resolve —
-  but `scripts/import_bulk.py` seeds the cache from Scryfall's
-  `oracle_cards` bulk dataset, which picks exactly **one** representative
-  printing per oracle id (not necessarily the alt-name one), so
-  `flavor_name` is blank unless that specific printing was chosen. Confirmed
-  via `inspect-db`: "Balin's Tomb" (the LOTR alternate name for Ancient
-  Tomb) does **not** resolve today — Ancient Tomb is cached, but its row's
-  `flavor_name` is empty — even though the lookup mechanism itself is real
-  and already works for other cards. Don't conclude "not a real Scryfall
-  card" from a failed lookup without checking this; it may instead be an
-  alt name whose specific printing lost the oracle_cards representative-row
-  selection.
+- **Alternate printing names:** `CardDatabase.get_card` matches canonical
+  names, front faces, `flavor_name` and verified `card_aliases`. The loader
+  records requested names independently of the selected Scryfall printing;
+  saving another printing cannot erase earlier aliases. Aliases point to a
+  canonical name, survive a schema reset of card payloads and work again
+  after offline reseeding. A previously unknown printing name still needs
+  one Scryfall lookup because `oracle_cards` contains one representative
+  printing per Oracle card. Deleting the entire disposable cache also
+  deletes its aliases. Scripts must pass `DEFAULT_DB_PATH` explicitly:
+  `CardDatabase()` alone creates an in-memory database.
 - **Frontend**: no framework. Views are `render*(container)` functions setting
   `innerHTML` and wiring listeners; escape user/card text with `escapeHtml` /
   `escapeAttr`. Client-only prefs persist via cookies (`cookies.js`).
