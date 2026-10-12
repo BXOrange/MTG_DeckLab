@@ -2045,6 +2045,7 @@ class CastingResolutionMixin:
                 revealed_card=resumed.get("revealed_card"),
                 clash_won=resumed.get("clash_won"),
                 clashed_opponent=resumed.get("clashed_opponent"),
+                coin_outcome=resumed.get("coin_outcome"),
                 stack_item=stack_item,
             )
         finally:

@@ -1166,6 +1166,12 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
 )
 
 
+#: RULE 705 sanity ceiling on flips from one instruction ("flip a coin until you lose a flip" ends with
+#: probability 1, but a hostile/garbled count or a replaced coin must not loop forever); far above any
+#: printed count (the largest is Ral Zarek's 5) and above the ~1-in-2**64 chance of a longer run.
+MAX_COIN_FLIPS = 64
+
+
 class CoinFlipEffect(GameEffect):
     """RULE 705.1 "flip a coin. If you lose the flip, `<effect>`. If you win
     the flip, `<effect>`." (Ral, Monsoon Mage-shaped) — branches into
@@ -1177,6 +1183,13 @@ class CoinFlipEffect(GameEffect):
     other undecided "may" in this codebase uses (Arcane Denial's "may draw
     up to two") when declining a beneficial option is a real but
     vanishingly rare choice.
+
+    PAR-151 adds the *recording* form, used when no inline branch is given: the
+    flips' outcome lands on `GameContext.coin_outcome` for the sibling
+    ``coin_won``-gated specs ("if you win the flip, …", which announce their own
+    targets, RULE 601.2c) and the ``coin_flips`` amount ("for each flip you win").
+    ``count`` is "flip N coins" (``"x"`` = the announced {X}); ``until_lose`` is
+    "flip a coin until you lose a flip" (RULE 705.1 — each flip is its own event).
     """
 
     def __init__(
@@ -1184,16 +1197,38 @@ class CoinFlipEffect(GameEffect):
         win_effects: Optional[list[dict[str, Any]]] = None,
         lose_effects: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        count: Any = 1,
+        until_lose: bool = False,
     ) -> None:
         super().__init__(source)
         self.win_specs = list(win_effects or [])
         self.lose_specs = list(lose_effects or [])
+        self.count = count
+        self.until_lose = bool(until_lose)
+
+    def _flip_count(self) -> int:
+        if self.count == "x":
+            return int(getattr(self.source, "x_paid", 0) or 0)
+        return self.count if isinstance(self.count, int) and not isinstance(self.count, bool) else 1
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
 
-        specs = self.win_specs if context.engine.coin_flip() else self.lose_specs
+        if not (self.win_specs or self.lose_specs):
+            wins = losses = 0
+            won: Optional[bool] = None
+            for _ in range(min(self._flip_count(), MAX_COIN_FLIPS) if not self.until_lose else MAX_COIN_FLIPS):
+                won = bool(context.engine.coin_flip())
+                wins += won
+                losses += not won
+                if self.until_lose and not won:
+                    break
+            context.coin_outcome = {"won": won, "wins": wins, "losses": losses} if won is not None else None
+            return
+        won = bool(context.engine.coin_flip())
+        context.coin_outcome = {"won": won, "wins": int(won), "losses": int(not won)}
+        specs = self.win_specs if won else self.lose_specs
         if not specs:
             return
         inner = build_effects(

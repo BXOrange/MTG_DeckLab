@@ -67,6 +67,9 @@ _DAMAGE = re.compile(r"^(?:are|is) dealt (?P<kind>combat |noncombat )?damage$")
 #: RULE 700.14 (MEC-107): "you expend 4" — the running spend crossed N. The engine fires one
 #: `EXPEND` per N crossed, so the threshold is an exact-match ``filter`` on ``amount``.
 _EXPEND = re.compile(r"^expends? (?P<n>\d+)$")
+#: RULE 705 (PAR-151): "you win a coin flip" / "a player loses a coin flip" — one `COIN_FLIP` per flip
+#: (`RulesEngine.coin_flip`), whose ``won`` payload the head filters on.
+_COIN_FLIP_RESULT = re.compile(r"^(?P<res>win|wins|lose|loses) a coin flip$")
 _MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
 _PLAYER_ATTACKS = re.compile(r"^attacks?(?: with (?P<n>\d+) or more creatures)?$")
@@ -154,6 +157,10 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         if n > 1:
             keys["attackers_at_least"] = n
         return "PLAYER_ATTACKED", condition, {**trigger, **keys}
+    coin = _COIN_FLIP_RESULT.fullmatch(rest)
+    if coin:
+        trigger["filter"] = {"won": coin.group("res").startswith("win")}
+        return "COIN_FLIP", condition, trigger
     expend = _EXPEND.fullmatch(rest)
     if expend:
         trigger["filter"] = {"amount": int(expend.group("n"))}

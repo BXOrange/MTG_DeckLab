@@ -3911,7 +3911,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      a Room card's verdict now reads both halves (`_room_halves`), not just the front; "target Room [you control]";
 #      "put N +1/+1 counters on that creature" after a create/manifest-dread clause.
 # 630: PAR-133 — Powerstone tokens (`data/tokens.json` + `_NAMED_TOKEN_WORDS`; the "can't be spent to cast a nonartifact spell" RULE 605.3a ban).
-PARSER_VERSION = "630"
+# 631: PAR-151 — coin flips (RULE 705): "flip a coin / N / X coins / until you lose a flip" (`coin_flip` recording form), the
+#      ``coin_won`` branch condition ("if you win/lose the flip", "comes up heads/tails", negated "otherwise"), the
+#      ``coin_flips`` amount ("for each flip you win/won/lose"), and "whenever you/a player win(s)/lose(s) a coin flip" heads.
+PARSER_VERSION = "631"
 
 
 def parser_source_hash() -> str:

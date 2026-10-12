@@ -64,7 +64,9 @@ def test_a_bare_it_names_the_trigger_subject(oracle, effect_type):
 def test_an_explicit_source_stays_the_source(oracle, effect_type):
     [(trigger, effect)] = _effects(oracle)
     assert effect.type == effect_type
-    assert effect.params.get("target_kind") is None
+    # An explicit "this <type>"/"~" is spelled ``"source"`` for a tap (PAR-151), ``None`` elsewhere:
+    # either way it is not retargeted onto the firing creature.
+    assert effect.params.get("target_kind") in (None, "source")
 
 
 def test_the_source_named_first_keeps_a_following_it_on_the_source():
@@ -90,7 +92,7 @@ def test_baloth_primes_untap_this_creature_is_not_retargeted():
     # "…create a Beast token and untap this creature" — the source, not the sacrificed land.
     result = parse_oracle(_named("Baloth Prime"))
     taps = [e for s in result.specs for e in s.effects if e.type == "tap"]
-    assert [e.params.get("target_kind") for e in taps] == [None]
+    assert [e.params.get("target_kind") for e in taps] == ["source"]
 
 
 # ---------------------------------------------------------------------------

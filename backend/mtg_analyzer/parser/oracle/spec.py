@@ -247,6 +247,7 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
+    "won": bool,  # RULE 705: the `coin_flips` amount counts won (True) or lost (False) flips
     "condition": dict, "then": (int, dict), "otherwise": (int, dict),
     "left": (int, dict), "right": (int, dict),
 }

@@ -1580,7 +1580,9 @@ _PRONOUN_COMMA_CONNECTOR = r",\s+(?:and\s+)?(?=(?:it|that creature)\s+(?:gains?|
 #: an opponent" (PAR-30) and the player designations ("you take the initiative", "you become the monarch" —
 #: PAR-139: From the Catacombs' "put … onto the battlefield … with a corpse counter on it. You take the
 #: initiative. If that creature would leave the battlefield, exile it instead …").
-_REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset({"clash", "take_initiative", "become_monarch"})
+_REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset(
+    {"clash", "coin_flip", "take_initiative", "become_monarch"}
+)
 
 #: PAR-137: the longest run of consecutive sentences a clause row may claim as one unit when a body
 #: is split on periods ("return up to 1 target … to the battlefield. Exile the top 2 cards of your
@@ -1896,6 +1898,23 @@ _OTHERWISE_RE = re.compile(
     r"^otherwise,\s*(?P<rest>.+)$", re.IGNORECASE,
 )
 
+#: RULE 705 (PAR-151): "flip a coin. **if you win the flip**, `<effect>`. **if you lose the
+#: flip**, `<effect>`." — the clash idiom for coin flips: sibling specs gated on the
+#: ``coin_won`` condition (the outcome `CoinFlipEffect` left on `GameContext.coin_outcome`),
+#: "lose" being its negation. "if the coin comes up heads/tails" is the same two outcomes
+#: spelled by face (heads = a won flip, `RulesEngine.coin_flip`'s ``True``).
+_COIN_FLIP_RESULT_RE = re.compile(
+    r"^if (?:you (?P<res>win|lose|won|lost) (?:the|a) (?:coin )?flip"
+    r"|(?:the coin|it) comes up (?P<face>heads|tails)),\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+
+
+def _coin_flip_condition(m: "re.Match[str]") -> dict[str, Any]:
+    won = {"kind": "coin_won"}
+    outcome = (m.group("res") or m.group("face")).lower()
+    return won if outcome in ("win", "won", "heads") else {"kind": "not", "condition": won}
+
 
 def _otherwise_specs(
     rest: str, preceding: "list[EffectSpec]", **flags: Any
@@ -1916,9 +1935,10 @@ def _otherwise_specs(
     inner = parse_effect_body(rest, **flags)
     if not inner or any(spec.condition is not None for spec in inner):
         return None
-    if gate == {"kind": "clash_won"}:
-        # RULE 701.30d's clash outcome is a fact of the resolution that no branch changes, so
-        # the two gated lists it always had are equivalent — and `clash` runs its own machinery.
+    if gate in ({"kind": "clash_won"}, {"kind": "coin_won"}):
+        # RULE 701.30d's clash outcome (and RULE 705's flip outcome) is a fact of the resolution
+        # that no branch changes, so the two gated lists it always had are equivalent — and the
+        # gated siblings announce their own targets (RULE 601.2c), which `if_else` cannot.
         negated = {"kind": "not", "condition": gate}
         return list(preceding) + [
             EffectSpec(spec.type, dict(spec.params), condition=negated) for spec in inner
@@ -3771,6 +3791,11 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     },
     # RULE 702.108a: "where X is the number of colors of mana spent to cast this spell" (Radiant Flames).
     "colors of mana spent to cast this spell": {"kind": "count_selector", "selector": "converge"},
+    # RULE 705 (PAR-151): the flips of this resolution's coin-flip instruction, by result.
+    "flip you win": {"kind": "coin_flips", "won": True},
+    "flip you won": {"kind": "coin_flips", "won": True},
+    "flip you lose": {"kind": "coin_flips", "won": False},
+    "flip you lost": {"kind": "coin_flips", "won": False},
 }
 
 #: The params an effect states its own magnitude in. A ``bind`` body has to
@@ -4353,6 +4378,28 @@ _LEADING_FOR_EACH_OBJECT_RE = re.compile(
 _ITERATION_REFERENTS = frozenset({"previous"})
 
 
+#: RULE 705 (PAR-151): "for each flip you win, `<effect>`" — the leading spelling of the suffix
+#: "`<effect>` for each flip you won": the effect's one printed magnitude is bound to the
+#: ``coin_flips`` amount (`_count_amount` reads the same phrase), so it fails closed on any body
+#: without exactly one scalable count.
+_LEADING_FOR_EACH_FLIP_RE = re.compile(
+    r"^for each (?P<what>flip you (?:win|lose|won|lost)),\s*(?P<rest>.+)$", re.IGNORECASE
+)
+
+
+def _leading_for_each_flip_specs(
+    body: str, *, self_subject: bool, previous_subject: bool,
+    group_subject: bool, previous_selector: bool,
+) -> "Optional[list[EffectSpec]]":
+    m = _LEADING_FOR_EACH_FLIP_RE.match(body.strip())
+    if m is None:
+        return None
+    return _for_each_amount_specs(
+        m, m.group("what").lower(), self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+
+
 def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
     """See `_LEADING_FOR_EACH_OBJECT_RE`."""
     m = _LEADING_FOR_EACH_OBJECT_RE.match(body.strip())
@@ -4485,6 +4532,8 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
     ),
     # RULE 701.30d's two complementary clash branches.
     _ConditionPrefix(_IF_YOU_WIN_CLASH_RE, lambda m: {"kind": "clash_won"}),
+    # RULE 705: the coin-flip counterpart.
+    _ConditionPrefix(_COIN_FLIP_RESULT_RE, _coin_flip_condition),
     # RULE 119.3, Frodo, Adventurous Hobbit — carries a ``trailing`` group,
     # because "if A, effect1. Then if B, effect2." is two independently
     # gated sentences and the naive greedy read would gate both with A.
@@ -5744,6 +5793,13 @@ def parse_effect_body(
     if player_scope is not None:
         return player_scope
 
+    each_flip = _leading_for_each_flip_specs(
+        body, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+    if each_flip is not None:
+        return each_flip
+
     each_object = _leading_for_each_object_specs(body)
     if each_object is not None:
         return each_object
@@ -6023,6 +6079,8 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # the pick the pronoun names though nothing targeted it (`TapEffect` leaves it in `previous_targets`).
     if last.type == "tap" and last.params.get("target_kind") == "attached_permanent":
         return True
+    if last.type == "tap" and last.params.get("target_kind") == "source":
+        return False  # "tap ~" picks nothing: the source is not a referent a later "it" can reach
     values: list[Any] = []
     for value in last.params.values():
         values.extend(value if isinstance(value, list) else [value])
@@ -6449,7 +6507,7 @@ def _hoist_referent_seed(effects: "list[EffectSpec]") -> "list[EffectSpec]":
     referent with nothing chosen anywhere in the body ("if it's a creature, tap it") needs it too."""
     dumped = [e.to_dict() for e in effects]
     text = json.dumps(dumped, default=str)
-    chosen_something = re.search(r'"target_kind": "(?!trigger_subject)', text) is not None
+    chosen_something = re.search(r'"target_kind": "(?!trigger_subject|source")', text) is not None
     if not any(_has_bare_seed_deep(d) for d in dumped) and not (
         '"of": "previous_target"' in text and not chosen_something
     ):

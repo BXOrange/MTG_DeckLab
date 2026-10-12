@@ -102,12 +102,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
   "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
   `engine_bench.py`, not parse verdicts.
-- **PAR-151 · Coin flips ("flip a coin. If you win/lose the flip, …").** 76 cached cards, 63 SOLO, and the parser has no coin row at
-  all: `CoinFlipEffect`/`RulesEngine.coin_flip` exist (hand-authored Ral, Setzer, Mana Crypt only). Axes: the single flip with a win
-  and/or lose branch (Boompile, Chaotic Goo, Bottle of Suleiman); "flip X/N coins. For each flip you win/lose, …" (Flock of Rabid
-  Sheep, Goblin Traprunner, Mutalith Vortex Beast); "flip a coin until you lose a flip" (Crazed Firecat, Fiery Gambit); "when you
-  win the flip" reflexive heads (Breeches); branches with a target or a referent ("destroy that creature", "target creature gets
-  +1/+1" — the branch's target must be announced with the spell). Risk: a branch's "may" and "unless you pay and repeat" (Crooked Scales).
+- **PAR-151 · Coin flips — remaining axes.** Reflexive "when you win the flip", "unless you pay and repeat",
+  delayed and per-object flips, ignore-one-flip replacements; residue in `workingOn.md`.
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal

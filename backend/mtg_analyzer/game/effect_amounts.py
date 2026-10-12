@@ -177,6 +177,9 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # "roll a die" text as a die roll subject to dice-replacement
         # effects — this must stay invisible to those.
         "random_result",
+        # RULE 705: how many of this resolution's coin flips were won (``won`` true) or
+        # lost (``won`` false) — "for each flip you win" (Flock of Rabid Sheep).
+        "coin_flips",
     }
 )
 
@@ -363,6 +366,10 @@ def _base(
         if result is None:
             result = (getattr(context, "trigger_event", None) or {}).get("die_result")
         return int(result) if isinstance(result, int) else 0
+
+    if kind == "coin_flips":
+        outcome = getattr(context, "coin_outcome", None) or {}
+        return int(outcome.get("wins" if amount.get("won", True) else "losses", 0))
 
     if kind == "random_result":
         result = getattr(context, "random_result", None)

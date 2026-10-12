@@ -237,6 +237,12 @@ class GameContext:
         #: ("creatures that player controls don't untap …"). Same
         #: save/reset/restore idiom as `clash_won`.
         self.clashed_opponent: Optional["Player"] = None
+        #: RULE 705: the outcome of this resolution's most recent `CoinFlipEffect`
+        #: flip instruction — ``{"won": <last flip>, "wins": n, "losses": n}`` — or
+        #: ``None`` when nothing was flipped. Read by the ``coin_won`` condition
+        #: ("if you win the flip") and the ``coin_flips`` amount ("for each flip you
+        #: win"). Same save/reset/restore (and suspension) idiom as `clash_won`.
+        self.coin_outcome: Optional[dict[str, Any]] = None
         #: RULE 706.3a: the total of this resolution's most recent
         #: `RollDieEffect` roll (the sum of the kept dice — "the result" a
         #: results table is read against), or ``None`` if nothing has rolled
@@ -1316,6 +1322,7 @@ def _apply_effects_partitioned(
     revealed_card: Optional[Any] = None,
     clash_won: Optional[bool] = None,
     clashed_opponent: Optional[Any] = None,
+    coin_outcome: Optional[dict[str, Any]] = None,
     stack_item: Optional[Any] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
@@ -1401,6 +1408,7 @@ def _apply_effects_partitioned(
     outer_revealed_card = getattr(context, "revealed_card", None)
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
+    outer_coin_outcome = getattr(context, "coin_outcome", None)
     outer_die_result = getattr(context, "die_result", None)
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
@@ -1421,6 +1429,7 @@ def _apply_effects_partitioned(
     context.revealed_card = revealed_card
     context.clash_won = clash_won
     context.clashed_opponent = clashed_opponent
+    context.coin_outcome = coin_outcome
     context.die_result = None
     context.die_results = []
     context.rolled_doubles = False
@@ -1529,6 +1538,7 @@ def _apply_effects_partitioned(
                         "revealed_card": context.revealed_card,
                         "clash_won": context.clash_won,
                         "clashed_opponent": context.clashed_opponent,
+                        "coin_outcome": context.coin_outcome,
                         "stack_item": stack_item,
                         "acting_player_id": context.acting_player_id,
                     }
@@ -1551,6 +1561,7 @@ def _apply_effects_partitioned(
         context.revealed_card = outer_revealed_card
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
+        context.coin_outcome = outer_coin_outcome
         context.die_result = outer_die_result
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles

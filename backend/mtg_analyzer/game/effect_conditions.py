@@ -136,6 +136,9 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # Unanswerable (``None``) when no clash is in scope, so neither the
         # "if you win" nor the "otherwise" branch fires.
         "clash_won",
+        # RULE 705: "if you win the flip" — the last flip `CoinFlipEffect` recorded on
+        # `GameContext.coin_outcome` this resolution. ``None`` (neither branch) with no flip.
+        "coin_won",
         # RULE 702.142a — the firing `EXERTED` event's own snapshot. Read
         # from the event and not `GameObject.exerted_this_turn`, which is
         # already `True` by the time the trigger resolves; only the event's
@@ -364,6 +367,10 @@ def _context_holds(
             if event is not None and getattr(event, "type", None) == EventType.CLASHED:
                 outcome = event.get("won")
         return None if outcome is None else bool(outcome)
+
+    if kind == "coin_won":
+        outcome = getattr(context, "coin_outcome", None)
+        return None if not outcome else bool(outcome.get("won"))
 
     if kind == "amount_compare":
         from . import effect_amounts  # function-scoped: effect_amounts imports this module

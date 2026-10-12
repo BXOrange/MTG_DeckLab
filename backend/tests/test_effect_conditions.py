@@ -446,6 +446,7 @@ class TestOnePeelerRule:
         "if ~ is your ring-bearer and the ring has tempted you 3 or more times "
         "this game, draw a card",
         "draw a card unless her additional cost was paid",
+        "if you win the flip, draw a card",
     ]
 
     @pytest.mark.parametrize("body", BODIES)

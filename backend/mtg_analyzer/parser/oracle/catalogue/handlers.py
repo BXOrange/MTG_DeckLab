@@ -4793,7 +4793,12 @@ _SELF_SUBJECT = (
 
 def _tap_self(m: re.Match[str]) -> list[EffectSpec]:
     untap = m.group("verb").lower() == "untap"
-    return [EffectSpec("tap", {"target_kind": None, "untap": untap})]
+    subject = m.group(0).split(None, 1)[1].lower()
+    # An explicit "~" is the source itself, never a target a sibling clause announced
+    # ("destroy target artifact and untap ~", Goblin Archaeologist); a bare "it" stays
+    # the pronoun reading (`target_kind=None`, rewritten/read from the surrounding clauses).
+    kind = "source" if subject == "~" else None
+    return [EffectSpec("tap", {"target_kind": kind, "untap": untap})]
 
 
 #: MEC-28: "untap that creature" (Finest Hour's own attacks-alone trigger) —
@@ -7943,8 +7948,8 @@ def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
     if not sub:
         return None
-    if any(s.params.get("target_kind") for s in sub):
-        return None  # a targeted else-branch can't resolve off-stack either
+    if any(s.params.get("target_kind") not in (None, "source") for s in sub):
+        return None  # a targeted else-branch can't resolve off-stack either ("source" is not a pick)
     return [EffectSpec("pay_cost_then", {
         "cost": m.group("cost"),
         "effects": [],
@@ -12584,6 +12589,26 @@ def _incubate_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # (Marvo, Deep Operative) with no branch at all is the whole clause.
 def _clash(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("clash", {})]
+
+
+# RULE 705.1 (PAR-151): "Flip a coin." / "flip 3 coins." / "flip X coins." / "flip a coin until
+# you lose a flip." — `effects.CoinFlipEffect`'s *recording* form (registered as ``coin_flip``):
+# it flips and leaves the outcome on `GameContext.coin_outcome`. The "if you win/lose the flip,
+# `<effect>`" branches are separate ``coin_won``-gated specs (`segmenter._COIN_FLIP_RESULT_RE`),
+# so a branch's target is announced with the spell or ability (RULE 601.2c) — the clash idiom.
+_COIN_FLIP_RE = _c(r"flip (?:(?P<one>a coin)|(?P<n>\d+|x) coins)(?P<until> until you lose a flip)?")
+
+
+def _coin_flip(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {}
+    if m.group("until"):
+        if m.group("one") is None:
+            return None  # "flip N coins until …" is not printed
+        params["until_lose"] = True
+    elif m.group("n"):
+        count = m.group("n")
+        params["count"] = "x" if count == "x" else int(count)
+    return [EffectSpec("coin_flip", params)]
 
 
 # RULE 706.1: "Roll a d20." / "Roll a six-sided die." / "Roll two d6." —
@@ -19587,6 +19612,8 @@ HANDLERS: list[EffectHandler] = [
         _c(r"clash with (?:an opponent|defending player)"),
         _clash,
     ),
+    # "flip a coin" / "flip 3 coins" / "flip a coin until you lose a flip" (RULE 705).
+    EffectHandler("coin_flip", _COIN_FLIP_RE, _coin_flip),
     # "roll a d20" / "roll a six-sided die" / "roll two d6" (RULE 706.1).
     EffectHandler(
         "roll_die",
