@@ -204,6 +204,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   "and loses …" now carries `previous_subject` (direct triggers and spells are right: Vault Plunderer, Bloodgift
   Demon); check that Unscrupulous Contractor's reflexive trigger and Fell Stinger's exploit trigger make the
   *targeted* player lose the life, not the controller.
-- **BUG-4 · Player targets are not rechecked at resolution.** BUG-3 made `target_meets_restrictions` recheck
-  permanent targets (RULE 608.2b), but a targeted *player* who gains hexproof or protection in response (Leyline of
-  Sanctity, Teferi's Protection, Gilded Light) is still affected; extend the recheck to player targets.

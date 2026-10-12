@@ -1226,7 +1226,7 @@ to every gathered target. Resolution conditions can read the actual `cast_from_e
 
 - Authored restricted attachment abilities can set `cost.attach_kind`; the binder carries it to the live ability for keyword-specific cost effects. Restricted Equip abilities use controller-scoped targets and sorcery timing, matching the ordinary keyword path.
 
-### Target legality rechecked at resolution (RULE 608.2b, BUG-3)
+### Target legality rechecked at resolution (RULE 608.2b, BUG-3/BUG-4)
 
 `casting_mixin._apply_stack_item` rechecks each battlefield target with `targeting.target_meets_restrictions`, which
 re-runs the announce-time predicate (`legal_targets`) instead of a key list: type, controller, colour, mana value,
@@ -1239,7 +1239,9 @@ keep their own path. With several targets, `_mask_restricted_targets` blanks onl
 the item is countered only when every target is illegal. "You" in a requirement is the chooser (RULE 601.2c,
 `_trigger_controller_id` — Confusion in the Ranks). An Aura spell's `enchant` requirement is rechecked too, so an
 Aura whose target became illegal goes to the graveyard (RULE 303.4a/608.3b); graveyard-card Auras and bestow are
-unchanged. Left open: player targets (BUG-4). Tests: `tests/test_bug3_resolution_target_restrictions.py`.
+unchanged. Player targets are rechecked the same way (BUG-4): opponent/"you" scope, player hexproof
+(RULE 702.11b-c, only against opponents) and protection (RULE 702.16b, also against your own sources), with
+the same slot masking. Tests: `tests/test_bug3_resolution_target_restrictions.py`, `tests/test_bug4_player_target_recheck.py`.
 
 ### Optional player groups and Equipment slots (RULE 115 / 601.2c)
 

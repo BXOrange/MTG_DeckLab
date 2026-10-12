@@ -25,6 +25,7 @@ from typing import Any, Optional, Union
 
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
+from ..models.game.player import Player
 from . import combat
 
 #: A graveyard-card target's *scope* — whose graveyard(s) are searched — by
@@ -1736,20 +1737,23 @@ def target_meets_restrictions(
     state: GameState,
     controller_id: str,
     spec: TargetSpec,
-    target: GameObject,
+    target: "GameObject | Player",
     source: Optional[GameObject] = None,
     trigger_event: Optional[dict[str, Any]] = None,
 ) -> bool:
-    """RULE 608.2b: whether a battlefield permanent chosen for ``spec`` is still a legal target as the spell
+    """RULE 608.2b: whether a battlefield permanent or a player chosen for ``spec`` is still a legal target as the spell
     or ability resolves: the type, controller, colour, mana-value and ``creature_filter`` (keyword,
     tapped/attacking, power/toughness, ...) restrictions, *and* targetability (hexproof RULE 702.11b judged
     against the resolving source's controller, shroud 702.18, protection 702.16b judged against the source's
     qualities, read as last known information if it has left its zone, RULE 113.7a). All of it is evaluated
     by the very predicate that offered the target (`legal_targets`), not a second list of keys. Requirements
-    measured against announce-time state (`_announce_relative`) are not re-evaluated."""
+    measured against announce-time state (`_announce_relative`) are not re-evaluated. A player target is judged
+    the same way: opponent/"you" scope, player hexproof (RULE 702.11b-c) and protection (RULE 702.16b)."""
     if _announce_relative(spec):
         return True
     offered = legal_targets(state, controller_id, spec, source, trigger_event)
+    if isinstance(target, Player):
+        return any(option.get("player_id") == target.id for option in offered)
     return any(option.get("instance_id") == target.instance_id for option in offered)
 
 

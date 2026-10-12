@@ -2059,7 +2059,7 @@ class CastingResolutionMixin:
                 self.check_state_based_actions()
         return True
     def _mask_restricted_targets(self, item, groups, verdicts, targets, target_groups):
-        """RULE 608.2b: blank (``None``) the slots of battlefield targets that failed their requirement.
+        """RULE 608.2b: blank (``None``) the slots of battlefield and player targets that failed their requirement.
 
         ``verdicts`` parallels ``zip(specs, groups)``. Slots keep their positions so later clauses and
         allocated damage still line up (as for copies, `stack_copy_targets.resolution_targets`)."""
@@ -2068,8 +2068,11 @@ class CastingResolutionMixin:
             id(target)
             for group, flags in zip(groups or [], verdicts)
             for target, ok in zip(group, flags)
-            if not ok and isinstance(target, GameObject) and target.zone == Zone.BATTLEFIELD
-            and target in self.state.battlefield
+            if not ok and (
+                isinstance(target, Player)
+                or (isinstance(target, GameObject) and target.zone == Zone.BATTLEFIELD
+                    and target in self.state.battlefield)
+            )
         }
         if not failed or len(flat) != len(item.targets) or any(a is not b for a, b in zip(flat, item.targets)):
             return targets, target_groups
@@ -2128,7 +2131,14 @@ class CastingResolutionMixin:
             if isinstance(target, StackItem):
                 return target in self.state.stack
             if isinstance(target, Player):
-                return target in self.state.living_players()
+                if target not in self.state.living_players():
+                    return False
+                # RULE 608.2b: player hexproof/protection gained in response (702.11b-c, 702.16b), or a
+                # scope the player no longer meets, makes the player an illegal target -- same predicate as announce.
+                return target_meets_restrictions(
+                    self.state, chooser_id, spec, target,
+                    source=item.source or item.obj, trigger_event=item.trigger_event,
+                )
             if isinstance(target, GameObject):
                 indices = [i for i, t in enumerate(item.targets) if t is target]
                 if indices and not any(i >= len(item.target_incarnations)
