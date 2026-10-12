@@ -57,7 +57,7 @@ COMBAT_KEYWORDS: frozenset[str] = frozenset(
         "haste",
         "indestructible",
         "protection",
-        "dethrone", "melee",
+        "dethrone", "melee", "myriad",
         "infect",
         "wither",
         # RULE 702.19: no bare reminder-text keyword line to match on real

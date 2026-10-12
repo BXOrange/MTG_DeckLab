@@ -32,6 +32,12 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
+- **ENG-53 · Multiple instances of a triggered keyword trigger once.** `GameObject` keywords are a set, so a
+  permanent with a printed and a granted instance (or two grants) triggers once; RULE 702.116b requires one trigger
+  per Myriad instance (confirmed: `RulesEngine._check_myriad`). Count instances from printed + layer-granted +
+  `temp_keywords` sources and check the other per-instance triggered keywords (exalted 702.83b, battle cry, flanking,
+  bushido, rampage, afflict, annihilator) for the same collapse.
+
 ## PAR — Parser
 
 
@@ -43,7 +49,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-160`**; next free `MEC`: **`MEC-117`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-160`**; next free `MEC`: **`MEC-117`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -143,11 +149,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 
 
-- **MEC-114 · Myriad (RULE 702.116).** The keyword is recognised (`keywords.py`) but has no engine behaviour: "whenever this
-  creature attacks, for each opponent other than defending player, you may create a token copy that's tapped and attacking that
-  player or a planeswalker they control; exile the tokens at end of combat" never fires. 23 cached cards print it, plus the
-  granters (Legion Loyalty, Cybermen Squadron, Blade of Selves, Duke Ulder Ravengard, Corporeal Projection, Ironwill Forger,
-  Mass of Mysteries, Firbolg Flutist, Muddle). Reuse `copy_permanent` (`tapped`/`attacking`) and `_offer_attack_defenders` (PAR-148).
 
 ## PLR — Player management
 

@@ -828,6 +828,7 @@ class CombatMixin:
             # `RulesEngine.check_dethrone` for why this can't go through the
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
             self.rules.check_dethrone(obj)
+            self.rules._check_myriad(obj)  # RULE 702.116a
     def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
         """RULE 702.49a Ninjutsu — "[cost], Return an unblocked attacker you
         control to hand: Put this card onto the battlefield from your hand

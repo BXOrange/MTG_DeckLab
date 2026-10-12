@@ -307,6 +307,7 @@ export default [
               ['full', 'Ninjutsu (702.49) — ungeblockter Angreifer zurück, Ninja getappt & angreifend ins Spiel'],
               ['full', 'Bestow (702.103) — für die Bestow-Kosten als Aura mit „verzaubert Kreatur" gewirkt, hängt sich beim Verrechnen an; wird wieder zur Kreatur, sobald sie nicht mehr angelegt ist'],
               ['full', 'Dethrone (702.107)'],
+              ['partial', 'Myriad (702.116) — Kopien greifen jeden anderen Gegner (oder dessen Planeswalker) an, am Kampfende exiliert; mehrere Instanzen auf einer Kreatur lösen nur einmal aus'],
               ['full', 'Kicker / Multikicker (702.33)'],
               ['full', 'Buyback (702.27)'],
               ['full', 'Flashback / Escape (702.34/702.138)'],

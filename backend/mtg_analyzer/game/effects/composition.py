@@ -53,7 +53,7 @@ from .core import EffectRegistry, GameContext, GameEffect, _apply_effects_partit
 #: How a `for_each` names the players it iterates, in APNAP order (RULE
 #: 101.4). Deliberately the same three words `SacrificeEffect.selector` and
 #: `MillEffect.player_selector` already use, rather than a fourth spelling.
-PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "you"})
+PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "you", "each_opponent_except_defending"})
 
 
 def _as_spec_dicts(raw: Any) -> list[dict[str, Any]]:
@@ -569,6 +569,10 @@ class ForEachEffect(_CompositeEffect):
             living = list(context.state.living_players_apnap())
             if scope == "each_opponent":
                 return [p for p in living if p.id != controller_id]
+            if scope == "each_opponent_except_defending":
+                # RULE 702.116a (Myriad): "each opponent other than defending player".
+                defending = (getattr(context, "trigger_event", None) or {}).get("defending_player_id")
+                return [p for p in living if p.id not in (controller_id, defending)]
             if scope == "you":
                 return [p for p in living if p.id == controller_id]
             return living

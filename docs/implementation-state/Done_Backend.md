@@ -2443,6 +2443,22 @@ group; the free-cast flag expires with the turn's graveyard permissions.
 opponents. The captured player remains the reference even if the affected
 creature belongs to another player; the restriction clears at cleanup.
 
+### Myriad (RULE 702.116)
+
+`RulesEngine._check_myriad` places the trigger from `declare_attackers`, next to
+Dethrone, so printed, layer-granted (Legion Loyalty, Blade of Selves, Cybermen
+Squadron, Ironwill Forger, Firbolg Flutist, Mass of Mysteries) and `temp_keywords`
+grants (Corporeal Projection, Duke Ulder Ravengard) all fire. No new primitive: the
+body is a `for_each` over the new player scope `each_opponent_except_defending`,
+each iteration an `optional` around `copy_permanent` (tapped, attacking, new
+`attack_iteration_player`: attack that opponent, then `_offer_attack_defenders`
+for their planeswalkers) plus a delayed end-of-combat `exile_specific`. The tokens
+are put onto the battlefield attacking, so they fire no attack triggers (RULE
+508.3a); a 2-player game creates nothing and asks nothing. Bots answer it through
+the existing `composite_optional`/`reselect_attack` choices. Left open: several
+instances on one creature trigger once (ENG-53, RULE 702.116b) and Muddle the
+Ever-Changing's "except it has myriad" copy grant. Regressions: `test_myriad.py`.
+
 ### Melee from completed attack declarations (RULE 702.121)
 
 Melee is collected from `ATTACKERS_DECLARED`, after all attackers and defenders

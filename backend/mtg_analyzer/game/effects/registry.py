@@ -3257,6 +3257,7 @@ EffectRegistry.register(
         legendary=bool(p.get("legendary", False)),
         max_mana_value=p.get("max_mana_value"),
         other_opponents=bool(p.get("other_opponents", False)),
+        attack_iteration_player=bool(p.get("attack_iteration_player", False)),
     ),
 )
 EffectRegistry.register(

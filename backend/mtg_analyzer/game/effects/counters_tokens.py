@@ -3732,8 +3732,13 @@ class CopyPermanentEffect(GameEffect):
         max_mana_value: Any = None,
         other_opponents: bool = False,
         require_exiled_trigger_subject: bool = False,
+        attack_iteration_player: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…a token that's a copy of ~ that's tapped and attacking **that player or a planeswalker they
+        #: control**" (Myriad, RULE 702.116a): inside a `for_each` over players, the copy attacks the iteration
+        #: player, and its controller may then pick one of that player's planeswalkers instead (RULE 508.4a).
+        self.attack_iteration_player = bool(attack_iteration_player)
         self.require_exiled_trigger_subject = bool(require_exiled_trigger_subject)
         self.count = count
         self.other_opponents = bool(other_opponents)
@@ -3856,6 +3861,7 @@ class CopyPermanentEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        self._iteration_targets = targets  # the `for_each` item, kept across an `optional` pause (Myriad)
         if self.other_opponents:
             controller_id = _controller_of(self.source, context).id
             defending = (context.trigger_event or {}).get("defending_player_id")
@@ -4056,6 +4062,25 @@ class CopyPermanentEffect(GameEffect):
         if self.enter_tapped:
             for obj in made:
                 obj.tapped = True
+        if self.enter_attacking and self.attack_iteration_player:
+            # RULE 702.116a / 508.4a: attack the player this iteration is about, then offer their planeswalkers.
+            iteration = getattr(self, "_iteration_targets", None) or []
+            victim = next(
+                (t for t in iteration if getattr(t, "instance_id", None) is None and hasattr(t, "id")),
+                getattr(context, "iteration_item", None),
+            )
+            victim_id = getattr(victim, "id", None)
+            if victim_id is None:
+                return
+            for obj in made:
+                context.engine.put_onto_battlefield_attacking(
+                    obj, defender={"kind": "player", "id": victim_id, "label": getattr(victim, "name", victim_id)},
+                )
+            controller = context.state.player_by_id(
+                self.source.controller_id if self.source is not None else context.active_player.id
+            )
+            context.engine._offer_attack_defenders(controller, [(obj, victim_id) for obj in made])
+            return
         if self.enter_attacking:
             defender = getattr(copied, "combat_defender", None) if getattr(copied, "attacking", False) else None
             for obj in made:

@@ -307,6 +307,7 @@ export default [
               ['full', 'Ninjutsu (702.49) — unblocked attacker returns, the Ninja enters tapped and attacking'],
               ['full', 'Bestow (702.103) — cast for the bestow cost as an Aura with "enchant creature", attaches on resolution; becomes a creature again once no longer attached'],
               ['full', 'Dethrone (702.107)'],
+              ['partial', 'Myriad (702.116) — copies attack each other opponent (or their planeswalker), exiled at end of combat; several instances on one creature trigger only once'],
               ['full', 'Kicker / Multikicker (702.33)'],
               ['full', 'Buyback (702.27)'],
               ['full', 'Flashback / Escape (702.34/702.138)'],
