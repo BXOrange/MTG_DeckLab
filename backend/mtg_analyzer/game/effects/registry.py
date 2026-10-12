@@ -3369,6 +3369,8 @@ EffectRegistry.register(
     lambda p: CoinFlipEffect(
         win_effects=p.get("win_effects"), lose_effects=p.get("lose_effects"),
         count=p.get("count", 1), until_lose=bool(p.get("until_lose", False)),
+        by_item=bool(p.get("by_item", False)),
+        win_trigger=p.get("win_trigger"), lose_trigger=p.get("lose_trigger"),
     ),
 )
 EffectRegistry.register(

@@ -1715,6 +1715,16 @@ def _damage_that_much_selector(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: "~ deals 2 damage to itself." (Goblin Bangchuckers / Kaboomist, Stuffy Doll) - the source
+#: damages itself (`DealDamageEffect`'s ``self`` selector). Only the explicit "~" subject: a bare
+#: "it deals N damage to itself" names whatever the previous clause chose.
+_DAMAGE_TO_ITSELF_RE = _c(rf"~ deals? {NUMBER} damage to itself")
+
+
+def _damage_to_itself(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": "self"})]
+
+
 #: "This creature deals 2 damage to you for each Treasure you control."
 #: (Black Market Tycoon) — the exact self-damage/count template; ``for each``
 #: is a multiplier, not the existing additive count-selector form.
@@ -12611,6 +12621,167 @@ def _coin_flip(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("coin_flip", params)]
 
 
+# RULE 705.1 / 603.12 (PAR-151): "Flip a coin. When you win the flip, `<effect>`. When you lose the
+# flip, `<effect>`." — each branch is a *reflexive triggered ability* put on the stack after the
+# flip (Breeches), so a target in it is chosen then rather than when the flip's own ability is
+# announced; both branches are optional individually, but at least one must be given.
+_COIN_REFLEXIVE_RE = _c(
+    r"flip a coin\. when you (?P<r1>win|lose) the flip, (?P<b1>.+?)"
+    r"(?:\. when you (?P<r2>win|lose) the flip, (?P<b2>.+))?"
+)
+
+
+def _coin_reflexive(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    branches = {m.group("r1").lower(): m.group("b1")}
+    if m.group("r2"):
+        if m.group("r2").lower() in branches:
+            return None
+        branches[m.group("r2").lower()] = m.group("b2")
+    params: dict = {}
+    for result, body in branches.items():
+        sub = parse_effect_body(body)
+        if not sub or any(spec.condition is not None for spec in sub):
+            return None
+        params[f"{result}_trigger"] = [spec.to_dict() for spec in sub]
+    return [EffectSpec("coin_flip", params)]
+
+
+# RULE 705.1 / 603.7 (PAR-151): a delayed flip - "Flip a coin at end of combat. If you lose the flip,
+# an opponent gains control of ~." (Fickle Efreet) / "Flip a coin at the beginning of the next end
+# step. If you lose the flip, sacrifice that creature." (Goblin Kites). One delayed triggered
+# ability holds the flip and its gated branch, so the branch reads the flip made when it fires. The
+# branch is limited to the delayed vocabulary that already captures its referent at arm time
+# (sacrifice | exile | destroy of "it | that creature | ~", `_DELAYED_TAIL_INNER`) and to a bare
+# "an opponent gains control of ~"; anything else stays unclaimed.
+_COIN_DELAYED_RE = _c(
+    r"flip a coin (?P<when>at the beginning of the next end step|at end of combat)\.\s*"
+    r"if you (?P<res>win|lose) the flip, (?P<body>.+)"
+)
+_COIN_DELAYED_BODY_RE = _c(
+    r"(?P<verb>sacrifice|exile|destroy) (?:(?P<obj>it|that creature)|(?P<obj_self>~))"
+)
+
+
+def _coin_delayed(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    won = {"kind": "coin_won"}
+    gate = won if m.group("res").lower() == "win" else {"kind": "not", "condition": won}
+    body = m.group("body").strip()
+    hit = _COIN_DELAYED_BODY_RE.fullmatch(body)
+    if hit is not None:
+        branch = {"type": _DELAYED_TAIL_INNER[hit.group("verb").lower()], "params": {}}
+        capture = "self" if hit.group("obj_self") else "previous_or_self"
+    else:
+        sub = parse_effect_body(body)
+        if not sub or len(sub) != 1 or sub[0].type != "gain_control_by_source" or sub[0].condition is not None:
+            return None
+        branch = sub[0].to_dict()
+        capture = "self"
+    branch["condition"] = gate
+    step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
+    return [EffectSpec("create_delayed_trigger", {
+        "step": step, "scope": "any", "capture": capture,
+        "effects": [EffectSpec("coin_flip", {}).to_dict(), branch],
+    })]
+
+
+# RULE 705.1 / 101.4 (PAR-151): per-object flips — "flip a coin for each opponent you have",
+# "for each blocking creature, flip a coin", "each player flips a coin" — followed by the
+# branches that read *that* flip: "if you win|lose the flip, `<effect>`", "for each flip you
+# win|lose, `<effect>`" (one flip per pass, so the same gate) and "`<verb>` each creature | player
+# whose coin comes up tails". One ``for_each`` pass per object holds the flip and its gated
+# branches, so a branch sees its own pass's outcome and its own object (handed to the body as its
+# target, exactly as `segmenter._player_scope_specs` does). Fails closed on a branch that names a
+# real target, on a loop group the selector grammar can't read, and on a body that
+# targets anything but the iterated kind.
+_COIN_EACH_RE = _c(
+    r"(?:flip a coin for each (?P<g1>[^.]+?)|for each (?P<g2>[^.,]+?), flip a coin"
+    r"|(?P<pl>each player|each opponent) flips a coin)\.\s*(?P<rest>.+)"
+)
+_COIN_EACH_BRANCH_RES = (
+    _c(r"if you (?P<res>win|lose) the flip, (?P<body>.+)"),
+    _c(r"for each flip you (?P<res>win|lose), (?P<body>.+)"),
+)
+_COIN_EACH_WHOSE_RE = _c(
+    r"(?P<pre>.*?)\s*\beach (?P<kind>player|creature) whose coin comes up (?P<face>heads|tails)(?P<post>.*)"
+)
+_COIN_EACH_EXCLUDED_RE = _c(
+    r"creature that isn't an? (?P<first>[a-z]+)(?P<more>(?:,? (?:or )?[a-z]+)*)"
+)
+_COIN_EACH_PLAYERS = {"opponent you have": "each_opponent", "opponent": "each_opponent",
+                      "player": "each_player", "each player": "each_player",
+                      "each opponent": "each_opponent"}
+
+
+def _coin_each_group(m: re.Match[str]) -> Optional[tuple[dict, str]]:
+    """The loop's ``over`` and the kind (``player``/``creature``) its items are."""
+    from ..catalogue.count_phrase import parse_count_phrase
+
+    group = (m.group("g1") or m.group("g2") or m.group("pl")).strip().lower()
+    if group in _COIN_EACH_PLAYERS:
+        return {"players": _COIN_EACH_PLAYERS[group]}, "player"
+    excluded = _COIN_EACH_EXCLUDED_RE.fullmatch(group)
+    if excluded is not None:
+        names = [excluded.group("first")] + re.findall(r"(?:, | or )(?:or )?([a-z]+)", excluded.group("more"))
+        return {"selector": {"zone": "battlefield", "of": "any", "filter": {
+            "card_type": "creature", "without_subtype": [n.capitalize() for n in names],
+        }}}, "creature"
+    selector = parse_count_phrase(group)
+    if (selector is None or selector.get("zone") != "battlefield" or "terms" in selector
+            or (selector.get("filter") or {}).get("card_type") != "creature"):
+        return None
+    return {"selector": selector}, "creature"
+
+
+def _coin_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import _TARGET_PARAM_KEYS, parse_effect_body  # lazy: segmenter imports this module
+
+    group = _coin_each_group(m)
+    if group is None:
+        return None
+    over, item_kind = group
+    effects: list[dict] = [EffectSpec("coin_flip", {"by_item": True} if m.group("pl") else {}).to_dict()]
+    won = {"kind": "coin_won"}
+    branches = 0
+    for sentence in re.split(r"\.\s+", m.group("rest").strip().rstrip(".")):
+        for branch_re in _COIN_EACH_BRANCH_RES:
+            hit = branch_re.fullmatch(sentence)
+            if hit is not None:
+                won_branch = hit.group("res").lower() == "win"
+                body = hit.group("body")
+                if re.search(r"\b(?:target|each|another|other)\b", body, re.I):
+                    return None
+                body = re.sub(r"\bthat (player|creature)\b", r"target \1", body, flags=re.I)
+                break
+        else:
+            hit = _COIN_EACH_WHOSE_RE.fullmatch(sentence)
+            if hit is None or hit.group("kind") != item_kind:
+                return None
+            won_branch = hit.group("face").lower() == "heads"
+            body = f"{hit.group('pre')} target {item_kind}{hit.group('post')}".strip()
+            if not hit.group("pre"):
+                body = f"target {item_kind}{hit.group('post')}"
+        sub = parse_effect_body(body)
+        if not sub:
+            return None
+        for spec in sub:
+            named = [spec.params[k] for k in _TARGET_PARAM_KEYS if spec.params.get(k) is not None]
+            if (named not in ([], [item_kind]) or spec.condition is not None
+                    or spec.type in ("for_each", "bind", "if_else", "seq")):
+                return None
+            effects.append(EffectSpec(
+                spec.type, dict(spec.params),
+                condition=won if won_branch else {"kind": "not", "condition": won},
+            ).to_dict())
+        branches += 1
+    if not branches:
+        return None
+    return [EffectSpec("for_each", {"over": over, "effects": effects})]
+
+
 # RULE 706.1: "Roll a d20." / "Roll a six-sided die." / "Roll two d6." —
 # `RulesEngine.roll_die` / `effects.RollDieEffect` (registered as
 # ``roll_die``) own the roll, the `EventType.DICE_ROLLED` firing and RULE
@@ -16469,6 +16640,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("damage_each_damaged_creature", _DAMAGE_EACH_DAMAGED_CREATURE_RE, _damage_each_damaged_creature),
     EffectHandler("damage_each_creature_kicked", _DAMAGE_EACH_CREATURE_KICKED_RE, _damage_each_creature_kicked),
+    EffectHandler("damage_to_itself", _DAMAGE_TO_ITSELF_RE, _damage_to_itself),
     EffectHandler(
         "damage_to_you_per_treasure",
         _DAMAGE_TO_YOU_PER_TREASURE_RE,
@@ -19614,6 +19786,9 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "flip a coin" / "flip 3 coins" / "flip a coin until you lose a flip" (RULE 705).
     EffectHandler("coin_flip", _COIN_FLIP_RE, _coin_flip),
+    EffectHandler("coin_flip_each", _COIN_EACH_RE, _coin_each),
+    EffectHandler("coin_flip_delayed", _COIN_DELAYED_RE, _coin_delayed),
+    EffectHandler("coin_flip_reflexive", _COIN_REFLEXIVE_RE, _coin_reflexive),
     # "roll a d20" / "roll a six-sided die" / "roll two d6" (RULE 706.1).
     EffectHandler(
         "roll_die",

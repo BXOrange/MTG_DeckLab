@@ -49,7 +49,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-160`**; next free `MEC`: **`MEC-117`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-161`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -102,8 +102,10 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
   "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
   `engine_bench.py`, not parse verdicts.
-- **PAR-151 · Coin flips — remaining axes.** Reflexive "when you win the flip", "unless you pay and repeat",
-  delayed and per-object flips, ignore-one-flip replacements; residue in `workingOn.md`.
+- **PAR-160 · Small verified residue batch (coin-flip close-out).** One sub-bullet per shape, each sized with
+  `parser_probe.py blocked`:
+  - target "creature you control with toughness N or less" (2 SOLO: Goblin Kites — its delayed flip is already
+    built — and Phantasmal Mount).
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal
@@ -142,6 +144,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **PAR-159 · Equipped-creature X pump.** "Equipped creature gets +X/+X …" statics and pumps whose X is measured off the board or the equipment; size first (PLAY-ALL).
 
 ## MEC — Game mechanic
+
+- **MEC-117 · "Ignore one" flip and roll replacements (RULE 705.3 / 706.x).** "If you would flip a coin, instead flip two
+  and ignore one" (Krark's Thumb, Pokey) and the die counterpart (Krark's Other Thumb, Ichor Elixir): a replacement
+  on `RulesEngine.coin_flip`/`roll_die` where the player chooses which result to ignore (an interactive choice), and
+  only the kept result counts for "if you win the flip" / "the result". 3 cached cards SOLO-blocked on "ignore one".
 
 
 

@@ -3914,7 +3914,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 631: PAR-151 — coin flips (RULE 705): "flip a coin / N / X coins / until you lose a flip" (`coin_flip` recording form), the
 #      ``coin_won`` branch condition ("if you win/lose the flip", "comes up heads/tails", negated "otherwise"), the
 #      ``coin_flips`` amount ("for each flip you win/won/lose"), and "whenever you/a player win(s)/lose(s) a coin flip" heads.
-PARSER_VERSION = "631"
+# 632: PAR-151 — per-object flips ("flip a coin for each opponent / creature that isn't a …", "for each blocking creature, flip a
+#      coin", "each player flips a coin" with per-pass `coin_won` branches), the reflexive "when you win/lose the flip" pair
+#      (Breeches), delayed flips ("flip a coin at end of combat / the beginning of the next end step"), "~ deals N damage to itself".
+PARSER_VERSION = "632"
 
 
 def parser_source_hash() -> str:

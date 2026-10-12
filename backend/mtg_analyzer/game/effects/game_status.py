@@ -1199,12 +1199,29 @@ class CoinFlipEffect(GameEffect):
         source: Optional["GameObject"] = None,
         count: Any = 1,
         until_lose: bool = False,
+        by_item: bool = False,
+        win_trigger: Optional[list[dict[str, Any]]] = None,
+        lose_trigger: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.win_specs = list(win_effects or [])
         self.lose_specs = list(lose_effects or [])
         self.count = count
         self.until_lose = bool(until_lose)
+        #: "each player flips a coin" (Goblin Assassin): inside a ``for_each`` over players, the
+        #: iterated player flips, not the ability's controller (RULE 705.1).
+        self.by_item = bool(by_item)
+        #: RULE 603.12: "When you win|lose the flip, `<effect>`" - a reflexive triggered ability
+        #: put on the stack after the flip, so its own targets are chosen then (Breeches).
+        self.win_trigger = list(win_trigger or [])
+        self.lose_trigger = list(lose_trigger or [])
+
+    def _flipper(self, context: GameContext) -> Optional[Any]:
+        """The player flipping: the loop's player for ``by_item``, else ``None`` (the acting player)."""
+        if not self.by_item:
+            return None
+        item = getattr(context, "iteration_item", None)
+        return item if getattr(item, "id", None) is not None and hasattr(item, "life") else None
 
     def _flip_count(self) -> int:
         if self.count == "x":
@@ -1215,18 +1232,23 @@ class CoinFlipEffect(GameEffect):
         from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
 
+        if self.win_trigger or self.lose_trigger:
+            won = bool(context.engine.coin_flip(self._flipper(context)))
+            context.coin_outcome = {"won": won, "wins": int(won), "losses": int(not won)}
+            context.enqueue_reflexive_trigger(self.win_trigger if won else self.lose_trigger, self.source)
+            return
         if not (self.win_specs or self.lose_specs):
             wins = losses = 0
             won: Optional[bool] = None
             for _ in range(min(self._flip_count(), MAX_COIN_FLIPS) if not self.until_lose else MAX_COIN_FLIPS):
-                won = bool(context.engine.coin_flip())
+                won = bool(context.engine.coin_flip(self._flipper(context)))
                 wins += won
                 losses += not won
                 if self.until_lose and not won:
                     break
             context.coin_outcome = {"won": won, "wins": wins, "losses": losses} if won is not None else None
             return
-        won = bool(context.engine.coin_flip())
+        won = bool(context.engine.coin_flip(self._flipper(context)))
         context.coin_outcome = {"won": won, "wins": int(won), "losses": int(not won)}
         specs = self.win_specs if won else self.lose_specs
         if not specs:

@@ -320,12 +320,16 @@ class CreateDelayedTriggerEffect(GameEffect):
         from ...models.game.game_state import DelayedTrigger
 
         inner = build_effects(
-            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in self.inner_specs],
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition"))
+             for d in self.inner_specs],
             self.source,
         )
+        # A gated delayed effect ("if you lose the flip, sacrifice that creature", RULE 705.1) is
+        # wrapped in a `ConditionalEffect`; the captured referents below belong on what it gates.
+        baked = [e.inner if type(e).__name__ == "ConditionalEffect" else e for e in inner]
         if self.capture == "target_mana_value" and targets:
             captured = _mana_value_of(targets[0])
-            for effect in inner:
+            for effect in baked:
                 for attr in ("amount", "count"):
                     if getattr(effect, attr, None) == "x":
                         setattr(effect, attr, captured)
@@ -339,7 +343,7 @@ class CreateDelayedTriggerEffect(GameEffect):
             # capture here, since the object has to survive until the
             # delayed firing without being re-chosen.
             made = list(context.created_objects)
-            for effect in inner:
+            for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made
                 elif hasattr(effect, "exiled_object") and made:
@@ -369,7 +373,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                 or list(getattr(context, "created_objects", []))
                 or ([self.source] if self.source is not None else [])
             )
-            for effect in inner:
+            for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made
                 elif hasattr(effect, "target") and made:
@@ -381,7 +385,7 @@ class CreateDelayedTriggerEffect(GameEffect):
             # target leaves the delayed effect empty instead of sacrificing the ability's own
             # permanent.
             chosen = list(context.previous_targets)
-            for effect in inner:
+            for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = chosen
                 elif hasattr(effect, "target"):
@@ -400,7 +404,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                     obj, self.related_filter, reference=self.source, state=context.state
                 ):
                     made.append(obj)
-            for effect in inner:
+            for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made
                 elif hasattr(effect, "target") and made:
@@ -417,7 +421,7 @@ class CreateDelayedTriggerEffect(GameEffect):
             event = context.trigger_event or {}
             obj = context.state.find_object(event.get(self.trigger_event_key))
             made = [obj] if obj is not None else []
-            for effect in inner:
+            for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made
                     if (isinstance(effect, ReturnSpecificToHandEffect)
@@ -439,7 +443,7 @@ class CreateDelayedTriggerEffect(GameEffect):
             # so this ignores `previous_targets` entirely rather than only
             # falling back to source when that chain is empty.
             made = [self.source] if self.source is not None else []
-            for effect in inner:
+            for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made
                 elif hasattr(effect, "target") and made:
@@ -459,7 +463,7 @@ class CreateDelayedTriggerEffect(GameEffect):
             target_controller_id = getattr(targets[0], "controller_id", None)
             if target_controller_id is not None:
                 target_player = context.state.player_by_id(target_controller_id)
-                for effect in inner:
+                for effect in baked:
                     if hasattr(effect, "player") and getattr(effect, "player", None) is None:
                         effect.player = target_player
         if self.capture == "target_player" and targets:
@@ -472,10 +476,10 @@ class CreateDelayedTriggerEffect(GameEffect):
             # inner effect this feeds is `TripleExchangeEffect`.
             target_player = targets[0]
             target_controller_id = getattr(target_player, "id", None)
-            for effect in inner:
+            for effect in baked:
                 if hasattr(effect, "player") and getattr(effect, "player", None) is None:
                     effect.player = target_player
-        for effect in inner:
+        for effect in baked:
             if (hasattr(effect, "_captured_target_incarnation") and effect.target_spec is None
                     and self.capture in {"created_objects", "previous_or_self", "previous_targets",
                                          "trigger_related", "trigger_subject", "self"}):
