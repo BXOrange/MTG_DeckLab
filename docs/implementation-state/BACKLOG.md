@@ -34,7 +34,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-154 · Named dies-this-turn residue.** Model Reincarnation, Rushed Rebirth, Fatal Fissure, Time to Feed, Sandals of Abdallah and Initiate of Blood with correct target announcement, object/source incarnation and controller/owner referents; Initiate requires MEC-115, Fatal Fissure requires MEC-116.
+- **PAR-154 · Named dies-this-turn residue.** Model Reincarnation, Rushed Rebirth, Time to Feed, Sandals of Abdallah and Initiate of Blood with correct target announcement, object/source incarnation and controller/owner referents; Initiate requires MEC-115.
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not closeable).** Strategy, coverage,
   worked examples and the Commander-legal tail taxonomy (`scripts/commander_tail_report.py`) live in
@@ -134,7 +134,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-116 · Complete Earthbend return (RULE 701.66).** Return the specific earthbent land tapped under the original bender's control after death or exile, with a persistent one-shot delayed trigger, correct incarnation binding, animation expiry, counterability and state-clone behavior.
 
 - **MEC-115 · Flip-card status (RULE 710).** Implement one-way flipping and alternate battlefield characteristics while preserving color/mana cost, resetting status on zone changes and handling copies; bind a reusable `flip` effect/parser body and validate Initiate of Blood // Goka the Unjust. Local raw corpus: 26 flip cards.
 
