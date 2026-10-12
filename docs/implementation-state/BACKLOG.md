@@ -42,8 +42,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-154` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-155`**; next free `MEC`: **`MEC-117`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-160`**; next free `MEC`: **`MEC-117`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -130,6 +130,16 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   gain `<keyword>`" (3: Invisible Force Field, Mogis's Marauder, Voyager Drake), "counter up to N target spells
   [and/or abilities]" (5: Double Negative, Katara's Reversal, Repel Intruders, Repulsive Mutation, Tishana's
   Tidebinder). Verify with `engine_bench.py`, not parse verdicts.
+
+- **PAR-155 · Broader mana-ability counter riders.** Mana abilities that carry a counter rider beyond the shapes already modeled; size the real cards with `parser_probe.py rank`/`blocked` first (PLAY-ALL).
+
+- **PAR-156 · Counter or pump, then fight.** "Put a +1/+1 counter on / pump target creature, then it fights …" sequences not yet claimed; size against the cache first, and check whether the existing `fight` previous-target rows already cover the second half (PLAY-ALL).
+
+- **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).
+
+- **PAR-158 · Multi-event attack/block/target trigger heads.** Trigger heads naming more than one event ("whenever ~ attacks, blocks, or becomes the target of …") that the segmenter does not yet split; size first (PLAY-ALL).
+
+- **PAR-159 · Equipped-creature X pump.** "Equipped creature gets +X/+X …" statics and pumps whose X is measured off the board or the equipment; size first (PLAY-ALL).
 
 ## MEC — Game mechanic
 
