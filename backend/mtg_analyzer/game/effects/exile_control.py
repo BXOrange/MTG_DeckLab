@@ -1106,14 +1106,21 @@ class ExileTargetGraveyardEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "player",
         card_type: Optional[str] = None,
+        player_from_trigger_event: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.card_type = card_type
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.player_from_trigger_event = player_from_trigger_event
+        self.target_spec = None if player_from_trigger_event else TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = (targets[0] if targets else None) or self.target
+        if self.player_from_trigger_event:
+            # RULE 608.2h: read the dying creature's last-known controller,
+            # independently of its owner or a later reanimation.
+            controller_id = (context.trigger_event or {}).get("controller_id")
+            player = next((p for p in context.players if p.id == controller_id), None)
         if player is None:
             return
         for obj in list(player.graveyard):

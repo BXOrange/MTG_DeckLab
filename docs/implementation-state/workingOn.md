@@ -48,14 +48,14 @@ Block template (do not change this, copy below the line, fill in there):
 ## PLAY-ALL · Make every saved deck playable
 
 - **Goal:** Bring every non-cube saved deck to N/N and close all recorded correctness gaps; Commander Cube remains optional.
-- **Next step:** Wire Burn Away's controller-graveyard body into the parser using the prepared untargeted event-controller variant of the existing exile effect, then continue the remaining parser axes below. Commit and push after successful tests; push approval remains pending.
+- **Next step:** Implement the remaining six named dies-this-turn cards as a bounded batch, reusing existing effects and checking object-incarnation and source-identity rules before expanding the other parser axes. Commit and push after successful tests; push approval remains pending.
 - **Decisions:** Prefer deck-by-deck work and reusable primitives; hand-author isolated gaps. Alchemy is a permanent non-goal. MODELED/AUTHORED coverage alone does not prove rules-exact behavior.
-- **Current validation:** All 41 saved decks have been rechecked after offline cache reseeding: every non-cube deck is N/N, with no unresolved names. Optional Commander Cube: 570/749. Last complete backend/full-cache validation: 12,930 passed (v625). The prepared Burn Away effect variant has two passing direct regressions, but its parser wiring and end-to-end card validation remain open.
-- **Coverage baseline:** Current parser v625; authoritative measurement: 21,046/35,046 (60.1%), Commander-legal 20,271/32,068 (63.2%). Remeasure and synchronize CLAUDE.md, PARSER_LONG_TAIL.md and status.de/en.js after further parser changes.
+- **Current validation:** All 41 saved decks have been rechecked after offline cache reseeding: every non-cube deck is N/N, with no unresolved names. Optional Commander Cube: 570/749. Last complete backend/full-cache validation: 12,935 passed (v626). Remaining scope below is not yet implemented or verified.
+- **Coverage baseline:** Current parser v626; authoritative measurement: 21,047/35,046 (60.1%), Commander-legal 20,272/32,068 (63.2%). Remeasure and synchronize CLAUDE.md, PARSER_LONG_TAIL.md and status.de/en.js after further parser changes.
 
 ### Remaining scope
 
-- Dies-this-turn bodies: Burn Away, Reincarnation, Rushed Rebirth, Fatal Fissure's earthbend, Sandals of Abdallah / Initiate of Blood source-referencing bodies, Time to Feed.
+- Dies-this-turn bodies: Reincarnation, Rushed Rebirth, Fatal Fissure's earthbend, Sandals of Abdallah / Initiate of Blood source-referencing bodies, Time to Feed.
 - Broader mana-ability counter riders.
 - Counter/pump-then-fight.
 - Flicker with riders.

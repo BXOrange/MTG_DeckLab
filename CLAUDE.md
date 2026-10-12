@@ -882,13 +882,13 @@ preserved across suspended effects. Additional draws accept fixed plural
 counts; Teferi's Puzzle Box uses hand-to-library ordering followed by a draw
 of the saved hand size, and Academy Loremaster uses a turn-scoped spell tax.
 
-**Coverage: 60.1% (21,046 / 35,046) as of 2026-10-12, measured at
-PARSER_VERSION 625** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 60.1% (21,047 / 35,046) as of 2026-10-12, measured at
+PARSER_VERSION 626** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`, excluding
 Sticker Sheet inserts by type line under RULE 123.2). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The last measured **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — was **63.2% (20,271 / 32,068)** at v625; measure
+matters for Goldfisch/Deck-Analyzer — was **63.2% (20,272 / 32,068)** at v626; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /

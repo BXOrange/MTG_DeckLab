@@ -5688,6 +5688,15 @@ def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("exile_target_graveyard", {"target_kind": "player"})]
 
 
+_EXILE_TRIGGER_CONTROLLER_GRAVEYARD_RE = _c(
+    r"exile (?:all cards from )?(?:its|(?:that|the) (?:creature|permanent)'?s) controller'?s graveyard"
+)
+
+
+def _exile_trigger_controller_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile_target_graveyard", {"player_from_trigger_event": True})]
+
+
 #: "search your library for a [<criteria>] card, [reveal it,] put it/that
 #: card/them/those cards <destination>, then shuffle." (RULE 701.19, the
 #: general tutor/ramp/fetch family — Demonic Tutor/Rampant Growth/Farseek/
@@ -17610,6 +17619,11 @@ HANDLERS: list[EffectHandler] = [
         "exile_target_graveyard",
         _EXILE_TARGET_GRAVEYARD_RE,
         _exile_target_graveyard,
+    ),
+    EffectHandler(
+        "exile_trigger_controller_graveyard",
+        _EXILE_TRIGGER_CONTROLLER_GRAVEYARD_RE, _exile_trigger_controller_graveyard,
+        group_subject_only=True,
     ),
     # "Its controller may search their library for a basic land card, put
     # it onto the battlefield, then shuffle." (Assassin's Trophy/

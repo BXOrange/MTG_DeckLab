@@ -1189,6 +1189,7 @@ EffectRegistry.register(
     lambda p: ExileTargetGraveyardEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
         card_type=p.get("card_type"),
+        player_from_trigger_event=bool(p.get("player_from_trigger_event", False)),
     ),
 )
 EffectRegistry.register(
