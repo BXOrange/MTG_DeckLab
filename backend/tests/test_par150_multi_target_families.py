@@ -386,3 +386,72 @@ def test_repulsive_mutation_taxes_by_the_greatest_power_after_the_counters_land(
     apply(eng, src, effects, [mine, victim], groups=[[mine], [victim]])
     assert mine.counters.get("+1/+1") == 3
     assert victim.zone == Zone.GRAVEYARD  # Bob has no mana to pay {5}: countered (RULE 118.12a)
+
+
+# --- source-bound steals (milestone 2) -----------------------------------------------------------------------------
+
+
+def _steal_setup(text):
+    """A battlefield source controlled by p1 whose steal clause `text` is bound and applied to chosen targets."""
+    from mtg_analyzer.game.binding.core import build_effects
+
+    eng, p1, p2 = two_player_engine()
+    src = board_creature(eng, "Thief", "p1")
+    return eng, src, build_effects(parse_effect_body(text), src)
+
+
+def test_source_bound_steal_parses_single_and_plural_with_the_condition():
+    single = only_spec("gain control of target creature for as long as you control ~")
+    assert (single.type, single.params["static"]["type"], single.params["duration"]) == (
+        "grant_until", "control_change", "for_as_long_as",
+    )
+    assert single.params["condition"] == {"kind": "source_controlled_by_you"}
+    plural = only_spec("gain control of up to 2 target creatures for as long as this saga remains on the battlefield")
+    assert plural.params["condition"] == {"kind": "source_on_battlefield"}
+    assert (plural.params["count"], plural.params["optional"]) == (2, True)
+
+
+def test_source_bound_steal_refuses_a_player_pool_and_other_conditions():
+    assert parse_effect_body("gain control of up to 2 target players for as long as you control ~") is None
+    assert parse_effect_body("gain control of target creature for as long as ~ remains tapped") is None
+
+
+def test_source_bound_steal_ends_when_the_source_leaves_the_battlefield():
+    eng, src, effects = _steal_setup("gain control of target creature for as long as ~ remains on the battlefield")
+    victim = board_creature(eng, "Victim", "p2")
+    apply(eng, src, effects, [victim])
+    eng.recompute_continuous_effects()
+    assert victim.controller_id == "p1"
+    eng.state.battlefield.remove(src)  # RULE 611.2b: the duration ended
+    eng.recompute_continuous_effects()
+    assert victim.controller_id == "p2"
+
+
+def test_source_bound_steal_survives_the_source_changing_controller_when_it_only_needs_the_battlefield():
+    eng, src, effects = _steal_setup("gain control of target creature for as long as ~ remains on the battlefield")
+    victim = board_creature(eng, "Victim", "p2")
+    apply(eng, src, effects, [victim])
+    src.controller_id = "p2"
+    eng.recompute_continuous_effects()
+    assert victim.controller_id == "p1"  # the steal was fixed to the resolving controller
+
+
+def test_source_bound_steal_you_control_ends_when_you_lose_the_source():
+    eng, src, effects = _steal_setup("gain control of target creature for as long as you control ~")
+    victim = board_creature(eng, "Victim", "p2")
+    apply(eng, src, effects, [victim])
+    eng.recompute_continuous_effects()
+    assert victim.controller_id == "p1"
+    src.controller_id = "p2"
+    eng.recompute_continuous_effects()
+    assert victim.controller_id == "p2"
+
+
+def test_source_bound_steal_takes_every_chosen_target():
+    eng, src, effects = _steal_setup(
+        "gain control of up to 2 target creatures for as long as this saga remains on the battlefield"
+    )
+    a, b, c = (board_creature(eng, n, "p2") for n in "ABC")
+    apply(eng, src, effects, [a, b])
+    eng.recompute_continuous_effects()
+    assert (a.controller_id, b.controller_id, c.controller_id) == ("p1", "p1", "p2")

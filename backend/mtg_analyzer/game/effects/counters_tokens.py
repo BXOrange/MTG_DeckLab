@@ -757,6 +757,11 @@ class GrantUntilEffect(GameEffect):
                 params[k] = x_paid
             elif params.get(k) == "-x":
                 params[k] = -x_paid
+        if spec_type == "control_change" and not params.get("controller"):
+            # RULE 611.2b: "gain control of ... for as long as <condition>" hands the permanent to whoever controlled
+            # the resolving ability, fixed now -- not to the source's controller at each later recompute (the source
+            # may itself change hands while "~ remains on the battlefield").
+            params["controller"] = controller_id
         ability = EffectRegistry.create(str(spec_type), params)
         if not isinstance(ability, StaticAbility):
             return

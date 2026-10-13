@@ -3952,7 +3952,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      `GainControlUntilEndOfTurnEffect.count`), goad (Sifa Grent; "those creatures can't block this turn" after the per-opponent
 #      goad: Sontaran General) and keyword grants (Invisible Force Field, Mogis's Marauder, Voyager Drake -- `PumpEffect` count /
 #      `counted:` + `source_kicker_count` target-count selectors); Repulsive Mutation's "pays mana equal to the greatest power".
-PARSER_VERSION = "642"
+PARSER_VERSION = "643"
 
 
 def parser_source_hash() -> str:

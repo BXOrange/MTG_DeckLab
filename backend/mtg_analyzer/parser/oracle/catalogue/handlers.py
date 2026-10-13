@@ -6827,6 +6827,62 @@ def _gain_control_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("gain_control_until_eot", params)]
 
 
+#: PAR-150 milestone 2: the **source-bound** steal -- "gain control of target creature for as long as you control ~"
+#: (Dragonlord Silumgar, Mind Flayer), "... for as long as ~ remains on the battlefield" (Sower of Temptation, Giant's
+#: Grasp), "... up to two target creatures ... for as long as this Saga remains on the battlefield" (a Saga chapter).
+#: RULE 611.2b: the control change is a layer-2 `control_change` static parked by `grant_until` with the
+#: `for_as_long_as` duration (`game/durations.py`) -- it ends the moment the condition stops holding.
+_GAIN_CONTROL_WHILE_TAIL = (
+    r" for as long as (?P<cond>you control (?:~|this saga)|(?:~|this saga) remains on the battlefield)"
+)
+_GAIN_CONTROL_WHILE_SINGLE_RE = _c(rf"gain control of {TARGET}{_GAIN_CONTROL_WHILE_TAIL}")
+_GAIN_CONTROL_WHILE_MULTI_RE = _c(
+    rf"gain control of {_MULTI_TARGET_QUANTIFIER_X}(?P<target>{_MULTI_TARGET_ALT}){_GAIN_CONTROL_WHILE_TAIL}"
+)
+#: RULE 611.2b: "you control ~" ends when the source leaves *your* control; "~ remains on the battlefield" only when
+#: it leaves the battlefield (a controller change of the source does not end the steal).
+_GAIN_CONTROL_WHILE_CONDITIONS = (
+    (re.compile(r"you control"), {"kind": "source_controlled_by_you"}),
+    (re.compile(r"(?:~|this saga) remains on the battlefield"), {"kind": "source_on_battlefield"}),
+)
+
+
+def _gain_control_while_spec(m: re.Match[str], params: dict) -> Optional[list[EffectSpec]]:
+    if params["target_kind"] not in _GAIN_CONTROL_MULTI_KINDS or params.get("distinct_controllers"):
+        return None
+    condition = next(
+        (dict(cond) for pattern, cond in _GAIN_CONTROL_WHILE_CONDITIONS if pattern.match(m.group("cond"))), None,
+    )
+    if condition is None:
+        return None
+    return [EffectSpec("grant_until", {
+        "static": {"type": "control_change", "params": {}},
+        "duration": "for_as_long_as", "condition": condition, **params,
+    })]
+
+
+def _gain_control_while_single(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind, **_optional_param(m)}
+    quality = target_quality_filter(m.group("target"))  # "with power 2 or less"
+    if quality:
+        params["creature_filter"] = quality
+    return _gain_control_while_spec(m, params)
+
+
+def _gain_control_while_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None:
+        return None
+    if params["target_kind"] == "any":
+        if m.group("target").lower().strip() != "target creatures and/or planeswalkers":
+            return None
+        params["target_kind"] = "creature_or_planeswalker"  # a player can't be gained control of
+    return _gain_control_while_spec(m, params)
+
+
 #: The untargeted mass sibling — "Untap all creatures and gain control of
 #: them until end of turn. They gain haste until end of turn." (Insurrection)
 #: — RULE 601.2c's "all creatures" over the same `GainControlUntilEndOfTurnEffect`,
@@ -18570,6 +18626,9 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "gain control of up to N / any number of / X target creatures [until end of turn]" (PAR-150).
     EffectHandler("gain_control_multi", _GAIN_CONTROL_MULTI_RE, _gain_control_multi),
+    # "gain control of [up to N] target <kind> for as long as you control ~ / ~ remains on the battlefield" (PAR-150).
+    EffectHandler("gain_control_while_single", _GAIN_CONTROL_WHILE_SINGLE_RE, _gain_control_while_single),
+    EffectHandler("gain_control_while_multi", _GAIN_CONTROL_WHILE_MULTI_RE, _gain_control_while_multi),
     # "Untap all creatures and gain control of them until end of turn. They
     # gain haste until end of turn." (Insurrection's own mass threaten).
     EffectHandler(
