@@ -3940,7 +3940,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Hurl Through Hell), the discard-exile window (Moonstone), each-player top-card windows with any-type mana (Lidless Gaze),
 #      "Activate only during your turn and only once each turn" (Snowslope Hunter), Adventure-from-graveyard (Mosswood Dreadknight)
 #      and grant/pump "until the end of your next turn".
-PARSER_VERSION = "639"
+# 640: PAR-161 -- "<target>'s owner / the owner of <target> puts it on their choice of the top or bottom of their library"
+#      (`owner_puts_on_top_or_bottom`, RULE 401.4: the owner answers a `library_position` choice): Run Behind, Trip Up,
+#      Desynchronize, Misleading Motes, Sudden Setback (spell or nonland permanent), ... and their trailing scry/surveil/token clauses.
+PARSER_VERSION = "640"
 
 
 def parser_source_hash() -> str:

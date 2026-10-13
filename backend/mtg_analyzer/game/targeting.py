@@ -313,6 +313,8 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.
         "spell_or_nonland_permanent_you_dont_control",
+        # "the owner of target spell or nonland permanent puts it on their choice of the top or bottom" (Sudden Setback, PAR-161).
+        "spell_or_nonland_permanent",
         # "target spell, nonland permanent, or card in a graveyard" (Endless Detour) — the unscoped three-way union.
         "spell_nonland_permanent_or_graveyard_card",
         # "target commander that entered this turn" (Forge of Heroes) — a commander on the battlefield that arrived this turn.
@@ -777,6 +779,7 @@ class TargetSpec:
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
             "spell_or_creature": "Zauberspruch oder Kreatur",
+            "spell_or_nonland_permanent": "Zauberspruch oder nichtländliches bleibendes Objekt",
             "commander_entered_this_turn": "Commander, der in diesem Zug ins Spiel kam",
             "artifact_enchantment_or_tapped_creature_you_dont_control":
                 "Artefakt, Verzauberung oder getappte Kreatur eines Gegners",
@@ -2149,7 +2152,9 @@ def _legal_targets_for(
             if o.is_creature and o.blocking == source.instance_id
             and _targetable_by(o, source)
         ]
-    if kind == "spell_or_nonland_permanent_you_dont_control":
+    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent"):
+        # PAR-161: the unscoped sibling ("the owner of target spell or nonland permanent …", Sudden Setback) drops the
+        # opponent-controls restriction below.
         # "Return target spell or nonland permanent an opponent controls to
         # its owner's hand." (Sink into Stupor) — the union of the plain
         # ``"spell"`` branch's own options (any spell on the stack; nothing
@@ -2168,7 +2173,7 @@ def _legal_targets_for(
             for o in state.permanents()
             if (o.is_creature or o.is_planeswalker
                 or o.card.is_artifact or o.card.is_enchantment)
-            and o.controller_id not in (None, controller_id)
+            and (kind == "spell_or_nonland_permanent" or o.controller_id not in (None, controller_id))
             and o is not source
             and _targetable_by(o, source)
         ]

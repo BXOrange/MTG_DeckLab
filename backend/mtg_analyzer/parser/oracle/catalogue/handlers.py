@@ -5215,6 +5215,42 @@ def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_to_library", {"target_kind": None, **_library_placement_params(m)})]
 
 
+#: PAR-161: "[The owner of] target `<permanent>` [('s owner)] puts it on their choice of the top or bottom of their
+#: library." (Run Behind, Trip Up, Desynchronize, Run Out of Town, Sudden Setback, …) — RULE 401.4 puts the
+#: decision with the target's *owner*, so it rides `owner_puts_on_top_or_bottom`'s `library_position` choice (an
+#: opponent-owned card asks that opponent). Only the unscoped/opponent-scoped kinds `legal_targets` already resolves
+#: are claimed; a creature-state qualifier ("attacking", "tapped") would be dropped silently, so it fails closed.
+_OWNER_LIBRARY_CHOICE_KINDS: frozenset[str] = frozenset(
+    {
+        "creature", "nonland_permanent", "artifact_or_creature", "creature_you_dont_control",
+        "nonland_permanent_you_dont_control",
+    }
+)
+_OWNER_LIBRARY_CHOICE_TAIL = r"puts it on (?:their choice of )?the top or bottom of their library"
+_OWNER_PUTS_LIBRARY_CHOICE_RE = _c(
+    rf"(?:the owner of (?:{TARGET}|(?P<spell_a>target spell or nonland permanent))"
+    rf"|(?:{target_macro('_b')}|(?P<spell_b>target spell or nonland permanent))'s owner) "
+    + _OWNER_LIBRARY_CHOICE_TAIL
+)
+
+
+def _owner_puts_library_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    groups = m.groupdict()
+    if groups.get("spell_a") or groups.get("spell_b"):
+        kind: Optional[str] = "spell_or_nonland_permanent"
+        optional = False
+    else:
+        suffix = "" if groups.get("target") else "_b"
+        phrase = groups["target" + suffix]
+        kind = resolve_target_kind(phrase)
+        if not target_kind_allowed(kind, _OWNER_LIBRARY_CHOICE_KINDS):
+            return None
+        if resolve_target_creature_state_filter(phrase):
+            return None
+        optional = bool(groups.get("up_to_one" + suffix))
+    return [EffectSpec("owner_puts_on_top_or_bottom", {"target_kind": kind, "optional": optional})]
+
+
 #: "Put target card from a graveyard on the bottom of its owner's library."
 #: (PAR-83 — Junktroller/Chrome Companion).  This is deliberately a
 #: ``return_to_library`` spec rather than a shuffle: RulesEngine.
@@ -18061,6 +18097,8 @@ HANDLERS: list[EffectHandler] = [
         _return_to_library,
     ),
     # "put ~ / it … on the bottom of / third from the top of its owner's library" (self form).
+    # PAR-161: "target creature's owner puts it on their choice of the top or bottom of their library."
+    EffectHandler("owner_puts_library_choice", _OWNER_PUTS_LIBRARY_CHOICE_RE, _owner_puts_library_choice),
     EffectHandler("return_self_to_library", _RETURN_SELF_TO_LIBRARY_RE, _return_self_to_library),
     EffectHandler("put_self_graveyard_top", _PUT_SELF_GRAVEYARD_TOP_RE, _put_self_graveyard_top),
     EffectHandler("return_attached_to_library", _RETURN_ATTACHED_TO_LIBRARY_RE, _return_attached_to_library),
