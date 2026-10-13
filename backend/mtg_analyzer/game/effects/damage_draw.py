@@ -496,6 +496,16 @@ class DealDamageEffect(GameEffect):
             if recipient is not None:
                 context.deal_damage(recipient, self._amount_for(recipient, context), self.source)
             return
+        if self.recipient_subject == "previous_subject_object":
+            # "~ deals N damage to **that creature**" (Spiked Pit Trap's results rows): the object an earlier
+            # clause (or the header, RULE 601.2c) chose. Damage goes to it only while it is still on the
+            # battlefield; an object that left is not damaged (the header target itself is rechecked at
+            # resolution, RULE 608.2b).
+            prev = list(context.previous_targets)
+            obj = prev[0] if prev else None
+            if obj is not None and getattr(obj, "zone", None) == Zone.BATTLEFIELD:
+                context.deal_damage(obj, self._amount_for(obj, context), self.source)
+            return
         if self.recipient_subject is not None:
             who = self.recipient_subject.rpartition("_")[0]  # strip trailing "_controller"
             obj = None

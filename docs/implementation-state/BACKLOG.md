@@ -49,7 +49,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-161`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-164`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -95,8 +95,16 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
-- **PAR-147 · Dice grammar — remaining axes.** Per-card referents for the roll-modifier cards, results tables blocked on other
-  primitives, one-off result readers; residue in `workingOn.md`.
+- **PAR-161 · "Its owner puts it on their choice of the top or bottom of their library."** 24 SOLO (32 total, PV 636):
+  Aether Gust, Misleading Motes, Desynchronize, Hinder, Lost in Space, Return to the Sewers, …. Needs the owner's
+  interactive top-or-bottom pick (a player choice, `continuations.py`) after the referent's move; size with
+  `parser_probe.py blocked 'top or bottom of (?:their|its owner.s) library'`.
+- **PAR-162 · "Put target card from your graveyard on top of your library."** 27 SOLO (31 total, PV 636): Golgari Thug,
+  Haunted Crossroads, Aphetto Vulture, Dead Reckoning, …; also two of Aberrant Mind Sorcerer's dice rows. Check the
+  existing graveyard-target kinds and library-placement primitives first.
+- **PAR-163 · The duration "until the end of your next turn".** 36 SOLO (51 total, PV 636) across effects — control
+  changes (Evil's Thrall, Treasure Nabber, Power of Persuasion), impulse plays, grants. Check `game/durations.py`
+  (RULE 611) for an existing expiry before adding one; split the effect families by yield.
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal

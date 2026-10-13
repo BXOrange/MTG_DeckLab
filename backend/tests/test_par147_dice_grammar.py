@@ -820,3 +820,98 @@ def test_of_those_tokens_rows_repeat_the_first_rows_token(script_dice, face, gob
     _enter(eng, obj)
     eng.resolve_until_stable()
     assert len(_on_battlefield(eng, "Goblin")) == goblins
+
+
+# --- execute: target-header tables (RULE 601.2c announced target, referent survives the roll) -------
+
+
+_LIVESTOCK = _card(
+    "Contraband Livestock", "Sorcery",
+    "Exile target creature, then roll a d20.\n1—9 | Its controller creates a 4/4 green Ox creature token.\n"
+    "10—19 | Its controller creates a 2/2 green Boar creature token.\n"
+    "20 | Its controller creates a 0/1 white Goat creature token.",
+    is_sorcery=True,
+)
+
+
+@pytest.mark.parametrize("face,token", [(4, "Ox"), (15, "Boar"), (20, "Goat")])
+def test_contraband_livestock_gives_the_exiled_creatures_controller_the_rolled_token(script_dice, face, token):
+    assert parse_oracle(_LIVESTOCK).modeled
+    eng = _engine()
+    bear = _put(eng, _creature_card("Bear", "", power=2, toughness=2), controller="p2")
+    script_dice(face)
+    _cast(eng, _LIVESTOCK, targets=[bear])
+    assert bear.zone == Zone.EXILE
+    assert len(_on_battlefield(eng, token, "p2")) == 1
+    assert not _on_battlefield(eng, token, "p1")
+
+
+def test_its_controller_creates_needs_an_earlier_target():
+    # With no earlier clause the "its" has no referent, so the sentence stays unclaimed.
+    assert parse_effect_body("its controller creates a treasure token") is None
+    specs = parse_effect_body("exile target nonland permanent. its controller creates a treasure token")
+    assert [s.type for s in specs] == ["exile", "create_token"]
+    assert specs[1].params["creators"] == "previous_target_controller"
+
+
+_RAVENFORM = _card(
+    "Ravenform Test", "Sorcery",
+    "Exile target artifact or creature. Its controller creates a 1/1 blue Bird creature token with flying.",
+    is_sorcery=True,
+)
+
+
+def test_exile_then_its_controller_creates_a_token_for_the_opponent():
+    assert parse_oracle(_RAVENFORM).modeled
+    eng = _engine()
+    bear = _put(eng, _creature_card("Bear", "", power=2, toughness=2), controller="p2")
+    _cast(eng, _RAVENFORM, targets=[bear])
+    assert len(_on_battlefield(eng, "Bird", "p2")) == 1
+    assert not _on_battlefield(eng, "Bird", "p1")
+
+
+_AFTERLIFE = _card(
+    "Afterlife Test", "Instant",
+    "Destroy target creature. It can't be regenerated. Its controller creates a 1/1 white Spirit creature token "
+    "with flying.",
+    is_instant=True,
+)
+
+
+def test_destroy_then_its_controller_creates_a_token_for_the_last_known_controller():
+    assert parse_oracle(_AFTERLIFE).modeled
+    eng = _engine()
+    bear = _put(eng, _creature_card("Bear", "", power=2, toughness=2), controller="p2")
+    _cast(eng, _AFTERLIFE, targets=[bear])
+    assert bear.zone == Zone.GRAVEYARD
+    assert len(_on_battlefield(eng, "Spirit", "p2")) == 1
+    assert not _on_battlefield(eng, "Spirit", "p1")
+
+
+_PIT_TRAP = _card(
+    "Spiked Pit Trap", "Artifact",
+    "Flash\n{5}, {T}, Sacrifice this artifact: Choose target creature, then roll a d20.\n"
+    "1—9 | This artifact deals 5 damage to that creature.\n"
+    "10—20 | This artifact deals 5 damage to that creature. Create a Treasure token.",
+)
+
+
+@pytest.mark.parametrize("face,treasure", [(4, 0), (9, 0), (10, 1), (20, 1)])
+def test_spiked_pit_trap_damages_the_announced_creature_and_pays_out_a_treasure(script_dice, face, treasure):
+    assert parse_oracle(_PIT_TRAP).modeled
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    ogre = _put(eng, _creature_card("Ogre", "", power=4, toughness=9), controller="p2")
+    trap = _put(eng, _PIT_TRAP)
+    p1.mana_pool.add_many({"C": 5})
+    script_dice(face)
+    eng.activate_ability(p1, trap, targets=[ogre])
+    eng.resolve_until_stable()
+    assert ogre.damage_marked == 5
+    assert len(_on_battlefield(eng, "Treasure", "p1")) == treasure
+
+
+def test_damage_to_that_creature_needs_an_earlier_target():
+    [spec] = parse_effect_body("~ deals 5 damage to that creature", previous_subject=True)
+    assert spec.params["recipient_subject"] == "previous_subject_object"
+    assert parse_effect_body("~ deals 5 damage to that creature") is None  # no earlier target to name

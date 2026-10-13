@@ -3930,7 +3930,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      not), the Endeavor halves (search for X / a fixed N basic lands, "return a creature card … with X +1/+1 counters on it",
 #      "cast an instant or sorcery spell with mana value less than or equal to the other result"), and the results-table rows now
 #      read the spell's announced X ("Draw X cards"); a table row's "create N of those tokens" repeats an earlier row's token.
-PARSER_VERSION = "635"
+# 636: PAR-147 — target-header results tables: "its controller creates a <token>" after an earlier target (the permanent's
+#      last-known controller makes it, RULE 608.2h; also closes the destroy/exile + "its controller creates" cards) and
+#      "~ deals N damage to that creature" (the announced creature, still on the battlefield) as table rows (Contraband Livestock,
+#      Spiked Pit Trap).
+PARSER_VERSION = "636"
 
 
 def parser_source_hash() -> str:

@@ -539,6 +539,19 @@ def _damage_to_prev_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-147: "~ deals N damage to **that creature**" - the creature an earlier clause (or a results table's
+#: "choose target creature, then roll" header) chose, not its controller. Offered only after such a clause
+#: (`previous_subject_only`); `DealDamageEffect.recipient_subject="previous_subject_object"` damages it only while
+#: it is still a battlefield permanent.
+_DAMAGE_TO_PREV_OBJECT_RE = _c(
+    r"(?:~|this [a-z]+) deals? (?P<n>\d+) damage to (?:that (?:creature|permanent|planeswalker)|it)"
+)
+
+
+def _damage_to_prev_object(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {"amount": int(m.group("n")), "recipient_subject": "previous_subject_object"})]
+
+
 def _damage_to_trigger_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
         "amount": int(m.group("n")), "recipient_subject": "trigger_subject_controller",
@@ -9348,6 +9361,26 @@ def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("create_token", params)]
 
 
+#: PAR-147: "<destroy/exile/choose> target <permanent>. **Its controller creates** a <token>." (Contraband Livestock's
+#: results rows, Buy Your Silence, Ravenform, Afterlife, ...). The "its" is the permanent an earlier clause of the
+#: same ability targeted (RULE 608.2h last-known information: it is usually gone by now), so the row is offered only
+#: after such a clause (`previous_subject_only`) and reads the create as its second-person form run by
+#: `CreateTokenEffect.creators="previous_target_controller"`. Anything the plain create rows do not claim as one
+#: ordinary token creation stays unclaimed.
+_PREVIOUS_CONTROLLER_CREATES_RE = _c(r"its controller (?P<rest>creates? .+)")
+
+
+def _previous_controller_creates(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    effects = _match_clause_once(m.group("rest"))
+    if (
+        effects is None or len(effects) != 1 or effects[0].type != "create_token"
+        or effects[0].params.get("creators") is not None or effects[0].params.get("target_kind") is not None
+        or effects[0].params.get("per_opponent") or effects[0].params.get("attacking")
+    ):
+        return None
+    return [EffectSpec("create_token", {**effects[0].params, "creators": "previous_target_controller"})]
+
+
 #: PAR-104: "whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create a Mutagen
 #: token for each +1/+1 counter on it." (The Ooze) — under a group trigger "it" is the firing creature, and the
 #: `counters` amount reads its counters live, or from the leave event's RULE 603.10a snapshot once it is gone.
@@ -16544,6 +16577,9 @@ HANDLERS: list[EffectHandler] = [
         previous_subject_only=True,
     ),
     EffectHandler(
+        "damage_to_prev_object", _DAMAGE_TO_PREV_OBJECT_RE, _damage_to_prev_object, previous_subject_only=True,
+    ),
+    EffectHandler(
         "damage_to_trigger_subject_controller",
         _DAMAGE_TO_SUBJECT_CONTROLLER_RE, _damage_to_trigger_subject_controller,
         group_subject_only=True,
@@ -20549,6 +20585,10 @@ HANDLERS: list[EffectHandler] = [
     # "create a number of tapped Treasure tokens equal to its power."
     # (Goldvein Hydra) — tried before the flat-count row above (its `COUNT`
     # can't match "a number of … equal to …").
+    EffectHandler(
+        "previous_controller_creates", _PREVIOUS_CONTROLLER_CREATES_RE, _previous_controller_creates,
+        previous_subject_only=True,
+    ),
     EffectHandler(
         "create_named_token_eq_its_self",
         _CREATE_NAMED_TOKEN_EQ_ITS_RE,
