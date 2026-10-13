@@ -307,3 +307,11 @@ The opponent-caused discard trigger head and the `discard_to_battlefield` replac
 | Orvar, the All-Form | `whenever you cast an instant or sorcery spell, if it targets 1 or more other permanents you control, create a token that's a copy of 1 of those permanents.` | Its discard trigger parses; the cast trigger needs a "targets N or more permanents you control" intervening-if plus a copy of one of the spell's targets. |
 | Nephalia Academy | `if a spell or ability an opponent controls causes you to discard a card, you may reveal that card and put it on top of your library instead of putting it anywhere else.` | Needs a discard replacement scanned from a battlefield permanent (not the discarded card's own) with a may-choice; `discard_to_battlefield` only reads the discarded object's replacements. Pair with Library of Leng. |
 | Library of Leng | `if an effect causes you to discard a card, discard it, but you may put it on top of your library instead of into your graveyard.` | Same battlefield-scanned replacement as Nephalia Academy, not opponent-scoped (any effect, RULE 701.9). |
+
+## Batch 10 — 2026-10-13 PAR-164 close-out (PARSER_VERSION 646)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Innocent Bystander | `whenever ~ is dealt 3 or more damage, investigate.` | The ruling counts all simultaneously dealt damage together, but the DAMAGE event is per source; a per-source threshold would under-trigger. Needs a per-batch recipient total. |
+| Sandbender Scavengers | `when ~ dies, you may exile it. when you do, exile target card with mana value less than or equal to ~'s power from a graveyard.` | The reflexive exile is claimed (PAR-164); the target filter needs the source's last-known power (RULE 608.2h). |
+| Gamekeeper, Arena Rector | `when ~ dies, you may exile it. if you do, <payoff>.` | The inline "if you do" form needs a success-gated inline mode on `may_exile_source_then` (RULE 608.2c); the reflexive "when you do" form is modeled. 2-card pair; hand-author or add the mode. |

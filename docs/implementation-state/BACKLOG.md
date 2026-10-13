@@ -84,13 +84,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
-- **PAR-164 · Small verified residue batch (next-turn duration close-out).** One sub-bullet per shape, each sized with
-  `parser_probe.py blocked`:
-  - trigger head "whenever ~ deals / is dealt N or more damage" (5 SOLO, PV 637: Deus of Calamity, Dragonborn Champion,
-    Innocent Bystander, Pain Magnification, Spinneret and Spiderling) — a damage-amount threshold filter on the damage
-    trigger.
-  - reflexive head "you may exile it. When you do, `<effect>`" (3 SOLO by `blocked 'you may exile (?:it|that card|~)\. when you do'`,
-    PV 638; Flitting Guerrilla, Paramecia Coloniex, …; their library-top halves are already modeled).
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal

@@ -3959,7 +3959,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      cause controller (`LoseLifeEffect` selector `event_cause_controller`) and the Wilt-Leaf Liege `discard_to_battlefield` replacement
 #      row: Ajani's Last Stand, Gorilla/Guerrilla Tactics, Mangara's Blessing, Metrognome, Psychic Purge, Quagnoth, Sand Golem,
 #      Spiritual Focus, Wilt-Leaf Liege.
-PARSER_VERSION = "644"
+# 645/646: PAR-164 -- "whenever ~ / a source you control deals N or more damage [to <recipient>]" and "an opponent is dealt N or more damage by a
+#      single source" (RULE 120.3: one DAMAGE event is one source's damage to one recipient; threshold = the trigger filter's
+#      `event_minimums.amount`; "that player" under such a group head is now the damaged player): Deus of Calamity, Dragonborn Champion,
+#      Pain Magnification, Spinneret and Spiderling. "When ~ dies, you may exile it/this card. When you do, <targeted payoff>"
+#      (`may_exile_source_then`, self-subject dies trigger only, `_may_exile_source_ok`): Paramecia Coloniex, The Balrog of Moria, Flitting
+#      Guerrilla, Doombot Harbinger; the "if you do" spelling stays unclaimed (nothing gates the payoff on the exile, RULE 608.2c).
+PARSER_VERSION = "646"
 
 
 def parser_source_hash() -> str:
@@ -4572,6 +4578,18 @@ def _opponents_batch_ok(spec: AbilitySpec) -> bool:
     if spec.ability_kind != "triggered" or not trigger.get("opponents_batch"):
         return True
     return trigger.get("event") != "DAMAGE" or bool(trigger.get("limit"))
+
+
+def _may_exile_source_ok(spec: AbilitySpec) -> bool:
+    """PAR-164: `may_exile_source_then` exiles the ability's own source *from the graveyard*, so it is only
+    sound as the body of a self-subject dies trigger (RULE 700.4); anywhere else "it" is another object."""
+    if not contains_marker(spec.effects, "may_exile_source_then"):
+        return True
+    trigger = spec.trigger or {}
+    return (
+        spec.ability_kind == "triggered" and trigger.get("event") == "DIES"
+        and (trigger.get("condition") or {}).get("subject") == "self"
+    )
 
 
 def _action_limit_ok(spec: AbilitySpec) -> bool:
@@ -5482,6 +5500,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _opponents_batch_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
+        if not _may_exile_source_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _action_limit_ok(spec):

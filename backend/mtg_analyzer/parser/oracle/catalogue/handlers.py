@@ -8141,6 +8141,27 @@ _MAY_COST_THEN_CLAUSE = (
     # `_pay_cost_then_general` refuses it under a group trigger.
     r"|remove (?:a|an|\d+) (?:[+\-]\d/[+\-]\d |[a-z]+(?: strike)? )?counters? from (?:~|it|this [a-z]+)"
 )
+#: PAR-164: "When ~ dies, you may exile it. When you do, `<targeted payoff>`." (Paramecia Coloniex, Sandbender
+#: Scavengers, The Balrog of Moria) — RULE 603.12's reflexive trigger behind an optional exile of the dying card
+#: itself. By the time the dies trigger resolves the source is a card in a graveyard, so the exile is the
+#: `may_exile_source_then` resolution primitive (not a `pay_cost_then` cost, which cannot name a graveyard card);
+#: `gate._may_exile_source_ok` keeps it to a self-subject dies trigger, the only head under which "it" is that card.
+_MAY_EXILE_SOURCE_THEN_RE = _c(
+    r"you may exile (?:it|~|this (?:creature|card|permanent)|that card)\.\s*when you do,?\s*(?P<effect>.+)"
+)
+
+
+def _may_exile_source_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body
+
+    if _GROUP_CLAUSE.get():
+        return None  # under a group trigger "it" is the firing object, not the card that exiles itself
+    sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
+    if not sub or not any(s.params.get("target_kind") or s.params.get("per_player") for s in sub):
+        return None  # an untargeted payoff would not need a reflexive trigger: keep the plain readings
+    return [EffectSpec("may_exile_source_then", {"then_trigger": [s.to_dict() for s in sub]})]
+
+
 _PAY_COST_THEN_GENERAL_RE = _c(
     r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
 )
@@ -18857,6 +18878,7 @@ HANDLERS: list[EffectHandler] = [
         _PAY_COST_THEN_GENERAL_RE,
         _pay_cost_then_general,
     ),
+    EffectHandler("may_exile_source_then", _MAY_EXILE_SOURCE_THEN_RE, _may_exile_source_then),
     # MEC-103: "sacrifice up to N / any number of <type>. When you sacrifice
     # one or more this way, <payoff with "that many">."
     EffectHandler(

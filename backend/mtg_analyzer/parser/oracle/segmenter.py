@@ -7404,6 +7404,23 @@ def segment_line(
     return whole
 
 
+_GROUP_CONTROLLER_OPERAND = {"of": "entering", "as": "controller"}
+_DAMAGED_PLAYER_OPERAND = {"of": "damaged_player"}
+
+
+def _retarget_group_controller(node: Any) -> Any:
+    """Rewrite every group-subject-controller player operand in an effect tree to the damaged player."""
+    if isinstance(node, EffectSpec):
+        return replace(node, params=_retarget_group_controller(node.params))
+    if isinstance(node, dict):
+        if node == _GROUP_CONTROLLER_OPERAND:
+            return dict(_DAMAGED_PLAYER_OPERAND)
+        return {k: _retarget_group_controller(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_retarget_group_controller(v) for v in node]
+    return node
+
+
 def _segment_line_unsplit(
     line: str,
     *,
@@ -9291,6 +9308,15 @@ def _segment_line_unsplit(
         effects = stamped
         if composed_head and _group_it_would_hit_source(condition, body, effects):
             return Segment(raw=raw)
+        if (
+            composed_head and event == "DAMAGE" and (condition or {}).get("subject") == "group"
+            and (head_trigger.get("filter") or {}).get("is_player") and re.search(r"\bthat player\b", body)
+        ):
+            # PAR-164: under a group DAMAGE head with a player recipient, "that player" is the damaged
+            # player (RULE 120.3), not the controller of the damage source the group referent names.
+            if re.search(r"\bits controller\b", body):
+                return Segment(raw=raw)  # both referents in one body: ambiguous, fail closed
+            effects = [_retarget_group_controller(e) for e in effects]
         if event == "PLAYER_ATTACKED" and _reads_event_amount(effects):
             # "Whenever one or more creatures you control attack, … that much/many" (Grand Warlord Radha, Ohran
             # Viper-shaped): `PLAYER_ATTACKED` fires once per defender and carries no amount, so the count is read off
@@ -9460,7 +9486,11 @@ def _segment_line_unsplit(
 #: vocabulary excludes bare self-sacrifice).
 _PAY_ENERGY_THEN_PEEL_GUARD_RE = re.compile(
     r"^you may (?:pay (?:\{e\})+|" + _MAY_COST_THEN_CLAUSE + r"|"
-    + _MAY_EFFECT_THEN_ANTECEDENT_PHRASES + r")\.\s*(?:if|when) you do",
+    + _MAY_EFFECT_THEN_ANTECEDENT_PHRASES + r")\.\s*(?:if|when) you do"
+    # PAR-164: "you may exile it. when you do, <payoff>" (`may_exile_source_then`) keeps its "you may" for the
+    # primitive's own prompt. Only the reflexive spelling: "if you do" would resolve inline and nothing gates
+    # the payoff on the exile actually happening (RULE 608.2c), so that form stays on the old, unclaimed path.
+    r"|^you may exile (?:it|this card)\.\s*when you do",
     re.IGNORECASE,
 )
 

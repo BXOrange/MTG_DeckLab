@@ -84,8 +84,14 @@ _ACTOR_SCOPE: dict[str, str] = {
 #: DAMAGE event names its *source* (``source_id``/``source_controller_id``), so
 #: the subject phrase filters the damage source; the recipient is player-or-object.
 _DAMAGE_HEAD = re.compile(
-    r"^(?P<subject>.+?)\s+deals\s+(?P<kind>combat |noncombat )?damage"
+    r"^(?P<subject>.+?)\s+deals\s+(?:(?P<min>\d+) or more )?(?P<kind>combat |noncombat )?damage"
     r"(?:\s+to\s+(?P<recipient>.+?))?(?P<tail>\s+during .+)?$"
+)
+#: PAR-164: "an opponent is dealt N or more damage by a single source" (Pain Magnification) — the
+#: recipient-side spelling of "a source deals N or more damage to an opponent": one DAMAGE event
+#: is exactly one source's damage to one recipient (RULE 120.3), so its amount is the threshold input.
+_PLAYER_DEALT_BY_SOURCE_HEAD = re.compile(
+    r"^(?P<who>an opponent|a player) is dealt (?P<min>\d+) or more damage by a single source$"
 )
 _DAMAGE_RECIPIENT_HEAD = re.compile(
     r"^(?P<subject>.+?)\s+is dealt\s+(?P<kind>combat |noncombat )?damage$"
@@ -203,6 +209,9 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
     kind = (m.group("kind") or "").strip()
     if kind:
         event_filter["combat"] = kind == "combat"
+    if m.group("min"):
+        # RULE 120.3 / 603.2: the threshold reads the amount of the single damage event.
+        event_filter["event_minimums"] = {"amount": int(m.group("min"))}
     if m.group("recipient"):
         recipient = _damage_recipient(m.group("recipient").strip())
         if recipient is None:
@@ -235,6 +244,17 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
             return None
         trigger.update(phase)
     return ObjectHead("DAMAGE", condition, trigger)
+
+
+def _parse_player_dealt_by_source_head(cond: str) -> Optional[ObjectHead]:
+    m = _PLAYER_DEALT_BY_SOURCE_HEAD.match(cond)
+    if m is None:
+        return None
+    recipient = _damage_recipient("an opponent" if m.group("who") == "an opponent" else "a player")
+    assert recipient is not None
+    condition: dict[str, Any] = {"subject": "group", "controller": "any", "other": False, **recipient[1]}
+    event_filter = {**recipient[0], "event_minimums": {"amount": int(m.group("min"))}}
+    return ObjectHead("DAMAGE", condition, {"filter": event_filter})
 
 
 def _parse_damage_recipient_head(cond: str) -> Optional[ObjectHead]:
@@ -501,6 +521,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         return ObjectHead(*player)
     actor = (
         _parse_actor_head(cond) or _parse_damage_head(cond) or _parse_damage_recipient_head(cond)
+        or _parse_player_dealt_by_source_head(cond)
         or _parse_becomes_target_head(cond) or _parse_group_attack_head(cond)
         or _parse_attack_batch_head(cond)
         or _parse_block_relation_head(cond) or _parse_exploit_head(cond) or _parse_batch_quantity_head(cond)
