@@ -614,7 +614,7 @@ class MiscSystemsMixin:
 
     def _request_exile_source_then(
         self, player: Player, source: GameObject, then_trigger_specs: list[dict],
-        prompt: Optional[str] = None,
+        prompt: Optional[str] = None, event: Optional[GameEvent] = None,
     ) -> None:
         """Offer ``You may exile this card. If you do, ...`` during a
         resolution.  This is intentionally separate from ``ActivationCost``:
@@ -627,6 +627,9 @@ class MiscSystemsMixin:
             "player_id": player.id,
             "source": source,
             "then_trigger_specs": [dict(d) for d in then_trigger_specs],
+            # RULE 608.2h: the firing (dies) event rides along so the reflexive payoff reads the source's
+            # last-known characteristics ("~'s power") from it.
+            "event": event,
         }
         self.open_choice({
             "kind": "exile_source_then",
@@ -650,7 +653,7 @@ class MiscSystemsMixin:
         if source.zone != Zone.GRAVEYARD:
             return
         self.exile(source)
-        self.enqueue_reflexive_trigger(pending["then_trigger_specs"], source)
+        self.enqueue_reflexive_trigger(pending["then_trigger_specs"], source, pending.get("event"))
     def enqueue_reflexive_trigger(
         self,
         effect_specs: list[dict[str, Any]],

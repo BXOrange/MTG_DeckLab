@@ -2488,6 +2488,16 @@ _DISCARD_THEN_IF_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-164: "You may exile `<it / ~>`. **When you do,** `<effect>`." — a dies trigger's source is already a card in
+#: its owner's graveyard (RULE 400.7), so the optional exile is the antecedent and the effect is RULE 603.12's
+#: reflexive trigger, whose target is chosen only after the exile happened. Unlike the certain-antecedent rows
+#: above, the "may" is *kept* (the exile is the choice), so `_PAY_ENERGY_THEN_PEEL_GUARD_RE` leaves it un-peeled and
+#: this row lowers the pair onto `may_exile_source_then` (Greenwarden of Murasa / Undead Butler's primitive).
+_MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^you may exile (?:it|that card|~)\.\s*when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: PAR-121: the rows above whose antecedent is **certain** — a sacrifice of the source, an earthbend, a bare
 #: mandatory discard — share one body: parse the antecedent, require the spec type it must produce, then the
 #: "when/if you do" sentence is just the next clause (`_with_after_tail`). Each entry is ``(regex, the antecedent
@@ -5629,6 +5639,15 @@ def parse_effect_body(
             }),
         ]
 
+    may_exile_self_then = _MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE.match(body)
+    if may_exile_self_then is not None:
+        if not self_subject:
+            return None  # "it" is the source only when the body's subject is ~ (a dies trigger)
+        after_specs = parse_effect_body(may_exile_self_then.group("after"), self_subject=self_subject)
+        if not after_specs:
+            return None
+        return [EffectSpec("may_exile_source_then", {"then_trigger": [s.to_dict() for s in after_specs]})]
+
     roll_when_you_do = _ROLL_DIE_THEN_WHEN_YOU_DO_RE.match(body)
     if roll_when_you_do is not None:
         before_specs = parse_effect_body(
@@ -6963,6 +6982,33 @@ def _event_player_body(body: str) -> Optional[list[EffectSpec]]:
     return [EffectSpec("trigger_subject_referent", {
         "acting": "event_player", "effects": [e.to_dict() for e in effects],
     })]
+
+
+#: PAR-164: under a player-recipient DAMAGE head ("whenever an opponent is dealt 3 or more damage by a single
+#: source, **that player** discards a card"), "that player" is the player who was dealt the damage (RULE 120.3),
+#: not the controller of the damage source that the group-subject dispatch reads it as ("its controller", the same
+#: printed pronoun family). The group dispatch's player operand is swapped for the `damaged_player` referent.
+_GROUP_SUBJECT_CONTROLLER_OPERAND = {"of": "entering", "as": "controller"}
+_DAMAGED_PLAYER_OPERAND = {"of": "damaged_player"}
+_THAT_PLAYER_BODY_RE = re.compile(r"^that player\b", re.IGNORECASE)
+
+
+def _swap_operand(value: Any) -> Any:
+    if value == _GROUP_SUBJECT_CONTROLLER_OPERAND:
+        return dict(_DAMAGED_PLAYER_OPERAND)
+    if isinstance(value, dict):
+        return {k: _swap_operand(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_swap_operand(v) for v in value]
+    return value
+
+
+def _retarget_that_player_to_damaged(effects: list[EffectSpec]) -> Optional[list[EffectSpec]]:
+    """``effects`` with the group dispatch's controller operand read as the damaged player; ``None`` when a shape
+    keyed to the source's controller by another route (a selector name) is present, so it fails closed."""
+    if "trigger_subject_controller" in repr(effects):
+        return None
+    return [EffectSpec(e.type, _swap_operand(e.params), condition=e.condition) for e in effects]
 
 
 def _stamp_group_pronoun(
@@ -9359,6 +9405,12 @@ def _segment_line_unsplit(
             effects = _bind_x(effects, event_counter_amount)
             if effects is None:
                 return Segment(raw=raw)
+        if (composed_head and event == "DAMAGE" and (condition or {}).get("subject") == "group"
+                and head_trigger.get("filter", {}).get("is_player") is True
+                and _THAT_PLAYER_BODY_RE.match(body.strip())):
+            effects = _retarget_that_player_to_damaged(effects)
+            if effects is None:
+                return Segment(raw=raw)
         stamped = _stamp_group_pronoun(condition, body, effects)
         if stamped is None:
             return Segment(raw=raw)
@@ -9534,7 +9586,9 @@ def _segment_line_unsplit(
 #: vocabulary excludes bare self-sacrifice).
 _PAY_ENERGY_THEN_PEEL_GUARD_RE = re.compile(
     r"^you may (?:pay (?:\{e\})+|" + _MAY_COST_THEN_CLAUSE + r"|"
-    + _MAY_EFFECT_THEN_ANTECEDENT_PHRASES + r")\.\s*(?:if|when) you do",
+    + _MAY_EFFECT_THEN_ANTECEDENT_PHRASES + r")\.\s*(?:if|when) you do"
+    # PAR-164: "you may exile it. When you do, …" keeps its "may" (`_MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE`).
+    r"|^you may exile (?:it|that card|~)\.\s*when you do",
     re.IGNORECASE,
 )
 

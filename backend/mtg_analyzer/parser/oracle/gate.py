@@ -3970,7 +3970,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Mangara's Blessing, Sand Golem) and "that player loses N life" (`LoseLifeEffect.selector="cause_controller"`, Psychic
 #      Purge); the replacement sibling "If ... causes you to discard this card, put it onto the battlefield instead of putting
 #      it into your graveyard" (RULE 614.1, Wilt-Leaf Liege) rides `discard_to_battlefield`.
-PARSER_VERSION = "643"
+# 644: PAR-164 -- (1) the damage-amount threshold of "whenever ~ / a source [you control] deals N or more damage [to ...]" and
+#      "~ / an opponent is dealt N or more damage [by a single source]" (RULE 120.3: the DAMAGE event is one source to one
+#      recipient, so its `amount` is the compared quantity) as the trigger filter's existing `event_minimums` (Deus of Calamity,
+#      Dragonborn Champion, Innocent Bystander, Pain Magnification, Spinneret and Spiderling); under a player-recipient DAMAGE
+#      head "that player" is the damaged player (`damaged_player`), not the damage source's controller. (2) "you may exile it.
+#      When you do, <effect>" on a dies trigger lowers onto `may_exile_source_then` (RULE 603.12; Paramecia Coloniex, The Balrog
+#      of Moria, Sandbender Scavengers), with "return target creature card with mana value less than or equal to ~'s power" riding
+#      `max_mana_value="source_power"`.
+PARSER_VERSION = "644"
 
 
 def parser_source_hash() -> str:

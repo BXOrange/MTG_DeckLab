@@ -863,6 +863,7 @@ class MayExileSourceThenEffect(GameEffect):
             return
         context.engine._request_exile_source_then(
             player, self.source, self.then_trigger_specs, prompt=self.prompt,
+            event=getattr(context, "trigger_event", None),
         )
 
 

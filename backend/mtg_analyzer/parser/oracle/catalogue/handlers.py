@@ -5530,7 +5530,10 @@ _RETURN_FROM_GRAVEYARD_RE = _c(
     rf"(?:(?P<adj>legendary|{COLOR_WORD_ALT}) )?"
     rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card(?P<adv> that has an adventure)?"
     # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
-    rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x))? from "
+    # PAR-164: "…with mana value less than or equal to ~'s power" (Sandbender Scavengers) -- the ceiling is the
+    # source's own power, `TargetSpec.max_mana_value`'s existing ``"source_power"`` sentinel.
+    rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x)"
+    r"| with mana value less than or equal to (?P<mvp>~'s power))? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
     # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
@@ -5561,6 +5564,8 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     mv = m.groupdict().get("mv")
     if mv is not None:
         params["max_mana_value"] = int(mv)
+    if m.groupdict().get("mvp"):
+        params["max_mana_value"] = "source_power"
     if m.groupdict().get("pw") is not None:
         params["creature_filter"] = {"max_power": int(m.group("pw"))}
     if m.groupdict().get("adv"):

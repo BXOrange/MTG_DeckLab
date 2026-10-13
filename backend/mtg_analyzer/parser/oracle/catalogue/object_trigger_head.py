@@ -84,12 +84,29 @@ _ACTOR_SCOPE: dict[str, str] = {
 #: DAMAGE event names its *source* (``source_id``/``source_controller_id``), so
 #: the subject phrase filters the damage source; the recipient is player-or-object.
 _DAMAGE_HEAD = re.compile(
-    r"^(?P<subject>.+?)\s+deals\s+(?P<kind>combat |noncombat )?damage"
+    r"^(?P<subject>.+?)\s+deals\s+(?:(?P<min>\d+) or more )?(?P<kind>combat |noncombat )?damage"
     r"(?:\s+to\s+(?P<recipient>.+?))?(?P<tail>\s+during .+)?$"
 )
 _DAMAGE_RECIPIENT_HEAD = re.compile(
-    r"^(?P<subject>.+?)\s+is dealt\s+(?P<kind>combat |noncombat )?damage$"
+    r"^(?P<subject>.+?)\s+is dealt\s+(?:(?P<min>\d+) or more )?(?P<kind>combat |noncombat )?damage"
+    r"(?P<single> by a single source)?$"
 )
+#: PAR-164: the damage-amount threshold of "deals / is dealt `<n>` or more damage". RULE 120.3 / 120.4: damage is
+#: dealt by one source to one recipient in one event, so the DAMAGE event's own ``amount`` is exactly what the
+#: threshold compares (several sources, or one source hitting several recipients, are separate events); the
+#: shared ``event_minimums`` trigger filter (binder) does the comparison.
+_DAMAGE_AMOUNT_KEY = "amount"
+#: "a source [you control]" — any damage source (RULE 609.7), not an object type; the DAMAGE event names the
+#: source's controller, so the group predicate's controller scope is all it needs.
+_ANY_SOURCE_SUBJECT = re.compile(r"^a source(?P<you> you control)?$")
+#: Player subjects of the recipient head → the DAMAGE recipient scope (``recipient_is_opponent`` / ``any``).
+_PLAYER_RECIPIENT_SUBJECTS = {"an opponent": {"recipient_is_opponent": True}, "a player": {}}
+
+
+def _with_damage_minimum(event_filter: dict[str, Any], minimum: Optional[str]) -> None:
+    """Add the "`<n>` or more damage" threshold to a DAMAGE trigger filter."""
+    if minimum:
+        event_filter["event_minimums"] = {_DAMAGE_AMOUNT_KEY: int(minimum)}
 _BECOMES_TARGET_HEAD = re.compile(
     r"^(?P<subject>.+?)\s+becomes the target of an? "
     r"(?P<item_kind>spell or ability|spell|ability)"
@@ -195,6 +212,9 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         condition: Optional[dict[str, Any]] = {"subject": "self"}
     elif _ATTACHED_SUBJECT.match(subject):
         condition = {"subject": "attached_permanent"}
+    elif (any_source := _ANY_SOURCE_SUBJECT.match(subject)) is not None:
+        condition = {"subject": "group", "controller": "you" if any_source.group("you") else "any",
+                     "other": False}
     else:
         condition = _subject(subject)
     if condition is None:
@@ -203,6 +223,7 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
     kind = (m.group("kind") or "").strip()
     if kind:
         event_filter["combat"] = kind == "combat"
+    _with_damage_minimum(event_filter, m.group("min"))
     if m.group("recipient"):
         recipient = _damage_recipient(m.group("recipient").strip())
         if recipient is None:
@@ -243,19 +264,31 @@ def _parse_damage_recipient_head(cond: str) -> Optional[ObjectHead]:
     if m is None:
         return None
     subject = m.group("subject").strip()
-    if subject == "~":
-        condition: Optional[dict[str, Any]] = {"subject": "self"}
+    event_filter: dict[str, Any] = {}
+    if subject in _PLAYER_RECIPIENT_SUBJECTS:
+        # "whenever an opponent is dealt 3 or more damage by a single source" (Pain Magnification): the
+        # recipient is a player, the damage source is unrestricted.
+        condition: Optional[dict[str, Any]] = {
+            "subject": "group", "controller": "any", "other": False, **_PLAYER_RECIPIENT_SUBJECTS[subject],
+        }
+        event_filter["is_player"] = True
+    elif m.group("single"):
+        return None  # "by a single source" is only printed on the player-recipient wording
+    elif subject == "~":
+        condition = {"subject": "self"}
+        condition["recipient"] = True
     elif _ATTACHED_SUBJECT.match(subject):
         condition = {"subject": "attached_permanent"}
+        condition["recipient"] = True
     else:
         condition = _subject(subject)
-    if condition is None or condition["subject"] == "self_or_group":
-        return None
-    condition["recipient"] = True
-    event_filter: dict[str, Any] = {}
+        if condition is None or condition["subject"] == "self_or_group":
+            return None
+        condition["recipient"] = True
     kind = (m.group("kind") or "").strip()
     if kind:
         event_filter["combat"] = kind == "combat"
+    _with_damage_minimum(event_filter, m.group("min"))
     return ObjectHead("DAMAGE", condition, {"filter": event_filter})
 
 

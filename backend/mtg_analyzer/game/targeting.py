@@ -1846,7 +1846,14 @@ def _legal_targets_for(
     if spec.max_mana_value == "source_power":
         # "…with mana value X or less, where X is ~'s power." (Guardian
         # Scalelord, PAR-60) — the ability's own source, read live.
-        spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+        # RULE 608.2h / 113.7a: a source that left the battlefield (a dies trigger's reflexive payoff, Sandbender
+        # Scavengers) is read as it last existed there -- the DIES/LEAVES event snapshots ``power`` with its counters.
+        _event = trigger_event or {}
+        if (getattr(source, "zone", None) is not Zone.BATTLEFIELD and _event.get("power") is not None
+                and _event.get("instance_id") == getattr(source, "instance_id", None)):
+            spec = replace(spec, max_mana_value=int(_event.get("power") or 0))
+        else:
+            spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
     if spec.max_mana_value == "counters_on_permanents_you_control":
         from .continuous import count_selector
         spec = replace(spec, max_mana_value=count_selector(state, controller_id, spec.max_mana_value))
