@@ -653,6 +653,7 @@ EffectRegistry.register(
     lambda p: ExileTriggeringDiscardMayPlayThisTurnEffect(
         play_permission=bool(p.get("play_permission", True)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
+        same_turn_only=bool(p.get("same_turn_only", True)),
     ),
 )
 EffectRegistry.register(
@@ -3323,6 +3324,15 @@ EffectRegistry.register(
         library_of=p.get("library_of"),  # Grenzo, Havoc Raiser: "that player's library"
         rest_to_bottom=bool(p.get("rest_to_bottom", False)),  # Florian, Voldaren Scion
         only_spells=bool(p.get("only_spells", False)),
+    ),
+)
+EffectRegistry.register(
+    # PAR-163: "Until the end of your next turn, you may play/cast that card." after an exile clause.
+    "grant_play_window_previous_exiled",
+    lambda p: GrantPlayWindowToPreviousExiledEffect(
+        same_turn_only=bool(p.get("same_turn_only", False)),
+        only_spells=bool(p.get("only_spells", False)),
+        mana_wildcard=p.get("mana_wildcard"),
     ),
 )
 EffectRegistry.register(

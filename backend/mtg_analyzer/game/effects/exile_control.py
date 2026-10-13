@@ -1416,6 +1416,15 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                 # revert it, so don't stamp ``control_change_until_eot``.
                 target.controller_id = controller.id
                 target.summoning_sick = True  # RULE 302.6 under a new controller
+            elif self.duration == "end_of_your_next_turn":
+                # RULE 611.2: lasts through the cleanup of the taker's next turn (`durations.py`'s shared clock).
+                window = target.control_change_until_owner_turn
+                target.control_change_until_owner_turn = {
+                    "revert_to": window["revert_to"] if window else target.controller_id,
+                    "player_id": controller.id,
+                    "turn": context.state.internal_turn.number,
+                }
+                target.controller_id = controller.id
             else:
                 if target.control_change_until_eot is None:
                     target.control_change_until_eot = target.controller_id

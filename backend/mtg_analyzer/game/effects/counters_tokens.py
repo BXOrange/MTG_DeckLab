@@ -772,7 +772,8 @@ class GrantUntilEffect(GameEffect):
         # Aura's own "loses all other card types" layer-4 static).
         ability.timestamp = context.state.next_timestamp()
         ability.duration = durations.normalize_duration(self.duration)
-        ability.duration_data = {"player_id": controller_id}
+        # "turn" anchors "until the end of your NEXT turn" (RULE 611.2) to the creating turn.
+        ability.duration_data = {"player_id": controller_id, "turn": context.state.internal_turn.number}
         if self.condition is not None:
             # RULE 611.2b's condition-bounded duration: the effect *ends*
             # when this stops holding, unlike an ``active_if`` gate, which

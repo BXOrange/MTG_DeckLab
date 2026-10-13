@@ -492,6 +492,38 @@ class ImpulsiveDrawEffect(GameEffect):
         context.created_objects.extend(exiled or [])
 
 
+class GrantPlayWindowToPreviousExiledEffect(GameEffect):
+    """"Exile target card from your graveyard. Until the end of your next turn, you may play that card." (RULE 601.3b
+    analogue; Practiced Scrollsmith, Thor, God of Thunder) -- the second sentence alone: whatever the previous clause
+    exiled (`GameContext.previous_targets`, as `ExileEffect` leaves it) gets the same `GameState.temp_play_permissions`
+    window the impulsive draw uses, held by this effect's controller. ``same_turn_only`` is the "this turn" window;
+    ``only_spells`` is "cast" (a land is not castable); ``mana_wildcard`` is the "spend mana as though it were any
+    colour" rider (RULE 605.1a). A previous clause that exiled nothing ("up to one" with no target) grants nothing."""
+
+    def __init__(
+        self, same_turn_only: bool = False, only_spells: bool = False, mana_wildcard: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.same_turn_only = bool(same_turn_only)
+        self.only_spells = bool(only_spells)
+        self.mana_wildcard = mana_wildcard
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        source_name = self.source.name if self.source is not None else None
+        for obj in list(context.previous_targets or []):
+            if obj is None or obj.zone != Zone.EXILE:
+                continue
+            context.engine._grant_temp_play_permission(
+                obj, player, source_name, self.same_turn_only, self.mana_wildcard,
+            )
+            if self.only_spells:
+                context.state.temp_play_spells_only.add(obj.instance_id)
+
+
 class DrawRevealCastOneFreeEffect(GameEffect):
     """"Draw N cards and reveal them. You may cast one of them without
     paying its mana cost." (RULE 121/601.3b combo — Dungeon of the Mad

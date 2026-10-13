@@ -97,6 +97,15 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # identical reasoning for the search-criteria sibling of this filter).
     "rebel_permanent": lambda o: "rebel" in o.card.type_line.lower(),
     "mercenary_permanent": lambda o: "mercenary" in o.card.type_line.lower(),
+    # "exile target equipment, instant, or sorcery card from your graveyard" (Thor, God of Thunder).
+    "equipment_instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery)
+    or "equipment" in o.card.type_line.lower(),
+    # "exile target noncreature, nonland card from your graveyard" (Practiced Scrollsmith).
+    "noncreature_nonland": lambda o: not o.is_creature and not o.is_land,
+    # "exile target card with a cycling ability from your graveyard" (Rooting Moloch) -- RULE 702.29: cycling, and
+    # typecycling/landcycling, are cycling abilities; the word marks them all in the printed rules text.
+    "card_with_cycling": lambda o: "cycling" in (o.card.oracle_text or "").lower()
+    or any("cycling" in str(k).lower() for k in o.card.keywords),
     # "target Zombie card from your graveyard" (Unholy Grotto, Rot Hulk) — a creature subtype on the printed type line.
     "zombie_card": lambda o: "zombie" in o.card.type_line.lower(),
     # "return a creature or land card from your graveyard to your hand" (Grapple with the Past).
@@ -462,6 +471,9 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "aura_or_equipment": "Aura- oder Ausrüstungskarte",
     "equipment_or_vehicle": "Ausrüstungs- oder Fahrzeugkarte",
     "non_assassin_historic": "historische Nicht-Assassinen-Karte",
+    "equipment_instant_or_sorcery": "Ausrüstungs-, Spontanzauber- oder Hexereikarte",
+    "noncreature_nonland": "Nichtkreatur-Nichtlandkarte",
+    "card_with_cycling": "Karte mit Cycling",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
 _GRAVEYARD_SCOPE_LABELS: dict[str, str] = {

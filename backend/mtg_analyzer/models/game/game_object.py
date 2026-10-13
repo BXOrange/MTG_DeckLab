@@ -736,6 +736,10 @@ class GameObject:
         #: `GameEngine._step_cleanup` can hand it back at the next cleanup;
         #: ``None`` means this object isn't under a temporary control change.
         self.control_change_until_eot: Optional[str] = None
+        #: "Gain control of target permanent until the end of your next turn." (RULE 611.2; Wyll, Treasure Nabber) --
+        #: ``{"revert_to": original controller, "player_id": the thief, "turn": internal turn number it began on}``,
+        #: swept at cleanup by `durations.owners_next_turn_has_ended`; ``None`` = no such control change.
+        self.control_change_until_owner_turn: Optional[dict[str, Any]] = None
 
         #: An O-Ring-shaped "exile target X; when this leaves the
         #: battlefield, return the exiled card" pair (Leonin Relic-Warder-
@@ -1573,6 +1577,7 @@ class GameObject:
         self.attached_to = None
         self.last_unattached_from_id = None
         self.control_change_until_eot = None
+        self.control_change_until_owner_turn = None
         self.linked_exile_id = None
         self.exiled_until_opponent_monarch_of = None
         self.enters_tapped_from_cast_grant = False

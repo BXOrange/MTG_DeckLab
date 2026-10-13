@@ -889,6 +889,16 @@ class TurnLoopMixin:
                 obj.controller_id = obj.control_change_until_eot
                 obj.control_change_until_eot = None
                 ended_effects = True
+            # RULE 611.2 "gain control of … until the end of your next turn":
+            # handed back at the cleanup of the *thief's* next turn
+            # (`durations.owners_next_turn_has_ended`), not this turn's.
+            window = obj.control_change_until_owner_turn
+            if window is not None and durations.owners_next_turn_has_ended(
+                self.state, window["player_id"], window["turn"],
+            ):
+                obj.controller_id = window["revert_to"]
+                obj.control_change_until_owner_turn = None
+                ended_effects = True
             if getattr(obj, "temp_prevent_combat_damage_dealt", False):
                 obj.temp_prevent_combat_damage_dealt = False
             # RULE 701.16a: an unused regeneration shield lasts only "that
@@ -996,7 +1006,6 @@ class TurnLoopMixin:
         # `temp_play_permission_same_turn_only`) has no such holder-turn
         # wait: it never survives past the very first cleanup after it was
         # granted, whoever's turn that is.
-        active_id = self.state.active_player.id
         same_turn_only = self.state.temp_play_permission_same_turn_only
 
         standing = self.state.temp_play_permission_standing
@@ -1007,11 +1016,8 @@ class TurnLoopMixin:
             if instance_id in standing:
                 return True  # "…until you exile another card with ~" (Furious Rise): revoked by the next exile, not by time
             holder_id = self.state.temp_play_permission_player.get(instance_id)
-            return not (
-                holder_id is not None
-                and active_id == holder_id
-                and self.state.internal_turn.number > granted_turn
-            )
+            # RULE 611.2: shared "end of your next turn" clock (`game/durations.py`).
+            return not durations.owners_next_turn_has_ended(self.state, holder_id, granted_turn)
 
         self.state.temp_play_permissions = {
             iid: turn for iid, turn in self.state.temp_play_permissions.items()

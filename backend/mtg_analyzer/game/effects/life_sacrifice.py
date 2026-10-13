@@ -1152,9 +1152,13 @@ class ExileTriggeringDiscardMayPlayThisTurnEffect(GameEffect):
 
     def __init__(self, play_permission: bool = True,
                  track_exiled_with: bool = False,
-                 source: Optional["GameObject"] = None) -> None:
+                 source: Optional["GameObject"] = None,
+                 same_turn_only: bool = True) -> None:
         super().__init__(source)
         self.play_permission = bool(play_permission)
+        #: ``False`` is "until the end of **your next turn**, you may play that card" (RULE 611.2; Moonstone, Harsh
+        #: Mistress) -- the window the shared sweep ends at the holder's next-turn cleanup (`durations.py`).
+        self.same_turn_only = bool(same_turn_only)
         #: Currency Converter (PAR-60) — "you may exile that card from your
         #: graveyard" with **no** play window: instead the exiled card's
         #: instance id is appended to this ability's own source
@@ -1180,8 +1184,11 @@ class ExileTriggeringDiscardMayPlayThisTurnEffect(GameEffect):
         obj.zone = Zone.EXILE
         owner.exile.append(obj)
         if self.play_permission:
-            context.state.temp_play_permissions[obj.instance_id] = (
-                context.state.internal_turn.number
+            # Held by this ability's controller ("you may play that card"); the shared grant records the holder, which
+            # the cleanup sweep needs to end a permission at all (an unheld one was never swept).
+            holder = _controller_of(self.source, context) or owner
+            context.engine._grant_temp_play_permission(
+                obj, holder, self.source.name if self.source is not None else None, self.same_turn_only, None,
             )
         if self.track_exiled_with and self.source is not None:
             self.source.exiled_with_ids.append(obj.instance_id)

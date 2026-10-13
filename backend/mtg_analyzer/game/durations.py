@@ -48,6 +48,11 @@ if TYPE_CHECKING:
 #:                        *creating player's* next turn begins, which is why
 #:                        it can't be a ``temp_*`` field (those are cleared at
 #:                        the cleanup of the turn they were made in).
+#: ``end_of_your_next_turn`` — RULE 611.2 "until the end of your next turn":
+#:                        lasts through the *cleanup step of the creating
+#:                        player's next turn* (not the turn it was made in,
+#:                        even when that is their own); the creating turn's
+#:                        number is stamped in ``duration_data["turn"]``.
 #: ``next_end_step``    — "until the beginning of the next end step".
 #: ``for_as_long_as``   — RULE 611.2b's condition-bounded form; the condition
 #:                        itself is a `static_conditions` dict in
@@ -59,11 +64,43 @@ DURATIONS: frozenset[str] = frozenset(
         "end_of_turn",
         "end_of_combat",
         "your_next_turn",
+        "end_of_your_next_turn",
         "next_end_step",
         "for_as_long_as",
         "rest_of_game",
     }
 )
+
+
+def owners_next_turn_has_ended(
+    state: "GameState", owner_id: Optional[str], since_turn: Optional[int],
+) -> bool:
+    """Whether ``owner_id``'s next turn after ``since_turn`` has reached its cleanup step.
+
+    The single predicate behind every "until the end of your next turn"
+    (RULE 611.2 / 514.2): the sweep is evaluated at a cleanup step, so it ends
+    once the *active* player is the owner and the running turn is a later one
+    than the turn the effect was created in (``internal_turn.number`` counts
+    every player's turn and extra turns, RULE 500.1/500.7). A skipped owner
+    turn never reaches a cleanup, so the effect simply waits for the owner's
+    next turn that is actually played. An owner who has left the game has no
+    next turn, so their effect ends (RULE 800.4a ends the effects they
+    controlled). Consumed by floating statics, impulse play permissions and
+    temporary control changes alike -- no second expiry clock.
+    """
+    if owner_id is None or since_turn is None:
+        return False
+    try:
+        owner = state.player_by_id(owner_id)
+    except (KeyError, ValueError):
+        owner = None
+    if owner is None or getattr(owner, "has_lost", False):
+        return True
+    active = getattr(state, "active_player", None)
+    return (
+        active is not None and active.id == owner_id
+        and state.internal_turn.number > since_turn
+    )
 
 
 def _affected_object(ability: Any, state: "GameState") -> Any:
@@ -116,6 +153,12 @@ def is_expired(ability: Any, state: "GameState", window: str) -> bool:
         )
 
     if window == "cleanup":
+        if duration == "end_of_your_next_turn":
+            data = getattr(ability, "duration_data", None) or {}
+            owner = data.get("player_id") or getattr(
+                getattr(ability, "source", None), "controller_id", None
+            )
+            return owners_next_turn_has_ended(state, owner, data.get("turn"))
         return duration == "end_of_turn"
     if window == "end_of_combat":
         # "Until end of turn" outlives combat; only the combat-scoped one ends.
@@ -193,6 +236,7 @@ def describe(ability: Any) -> str:
         "end_of_turn": "bis Zugende",
         "end_of_combat": "bis Kampfende",
         "your_next_turn": "bis zu deinem nächsten Zug",
+        "end_of_your_next_turn": "bis zum Ende deines nächsten Zuges",
         "next_end_step": "bis zum nächsten Endsegment",
     }[duration]
 

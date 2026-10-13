@@ -2111,11 +2111,14 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 #: keeps the play permission on the pick alone (`ImpulsiveDrawEffect.choose_one`).
 _EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step"
 _EXILE_TOP_PLAY_RE = _c(
-    r"exile the top (?:(?P<n>\d+|x) cards?|card) of your library(?:\.|, then) "
+    r"exile the top (?:(?P<n>\d+|x) cards?|card) of (?:your|(?P<each>each player'?s)) library(?:\.|, then) "
     r"(?P<choose>choose 1(?: of (?:them|those cards))?\. )?"
     rf"(?:(?P<dur_pre>{_EXILE_TOP_WINDOW}), )?"
     r"you may play (?P<what>them|it|that card|those cards|the exiled cards|cards exiled this way|1 of those cards)"
     rf"(?: (?P<dur_post>{_EXILE_TOP_WINDOW}))?"
+    # PAR-163 (Lidless Gaze): RULE 605.1a spend permission on those spells, "any color" / "any type".
+    r"(?P<wild>,? and (?:you may spend mana as though it were mana of any (?P<wild_what>color|type) to cast those spells"
+    r"|mana of any (?P<wild_what2>color|type) can be spent to cast those spells))?"
 )
 
 
@@ -2130,12 +2133,65 @@ def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     singular = what in ("it", "that card")
     if singular and not choose_one and count != 1:
         return None
+    if m.group("each") and (singular or choose_one):
+        return None  # one card per library: a lone "that card" names no particular one
     if m.group("choose") and what != "that card":
         return None
     params: dict = {"count": count, "same_turn_only": same_turn_only}
     if choose_one:
         params["choose_one"] = True
+    if m.group("each"):
+        params["each_player"] = True  # one exile per library, every card playable by the controller (Mezzio Mugger shape)
+    if m.group("wild"):
+        params["mana_wildcard"] = m.group("wild_what") or m.group("wild_what2")
     return [EffectSpec("impulsive_draw", params)]
+
+
+#: PAR-163: the play-window half of an exile-and-may-play pair -- "[Until the end of your next turn,] you may
+#: play/cast that card [until the end of your next turn][, and you may spend mana as though it were mana of any
+#: color to cast that spell]" after a clause that exiled a card (`ExileEffect` leaves it as the referent). Only the
+#: RULE 611.2 "end of your next turn" window; "that card" only ("it" is too often something else).
+_PLAY_WINDOW_NEXT_TURN = r"until the end of your next turn"
+_PLAY_WINDOW_PREVIOUS_RE = _c(
+    rf"(?:(?P<pre>{_PLAY_WINDOW_NEXT_TURN}), )?(?:you may )?(?P<verb>play|cast) that card"
+    rf"(?P<post> {_PLAY_WINDOW_NEXT_TURN})?"
+    r"(?P<wild>,? and you may spend mana as though it were mana of any color to cast that spell)?"
+)
+
+
+def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if bool(m.group("pre")) == bool(m.group("post")):
+        return None  # exactly one window phrase
+    params: dict = {}
+    if m.group("verb") == "cast":
+        params["only_spells"] = True
+    if m.group("wild"):
+        params["mana_wildcard"] = "color"
+    return [EffectSpec("grant_play_window_previous_exiled", params)]
+
+
+#: PAR-163 (Moonstone, Harsh Mistress): the discard trigger's "exile that card from your graveyard. If you do,
+#: until the end of your next turn, you may play that card." -- `ExileTriggeringDiscardMayPlayThisTurnEffect` with its
+#: RULE 611.2 next-turn window (its hand-authored "this turn" siblings, Containment Construct, keep the default).
+_EXILE_DISCARD_PLAY_NEXT_TURN_RE = _c(
+    r"exile that card from your graveyard\. if you do, "
+    rf"(?:{_PLAY_WINDOW_NEXT_TURN}, you may play that card|you may play that card {_PLAY_WINDOW_NEXT_TURN})"
+)
+
+
+def _exile_discard_play_next_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile_triggering_discard_may_play_this_turn", {"same_turn_only": False})]
+
+
+#: PAR-163 (Mosswood Dreadknight): "When ~ dies, you may cast it from your graveyard as an Adventure until the end of
+#: your next turn." (RULE 715.3a) -- `GrantSelfAdventureCastFromGraveyardEffect`, first built for a hand-authored card.
+_SELF_ADVENTURE_FROM_GRAVEYARD_RE = _c(
+    rf"cast it from your graveyard as an adventure {_PLAY_WINDOW_NEXT_TURN}"
+)
+
+
+def _self_adventure_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_self_adventure_cast_from_graveyard", {})]
 
 
 #: "Draw N cards and reveal them. You may cast one of them without paying
@@ -5246,6 +5302,7 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 #: subtype vocabulary is needed here either). Tried before the bare
 #: "permanent" alternative so it isn't swallowed by it.
 _GRAVEYARD_TYPE_WORD = (
+    r"equipment, instant, or sorcery|noncreature, nonland|"  # PAR-163 (Thor; Practiced Scrollsmith)
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent"
@@ -5280,6 +5337,8 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
         "artifact and enchantment": "artifact_or_enchantment",
         "artifact or enchantment": "artifact_or_enchantment",
         "artifact or creature": "artifact_or_creature",
+        "equipment, instant, or sorcery": "equipment_instant_or_sorcery",
+        "noncreature, nonland": "noncreature_nonland",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 
@@ -5722,7 +5781,7 @@ def _return_pick_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _EXILE_FROM_GRAVEYARD_RE = _c(
     rf"exile (?P<up_to_one>{UP_TO_ONE})(?:target |an? )"
     rf"(?:(?P<colors>{_COLOR_WORD_LIST_INNER}) )?"
-    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card(?P<cycling> with a cycling ability)? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
 )
 
@@ -5731,6 +5790,11 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
     if kind is None:
         return None
+    if m.groupdict().get("cycling"):
+        # PAR-163 (Rooting Moloch): "card with a cycling ability" -- only the untyped card pool carries that filter.
+        if m.groupdict().get("type"):
+            return None
+        kind = kind.removesuffix("_card") + "_card_with_cycling"
     params: dict = {"target_kind": kind, **_optional_param(m)}
     #: "exile target red, white, or black creature card from your graveyard"
     #: (Offspring's Revenge) — `TargetSpec.colors`' OR narrowing on a
@@ -6487,7 +6551,9 @@ _GAIN_CONTROL_EOT_RE = _c(
     # PAR-74: "…with **that spell's** mana value." (Skyfire Kirin) — the
     # exact-match sibling of the literal-digit ceiling just above,
     # `TargetSpec.exact_mana_value`'s own sentinel resolution.
-    r"|(?P<trigger_mv> with that spell'?s mana value))? until end of turn"
+    r"|(?P<trigger_mv> with that spell'?s mana value))?"
+    # PAR-163: RULE 611.2 "until the end of your next turn" (Wyll, Pact-Bound Duelist) -- the thief's next-turn clock.
+    r"(?: until end of turn|(?P<next_turn> until the end of your next turn))"
 )
 
 
@@ -6511,6 +6577,9 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     quality = target_quality_filter(m.group("target"))
     if quality:
         params["creature_filter"] = quality
+    if m.groupdict().get("next_turn"):
+        # No untap/haste rider belongs to this duration's printings (an explicit "untap that creature" tail is a separate clause).
+        params.update({"duration": "end_of_your_next_turn", "haste": False, "untap": False})
     return [EffectSpec("gain_control_until_eot", params)]
 
 
@@ -8612,6 +8681,15 @@ _ONLY_DURING_YOUR_TURN_RE = _c(r"activate (?:this ability )?only during your tur
 
 def _only_during_your_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {})]
+
+
+#: PAR-163 (Snowslope Hunter): the two restrictions in one sentence -- "Activate only during your turn and only once
+#: each turn." -- are exactly the two markers above, each folded into its own `ActivationCost` flag by the binder.
+_ONLY_DURING_YOUR_TURN_ONCE_RE = _c(r"activate (?:this ability )?only during your turn and only once each turn")
+
+
+def _only_during_your_turn_once(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {}), EffectSpec(ONCE_PER_TURN_MARKER, {})]
 
 
 # PAR-28: marker `EffectSpec`s synthesized by `segmenter._segment_keyword_
@@ -11589,6 +11667,7 @@ def _pump_group_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: express, because it has nowhere to record any other ending.
 _GRANT_DURATIONS: dict[str, str] = {
     "until your next turn": "your_next_turn",
+    "until the end of your next turn": "end_of_your_next_turn",  # PAR-163, RULE 611.2
     "until end of combat": "end_of_combat",
     "until the end of combat": "end_of_combat",
     "until the beginning of the next end step": "next_end_step",
@@ -11746,7 +11825,7 @@ def _pump_grant_while_tapped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: keywords`, since these verbs aren't real RULE 702 keyword names.
 _CANT_ATTACK_OR_BLOCK_UNTIL_RE = _c(
     rf"{TARGET} can'?t (?P<verb>attack|block) "
-    r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+    r"(?P<dur>until (?:your next turn|the end of your next turn|the end of combat|end of combat|"
     r"the beginning of the next end step))"
 )
 
@@ -11773,7 +11852,7 @@ def _cant_attack_or_block_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `_return_to_hand_previous`, not a fresh `TargetSpec`.
 _GRANT_UNTIL_PREVIOUS_RE = _c(
     rf"{_THEN}{_PREVIOUS_SUBJECT} gains? (?P<kw>[a-z, ]+?) "
-    r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+    r"(?P<dur>until (?:your next turn|the end of your next turn|the end of combat|end of combat|"
     r"the beginning of the next end step))"
 )
 
@@ -16920,6 +16999,22 @@ HANDLERS: list[EffectHandler] = [
         _EXILE_TOP_PLAY_RE,
         _exile_top_play,
     ),
+    EffectHandler(
+        "exile_discard_play_next_turn",
+        _EXILE_DISCARD_PLAY_NEXT_TURN_RE,
+        _exile_discard_play_next_turn,
+    ),
+    EffectHandler(
+        "self_adventure_from_graveyard",
+        _SELF_ADVENTURE_FROM_GRAVEYARD_RE,
+        _self_adventure_from_graveyard,
+    ),
+    # PAR-163: the "until the end of your next turn, you may play that card" half after an exile clause.
+    EffectHandler(
+        "play_window_previous",
+        _PLAY_WINDOW_PREVIOUS_RE,
+        _play_window_previous,
+    ),
     # PAR-13: "draw N cards and reveal them. you may cast one of them
     # without paying its mana cost." — Mad Wizard's Lair's own room.
     EffectHandler(
@@ -18646,6 +18741,11 @@ HANDLERS: list[EffectHandler] = [
         _ONLY_DURING_YOUR_TURN_RE,
         _only_during_your_turn,
     ),
+    EffectHandler(
+        "only_during_your_turn_once",
+        _ONLY_DURING_YOUR_TURN_ONCE_RE,
+        _only_during_your_turn_once,
+    ),
     # PAR-10: "Activate only as a sorcery and only if `<condition>`." — tried
     # before the bare `_SORCERY_SPEED_RE`/`_ACTIVATE_ONLY_IF_RE` rows since a
     # `fullmatch` against the *whole* compound sentence is what makes this
@@ -19599,7 +19699,7 @@ HANDLERS: list[EffectHandler] = [
         "grant_until",
         _c(
             rf"{_SUBJECT} gains? (?P<kw>[a-z, ]+?) "
-            r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+            r"(?P<dur>until (?:your next turn|the end of your next turn|the end of combat|end of combat|"
             r"the beginning of the next end step))"
         ),
         _grant_until,
@@ -19628,7 +19728,7 @@ HANDLERS: list[EffectHandler] = [
         "pump_until",
         _c(
             rf"{_SUBJECT} gets? {_PT_DELTA} "
-            r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+            r"(?P<dur>until (?:your next turn|the end of your next turn|the end of combat|end of combat|"
             r"the beginning of the next end step))"
         ),
         _pump_until,

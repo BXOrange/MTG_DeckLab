@@ -705,6 +705,13 @@ class StateBasedActionsMixin:
                 self.take_initiative(active)
             else:
                 self.state.initiative_id = None
+        # RULE 800.4a: continuous effects that give the departing player control of an object end, so a permanent
+        # taken "until the end of your next turn" goes back to its previous controller before the owned ones leave.
+        for obj in self.state.battlefield:
+            window = obj.control_change_until_owner_turn
+            if window is not None and window["player_id"] == player.id:
+                obj.controller_id = window["revert_to"]
+                obj.control_change_until_owner_turn = None
         for obj in [o for o in self.state.battlefield if o.owner_id == player.id]:
             self.state.remove_from_battlefield(obj)
         for item in self.state.stack:

@@ -3934,7 +3934,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      last-known controller makes it, RULE 608.2h; also closes the destroy/exile + "its controller creates" cards) and
 #      "~ deals N damage to that creature" (the announced creature, still on the battlefield) as table rows (Contraband Livestock,
 #      Spiked Pit Trap).
-PARSER_VERSION = "636"
+# 637: PAR-163 — the duration "until the end of your next turn" (RULE 611.2: through the cleanup of the creating player's
+#      next turn, `durations.owners_next_turn_has_ended`): gain-control-until-your-next-turn (Wyll; Treasure Nabber), exile-a-
+#      graveyard-card-then-"you may play that card" windows (Practiced Scrollsmith, Rooting Moloch, Scholar of Combustion, Thor,
+#      Hurl Through Hell), the discard-exile window (Moonstone), each-player top-card windows with any-type mana (Lidless Gaze),
+#      "Activate only during your turn and only once each turn" (Snowslope Hunter), Adventure-from-graveyard (Mosswood Dreadknight)
+#      and grant/pump "until the end of your next turn".
+PARSER_VERSION = "637"
 
 
 def parser_source_hash() -> str:

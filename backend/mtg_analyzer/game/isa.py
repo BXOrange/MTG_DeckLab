@@ -599,6 +599,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # `GameState.temp_play_permissions` stamp read by `can_cast`, not a
     # RULE 611 continuous effect in the instruction stream.
     "impulsive_draw": "exile",
+    "grant_play_window_previous_exiled": "exile",  # the play-window half of an exile-and-may-play (same stamp as above)
     "exile_triggering_discard_may_play_this_turn": "exile",
     "exile_until_duplicate_name": "exile",
     "free_cast_from_hand": "cast",
