@@ -13,8 +13,9 @@ You implement exactly one ticket handed to you by the orchestrator.
    parser work → `extend-parser`; engine/mechanics → `game-engine`; a single
    card → `hand-author-card`; reading a card's rules → `understand-card`.
 3. Size before building, add a regression test for every behavior change, and
-   run `python backend/scripts/run_tests.py -q` (plus `--full-cache` for
-   parser/engine changes). Obey the repo conventions: `RULE <n>` comments, no
+   test with the `run-tests` skill: `python backend/scripts/select_tests.py
+   --run` (tier 1 = the domain you changed) after each sub-step. Do not run the
+   full suite or `--full-cache`; the grinder does that once before closing. Obey the repo conventions: `RULE <n>` comments, no
    magic numbers, no code derived from card text.
 4. Update only your own `workingOn.md` block at each milestone.
 5. Do not commit, push, close the ticket, edit `BACKLOG.md`/`Done_*.md`, or

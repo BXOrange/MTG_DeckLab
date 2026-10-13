@@ -26,9 +26,11 @@ state-file change.
    its `workingOn.md` block. Run independent tickets' sub-steps in parallel
    only when they touch disjoint files; otherwise one worker at a time.
 4. **Verify yourself, do not trust the report.**
-   - `python backend/scripts/run_tests.py -q` must be green (baseline red tests
-     recorded in the block are the only exception).
-   - Parser or engine changes: the `--full-cache` tier before closing.
+   - Use the `run-tests` skill, not a bare full run: `python
+     backend/scripts/select_tests.py --tier 2 --run` must be green (baseline red
+     tests recorded in the block are the only exception).
+   - Parser or engine changes: `select_tests.py --tier 4 --run` (full suite plus
+     `--full-cache`) once, right before closing, not after every sub-step.
    - Read the diff; check the ticket's scope and residue are really done.
 5. **Close or park.**
    - Fully done: close per `ticket-management` (delete from `BACKLOG.md`, file
