@@ -41,7 +41,7 @@ from .catalogue.handlers import (
     _MAY_EFFECT_THEN_ANTECEDENT_PHRASES,
     match_clause,
 )
-from .catalogue.keywords import ALIAS_DISPLAYS, GIFT_QUALITIES, KEYWORDS, KeywordShape
+from .catalogue.keywords import ALIAS_DISPLAYS, GIFT_QUALITIES, KEYWORDS, KeywordShape, equip_rider_reduction
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
@@ -3214,7 +3214,20 @@ def _is_compound_keyword_line(stripped: str) -> bool:
 _GIFT_TOKEN_RE = re.compile(r"^gift an? (?P<quality>[a-z][a-z ]*?)\s*$", re.IGNORECASE)
 
 
+#: RULE 702.6a: a line (or comma token) that opens with the Equip keyword word. "Equipped creature …" is not one.
+_EQUIP_LINE_RE = re.compile(r"^equip(?![a-z0-9])", re.IGNORECASE)
+#: A bare "Equip {cost}" (optionally "Equip—Pay {cost}") whose whole text is the mana cost the keyword pass extracts. Any
+#: other text on the line (a quality like "Equip Knight {1}", a non-mana component like "Equip—Discard a card", a rider
+#: sentence, an "or" alternative) is a requirement the keyword pass does not carry, so it is not a keyword-line claim
+#: (BUG-1: the old greedy keyword match claimed all of it and silently dropped the text).
+_BARE_EQUIP_LINE_RE = re.compile(
+    r"^equip\s*(?:[—-]\s*(?:pay\s+)?|\s)\s*\{[^}]+\}(?:\s*\{[^}]+\})*\.?$", re.IGNORECASE
+)
+
+
 def _is_keyword_token(tok: str) -> bool:
+    if _EQUIP_LINE_RE.match(tok):
+        return _BARE_EQUIP_LINE_RE.match(tok) is not None
     # MEC-109: a cost-adjustment sentence is an ability, not a keyword line.
     if tok.startswith("blitz costs "):
         return False
@@ -6479,6 +6492,9 @@ def is_keyword_line(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
+    if _EQUIP_LINE_RE.match(stripped):
+        # BUG-1: Equip's comma-compound cost forms ("Equip—{2}, pay 2 life") would drop the non-mana part too.
+        return _BARE_EQUIP_LINE_RE.match(stripped) is not None
     if _is_compound_keyword_line(stripped):
         return True
     raw_tokens = [t.strip() for t in stripped.split(",") if t.strip()]
@@ -7470,6 +7486,11 @@ def _segment_line_unsplit(
         return Segment(raw=raw, claimed=True, keyword_line=True)
     if _SPECIALIZE_WITH_RIDER_RE.match(raw):
         return Segment(raw=raw, claimed=False)
+
+    # BUG-1 / RULE 702.6a: "Equip {cost}. This ability costs {N} less to activate for each <X> / if <cond>." is claimed
+    # only when the keyword pass folds the very same discount into the equip cost (`equip_rider_reduction`).
+    if _EQUIP_LINE_RE.match(raw) and equip_rider_reduction(raw) is not None:
+        return Segment(raw=raw, claimed=True, keyword_line=True)
 
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)

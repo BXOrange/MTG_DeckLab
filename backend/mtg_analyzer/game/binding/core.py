@@ -3513,6 +3513,9 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     # Reconfigure were legal to activate at instant speed.
     cost.sorcery_speed_only = True
     cost.attach_kind = name
+    if keyword.get("dynamic_reduction"):
+        # RULE 702.6a: "Equip {N}. This ability costs {M} less to activate …" is part of the equip ability's own cost.
+        cost.dynamic_reduction = dict(keyword["dynamic_reduction"])
     # Equip/Reconfigure target "a creature you control" (RULE 702.6a/702.151a) — what Professor Hojo's discount asks about.
     cost.targets_own_creature = name in ("equip", "reconfigure")
     return ActivatedAbility(

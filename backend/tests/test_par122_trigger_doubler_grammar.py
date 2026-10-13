@@ -122,7 +122,7 @@ def test_as_long_as_wrapper_gates_the_whole_doubler():
         "Teysa Karlov", "Isshin, Two Heavens as One", "Wulfgar of Icewind Dale",
         "Felix Five-Boots", "Annie Joins Up", "Chief of the Wilds", "Jabs, Mistress of Mockery",
         "Katara, the Fearless", "Splinter, Radical Rat", "Twinflame Travelers",
-        "Wizard's Staff", "Bifur, Melodic Rider", "Valiant Emberkin",
+        "Bifur, Melodic Rider", "Valiant Emberkin",
         "Krang, the All-Powerful", "Echoes of Eternity", "The Fish Brewer", "The Masamune",
     ],
 )

@@ -315,3 +315,11 @@ The opponent-caused discard trigger head and the `discard_to_battlefield` replac
 | Innocent Bystander | `whenever ~ is dealt 3 or more damage, investigate.` | The ruling counts all simultaneously dealt damage together, but the DAMAGE event is per source; a per-source threshold would under-trigger. Needs a per-batch recipient total. |
 | Sandbender Scavengers | `when ~ dies, you may exile it. when you do, exile target card with mana value less than or equal to ~'s power from a graveyard.` | The reflexive exile is claimed (PAR-164); the target filter needs the source's last-known power (RULE 608.2h). |
 | Gamekeeper, Arena Rector | `when ~ dies, you may exile it. if you do, <payoff>.` | The inline "if you do" form needs a success-gated inline mode on `may_exile_source_then` (RULE 608.2c); the reflexive "when you do" form is modeled. 2-card pair; hand-author or add the mode. |
+
+## Batch 11 — 2026-10-13 BUG-1 close-out (PARSER_VERSION 647)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Warrior's Blades, Dragonfire Blade, Belt of Giant Strength | an equip discount that reads the chosen target's characteristics (counters, colour, power) | `activation_cost_reduction_for` already receives the targets (BUG-1); needs a row per characteristic. 3 cards, below the ticket bar. |
+| Leather Armor, Shredder's Armor | `equip {N}. activate only once each turn.` (and similar riders on the equip line) | A per-ability activation limit on the keyword's own equip ability. |
+| Dark Knight's Greatsword | extra text on its equip line | Re-probe with `parser_probe.py card`. |

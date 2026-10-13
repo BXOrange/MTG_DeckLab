@@ -4743,6 +4743,7 @@ _SET_COST_TO_ZERO_REDUCTION = 1000
 def activation_cost_reduction_for(
     state: "GameState", source: "GameObject", is_mana_ability: bool = False, cost: Any = None,
     targets_own_creature: Optional[bool] = None, activating_player_id: Optional[str] = None,
+    targets: Optional[list[Any]] = None,
 ) -> tuple[int, int]:
     """Net generic-mana reduction for *activating* ``source``'s own
     activated ability (Power Artifact-shaped "Enchanted artifact's
@@ -4805,6 +4806,24 @@ def activation_cost_reduction_for(
             ):
                 continue
             net += int(ability.params.get("generic", 1))
+            continue
+        if ability.params.get("attach_kind") and not ability.params.get("set_to_zero"):
+            # RULE 702.6a / 601.2f: "Equip abilities you activate [of other Equipment] [that target ~ / enchanted creature]
+            # cost {N} less to activate." Only the static's controller's own Equip abilities, and (RULE 602.2b: the cost is
+            # determined after targets are chosen) a "that target" rider compares the chosen creature to the referent.
+            if getattr(cost, "attach_kind", None) != ability.params["attach_kind"] or source.controller_id != source_controller:
+                continue
+            if ability.params.get("exclude_source") and source is ability.source:
+                continue
+            referent = ability.params.get("target_is")
+            if referent:
+                host_id = ability.source.instance_id if referent == "source" else getattr(ability.source, "attached_to", None)
+                if host_id is None or not any(getattr(t, "instance_id", None) == host_id for t in targets or ()):
+                    continue
+            gate = ability.params.get("active_if")
+            if gate and not static_conditions.condition_holds(gate, state, ability.source, source_controller):
+                continue
+            net += _cost_static_amount(ability, state, source_controller)
             continue
         if ability.params.get("set_to_zero"):
             # "Equipment you control have equip {0}" (Puresteel Paladin): only the named attach keyword's own ability, on the

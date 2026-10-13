@@ -147,12 +147,14 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # ordinary Equip ability every registered card reads off Scryfall's
     # single "Equip" keyword slug. The negative lookahead skips straight
     # past an "Equip commander {N}" line to find the real plain-Equip cost
-    # instead. "Equip commander" itself isn't separately recognized here —
+    # instead. BUG-1: "Equip abilities you activate …" / "Equip costs you pay …" are cost-reduction statics, not the keyword's
+    # own cost line, so they are skipped the same way (Bladehold War-Whip printed its discount before its real cost).
+    # "Equip commander" itself isn't separately recognized here —
     # only 2 cards cache-wide print it, and Commander's Plate's own is
     # hand-authored (`game/card_catalogue`) rather than built as a
     # second keyword shape for that small a yield.
     "equip": re.compile(
-        rf"\bEquip\b(?!\s+(?:commander|legendary creature)\b){_GAP}(?P<cost>{_COST_RUN})", re.I,
+        rf"\bEquip\b(?!\s+(?:commander|legendary creature|abilities|costs)\b){_GAP}(?P<cost>{_COST_RUN})", re.I,
     ),
 }
 
@@ -634,6 +636,44 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
     return param
 
 
+#: RULE 702.6a: "Equip {cost}. This ability costs {N} less to activate <rider>." — the discount belongs to the equip
+#: ability's own cost, so it is folded into the keyword param as ``dynamic_reduction`` (the same carrier Specialize's
+#: graveyard discount uses) and applied by the binder when it builds the equip `ActivationCost`.
+_EQUIP_RIDER_RE = re.compile(
+    r"\bequip\s+\{[^}]+\}(?:\s*\{[^}]+\})*\.\s*this ability costs \{(?P<n>\d+)\} less to activate "
+    r"(?P<tail>for each .+?|if .+?)\.?\s*(?:\n|$)",
+    re.IGNORECASE,
+)
+_PARENTHETICAL_RE = re.compile(r"\([^)]*\)")
+
+
+def equip_rider_reduction(text: str) -> Optional[dict[str, Any]]:
+    """The ``dynamic_reduction`` dict for an "Equip {N}. This ability costs {M} less to activate for each <X> / if <cond>"
+    line, or ``None`` when the text has no such rider or its tail is outside the vocabulary the engine can evaluate.
+
+    Only discounts that read the board or the player (``for each other Equipment you control``, ``if you're the monarch``)
+    qualify; "…the creature it targets" riders need the chosen target at cost-determination time and stay unclaimed."""
+    from ..normalize import normalize
+    from ..segmenter import _activation_cost_reduction_selector
+    from .static_handlers import static_condition
+
+    # The rider vocabulary is written against normalized text ("one" -> "1", the card name -> "~").
+    match = _EQUIP_RIDER_RE.search(normalize(_PARENTHETICAL_RE.sub("", text)))
+    if match is None:
+        return None
+    tail = match.group("tail").strip().lower()
+    generic = int(match.group("n"))
+    if tail.startswith("for each "):
+        selector = _activation_cost_reduction_selector(tail[len("for each "):])
+        if selector is None:
+            return None
+        return {"count_selector": selector, "generic_per": generic}
+    condition = static_condition(tail[len("if "):])
+    if condition is None:
+        return None
+    return {"generic_per": generic, "active_if": condition}
+
+
 def parse_keywords(card: "Card") -> list[AbilitySpec]:
     """Every keyword ability on ``card`` as a validated ``keyword`` `AbilitySpec`.
 
@@ -721,6 +761,10 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
                                   "types": ["instant", "sorcery"],
                                   "amount": int(rider.group("minimum"))},
                 }
+        if kdef.slug == "equip":
+            rider_reduction = equip_rider_reduction(text)
+            if rider_reduction is not None:
+                param["dynamic_reduction"] = rider_reduction
         if _slug(str(raw_name)) == "multikicker":
             # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
             # alias onto the same "kicker" slug/behaviour, but the "may pay

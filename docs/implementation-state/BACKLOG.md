@@ -48,8 +48,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-166`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-167` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-168`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -110,6 +110,15 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 - **PAR-159 · Equipped-creature X pump.** "Equipped creature gets +X/+X …" statics and pumps whose X is measured off the board or the equipment; size first (PLAY-ALL).
 
+- **PAR-166 · Equip quality filters ("Equip `<quality>` {N}").** About 12 cards whose equip ability may only target a creature of a given
+  quality or type (Pirate Hat, Thinking Cap, Team Pennant, Steelclaw Lance, Wizard's Staff, Veteran's Powerblade, Dúnedain Blade, Ceremonial
+  Groundbreaker; legendary/commander variants Excalibur, Sword of Eden, Unstable Molecule Suit). BUG-1 made these lines fail closed; build an
+  equip target filter on the keyword ability (precedent: the hand-authored legendary `attach` with `creature_filter`). Size with `parser_probe.py blocked` first.
+- **PAR-167 · Non-mana and alternative equip costs.** About 10 cards: "Equip—Discard a card / Pay N life / Sacrifice …", compound mana-plus-other
+  costs and "Equip {N} or …" alternatives (Murderer's Axe, Dissection Tools, Demonmail Hauberk, Piston Sledge, Sigil of Distinction, Nightmare Lash,
+  Gavel of the Righteous, Bloodthorn Flail, Transmogrant's Crown). BUG-1 made these fail closed; the equip `ActivationCost` needs the general
+  `game/costs.py` cost parts. Size with `parser_probe.py blocked` first.
+
 ## MEC — Game mechanic
 
 - **MEC-117 · "Ignore one" flip and roll replacements (RULE 705.3 / 706.x).** "If you would flip a coin, instead flip two
@@ -164,13 +173,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-1 · An "Equip …" line is claimed as a keyword line and its text silently dropped.** The
-  segmenter reads any line starting with "Equip" as a keyword line (`keyword_line=True`), so "Equip
-  abilities you activate [that target X] cost {N} less to activate." and "Equip {N}. This ability costs
-  … less to activate …" emit no spec: Bureau Headmaster, Bladehold War-Whip, Cloud Planet's Champion,
-  Dwarven Mauler, Helitrooper, Plate Armor / A-Plate Armor and Warrior's Blades are `MODELED` without
-  their equip-cost discount. Fix: fail the line closed unless it is a bare equip cost, then give the
-  discount its own row (activation costs have no `targets` yet — see Kopala/Strong Back).
 - **BUG-2 · "target player draws N cards and loses N life" in a reflexive / exploit trigger.** The subject-less
   "and loses …" now carries `previous_subject` (direct triggers and spells are right: Vault Plunderer, Bloodgift
   Demon); check that Unscrupulous Contractor's reflexive trigger and Fell Stinger's exploit trigger make the

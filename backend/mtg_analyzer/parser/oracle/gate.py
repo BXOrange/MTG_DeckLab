@@ -3965,7 +3965,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Pain Magnification, Spinneret and Spiderling. "When ~ dies, you may exile it/this card. When you do, <targeted payoff>"
 #      (`may_exile_source_then`, self-subject dies trigger only, `_may_exile_source_ok`): Paramecia Coloniex, The Balrog of Moria, Flitting
 #      Guerrilla, Doombot Harbinger; the "if you do" spelling stays unclaimed (nothing gates the payoff on the exile, RULE 608.2c).
-PARSER_VERSION = "646"
+# 647: BUG-1 -- an "Equip ..." line is a keyword-line claim only when it is a bare "Equip {cost}" / "Equip--Pay {cost}"; a quality
+#      ("Equip Knight {1}"), non-mana component ("Equip--Discard a card"), "or" alternative or unmodeled rider sentence used to be
+#      claimed whole by the greedy keyword match and silently dropped (those cards are UNMODELED now). "Equip abilities you activate
+#      [of other Equipment] [that target ~ / enchanted creature] cost {N} less to activate" and "Equip costs you pay cost {N} less" are
+#      a `cost_reduction` row (`scope=activation`, `attach_kind=equip`, RULE 602.2b target-aware), and "Equip {N}. This ability costs
+#      {M} less to activate for each <board count> / if <condition>" folds into the equip keyword's `dynamic_reduction` (Plate Armor,
+#      Arm-Mounted Anchor, Crown of Gondor); riders reading the chosen target's characteristics stay unclaimed.
+PARSER_VERSION = "647"
 
 
 def parser_source_hash() -> str:

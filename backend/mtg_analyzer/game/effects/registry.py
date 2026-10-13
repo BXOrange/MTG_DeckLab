@@ -4684,6 +4684,11 @@ EffectRegistry.register(
             # "Equipment you control have equip {0}" (Puresteel Paladin): ``scope="activation"`` plus ``set_to_zero`` for the named
             # ``attach_kind`` (`continuous.activation_cost_reduction_for`).
             **({"set_to_zero": True, "attach_kind": str(p.get("attach_kind", "equip"))} if p.get("set_to_zero") else {}),
+            # "Equip abilities you activate [of other Equipment] [that target …] cost {N} less to activate": the named attach
+            # keyword's own ability (`continuous.activation_cost_reduction_for`), minus the static's source / limited to a target.
+            **({"attach_kind": str(p["attach_kind"])} if p.get("attach_kind") and not p.get("set_to_zero") else {}),
+            **({"exclude_source": True} if p.get("exclude_source") else {}),
+            **({"target_is": str(p["target_is"])} if p.get("target_is") else {}),
             # Professor Hojo: the first activation each turn that targets a creature you control (needs ``scope="activation"``).
             **({"first_targeting_own_creature": True} if p.get("first_targeting_own_creature") else {}),
             # "Activated abilities of Foods you control cost {1} less to

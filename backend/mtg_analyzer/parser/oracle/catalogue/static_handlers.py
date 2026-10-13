@@ -583,6 +583,19 @@ _ACTIVATION_COST_REDUCTION_TYPE_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 702.6a / 601.2f: "Equip abilities you activate [of other Equipment] [that target ~ / enchanted creature] cost {N}
+#: less to activate." (Bureau Headmaster, Bladehold War-Whip, Dwarven Mauler, Strong Back) and Auriok Steelshaper's "Equip
+#: costs you pay cost {N} less." — a ``scope="activation"`` discount on the controller's Equip abilities only
+#: (`continuous.activation_cost_reduction_for`'s ``attach_kind`` branch). The "that target …" riders read the creature chosen
+#: as the equip target (RULE 602.2b: cost is determined after targets are chosen); only the two referents the engine can
+#: compare against that target are recognised, any other ("that target a Knight", a named creature) stays unclaimed.
+_EQUIP_ACTIVATION_COST_REDUCTION_RE = re.compile(
+    r"equip (?:abilities you activate(?P<other> of other equipment)?(?: that target (?P<target>~|enchanted creature))?"
+    r" cost \{(?P<n>\d+)\} less to activate|costs you pay cost \{(?P<n2>\d+)\} less)\.?",
+    re.IGNORECASE,
+)
+_EQUIP_TARGET_REFERENT = {"~": "source", "enchanted creature": "attached_permanent"}
+
 # "This spell costs {N} less to cast for each `<X>`."  (RULE 601.2f
 # self-scoped discount printed on the spell itself — Embercleave, Ghoultree,
 # Primeval Protector, Vanquish the Horde) — ``affects="self"`` with a `per`
@@ -5019,6 +5032,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params["spell_type"] = words[0]
         elif len(words) == 2:
             params["spell_type"] = words
+        return [EffectSpec("cost_reduction", params)]
+
+    m = _EQUIP_ACTIVATION_COST_REDUCTION_RE.fullmatch(text)
+    if m is not None:
+        params = {
+            "scope": "activation",
+            "attach_kind": "equip",
+            "generic": int(m.group("n") or m.group("n2")),
+        }
+        if m.group("other"):
+            params["exclude_source"] = True
+        if m.group("target"):
+            params["target_is"] = _EQUIP_TARGET_REFERENT[m.group("target").lower()]
         return [EffectSpec("cost_reduction", params)]
 
     m = _ACTIVATION_COST_REDUCTION_TYPE_RE.fullmatch(text)

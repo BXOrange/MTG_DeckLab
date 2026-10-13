@@ -162,7 +162,7 @@ def test_ward_grant_stamps_granted_ward_cost_live():
 
 @pytest.mark.parametrize("name", [
     "Elder Owyn Lyons", "Hardlight Containment", "Crystal Carapace",
-    "Armguard Familiar", "Leather Armor", "Plate Armor", "A-Plate Armor",
+    "Armguard Familiar", "Plate Armor", "A-Plate Armor",
     "A-Kargan Warleader", "Star Whale", "Storvald, Frost Giant Jarl",
     "Thorin Oakenshield",
 ])
