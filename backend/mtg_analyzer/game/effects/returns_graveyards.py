@@ -1546,25 +1546,47 @@ class RevealOpponentLibraryStealEffect(GameEffect):
 class OwnerChoosesLibraryPositionEffect(GameEffect):
     """"The owner of up to one other target nonland permanent puts it on their choice of the top or bottom of their
     library." (Plan for All Outcomes) — RULE 401.4 puts the decision with the target's *owner*, so a one-option
-    `library_position` choice is opened for them (`RulesEngine._request_library_position`)."""
+    `library_position` choice is opened for them (`RulesEngine._request_library_position`).
+
+    PAR-161 ``chooser="controller"`` is the "put it on *your* choice of the top or bottom of its owner's library" form
+    (Not Forgotten: a graveyard card; Arashin Sovereign: ``target_kind=None``, the source itself; its "you may" is
+    the trigger's own do/decline prompt): the effect's controller decides, the card still lands in its owner's library."""
 
     def __init__(
-        self, target_kind: str = "nonland_permanent", optional: bool = True, source: Optional["GameObject"] = None,
+        self, target_kind: Optional[str] = "nonland_permanent", optional: bool = True,
+        source: Optional["GameObject"] = None, chooser: str = "owner",
+        colors: Optional[list[str]] = None, spell_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+        self.chooser = chooser
+        #: "target spell or permanent that's red or green" (Aether Gust) -- `TargetSpec.colors`; "target creature spell
+        #: or planeswalker spell" (Subtlety) -- `TargetSpec.spell_filter` over the ``"spell"`` kind.
+        self.target_spec = (
+            TargetSpec(
+                kind=target_kind, optional=optional, colors=tuple(colors) if colors else None,
+                spell_filter=dict(spell_filter) if spell_filter else None,
+            )
+            if target_kind else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = targets[0] if targets else None
+        if self.target_spec is None:
+            target = self.source  # self form: no RULE 115 target
         if getattr(target, "kind", None) == "spell" and getattr(target, "obj", None) is not None:
             target = target.obj  # a spell target is its `StackItem`
         if target is None:
             return
         try:
-            owner = context.state.player_by_id(target.owner_id)
+            if self.chooser == "controller":
+                chooser = _controller_of(self.source, context)
+                if chooser is None:
+                    return
+            else:
+                chooser = context.state.player_by_id(target.owner_id)
         except (KeyError, ValueError):
             return
-        context.engine._request_library_position(owner, target)
+        context.engine._request_library_position(chooser, target)
 
 
 class ExileCreatureCardMakeSpiritEffect(GameEffect):

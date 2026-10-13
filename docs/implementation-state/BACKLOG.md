@@ -95,10 +95,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
-- **PAR-161 · "Its owner puts it on their choice of the top or bottom of their library."** 24 SOLO (32 total, PV 636):
-  Aether Gust, Misleading Motes, Desynchronize, Hinder, Lost in Space, Return to the Sewers, …. Needs the owner's
-  interactive top-or-bottom pick (a player choice, `continuations.py`) after the referent's move; size with
-  `parser_probe.py blocked 'top or bottom of (?:their|its owner.s) library'`.
 - **PAR-164 · Small verified residue batch (next-turn duration close-out).** One sub-bullet per shape, each sized with
   `parser_probe.py blocked`:
   - trigger head "whenever ~ deals / is dealt N or more damage" (5 SOLO, PV 637: Deus of Calamity, Dragonborn Champion,

@@ -329,6 +329,8 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # mirrors `creature_or_enchantment_you_control`'s own union shape
     # (targeting.py) but over creature/land instead of creature/enchantment.
     (r"target creature or land you control", "creature_or_land_you_control"),
+    # "target creature or spacecraft" (PAR-161, Guidance Failure) — the Spacecraft artifact subtype beside creatures.
+    (r"target creature or spacecraft", "creature_or_spacecraft"),
     # "target land you control" / "target land an opponent controls" (PAR-29
     # — Political Trickery/Vedalken Plotter's own exchange-control targets)
     # — the controller-scoped pair, above the bare "target land" row so the

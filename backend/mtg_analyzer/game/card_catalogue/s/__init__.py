@@ -129,6 +129,7 @@ from . import stroke_of_midnight  # noqa: F401
 from . import struggle_for_project_purity  # noqa: F401
 from . import stuffy_doll  # noqa: F401
 from . import subterfuge  # noqa: F401
+from . import subtlety  # noqa: F401
 from . import sudden_substitution  # noqa: F401
 from . import summon_ixion  # noqa: F401
 from . import summon_kujata  # noqa: F401

@@ -187,6 +187,8 @@ EffectRegistry.register(
     "owner_puts_on_top_or_bottom",
     lambda p: OwnerChoosesLibraryPositionEffect(
         target_kind=p.get("target_kind", "nonland_permanent"), optional=bool(p.get("optional", True)),
+        chooser=p.get("chooser", "owner"),
+        colors=p.get("colors"), spell_filter=p.get("spell_filter"),
     ),
 )
 EffectRegistry.register(
@@ -740,6 +742,7 @@ EffectRegistry.register(
         tap_lands_empty_pool_if_unpaid=bool(p.get("tap_lands_empty_pool_if_unpaid", False)),
         exile_then_cast_free=bool(p.get("exile_then_cast_free", False)),  # Transcendent Dragon
         exile_standing_free_cast=bool(p.get("exile_standing_free_cast", False)),  # Kheru Spellsnatcher
+        library_choice=bool(p.get("library_choice", False)),  # Hinder
     ),
 )
 EffectRegistry.register(

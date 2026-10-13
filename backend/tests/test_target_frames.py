@@ -47,6 +47,7 @@ IRREDUCIBLE_KINDS = frozenset({
     # the stack, not the battlefield
     "spell", "spell_you_control", "spell_you_dont_control", "ability", "ability_you_control", "spell_or_ability",
     "spell_or_creature", "spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent",
+    "spell_or_permanent",
     # the stack, the battlefield and every graveyard at once (Endless Detour) — no single zone for a frame to read
     "spell_nonland_permanent_or_graveyard_card",
     # a creature card in any exile zone (Espers to Magicite's reflexive target) — exile is not a frame zone

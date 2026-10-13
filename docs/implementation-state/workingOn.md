@@ -42,15 +42,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
-
-## PAR-161 · "Its owner puts it on their choice of the top or bottom of their library."
-
-- **Started / last update:** 2026-10-13 / 2026-10-13
-- **Goal of this run:** close the whole ticket — parse the clause and give the owner an interactive top-or-bottom pick.
-- **Done (built + tested):** handler `owner_puts_library_choice` (handlers.py, "<target>'s owner / the owner of <target> puts it on their (choice of) top or bottom of their library") -> existing `owner_puts_on_top_or_bottom` (RULE 401.4 `library_position` choice, owner answers); new target kind `spell_or_nonland_permanent` (targeting.py, merged into the Sink into Stupor branch); PARSER_VERSION 640 + lock; `tests/test_par161_owner_library_choice.py` (12 tests incl. opponent-owned -> p2 chooses, stolen permanent -> owner, spell target, trailing scry). Backend suite + `--full-cache`: 13245 passed.
-- **In progress:** nothing; milestone 1 committed.
-- **Next step:** milestone 2 — add a chooser=controller variant ("put it on the top or bottom of its owner's library" where *you* choose: Not Forgotten, Arashin Sovereign, S.N.E.A.K. Dispatcher; Hinder via a library destination on the counter effect), then the missing target kinds (Aether Gust, Guidance Failure, Subtlety, Swat Away's target half); re-probe. Aetherspouts / Tolarian Contempt / Power of Persuasion / Ice Magic only if their other clauses turn out cheap.
-- **Decisions:** —
-- **Baselines / artefacts:** PARSER_VERSION 640; coverage 21335/35046 = 60.9% (v639: 21316), commander-legal 20530/32068; probe 32 -> 12 cards.
-- **Known failures:** —
-- **Residue:** 12 probe cards still open: "your choice" (controller picks) family needs a chooser=controller variant: Hinder (counter + library instead of graveyard, needs a CounterSpellEffect destination), Not Forgotten, Arashin Sovereign (self, "you may"), S.N.E.A.K. Dispatcher; unresolved targets: Aether Gust ("spell or permanent that's red or green"), Guidance Failure ("creature or spacecraft"), Subtlety ("creature spell or planeswalker spell"), Swat Away ("spell or creature" + cost-reduction clause), Aetherspouts ("for each attacking creature"), Tolarian Contempt ("for each opponent ... rejection counter"), Power of Persuasion (d20 table), Ice Magic (modal + shuffles clause).

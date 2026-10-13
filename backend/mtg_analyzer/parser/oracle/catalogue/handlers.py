@@ -5223,21 +5223,28 @@ def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
 _OWNER_LIBRARY_CHOICE_KINDS: frozenset[str] = frozenset(
     {
         "creature", "nonland_permanent", "artifact_or_creature", "creature_you_dont_control",
-        "nonland_permanent_you_dont_control",
+        "nonland_permanent_you_dont_control", "creature_or_spacecraft",
     }
 )
+#: The two stack-and-battlefield unions, which have no `_TARGET_ROWS` row of their own (they never appear as a plain target).
+_OWNER_LIBRARY_CHOICE_UNIONS: dict[str, str] = {
+    "target spell or nonland permanent": "spell_or_nonland_permanent",
+    "target spell or creature": "spell_or_creature",  # Swat Away
+}
+_OWNER_LIBRARY_CHOICE_UNION_RE = "|".join(re.escape(phrase) for phrase in _OWNER_LIBRARY_CHOICE_UNIONS)
 _OWNER_LIBRARY_CHOICE_TAIL = r"puts it on (?:their choice of )?the top or bottom of their library"
 _OWNER_PUTS_LIBRARY_CHOICE_RE = _c(
-    rf"(?:the owner of (?:{TARGET}|(?P<spell_a>target spell or nonland permanent))"
-    rf"|(?:{target_macro('_b')}|(?P<spell_b>target spell or nonland permanent))'s owner) "
+    rf"(?:the owner of (?:{TARGET}|(?P<union_a>{_OWNER_LIBRARY_CHOICE_UNION_RE}))"
+    rf"|(?:{target_macro('_b')}|(?P<union_b>{_OWNER_LIBRARY_CHOICE_UNION_RE}))'s owner) "
     + _OWNER_LIBRARY_CHOICE_TAIL
 )
 
 
 def _owner_puts_library_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     groups = m.groupdict()
-    if groups.get("spell_a") or groups.get("spell_b"):
-        kind: Optional[str] = "spell_or_nonland_permanent"
+    union = groups.get("union_a") or groups.get("union_b")
+    if union:
+        kind: Optional[str] = _OWNER_LIBRARY_CHOICE_UNIONS[union.lower()]
         optional = False
     else:
         suffix = "" if groups.get("target") else "_b"
@@ -5249,6 +5256,27 @@ def _owner_puts_library_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
         optional = bool(groups.get("up_to_one" + suffix))
     return [EffectSpec("owner_puts_on_top_or_bottom", {"target_kind": kind, "optional": optional})]
+
+
+#: PAR-161: the *controller*-chooses form — "put target card from a graveyard on your choice of the top or bottom of its
+#: owner's library" (Not Forgotten) and the self form "you may put ~ on your choice of the top or bottom of its owner's
+#: library" (Arashin Sovereign's dies trigger; the "you may" is the trigger's own do/decline prompt).  RULE 401.4: the card lands in its owner's library, but the player the text
+#: names (you) picks the end, so `owner_puts_on_top_or_bottom` carries ``chooser="controller"``.
+_CONTROLLER_LIBRARY_CHOICE_TAIL = r"on your choice of the top or bottom of its owner's library"
+_GRAVEYARD_CARD_LIBRARY_CHOICE_RE = _c(rf"put target card from a graveyard {_CONTROLLER_LIBRARY_CHOICE_TAIL}")
+_SELF_LIBRARY_CHOICE_RE = _c(rf"(?:you may )?put (?:~|it|this card) {_CONTROLLER_LIBRARY_CHOICE_TAIL}")
+
+
+def _graveyard_card_library_choice(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("owner_puts_on_top_or_bottom", {
+        "target_kind": "any_graveyard_card", "optional": False, "chooser": "controller",
+    })]
+
+
+def _self_library_choice(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("owner_puts_on_top_or_bottom", {
+        "target_kind": None, "optional": False, "chooser": "controller",
+    })]
 
 
 #: "Put target card from a graveyard on the bottom of its owner's library."
@@ -18099,6 +18127,8 @@ HANDLERS: list[EffectHandler] = [
     # "put ~ / it … on the bottom of / third from the top of its owner's library" (self form).
     # PAR-161: "target creature's owner puts it on their choice of the top or bottom of their library."
     EffectHandler("owner_puts_library_choice", _OWNER_PUTS_LIBRARY_CHOICE_RE, _owner_puts_library_choice),
+    EffectHandler("graveyard_card_library_choice", _GRAVEYARD_CARD_LIBRARY_CHOICE_RE, _graveyard_card_library_choice),
+    EffectHandler("self_library_choice", _SELF_LIBRARY_CHOICE_RE, _self_library_choice, self_subject_only=True),
     EffectHandler("return_self_to_library", _RETURN_SELF_TO_LIBRARY_RE, _return_self_to_library),
     EffectHandler("put_self_graveyard_top", _PUT_SELF_GRAVEYARD_TOP_RE, _put_self_graveyard_top),
     EffectHandler("return_attached_to_library", _RETURN_ATTACHED_TO_LIBRARY_RE, _return_attached_to_library),

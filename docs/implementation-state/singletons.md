@@ -268,3 +268,15 @@ Each gap checked with `parser_probe.py blocked` over its own clause: SOLO on 1.
 | --- | --- | --- |
 | Crooked Scales | `… unless you pay {3}. if you do, repeat this process.` | Targets must be kept across the repeat, with a payment mid-loop; `RepeatProcessEffect` runs without targets. |
 | Wirefly Hive | `destroy all permanents named wirefly.` | `combat.matches_object_filter` has no `name` filter; the flip half is modeled. |
+
+## Batch 7 — 2026-10-13 PAR-161 top-or-bottom close-out (PARSER_VERSION 641)
+
+Each gap checked with `parser_probe.py blocked` over its own clause: SOLO on 1 (Power of Persuasion: its only card, also blocked).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Aetherspouts | `for each attacking creature, its owner puts it on their choice of the top or bottom of their library.` | Needs a group mode of `owner_puts_on_top_or_bottom`: one `library_position` choice per owner, APNAP order (RULE 101.4). |
+| Tolarian Contempt | "for each opponent, choose up to one target creature they control with a rejection counter on it" | The rejection-counter target filter inside a per-opponent target frame; the owner placement row exists. |
+| S.N.E.A.K. Dispatcher | look at the top card of target player's library, watermark predicate, "otherwise" branch | No watermark predicate; the controller-chooses placement (`chooser="controller"`) exists. |
+| Power of Persuasion | d20 table: "1 \| return it to its owner's hand", "20 \| gain control … until the end of your next turn" | The dice-table rows for these bodies; the owner placement row exists. |
+| Ice Magic | modal "Blizzaga" shuffles the target into its owner's library; "Blizzard" mode | Modal shuffle-into-library body; the Blizzara half is claimed. |

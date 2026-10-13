@@ -38,9 +38,14 @@ class CounterSpellEffect(GameEffect):
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_then_cast_free: bool = False,
         exile_standing_free_cast: bool = False,
+        library_choice: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…If that spell is countered this way, put that card on your choice of the top or bottom of its owner's
+        #: library instead of into that player's graveyard." (Hinder) — the caster picks; the choice's answer does the
+        #: counter (`RulesEngine._resume_library_position`), so a spell that can't be countered never asks.
+        self.library_choice = bool(library_choice)
         #: "…exile it instead of putting it into its owner's graveyard. You may cast that card without paying its mana
         #: cost **for as long as it remains exiled**." (Kheru Spellsnatcher) — the standing, never turn-swept
         #: sibling of ``exile_then_cast_free``: `GameState.exile_cast_condition` + `free_cast_instance_ids`.
@@ -136,6 +141,14 @@ class CounterSpellEffect(GameEffect):
             # "counter target spell, activated ability, or triggered ability" (Disallow): the picked
             # stack item is an ability, which has no card to put anywhere (RULE 701.5b).
             context.counter_ability(target)
+        elif target is not None and self.library_choice:
+            item = context.engine._stack_item_for(target)
+            caster = _controller_of(self.source, context)
+            if item is None or item.obj is None or caster is None or context.engine._is_cant_be_countered(item.obj):
+                return
+            context.engine._request_library_position(
+                caster, item.obj, counter_by=context.resolving_controller_id or caster.id,
+            )
         elif target is not None:
             countered_obj = getattr(context.engine._stack_item_for(target), "obj", None)
             context.counter(

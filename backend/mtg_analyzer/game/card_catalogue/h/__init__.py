@@ -33,6 +33,7 @@ from . import hero_s_heirloom  # noqa: F401
 from . import heroes_in_a_half_shell  # noqa: F401
 from . import high_perfect_morcant  # noqa: F401
 from . import high_score  # noqa: F401
+from . import hinder  # noqa: F401
 from . import hit_the_mother_lode  # noqa: F401
 from . import hoarding_broodlord  # noqa: F401
 from . import hofri_ghostforge  # noqa: F401

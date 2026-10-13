@@ -3643,6 +3643,8 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"it's not your turn", re.I), lambda m: {"kind": "not_your_turn"}),
     # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
     (re.compile(r"you'?re the monarch", re.I), lambda m: {"kind": "is_monarch"}),
+    # RULE 506.2 (PAR-161, Swat Away): "if a creature is attacking you".
+    (re.compile(r"a creature is attacking you", re.I), lambda m: {"kind": "creature_attacking_you"}),
     (re.compile(r"you have the initiative", re.I), lambda m: {"kind": "has_initiative"}),
     (re.compile(r"you have the city'?s blessing", re.I), lambda m: {"kind": "has_city_blessing"}),
     # RULE 702.195b (PAR-51) — Storied's own designation, same shape as the

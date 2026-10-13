@@ -268,6 +268,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # means the static's controller, the same read `your_turn` already
         # makes.
         "is_monarch",  # "as long as you're the monarch"
+        "creature_attacking_you",  # "if a creature is attacking you" (Swat Away, PAR-161) -- RULE 506.2
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
         "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
@@ -882,6 +883,14 @@ def condition_holds(
 
     if kind == "is_monarch":
         return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
+    if kind == "creature_attacking_you":
+        # RULE 506.2: a creature attacks the player it was declared against (planeswalker/battle attackers don't count).
+        return controller_id is not None and any(
+            o.is_creature and o.attacking
+            and (getattr(o, "combat_defender", None) or {}).get("kind") == "player"
+            and (getattr(o, "combat_defender", None) or {}).get("id") == controller_id
+            for o in state.permanents()
+        )
     if kind == "has_initiative":
         return controller_id is not None and getattr(state, "initiative_id", None) == controller_id
     if kind == "has_city_blessing":
@@ -1481,6 +1490,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return "nur außerhalb deines Zuges"
     if kind == "source_in_graveyard":
         return "nur beim Wirken aus dem Friedhof"
+    if kind == "creature_attacking_you":
+        return "solange dich eine Kreatur angreift"
     if kind == "is_monarch":
         return "solange Monarch"
     if kind == "has_initiative":

@@ -315,6 +315,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "spell_or_nonland_permanent_you_dont_control",
         # "the owner of target spell or nonland permanent puts it on their choice of the top or bottom" (Sudden Setback, PAR-161).
         "spell_or_nonland_permanent",
+        # "target spell or permanent that's red or green" (Aether Gust, PAR-161) — the colour rides `TargetSpec.colors`.
+        "spell_or_permanent",
+        # "target creature or spacecraft" (Guidance Failure, PAR-161) — a Spacecraft is an artifact subtype.
+        "creature_or_spacecraft",
         # "target spell, nonland permanent, or card in a graveyard" (Endless Detour) — the unscoped three-way union.
         "spell_nonland_permanent_or_graveyard_card",
         # "target commander that entered this turn" (Forge of Heroes) — a commander on the battlefield that arrived this turn.
@@ -780,6 +784,8 @@ class TargetSpec:
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
             "spell_or_creature": "Zauberspruch oder Kreatur",
             "spell_or_nonland_permanent": "Zauberspruch oder nichtländliches bleibendes Objekt",
+            "spell_or_permanent": "Zauberspruch oder bleibendes Objekt",
+            "creature_or_spacecraft": "Kreatur oder Raumschiff",
             "commander_entered_this_turn": "Commander, der in diesem Zug ins Spiel kam",
             "artifact_enchantment_or_tapped_creature_you_dont_control":
                 "Artefakt, Verzauberung oder getappte Kreatur eines Gegners",
@@ -1267,6 +1273,7 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
         bool(o.card.is_artifact) or bool(o.card.is_enchantment) or (o.is_creature and bool(o.tapped))
     ),
     "creature_or_vehicle": lambda o: o.is_creature or "vehicle" in o.card.type_line.lower(),
+    "creature_or_spacecraft": lambda o: o.is_creature or "spacecraft" in o.card.type_line.lower(),
     "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
     "human_or_artifact": lambda o: bool(o.card.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
     "artifact_creature_or_land": lambda o: o.is_creature or o.is_land or o.card.is_artifact,
@@ -1424,6 +1431,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "creature_or_land", SCOPE_YOU, exclude_source=False),
     "creature_or_vehicle_you_control": TargetFrame(
         "creature_or_vehicle", SCOPE_YOU, exclude_source=False),
+    "creature_or_spacecraft": TargetFrame("creature_or_spacecraft", exclude_source=False),
     "vehicle": TargetFrame("vehicle", exclude_source=False),
     "other_vehicle_you_control": TargetFrame("vehicle", SCOPE_YOU),
     "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
@@ -2152,7 +2160,7 @@ def _legal_targets_for(
             if o.is_creature and o.blocking == source.instance_id
             and _targetable_by(o, source)
         ]
-    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent"):
+    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent", "spell_or_permanent"):
         # PAR-161: the unscoped sibling ("the owner of target spell or nonland permanent …", Sudden Setback) drops the
         # opponent-controls restriction below.
         # "Return target spell or nonland permanent an opponent controls to
@@ -2167,15 +2175,18 @@ def _legal_targets_for(
             {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
             for item in state.stack
             if item.kind == "spell" and item.obj is not None and item.obj is not source
+            # PAR-161 (`spell_or_permanent`, Aether Gust): `spec.colors` narrows the stack side too.
+            and _color_ok(spec, item.obj.colors)
         ]
         permanents = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker
+            if (kind == "spell_or_permanent" or o.is_creature or o.is_planeswalker
                 or o.card.is_artifact or o.card.is_enchantment)
-            and (kind == "spell_or_nonland_permanent" or o.controller_id not in (None, controller_id))
+            and (kind != "spell_or_nonland_permanent_you_dont_control" or o.controller_id not in (None, controller_id))
             and o is not source
             and _targetable_by(o, source)
+            and _color_ok(spec, o.colors)
         ]
         return spells + permanents
     if kind == "spell_nonland_permanent_or_graveyard_card":

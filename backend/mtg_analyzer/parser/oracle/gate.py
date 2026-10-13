@@ -3943,7 +3943,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 640: PAR-161 -- "<target>'s owner / the owner of <target> puts it on their choice of the top or bottom of their library"
 #      (`owner_puts_on_top_or_bottom`, RULE 401.4: the owner answers a `library_position` choice): Run Behind, Trip Up,
 #      Desynchronize, Misleading Motes, Sudden Setback (spell or nonland permanent), ... and their trailing scry/surveil/token clauses.
-PARSER_VERSION = "640"
+# 641: PAR-161 milestone 2 -- the controller-chooses forms ("put target card from a graveyard / ~ on your choice of the top or
+#      bottom of its owner's library": Not Forgotten, Arashin Sovereign; `owner_puts_on_top_or_bottom` chooser="controller"), the
+#      "the owner of target spell or creature" union (Swat Away, with its new `creature_attacking_you` cost condition) and the
+#      `creature_or_spacecraft` target (Guidance Failure). Hinder, Aether Gust and Subtlety are hand-authored.
+PARSER_VERSION = "641"
 
 
 def parser_source_hash() -> str:

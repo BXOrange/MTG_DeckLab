@@ -789,19 +789,30 @@ class MiscSystemsMixin:
                 obj.zone = Zone.LIBRARY
                 player.library.append(obj)
         self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
-    def _request_library_position(self, owner: Player, obj: GameObject) -> None:
+    def _request_library_position(
+        self, owner: Player, obj: GameObject, *, counter_by: Optional[str] = None,
+    ) -> None:
         """"The owner of … puts it on their choice of the top or bottom of their library." (Plan for All Outcomes) — the
-        owner, not the ability's controller, chooses; the permanent stays where it is until the answer arrives."""
-        self.open_choice({
+        owner, not the ability's controller, chooses; the permanent stays where it is until the answer arrives.
+
+        PAR-161: ``owner`` is whoever the text lets choose — the card's owner, or (Not Forgotten, Arashin Sovereign,
+        Hinder: "put it on *your* choice of the top or bottom of its owner's library") the effect's controller.
+        ``counter_by`` marks Hinder's replacement of the graveyard
+        destination of a countered spell (RULE 701.5a/614.1), so the answer counters the spell into the library."""
+        options = [
+            {"id": "top", "label": "Oben auf die Bibliothek"},
+            {"id": "bottom", "label": "Unter die Bibliothek"},
+        ]
+        choice: dict[str, Any] = {
             "kind": "library_position",
             "player_id": owner.id,
             "instance_id": obj.instance_id,
             "prompt": f"{obj.name}: oben oder unten auf die Bibliothek legen?",
-            "options": [
-                {"id": "top", "label": "Oben auf die Bibliothek"},
-                {"id": "bottom", "label": "Unter die Bibliothek"},
-            ],
-        })
+            "options": options,
+        }
+        if counter_by is not None:
+            choice["counter_by"] = counter_by
+        self.open_choice(choice)
     @continuations.choice("library_position", answer=continuations.ANSWER_STR, decline="top", rule="401.4")
     def _resume_library_position(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `library_position` choice (RULE 401.4: the owner decides top or bottom); a missing or invalid
@@ -810,7 +821,10 @@ class MiscSystemsMixin:
         if obj is None:
             return
         position = "bottom" if answer == "bottom" else "top"
-        if obj.zone == Zone.STACK:
+        if "counter_by" in choice and obj.zone == Zone.STACK:
+            # Hinder: the counter itself, with the library as the landing zone instead of the graveyard.
+            self.counter_spell(obj, countered_by=choice["counter_by"], library_position=position)
+        elif obj.zone == Zone.STACK:
             self.move_spell_off_stack(obj, f"library_{position}")  # Endless Detour's spell target
         else:
             self.return_to_library(obj, position)
@@ -5171,9 +5185,13 @@ class MiscSystemsMixin:
         return False
     def counter_spell(
         self, target: Any, suspend_time_counters: Optional[int] = None, countered_by: Optional[str] = None,
-        exile_instead: bool = False,
+        exile_instead: bool = False, library_position: Optional[str] = None,
     ) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
+
+        ``library_position`` ("top"/"bottom"; Hinder — "put that card on your choice of the top or bottom of its
+        owner's library instead of into that player's graveyard") replaces the graveyard destination (RULE 614.1);
+        a copy has no card to put anywhere and just ceases to exist (RULE 707.10a).
 
         ``exile_instead`` (Transcendent Dragon — "exile it instead of putting it into its owner's
         graveyard") sends the countered card to exile rather than the graveyard.
@@ -5202,7 +5220,13 @@ class MiscSystemsMixin:
         if item.obj is not None:
             item.obj.blitz_cost_paid = False  # RULE 400.7: the countered spell is a new object.
             owner = self.state.player_by_id(item.obj.owner_id)
-            if exile_instead:
+            if library_position and not item.obj.is_token:
+                item.obj.zone = Zone.LIBRARY
+                if library_position == "bottom":
+                    owner.library.insert(0, item.obj)
+                else:
+                    owner.library.append(item.obj)
+            elif exile_instead:
                 owner.add_to_zone(item.obj, Zone.EXILE)
             elif suspend_time_counters:
                 owner.add_to_zone(item.obj, Zone.EXILE)
