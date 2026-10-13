@@ -42,3 +42,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## PAR-150 · Multi-target ("up to N", "up to X") for gain control, goad, counter and keyword grants
+
+- **Started / last update:** 2026-10-13 / 2026-10-13
+- **Goal of this run:** close the whole ticket — opt the four handler families into `_MULTI_TARGET_QUANTIFIER` and give each effect a working `count`/`target_count` param.
+- **Done (built + tested):** counter (`counter_up_to`: Double Negative, Katara's Reversal, Repel Intruders, Repulsive Mutation; `CounterSpellEffect`/`CounterAbilityEffect` count/optional), gain control (`gain_control_multi`: Jace Ingenious Mind-Mage, Harness by Force, Mass Manipulation), goad (`goad_multi`: Sifa Grent +1; `those_creatures_cant_block`: Sontaran General), keyword grants (`pump_keywords_multi`: Invisible Force Field, Mogis's Marauder via `counted:devotion_to_black`, Voyager Drake via `source_kicker_count`). PARSER_VERSION 642. Tests: backend/tests/test_par150_multi_target_families.py.
+- **In progress:** nothing; milestone 1 committed (four families built, verified by the orchestrator: default + `--full-cache` 13297 passed).
+- **Next step:** check whether the saga-lifetime / "for as long as you control ~" steals (Scroll of Isildur, The Horus Heresy, The Super Hero Civil War, Rangers of Ithilien) share an existing duration in `game/durations.py`; if so add that duration to `gain_control_multi` as milestone 2, then decide each remaining card: cluster -> stay here, one-off -> `singletons.md` (re-probe each with `parser_probe.py blocked`).
+- **Decisions:** plural "creatures and/or planeswalkers" steals remap `any` -> `creature_or_planeswalker` (a player cannot be stolen); `where X is <devotion|kicks>` is carried as a target-count selector, not a `bind`.
+- **Baselines / artefacts:** PARSER_VERSION 642, coverage 21358/35046 (commander-legal 20552/32068); before: v641 21342 / 20536.
+- **Known failures:** —
+- **Residue:** Tishana's Tidebinder (counter-ability part done; "that permanent loses all abilities for as long as ~ remains" rider), Hideous Taskmaster (per-opponent steal + "trample, haste and annihilator 1" temp grant), Rangers of Ithilien ("lesser power" relative filter + "for as long as you control ~" steal), The Super Hero Civil War ("total mana value 6 or less" cross-target cap + saga-lifetime steal), Havoc Eater (counters = total power of creatures goaded this way), Sifa Grent -6, Oko +2 ("all creature types" grant), Warriors' Lesson (quoted-ability grant), Scroll of Isildur / The Horus Heresy (saga-duration steals).

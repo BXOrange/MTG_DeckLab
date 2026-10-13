@@ -2312,8 +2312,8 @@ _LOOK_TOP_HIT_GRANT_KEYWORDS: dict[str, str] = {
 #: unrelated creature-choosing clause followed by an unrelated genuine
 #: untap effect.
 _GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
-    r"^(?P<before>gain control of (?:another )?target .+? until end of turn)\.\s*"
-    r"untap (?:that creature|that permanent|that artifact|it)[.,]?\s*(?:and\s+)?"
+    r"^(?P<before>gain control of (?:another |any number of |up to \d+ |\d+ |x )?target .+? until end of turn)\.\s*"
+    r"untap (?:that creature|that permanent|that artifact|those creatures|it)[.,]?\s*(?:and\s+)?"
     r"(?P<grant>(?:it|they) gains? [a-z, ]*?haste[a-z, ]*? until end of turn"
     r"|until end of turn, (?:it|they) (?:gains?|has|have|becomes?) .+)"
     r"(?:[.,]\s*(?:and\s+)?(?P<after>.+))?$",

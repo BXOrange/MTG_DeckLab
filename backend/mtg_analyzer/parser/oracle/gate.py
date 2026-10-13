@@ -3947,7 +3947,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      bottom of its owner's library": Not Forgotten, Arashin Sovereign; `owner_puts_on_top_or_bottom` chooser="controller"), the
 #      "the owner of target spell or creature" union (Swat Away, with its new `creature_attacking_you` cost condition) and the
 #      `creature_or_spacecraft` target (Guidance Failure). Hinder, Aether Gust and Subtlety are hand-authored.
-PARSER_VERSION = "641"
+# 642: PAR-150 -- "up to N / N / any number of / X target ..." for counter (Double Negative, Katara's Reversal, "up to one target
+#      creature spell" -- `CounterSpellEffect.count`), gain control (Jace, Ingenious Mind-Mage; Harness by Force; Mass Manipulation --
+#      `GainControlUntilEndOfTurnEffect.count`), goad (Sifa Grent; "those creatures can't block this turn" after the per-opponent
+#      goad: Sontaran General) and keyword grants (Invisible Force Field, Mogis's Marauder, Voyager Drake -- `PumpEffect` count /
+#      `counted:` + `source_kicker_count` target-count selectors); Repulsive Mutation's "pays mana equal to the greatest power".
+PARSER_VERSION = "642"
 
 
 def parser_source_hash() -> str:

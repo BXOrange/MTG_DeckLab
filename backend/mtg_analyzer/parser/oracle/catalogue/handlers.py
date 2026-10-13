@@ -47,6 +47,7 @@ from .subgrammars import (
     PERMANENT_TYPE_WORDS,
     SELF_SUBJECT_PREFIX,
     SPELL_TARGET,
+    SPELL_TYPE_LIST,
     TARGET,
     NOT_YOU_TAIL,
     NOT_YOU_TARGET_KINDS,
@@ -4478,6 +4479,44 @@ def _regenerate_target_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-150: "counter up to two target spells" (Double Negative) / "… up to four target spells and/or
+#: abilities" (Katara's Reversal) / "… up to one target creature spell" (Repel Intruders) / "… up to one target
+#: activated or triggered ability" (Tishana's Tidebinder) — RULE 115.1a's optional 0..N. The count rides the
+#: effect's `count`/`optional` params (`CounterSpellEffect`/`CounterAbilityEffect`).
+_COUNTER_UP_TO_RE = _c(
+    r"counter up to (?P<count>\d+) target "
+    rf"(?:(?P<noncreature>noncreature) )?(?:(?P<types>{SPELL_TYPE_LIST}) )?"
+    r"(?:(?P<spell>spells?)(?P<abil> and/or abilities)?|(?P<only_abil>activated or triggered abilit(?:y|ies)))"
+    # "…unless its controller pays mana equal to the greatest power among creatures you control" (Repulsive Mutation):
+    # a zero base plus one generic per point, the `unless_pays_extra_selector` mechanism (Circular Logic's shape).
+    r"(?P<greatest_power_tax> unless its controller pays mana equal to the greatest power among creatures you control)?"
+)
+
+
+def _counter_up_to(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count = int(m.group("count"))
+    plural = m.group("spell") == "spells" or m.group("only_abil") == "activated or triggered abilities"
+    if count < 1 or (count > 1) != plural:
+        return None  # "up to 2 target spell" / "up to 1 target spells" are not real templates
+    params: dict = {"count": count, "optional": True}
+    if m.group("only_abil"):
+        if m.group("noncreature") or m.group("types"):
+            return None
+        return [EffectSpec("counter_ability", params)]
+    if m.group("noncreature"):
+        params["noncreature"] = True
+    if m.group("types"):
+        params["card_types"] = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("types")) if t]
+    if m.group("abil"):
+        params["target_kind"] = "spell_or_ability"
+    if m.group("greatest_power_tax"):
+        if m.group("abil"):
+            return None  # an ability has no controller-pays rider in any printed card
+        params["unless_pays"] = "{0}"
+        params["unless_pays_extra_selector"] = "greatest_power_among_creatures_you_control"
+    return [EffectSpec("counter", params)]
+
+
 def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # "counter target spell" / "… target noncreature spell" / "… target
     # instant or sorcery spell" / "… target spell with mana value N" — the
@@ -6756,6 +6795,35 @@ def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     quality = target_quality_filter(m.group("target"))  # PAR-160: "with power N or less" (TARGET's quality slot)
     if quality:
         params["creature_filter"] = quality
+    return [EffectSpec("gain_control_until_eot", params)]
+
+
+#: PAR-150: the multi-target steal — "gain control of up to three target creatures" (Jace, Ingenious Mind-Mage: no
+#: duration, RULE 611.2), "… any number of target creatures until end of turn" (Harness by Force: the threaten
+#: bundle, whose untap/haste restatement `segmenter._GAIN_CONTROL_HASTE_TAIL_RE` absorbs), "… X target creatures
+#: and/or planeswalkers" (Mass Manipulation: X is the announced {X}). Every chosen target changes control
+#: (`GainControlUntilEndOfTurnEffect.count`).
+_GAIN_CONTROL_MULTI_RE = _c(
+    rf"gain control of {_MULTI_TARGET_QUANTIFIER_X}(?P<target>{_MULTI_TARGET_ALT})"
+    r"(?P<eot> until end of turn)?"
+)
+#: What a plural steal may take: permanents only — `_multi_target_kind`'s ``"any"`` row (creatures and/or
+#: planeswalkers) also offers players, so it is remapped below.
+_GAIN_CONTROL_MULTI_KINDS = frozenset(_GAIN_CONTROL_PERMANENT_KINDS)
+
+
+def _gain_control_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None:
+        return None
+    if params["target_kind"] == "any":
+        if m.group("target").lower().strip() != "target creatures and/or planeswalkers":
+            return None
+        params["target_kind"] = "creature_or_planeswalker"  # a player can't be gained control of
+    if params["target_kind"] not in _GAIN_CONTROL_MULTI_KINDS or params.get("distinct_controllers"):
+        return None
+    if not m.group("eot"):
+        params.update({"duration": "permanent", "haste": False, "untap": False})
     return [EffectSpec("gain_control_until_eot", params)]
 
 
@@ -13954,6 +14022,19 @@ def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("goad", {"target_kind": kind, **_optional_param(m)})]
 
 
+# PAR-150: "Goad up to two target creatures." (Sifa Grent) / "goad two target creatures your opponents control" —
+# RULE 115.1a's N targets over `GoadEffect.count`; every chosen creature is goaded.
+_GOAD_MULTI_RE = _c(rf"goad {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})")
+_GOAD_MULTI_KINDS = frozenset({"creature", "creature_you_control", "creature_you_dont_control"})
+
+
+def _goad_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None or params["target_kind"] not in _GOAD_MULTI_KINDS or params.get("distinct_controllers"):
+        return None  # only creatures can be goaded (RULE 701.15b)
+    return [EffectSpec("goad", params)]
+
+
 # "Goad it." / "Goad that creature." — the pronoun form, pointing at whatever
 # the *previous* clause of this same ability targeted ("~ deals 2 damage to
 # target creature. Goad that creature.", Hellrider-shaped). Offered only when
@@ -14287,6 +14368,49 @@ def _pump_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     state_filter = _pump_target_creature_filter(m)
     if state_filter:
         params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
+    return [EffectSpec("pump", params)]
+
+
+#: PAR-150: the keyword-only plural grant — "up to four target permanents you control gain indestructible until end
+#: of turn" (Invisible Force Field), "two target creatures gain flying …", "up to X target creatures each gain
+#: intimidate and haste …" (X = the announced {X}); the keyword-only sibling of `_PUMP_UP_TO_TWO_RE` and friends.
+#: Every chosen object gets the grant (`PumpEffect`'s `count`/`count_max`/`count_selector`).
+_PUMP_KEYWORDS_MULTI_RE = _c(
+    rf"{_MULTI_TARGET_QUANTIFIER_X}(?:other )?(?P<target>{_MULTI_TARGET_ALT})(?: each)? gains? "
+    r"(?P<kw>[a-z][a-z, ]*?) until end of turn"
+    # "…, where X is your devotion to black" (Mogis's Marauder) / "…, where X is the number of times ~ was kicked"
+    # (Voyager Drake): X is measured when the ability is announced, not paid.
+    rf"(?:, where x is (?:your devotion to (?P<dev_color>{COLOR_WORD_ALT})|(?P<kicks>the number of times ~ was kicked)))?"
+)
+#: Mirrors `game.targeting.COUNTED_SELECTOR_PREFIX` (the parser may not import `game/`; a test pins the two together).
+_COUNTED_SELECTOR_PREFIX = "counted:"
+_PUMP_KEYWORDS_MULTI_KINDS = frozenset({
+    "creature", "creature_you_control", "creature_you_dont_control", "permanent", "permanent_you_control",
+    "nonland_permanent", "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
+})
+
+
+def _pump_keywords_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    mt = _multi_target_params(m)
+    if mt is None or mt["target_kind"] not in _PUMP_KEYWORDS_MULTI_KINDS or mt.get("distinct_controllers"):
+        return None
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None  # an unmodeled granted ability fails closed
+    params: dict = {"keywords": keywords, "target_kind": mt["target_kind"], "target_count": mt["count"]}
+    for key in ("optional", "count_selector"):
+        if mt.get(key):
+            params[key] = mt[key]
+    x_definition = m.group("dev_color") or m.group("kicks")
+    if x_definition:
+        if params.get("count_selector") != "source_x_paid":
+            return None  # a "where X is" tail only defines an X that the clause actually uses
+        params["count_selector"] = (
+            f"{_COUNTED_SELECTOR_PREFIX}devotion_to_{m.group('dev_color').lower()}"
+            if m.group("dev_color") else "source_kicker_count"
+        )
+    if mt.get("count_max") is not None:
+        params["target_count_max"] = mt["count_max"]
     return [EffectSpec("pump", params)]
 
 
@@ -15560,6 +15684,10 @@ def _cant_block_turn_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("cant_block_this_turn", params)]
 
+
+#: PAR-150: "Those creatures can't block this turn." (Sontaran General, after "for each opponent, goad up to one target
+#: creature that player controls") — every creature the previous clause targeted (`CantBlockEffect.previous_subject`).
+_THOSE_CREATURES_CANT_BLOCK_RE = _c(r"those creatures can'?t block this turn")
 
 #: "If it's a creature, it can't block this turn." (Searing Barb's own
 #: damage-rider tail — "~ deals 2 damage to any target." precedes it; the
@@ -17714,6 +17842,7 @@ HANDLERS: list[EffectHandler] = [
         ),
         _counter,
     ),
+    EffectHandler("counter_up_to", _COUNTER_UP_TO_RE, _counter_up_to),
     # "counter target spell, activated ability, or triggered ability." (Disallow, Voidslime, Deny the Witch) —
     # `TargetSpec` kind ``spell_or_ability`` (Deflecting Swat's union of the stack's spells and abilities).
     EffectHandler(
@@ -18439,6 +18568,8 @@ HANDLERS: list[EffectHandler] = [
         _GAIN_CONTROL_PERMANENT_RE,
         _gain_control_permanent,
     ),
+    # "gain control of up to N / any number of / X target creatures [until end of turn]" (PAR-150).
+    EffectHandler("gain_control_multi", _GAIN_CONTROL_MULTI_RE, _gain_control_multi),
     # "Untap all creatures and gain control of them until end of turn. They
     # gain haste until end of turn." (Insurrection's own mass threaten).
     EffectHandler(
@@ -19232,6 +19363,12 @@ HANDLERS: list[EffectHandler] = [
     # "If it's a creature, it can't block this turn." (Searing Barb's
     # damage-rider tail) — acts on the previous clause's target.
     EffectHandler(
+        "those_creatures_cant_block",
+        _THOSE_CREATURES_CANT_BLOCK_RE,
+        lambda m: [EffectSpec("cant_block_this_turn", {"previous_subject": True})],
+        previous_subject_only=True,
+    ),
+    EffectHandler(
         "if_prev_creature_cant_block",
         _IF_PREV_CREATURE_CANT_BLOCK_RE,
         _if_prev_creature_cant_block,
@@ -19384,6 +19521,7 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_MULTI_TARGET_RE,
         _pump_multi_target,
     ),
+    EffectHandler("pump_keywords_multi", _PUMP_KEYWORDS_MULTI_RE, _pump_keywords_multi),
     # "Untap those creatures." (Colossal Heroics) — the previous clause's own
     # multi-target group, read back the same way `return_previous_group` does.
     EffectHandler(
@@ -20410,6 +20548,7 @@ HANDLERS: list[EffectHandler] = [
         ),
         _goad_per_opponent,
     ),
+    EffectHandler("goad_multi", _GOAD_MULTI_RE, _goad_multi),
     # "goad up to X target creatures your opponents control" (Death Kiss).
     EffectHandler(
         "goad_up_to_x",

@@ -2355,8 +2355,11 @@ def _legal_targets_for(
 #: every other card-text-derived name in this package; an unknown one falls
 #: back to the printed ``count``.
 TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
-    "opponents", "players", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid",
+    "opponents", "players", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid", "source_kicker_count",
 })
+#: PAR-150: "up to X target creatures ..., where X is your devotion to black" (Mogis's Marauder) — a
+#: `continuous.count_selector` name carried after this prefix, measured when the ability is announced (RULE 601.2c).
+COUNTED_SELECTOR_PREFIX = "counted:"
 
 
 def resolved_count(
@@ -2374,6 +2377,11 @@ def resolved_count(
     of picks to offer.
     """
     selector = spec.count_selector
+    if selector and selector.startswith(COUNTED_SELECTOR_PREFIX) and state is not None:
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        measured = _count_selector(state, controller_id, selector[len(COUNTED_SELECTOR_PREFIX):], source=source)
+        return max(0, int(measured or 0))
     if not selector or selector not in TARGET_COUNT_SELECTORS or state is None:
         return spec.count
     if selector == "opponents":
@@ -2386,6 +2394,10 @@ def resolved_count(
         # stamped by `RulesEngine.cast_spell`), read fresh at target-
         # gathering time rather than a fixed printed count.
         return max(0, int(getattr(source, "x_paid", 0) or 0))
+    if selector == "source_kicker_count":
+        # "Up to X target creatures ..., where X is the number of times ~ was kicked" (Voyager Drake): the multikicker
+        # tally stamped on the source when it was cast (RULE 702.33d).
+        return max(0, int(getattr(source, "kicker_count", 0) or 0))
     if selector == "source_twice_x_paid":
         # "Exile up to twice X target cards from graveyards." (Erebos's Intervention) — 2 × the
         # announced {X}, read the same way as ``source_x_paid``.

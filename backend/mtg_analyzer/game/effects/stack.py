@@ -39,9 +39,16 @@ class CounterSpellEffect(GameEffect):
         exile_then_cast_free: bool = False,
         exile_standing_free_cast: bool = False,
         library_choice: bool = False,
+        count: int = 1,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Counter up to two target spells." (Double Negative) — RULE 115.1a: ``count`` targets are announced
+        #: (``optional`` makes it 0..count) and every chosen one is countered independently (RULE 608.2b: a
+        #: target that left the stack is skipped, the rest still apply).
+        self.count = max(1, int(count or 1))
+        self.optional = bool(optional)
         #: "…If that spell is countered this way, put that card on your choice of the top or bottom of its owner's
         #: library instead of into that player's graveyard." (Hinder) — the caster picks; the choice's answer does the
         #: counter (`RulesEngine._resume_library_position`), so a spell that can't be countered never asks.
@@ -105,7 +112,9 @@ class CounterSpellEffect(GameEffect):
             # "counter target spell **you don't control**" (Counterflux, PAR-128): the
             # controller-scoped ``spell_you_dont_control`` pool.
             kind = target_kind if target_kind in ("spell", "spell_you_dont_control", "spell_or_ability") else "spell"
-            self.target_spec = TargetSpec(kind=kind, spell_filter=spell_filter or None)
+            self.target_spec = TargetSpec(
+                kind=kind, spell_filter=spell_filter or None, count=self.count, optional=self.optional,
+            )
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -116,6 +125,9 @@ class CounterSpellEffect(GameEffect):
         from .. import continuous  # function-scoped: avoid an import cycle
 
         controller_id = getattr(_controller_of(self.source, context), "id", None)
+        # RULE 613: an earlier clause of this same resolution may have changed a measured characteristic
+        # (Repulsive Mutation puts counters on a creature, then taxes by the greatest power).
+        context.recompute()
         extra = continuous.count_selector(
             context.state, controller_id, self.unless_pays_extra_selector, source=self.source,
         )
@@ -136,7 +148,15 @@ class CounterSpellEffect(GameEffect):
                     tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
                 )
             return
-        target = (targets[0] if targets else None) or self.target
+        if targets:
+            # RULE 115.1a: this effect's own ``count`` slots off the (possibly shared) resolved list.
+            chosen = [t for t in targets[:self.count] if t is not None]
+        else:
+            chosen = [self.target] if self.target is not None else []
+        for target in chosen:
+            self._counter_one(context, target, on_pay, unless_pays)
+
+    def _counter_one(self, context: GameContext, target: Any, on_pay: Optional[list[dict]], unless_pays: Optional[str]) -> None:
         if target is not None and getattr(target, "kind", None) == "ability":
             # "counter target spell, activated ability, or triggered ability" (Disallow): the picked
             # stack item is an ability, which has no card to put anywhere (RULE 701.5b).
@@ -181,18 +201,23 @@ class CounterAbilityEffect(GameEffect):
     them the same way `CounterSpellEffect` carries its own if one does.
     """
 
-    def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, target: Any = None, source: Optional["GameObject"] = None, count: int = 1, optional: bool = False,
+    ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind="ability")
+        #: "counter up to one target activated or triggered ability" (Tishana's Tidebinder) — RULE 115.1a.
+        self.count = max(1, int(count or 1))
+        self.target_spec = TargetSpec(kind="ability", count=self.count, optional=bool(optional))
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is not None:
-            context.counter_ability(target)
+        chosen = [t for t in targets[:self.count] if t is not None] if targets else [self.target]
+        for target in chosen:
+            if target is not None:
+                context.counter_ability(target)
 
 
 class CopyTargetAbilityEffect(GameEffect):

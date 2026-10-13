@@ -1343,9 +1343,16 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         duration: str = "end_of_turn",
         untap: bool = True,
         player_from_trigger_event: Optional[str] = None,
+        count: Optional[int] = None,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Gain control of up to three target creatures." (Jace, Ingenious Mind-Mage) / "…of any number of target
+        #: creatures" (Harness by Force) / "…of X target creatures" (Mass Manipulation) — RULE 115.1a: ``count`` is the
+        #: announced-target cap (``optional`` makes it 0..count; a ``count_selector`` of ``"source_x_paid"`` narrows it
+        #: to the announced X), every chosen target changes control. ``None`` keeps the single/per-opponent shapes.
+        self.count = None if count is None else max(1, int(count))
         #: "Whenever ~ deals combat damage to a player, gain control of all artifacts **that player** controls." (Hellkite Tyrant) — with
         #: ``mass_of_target_player`` the player is the firing event's field (``"target_id"``) rather than a RULE 115 target.
         self.player_from_trigger_event = player_from_trigger_event
@@ -1402,7 +1409,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                 # exact-match sibling of `max_mana_value` just above.
                 exact_mana_value=exact_mana_value,
                 creature_filter=creature_filter, count_selector=count_selector,
-                optional=count_selector is not None,
+                optional=count_selector is not None or bool(optional),
+                count=self.count or 1,
             )
         self.haste = haste
 
@@ -1468,8 +1476,11 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         # RULE 601.2c: a `count_selector` requirement ("for each opponent,
         # gain control of up to 1 target creature that player controls")
         # yields a *list*; the single-target forms still pass exactly one.
+        if self.count is not None and targets:
+            chosen = chosen[:self.count]  # this effect's own slots off a possibly shared list (RULE 115.1a)
         for target in chosen:
-            self._take(context, target, controller)
+            if target is not None:
+                self._take(context, target, controller)
         context.recompute()
 
 

@@ -1030,6 +1030,9 @@ _SPELL_TYPE_LIST = (
     rf"{_SPELL_TYPE_WORD}(?:,\s*{_SPELL_TYPE_WORD})*(?:,?\s+or\s+{_SPELL_TYPE_WORD})?"
 )
 
+#: Public alias for handlers that build their own plural "target <types> spells" phrase (PAR-150).
+SPELL_TYPE_LIST = _SPELL_TYPE_LIST
+
 #: PAR-74: "target **spirit or arcane** spell" (Hisoka's Defiance) — a
 #: creature-subtype-or-"Arcane" OR filter, not a main card type
 #: (`_SPELL_TYPE_WORD` deliberately excludes subtypes — no real card's

@@ -743,13 +743,16 @@ EffectRegistry.register(
         exile_then_cast_free=bool(p.get("exile_then_cast_free", False)),  # Transcendent Dragon
         exile_standing_free_cast=bool(p.get("exile_standing_free_cast", False)),  # Kheru Spellsnatcher
         library_choice=bool(p.get("library_choice", False)),  # Hinder
+        count=int(p.get("count", 1) or 1), optional=bool(p.get("optional", False)),  # Double Negative
     ),
 )
 EffectRegistry.register(
     # "Counter target activated or triggered ability." (RULE 701.5b —
     # Stifle/Trickbind, ENG-26) — the ability-item sibling of ``"counter"``.
     "counter_ability",
-    lambda p: CounterAbilityEffect(target=p.get("target")),
+    lambda p: CounterAbilityEffect(
+        target=p.get("target"), count=int(p.get("count", 1) or 1), optional=bool(p.get("optional", False)),
+    ),
 )
 EffectRegistry.register(
     "copy_spell",
@@ -1238,6 +1241,7 @@ EffectRegistry.register(
         duration=str(p.get("duration", "end_of_turn")),
         untap=bool(p.get("untap", True)),
         player_from_trigger_event=p.get("player_from_trigger_event"),
+        count=p.get("count"), optional=bool(p.get("optional", False)),  # Jace, Ingenious Mind-Mage
     ),
 )
 EffectRegistry.register(
