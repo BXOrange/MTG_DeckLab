@@ -656,9 +656,10 @@ class CantBlockEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.previous_subject:
-            prev = context.previous_targets[0] if context.previous_targets else None
-            if prev is not None and getattr(prev, "is_creature", False):
-                prev.temp_cant_block = True
+            # PAR-150: "those creatures can't block this turn" -- every creature the previous clause targeted.
+            for prev in context.previous_targets or []:
+                if prev is not None and getattr(prev, "is_creature", False):
+                    prev.temp_cant_block = True
             return
         if self.selector:
             from .. import combat

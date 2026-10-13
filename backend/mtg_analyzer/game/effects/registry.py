@@ -742,6 +742,7 @@ EffectRegistry.register(
         exile_then_cast_free=bool(p.get("exile_then_cast_free", False)),  # Transcendent Dragon
         exile_standing_free_cast=bool(p.get("exile_standing_free_cast", False)),  # Kheru Spellsnatcher
         library_choice=bool(p.get("library_choice", False)),  # Hinder
+        count=p.get("target_count", 1), optional=bool(p.get("optional", False)),  # PAR-150: "up to two target spells"
     ),
 )
 EffectRegistry.register(
@@ -1237,6 +1238,8 @@ EffectRegistry.register(
         duration=str(p.get("duration", "end_of_turn")),
         untap=bool(p.get("untap", True)),
         player_from_trigger_event=p.get("player_from_trigger_event"),
+        count=p.get("target_count", 1), count_max=p.get("target_count_max"),  # PAR-150: "up to 3 target creatures"
+        optional=bool(p.get("optional", False)), while_source=p.get("while_source"),
     ),
 )
 EffectRegistry.register(

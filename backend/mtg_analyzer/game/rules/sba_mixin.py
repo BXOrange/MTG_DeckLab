@@ -161,6 +161,31 @@ class StateBasedActionsMixin:
                 break
             any_action = True
         return any_action
+    def _revert_source_bound_control(self) -> bool:
+        """RULE 611.2b: "gain control of X for as long as you control ~" (or "...~ remains on the battlefield") ends,
+        for good, as soon as the source has left the battlefield (a new object, RULE 400.7 -- compared by
+        `zone_incarnation`) or, for the "you control" form, is no longer controlled by the thief. Control goes back
+        to whoever had it before the effect (`GameObject.control_change_while_source`)."""
+        reverted = False
+        for obj in list(self.state.battlefield):
+            window = obj.control_change_while_source
+            if window is None:
+                continue
+            source = self.state.find_object(window["source_id"])
+            alive = (
+                source is not None and source.zone == Zone.BATTLEFIELD
+                and source.zone_incarnation == window["incarnation"]
+                and (not window["needs_control"] or source.controller_id == window["player_id"])
+            )
+            if alive:
+                continue
+            obj.controller_id = window["revert_to"]
+            obj.control_change_while_source = None
+            reverted = True
+        if reverted:
+            continuous.recompute(self.state)
+        return reverted
+
     def _sba_pass(self) -> bool:
         """One RULE 704.3 sweep: each `_sba_check_*` below is one lettered
         RULE 704.5 sub-check (or an adjacent RULE 310 battle/RULE 714 Saga
@@ -181,6 +206,10 @@ class StateBasedActionsMixin:
         # granted keywords are current before any SBA reads them — an anthem
         # dropping a creature to 0 toughness must be seen here.
         continuous.recompute(self.state)
+
+        # RULE 611.2b: a source-bound control change ends the moment its condition stops holding.
+        if self._revert_source_bound_control():
+            return True
 
         # 702.145c/d/f/g: not itself a state-based action, but "any time" is
         # otherwise unmodeled continuous timing — checked at SBA cadence.

@@ -740,6 +740,10 @@ class GameObject:
         #: ``{"revert_to": original controller, "player_id": the thief, "turn": internal turn number it began on}``,
         #: swept at cleanup by `durations.owners_next_turn_has_ended`; ``None`` = no such control change.
         self.control_change_until_owner_turn: Optional[dict[str, Any]] = None
+        #: "Gain control of ... for as long as you control ~ / ~ remains on the battlefield." (RULE 611.2b; Rangers of
+        #: Ithilien) -- ``{"revert_to", "player_id" (the thief), "source_id", "incarnation" (the source's
+        #: `zone_incarnation` when stamped), "needs_control"}``, swept by `RulesEngine._revert_source_bound_control`.
+        self.control_change_while_source: Optional[dict[str, Any]] = None
 
         #: An O-Ring-shaped "exile target X; when this leaves the
         #: battlefield, return the exiled card" pair (Leonin Relic-Warder-
@@ -1578,6 +1582,7 @@ class GameObject:
         self.last_unattached_from_id = None
         self.control_change_until_eot = None
         self.control_change_until_owner_turn = None
+        self.control_change_while_source = None
         self.linked_exile_id = None
         self.exiled_until_opponent_monarch_of = None
         self.enters_tapped_from_cast_grant = False

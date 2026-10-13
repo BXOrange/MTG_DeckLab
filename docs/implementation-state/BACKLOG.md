@@ -118,17 +118,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   quoted ability (48 cards, only 5 SOLO — Dack Fayden, Liliana the Last Hope, Tezzeret Artifice Master,
   A-Saheeli, The Capitoline Triad; the rest are blocked by other planeswalker abilities). Decision open: which
   of these earn a handler; the emblem case is weak on SOLO yield.
-- **PAR-150 · Multi-target ("up to N", "up to X") for gain control, goad, counter and keyword grants.** The
-  single-target forms are `MODELED`; the plural forms stay `UNMODELED` because those handlers don't opt into
-  `_MULTI_TARGET_QUANTIFIER` (destroy/exile/tap/untap/return/counters/damage/pump/can't-block already do;
-  `TargetSpec.count`/`count_max`/`count_selector` are effect-agnostic, so the open part is each effect's
-  `count`/`target_count` param and slicing). Measured at PARSER_VERSION 611, SOLO blockers: gain control "up to
-  N target creatures" (4: Hideous Taskmaster, Jace Ingenious Mind-Mage, Rangers of Ithilien, The Super Hero
-  Civil War), per-opponent "goad up to 1" (2: Havoc Eater, Sontaran General), "up to N/X target creatures
-  gain `<keyword>`" (3: Invisible Force Field, Mogis's Marauder, Voyager Drake), "counter up to N target spells
-  [and/or abilities]" (5: Double Negative, Katara's Reversal, Repel Intruders, Repulsive Mutation, Tishana's
-  Tidebinder). Verify with `engine_bench.py`, not parse verdicts.
-
 - **PAR-155 · Broader mana-ability counter riders.** Mana abilities that carry a counter rider beyond the shapes already modeled; size the real cards with `parser_probe.py rank`/`blocked` first (PLAY-ALL).
 
 - **PAR-156 · Counter or pump, then fight.** "Put a +1/+1 counter on / pump target creature, then it fights …" sequences not yet claimed; size against the cache first, and check whether the existing `fight` previous-target rows already cover the second half (PLAY-ALL).

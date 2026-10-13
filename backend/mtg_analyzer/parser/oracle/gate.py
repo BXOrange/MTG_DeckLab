@@ -3952,7 +3952,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Drowned, Diver Skaab, Moonsnare Prototype, Jailbreak Scheme, Run Ashore, Riverwalk Technique, Sudden Setback, Guidance
 #      Failure, ...) and its "put it on YOUR choice of the top or bottom of its owner's library" siblings (Not Forgotten,
 #      Arashin Sovereign); Hinder is hand-authored on `counter` + ``library_choice``.
-PARSER_VERSION = "641"
+# 642: PAR-150 -- the plural "up to N / up to X target ..." forms of four effect families opt into
+#      `_MULTI_TARGET_QUANTIFIER`/`_multi_target_params`: gain control with no duration ("gain control of up to three target
+#      creatures", Jace, Ingenious Mind-Mage), goad ("goad up to two target creatures"), counter ("counter up to two target
+#      spells [and/or abilities]", Double Negative, Katara's Reversal), and keyword grants / pumps ("up to four target
+#      permanents you control gain indestructible", "up to 2 target creatures you control each get +2/+1", "X target creatures
+#      gain <kw>" with the announced {X} or a ", where X is the number of times ~ was kicked / your devotion to <colour>" count
+#      via the new `source_kicker_count` / `devotion_to_<colour>` target-count selectors). "those creatures can't block this
+#      turn" reads every previous target (Sontaran General, Sparkmage's Gambit, Wrap in Flames) and the per-opponent threaten
+#      row takes the extra "they gain trample, haste, and annihilator 1" keywords (Hideous Taskmaster). "Gain control ... for as long as you control ~"
+#      (RULE 611.2b; Rangers of Ithilien) rides `GainControlUntilEndOfTurnEffect.while_source`, reverted by
+#      `RulesEngine._revert_source_bound_control` once the source leaves or is no longer controlled.
+PARSER_VERSION = "642"
 
 
 def parser_source_hash() -> str:

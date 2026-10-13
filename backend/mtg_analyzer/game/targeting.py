@@ -2348,7 +2348,12 @@ def _legal_targets_for(
 #: back to the printed ``count``.
 TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
     "opponents", "players", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid",
+    # PAR-150: "up to X target creatures ..., where X is the number of times ~ was kicked" (Voyager Drake).
+    "source_kicker_count",
 })
+#: PAR-150: "up to X target creatures ..., where X is your devotion to black" (Mogis's Marauder) -- RULE 202.2f;
+#: any ``devotion_to_<colour>`` name `continuous.count_selector` knows is a valid target-count selector.
+DEVOTION_COUNT_SELECTOR_PREFIX = "devotion_to_"
 
 
 def resolved_count(
@@ -2366,6 +2371,10 @@ def resolved_count(
     of picks to offer.
     """
     selector = spec.count_selector
+    if selector and selector.startswith(DEVOTION_COUNT_SELECTOR_PREFIX) and state is not None:
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        return max(0, _count_selector(state, controller_id, selector, source=source))
     if not selector or selector not in TARGET_COUNT_SELECTORS or state is None:
         return spec.count
     if selector == "opponents":
@@ -2378,6 +2387,10 @@ def resolved_count(
         # stamped by `RulesEngine.cast_spell`), read fresh at target-
         # gathering time rather than a fixed printed count.
         return max(0, int(getattr(source, "x_paid", 0) or 0))
+    if selector == "source_kicker_count":
+        # RULE 702.33: times the source was kicked as it was cast (`GameObject.kicker_count`, kept on the permanent
+        # so its enters-the-battlefield trigger can read it).
+        return max(0, int(getattr(source, "kicker_count", 0) or 0))
     if selector == "source_twice_x_paid":
         # "Exile up to twice X target cards from graveyards." (Erebos's Intervention) — 2 × the
         # announced {X}, read the same way as ``source_x_paid``.
@@ -2435,6 +2448,12 @@ def expand_counts(
             spans.append(len(rounds))
             continue
         minimum = max(0, resolved_count(spec, state, controller_id, source))
+        if spec.count_selector and minimum == 0 and spec.count_max is None:
+            # PAR-150: a dynamic count that resolved to 0 ("up to X target creatures ..., where X is the number of
+            # times ~ was kicked", unkicked) asks for no target at all -- not one optional round, which would let the
+            # player pick a creature the ability never named.
+            spans.append(0)
+            continue
         n = spec.count_max if spec.count_max is not None else minimum
         if n <= 1:
             expanded.append(spec)

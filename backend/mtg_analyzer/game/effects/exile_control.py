@@ -1343,9 +1343,20 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         duration: str = "end_of_turn",
         untap: bool = True,
         player_from_trigger_event: Optional[str] = None,
+        count: int = 1,
+        count_max: Optional[int] = None,
+        optional: bool = False,
+        while_source: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: PAR-150: RULE 611.2b "...for as long as you control ~" (``"controlled"``) / "...for as long as ~ remains
+        #: on the battlefield" (``"on_battlefield"``) -- a no-duration control change that ends when the source
+        #: stops qualifying (`RulesEngine._revert_source_bound_control`). Meaningful with ``duration="permanent"``.
+        self.while_source = while_source if while_source in ("controlled", "on_battlefield") else None
+        #: PAR-150: RULE 115.1a "gain control of up to 3 target creatures" (Jace, Ingenious Mind-Mage) -- the
+        #: `TargetSpec` count/range/optional triple every multi-target effect carries.
+        self.count, self.count_max, self.optional = count, count_max, optional
         #: "Whenever ~ deals combat damage to a player, gain control of all artifacts **that player** controls." (Hellkite Tyrant) — with
         #: ``mass_of_target_player`` the player is the firing event's field (``"target_id"``) rather than a RULE 115 target.
         self.player_from_trigger_event = player_from_trigger_event
@@ -1402,7 +1413,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                 # exact-match sibling of `max_mana_value` just above.
                 exact_mana_value=exact_mana_value,
                 creature_filter=creature_filter, count_selector=count_selector,
-                optional=count_selector is not None,
+                count=count, count_max=count_max, optional=optional or count_selector is not None,
+                # "that player" (RULE 115): one pick per opponent, never two from the same one (as `GoadEffect`).
+                distinct_controllers=count_selector == "opponents",
             )
         self.haste = haste
 
@@ -1414,6 +1427,13 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             if self.duration == "permanent":
                 # RULE 611.2 no-duration continuous effect — cleanup must not
                 # revert it, so don't stamp ``control_change_until_eot``.
+                if self.while_source and self.source is not None:
+                    target.control_change_while_source = {
+                        "revert_to": (target.control_change_while_source or {}).get("revert_to", target.controller_id),
+                        "player_id": controller.id, "source_id": self.source.instance_id,
+                        "incarnation": self.source.zone_incarnation,
+                        "needs_control": self.while_source == "controlled",
+                    }
                 target.controller_id = controller.id
                 target.summoning_sick = True  # RULE 302.6 under a new controller
             elif self.duration == "end_of_your_next_turn":
@@ -1468,6 +1488,11 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         # RULE 601.2c: a `count_selector` requirement ("for each opponent,
         # gain control of up to 1 target creature that player controls")
         # yields a *list*; the single-target forms still pass exactly one.
+        # PAR-150: a shared targets list may hold other effects' picks, so slice to this effect's own count -- except a
+        # `count_selector` requirement, whose size is only known at announce time (it takes everything chosen).
+        spec = self.target_spec
+        if spec is not None and spec.count_selector is None:
+            chosen = chosen[:spec.effective_count]
         for target in chosen:
             self._take(context, target, controller)
         context.recompute()

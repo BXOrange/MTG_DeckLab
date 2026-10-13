@@ -39,9 +39,14 @@ class CounterSpellEffect(GameEffect):
         exile_then_cast_free: bool = False,
         exile_standing_free_cast: bool = False,
         library_choice: bool = False,
+        count: int = 1,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: PAR-150: RULE 115.1a "counter up to two target spells" (Double Negative) -- one `TargetSpec` of ``count``
+        #: picks, each countered in turn. ``optional`` is the "up to" floor of 0.
+        self.count = max(1, int(count))
         #: "…If that spell is countered this way, put that card on your choice of the top or bottom of its owner's
         #: library instead of into that player's graveyard." (Hinder) — the countering ability's controller picks
         #: (`RulesEngine.counter_spell`'s ``library_choice``).
@@ -105,7 +110,9 @@ class CounterSpellEffect(GameEffect):
             # "counter target spell **you don't control**" (Counterflux, PAR-128): the
             # controller-scoped ``spell_you_dont_control`` pool.
             kind = target_kind if target_kind in ("spell", "spell_you_dont_control", "spell_or_ability") else "spell"
-            self.target_spec = TargetSpec(kind=kind, spell_filter=spell_filter or None)
+            self.target_spec = TargetSpec(
+                kind=kind, spell_filter=spell_filter or None, count=self.count, optional=bool(optional),
+            )
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -136,7 +143,12 @@ class CounterSpellEffect(GameEffect):
                     tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
                 )
             return
-        target = (targets[0] if targets else None) or self.target
+        # RULE 115.1a: only this effect's own ``count`` picks off a possibly shared targets list.
+        picks = [t for t in (targets or [])[:self.count] if t is not None] or ([self.target] if self.target is not None else [])
+        for target in picks:
+            self._counter_one(context, target, unless_pays, on_pay)
+
+    def _counter_one(self, context: GameContext, target: Any, unless_pays: Optional[str], on_pay: Optional[list]) -> None:
         if target is not None and getattr(target, "kind", None) == "ability":
             # "counter target spell, activated ability, or triggered ability" (Disallow): the picked
             # stack item is an ability, which has no card to put anywhere (RULE 701.5b).
