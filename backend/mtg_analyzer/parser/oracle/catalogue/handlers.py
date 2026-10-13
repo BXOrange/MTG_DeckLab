@@ -8738,26 +8738,37 @@ def _return_from_graveyard_transformed(m: re.Match[str]) -> list[EffectSpec]:
 #: PAR-143: the card's own name folds to ``~`` ("return ~ from your graveyard …", Narfi, Llanowar
 #: Greenwidow), and a battlefield entry may also be "tapped and attacking" (Interceptor).
 _RETURN_SELF_FROM_GRAVEYARD_RE = _c(
-    r"return (?:this card|~) from your graveyard to "
+    r"(?:you )?return (?:this card|~) from your graveyard to "
     r"(?:the battlefield(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # "…with 2 +1/+1 counters on it" (Retrofitted Transmogrant, Phoenix Chick) — the enters-with rider
     # the targeted row already reads, same counter vocabulary.
     rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
     r"|(?P<hand>your hand))"
+    # PAR-126: "… at the beginning of the next end step" (Mangara's Blessing, Sand Golem, Prized Amalgam) — the same
+    # return, armed as a RULE 603.7 delayed trigger (Pure Intentions' hand-authored shape).
+    r"(?P<delay> at the beginning of the next end step)?"
 )
 
 
 def _return_self_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("hand"):
-        return [EffectSpec("return_self_from_graveyard_to_hand", {})]
-    if m.group("atk") and not m.group("tapped"):
-        return None
-    params: dict = {"tapped": bool(m.group("tapped"))}
-    if m.group("atk"):
-        params["attacking"] = True
-    if m.group("ewc_kind"):
-        params["extra_counters"] = {"kind": m.group("ewc_kind"), "count": count_of(m.group("ewc_n"))}
-    return [EffectSpec("return_self_from_graveyard", params)]
+        inner = {"type": "return_self_from_graveyard_to_hand", "params": {}}
+    else:
+        if m.group("atk") and not m.group("tapped"):
+            return None
+        params: dict = {"tapped": bool(m.group("tapped"))}
+        if m.group("atk"):
+            params["attacking"] = True
+        if m.group("ewc_kind"):
+            params["extra_counters"] = {"kind": m.group("ewc_kind"), "count": count_of(m.group("ewc_n"))}
+        inner = {"type": "return_self_from_graveyard", "params": params}
+    if m.group("delay"):
+        if m.group("atk"):
+            return None
+        # `build_effects` threads this ability's own source into the delayed effect and RULE 400.7 id stability
+        # keeps that reference valid, so no ``capture`` is needed (see Pure Intentions).
+        return [EffectSpec("create_delayed_trigger", {"step": "end", "scope": "any", "effects": [inner]})]
+    return [EffectSpec(inner["type"], inner["params"])]
 
 
 #: "When ~ dies, return it to the battlefield [tapped] under its owner's/

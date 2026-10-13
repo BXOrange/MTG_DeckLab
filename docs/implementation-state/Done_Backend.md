@@ -2147,6 +2147,7 @@ Copies use the existing spell-copy primitive and do not count as casts.
 
 - **What:** `EventType.DISCARD_CARD` gained `cause_controller_id` — whoever controls the
 - **Files:** `game/rules/draw_discard_mixin.py`, `game/effects/core.py`, `game/effects/
+- **Parser-reachable (PAR-126, PARSER_VERSION 644):** the trigger head "a spell or ability an opponent controls causes you to discard this card / a card" (`player_event_head.py`) emits `DISCARD_CARD` with `subject: self|you` plus `requires_opponent_caused_discard`. Bodies: a self-subject "return it to your hand" is the card's own graveyard return (Quagnoth); "that player loses N life" uses the new `LoseLifeEffect` selector `event_cause_controller` (the event's `cause_controller_id`, not the discarder: Psychic Purge); the self-return row accepts "at the beginning of the next end step" as a `create_delayed_trigger` (Sand Golem, Mangara's Blessing). The replacement "put it onto the battlefield [with N +1/+1 counters] instead of putting it into your graveyard" maps to the existing `discard_to_battlefield` (RULE 614.1; Wilt-Leaf Liege, the Obstinate Baloth family). +10 (21,366 → 21,376). Pure Intentions stays hand-authored (sole card with its turn trigger). Orvar, Nephalia Academy and Library of Leng went to `singletons.md` Batch 9. Tests: `tests/test_par126_opponent_caused_discard.py`.
 
 ## Continuous Effects & Layer System
 

@@ -3952,7 +3952,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      `GainControlUntilEndOfTurnEffect.count`), goad (Sifa Grent; "those creatures can't block this turn" after the per-opponent
 #      goad: Sontaran General) and keyword grants (Invisible Force Field, Mogis's Marauder, Voyager Drake -- `PumpEffect` count /
 #      `counted:` + `source_kicker_count` target-count selectors); Repulsive Mutation's "pays mana equal to the greatest power".
-PARSER_VERSION = "643"
+# 644: PAR-126 -- "a spell or ability an opponent controls causes you to discard this card / a card" (RULE 603.1: the
+#      `DISCARD_CARD` + `requires_opponent_caused_discard` trigger head in `player_event_head`; self -> graveyard-functioning, a card -> player
+#      subject), its delayed "return ~ from your graveyard to your hand / the battlefield [with a +1/+1 counter] at the beginning of the
+#      next end step" bodies (`create_delayed_trigger`, also Prized Amalgam/Moss-Pit Skeleton bodies), "that player loses N life" naming the
+#      cause controller (`LoseLifeEffect` selector `event_cause_controller`) and the Wilt-Leaf Liege `discard_to_battlefield` replacement
+#      row: Ajani's Last Stand, Gorilla/Guerrilla Tactics, Mangara's Blessing, Metrognome, Psychic Purge, Quagnoth, Sand Golem,
+#      Spiritual Focus, Wilt-Leaf Liege.
+PARSER_VERSION = "644"
 
 
 def parser_source_hash() -> str:

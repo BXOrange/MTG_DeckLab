@@ -1681,6 +1681,11 @@ class LoseLifeEffect(GameEffect):
             player = _defending_player_of(self.source, context)
         if player is None and self.selector == "event_player":
             player = _event_player(context, key="player_id")
+        if player is None and self.selector == "event_cause_controller":
+            # RULE 603.1 (PAR-126): "When a spell or ability an opponent controls causes you to discard this card,
+            # **that player** loses N life." (Psychic Purge) - the controller of the spell/ability that caused the
+            # firing `DISCARD_CARD` (its ``cause_controller_id``), not the discarding player.
+            player = _event_player(context, key="cause_controller_id")
         if player is None and self.selector == "counter_recipient_controller":
             # "…its controller loses 1 life." (Auntie Ool) — the player
             # controlling the creature the firing `EventType.COUNTER`'s

@@ -297,3 +297,13 @@ Each remaining PAR-150 residue card re-probed with `parser_probe.py blocked` ove
 | The Super Hero Civil War | `i - gain control of up to 2 target creatures with total mana value 6 or less for as long as this saga remains on the battlefield.` | A cross-target cap (sum of the chosen targets' mana values) that `TargetSpec` cannot express; the 39 "total mana value" cards are other shapes. |
 | Scroll of Isildur | `iii - draw a card for each tapped creature target opponent controls.` | Chapters I and II are claimed. "Draw a card for each tapped creature target opponent controls" is a 3-card shape (with Borrowing 100,000 Arrows): a targeted-opponent tapped-creature count; promote if a ticket is ever cut for it. |
 | The Horus Heresy | `i - for each opponent, gain control of up to 1 target nonlegendary creature that player controls for as long as this saga remains on the battlefield.` (+ ch. II "creature you control but don't own", ch. III "starting with you, each player chooses a creature") | Three unrelated blockers in one Saga: the per-opponent source-bound steal, an owner-differs count, and a each-player-chooses-then-destroy group choice. Hand-author. |
+
+## Batch 9 — 2026-10-13 PAR-126 close-out (PARSER_VERSION 644)
+
+The opponent-caused discard trigger head and the `discard_to_battlefield` replacement are claimed (PAR-126); these are what is left.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Orvar, the All-Form | `whenever you cast an instant or sorcery spell, if it targets 1 or more other permanents you control, create a token that's a copy of 1 of those permanents.` | Its discard trigger parses; the cast trigger needs a "targets N or more permanents you control" intervening-if plus a copy of one of the spell's targets. |
+| Nephalia Academy | `if a spell or ability an opponent controls causes you to discard a card, you may reveal that card and put it on top of your library instead of putting it anywhere else.` | Needs a discard replacement scanned from a battlefield permanent (not the discarded card's own) with a may-choice; `discard_to_battlefield` only reads the discarded object's replacements. Pair with Library of Leng. |
+| Library of Leng | `if an effect causes you to discard a card, discard it, but you may put it on top of your library instead of into your graveyard.` | Same battlefield-scanned replacement as Nephalia Academy, not opponent-scoped (any effect, RULE 701.9). |

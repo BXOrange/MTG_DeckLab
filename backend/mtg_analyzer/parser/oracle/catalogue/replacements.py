@@ -36,7 +36,7 @@ import re
 from typing import Optional
 
 from ..spec import EffectSpec
-from .subgrammars import COLOR_LETTERS
+from .subgrammars import COLOR_LETTERS, count_of
 
 #: Colour words → their WUBRG symbol (`additional_damage`'s single-colour
 #: filter). PAR-63: this module imported *nothing* from `subgrammars` before —
@@ -247,6 +247,16 @@ _DIE_SUBJECT_MAP = {
 #: a card while your library has no cards in it, you win the game instead."
 #: A recurring exact phrasing across several real cards (Elixir of
 #: Immortality-adjacent effects use a different shape, not this one).
+#: RULE 614.1 (PAR-126): "If a spell or ability an opponent controls causes you to discard this card, put it onto
+#: the battlefield [with N +1/+1 counters on it] instead of putting it into your graveyard." (Wilt-Leaf Liege, the
+#: Obstinate Baloth family) — `discard_to_battlefield`, which only intercepts a discard whose ``cause_controller_id``
+#: is an opponent (cleanup and self-paid discards carry none).
+_DISCARD_TO_BATTLEFIELD_RE = re.compile(
+    r"if a spell or ability an opponent controls causes you to discard (?:this card|~), "
+    r"put it onto the battlefield(?: with (?P<n>a|an|\d+) \+1/\+1 counters? on it)? "
+    r"instead of putting it into your graveyard",
+    re.IGNORECASE,
+)
 _WIN_INSTEAD_OF_EMPTY_DRAW_RE = re.compile(
     r"if you would draw a card while your library has no cards? in it, "
     r"you win the game instead",
@@ -604,6 +614,10 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
             if types:
                 params["types"] = types
         return [EffectSpec("additional_damage", params)]
+
+    m = _DISCARD_TO_BATTLEFIELD_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("discard_to_battlefield", {"counters": count_of(m.group("n"))} if m.group("n") else {})]
 
     if _WIN_INSTEAD_OF_EMPTY_DRAW_RE.fullmatch(text):
         return [EffectSpec("win_instead_of_empty_draw", {})]

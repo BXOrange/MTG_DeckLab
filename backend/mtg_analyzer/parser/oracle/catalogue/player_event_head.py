@@ -100,6 +100,15 @@ _DEFENDER_KEYS = {
 #: half the ability is printed on (`game/rooms.py`), which the line itself cannot know.
 THIS_DOOR = "this"
 
+#: RULE 701.8 / 603.1 (PAR-126): "a spell or ability an opponent controls causes you to discard `<X>`" — the
+#: hostile-discard wrapper. ``this card`` / ``~`` scopes the trigger to the discarded card itself (it then functions
+#: from the graveyard it was just discarded to, `triggers_mixin._collect_discarded_triggers`); ``a card`` is any
+#: discard of the controller's. ``DISCARD_CARD``'s ``cause_controller_id`` (`RulesEngine.discard`) is what
+#: ``requires_opponent_caused_discard`` compares, so cleanup (RULE 514.1) and self-paid costs never fire it.
+_OPPONENT_CAUSED_DISCARD = re.compile(
+    r"^a spell or ability an opponent controls causes you to discard (?P<what>this card|~|a card)$"
+)
+
 _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
 
 
@@ -111,6 +120,10 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if cond == "you unlock this door":
         # Scoped to the Room itself (only its own unlocked half carries the ability) and to the printed door.
         return "DOOR_UNLOCKED", {"subject": "self"}, {"filter": {"door": THIS_DOOR}}
+    caused = _OPPONENT_CAUSED_DISCARD.fullmatch(cond)
+    if caused is not None:
+        subject = "you" if caused.group("what") == "a card" else "self"
+        return "DISCARD_CARD", {"subject": subject}, {"requires_opponent_caused_discard": True}
     if cond.startswith("you're "):
         cond = "you are " + cond[len("you're "):]
     # "whenever combat damage is dealt to you" (Risona) — the passive spelling of "you're dealt combat damage".

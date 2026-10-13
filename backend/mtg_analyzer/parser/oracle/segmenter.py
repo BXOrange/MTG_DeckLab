@@ -1203,6 +1203,8 @@ _LAST_TIME_COUNTER_REMOVED_COND_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-126: the body of a hostile-discard trigger naming the discard's cause - see `segment_line`.
+_CAUSE_CONTROLLER_LOSES_LIFE_RE = re.compile(r"that player loses (?P<n>\d+) life")
 _SELF_MILLED_TO_GRAVEYARD_TRIGGER_RE = re.compile(
     r"^(?:this card|~) is put into your graveyard from your library$"
 )
@@ -9022,6 +9024,31 @@ def _segment_line_unsplit(
                 event, condition, head_trigger = head.event, head.condition, head.trigger
                 composed_head = True
         body, optional = _peel_optional(trig.group("body"))
+        # PAR-126: a self-subject "causes you to discard this card" trigger fires from the graveyard the card was just
+        # discarded to (`triggers_mixin._collect_discarded_triggers`), so its bare "return it to your hand" is the
+        # card's own graveyard recursion.
+        if (
+            composed_head and event == "DISCARD_CARD" and (condition or {}).get("subject") == "self"
+            and body.strip().rstrip(".").strip() == "return it to your hand"
+        ):
+            body = "return ~ from your graveyard to your hand"
+        # "... causes you to discard this card, **that player** loses N life" (Psychic Purge): "that player" is the
+        # controller of the spell/ability that caused the discard (the event's ``cause_controller_id``), which the
+        # bare "that player" row (the event's own acting player) would misread as the discarding player.
+        cause_life = (
+            _CAUSE_CONTROLLER_LOSES_LIFE_RE.fullmatch(body.strip().rstrip(".").strip())
+            if composed_head and event == "DISCARD_CARD" and head_trigger.get("requires_opponent_caused_discard")
+            else None
+        )
+        if cause_life is not None:
+            return Segment(raw=raw, spec=AbilitySpec(
+                "triggered",
+                effects=[EffectSpec("lose_life", {
+                    "amount": int(cause_life.group("n")), "selector": "event_cause_controller",
+                })],
+                trigger={"event": event, "condition": condition, **head_trigger},
+                optional=optional, raw_text=raw, parser=provenance,
+            ), claimed=True)
         # A group DAMAGE head aimed at a creature introduces two object
         # referents: the dealer and the recipient.  The delayed-sacrifice
         # body's bare "it"/"that creature" means the recipient on cards such
