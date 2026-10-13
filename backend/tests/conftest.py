@@ -118,7 +118,7 @@ def _is_full_cache(item) -> bool:
 #: Bot/session/multiplayer tests drive whole games (the slowest take ~19 s alone
 #: on an idle machine) so the global 20 s ceiling in pytest.ini turns them into
 #: load-dependent flakes under `-n`. 60 s still catches a real hang.
-SLOW_DOMAINS = frozenset({"session_bots", "multiplayer", "api"})
+SLOW_DOMAINS = frozenset({"session_bots", "bots", "multiplayer", "api"})
 SLOW_DOMAIN_TIMEOUT_S = 60
 
 

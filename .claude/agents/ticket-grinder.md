@@ -29,8 +29,11 @@ state-file change.
    - Use the `run-tests` skill, not a bare full run: `python
      backend/scripts/select_tests.py --tier 2 --run` must be green (baseline red
      tests recorded in the block are the only exception).
-   - Parser or engine changes: `select_tests.py --tier 4 --run` (full suite plus
-     `--full-cache`) once, right before closing, not after every sub-step.
+   - Parser or engine changes: `select_tests.py --tier 3 --full-cache --run` (whole suite
+     without the bot tests, plus `--full-cache`) once, right before closing, not after
+     every sub-step. Bot tests (domain `bots`) are skipped by default; use
+     `--tier 4` only when the ticket changes bot code or bot-visible behaviour
+     (bots, bot policies, solo).
    - Read the diff; check the ticket's scope and residue are really done.
 5. **Close or park.**
    - Fully done: close per `ticket-management` (delete from `BACKLOG.md`, file

@@ -30,9 +30,11 @@ or the test setup.
   calls `backend/scripts/select_tests.py`, which maps the git diff to the changed
   domain (`backend/tests/domains.py`: parser, card, engine, session_bots,
   multiplayer, api, db, external, analysis, config_ops, models, frontend) and runs
-  only that domain's tests (T1); T2 adds consumer domains, T3 is everything, T4 adds
-  `--full-cache`. Every test carries a `domain_<x>` marker: `pytest -m domain_card`.
-- Whole suite: `cd backend && python -m pytest -q` (~5 min serial, `-n 4` ~2.5 min;
+  only that domain's tests (T1); T2 adds consumer domains, T3 is everything **except the
+  bot tests**, T4 is everything including them (domain `bots`: whole-game simulations,
+  ~45% of the suite's time, run only when bot code changed or at T4); `--full-cache`
+  is an orthogonal flag. Every test carries a `domain_<x>` marker: `pytest -m domain_card`.
+- Whole suite: `cd backend && python -m pytest -q` (~5 min serial, `-m "not domain_bots"` for the T3 set, `-n 4` ~2.5 min;
   more workers do not help here). Or `python backend/scripts/run_tests.py
   [pytest args]` (finds the venv itself; `--hard-timeout SECONDS`, default 1800s,
   kills the process tree for hangs the per-test timer cannot reach).

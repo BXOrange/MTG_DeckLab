@@ -7,8 +7,13 @@ Wider tiers are explicit (`--tier`) or forced by wide-reach sources.
 
   T1  tests of the changed domain(s), refined to the changed module/card
   T2  T1 plus the domains that consume the changed one (DEPENDENTS)
-  T3  everything except the full-cache tier
-  T4  everything, including --full-cache (required before closing engine/parser work)
+  T3  everything except the bot tests ("all without bots"; the default wide tier)
+  T4  everything including the bot tests (they play whole games: ~45% of the suite's time)
+  --full-cache  orthogonal: add the full-card-cache tier to T3/T4 (required before
+                closing engine/parser work)
+
+Bot tests (domain `bots`) run only when bot code (services/bots*, bot_policies,
+api/solo) or a bot test file changed, or with T4.
 
 Usage (from backend/):
   python scripts/select_tests.py                 # print the plan as JSON
@@ -104,7 +109,7 @@ def refine(changed_src: str, domain: str, tests: list[Path], domain_of: dict[str
     return hits
 
 
-def plan(files: list[str], forced_tier: int | None) -> dict:
+def plan(files: list[str], forced_tier: int | None, full_cache: bool = False) -> dict:
     tests = all_test_files()
     domain_of = D.domain_map_for(tests)
     reasons: list[str] = []
@@ -155,9 +160,14 @@ def plan(files: list[str], forced_tier: int | None) -> dict:
     pytest_args: list[str] = []
     selected: list[Path] = []
     run_frontend_checks = "frontend" in touched
+    is_bot_file = lambda t: "bots" in domain_of[_rel(t)]  # noqa: E731
+    include_bots = tier >= 4 or "bots" in touched or any(is_bot_file(t) for t in direct_tests)
     if tier >= 3:
-        selected = tests
-        if tier >= 4:
+        selected = tests if include_bots else [t for t in tests if not is_bot_file(t)]
+        if not include_bots:
+            pytest_args += ["-m", "not domain_bots"]
+            reasons.append("bot tests excluded (T4 or a bot change includes them)")
+        if full_cache:
             pytest_args.append("--full-cache")
     else:
         domains = set(touched) - {"frontend"}
@@ -171,7 +181,7 @@ def plan(files: list[str], forced_tier: int | None) -> dict:
                 picked.update(refined[d])
             else:
                 picked.update(t for t in tests if d in domain_of[_rel(t)])
-        selected = sorted(picked)
+        selected = sorted(picked if include_bots else {t for t in picked if not is_bot_file(t) or t in direct_tests})
 
     if tier >= 3:
         pass  # whole backend suite, no file list needed
@@ -180,7 +190,7 @@ def plan(files: list[str], forced_tier: int | None) -> dict:
         lines = [_rel(t).removeprefix("backend/") for t in selected]
         ARGS_FILE.write_text("\n".join(lines) + "\n", encoding="utf8")
         pytest_args.append(f"@{ARGS_FILE.relative_to(BACKEND_ROOT).as_posix()}")
-    count = len(tests) if tier >= 3 else len(selected)
+    count = len(selected)
     if count >= PARALLEL_MIN_FILES:
         pytest_args += ["-n", str(PARALLEL_WORKERS)]
 
@@ -201,19 +211,20 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default=None, help="also include commits since merge-base with this ref (e.g. main)")
     ap.add_argument("--tier", type=int, choices=(1, 2, 3, 4), help="force a tier")
+    ap.add_argument("--full-cache", action="store_true", help="also run the full-card-cache tier (T3/T4)")
     ap.add_argument("--files", nargs="+", help="plan for these repo-relative files instead of the git diff")
     ap.add_argument("--run", action="store_true", help="execute the plan through scripts/run_tests.py")
     ap.add_argument("--hard-timeout", type=float, default=None)
     args, extra = ap.parse_known_args()
 
-    result = plan(args.files or changed_files(args.base), args.tier)
+    result = plan(args.files or changed_files(args.base), args.tier, args.full_cache)
     print(json.dumps(result, indent=2, ensure_ascii=False), file=sys.stderr if args.run else sys.stdout)
     if not args.run:
         return 0
     if not result["run_backend"]:
         print("Nothing to run for the backend.", file=sys.stderr)
         return 0
-    timeout = args.hard_timeout or {1: 300, 2: 900, 3: 1800, 4: 3600}[result["tier"]]
+    timeout = args.hard_timeout or {1: 300, 2: 900, 3: 1800, 4: 3600}[result["tier"]] * (2 if args.full_cache else 1)
     cmd = [sys.executable, str(BACKEND_ROOT / "scripts" / "run_tests.py"),
            "--hard-timeout", str(timeout), *result["pytest_args"], *extra]
     return subprocess.call(cmd, cwd=BACKEND_ROOT)

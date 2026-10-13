@@ -24,7 +24,8 @@ Then decide:
 
 1. **Red** -> fix it, rerun only the failures: `python backend/scripts/run_tests.py --lf <same args>`; do not widen the tier to hunt a failure.
 2. **Green at T1** -> usually done. Widen (`--tier 2`) when you changed shared engine behaviour or an interface other domains consume; `DEPENDENTS` in `domains.py` lists who consumes whom.
-3. **Before closing an engine/parser ticket** -> `--tier 4` (adds `--full-cache`; CLAUDE.md requires it). Never point `MTG_CACHE_DIR` at the production cache.
+3. **Before closing an engine/parser ticket** -> `--tier 3 --full-cache` (CLAUDE.md requires the full-cache tier). Never point `MTG_CACHE_DIR` at the production cache.
+4. **Bots**: bot tests (domain `bots`, ~127 tests) play whole games and are ~45% of the suite's time, so every tier below T4 skips them. They run when bot code (`services/bots*`, `bot_policies`, `api/solo`) or a bot test file changed, or with `--tier 4`. Add `--tier 4` when a change plausibly alters bot behaviour (e.g. legal-action generation, priority, the choice protocol).
 
 ## Tiers
 
@@ -32,8 +33,10 @@ Then decide:
 | --- | --- | --- |
 | T1 | tests of the changed domain, narrowed to the changed module / card | new card, handler tweak, one engine module |
 | T2 | T1 plus consumer domains | engine/parser interface change |
-| T3 | whole backend, no full-cache | wide-reach files (`continuous.py`, `binding/core.py`, `gate.py`, `conftest.py`, model core), unclassified files, empty diff |
-| T4 | everything incl. `--full-cache` | closing a ticket |
+| T3 | whole backend **without bots**, no full-cache | wide-reach files (`continuous.py`, `binding/core.py`, `gate.py`, `conftest.py`, model core), unclassified files, empty diff |
+| T4 | everything **with bots**, no full-cache | bot behaviour may have changed |
+
+`--full-cache` is orthogonal and adds the full-card-cache tier to T3/T4. A bot change selects tier 1 = the bot tests; T2 adds `session_bots`, `multiplayer`, `analysis`.
 
 Doc/markdown-only diffs run nothing. Frontend changes: run the `frontend` checks instead (`cd frontend && npm run lint`, `node scripts/i18n-verify.mjs`, `frontend/tests`) and verify in a real browser; the plan prints `frontend_checks: true`.
 
@@ -41,6 +44,7 @@ Doc/markdown-only diffs run nothing. Frontend changes: run the `frontend` checks
 
 ```bash
 pytest -m domain_card -n 4                  # a whole domain (from backend/, in the venv)
+pytest -m "not domain_bots" -n 4            # the whole suite without bots (what T3 runs)
 pytest -m "domain_multiplayer or domain_api"
 pytest tests/test_x.py -n 0                 # no parallelism: use for debugging one test
 python backend/scripts/test_profile.py --run -n 4   # where does the time go

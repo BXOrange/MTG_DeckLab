@@ -26,7 +26,8 @@ DOMAINS = (
     "parser",        # oracle text -> AbilitySpec IR
     "card",          # hand-authored catalogue entries and per-card regressions
     "engine",        # rules engine, combat, effects, continuous layers
-    "session_bots",  # GameSession, undo, replay, bots
+    "session_bots",  # GameSession, undo, replay
+    "bots",          # bot policies and solo games: whole-game simulations, run only on demand
     "multiplayer",   # lobby, websockets, table feed, priority yield
     "api",           # HTTP routes and schemas
     "db",            # SQLite stores and lookup layers
@@ -53,7 +54,8 @@ SOURCE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("mtg_analyzer/services/table_feed", "multiplayer"),
     ("mtg_analyzer/services/game_session", "session_bots"),
     ("mtg_analyzer/services/replay", "session_bots"),
-    ("mtg_analyzer/services/bot", "session_bots"),
+    ("mtg_analyzer/services/bot", "bots"),
+    ("mtg_analyzer/api/solo", "bots"),
     ("mtg_analyzer/services/scryfall_client", "external"),
     ("mtg_analyzer/services/archidekt_client", "external"),
     ("mtg_analyzer/services/llm_", "external"),
@@ -88,6 +90,9 @@ TEST_NAME_RULES: tuple[tuple[str, str], ...] = (
     (r"test_(config|setup)", "config_ops"),
     (r"(multiplayer|lobby|game_ws|table_|priority_yield)", "multiplayer"),
     (r"(frontend_proxy|test_api_)", "api"),
+    # Bot tests are recognised by name only: tests that merely import `services.bots`
+    # to seat a bot (fight, vote outcomes, dynamic analysis) stay in their own domain.
+    (r"(test_(ai_|smart_)?bots?(_|\.)|test_api_solo)", "bots"),
 )
 
 # Imports every engine test needs. They say nothing about what is under test,
@@ -117,6 +122,7 @@ DEPENDENTS: dict[str, tuple[str, ...]] = {
     "parser": ("card",),
     "engine": ("card", "session_bots"),
     "session_bots": ("multiplayer", "api"),
+    "bots": ("session_bots", "multiplayer", "analysis"),  # consumers of bot behaviour; not run unless bots changed
     "db": ("api", "session_bots"),
     "external": ("api",),
     "config_ops": ("api",),
@@ -137,6 +143,7 @@ WIDE_REACH_SOURCES: tuple[str, ...] = (
     "tests/conftest.py",
 )
 
+_RULES_VERSION = Path(__file__).stat().st_mtime_ns
 _CACHE_FILE = BACKEND_ROOT / "cache" / "test_domains.json"  # backend/cache/ is git-ignored
 
 
@@ -188,7 +195,7 @@ def classify_test(path: Path) -> tuple[str, ...]:
         d for m in imports
         if not _is_under(m, UBIQUITOUS_IMPORTS)
         and (d := _module_domain(m)) is not None
-        and d not in ("engine", "models", "parser", "db")  # handled below
+        and d not in ("engine", "models", "parser", "db", "bots")  # db handled below; bots by name
     }
     uses_db_for_cards = any(_is_under(m, CARD_TEST_IMPORTS) for m in imports)
     db_specific = {
@@ -225,12 +232,13 @@ def domain_map_for(test_files: list[Path]) -> dict[str, tuple[str, ...]]:
         key = f.resolve().relative_to(REPO_ROOT).as_posix()
         mtime = f.stat().st_mtime_ns
         hit = cache.get(key)
-        if hit and hit["mtime"] == mtime:
+        # `rules` ties an entry to the version of this file: edit a table and every test is reclassified
+        if hit and hit["mtime"] == mtime and hit.get("rules") == _RULES_VERSION:
             domains = tuple(hit["domains"])
         else:
             domains = classify_test(f)
         out[key] = domains
-        fresh[key] = {"mtime": mtime, "domains": list(domains)}
+        fresh[key] = {"mtime": mtime, "rules": _RULES_VERSION, "domains": list(domains)}
     if os.environ.get("PYTEST_XDIST_WORKER"):
         return out  # the controller already refreshed the cache; avoid concurrent writes
     try:
