@@ -49,7 +49,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-166`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-166`**; next free `MEC`: **`MEC-119`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -99,9 +99,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Aether Gust, Misleading Motes, Desynchronize, Hinder, Lost in Space, Return to the Sewers, …. Needs the owner's
   interactive top-or-bottom pick (a player choice, `continuations.py`) after the referent's move; size with
   `parser_probe.py blocked 'top or bottom of (?:their|its owner.s) library'`.
-- **PAR-165 · "Activate only during your turn, before attackers are declared."** 26 SOLO (PV 638), e.g. Hua Tuo, Honored
-  Physician — an activation-timing restriction; check the existing "activate only during your turn" / "only as a sorcery"
-  markers in `game/costs.py` before adding a new one.
 - **PAR-164 · Small verified residue batch (next-turn duration close-out).** One sub-bullet per shape, each sized with
   `parser_probe.py blocked`:
   - trigger head "whenever ~ deals / is dealt N or more damage" (5 SOLO, PV 637: Deus of Calamity, Dragonborn Champion,
@@ -148,6 +145,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
+- **MEC-118 · "Target `<object>` of an opponent's choice" (RULE 115 / 601.2c).** An opponent, not the controller, picks a
+  target as the spell or ability is put on the stack; no primitive exists (only resolve-time choosers). 12 cached cards:
+  Diaochan, Artful Beauty, Arena, Magus of the Arena, Cuombajj Witches, Karplusan Minotaur, Evangelize, Preacher, Volcanic
+  Offering, Nova Pentacle, Mausoleum Turnkey, Demonic Hordes (opponent picks a land), Death or Glory (pile split, may be
+  separate). Touches `TargetSpec`, announcement, bots and the target UI.
 - **MEC-117 · "Ignore one" flip and roll replacements (RULE 705.3 / 706.x).** "If you would flip a coin, instead flip two
   and ignore one" (Krark's Thumb, Pokey) and the die counterpart (Krark's Other Thumb, Ichor Elixir): a replacement
   on `RulesEngine.coin_flip`/`roll_die` where the player chooses which result to ignore (an interactive choice), and

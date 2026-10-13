@@ -31,6 +31,7 @@ from ...parser.oracle.catalogue.handlers import (
     FROM_HAND_MARKER,
     ONCE_PER_TURN_MARKER,
     ONLY_DURING_YOUR_TURN_MARKER,
+    ONLY_BEFORE_ATTACKERS_MARKER,
     POWERUP_COST_REDUCTION_MARKER,
     SORCERY_SPEED_MARKER,
     X_SPEND_COLOR_MARKER,
@@ -3132,6 +3133,7 @@ def bind_ability(
     once_per_turn = False
     sorcery_speed_only = False
     only_during_your_turn = False
+    only_before_attackers = False
     once_per_game = False  # PAR-28 RULE 702.177a Exhaust / Power-up
     powerup_cost_reduction = False  # PAR-28 Power-up
     from_hand = False  # PAR-28 RULE 702.57a Forecast
@@ -3155,6 +3157,8 @@ def bind_ability(
             sorcery_speed_only = True
         if any(e.type == ONLY_DURING_YOUR_TURN_MARKER for e in effect_specs):
             only_during_your_turn = True
+        if any(e.type == ONLY_BEFORE_ATTACKERS_MARKER for e in effect_specs):
+            only_before_attackers = True
         if any(e.type == ACTIVATE_ONLY_ONCE_MARKER for e in effect_specs):
             once_per_game = True
         if any(e.type == POWERUP_COST_REDUCTION_MARKER for e in effect_specs):
@@ -3176,7 +3180,7 @@ def bind_ability(
             e for e in effect_specs
             if e.type not in (
                 ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER,
-                ONLY_DURING_YOUR_TURN_MARKER, ACTIVATION_CONDITION_MARKER,
+                ONLY_DURING_YOUR_TURN_MARKER, ONLY_BEFORE_ATTACKERS_MARKER, ACTIVATION_CONDITION_MARKER,
                 ACTIVATE_ONLY_ONCE_MARKER, POWERUP_COST_REDUCTION_MARKER,
                 FROM_HAND_MARKER, X_SPEND_COLOR_MARKER,
             )
@@ -3363,6 +3367,9 @@ def bind_ability(
     if only_during_your_turn:
         # RULE 602.5d's wider sibling — see `ONLY_DURING_YOUR_TURN_MARKER`.
         cost.only_during_your_turn = True
+    if only_before_attackers:
+        # PAR-165 -- RULE 508.1 step cut-off on top of the own-turn gate.
+        cost.only_before_attackers = True
     if activation_condition:
         cost.activation_condition = activation_condition
     if any(

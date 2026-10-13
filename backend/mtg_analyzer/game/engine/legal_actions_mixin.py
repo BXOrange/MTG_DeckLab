@@ -1353,6 +1353,8 @@ class LegalActionsMixin:
                 # just keeps an already-illegal option off the offer list.
                 if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
                     continue
+                if ability.cost.only_before_attackers and not self._before_attackers_declared_ok(player):
+                    continue
                 if ability.cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
                     continue
                 # Existence-only check here (no chosen tap_others yet — the

@@ -2964,6 +2964,12 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 - **Files:** `game/costs.py`, `game/effects/core.py`, `game/ability_catalogue.py`
 - **Why:** With no real "choose an opponent" chooser for a player (only `request_choose_objects` for `GameObject` candidates exists), the *next* opponent in seating order…
 
+### "Activate only during your turn, before attackers are declared" (PAR-165, PARSER_VERSION 639/640, +31) (Casting & Costs)
+
+- **What:** `ActivationCost.only_before_attackers` adds a step cut-off on top of `only_during_your_turn`. `GameEngine._before_attackers_declared_ok` requires the controller's own turn (RULE 602.5d) and a step in `BEFORE_ATTACKERS_STEPS` (untap, upkeep, draw, main1, begin_combat; RULE 501-505, 507, 508.1). The parser row emits the own-turn marker plus `ONLY_BEFORE_ATTACKERS_MARKER`, which the binder folds into the flag. `can_activate` checks it (so `legal_actions` does too); mana abilities are gated the same way in `mana_abilities._apply_mana_activation_limit`, `tap_for_mana` and the mana-ability offer list. v640 closed the family's effect bodies: "destroy target tapped non`<colour>` creature" (Stone Catapult; also claims Rathi Assassin, Steam Catapult), one leading colour/"legendary" adjective on the graveyard-return row (Xiahou Dun, Loyal Retainers; also Call to the Netherworld, Revive, Goryo's Vengeance, The Night of the Doctor), and "return ~ and another target creature to their owners' hands" (Coastal Wizard, Lady Sun).
+- **Why:** a whitelist of the pre-attack steps, not a blacklist, so extra combats and the postcombat main fall out automatically. Left open: Diaochan, Artful Beauty ("target creature of an opponent's choice") → MEC-118. Snapshot vs HEAD: +31 newly covered, 0 regressed.
+- **Files:** `game/costs.py`, `game/binding/core.py`, `game/engine/activation_mixin.py`, `game/engine/mana_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/mana_abilities.py`, `parser/oracle/catalogue/handlers.py`. Tests: `tests/test_par165_before_attackers.py`.
+
 ### Ghostfire Slice: self-cost-reduction `active_if` + multicolour-count selector (Casting & Costs)
 
 - **What:** `self_cost_reduction_for` now honours an `active_if` gate; `count_selector` gained `multicolored_permanents_you_control`; a general "if `<condition>`" recognize…

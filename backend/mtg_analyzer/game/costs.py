@@ -422,6 +422,10 @@ class ActivationCost:
     #: than folded into `sorcery_speed_only` — see `GameEngine.
     #: _only_during_your_turn_ok`.
     only_during_your_turn: bool = False
+    #: PAR-165 "Activate only during your turn, before attackers are
+    #: declared." — `only_during_your_turn` plus a step cut-off, see
+    #: `GameEngine._before_attackers_declared_ok`.
+    only_before_attackers: bool = False
     #: RULE 602.5d's converse — "You can't activate this ability during
     #: combat." (PAR-30, Djinn of Infinite Deceits) — a *narrower* window
     #: than `sorcery_speed_only`: still legal at instant speed with a
@@ -1008,6 +1012,8 @@ def parse_activation_cost(
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if "only_during_your_turn" in cost:
         parsed.only_during_your_turn = bool(cost["only_during_your_turn"])
+    if "only_before_attackers" in cost:
+        parsed.only_before_attackers = bool(cost["only_before_attackers"])
     if "not_during_combat" in cost:
         parsed.not_during_combat = bool(cost["not_during_combat"])
     if cost.get("class_level") is not None:

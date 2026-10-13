@@ -135,6 +135,8 @@ class ManaMixin:
         # no-stack path, so they're re-checked here instead.
         if cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
             raise ValueError(f"{source.name}'s mana ability can only be activated during your turn")
+        if cost.only_before_attackers and not self._before_attackers_declared_ok(player):
+            raise ValueError(f"{source.name}'s mana ability can only be activated before attackers are declared")
         if cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
             raise ValueError(f"{source.name}'s mana ability has already been activated this turn")
         if not self._can_pay_activation_cost(

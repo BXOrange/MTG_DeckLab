@@ -3940,7 +3940,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Hurl Through Hell), the discard-exile window (Moonstone), each-player top-card windows with any-type mana (Lidless Gaze),
 #      "Activate only during your turn and only once each turn" (Snowslope Hunter), Adventure-from-graveyard (Mosswood Dreadknight)
 #      and grant/pump "until the end of your next turn".
-PARSER_VERSION = "638"
+# 639: PAR-165 -- "Activate only during your turn, before attackers are declared." (RULE 602.5d / 508.1) as `ActivationCost.
+#      only_before_attackers` (own turn, untap..beginning of combat; also gates mana abilities): Alaborn Veteran, Apprentice
+#      Sorcerer, Cao Cao, Capricious Sorcerer, Cunning Advisor, Fire Bowman, Goblin Firestarter, Hua Tuo, King's Assassin,
+#      Lu Su, Norwood Priestess, Pang Tong and the other 8 cards of the family.
+# 640: PAR-165 -- the effect bodies of the family's remaining cards: "destroy target tapped nonblack creature" (Stone Catapult),
+#      "return target black card / legendary creature card from your graveyard to ..." (Xiahou Dun, Loyal Retainers) and
+#      "return ~ and another target creature to their owners' hands" (Coastal Wizard, Lady Sun).
+PARSER_VERSION = "640"
 
 
 def parser_source_hash() -> str:

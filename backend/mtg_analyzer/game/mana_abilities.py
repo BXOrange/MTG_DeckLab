@@ -676,6 +676,7 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
 #: line-based parse instead, entirely outside `parse_oracle`), so it's
 #: recognized here too rather than left unparsed.
 _MANA_ACTIVATION_LIMIT_RE = re.compile(
+    r"activate only during your turn, before attackers are declared\.|"
     r"activate only during your turn(?: and only once each turn)?\.|"
     r"activate only once each turn\.",
     re.IGNORECASE,
@@ -706,6 +707,8 @@ def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None
     matched = m.group(0).lower()
     if "during your turn" in matched:
         cost.only_during_your_turn = True
+    if "before attackers are declared" in matched:
+        cost.only_before_attackers = True
     if "once each turn" in matched:
         cost.once_per_turn = True
 

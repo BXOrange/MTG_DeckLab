@@ -83,6 +83,10 @@ from ..top_library import (
     top_library_life_payment_required,
 )
 
+#: PAR-165: the steps that precede the declare attackers step (RULE 508.1) in a turn -- untap/upkeep/draw (RULE 501-504),
+#: precombat main (RULE 505.1) and beginning of combat (RULE 507). Anything later is "after attackers are declared".
+BEFORE_ATTACKERS_STEPS = frozenset({"untap", "upkeep", "draw", "main1", "begin_combat"})
+
 def _names_other(word: str) -> bool:
     """Whether a cost's permanent word says "another"/"other" (ENG-51) —
     "Sacrifice another creature", "Sacrifice two other creatures", "Tap
@@ -233,6 +237,8 @@ class ActivationMixin:
             return False
         if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
             return False
+        if ability.cost.only_before_attackers and not self._before_attackers_declared_ok(player):
+            return False
         if ability.cost.not_during_combat and not self._not_during_combat_ok():
             return False
         if ability.cost.activation_condition and not static_conditions.condition_holds(
@@ -274,6 +280,16 @@ class ActivationMixin:
         stack or outside the controller's own main phase, only ruled out on
         someone else's turn (Wishclaw Talisman-shaped)."""
         return player is self.state.active_player
+    def _before_attackers_declared_ok(self, player: Player) -> bool:
+        """PAR-165 "Activate only during your turn, before attackers are
+        declared." — the controller's own turn, in a step that precedes the
+        declare attackers step (RULE 508.1): beginning phase, precombat main
+        (RULE 505) or beginning of combat (RULE 507). A whitelist, so every
+        later step of any (extra) combat and the postcombat main are out."""
+        return (
+            self._only_during_your_turn_ok(player)
+            and self.state.current_step in BEFORE_ATTACKERS_STEPS
+        )
     def _not_during_combat_ok(self) -> bool:
         """RULE 602.5d's "You can't activate this ability during combat."
         (PAR-30, Djinn of Infinite Deceits) — the only phase this flag

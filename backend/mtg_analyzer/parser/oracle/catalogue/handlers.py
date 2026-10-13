@@ -4086,7 +4086,7 @@ _NEG_CREATURE_FILTER_WORDS: dict[str, tuple[str, str]] = {
     "artifact": ("without_card_type", "artifact"),
 }
 _DESTROY_NON_CREATURE_RE = _c(
-    rf"destroy target non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
+    rf"destroy target (?P<tapped>tapped )?non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
     rf"(?:, non(?P<second_neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)}))? creature"
     rf"(?P<that_player>{THAT_PLAYER_TAIL})?"
     r"(?P<no_regen>\. it can'?t be regenerated)?"
@@ -4099,6 +4099,10 @@ def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # `gate._that_player_antecedent_ok` checks the trigger names that player.
     kind = "creature_that_player_controls" if m.group("that_player") else "creature"
     params: dict = {"target_kind": kind, "creature_filter": {key: value}}
+    if m.group("tapped"):
+        # PAR-165 (Stone Catapult): "tapped" composes with the negation, the same `tapped` filter key
+        # "destroy target tapped creature" (King's Assassin) already uses.
+        params["creature_filter"]["tapped"] = True
     # Terror/Shriekmaw's two independent negatives ("nonartifact,
     # nonblack") compose two already-supported target filters.  Do not accept
     # a duplicate filter key yet: no real card needs e.g. two colors here,
@@ -5272,6 +5276,20 @@ def _return_self_and_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     ]
 
 
+#: PAR-165 (Coastal Wizard, Lady Sun): "return ~ and another target creature to their owners' hands" -- the same
+#: two-spec self + RULE 115 target idiom; "another" is the plain `creature` kind's default source exclusion.
+_RETURN_SELF_AND_ANOTHER_RE = _c(
+    r"return (?:~|this creature) and another target creature to (?:its|their) owner(?:'s|s'?)? hands?"
+)
+
+
+def _return_self_and_another(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("return_to_hand", {"target_kind": None}),
+        EffectSpec("return_to_hand", {"target_kind": "creature"}),
+    ]
+
+
 #: "return two target creatures to their owners' hands" (RULE 115.1a
 #: generalized to N>=2) — the plural sibling of `_return_to_hand`.
 def _return_to_hand_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -5447,6 +5465,8 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: uses, not a new one.
 _RETURN_FROM_GRAVEYARD_RE = _c(
     rf"return (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
+    # PAR-165: one leading adjective -- a colour ("black card", Xiahou Dun) or "legendary" ("legendary creature card", Loyal Retainers).
+    rf"(?:(?P<adj>legendary|{COLOR_WORD_ALT}) )?"
     rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card(?P<adv> that has an adventure)?"
     # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
     rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x))? from "
@@ -5484,6 +5504,14 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["creature_filter"] = {"max_power": int(m.group("pw"))}
     if m.groupdict().get("adv"):
         params["creature_filter"] = {"has_adventure": True}  # Edgewall Inn
+    adj = m.groupdict().get("adj")
+    if adj == "legendary":
+        params.setdefault("creature_filter", {})["legendary"] = True
+    elif adj:
+        color = resolve_color_word(adj)
+        if color is None:
+            return None
+        params["colors"] = [color]
     if m.groupdict().get("emv"):
         params["exact_mana_value"] = "x"  # Isareth the Awakener: bound by the preceding "pay {X}"
     if m.groupdict().get("tapped") or m.groupdict().get("atk"):
@@ -8765,6 +8793,16 @@ _ONLY_DURING_YOUR_TURN_ONCE_RE = _c(r"activate (?:this ability )?only during you
 
 def _only_during_your_turn_once(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {}), EffectSpec(ONCE_PER_TURN_MARKER, {})]
+
+
+#: PAR-165: "Activate only during your turn, before attackers are declared." -- the own-turn marker plus a step cut-off
+#: (`ActivationCost.only_before_attackers`, `GameEngine._before_attackers_declared_ok`).
+ONLY_BEFORE_ATTACKERS_MARKER = "only_before_attackers_marker"
+_ONLY_BEFORE_ATTACKERS_RE = _c(r"activate (?:this ability )?only during your turn, before attackers are declared")
+
+
+def _only_before_attackers(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {}), EffectSpec(ONLY_BEFORE_ATTACKERS_MARKER, {})]
 
 
 # PAR-28: marker `EffectSpec`s synthesized by `segmenter._segment_keyword_
@@ -18009,6 +18047,7 @@ HANDLERS: list[EffectHandler] = [
     # owner's hand" (Snow Hound) — compound self+target bounce; before the
     # colour-list and plain rows (its "return ~ and target …" would else be
     # left unclaimed).
+    EffectHandler("return_self_and_another", _RETURN_SELF_AND_ANOTHER_RE, _return_self_and_another),
     EffectHandler(
         "return_self_and_two_color",
         _RETURN_SELF_AND_TWO_COLOR_RE,
@@ -18821,6 +18860,7 @@ HANDLERS: list[EffectHandler] = [
         _ONLY_DURING_YOUR_TURN_RE,
         _only_during_your_turn,
     ),
+    EffectHandler("only_before_attackers", _ONLY_BEFORE_ATTACKERS_RE, _only_before_attackers),
     EffectHandler(
         "only_during_your_turn_once",
         _ONLY_DURING_YOUR_TURN_ONCE_RE,
