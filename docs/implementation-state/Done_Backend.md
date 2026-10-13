@@ -8,6 +8,10 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ## Configuration & Persistence
 
+### Test suite: domains, tiers, shared card-cache connection
+
+The suite (~13k tests) took over an hour serially; now ~5 min serial, ~2.5 min with `-n 4`, and a change usually runs a slice. The cost was not the tests but `CardDatabase.__init__`: its schema script scans the whole card table (~75 ms) and ~260 test files open it per test. `tests/conftest.py` now shares one connection for `DB_PATH` per process (production class untouched: editing `card_database.py` would change the schema hash and wipe the production cache); card-domain time fell from 3449 s to 35 s. `tests/domains.py` is the single table mapping source paths and tests to domains (`domain_<x>` markers, auto-assigned), plus consumer graph and wide-reach files; `scripts/select_tests.py` turns a git diff into tier 1-4; xdist workers clone the test cache; session/multiplayer/api tests get a 60 s timeout. `run_tests.py` kills the process tree on Windows. Structural-duplicate scan (`find_redundant_tests.py`) found mostly per-card templates, which guard different cards, so no tests were deleted. Known: `test_bots.py` / `test_api_solo.py` still take ~19 s per bot game.
+
 ### Configuration: centralized on-disk paths and runtime constants
 
 - **What:** Consolidated previously hard-coded module constants (cache/data dirs, DB paths, Scryfall User-Agent/rate limit) into `mtg_analyzer/config.py`, overridable via `…

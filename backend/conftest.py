@@ -34,6 +34,35 @@ _TEST_CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache", "test")
 os.environ.setdefault("MTG_CACHE_DIR", _TEST_CACHE_DIR)
 
 
+def _give_xdist_worker_its_own_cache() -> None:
+    """Under pytest-xdist every worker gets a private copy of the test cache.
+
+    `CardDatabase.__init__` writes on every open (schema script, migration,
+    schema marker), so twelve workers opening the one shared SQLite file hit
+    "database is locked" in the middle of the suite. The controller process
+    imports this file first and seeds `_TEST_CACHE_DIR` (below); each worker
+    then clones it once. Copies are refreshed only when the seeded file is
+    newer, so repeat runs skip the ~70 MB copy.
+    """
+    import shutil
+
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if not worker:
+        return
+    source = os.path.join(_TEST_CACHE_DIR, "db", "cards.db")
+    target_dir = os.path.join(os.path.dirname(_TEST_CACHE_DIR), f"test_{worker}")
+    target = os.path.join(target_dir, "db", "cards.db")
+    if os.path.exists(source) and (
+        not os.path.exists(target) or os.path.getmtime(target) < os.path.getmtime(source)
+    ):
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copy2(source, target)
+    os.environ["MTG_CACHE_DIR"] = target_dir
+
+
+_give_xdist_worker_its_own_cache()
+
+
 def _ensure_test_cache_seeded() -> None:
     """Populate the isolated test cache with real card data if it's empty.
 

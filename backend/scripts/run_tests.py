@@ -42,6 +42,25 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_ROOT.parent / "setup"))
 from install import ensure_backend_venv  # noqa: E402 (path must be set first)
 
+IS_WINDOWS = os.name == "nt"
+# POSIX: a new session makes the child a process-group leader (killpg reaches
+# xdist workers too). Windows has neither; CREATE_NEW_PROCESS_GROUP plus
+# `taskkill /T` (kill the whole tree) is the equivalent.
+_NEW_GROUP_KWARGS = (
+    {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if IS_WINDOWS else {"start_new_session": True}
+)
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    if IS_WINDOWS:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 TEST_NODE_RE = re.compile(r"^(tests/\S+::\S+)")
 
 
@@ -50,9 +69,9 @@ def main() -> int:
     parser.add_argument(
         "--hard-timeout",
         type=float,
-        default=120.0,
+        default=1800.0,
         help="Overall wall-clock ceiling in seconds for the whole run "
-        "(default: 120; the full suite normally runs in ~10s). Only "
+        "(default: 1800; scripts/select_tests.py passes a tier-sized value). Only "
         "fires if a hang isn't already caught by pytest-timeout's own "
         "per-test timer.",
     )
@@ -67,7 +86,7 @@ def main() -> int:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        start_new_session=True,  # own process group, so a hard-timeout kill gets everything
+        **_NEW_GROUP_KWARGS,  # own process group, so a hard-timeout kill gets everything
     )
 
     last_test = "(collection / session setup -- no test had started yet)"
@@ -75,10 +94,7 @@ def main() -> int:
 
     def kill_on_hard_timeout() -> None:
         killed.set()
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        _kill_process_tree(proc)
 
     watchdog = threading.Timer(args.hard_timeout, kill_on_hard_timeout)
     watchdog.daemon = True
@@ -103,7 +119,7 @@ def main() -> int:
         )
         return 124
 
-    if proc.returncode is not None and proc.returncode < 0:
+    if proc.returncode is not None and proc.returncode < 0 and not IS_WINDOWS:
         print(
             f"\nSTUCK TEST DETECTED: pytest process was terminated (signal "
             f"{-proc.returncode}) -- see any thread dump above. Last test "

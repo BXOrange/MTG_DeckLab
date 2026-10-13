@@ -13,6 +13,7 @@ MTG deck analyzer with a **rules-accurate game engine** validated server-side ag
 
 ```bash
 ./start.sh                                            # app on http://localhost:8765 (--backend-tests adds pytest)
+python backend/scripts/select_tests.py --run          # smallest test slice for the git diff (skill: run-tests)
 python backend/scripts/run_tests.py [pytest args]     # finds the venv itself; or: cd backend && python -m pytest -q
 ```
 
@@ -52,7 +53,7 @@ All under `docs/implementation-state/` unless noted; [docs/README.md](docs/READM
 - `workingOn.md`: resumable state of the ticket in progress; **read it first**, update at every milestone, delete the block on close. A partly done ticket keeps only a terse backlog point; its residue lives in its block.
 - `PARSER_LONG_TAIL.md` (parser strategy), `singletons.md` (single-card gaps for hand-authoring), `10_COMPLETION_ROADMAP.md`.
 - Never mark work done from a plan or stale ticket text; code and tests are authoritative. Before writing "needs a new primitive" in a ticket, grep for an existing one; when a primitive lands, sweep the backlog for tickets it closes; a twice-deferred item gets hand-authored or promoted, never silently deferred again.
-- Use the skills in `.claude/skills/` (`extend-parser`, `game-engine`, `hand-author-card`, `understand-card`, `inspect-db`, `singleton-sweeper`, `ticket-management`) instead of improvising. `.claude/agents/`: `ticket-grinder` (run as main agent: `claude --agent ticket-grinder`) delegates tickets to `ticket-worker`.
+- Use the skills in `.claude/skills/` (`extend-parser`, `game-engine`, `hand-author-card`, `understand-card`, `inspect-db`, `singleton-sweeper`, `ticket-management`, `run-tests`) instead of improvising. `.claude/agents/`: `ticket-grinder` (run as main agent: `claude --agent ticket-grinder`) delegates tickets to `ticket-worker`.
 - Keep the Engine-Status tab (`frontend/src/js/implementationStatusView.js`) in sync when engine coverage changes. Re-measure coverage with `scripts/coverage_report.py`; never quote a number from memory.
 - Bug reports (`bug-reports/`, Git-ignored, contain hidden zones): read [BUG_REPORTS.md](docs/Reference/BUG_REPORTS.md) before analyzing; never commit or delete them.
 

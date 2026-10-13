@@ -26,10 +26,24 @@ or the test setup.
 
 ## Tests
 
-- `cd backend && python -m pytest -q`, or `python backend/scripts/run_tests.py
-  [pytest args]` (finds the venv itself; adds `--hard-timeout SECONDS`, default
-  120s, killing the process group for hangs the per-test timer cannot reach).
-- `pytest-timeout` aborts any test over 20s (`backend/pytest.ini`).
+- Run a **slice, not the suite**: the `run-tests` skill (`.claude/skills/run-tests/`)
+  calls `backend/scripts/select_tests.py`, which maps the git diff to the changed
+  domain (`backend/tests/domains.py`: parser, card, engine, session_bots,
+  multiplayer, api, db, external, analysis, config_ops, models, frontend) and runs
+  only that domain's tests (T1); T2 adds consumer domains, T3 is everything, T4 adds
+  `--full-cache`. Every test carries a `domain_<x>` marker: `pytest -m domain_card`.
+- Whole suite: `cd backend && python -m pytest -q` (~5 min serial, `-n 4` ~2.5 min;
+  more workers do not help here). Or `python backend/scripts/run_tests.py
+  [pytest args]` (finds the venv itself; `--hard-timeout SECONDS`, default 1800s,
+  kills the process tree for hangs the per-test timer cannot reach).
+- `backend/scripts/test_profile.py` ranks files/domains by time;
+  `find_redundant_tests.py` reports structural duplicates (report only).
+- Under `-n`, each xdist worker clones the test card cache (`backend/cache/test_gw<N>/`);
+  never run two `-n` sessions at once. All tests of a process share one
+  `CardDatabase(DB_PATH)` connection (`tests/conftest.py`): opening it scans the whole
+  card table (~75 ms), which used to be ~90% of every card test's runtime.
+- `pytest-timeout` aborts any test over 20s (`backend/pytest.ini`); session, multiplayer
+  and api tests get 60s (they drive whole games).
 - **Plain `pytest -q` skips the full-cache tier** (`test_cube_batch_*`, anything
   marked `full_cache`): run `pytest --full-cache` or `MTG_FULL_CACHE_TESTS=1`
   before closing engine or parser work. It reads an isolated cache:
