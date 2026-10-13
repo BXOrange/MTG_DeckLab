@@ -33,6 +33,8 @@ IRREDUCIBLE_KINDS = frozenset({
     "permanent",
     # plain player lists ("another target player": every player but the one the firing event names — The Lord of Pain)
     "player", "opponent", "player_other_than_event_player",
+    # a stack-and-battlefield union, like `spell_or_nonland_permanent_you_dont_control` (PAR-161: Sudden Setback)
+    "spell_or_nonland_permanent",
     # a per-turn damage record, not the board
     "player_dealt_combat_damage_by_source",
     # "any target" — the RULE 115.1 union of creature/planeswalker/battle

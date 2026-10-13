@@ -321,6 +321,8 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "artifact_enchantment_or_tapped_creature_you_dont_control",
         # "target spell or creature" (Unsubstantiate, MEC-43).
         "spell_or_creature",
+        # PAR-161: "target spell or nonland permanent" (Sudden Setback) / "target creature or spacecraft" (Guidance Failure).
+        "spell_or_nonland_permanent", "creature_or_spacecraft",
         # "target spell you don't control" (Hullbreaker Horror) — the
         # controller-scoped mirror of the plain ``"spell"`` kind.
         "spell_you_control", "spell_you_dont_control",
@@ -777,6 +779,8 @@ class TargetSpec:
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
             "spell_or_creature": "Zauberspruch oder Kreatur",
+            "spell_or_nonland_permanent": "Zauberspruch oder nichtländliche bleibende Karte",
+            "creature_or_spacecraft": "Kreatur oder Raumschiff",
             "commander_entered_this_turn": "Commander, der in diesem Zug ins Spiel kam",
             "artifact_enchantment_or_tapped_creature_you_dont_control":
                 "Artefakt, Verzauberung oder getappte Kreatur eines Gegners",
@@ -1264,6 +1268,7 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
         bool(o.card.is_artifact) or bool(o.card.is_enchantment) or (o.is_creature and bool(o.tapped))
     ),
     "creature_or_vehicle": lambda o: o.is_creature or "vehicle" in o.card.type_line.lower(),
+    "creature_or_spacecraft": lambda o: o.is_creature or "spacecraft" in o.card.type_line.lower(),
     "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
     "human_or_artifact": lambda o: bool(o.card.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
     "artifact_creature_or_land": lambda o: o.is_creature or o.is_land or o.card.is_artifact,
@@ -1422,6 +1427,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "creature_or_vehicle_you_control": TargetFrame(
         "creature_or_vehicle", SCOPE_YOU, exclude_source=False),
     "vehicle": TargetFrame("vehicle", exclude_source=False),
+    "creature_or_spacecraft": TargetFrame("creature_or_spacecraft"),
     "other_vehicle_you_control": TargetFrame("vehicle", SCOPE_YOU),
     "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
     "another_creature_or_planeswalker_you_control": TargetFrame("creature_or_planeswalker", SCOPE_YOU),
@@ -2149,7 +2155,9 @@ def _legal_targets_for(
             if o.is_creature and o.blocking == source.instance_id
             and _targetable_by(o, source)
         ]
-    if kind == "spell_or_nonland_permanent_you_dont_control":
+    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent"):
+        # PAR-161 (Sudden Setback): ``spell_or_nonland_permanent`` is the same union with no controller restriction.
+        unscoped = kind == "spell_or_nonland_permanent"
         # "Return target spell or nonland permanent an opponent controls to
         # its owner's hand." (Sink into Stupor) — the union of the plain
         # ``"spell"`` branch's own options (any spell on the stack; nothing
@@ -2166,9 +2174,9 @@ def _legal_targets_for(
         permanents = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker
-                or o.card.is_artifact or o.card.is_enchantment)
-            and o.controller_id not in (None, controller_id)
+            if (not o.is_land if unscoped else (
+                (o.is_creature or o.is_planeswalker or o.card.is_artifact or o.card.is_enchantment)
+                and o.controller_id not in (None, controller_id)))
             and o is not source
             and _targetable_by(o, source)
         ]

@@ -791,7 +791,8 @@ class MiscSystemsMixin:
         self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
     def _request_library_position(self, owner: Player, obj: GameObject) -> None:
         """"The owner of … puts it on their choice of the top or bottom of their library." (Plan for All Outcomes) — the
-        owner, not the ability's controller, chooses; the permanent stays where it is until the answer arrives."""
+        owner, not the ability's controller, chooses; the permanent stays where it is until the answer arrives.
+        A "you may" is the trigger's own confirmation, not part of this choice (Arashin Sovereign)."""
         self.open_choice({
             "kind": "library_position",
             "player_id": owner.id,
@@ -812,6 +813,15 @@ class MiscSystemsMixin:
         position = "bottom" if answer == "bottom" else "top"
         if obj.zone == Zone.STACK:
             self.move_spell_off_stack(obj, f"library_{position}")  # Endless Detour's spell target
+        elif obj.zone == Zone.LIBRARY:
+            # A countered spell held on top meanwhile (Hinder): placed at the chosen end now (RULE 701.5g replaced).
+            owner = self.state.player_by_id(obj.owner_id)
+            if obj in owner.library:
+                owner.library.remove(obj)
+            if position == "bottom":
+                owner.library.insert(0, obj)
+            else:
+                owner.library.append(obj)
         else:
             self.return_to_library(obj, position)
     def _request_each_player_pay_or(
@@ -5171,9 +5181,13 @@ class MiscSystemsMixin:
         return False
     def counter_spell(
         self, target: Any, suspend_time_counters: Optional[int] = None, countered_by: Optional[str] = None,
-        exile_instead: bool = False,
+        exile_instead: bool = False, library_choice: bool = False,
     ) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
+
+        ``library_choice`` (Hinder — "put that card on your choice of the top or bottom of its owner's library
+        instead of into that player's graveyard"): the card waits on top of its owner's library until the countering
+        player answers the `library_position` choice (RULE 701.5g replaced; a token or copy just ceases to exist).
 
         ``exile_instead`` (Transcendent Dragon — "exile it instead of putting it into its owner's
         graveyard") sends the countered card to exile rather than the graveyard.
@@ -5202,7 +5216,13 @@ class MiscSystemsMixin:
         if item.obj is not None:
             item.obj.blitz_cost_paid = False  # RULE 400.7: the countered spell is a new object.
             owner = self.state.player_by_id(item.obj.owner_id)
-            if exile_instead:
+            if library_choice:
+                # Held on top of the owner's library until the countering player picks an end (`_resume_library_position`).
+                if item.obj.is_token:
+                    item.obj.zone = Zone.EXILE
+                else:
+                    owner.add_to_zone(item.obj, Zone.LIBRARY)
+            elif exile_instead:
                 owner.add_to_zone(item.obj, Zone.EXILE)
             elif suspend_time_counters:
                 owner.add_to_zone(item.obj, Zone.EXILE)
@@ -5220,6 +5240,10 @@ class MiscSystemsMixin:
             controller_id=countered_by or self.context.resolving_controller_id, spell=item.description,
             spell_controller_id=getattr(item.obj, "controller_id", None),
         ))
+        if library_choice and item.obj is not None and not item.obj.is_token:
+            chooser_id = countered_by or self.context.resolving_controller_id
+            if chooser_id is not None:  # with nobody to ask it simply stays on top, the declined-choice default
+                self._request_library_position(self.state.player_by_id(chooser_id), item.obj)
     def bounce_spell_or_permanent(self, target: Any) -> None:
         """"Return target spell or nonland permanent … to its owner's
         hand." (Sink into Stupor-shaped) — the RULE 701.3-onto-the-stack
@@ -5316,6 +5340,7 @@ class MiscSystemsMixin:
         on_pay_effect_specs: Optional[list[dict]] = None,
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_instead: bool = False,
+        library_choice: bool = False,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
 
@@ -5357,7 +5382,7 @@ class MiscSystemsMixin:
         if not unless_pays:
             self.counter_spell(
                 target, suspend_time_counters=suspend_time_counters, countered_by=countered_by,
-                exile_instead=exile_instead,
+                exile_instead=exile_instead, library_choice=library_choice,
             )
             return
         cost = ManaCost.parse(unless_pays)

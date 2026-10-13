@@ -38,9 +38,14 @@ class CounterSpellEffect(GameEffect):
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_then_cast_free: bool = False,
         exile_standing_free_cast: bool = False,
+        library_choice: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…If that spell is countered this way, put that card on your choice of the top or bottom of its owner's
+        #: library instead of into that player's graveyard." (Hinder) — the countering ability's controller picks
+        #: (`RulesEngine.counter_spell`'s ``library_choice``).
+        self.library_choice = bool(library_choice)
         #: "…exile it instead of putting it into its owner's graveyard. You may cast that card without paying its mana
         #: cost **for as long as it remains exiled**." (Kheru Spellsnatcher) — the standing, never turn-swept
         #: sibling of ``exile_then_cast_free``: `GameState.exile_cast_condition` + `free_cast_instance_ids`.
@@ -143,6 +148,7 @@ class CounterSpellEffect(GameEffect):
                 suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
                 tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
                 exile_instead=self.exile_then_cast_free or self.exile_standing_free_cast,
+                library_choice=self.library_choice,
             )
             if self.exile_then_cast_free and countered_obj is not None and countered_obj.zone == Zone.EXILE:
                 caster = _controller_of(self.source, context)

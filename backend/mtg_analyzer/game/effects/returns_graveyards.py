@@ -1546,16 +1546,25 @@ class RevealOpponentLibraryStealEffect(GameEffect):
 class OwnerChoosesLibraryPositionEffect(GameEffect):
     """"The owner of up to one other target nonland permanent puts it on their choice of the top or bottom of their
     library." (Plan for All Outcomes) — RULE 401.4 puts the decision with the target's *owner*, so a one-option
-    `library_position` choice is opened for them (`RulesEngine._request_library_position`)."""
+    `library_position` choice is opened for them (`RulesEngine._request_library_position`).
+
+    ``chooser="controller"`` is the "put it on **your** choice of the top or bottom of its owner's library" form
+    (Not Forgotten, Arashin Sovereign): the ability's controller decides, the card still goes to its owner's library.
+    ``target_kind=None`` is the self form (the source, wherever it now is — a dies trigger's card is in the graveyard,
+    RULE 400.7); a printed "you may" is the trigger's own confirmation."""
 
     def __init__(
-        self, target_kind: str = "nonland_permanent", optional: bool = True, source: Optional["GameObject"] = None,
+        self, target_kind: Optional[str] = "nonland_permanent", optional: bool = True, chooser: str = "owner",
+        source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+        self.chooser = "controller" if chooser == "controller" else "owner"
+        self.self_target = target_kind is None
+        if not self.self_target:
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = targets[0] if targets else None
+        target = self.source if self.self_target else (targets[0] if targets else None)
         if getattr(target, "kind", None) == "spell" and getattr(target, "obj", None) is not None:
             target = target.obj  # a spell target is its `StackItem`
         if target is None:
@@ -1564,7 +1573,10 @@ class OwnerChoosesLibraryPositionEffect(GameEffect):
             owner = context.state.player_by_id(target.owner_id)
         except (KeyError, ValueError):
             return
-        context.engine._request_library_position(owner, target)
+        chooser = _controller_of(self.source, context) if self.chooser == "controller" else owner
+        if chooser is None:
+            return
+        context.engine._request_library_position(chooser, target)
 
 
 class ExileCreatureCardMakeSpiritEffect(GameEffect):

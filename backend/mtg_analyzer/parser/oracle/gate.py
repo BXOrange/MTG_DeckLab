@@ -3947,7 +3947,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 640: PAR-165 -- the effect bodies of the family's remaining cards: "destroy target tapped nonblack creature" (Stone Catapult),
 #      "return target black card / legendary creature card from your graveyard to ..." (Xiahou Dun, Loyal Retainers) and
 #      "return ~ and another target creature to their owners' hands" (Coastal Wizard, Lady Sun).
-PARSER_VERSION = "640"
+# 641: PAR-161 -- "its owner puts it on their choice of the top or bottom of their library" (RULE 401.4) onto
+#      `owner_puts_on_top_or_bottom` (Desynchronize, Run Behind, Trip Up, Vanish from Sight, Lost in Space, Revenge of the
+#      Drowned, Diver Skaab, Moonsnare Prototype, Jailbreak Scheme, Run Ashore, Riverwalk Technique, Sudden Setback, Guidance
+#      Failure, ...) and its "put it on YOUR choice of the top or bottom of its owner's library" siblings (Not Forgotten,
+#      Arashin Sovereign); Hinder is hand-authored on `counter` + ``library_choice``.
+PARSER_VERSION = "641"
 
 
 def parser_source_hash() -> str:

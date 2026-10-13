@@ -812,12 +812,13 @@ class GameContext:
         on_pay_effect_specs: Optional[list[dict]] = None,
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_instead: bool = False,
+        library_choice: bool = False,
     ) -> None:
         self.engine.counter_unless_pays(
             target, unless_pays, source, suspend_time_counters=suspend_instead,
             on_pay_effect_specs=on_pay_effect_specs,
             tap_lands_empty_pool_if_unpaid=tap_lands_empty_pool_if_unpaid,
-            exile_instead=exile_instead,
+            exile_instead=exile_instead, library_choice=library_choice,
         )
 
     def counter_ability(self, target: Any) -> None:

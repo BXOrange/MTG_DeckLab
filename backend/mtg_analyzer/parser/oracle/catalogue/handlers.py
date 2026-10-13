@@ -5187,6 +5187,67 @@ def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     ]
 
 
+#: PAR-161: "target creature's owner puts it on their choice of the top or bottom of their library." / "the owner of
+#: target nonland permanent puts it on …" (RULE 401.4: the *owner*, not the controller, picks top or bottom) —
+#: `OwnerChoosesLibraryPositionEffect`, the effect Plan for All Outcomes / Endless Detour were hand-authored onto.
+#: The mandatory form only: "up to one" is the optional flag the effect already carries.
+_OWNER_TARGET_B = target_macro("_b")
+#: Pools the shared `TARGET` grammar has no row for (it would leave the clause unclaimed): the literal phrase -> kind.
+_OWNER_PUTS_EXTRA_TARGETS: dict[str, str] = {
+    "target spell or nonland permanent": "spell_or_nonland_permanent",
+    "target creature or spacecraft": "creature_or_spacecraft",
+    "target spell or creature": "spell_or_creature",
+}
+_OWNER_PUTS_EXTRA_RE = "|".join(re.escape(p) for p in _OWNER_PUTS_EXTRA_TARGETS)
+_OWNER_PUTS_TOP_OR_BOTTOM_RE = _c(
+    rf"(?:(?:{TARGET}|(?P<xtarget>{_OWNER_PUTS_EXTRA_RE}))'s owner|the owner of (?:{_OWNER_TARGET_B}|(?P<xtarget_b>{_OWNER_PUTS_EXTRA_RE}))) "
+    r"puts it on (?:their|its owner's) choice of the top or bottom of their library"
+)
+_OWNER_PUTS_TOP_OR_BOTTOM_KINDS: frozenset[str] = frozenset(
+    {"creature", "nonland_permanent", "artifact_or_creature", "spell_or_nonland_permanent", "creature_or_spacecraft"}
+)
+
+
+#: PAR-161: the *controller* chooses — "put target card from a graveyard on your choice of the top or bottom of its
+#: owner's library" (Not Forgotten) / "you may put it on your choice of the top or bottom of its owner's library" (Arashin
+#: Sovereign's dies trigger: the source itself, RULE 400.7). Same effect, ``chooser="controller"``.
+_CONTROLLER_PUTS_TOP_OR_BOTTOM_RE = _c(
+    r"put target card from a graveyard on your choice of the top or bottom of its owner's library"
+)
+_CONTROLLER_MAY_PUT_SELF_TOP_OR_BOTTOM_RE = _c(
+    r"(?:you may )?put (?:~|it) on your choice of the top or bottom of its owner's library"
+)
+
+
+def _controller_puts_top_or_bottom(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("owner_puts_on_top_or_bottom", {
+        "target_kind": "any_graveyard_card", "optional": False, "chooser": "controller",
+    })]
+
+
+def _controller_may_put_self_top_or_bottom(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("owner_puts_on_top_or_bottom", {
+        "target_kind": None, "chooser": "controller",
+    })]
+
+
+def _owner_puts_top_or_bottom(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    extra = m.group("xtarget") or m.group("xtarget_b")
+    suffix = "" if (m.group("target") or m.group("xtarget")) else "_b"
+    if extra:
+        return [EffectSpec("owner_puts_on_top_or_bottom", {
+            "target_kind": _OWNER_PUTS_EXTRA_TARGETS[extra.lower()], "optional": False,
+        })]
+    kind = resolve_target_kind(m.group(f"target{suffix}"))
+    if not target_kind_allowed(kind, _OWNER_PUTS_TOP_OR_BOTTOM_KINDS):
+        return None
+    if resolve_target_creature_state_filter(m.group(f"target{suffix}")):
+        return None  # a qualifier the effect's TargetSpec does not carry would be dropped silently
+    return [EffectSpec("owner_puts_on_top_or_bottom", {
+        "target_kind": kind, "optional": bool(m.group(f"up_to_one{suffix}")),
+    })]
+
+
 #: "put ~ on top of / on the bottom of its owner's library", "put it into its owner's library third from
 #: the top" (self form — Fell Horseman's and Murderous Rider's dies trigger, God-Eternal Oketra, Bookwurm's
 #: graveyard ability). The source may already be in the graveyard (RULE 400.7), which
@@ -18081,6 +18142,12 @@ HANDLERS: list[EffectHandler] = [
         "return_to_library",
         _c(rf"put {TARGET} {_LIBRARY_PLACEMENT}"),
         _return_to_library,
+    ),
+    EffectHandler("owner_puts_top_or_bottom", _OWNER_PUTS_TOP_OR_BOTTOM_RE, _owner_puts_top_or_bottom),
+    EffectHandler("controller_puts_top_or_bottom", _CONTROLLER_PUTS_TOP_OR_BOTTOM_RE, _controller_puts_top_or_bottom),
+    EffectHandler(
+        "controller_may_put_self_top_or_bottom", _CONTROLLER_MAY_PUT_SELF_TOP_OR_BOTTOM_RE,
+        _controller_may_put_self_top_or_bottom, self_subject_only=True,
     ),
     # "put ~ / it … on the bottom of / third from the top of its owner's library" (self form).
     EffectHandler("return_self_to_library", _RETURN_SELF_TO_LIBRARY_RE, _return_self_to_library),
