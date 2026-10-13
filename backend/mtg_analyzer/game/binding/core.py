@@ -27,6 +27,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...parser.oracle.catalogue.handlers import (
     ACTION_ONCE_PER_TURN_MARKER,
     ACTIVATE_ONLY_ONCE_MARKER,
+    BEFORE_ATTACKERS_DECLARED_MARKER,
     ACTIVATION_CONDITION_MARKER,
     FROM_HAND_MARKER,
     ONCE_PER_TURN_MARKER,
@@ -3132,6 +3133,8 @@ def bind_ability(
     once_per_turn = False
     sorcery_speed_only = False
     only_during_your_turn = False
+    only_during_opponents_turn = False  # PAR-165
+    before_attackers_declared = False  # PAR-165
     once_per_game = False  # PAR-28 RULE 702.177a Exhaust / Power-up
     powerup_cost_reduction = False  # PAR-28 Power-up
     from_hand = False  # PAR-28 RULE 702.57a Forecast
@@ -3155,6 +3158,15 @@ def bind_ability(
             sorcery_speed_only = True
         if any(e.type == ONLY_DURING_YOUR_TURN_MARKER for e in effect_specs):
             only_during_your_turn = True
+        before_marker = next((e for e in effect_specs if e.type == BEFORE_ATTACKERS_DECLARED_MARKER), None)
+        if before_marker is not None:
+            # PAR-165, RULE 506-508: the window ends at the declare-attackers turn-based action; the optional
+            # turn qualifier reuses the turn flags.
+            before_attackers_declared = True
+            if before_marker.params.get("turn") == "you":
+                only_during_your_turn = True
+            elif before_marker.params.get("turn") == "opponent":
+                only_during_opponents_turn = True
         if any(e.type == ACTIVATE_ONLY_ONCE_MARKER for e in effect_specs):
             once_per_game = True
         if any(e.type == POWERUP_COST_REDUCTION_MARKER for e in effect_specs):
@@ -3178,7 +3190,7 @@ def bind_ability(
                 ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER,
                 ONLY_DURING_YOUR_TURN_MARKER, ACTIVATION_CONDITION_MARKER,
                 ACTIVATE_ONLY_ONCE_MARKER, POWERUP_COST_REDUCTION_MARKER,
-                FROM_HAND_MARKER, X_SPEND_COLOR_MARKER,
+                FROM_HAND_MARKER, X_SPEND_COLOR_MARKER, BEFORE_ATTACKERS_DECLARED_MARKER,
             )
         ]
 
@@ -3363,6 +3375,8 @@ def bind_ability(
     if only_during_your_turn:
         # RULE 602.5d's wider sibling — see `ONLY_DURING_YOUR_TURN_MARKER`.
         cost.only_during_your_turn = True
+    cost.only_during_opponents_turn = only_during_opponents_turn  # PAR-165
+    cost.before_attackers_declared = before_attackers_declared  # PAR-165
     if activation_condition:
         cost.activation_condition = activation_condition
     if any(

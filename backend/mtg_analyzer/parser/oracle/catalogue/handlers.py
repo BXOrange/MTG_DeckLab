@@ -8767,6 +8767,23 @@ def _only_during_your_turn_once(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {}), EffectSpec(ONCE_PER_TURN_MARKER, {})]
 
 
+#: PAR-165, RULE 506-508: "Activate only [during your turn / during an opponent's turn,] before attackers are declared."
+#: (Hua Tuo, Nettling Imp, Arcum's Whistle) -- a RULE 602.5d window ending when the declare-attackers turn-based
+#: action (RULE 508.1) happens. One marker whose ``turn`` param is ``you`` / ``opponent`` / ``any``; the binder folds it
+#: into ``ActivationCost.before_attackers_declared`` plus (for the two qualified forms) the matching turn flag.
+BEFORE_ATTACKERS_DECLARED_MARKER = "before_attackers_declared_marker"
+_BEFORE_ATTACKERS_DECLARED_RE = _c(
+    r"activate (?:this ability )?only "
+    r"(?:during (?P<turn>your|an opponent's) turn, )?before attackers are declared"
+)
+
+
+def _before_attackers_declared(m: re.Match[str]) -> list[EffectSpec]:
+    qualifier = (m.group("turn") or "").lower()
+    turn = {"your": "you", "an opponent's": "opponent"}.get(qualifier, "any")
+    return [EffectSpec(BEFORE_ATTACKERS_DECLARED_MARKER, {"turn": turn})]
+
+
 # PAR-28: marker `EffectSpec`s synthesized by `segmenter._segment_keyword_
 # labeled_ability` for the "Keyword — [ability]" families (Boast/Exhaust/
 # Power-up/Forecast — RULE 702.142/702.177/702.57). They carry no oracle
@@ -18825,6 +18842,12 @@ HANDLERS: list[EffectHandler] = [
         "only_during_your_turn_once",
         _ONLY_DURING_YOUR_TURN_ONCE_RE,
         _only_during_your_turn_once,
+    ),
+    # PAR-165: "Activate only during your turn, before attackers are declared." (and the opponent's-turn / any-turn forms).
+    EffectHandler(
+        "before_attackers_declared",
+        _BEFORE_ATTACKERS_DECLARED_RE,
+        _before_attackers_declared,
     ),
     # PAR-10: "Activate only as a sorcery and only if `<condition>`." — tried
     # before the bare `_SORCERY_SPEED_RE`/`_ACTIVATE_ONLY_IF_RE` rows since a

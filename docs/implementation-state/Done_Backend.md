@@ -2742,6 +2742,7 @@ pending cast after an invalid answer. Regression coverage lives in
 
 - **What:** "Activate only as a sorcery."/"…any time you could cast a sorcery." is claimed and folded into `ActivationCost.sorcery_speed_only`, already enforced by `GameEng…
 - **Files:** `parser/oracle/catalogue/handlers.py`, `game/binding/core.py`
+- **"Activate only [during your/an opponent's turn,] before attackers are declared" (PAR-165, PARSER_VERSION 639, +20):** one marker (`BEFORE_ATTACKERS_DECLARED_MARKER`, `turn` = you/opponent/any) folded into `ActivationCost.before_attackers_declared` plus the turn flag (`only_during_your_turn`, new `only_during_opponents_turn`); `GameEngine._before_attackers_declared_ok` allows untap through beginning of combat and closes the window for the rest of the turn once any declare-attackers step has begun (RULE 508.1; Alaborn Veteran ruling: an extra combat does not reopen it). Still blocked by their bodies, not the timing sentence: Coastal Wizard, Lady Sun ("return ~ and another target creature"), Diaochan (chooser-split destroy), Loyal Retainers, Xiahou Dun (graveyard returns), Stone Catapult, and the forced-attack "controlled continuously since the beginning of the turn" bodies (Arcum's Whistle, Norritt, Nettling Imp). Master Warcraft's *casting* restriction is PAR-149's "cast this spell only …" family. Tests: `tests/test_par165_before_attackers_declared.py`.
 
 ### Standing Graveyard-Cast Permission
 

@@ -233,6 +233,10 @@ class ActivationMixin:
             return False
         if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
             return False
+        if ability.cost.only_during_opponents_turn and player is self.state.active_player:
+            return False  # PAR-165: "Activate only during an opponent's turn."
+        if ability.cost.before_attackers_declared and not self._before_attackers_declared_ok():
+            return False
         if ability.cost.not_during_combat and not self._not_during_combat_ok():
             return False
         if ability.cost.activation_condition and not static_conditions.condition_holds(
@@ -274,6 +278,22 @@ class ActivationMixin:
         stack or outside the controller's own main phase, only ruled out on
         someone else's turn (Wishclaw Talisman-shaped)."""
         return player is self.state.active_player
+    #: Steps that precede the declare-attackers turn-based action (RULE 508.1) in a turn's ordinary order.
+    _PRE_ATTACK_STEPS = frozenset({"untap", "upkeep", "draw", "main1", "begin_combat"})
+
+    def _before_attackers_declared_ok(self) -> bool:
+        """PAR-165, RULE 506-508: "Activate only before attackers are declared." -- true while the turn has not yet
+        reached the declare-attackers step (beginning phase, precombat main, beginning of combat). The declare-attackers
+        step itself is excluded: attackers are declared as that step begins (RULE 508.1), before anyone gets priority.
+        With extra combat phases the window closes for good at the *first* declare-attackers step (Alaborn Veteran
+        ruling, 2013-09-20), so a later beginning-of-combat or main step does not reopen it."""
+        if self.state.current_step not in self._PRE_ATTACK_STEPS:
+            return False
+        return not any(
+            e.type == EventType.STEP_BEGIN and e.get("step") == "declare_attackers"
+            for e in self.state.events_this_turn()
+        )
+
     def _not_during_combat_ok(self) -> bool:
         """RULE 602.5d's "You can't activate this ability during combat."
         (PAR-30, Djinn of Infinite Deceits) — the only phase this flag

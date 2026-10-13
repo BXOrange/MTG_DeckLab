@@ -3940,7 +3940,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Hurl Through Hell), the discard-exile window (Moonstone), each-player top-card windows with any-type mana (Lidless Gaze),
 #      "Activate only during your turn and only once each turn" (Snowslope Hunter), Adventure-from-graveyard (Mosswood Dreadknight)
 #      and grant/pump "until the end of your next turn".
-PARSER_VERSION = "638"
+PARSER_VERSION = "639"
 
 
 def parser_source_hash() -> str:

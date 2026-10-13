@@ -99,9 +99,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Aether Gust, Misleading Motes, Desynchronize, Hinder, Lost in Space, Return to the Sewers, …. Needs the owner's
   interactive top-or-bottom pick (a player choice, `continuations.py`) after the referent's move; size with
   `parser_probe.py blocked 'top or bottom of (?:their|its owner.s) library'`.
-- **PAR-165 · "Activate only during your turn, before attackers are declared."** 26 SOLO (PV 638), e.g. Hua Tuo, Honored
-  Physician — an activation-timing restriction; check the existing "activate only during your turn" / "only as a sorcery"
-  markers in `game/costs.py` before adding a new one.
 - **PAR-164 · Small verified residue batch (next-turn duration close-out).** One sub-bullet per shape, each sized with
   `parser_probe.py blocked`:
   - trigger head "whenever ~ deals / is dealt N or more damage" (5 SOLO, PV 637: Deus of Calamity, Dragonborn Champion,
@@ -121,7 +118,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   reuses `copy_permanent` (`tapped`/`attacking`) with its own delayed exile/sacrifice.
 - **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
   checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
-  step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a
+  step" (15, three phrasings; plus "before attackers are declared": Master Warcraft — PAR-165 built the step check), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a
   quoted ability (48 cards, only 5 SOLO — Dack Fayden, Liliana the Last Hope, Tezzeret Artifice Master,
   A-Saheeli, The Capitoline Triad; the rest are blocked by other planeswalker abilities). Decision open: which
   of these earn a handler; the emblem case is weak on SOLO yield.

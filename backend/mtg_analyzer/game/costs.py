@@ -422,6 +422,11 @@ class ActivationCost:
     #: than folded into `sorcery_speed_only` — see `GameEngine.
     #: _only_during_your_turn_ok`.
     only_during_your_turn: bool = False
+    #: PAR-165, RULE 602.5d: "Activate only during an opponent's turn" (Nettling Imp's qualified form).
+    only_during_opponents_turn: bool = False
+    #: PAR-165, RULE 506-508: "Activate only [during your turn,] before attackers are declared" -- legal only in the
+    #: steps before the declare-attackers turn-based action (RULE 508.1); see `GameEngine._before_attackers_declared_ok`.
+    before_attackers_declared: bool = False
     #: RULE 602.5d's converse — "You can't activate this ability during
     #: combat." (PAR-30, Djinn of Infinite Deceits) — a *narrower* window
     #: than `sorcery_speed_only`: still legal at instant speed with a
@@ -1008,6 +1013,10 @@ def parse_activation_cost(
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if "only_during_your_turn" in cost:
         parsed.only_during_your_turn = bool(cost["only_during_your_turn"])
+    if "only_during_opponents_turn" in cost:
+        parsed.only_during_opponents_turn = bool(cost["only_during_opponents_turn"])
+    if "before_attackers_declared" in cost:
+        parsed.before_attackers_declared = bool(cost["before_attackers_declared"])
     if "not_during_combat" in cost:
         parsed.not_during_combat = bool(cost["not_during_combat"])
     if cost.get("class_level") is not None:
