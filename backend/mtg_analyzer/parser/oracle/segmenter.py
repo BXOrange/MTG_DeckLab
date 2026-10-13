@@ -809,6 +809,82 @@ _CYCLE_TRIGGER_RE = re.compile(
     r"^when you cycle this card,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
 
+#: RULE 603.1/701.9: "When(ever) a spell or ability an opponent controls
+#: causes you to discard `<~|this card|a card>`, `<effect>`." (PAR-126 — the
+#: Wild Mongrel-era Guerrilla Tactics/Metrognome/Spiritual Focus cycle). The
+#: engine side is MEC-101's `DISCARD_CARD.cause_controller_id` stamp plus the
+#: ``requires_opponent_caused_discard`` trigger predicate, which is what keeps
+#: a cleanup or own-cost discard (no cause) from firing it. The self form
+#: ("this card"/"~") is the card's own discard, so subject ``self``; "a card"
+#: watches any of your discards, so subject ``you``.
+_OPPONENT_CAUSED_DISCARD_TRIGGER_RE = re.compile(
+    r"^when(?:ever)? a spell or ability an opponent controls causes you to discard "
+    r"(?P<what>~|this card|a card),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: The body's delayed tail — "[`<pre>`, and ]you return this card from your
+#: graveyard to `<zone>` at the beginning of the next end step" (Mangara's
+#: Blessing, Sand Golem). Only the return clause is delayed (RULE 603.7), so
+#: the optional prefix is parsed as an ordinary immediate effect.
+_CAUSED_DISCARD_DELAYED_RETURN_RE = re.compile(
+    r"^(?:(?P<pre>.+?),?\s+and\s+)?(?:you\s+)?(?P<ret>return (?:this card|~) from your graveyard to .+?)"
+    r" at the beginning of the next end step\.?$",
+    re.IGNORECASE | re.S,
+)
+
+#: "that player loses N life" — the player whose spell/ability caused the
+#: discard (Psychic Purge); `LoseLifeEffect.selector="cause_controller"`.
+_CAUSED_DISCARD_THAT_PLAYER_LOSES_RE = re.compile(
+    r"^that player loses (?P<n>\d+) life\.?$", re.IGNORECASE,
+)
+
+#: The discarded card sits in the graveyard when this trigger resolves
+#: (RULE 701.9a), so the bare "return it to your hand" means the graveyard
+#: return (Quagnoth).
+_CAUSED_DISCARD_RETURN_IT_RE = re.compile(r"^return it to your hand\.?$", re.IGNORECASE)
+
+#: RULE 614.1: "If a spell or ability an opponent controls causes you to
+#: discard this card, put it onto the battlefield [with N +1/+1 counters on
+#: it] instead of putting it into your graveyard." (Wilt-Leaf Liege) — a
+#: replacement effect, not a trigger: `discard_to_battlefield` (MEC-102).
+_CAUSED_DISCARD_REPLACEMENT_RE = re.compile(
+    r"^if a spell or ability an opponent controls causes you to discard (?:~|this card),\s*"
+    r"put it onto the battlefield instead of putting it into your graveyard\.?$",
+    re.IGNORECASE,
+)
+
+
+def _caused_discard_effects(body: str, is_self: bool) -> Optional[list[EffectSpec]]:
+    """The effect list of an opponent-caused-discard trigger body."""
+    text = body.strip()
+    that_player = _CAUSED_DISCARD_THAT_PLAYER_LOSES_RE.match(text)
+    if that_player is not None:
+        return [EffectSpec("lose_life", {
+            "amount": int(that_player.group("n")), "selector": "cause_controller",
+        })]
+    if is_self and _CAUSED_DISCARD_RETURN_IT_RE.match(text):
+        return [EffectSpec("return_self_from_graveyard_to_hand", {})]
+    delayed = _CAUSED_DISCARD_DELAYED_RETURN_RE.match(text)
+    if delayed is not None and is_self:
+        returned = parse_effect_body(delayed.group("ret"), self_subject=True)
+        if returned is None or any(e.condition is not None for e in returned):
+            return None
+        effects: list[EffectSpec] = []
+        if delayed.group("pre"):
+            immediate = parse_effect_body(delayed.group("pre"), self_subject=True)
+            if immediate is None:
+                return None
+            effects.extend(immediate)
+        effects.append(EffectSpec("create_delayed_trigger", {
+            "step": "end", "scope": "any",
+            "effects": [{"type": e.type, "params": dict(e.params)} for e in returned],
+            "description": "return this card from your graveyard at the beginning of the next end step",
+        }))
+        return effects
+    return parse_effect_body(body, self_subject=is_self)
+
+
 #: RULE 701.17/603.1's "Whenever you sacrifice a Food, …" (Experimental
 #: Confectioner/Trail of Crumbs-shaped Food-matters payoffs) — a player-
 #: subject trigger like `_PLAYER_TRIGGER_CONDITIONS`'s bare event-name
@@ -7910,6 +7986,31 @@ def _segment_line_unsplit(
             "triggered",
             effects=effects,
             trigger={"event": "CYCLED", "condition": {"subject": "self"}},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    if _CAUSED_DISCARD_REPLACEMENT_RE.match(raw) is not None:
+        return Segment(raw=raw, claimed=True, spec=AbilitySpec(
+            "replacement", [EffectSpec("discard_to_battlefield", {})],
+            raw_text=raw, parser=provenance,
+        ))
+
+    caused_discard = _OPPONENT_CAUSED_DISCARD_TRIGGER_RE.match(raw)
+    if caused_discard is not None:
+        is_self = caused_discard.group("what").lower() != "a card"
+        effects = _caused_discard_effects(caused_discard.group("body"), is_self)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "DISCARD_CARD",
+                "condition": {"subject": "self" if is_self else "you"},
+                "requires_opponent_caused_discard": True,
+            },
             raw_text=raw,
             parser=provenance,
         )

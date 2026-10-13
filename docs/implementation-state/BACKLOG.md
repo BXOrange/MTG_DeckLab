@@ -73,17 +73,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Worldknit's card-pool condition; "can't be regenerated" leftovers (Bone Shaman, Lim-Dûl's Cohort); Desolation of
   Smaug's "spend only to cast Dragon spells"; Luxior's per-counter bonus; Atalya's modal `{X}, {T}` body.
 
-- **PAR-126 · "A spell or ability an opponent controls causes you to discard `<X>`" — self-subject
-  trigger family.** MEC-101 built the primitive (`DISCARD_CARD.cause_controller_id`,
-  `requires_opponent_caused_discard`, `triggers_mixin._collect_discarded_triggers`) and hand-authored
-  Pure Intentions. 12 SOLO cards remain (`blocked "causes you to discard"`), pure parser work: **(a)** a
-  bare self-subject passive "~ is discarded" has no recognition (`_TRIGGER_VERBS` has no passive row,
-  the self noun list has no "card"); **(b)** the "a spell or ability an opponent controls causes you to
-  discard `<referent>`" wrapper (subject is the causing spell) needs its own dispatch row emitting
-  `{"event": "DISCARD_CARD", "condition": {"subject": "self"|"you"}, "requires_opponent_caused_discard":
-  True}` (precedent `_DAMAGE_TRIGGER_RE`); **(c)** Pure Intentions' `create_turn_trigger` (RULE 603.7a)
-  needs generalizing to a parser row. Library of Leng / Nephalia Academy ("an effect causes you to
-  discard") are a broader, non-opponent-scoped condition — not this cluster.
 - **PAR-146 · `commander_tail_report.py` taxonomy re-validation.** Measured at PARSER_VERSION 584
   (`PARSER_LONG_TAIL.md`, "Commander tail re-validation"): the `roll_die` row ("no dice subsystem at all",
   43 cards) and the `tapped and attacking` row (59) name primitives that exist (`RollDieEffect`,

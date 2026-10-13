@@ -3963,7 +3963,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      row takes the extra "they gain trample, haste, and annihilator 1" keywords (Hideous Taskmaster). "Gain control ... for as long as you control ~"
 #      (RULE 611.2b; Rangers of Ithilien) rides `GainControlUntilEndOfTurnEffect.while_source`, reverted by
 #      `RulesEngine._revert_source_bound_control` once the source leaves or is no longer controlled.
-PARSER_VERSION = "642"
+# 643: PAR-126 -- "When(ever) a spell or ability an opponent controls causes you to discard <this card|a card>, ..." (RULE 603.1)
+#      onto MEC-101's `requires_opponent_caused_discard` trigger on `DISCARD_CARD` (Ajani's Last Stand, Gorilla/Guerrilla
+#      Tactics, Metrognome, Spiritual Focus), with the graveyard-return bodies ("return it to your hand", Quagnoth; "[gain 2
+#      life, and] return this card from your graveyard to ... at the beginning of the next end step" as a delayed trigger,
+#      Mangara's Blessing, Sand Golem) and "that player loses N life" (`LoseLifeEffect.selector="cause_controller"`, Psychic
+#      Purge); the replacement sibling "If ... causes you to discard this card, put it onto the battlefield instead of putting
+#      it into your graveyard" (RULE 614.1, Wilt-Leaf Liege) rides `discard_to_battlefield`.
+PARSER_VERSION = "643"
 
 
 def parser_source_hash() -> str:
