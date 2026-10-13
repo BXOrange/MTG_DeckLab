@@ -702,6 +702,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_linked_exile": "move_object",
     "return_self_from_graveyard": "move_object",
     "return_self_from_graveyard_to_hand": "move_object",
+    "return_self_from_graveyard_to_library_top": "move_object",
     "return_self_from_graveyard_untargeted": "move_object",
     "return_self_to_battlefield": "move_object",
     "return_shared_type_permanent": "move_object",

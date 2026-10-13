@@ -935,6 +935,17 @@ class ReturnFromGraveyardEffect(GameEffect):
             if player is not None:
                 context.lose_life(player, int(mv))
 
+    def _order_new_top_cards(self, context: GameContext, cards: list[Any]) -> None:
+        """RULE 401.4: cards put on top of one library at the same time are arranged in any order by the library's
+        owner. The cards just landed on top in target order, so the owner re-orders the top ``n`` through the same
+        look-and-reorder choice Sensei's Divining Top uses. Only one choice can be open at a time, so a second
+        library receiving two or more cards keeps target order (no printed card spreads a batch over two libraries)."""
+        for owner in context.state.living_players():
+            landed = [c for c in cards if c in owner.library[-len(cards):]]
+            if len(landed) >= 2:
+                context.engine.look_reorder_top(owner, len(landed), source=self.source)
+                return
+
     #: A resumed continuation's remaining players (see `_pick_each_in_order`) — runtime state, never a spec param.
     _remaining_players: Optional[list[Any]] = None
 
@@ -1038,6 +1049,8 @@ class ReturnFromGraveyardEffect(GameEffect):
             return
         if self.destination == "hand":
             action = "return_from_graveyard_to_hand"
+        elif self.destination == "library_top":
+            action = "return_from_graveyard_to_library_top"
         else:
             action = "return_from_graveyard_tapped" if self.tapped else "return_from_graveyard"
         chooser = player
@@ -1166,9 +1179,12 @@ class ReturnFromGraveyardEffect(GameEffect):
                 if (self.count_selector or self.target_spec.any_number) and targets is not None
                 else self.target_spec.effective_count
             )
+            chosen = _chosen_targets(targets, cap, self.target)
             with context.state.simultaneous():
-                for target in _chosen_targets(targets, cap, self.target):
+                for target in chosen:
                     self._apply_one(context, target)
+            if self.destination == "library_top":
+                self._order_new_top_cards(context, chosen)
             return
         target = (targets[0] if targets else None) or self.target
         if target is None:

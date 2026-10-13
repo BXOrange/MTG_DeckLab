@@ -32,9 +32,17 @@ def test_graveyard_card_to_library_bottom_parses():
 
 
 def test_does_not_overmatch_other_library_destinations():
+    # PAR-162 now models the "on top" sibling (owner's library, `return_from_graveyard` ``library_top``); a depth
+    # placement ("second from the top") remains unclaimed.
     assert parse_effect_body(
-        "put target card from a graveyard on top of its owner's library."
+        "put target card from a graveyard second from the top of its owner's library."
     ) is None
+
+
+def test_top_sibling_is_the_library_top_destination():
+    [spec] = parse_effect_body("put target card from a graveyard on top of its owner's library.")
+    assert spec.type == "return_from_graveyard"
+    assert spec.params == {"target_kind": "any_graveyard_card", "destination": "library_top"}
 
 
 def test_junktroller_is_modeled():

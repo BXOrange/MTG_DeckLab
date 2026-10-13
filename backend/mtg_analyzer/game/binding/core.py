@@ -1254,7 +1254,7 @@ class _LastKnownObject:
 #: `EffectRegistry` types whose whole point is returning the source card from its
 #: owner's graveyard — the marker that its trigger functions *from the graveyard*.
 _SELF_GRAVEYARD_RETURN_TYPES = frozenset(
-    {"return_self_from_graveyard", "return_self_from_graveyard_to_hand"}
+    {"return_self_from_graveyard", "return_self_from_graveyard_to_hand", "return_self_from_graveyard_to_library_top"}
 )
 
 

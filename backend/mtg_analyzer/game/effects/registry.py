@@ -3479,6 +3479,11 @@ EffectRegistry.register(
     lambda p: ReturnSelfFromGraveyardToHandEffect(),
 )
 EffectRegistry.register(
+    # "Put this card from your graveyard on top of your library." (PAR-162 — Champion of Stray Souls, Gate Colossus).
+    "return_self_from_graveyard_to_library_top",
+    lambda p: ReturnSelfFromGraveyardToHandEffect(destination="library_top"),
+)
+EffectRegistry.register(
     # "{N}: Put this card from your hand onto the battlefield." (Talon
     # Gates of Madara-shaped).
     "put_self_onto_battlefield_from_hand",

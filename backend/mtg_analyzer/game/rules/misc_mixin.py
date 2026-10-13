@@ -3620,6 +3620,9 @@ class MiscSystemsMixin:
             # PAR-143: an untargeted graveyard pick ("return a land card from your graveyard to the
             # battlefield tapped / to your hand").
             "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
+            # PAR-162: an untargeted graveyard pick put on top of its owner's library ("put a land card from your
+            # graveyard on top of your library").
+            "return_from_graveyard_to_library_top",
             # Diviner of Mist: an untargeted graveyard instant/sorcery pick that is exiled into a free-cast window.
             "free_cast_exile",
             "library_to_hand", "sacrifice_for_descendants_fury",
@@ -4376,6 +4379,8 @@ class MiscSystemsMixin:
             )
         elif action == "return_from_graveyard_to_hand":
             self.return_from_graveyard(obj, "hand")
+        elif action == "return_from_graveyard_to_library_top":
+            self.return_from_graveyard(obj, "library_top")
         elif action == "free_cast_exile":
             # "…If that spell would be put into your graveyard, exile it instead." — the same exile-then-window
             # route `CastGraveyardInstantSorceryFreeExileEffect`'s targeted form takes (RULE 614.1 rider).

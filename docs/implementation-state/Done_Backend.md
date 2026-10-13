@@ -5238,6 +5238,13 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 
 - **What:** Parser recognition now reaches the existing `return_to_library`
 
+
+### PAR-162: graveyard card to the top of a library (PARSER_VERSION 638, +25, 0 regressed)
+
+- **What:** the top-of-library sibling of PAR-83 onto the existing `library_top` destination and graveyard target kinds: targeted ("[up to one] [other] target `<type>` card from your/a graveyard on top of your/its owner's library" — the possessive must match the graveyard scope), plural ("up to N target … cards"), an untargeted pick (new `return_from_graveyard_to_library_top` pick action — the old pick would have sent the card to the battlefield) and the source card (`ReturnSelfFromGraveyardToHandEffect.destination`, type `return_self_from_graveyard_to_library_top`, bound as a graveyard-zone ability). New graveyard type words: zombie, creature or battle, instant/sorcery/battle.
+- **Why it's built that way:** RULE 401.4 — two or more cards put on top at once open the owner's reorder choice by reusing `look_reorder_top` (Sensei's Divining Top), so the existing "any number of" form gains it too; one card asks nothing. A graveyard target that left in response moves nothing (RULE 608.2b).
+- **Dispositions on close:** "activate only during your turn, before attackers are declared" (26 SOLO) → PAR-165; the "you may exile it. When you do, …" reflexive head → PAR-164. Left open, unverified one-offs: Dead Reckoning and Lagonna-Band Storyteller ("if you do" riders reading the card), Aberrant Mind Sorcerer (dice header plus "that card" rows), Lackey Recycler (Contraption, non-goal), Stillness in Motion, Hag Hedge-Mage, Kami of Restless Shadows, Once and Future, Runo Stromkirk. `test_par83…::test_does_not_overmatch_other_library_destinations` now pins a still-unclaimed "second from the top" variant, since the top form is modeled.
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/targeting.py`, `game/effects/returns_graveyards.py`, `attachments_transforms.py`, `registry.py`, `game/binding/core.py`, `game/isa.py`, `game/rules/misc_mixin.py`. Tests: `tests/test_par162_graveyard_to_library_top.py` (33).
 ### PAR-82: Quoted Static Grants — Residue After a Stale Premise (in progress, PARSER_VERSION 397)
 
 - **What:** The ticket's own framing — "these two specific subject shapes

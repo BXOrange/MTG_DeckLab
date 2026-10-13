@@ -5191,6 +5191,15 @@ def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _RETURN_SELF_TO_LIBRARY_RE = _c(
     rf"put (?:~|this card)(?: from your graveyard)? {_LIBRARY_PLACEMENT}"
 )
+#: PAR-162: "put this card from your graveyard on top of your library" (Champion of Stray Souls, Gate Colossus) —
+#: the source itself, which lives in (and acts from) the graveyard; "your library" is its owner's because the card
+#: is in your graveyard. `ReturnSelfFromGraveyardToHandEffect`'s ``library_top`` destination.
+_PUT_SELF_GRAVEYARD_TOP_RE = _c(r"put (?:~|this card) from your graveyard on top of your library")
+
+
+def _put_self_graveyard_top(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_self_from_graveyard_to_library_top", {})]
+
 _RETURN_IT_TO_LIBRARY_RE = _c(rf"put it {_LIBRARY_PLACEMENT}")
 
 
@@ -5303,6 +5312,8 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 #: "permanent" alternative so it isn't swallowed by it.
 _GRAVEYARD_TYPE_WORD = (
     r"equipment, instant, or sorcery|noncreature, nonland|"  # PAR-163 (Thor; Practiced Scrollsmith)
+    # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
+    r"instant, sorcery, or battle|creature or battle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent"
@@ -5339,6 +5350,9 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
         "artifact or creature": "artifact_or_creature",
         "equipment, instant, or sorcery": "equipment_instant_or_sorcery",
         "noncreature, nonland": "noncreature_nonland",
+        "zombie": "zombie_card",
+        "creature or battle": "creature_or_battle",
+        "instant, sorcery, or battle": "instant_sorcery_or_battle",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 
@@ -5654,6 +5668,67 @@ def _return_from_graveyard_shuffle_any(m: re.Match[str]) -> Optional[list[Effect
         "target_kind": kind, "destination": "library_bottom", "shuffle_after": True,
         "count": _ANY_NUMBER_TARGET_CAP, "optional": True,
     })]
+
+
+#: PAR-162: "put [up to one] target `<type>` card from `<scope>` graveyard on top of your / its owner's library"
+#: (Reclaim, Golgari Thug, Haunted Crossroads, Dead Reckoning's first half), its "up to N target cards" plural
+#: (Reinforcements) and the untargeted pick ("you may put a land card from your graveyard on top of your library" —
+#: Glowspore Shaman, Halo-Charged Skaab). All ride `return_from_graveyard`'s ``library_top`` destination
+#: (RULE 401.3 puts the card on top; RULE 400.7 makes it a new object; RULE 608.2b drops a target that left).
+#: "your library" only follows "your graveyard" (the card is yours), "its owner's library" any other scope.
+_GRAVEYARD_TO_TOP = (
+    r"(?P<scope>{scope}) graveyard on top of (?:(?P<yours>your)|its owner'?s) library"
+)
+_PUT_GRAVEYARD_CARD_TOP_RE = _c(
+    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    + _GRAVEYARD_TO_TOP.format(scope=_GRAVEYARD_SCOPE_WORD)
+)
+_PUT_GRAVEYARD_CARDS_TOP_RE = _c(
+    rf"put (?P<up_to>up to )?(?P<count>\d+) {_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    + _GRAVEYARD_TO_TOP.format(scope=_GRAVEYARD_SCOPE_WORD)
+)
+_PUT_GRAVEYARD_PICK_TOP_RE = _c(
+    rf"(?P<may>you may )?put an? (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    + _GRAVEYARD_TO_TOP.format(scope=_GRAVEYARD_SCOPE_WORD)
+)
+
+
+def _graveyard_top_kind(m: re.Match[str]) -> Optional[str]:
+    """The graveyard target kind, or ``None`` when the library possessive contradicts the graveyard's scope."""
+    if bool(m.group("yours")) != (m.group("scope").strip().lower() == "your"):
+        return None
+    return _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+
+
+def _put_graveyard_card_top(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_top_kind(m)
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind, "destination": "library_top"}
+    if m.groupdict().get("up_to_one"):
+        params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
+
+
+def _put_graveyard_cards_top(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_top_kind(m)
+    count = int(m.group("count"))
+    if kind is None or count < 2:
+        return None
+    params: dict = {"target_kind": kind, "destination": "library_top", "count": count}
+    if m.group("up_to"):
+        params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
+
+
+def _put_graveyard_pick_top(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_top_kind(m)
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind, "destination": "library_top", "pick": True}
+    if m.group("may"):
+        params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
 
 
 #: "Target player shuffles up to N target cards from their graveyard into
@@ -17970,6 +18045,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "put ~ / it … on the bottom of / third from the top of its owner's library" (self form).
     EffectHandler("return_self_to_library", _RETURN_SELF_TO_LIBRARY_RE, _return_self_to_library),
+    EffectHandler("put_self_graveyard_top", _PUT_SELF_GRAVEYARD_TOP_RE, _put_self_graveyard_top),
     EffectHandler("return_attached_to_library", _RETURN_ATTACHED_TO_LIBRARY_RE, _return_attached_to_library),
     EffectHandler("exile_all_until_leaves", _EXILE_ALL_UNTIL_LEAVES_RE, _exile_all_until_leaves),
     EffectHandler(
@@ -18036,6 +18112,10 @@ HANDLERS: list[EffectHandler] = [
         _MASS_RETURN_GRAVEYARD_RE,
         _mass_return_graveyard,
     ),
+    # PAR-162: "put [up to one] target `<type>` card from your graveyard on top of your library" and its plural / pick siblings.
+    EffectHandler("put_graveyard_card_top", _PUT_GRAVEYARD_CARD_TOP_RE, _put_graveyard_card_top),
+    EffectHandler("put_graveyard_cards_top", _PUT_GRAVEYARD_CARDS_TOP_RE, _put_graveyard_cards_top),
+    EffectHandler("put_graveyard_pick_top", _PUT_GRAVEYARD_PICK_TOP_RE, _put_graveyard_pick_top),
     EffectHandler(
         "return_pick_from_graveyard",
         _RETURN_PICK_FROM_GRAVEYARD_RE,

@@ -108,6 +108,10 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     or any("cycling" in str(k).lower() for k in o.card.keywords),
     # "target Zombie card from your graveyard" (Unholy Grotto, Rot Hulk) — a creature subtype on the printed type line.
     "zombie_card": lambda o: "zombie" in o.card.type_line.lower(),
+    # "put target creature or battle card from your graveyard on top of your library" (Flitting Guerrilla, PAR-162).
+    "creature_or_battle": lambda o: o.is_creature or bool(o.card.is_battle),
+    # "put an instant, sorcery, or battle card from your graveyard on top of your library" (Halo-Charged Skaab).
+    "instant_sorcery_or_battle": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.card.is_battle),
     # "return a creature or land card from your graveyard to your hand" (Grapple with the Past).
     "creature_or_land": lambda o: o.is_creature or o.is_land,
     # "return a nonland card of an opponent's choice from your graveyard to your hand" (Tasigur, the Golden Fang).

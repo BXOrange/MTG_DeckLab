@@ -49,7 +49,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-165`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-166`**; next free `MEC`: **`MEC-118`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -99,14 +99,16 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Aether Gust, Misleading Motes, Desynchronize, Hinder, Lost in Space, Return to the Sewers, …. Needs the owner's
   interactive top-or-bottom pick (a player choice, `continuations.py`) after the referent's move; size with
   `parser_probe.py blocked 'top or bottom of (?:their|its owner.s) library'`.
-- **PAR-162 · "Put target card from your graveyard on top of your library."** 27 SOLO (31 total, PV 636): Golgari Thug,
-  Haunted Crossroads, Aphetto Vulture, Dead Reckoning, …; also two of Aberrant Mind Sorcerer's dice rows. Check the
-  existing graveyard-target kinds and library-placement primitives first.
+- **PAR-165 · "Activate only during your turn, before attackers are declared."** 26 SOLO (PV 638), e.g. Hua Tuo, Honored
+  Physician — an activation-timing restriction; check the existing "activate only during your turn" / "only as a sorcery"
+  markers in `game/costs.py` before adding a new one.
 - **PAR-164 · Small verified residue batch (next-turn duration close-out).** One sub-bullet per shape, each sized with
   `parser_probe.py blocked`:
   - trigger head "whenever ~ deals / is dealt N or more damage" (5 SOLO, PV 637: Deus of Calamity, Dragonborn Champion,
     Innocent Bystander, Pain Magnification, Spinneret and Spiderling) — a damage-amount threshold filter on the damage
     trigger.
+  - reflexive head "you may exile it. When you do, `<effect>`" (3 SOLO by `blocked 'you may exile (?:it|that card|~)\. when you do'`,
+    PV 638; Flitting Guerrilla, Paramecia Coloniex, …; their library-top halves are already modeled).
 - **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
   RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
   Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal
