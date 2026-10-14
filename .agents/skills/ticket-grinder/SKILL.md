@@ -26,5 +26,4 @@ model and effort unless the user requests otherwise. Invoke with `$ticket-grinde
 
 Commit and push only when authorized by the user for this run, per CLAUDE.md.
 A request to implement tickets alone does not grant that authorization. Without
-it, finish and verify the first eligible ticket, report the reviewable result,
-and stop before committing or pushing. Respect sandbox and approval requirements.
+it, finish and verify the first eligible ticket, report the reviewable result. Respect sandbox and approval requirements.
