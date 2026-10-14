@@ -324,6 +324,19 @@ _ROLL_DICE_MODIFIER_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 705.3 / 706 "ignore one": Krark's Thumb ("flip 2 coins and ignore 1"),
+#: Krark's Other Thumb ("roll 2 of those dice and ignore 1 of those results")
+#: and Ichor Elixir (planar dice plus 1, ignore 1) — `_ignore_one_replacement`
+#: (`ignore_one`, ``kind`` coin / die / planar).
+_IGNORE_ONE_RE = re.compile(
+    r"if you would (?:"
+    r"(?P<coin>flip a coin), instead flip 2 coins"
+    r"|(?P<die>roll a die), instead roll 2 of those dice"
+    r"|(?P<planar>roll 1 or more planar dice), instead roll that many planar dice plus 1"
+    r") and ignore 1(?: of those results)?",
+    re.IGNORECASE,
+)
+
 #: RULE 701.69a + Wolverine, Fierce Fighter: "If damage would be dealt to ~,
 #: instead that damage is dealt, but all other damage already dealt to
 #: (it|him|her|them) is healed." A replacement that leaves the damage
@@ -643,6 +656,11 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _HEAL_OTHERS_ON_DAMAGE_RE.fullmatch(text):
         return [EffectSpec("heal_others_on_damage", {})]
+
+    m = _IGNORE_ONE_RE.fullmatch(text)
+    if m is not None:
+        kind = "coin" if m.group("coin") else "die" if m.group("die") else "planar"
+        return [EffectSpec("ignore_one", {"kind": kind})]
 
     m = _ROLL_DICE_MODIFIER_RE.fullmatch(text)
     if m is not None:

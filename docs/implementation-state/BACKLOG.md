@@ -112,13 +112,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Diaochan, Artful Beauty, Arena, Magus of the Arena, Cuombajj Witches, Karplusan Minotaur, Evangelize, Preacher, Volcanic
   Offering, Nova Pentacle, Mausoleum Turnkey, Demonic Hordes (opponent picks a land), Death or Glory (pile split, may be
   separate). Touches `TargetSpec`, announcement, bots and the target UI.
-- **MEC-117 · "Ignore one" flip and roll replacements (RULE 705.3 / 706.x).** "If you would flip a coin, instead flip two
-  and ignore one" (Krark's Thumb, Pokey) and the die counterpart (Krark's Other Thumb, Ichor Elixir): a replacement
-  on `RulesEngine.coin_flip`/`roll_die` where the player chooses which result to ignore (an interactive choice), and
-  only the kept result counts for "if you win the flip" / "the result". 3 cached cards SOLO-blocked on "ignore one".
-
-
-
+- **MEC-117 · "Ignore one" flip and roll replacements (RULE 705.3 / 706.x).** Open: the player's interactive
+  choice of which flip/roll result to ignore (residue in `workingOn.md`).
 
 ## PLR — Player management
 

@@ -699,6 +699,50 @@ def _roll_dice_modifier_replacement(params: dict[str, Any]) -> ReplacementEffect
     return effect
 
 
+def _ignore_one_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """RULE 705.3 / 706 "ignore one": Krark's Thumb ("If you would flip a
+    coin, instead flip two coins and ignore one of them."), Krark's Other
+    Thumb (the die counterpart) and Ichor Elixir (planar dice plus one,
+    ignore one). ``params["kind"]`` picks the pre-event: ``coin`` rewrites
+    `FLIP_COIN`'s ``flips``, ``die`` bumps `ROLL_DICE`'s
+    ``ignore_one_doublings``, ``planar`` raises `PLANAR_DIE_ROLL`'s ``dice``.
+
+    Per the Krark's Thumb ruling each Thumb replaces *every* flip/roll of the
+    event, so two coin Thumbs make four flips (the doubling), while Ichor
+    Elixir is additive ("plus one"). RULE 614.5 (one application per event)
+    is enforced by the replacement loop's identity tracking. Scoped to the
+    flipping/rolling player being this effect's own controller ("if *you*
+    would"). The ignored results never happened, so only the kept result is
+    ever seen by triggers (see `RulesEngine.coin_flip`/`roll_die`).
+    """
+    kind = str(params.get("kind", "coin"))
+    event_type, field = {
+        "coin": (EventType.FLIP_COIN, "flips"),
+        "die": (EventType.ROLL_DICE, "ignore_one_doublings"),
+        "planar": (EventType.PLANAR_DIE_ROLL, "dice"),
+    }[kind]
+    effect = ReplacementEffect(
+        event_type=event_type,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
+        src = effect.source
+        return src is not None and event.get("player_id") == src.controller_id
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        if kind == "coin":
+            return event.copy_with(flips=int(event.get("flips", 1)) * 2)
+        if kind == "die":
+            return event.copy_with(ignore_one_doublings=int(event.get("ignore_one_doublings", 0)) + 1)
+        return event.copy_with(dice=int(event.get("dice", 1)) + 1)
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
 def _heal_others_on_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """RULE 701.69a + Wolverine, Fierce Fighter: "If damage would be dealt
     to ~, instead that damage is dealt, but all other damage already dealt
@@ -1476,6 +1520,7 @@ ReplacementRegistry.register("additional_damage", _additional_damage_replacement
 ReplacementRegistry.register("damage_floor_from_source_power", _damage_floor_from_source_power_replacement)
 ReplacementRegistry.register("double_counters", _double_counters_replacement)
 ReplacementRegistry.register("roll_dice_modifier", _roll_dice_modifier_replacement)
+ReplacementRegistry.register("ignore_one", _ignore_one_replacement)
 ReplacementRegistry.register("heal_others_on_damage", _heal_others_on_damage_replacement)
 ReplacementRegistry.register("gain_life_replacement", _gain_life_replacement)
 ReplacementRegistry.register("die_to_exile", _die_to_exile_replacement)

@@ -42,3 +42,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## MEC-117 · "Ignore one" flip and roll replacements (RULE 705.3 / 706.x)
+
+- **Started / last update:** 2026-10-14 / 2026-10-14 04:30
+- **Goal of this run:** engine replacement + parser rows for Krark's Thumb, Krark's Other Thumb, Ichor Elixir (milestone 1 landed); the interactive keep/ignore pick is still open.
+- **Done (built + tested):** milestone 1 (PARSER_VERSION 646, +3, 0 regressed): `ignore_one` replacement (`effects/replacements.py`, kind coin/die/planar, controller-only), `FLIP_COIN` / `PLANAR_DIE_ROLL` pre-events (`models/game/events.py`), `coin_flip` flips N and fires `COIN_FLIP` once, `roll_die` groups each die into 2^n (`ignore_one_doublings` on `ROLL_DICE`), `roll_planar_die` rolls dice+1; Thumbs stack (two → 4 flips / 4 dice per die), ignored results fire no flip/roll/result triggers; parser `catalogue/replacements._IGNORE_ONE_RE`. Tests: `tests/test_mec117_ignore_one.py` (14); `test_par151_coin_flips` Thumb test flipped to modeled. Default 13070 passed / full-cache 13405 passed.
+- **In progress:** —
+- **Next step:** build the interactive pick (RULE 705.3/706 + the Thumbs' rulings: the player sees all results, then chooses which to ignore). `RulesEngine.coin_flip` / `roll_die` / `roll_planar_die` return plain values mid-resolution, so this needs a pause/resume path: check how other mid-resolution choices resume (`continuations.open_choice`/`resolve_choice`, the PAR-147 "roll two dice and choose one" path, `_resume_library_position`) and whether flip/roll callers can be continuation-driven; keep the current automatic pick as the bot default.
+- **Decisions:** milestone shipped with automatic picks: coin keeps a win if any flip won (always the player's best), die keeps the highest of each group (wrong on tables where low is better), planar keeps chaos > planeswalk > blank.
+- **Baselines / artefacts:** PARSER_VERSION 646; coverage 21404/35095.
+- **Known failures:** none. Use `run_tests.py --hard-timeout 5400`.
+- **Residue:** interactive keep/ignore pick (above); "flip three coins and ignore one" variant unclaimed; rerolls / "roll again" not modelled.

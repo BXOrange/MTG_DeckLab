@@ -705,6 +705,15 @@ class EventType:
     #: source, not a replaceable pre-event) — the same `LIFE_GAIN`/
     #: `LIFE_GAINED` split every other replaceable keyword action uses.
     ROLL_DICE = "ROLL_DICE"
+    #: RULE 705: a player is *about to* flip a coin — fired by
+    #: `RulesEngine.coin_flip` before any coin is flipped so a Krark's Thumb
+    #: replacement ("flip two coins and ignore one") can raise ``flips``.
+    #: Carries ``player_id``/``controller_id`` (the flipper) and ``flips``.
+    FLIP_COIN = "FLIP_COIN"
+    #: RULE 901.6: a player is about to roll the planar die — Ichor Elixir's
+    #: "roll that many planar dice plus one and ignore one" raises ``dice``.
+    #: Carries ``player_id``/``controller_id`` and ``dice``.
+    PLANAR_DIE_ROLL = "PLANAR_DIE_ROLL"
     #: RULE 706: a player has rolled one or more dice — fired once per roll
     #: instruction by `RulesEngine.roll_die` after the results are settled
     #: (RULE 706.3b: the whole instruction, its modifiers and its results

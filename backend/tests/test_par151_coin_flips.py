@@ -291,10 +291,10 @@ def test_goblin_traprunner_flips_three_coins_and_makes_a_goblin_per_win(script_f
     assert len(_on_battlefield(eng, "Goblin", "p1")) == tokens
 
 
-def test_krarks_thumb_replacement_stays_unmodeled():
+def test_krarks_thumb_replacement_is_modeled():  # MEC-117 (was unmodeled)
     thumb = _card("Krark's Thumb", "Legendary Artifact",
                   "If you would flip a coin, instead flip two coins and ignore one.")
-    assert not parse_oracle(thumb).modeled
+    assert parse_oracle(thumb).modeled
 
 
 _FIRECAT = _creature_card(

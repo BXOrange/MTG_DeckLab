@@ -3991,9 +3991,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      `scan_cost_text` fully represents it; a choice or "for each" cost (Bloodthorn Flail, Gavel of the Righteous, Hand of Vecna) is
 #      unclaimed (also when a "<label> \u2014 " prefix precedes it, Dark Knight's Greatsword); the gate marks any card whose equip/fortify/reconfigure
 #      keyword carries no cost UNMODELED, and `_keyword_activated_ability` no longer binds a cost-less equip/fortify/reconfigure as {0} (it was a free equip).
+# 646: MEC-117 -- RULE 705.3 / 706 "ignore one" replacements: "If you would flip a coin, instead flip 2 coins and ignore 1." (Krark's
+#      Thumb), "If you would roll a die, instead roll 2 of those dice and ignore 1 of those results." (Krark's Other Thumb) and "If
+#      you would roll 1 or more planar dice, instead roll that many planar dice plus 1 and ignore 1." (Ichor Elixir) now lower to the
+#      `ignore_one` replacement (`replacements._IGNORE_ONE_RE`; engine: `FLIP_COIN`/`ROLL_DICE`/`PLANAR_DIE_ROLL` pre-events).
 #: RULE 702.6/702.67/702.151: the attach keywords whose printed cost must be captured for the ability to bind.
 _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
-PARSER_VERSION = "645"
+PARSER_VERSION = "646"
 
 
 def parser_source_hash() -> str:

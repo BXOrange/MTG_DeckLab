@@ -2587,6 +2587,12 @@ class MiscSystemsMixin:
             # two phenomena, but nothing stops a hand-built one.
             return self.planeswalk(player, _depth=_depth + 1)
         return arriving
+    #: Sanity ceiling on stacked "roll one more planar die" replacements.
+    _MAX_PLANAR_DICE = 16
+    #: Which face a planar-die roller keeps when a replacement lets them
+    #: ignore one (a bot-style default, not a rule).
+    _PLANAR_FACE_PREFERENCE = ("chaos", "planeswalk")
+
     def roll_planar_die(self, player: Player) -> str:
         """Roll the planar die (RULE 901.6) and apply its face.
 
@@ -2598,7 +2604,20 @@ class MiscSystemsMixin:
         that rolls the die for free — can use it directly. Every roll fires
         `PLANAR_DIE_ROLLED`, which is what the next roll's {X} counts (RULE 901.6b).
         """
-        face = self.random_choice(list(variants.PLANAR_DIE_FACES))
+        dice = 1
+        replaced = self.apply_replacements(GameEvent(
+            EventType.PLANAR_DIE_ROLL, player_id=player.id, controller_id=player.id, dice=dice,
+        ))
+        if replaced is not None:
+            dice = max(1, min(int(replaced.get("dice", dice)), self._MAX_PLANAR_DICE))
+        # Ichor Elixir: "roll that many planar dice plus one and ignore one" —
+        # the ignored faces never happened (RULE 706.6-style), only one counts.
+        # Documented simplification: the roller's pick is not interactive; the
+        # kept face is the first by `_PLANAR_FACE_PREFERENCE` (chaos, then
+        # planeswalk, then blank).
+        rolled = [self.random_choice(list(variants.PLANAR_DIE_FACES)) for _ in range(dice)]
+        face = min(rolled, key=lambda f: self._PLANAR_FACE_PREFERENCE.index(f)
+                   if f in self._PLANAR_FACE_PREFERENCE else len(self._PLANAR_FACE_PREFERENCE))
         self.state.fire_event(GameEvent(EventType.PLANAR_DIE_ROLLED, player_id=player.id, face=face))
         if face == "chaos":
             self.trigger_chaos(player)

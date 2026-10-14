@@ -305,16 +305,41 @@ class ManaCountersMixin:
         if not options:
             return None
         return options[self.random_int(len(options))]
+    #: RULE 705 sanity ceiling on how many physical coins one flip instruction
+    #: may stack up to (each "ignore one" replacement doubles it); not a rule —
+    #: it only keeps a hostile pile of replacements from wedging the loop.
+    _MAX_COINS_PER_FLIP = 64
+
     def coin_flip(self, player: Optional[Player] = None) -> bool:
-        """A reproducible coin flip (RULE 705) — ``True`` for "heads"."""
-        won = self.random_int(2) == 0
+        """A reproducible coin flip (RULE 705) — ``True`` for "heads" (a win).
+
+        Fires the pre-flip `EventType.FLIP_COIN` (replaceable) first: a Krark's
+        Thumb replacement ("flip two coins and ignore one", RULE 705.3) raises
+        ``flips``. Per the Krark's Thumb ruling each such replacement replaces
+        *every* flip of the event, so two Thumbs turn one flip into four. Only
+        one result counts (the rest are ignored and "never happened", so only
+        the kept result fires `COIN_FLIP`). **Documented simplification**: the
+        flipper's choice of which result to keep is not interactive —
+        `coin_flip` returns a plain bool mid-resolution and cannot pause — the
+        engine keeps a win whenever one was flipped, the choice every cached
+        card rewards.
+        """
         if player is None:
             player = self.state.player_by_id(
                 self.context.acting_player_id or self.context.resolving_controller_id
                 or self.state.active_player.id,
             )
+        flips = 1
+        replaced = self.apply_replacements(GameEvent(
+            EventType.FLIP_COIN, player_id=player.id, controller_id=player.id, flips=flips,
+        ))
+        if replaced is not None:
+            flips = max(1, min(int(replaced.get("flips", flips)), self._MAX_COINS_PER_FLIP))
+        results = [self.random_int(2) == 0 for _ in range(flips)]
+        won = any(results)  # RULE 705.3: the kept result — a win when there is one
         self.state.fire_event(GameEvent(EventType.COIN_FLIP, player_id=player.id, won=won))
         return won
+
     #: RULE 706.1a: a die must have at least two equally-likely faces; the
     #: upper bound is a sanity ceiling on a hostile/garbled ``sides`` (no
     #: printed die is bigger than a d20, `roll_die`'s own default), well
@@ -370,6 +395,7 @@ class ManaCountersMixin:
         count = max(1, min(int(count), self._MAX_DICE_COUNT))
         ignore_lowest = max(0, int(ignore_lowest))
         ignore_highest = max(0, int(ignore_highest))
+        doublings = 0
         pre = GameEvent(
             EventType.ROLL_DICE,
             player_id=player.id,
@@ -378,6 +404,7 @@ class ManaCountersMixin:
             count=count,
             ignore_lowest=ignore_lowest,
             ignore_highest=ignore_highest,
+            ignore_one_doublings=0,
         )
         replaced = self.apply_replacements(pre)
         if replaced is not None:
@@ -385,13 +412,21 @@ class ManaCountersMixin:
             count = max(1, min(int(replaced.get("count", count)), self._MAX_DICE_COUNT))
             ignore_lowest = max(0, int(replaced.get("ignore_lowest", ignore_lowest)))
             ignore_highest = max(0, int(replaced.get("ignore_highest", ignore_highest)))
-        natural = [self.random_int(sides) + 1 for _ in range(count)]
+            doublings = max(0, int(replaced.get("ignore_one_doublings", 0)))
+        # RULE 706.3 + Krark's Other Thumb: every die becomes a group of
+        # 2**doublings dice (each Thumb replaces each roll of the event) of
+        # which only one counts. Documented simplification: the roller's pick
+        # is not interactive (`roll_die` returns plain ints mid-resolution), so
+        # the group's highest die is kept.
+        group = min(2 ** doublings, self._MAX_DICE_COUNT)
+        natural = [self.random_int(sides) + 1 for _ in range(count * group)]
+        grouped = [max(natural[i:i + group]) for i in range(0, len(natural), group)]
         # RULE 706.3's "ignore the lowest/highest roll" rider: drop that many
         # of each extreme from the *natural* results, keeping the rest in the
         # order they were rolled (order only matters for a "first result"/
         # "second result" reader, none of which combine with an ignore rider
         # on any real card — but preserving it costs nothing).
-        kept = list(natural)
+        kept = list(grouped)
         for _ in range(min(ignore_lowest, max(0, len(kept) - 1))):
             kept.remove(min(kept))
         for _ in range(min(ignore_highest, max(0, len(kept) - 1))):
