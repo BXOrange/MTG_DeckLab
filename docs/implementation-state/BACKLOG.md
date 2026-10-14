@@ -168,8 +168,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
-
-- **BUG-2 · "target player draws N cards and loses N life" in a reflexive / exploit trigger.** The subject-less
-  "and loses …" now carries `previous_subject` (direct triggers and spells are right: Vault Plunderer, Bloodgift
-  Demon); check that Unscrupulous Contractor's reflexive trigger and Fell Stinger's exploit trigger make the
-  *targeted* player lose the life, not the controller.
