@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-166`**; next free `MEC`: **`MEC-119`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-166`**; next free `MEC`: **`MEC-120`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -69,12 +69,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
-- **PAR-152 · "Put/return … tapped and attacking" placements.** 16 SOLO cards whose placement clause (`put_onto_battlefield_attacking`,
-  RULE 508.4) lacks its surroundings: a *placed* creature's defender choice (`_offer_attack_defenders`) with a reflexive fight (Hans
-  Eriksson), a borrowed creature returned at the end step (Zara), a conditional keyword grant (Doors of Durin), exile-then-reveal
-  (Fireflux Squad), a delayed return at the next declare-attackers step (Meandering/Meandered Towershell, Noctis, The Neutrinos), a
-  granted trigger on the returned card (Olivia, Thunderkin Awakener), plus Jocasta, Nemesis Phoenix, Paladin Elizabeth Taggerdy, Strefan,
-  Ultra Magnus, The Sprinkler of Stardust, Chorale of the Void, Zareth San.
 - **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
   checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
   step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a
@@ -92,6 +86,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **PAR-159 · Equipped-creature X pump.** "Equipped creature gets +X/+X …" statics and pumps whose X is measured off the board or the equipment; size first (PLAY-ALL).
 
 ## MEC — Game mechanic
+
+- **MEC-119 · Warp casting (RULE 702.185).** Implement alternative Warp costs,
+  the end-step exile and later casting permission; emit `SPELL_CAST.warped` for
+  Void conditions. 38 cached cards have Warp; current keyword recognition
+  supplies no casting behavior.
 
 ## PLR — Player management
 

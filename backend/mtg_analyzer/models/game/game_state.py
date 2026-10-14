@@ -231,7 +231,9 @@ class DelayedTrigger:
         description: str = "",
         min_turn: int = 0,
         condition: Optional[dict[str, Any]] = None,
+        step_player_id: Optional[str] = None,
     ) -> None:
+        self.step_player_id = step_player_id
         self.controller_id = controller_id
         self.step = step
         self.effects = effects
@@ -917,13 +919,13 @@ class GameState:
         #: instance per (granting ability, affected object) so any per-instance
         #: state (e.g. "once per turn") survives across recomputes instead of
         #: being rebuilt from scratch every pass. Keyed by
-        #: ``(id(granting StaticAbility), affected instance_id)``; pruned back
+        #: Trigger keys also include host/grantor zone incarnations (RULE 400.7); pruned back
         #: to only the currently-valid relationships at the end of every
         #: `continuous.recompute` pass, so a grant that stops applying just
         #: stops being cached too — no separate removal code needed. Plain
         #: cache data, not board state, so it deep-copies with everything else
         #: (`clone`) but never needs its own undo handling.
-        self._granted_ability_cache: dict[tuple[int, int], Any] = {}
+        self._granted_ability_cache: dict[tuple[Any, ...], Any] = {}
 
         #: PAR-8's own identity-preservation cache, kept separate from
         #: `_granted_ability_cache` above rather than sharing it: that one's

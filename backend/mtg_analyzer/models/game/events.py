@@ -26,6 +26,8 @@ class EventType:
     STEP_END = "STEP_END"
     TURN_BEGIN = "TURN_BEGIN"
     TURN_END = "TURN_END"
+    # RULE 603.8: internal opportunity to notice a state-trigger condition.
+    STATE_CHECK = "STATE_CHECK"
     UNTAP = "UNTAP"
     #: A permanent transitions untapped → tapped (RULE 701.21b) — fired once
     #: per genuine transition (not a no-op re-tap), and *not* for a permanent

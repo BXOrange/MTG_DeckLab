@@ -250,7 +250,16 @@ class TriggerCollectionMixin:
             # '<triggered ability>'" static grant, e.g. Dionus, Elvish
             # Archdruid) sits alongside the object's own intrinsic abilities;
             # both fire through the same check/place pipeline.
-            for ability in obj.triggered_abilities + obj.granted_triggered_abilities:
+            for index, ability in enumerate(obj.triggered_abilities + obj.granted_triggered_abilities):
+                if event.type == EventType.STATE_CHECK:
+                    # RULE 603.8: no repeat until prior firings have left the stack.
+                    key = [obj.instance_id, obj.zone_incarnation, index]
+                    occupied = any(e.get("state_trigger_key") == key for _, e in self.pending_triggers) or any(
+                        (item.trigger_event or {}).get("state_trigger_key") == key for item in self.state.stack
+                    )
+                    if occupied:
+                        continue
+                    event = GameEvent(EventType.STATE_CHECK, state_trigger_key=key)
                 if isinstance(ability, TriggeredAbility) and ability.check_trigger(
                     event, self.context
                 ):

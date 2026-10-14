@@ -2505,6 +2505,8 @@ _PUT_FROM_HAND_RE = _c(
     # phrase is consumed, not re-modeled.
     r"(?P<atk_defender> that (?:player|opponent))?"
     r"(?P<xdef>, where x is the number of attacking creatures you control)?"
+    # PAR-152: "…with mana value X or less …, where X is ~'s power" (Paladin Elizabeth Taggerdy).
+    rf"(?P<xpow>, where x is {re.escape(SELF)}'?s power)?"
     # The Vast Scrier's two trailing sentences: (1) an explicit instruction
     # that the placed creature's own "whenever ~ attacks" triggers fire —
     # unlike ordinary RULE 508.4 entry, this is *not* a no-op; (2) "if you don't put a card … this way,
@@ -2520,6 +2522,12 @@ _PUT_FROM_HAND_RE = _c(
 _PUT_FROM_HAND_MAIN_TYPES: frozenset[str] = frozenset(
     {"creature", "artifact", "enchantment", "land", "planeswalker", "permanent"}
 )
+
+
+def _is_creature_subtype_word(word: str) -> bool:
+    from .subtype_vocabulary import SUBTYPES  # function-scoped: keeps the import cheap at module load
+
+    return word in SUBTYPES and word not in _NONCREATURE_SUBTYPE_WORDS
 
 
 def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -2541,7 +2549,10 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         # as an OR substring match, which is exactly a subtype filter here.
         qualifiers = segments[:-1] + [last[0]]
         colours = [resolve_color_word(w) for w in qualifiers]
-        if all(colours):
+        if last[1] == "creature" and qualifiers in (["artifact"], ["enchantment"], ["land"]):
+            # PAR-152: "an artifact creature card" (Ultra Magnus) is both types, not either-or.
+            criteria = {"all_types": [qualifiers[0], "creature"]}
+        elif all(colours):
             # "blue or red creature card" (Mindwrack Liege) — a colour
             # filter, not a subtype: nothing's type line contains "blue".
             criteria: dict = {"color": colours if len(colours) > 1 else colours[0]}
@@ -2555,6 +2566,9 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             criteria = {"type": qualifiers if len(qualifiers) > 1 else qualifiers[0]}
     elif all(s in _PUT_FROM_HAND_TYPE_WORDS for s in segments):
         criteria = {"type": segments if len(segments) > 1 else segments[0]}
+    elif len(segments) == 1 and len(last) == 1 and _is_creature_subtype_word(last[0]):
+        # PAR-152: "a Vampire card from your hand" (Strefan) — a bare creature subtype.
+        criteria = {"type": last[0]}
     else:
         return None
     filt = (m.groupdict().get("filt") or "").strip()
@@ -2564,9 +2578,12 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         criteria = {**criteria, "max_mana_value": int(m.group("mv"))}
         params_extra = {}
     elif filt == "with mana value x or less":
-        if not m.groupdict().get("xdef"):
+        if m.groupdict().get("xpow"):
+            params_extra = {"max_mana_value_selector": "source_power"}
+        elif m.groupdict().get("xdef"):
+            params_extra = {"max_mana_value_selector": "attacking_creatures_you_control"}
+        else:
             return None  # unresolvable X → fail closed
-        params_extra = {"max_mana_value_selector": "attacking_creatures_you_control"}
     else:
         params_extra = {}
     params: dict = {"criteria": criteria, "count": 1, **params_extra}
@@ -2721,6 +2738,77 @@ def _reveal_top_conditional(m: re.Match[str]) -> list[EffectSpec]:
     ]})]
 
 
+#: PAR-152 (Zareth San): "put this card from your hand onto the battlefield [tapped and attacking]." — the card's own
+#: activated ability from hand (`bind_ability` infers the hand zone from the effect), RULE 508.4 for the combat entry.
+_PUT_SELF_FROM_HAND_RE = _c(
+    r"put (?:this card|~) from your hand onto the battlefield(?P<tapped> tapped)?(?P<atk> and attacking)?"
+)
+
+
+def _put_self_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("atk") and not m.group("tapped"):
+        return None
+    params: dict = {}
+    if m.group("tapped"):
+        params["tapped"] = True
+    if m.group("atk"):
+        params["attacking"] = True
+    return [EffectSpec("put_self_onto_battlefield_from_hand", params)]
+
+
+#: PAR-152: "look at defending player's hand." (Zara, Renegade Recruiter) — the informational look
+#: (`LookAtHandEffect`), no target: the player the source attacks.
+_LOOK_DEFENDING_HAND_RE = _c(r"look at defending player'?s hand")
+
+#: PAR-152 / RULE 508.4 + 110.2: "you may put a `<type>` card from it onto the battlefield under your control tapped
+#: and attacking that player or a planeswalker they control." — "it" is the hand just looked at (the defending
+#: player's), so this row is only offered right after `_LOOK_DEFENDING_HAND_RE`'s clause.
+_PUT_FROM_DEFENDING_HAND_RE = _c(
+    r"(?:you may )?put an? (?P<type>creature|artifact|enchantment|planeswalker|land|permanent) card from it onto the "
+    r"battlefield under your control tapped and attacking that player or a planeswalker they control"
+)
+
+
+def _put_from_defending_hand(m: re.Match[str]) -> list[EffectSpec]:
+    criteria = {} if m.group("type") == "permanent" else {"type": m.group("type")}
+    return [EffectSpec("put_from_defending_hand", {"criteria": criteria, "tapped": True, "attacking": True})]
+
+
+#: RULE 701.20 + 508.4: "reveal the top card of your library. If it's a `<type>` card, put it onto the battlefield
+#: [tapped [and attacking [defending player or a planeswalker they control]]]. Otherwise, put that card into your
+#: hand. [When you put a `<type>` card onto the battlefield this way, it fights ~.]" (Hans Eriksson; Coiling Oracle's
+#: plain shape). The reveal is `reveal_top`'s referent, the branch an `if_else` on its type, both placements
+#: `put_revealed_card`; the fight is a RULE 603.12 reflexive trigger fired by the placement (`fights_source`).
+_REVEAL_TOP_PUT_OR_HAND_RE = _c(
+    r"reveal the top card of your library\. if it'?s an? (?P<type>land|creature|artifact|enchantment|planeswalker) card, "
+    r"put it onto the battlefield(?P<tapped> tapped)?(?P<atk> and attacking(?: defending player or a planeswalker they control)?)?\. "
+    r"otherwise, put (?:that card|it) into your hand"
+    rf"(?:\. when you put an? (?P=type) card onto the battlefield this way, it fights {re.escape(SELF)})?"
+)
+
+
+def _reveal_top_put_or_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    groups = m.groupdict()
+    if groups["atk"] and not groups["tapped"]:
+        return None  # "attacking" on its own isn't a printed spelling
+    if not groups["atk"] and "fights" not in m.group(0):
+        return None  # the plain shape (Coiling Oracle) stays with `reveal_top_branch`'s inspect pick (land entry rules)
+    destination = "battlefield_attacking" if groups["atk"] else (
+        "battlefield_tapped" if groups["tapped"] else "battlefield"
+    )
+    put: dict = {"destination": destination}
+    if "fights" in m.group(0):
+        put["fights_source"] = True
+    return [EffectSpec("seq", {"effects": [
+        {"type": "reveal_top", "params": {"whose": "you"}},
+        {"type": "if_else", "params": {
+            "condition": {"kind": "is_card_type", "of": "revealed", "card_type": groups["type"]},
+            "then": [{"type": "put_revealed_card", "params": put}],
+            "else": [{"type": "put_revealed_card", "params": {"destination": "hand"}}],
+        }},
+    ]})]
+
+
 def _split_token_mid_words(mid: str) -> tuple[list[str], list[str], bool]:
     """A created token's "<mid>" description words (everything between its
     P/T and "creature token") → ``(colors, subtypes, is_artifact)``.
@@ -2862,9 +2950,12 @@ _BLINK_PLAIN_RE = _c(
     # end-step blink) — a state filter on the target, `BlinkEffect.
     # creature_filter` (the same param `_blink_non_subtype` uses for its
     # subtype exclusion).
-    r"(?P<tapped>tapped )?(?P<kind>nonland permanents?|permanents?|creatures?|lands?) you control, "
-    r"then return (?:that card|it|those cards|them) to the battlefield(?P<enters_tapped> tapped)? "
-    r"under (?P<who>your|its owner'?s|their owners?'?s?) control"
+    r"(?P<tapped>tapped )?(?P<kind>nonland permanents?|permanents?|creatures?|lands?) you (?:control|own), "
+    # PAR-152 (The Neutrinos): "…then return it to the battlefield under your control tapped **and attacking**"
+    # (RULE 508.4). "you own" is read as "you control" (a documented simplification: a creature you own but an
+    # opponent controls is not offered).
+    r"then return (?:that card|it|those cards|them) to the battlefield(?P<enters_tapped> tapped)?(?P<enters_atk> and attacking)? "
+    r"under (?P<who>your|its owner'?s|their owners?'?s?) control(?P<tail_ta> tapped and attacking)?"
 )
 #: How many a plural blink target phrase may name when it says "any number" (the engine's own multi-target cap).
 _BLINK_ANY_NUMBER_CAP = 10
@@ -2885,6 +2976,11 @@ def _blink_plain(m: re.Match[str]) -> list[EffectSpec]:
         params["creature_filter"] = {"tapped": True}
     if m.group("enters_tapped"):
         params["tapped"] = True
+    if m.group("enters_atk") or m.group("tail_ta"):
+        if not (m.group("enters_tapped") or m.group("tail_ta")):
+            return None
+        params["tapped"] = True
+        params["attacking"] = True
     up_to = m.group("up_to")
     if m.group("any_number"):
         params["optional"] = True
@@ -4773,6 +4869,25 @@ def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpe
     })]
 
 
+#: PAR-152 (Olivia, Crimson Bride): "It gains \"when you don't control a legendary Vampire, exile ~.\"" — a permanent
+#: (RULE 611.2c: no duration, rest of the game) quoted-ability grant to the card the previous clause returned.
+_IT_GAINS_QUOTED_ABILITY_RE = _c(r"it gains \"(?P<inner>(?:when|whenever)[^\"]+)\"")
+
+
+def _it_gains_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import _quoted_ability_grant_effects  # local: avoid a module cycle
+
+    grant = _quoted_ability_grant_effects(m.group("inner"))
+    if grant is None:
+        return None
+    return [EffectSpec("grant_until", {
+        "static": {"type": grant.type, "params": grant.params},
+        "duration": "rest_of_game",
+        "previous_subject": True,
+        "target_kind": None,
+    })]
+
+
 def _cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("cant_be_countered", {})]
 
@@ -5622,6 +5737,7 @@ _GRAVEYARD_OTHER = rf"(?:{OTHER_PREFIX})?"
 #: Scope word → `targeting._GRAVEYARD_SCOPE_PREFIXES` key.
 _GRAVEYARD_SCOPE_KIND: dict[str, str] = {
     "your": "graveyard", "a": "any_graveyard", "an opponents": "opponent_graveyard",
+    "defending players": "defending_graveyard", "that players": "that_player_graveyard",
 }
 
 
@@ -5885,7 +6001,11 @@ def _return_from_graveyard_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: activating/casting player regardless of whose graveyard it came from.
 _REANIMATE_UNDER_YOUR_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
-    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under your control"
+    # PAR-152: "…from **defending player's** graveyard" (Chorale of the Void) — the attacked player's, read off the
+    # firing attack event (`defending_graveyard_*` target kinds).
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}|defending player'?s|that player'?s) graveyard onto the battlefield under your control"
+    # PAR-152: "…under your control **tapped and attacking**" (RULE 508.4 — Chorale of the Void).
+    r"(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # PAR-139: "…with a corpse counter on it" (From the Catacombs) — a named enters-with counter.
     # PAR-148: "…with a finality counter on it" (RULE 122.1h; Coalstoke Gearhulk, Grim Reaper's Scythe).
     r"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>corpse|finality) counters? on it)?"
@@ -5897,10 +6017,50 @@ def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]
     if kind is None:
         return None
     params: dict = {"target_kind": kind, "destination": "battlefield", "under_your_control": True}
+    if m.groupdict().get("atk") and not m.groupdict().get("tapped"):
+        return None  # "attacking" on its own isn't a printed spelling
+    if m.groupdict().get("tapped"):
+        params["tapped"] = True
+    if m.groupdict().get("atk"):
+        params["attacking"] = True
     if m.groupdict().get("ewc_kind"):
         params["extra_counters"] = {"kind": m.group("ewc_kind"), "count": count_of(m.group("ewc_n"))}
     if m.groupdict().get("up_to_one"):
         params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
+
+
+#: PAR-152 (Thunderkin Awakener): "choose target `<subtype>` creature card in your graveyard with toughness less than
+#: ~'s toughness. Return that card to the battlefield tapped and attacking." — the "choose" announces the target
+#: (RULE 115), the return acts on it; one `return_from_graveyard` whose target carries the subtype and relative
+#: toughness filter (`combat.matches_object_filter`'s ``toughness_vs_reference`` — the source is the reference).
+_CHOOSE_GRAVEYARD_RETURN_RE = _c(
+    r"choose target (?:(?P<sub>[a-z-]+) )?creature card in your graveyard"
+    rf"(?P<tl> with toughness less than {re.escape(SELF)}'?s toughness)?\. "
+    r"return that card to the battlefield(?P<tapped> tapped)?(?P<atk> and attacking)?"
+)
+
+
+def _choose_graveyard_return(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("atk") and not m.group("tapped"):
+        return None
+    creature_filter: dict = {}
+    if m.group("sub"):
+        from .subtype_vocabulary import SUBTYPES
+
+        sub = m.group("sub").lower()
+        if sub not in SUBTYPES or sub in _NONCREATURE_SUBTYPE_WORDS:
+            return None
+        creature_filter["subtype"] = sub.capitalize()
+    if m.group("tl"):
+        creature_filter["toughness_vs_reference"] = "less"
+    params: dict = {"target_kind": "graveyard_creature", "destination": "battlefield"}
+    if creature_filter:
+        params["creature_filter"] = creature_filter
+    if m.group("tapped"):
+        params["tapped"] = True
+    if m.group("atk"):
+        params["attacking"] = True
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -8337,6 +8497,8 @@ _MAY_COST_THEN_CLAUSE = (
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
     r"|sacrifice an? \w+(?: or (?:an? )?\w+)?"
     r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
+    # PAR-152 (Strefan): "sacrifice two Blood tokens" — `costs.ActivationCost.sacrifice_count`.
+    r"|sacrifice \d+ \w+(?: tokens)?"
     r"|discard (?:your hand|a card|\d+ cards?|[a-z]+ cards?)"
     r"|pay \d+ life"
     # RULE 701.59a — a non-mana graveyard cost sized by total mana value;
@@ -8616,6 +8778,12 @@ _MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
     # keeps its RULE 115 target un-peeled instead of going through `_may_
     # effect_then`'s target-rejecting composition.
     r"|choose to have it deal damage equal to its power to (?:a |up to (?:one|1) )?target [a-z]+"
+    # PAR-152 (Ultra Magnus): "you may put a `<type>` card from your hand onto the battlefield tapped and attacking.
+    # If you do, …" — the pick itself is the "may" (`PutFromHandOntoBattlefieldEffect` is optional), so the
+    # un-peeled `optional` wrapper carries both halves and `_fold_placement_tails` moves the follow-up inside.
+    r"|put an? [a-z ,]+? card from your hand onto the battlefield tapped and attacking"
+    # PAR-152 (Fireflux Squad): `_MAY_EXILE_TARGET_IF_YOU_DO_RE` keeps its target un-peeled like the attach row.
+    r"|exile (?:another |other )?target [a-z ]+? you control"
 )
 
 
@@ -8674,6 +8842,26 @@ def _may_attach_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("optional", {
         "effects": [attach_spec.to_dict()] + [s.to_dict() for s in second],
     })]
+
+
+#: PAR-152 (Fireflux Squad): "you may exile another target attacking creature you control. If you do, `<effect>`." —
+#: the exile keeps its RULE 115 target (announced when the trigger goes on the stack, `OptionalEffect` only decides
+#: at resolution whether it happens, like `_MAY_ATTACH_IF_YOU_DO_RE`); the follow-up runs only if it was exiled.
+_MAY_EXILE_TARGET_IF_YOU_DO_RE = _c(
+    r"you may exile (?P<target>(?:another |other )?target [a-z ]+? you control)\.\s*if you do,\s*(?P<effect2>.+)"
+)
+
+
+def _may_exile_target_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    first = parse_effect_body(f"exile {m.group('target')}")
+    second = parse_effect_body(m.group("effect2").strip())
+    if not first or len(first) != 1 or first[0].type != "exile" or not second:
+        return None
+    if any(s.params.get("target_kind") for s in second):
+        return None  # a second RULE 115 target has nowhere to be announced from
+    return [EffectSpec("optional", {"effects": [first[0].to_dict()] + [s.to_dict() for s in second]})]
 
 
 #: MEC-99: "you may choose to have it deal damage equal to its power to
@@ -12193,6 +12381,63 @@ def _grant_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_until", params)]
 
 
+#: PAR-152 (Meandering Towershell, Noctis, Heir Apparent): "Exile `<it>`. Return it to the battlefield under
+#: `<your|its owner's>` control tapped and attacking at the beginning of the declare attackers step on your next turn /
+#: of that player's next declare attackers step. [It can't be blocked that combat.]" — an exile now plus a RULE 603.7
+#: delayed return (`return_specific_to_battlefield`, which puts the exiled card into the combat that is starting,
+#: RULE 508.4) armed on the source itself.
+_EXILE_RETURN_AT_DECLARE_ATTACKERS_RE = _c(
+    rf"exile (?:{re.escape(SELF)}|it)\. return (?:{re.escape(SELF)}|it) to the battlefield under "
+    r"(?P<who>your|its owner'?s) control tapped and attacking at the beginning of "
+    r"(?:the declare attackers step on your next turn|that player'?s next declare attackers step)"
+    r"(?P<unblockable>\. it can'?t be blocked that combat)?"
+)
+
+
+def _exile_return_at_declare_attackers(m: re.Match[str]) -> list[EffectSpec]:
+    inner: list[dict] = [{"type": "return_specific_to_battlefield", "params": {
+        "tapped": True, "attacking": True, "under_your_control": m.group("who") == "your",
+    }}]
+    if m.group("unblockable"):
+        inner.append({"type": "grant_until", "params": {
+            "target_kind": None, "self_subject": True, "duration": "end_of_combat",
+            "static": {"type": "grant_keyword", "params": {"keywords": ["cant_be_blocked"]}},
+        }})
+    return [
+        EffectSpec("exile", {"target_kind": None}),
+        EffectSpec("create_delayed_trigger", {
+            "step": "declare_attackers", "scope": "controller",
+            "min_turn_offset": 1 if m.group("who") == "your" else 0,
+            "step_player": "owner" if m.group("who") != "your" else None, "capture": "self",
+            "effects": inner,
+        }),
+    ]
+
+
+#: PAR-152 (Doors of Durin): "Until your next turn, it gains trample if you control a Dwarf and hexproof if you
+#: control an Elf." — the duration leads, and each keyword has its own "if you control a `<subtype>`" condition
+#: (RULE 611.2 / 608.2: checked as the instruction resolves). It reads as one gated `grant_until` per keyword, the
+#: shape "it gains `<kw>` until your next turn if `<condition>`" already produces.
+_UNTIL_NEXT_TURN_CONDITIONAL_GAINS_RE = _c(
+    r"until your next turn, it gains (?P<kw1>[a-z ]+?) (?P<c1>if you control an? [a-z]+)"
+    r"(?: and (?P<kw2>[a-z ]+?) (?P<c2>if you control an? [a-z]+))?"
+)
+
+
+def _until_next_turn_conditional_gains(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    specs: list[EffectSpec] = []
+    for kw, cond in ((m.group("kw1"), m.group("c1")), (m.group("kw2"), m.group("c2"))):
+        if kw is None:
+            continue
+        part = parse_effect_body(f"it gains {kw} until your next turn {cond}", previous_subject=True)
+        if not part or len(part) != 1 or part[0].type != "grant_until" or part[0].condition is None:
+            return None
+        specs.extend(part)
+    return specs
+
+
 #: MEC-88's temporary-removal sibling of `_grant_until` — "target creature
 #: loses banding and all "bands with other" abilities until end of turn."
 #: (Tolaria's own body, minus its separate "activate only during any
@@ -15130,6 +15375,8 @@ _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"|(?P<verb_return>return) (?:it|that creature|that token|that permanent) to (?:your|its owner'?s) hand"
     # "It phases out at end of combat" (Teferi's Veil, PAR-123) — the subject leads the verb.
     r"|(?P<phase_subject>it|that creature|that permanent) phases? out"
+    # PAR-152 / RULE 701.28a: "convert ~ at end of combat" (Ultra Magnus) — the source flips its face then.
+    rf"|(?P<verb_turn>transform|convert) (?P<obj_turn>{re.escape(SELF)}|it)"
     r") "
     # "at end of combat" (Kari Zev, Calamity, every "tapped and attacking"
     # token) fires at the `end_combat` step, "the/your next end step" at the
@@ -15193,6 +15440,13 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
         return [EffectSpec("create_delayed_trigger", {
             "step": step, "scope": "any", "capture": "previous_or_self",
             "effects": [{"type": "phase_out", "params": {}}],
+        })]
+    if m.groupdict().get("verb_turn"):
+        step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
+        return [EffectSpec("create_delayed_trigger", {
+            "step": step, "scope": "any",
+            "capture": "self" if m.group("obj_turn") == SELF else "previous_or_self",
+            "effects": [{"type": "transform", "params": {}}],
         })]
     verb_ctrl = m.groupdict().get("verb_ctrl")
     verb = (
@@ -17740,6 +17994,13 @@ HANDLERS: list[EffectHandler] = [
         _REVEAL_TOP_CONDITIONAL_RE,
         _reveal_top_conditional,
     ),
+    EffectHandler("reveal_top_put_or_hand", _REVEAL_TOP_PUT_OR_HAND_RE, _reveal_top_put_or_hand),
+    EffectHandler("put_self_from_hand", _PUT_SELF_FROM_HAND_RE, _put_self_from_hand),
+    EffectHandler(
+        "look_defending_hand", _LOOK_DEFENDING_HAND_RE,
+        lambda m: [EffectSpec("look_at_hand", {"defending_player": True})],
+    ),
+    EffectHandler("put_from_defending_hand", _PUT_FROM_DEFENDING_HAND_RE, _put_from_defending_hand),
     # "create an X/X blue Shark creature token with flying, where X is that
     # spell's mana value." (Shark Typhoon-shaped spell-cast payoff). Note
     # `_cycling_xx_token`/`_CYCLING_XX_TOKEN_RE` (this row's sibling for
@@ -18753,6 +19014,18 @@ HANDLERS: list[EffectHandler] = [
         _REANIMATE_UNDER_YOUR_CONTROL_RE,
         _reanimate_under_your_control,
     ),
+    EffectHandler("choose_graveyard_return", _CHOOSE_GRAVEYARD_RETURN_RE, _choose_graveyard_return),
+    EffectHandler(
+        "exile_return_at_declare_attackers", _EXILE_RETURN_AT_DECLARE_ATTACKERS_RE,
+        _exile_return_at_declare_attackers,
+    ),
+    EffectHandler(
+        "it_gains_quoted_ability", _IT_GAINS_QUOTED_ABILITY_RE, _it_gains_quoted_ability, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "until_next_turn_conditional_gains", _UNTIL_NEXT_TURN_CONDITIONAL_GAINS_RE,
+        _until_next_turn_conditional_gains,
+    ),
     # "put 1, 2, or 3 target creature cards from graveyards onto the
     # battlefield under your control. each of them enters with an
     # additional -1/-1 counter on it." (Aberrant Return) — enumerated
@@ -19226,6 +19499,7 @@ HANDLERS: list[EffectHandler] = [
         _MAY_ATTACH_IF_YOU_DO_RE,
         _may_attach_if_you_do,
     ),
+    EffectHandler("may_exile_target_if_you_do", _MAY_EXILE_TARGET_IF_YOU_DO_RE, _may_exile_target_if_you_do),
     # MEC-99: "you may choose to have it deal damage equal to its power to
     # <target>. if you do, it assigns no combat damage this turn." (Gaze of
     # Pain) — tried before the generic `may_effect_then` row below for the
@@ -19315,7 +19589,8 @@ HANDLERS: list[EffectHandler] = [
     # or a "whenever ~ attacks, transform it" trigger uses.
     EffectHandler(
         "transform",
-        _c(rf"transform (?:{re.escape(SELF)}|it|this permanent|this creature)"),
+        # RULE 701.28a: to convert a permanent is to turn it over exactly as transforming does ("convert ~", Ultra Magnus).
+        _c(rf"(?:transform|convert) (?:{re.escape(SELF)}|it|this permanent|this creature)"),
         _transform,
     ),
     # "exile ~/this saga, then return it/him/her to the battlefield
@@ -21371,6 +21646,16 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "create X Treasure tokens" — X the announced {X}, or a ``bind``-measured one ("…a number of Treasure tokens
     # equal to the result", PAR-147).
+    # PAR-152 (Strefan): "create a Blood token for each player who lost life this turn." — RULE 119.3, the
+    # event-derived `players_who_lost_life_this_turn` count (Reaper's Scythe's selector).
+    EffectHandler(
+        "create_named_token_per_player_who_lost_life",
+        _c(rf"create an? (?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) token for each player who lost life this turn"),
+        lambda m: [EffectSpec("create_token", {
+            "count": 1, "token_name": _NAMED_TOKEN_WORDS[m.group("name")],
+            "count_selector": "players_who_lost_life_this_turn",
+        })],
+    ),
     EffectHandler(
         "create_named_token_x",
         _c(rf"(?:you )?creates? x (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),

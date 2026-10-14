@@ -650,7 +650,9 @@ class ActivationMixin:
         if cost.return_to_hand == RETURN_SELF_TO_HAND:
             if source not in self.state.battlefield:
                 return False
-        elif cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand, return_choices) is None:
+        elif cost.return_to_hand and self._return_to_hand_candidate(
+            player, cost.return_to_hand, return_choices, cost.return_to_hand_state,
+        ) is None:
             return False
         if cost.unattach_self and source.attached_to is None:
             return False
@@ -1312,19 +1314,21 @@ class ActivationMixin:
         is ever a hand card) and `_resolve_pool_cost`'s "chosen_ids, or
         auto-pick" resolution."""
         return self._resolve_pool_cost(list(player.hand), 1, chosen_ids)
-    def _return_to_hand_pool(self, player: Player, subtype: str) -> list[GameObject]:
-        """Controlled permanents eligible for a singular return cost."""
+    def _return_to_hand_pool(self, player: Player, subtype: str, state: Optional[str] = None) -> list[GameObject]:
+        """Controlled permanents eligible for a singular return cost (``state``: "attacking"/"unblocked_attacking")."""
         return [obj for obj in self.state.permanents_controlled_by(player.id)
-                if continuous.has_subtype(obj, subtype)]
+                if continuous.has_subtype(obj, subtype)
+                and (state is None or obj.attacking)
+                and (state != "unblocked_attacking" or not obj.blocked_by)]
 
     def _return_to_hand_candidate(
-        self, player: Player, subtype: str, chosen_ids: Optional[list[int]] = None,
+        self, player: Player, subtype: str, chosen_ids: Optional[list[int]] = None, state: Optional[str] = None,
     ) -> Optional[GameObject]:
         """RULE 602.2b/601.2h: honor the chosen return-cost permanent.
 
         Non-interactive callers may omit the choice for a first-match fallback.
         """
-        chosen = self._resolve_pool_cost(self._return_to_hand_pool(player, subtype), 1, chosen_ids)
+        chosen = self._resolve_pool_cost(self._return_to_hand_pool(player, subtype, state), 1, chosen_ids)
         return chosen[0] if chosen else None
 
     def _pay_activation_cost(
@@ -1524,7 +1528,9 @@ class ActivationMixin:
             # as the cost; the ability still resolves (RULE 602.2b).
             self.rules.return_to_hand(source)
         elif cost.return_to_hand:
-            bounced = self._return_to_hand_candidate(player, cost.return_to_hand, return_choices)
+            bounced = self._return_to_hand_candidate(
+                player, cost.return_to_hand, return_choices, cost.return_to_hand_state,
+            )
             if bounced is not None:
                 self.rules.return_to_hand(bounced)
         if cost.unattach_self:

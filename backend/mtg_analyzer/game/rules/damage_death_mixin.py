@@ -146,7 +146,9 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # payer's own choice of *type*, not "any permanent" (which would
         # wrongly also license sacrificing an enchantment/planeswalker).
         return obj.is_creature or obj.card.is_artifact or obj.is_land
-    return True  # unknown type word → any permanent, so the cost is payable
+    # PAR-152: a word none of the above names is a subtype/state/colour/token word ("sacrifice two Blood tokens",
+    # Strefan; "sacrifice a Treasure") — the shared cost matcher reads it, never "any permanent".
+    return continuous.matches_permanent_word(obj, what)
 
 
 #: PAR-78: a damage-prevention shield's own source qualifier — "Prevent all
@@ -952,7 +954,9 @@ class DamageDeathMixin:
         owner.add_to_zone(obj, Zone.LIBRARY)
         self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         self.shuffle_library(owner)
-    def blink(self, obj: GameObject, controller: Optional[Player] = None, tapped: bool = False) -> None:
+    def blink(
+        self, obj: GameObject, controller: Optional[Player] = None, tapped: bool = False, attacking: bool = False,
+    ) -> None:
         """Exile ``obj``, then immediately return it to the battlefield under
         its owner's control (RULE 400.7's "leaves and re-enters" — Ephemerate/
         Momentary Blink-shaped "exile target permanent, then return it").
@@ -996,7 +1000,11 @@ class DamageDeathMixin:
         obj.reset_as_new_object()
         obj.controller_id = new_controller.id
         # "…then return them to the battlefield **tapped** under their owner's control" (Gandalf, Shadow's Foe).
-        self._put_searched_card(new_controller, obj, "battlefield_tapped" if tapped else "battlefield")
+        # RULE 508.4: "…tapped and attacking" puts it into the source's combat (never declared).
+        self._put_searched_card(
+            new_controller, obj,
+            "battlefield_attacking" if attacking else "battlefield_tapped" if tapped else "battlefield",
+        )
     @staticmethod
     def _last_known_mana_value(obj: GameObject) -> int:
         from .misc_mixin import _that_many_value

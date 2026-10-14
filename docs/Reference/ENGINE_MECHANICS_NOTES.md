@@ -21,6 +21,21 @@ the card's implementation and tests; shipped narrative in
 
 ## Resolution
 
+- Placement riders travel in `placed_effects` and run only after a successful
+  choice, with the placed object as their referent. Unrestricted attacking
+  placement offers every legal defender; an explicit defending-player placement
+  restricts the choice to that player and their planeswalkers (RULE 508.4).
+- `DelayedTrigger.step_player_id` can anchor a future step to an owner while
+  retaining the original ability controller. Grants cache both host and grantor
+  zone incarnations, so a returned permanent receives fresh granted effects.
+- RULE 603.8 state triggers use an internal `STATE_CHECK` after the SBA sweep,
+  not a fabricated zone-change event. Collection suppresses another firing
+  while the same source/incarnation/ability has one pending or on the stack.
+  Controller-relative state gates read the current host controller.
+- Void's game-wide condition reads nonland departure snapshots and
+  `SPELL_CAST.warped`. The Warp casting path that emits the latter is tracked
+  separately in MEC-119; ordinary casts never satisfy that branch.
+
 - Continuous characteristics are recomputed between resolving instructions, but
   state-based actions never run inside a resolution (RULE 613/704).
 - Resolution casts (RULE 608.2g/707.12): library, graveyard and exile offers use

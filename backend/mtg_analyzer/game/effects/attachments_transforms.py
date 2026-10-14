@@ -1596,11 +1596,25 @@ class PutSelfOntoBattlefieldFromHandEffect(GameEffect):
     `ReturnSelfFromGraveyardToBattlefieldEffect`.
     """
 
+    def __init__(
+        self, source: Optional["GameObject"] = None, tapped: bool = False, attacking: bool = False,
+    ) -> None:
+        super().__init__(source)
+        #: "…onto the battlefield tapped and attacking" (Zareth San) — RULE 508.4.
+        self.tapped = bool(tapped)
+        self.attacking = bool(attacking)
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or self.source.zone != Zone.HAND:
             return
         player = context.state.player_by_id(self.source.owner_id)
         player.remove_from_zone(self.source, Zone.HAND)
+        if self.attacking:
+            # The shared entry path: counters, the enters event, then into combat (defender choice if ambiguous).
+            context.engine._put_searched_card(player, self.source, "battlefield_attacking")
+            return
+        if self.tapped:
+            self.source.tapped = True
         context.state.add_to_battlefield(self.source)
         context.state.fire_event(
             GameEvent(

@@ -593,7 +593,7 @@ class TurnLoopMixin:
             if (
                 _step_matches(dt.step)
                 and self.state.internal_turn.number >= getattr(dt, "min_turn", 0)
-                and (dt.scope != "controller" or dt.controller_id == active_id)
+                and (dt.scope != "controller" or (getattr(dt, "step_player_id", None) or dt.controller_id) == active_id)
             ):
                 due.append(dt)
             else:

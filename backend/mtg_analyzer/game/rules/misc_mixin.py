@@ -260,7 +260,9 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # encoding — "an artifact or creature", "a nonland permanent" —
         # read by the same matcher the activation cost path uses.
         return continuous.matches_permanent_word(obj, what)
-    return True  # unknown type word → any permanent, so the cost is payable
+    # PAR-152: a word none of the above names is a subtype/state/colour/token word ("sacrifice two Blood tokens",
+    # Strefan; "sacrifice a Treasure") — the shared cost matcher reads it, never "any permanent".
+    return continuous.matches_permanent_word(obj, what)
 
 
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
@@ -2347,6 +2349,7 @@ class MiscSystemsMixin:
         # `GameEngine`, so mirror only the defender *universe* here (not its
         # declaration restrictions): 508.4c says those restrictions do not
         # apply to a creature entering attacking.
+        ask_all_defenders = False
         legal: list[dict[str, Any]] = [
             {"kind": "player", "id": player.id, "label": player.name}
             for player in self.state.living_players()
@@ -2375,6 +2378,11 @@ class MiscSystemsMixin:
             candidate = dict(defender)
             if not any(_same_defender(candidate, legal_defender) for legal_defender in legal):
                 return False
+        elif (source_defender := self._resolving_source_defender(obj, legal, _same_defender)) is not None:
+            # RULE 508.4: the source supplies a convenient default, but an
+            # unrestricted placement must offer every legal defender.
+            candidate = dict(source_defender)
+            ask_all_defenders = len(legal) > 1
         else:
             # RULE 508.4 supplies a choice. The engine has no priority-time
             # chooser for this primitive, so infer it only when the existing
@@ -2397,13 +2405,39 @@ class MiscSystemsMixin:
             ]
             if len(candidates) == 1:
                 candidate = dict(candidates[0])
+                ask_all_defenders = len(legal) > 1
             elif len(legal) == 1:
                 candidate = dict(legal[0])
+            elif legal:
+                # RULE 508.4a: several defenders and nothing to infer from (no source attacking, no other attacker
+                # to join): the creature enters attacking the first and its controller is asked where it goes.
+                candidate = dict(legal[0])
+                ask_all_defenders = True
             else:
                 return False
         obj.attacking = True
         obj.combat_defender = candidate
+        if ask_all_defenders:
+            self._request_reselect_attack(self.state.player_by_id(obj.controller_id), obj, legal)
         return True
+
+    def _resolving_source_defender(
+        self, obj: GameObject, legal: list[dict[str, Any]], same_defender: Any,
+    ) -> Optional[dict[str, Any]]:
+        """The defender of the attacking creature whose triggered/activated ability is resolving now, when
+        ``obj`` (its controller's) is put into combat by it and that defender is still a legal one."""
+        item = getattr(self.context, "resolving_stack_item", None)
+        source = getattr(item, "source", None)
+        if source is None:
+            source = self.state.find_object(getattr(self.context, "choice_source_id", None))
+        if (
+            source is None or source is obj or not getattr(source, "attacking", False)
+            or source.controller_id != obj.controller_id or source.combat_defender is None
+        ):
+            return None
+        defender = source.combat_defender
+        return defender if any(same_defender(defender, d) for d in legal) else None
+
     def advance_sagas(self, player: Player) -> None:
         """Add a lore counter to each Saga ``player`` controls (RULE 714.3c).
 
@@ -3694,6 +3728,9 @@ class MiscSystemsMixin:
             # "{T}: Manifest a card from your hand." (Scroll of Fate) — a hand pick put onto the battlefield face down
             # (RULE 701.40a: manifesting "a card" is not limited to the library's top).
             "manifest_from_hand",
+            # RULE 508.4/110.2: a pick from another player's hand put onto the battlefield under the chooser's control
+            # (Zara, Renegade Recruiter).
+            "put_onto_battlefield", "put_onto_battlefield_tapped", "put_onto_battlefield_attacking",
             # "Exile a face-down permanent you control face up: You may play that card this turn." (Primordial Mist)
             # RULE 702.110a/b: an exploit ability's optional sacrifice — a sacrifice that also fires `EXPLOITS`.
             "exploit",
@@ -3770,6 +3807,7 @@ class MiscSystemsMixin:
             "library_to_battlefield_tapped",
             # PAR-148 (RULE 508.4): "…from among them onto the battlefield tapped and attacking" (Jet, Rebel Leader).
             "library_to_battlefield_attacking",
+            "library_to_battlefield_spell_attacking",
             # PAR-137: "exile the top two cards … choose 1 of them. You may play that card this turn /
             # until the end of your next turn" — the pick (already in exile) alone gets the permission.
             "grant_temp_play_same_turn", "grant_temp_play_next_turn",
@@ -4269,7 +4307,10 @@ class MiscSystemsMixin:
                 picked_card_types + [_card_type_words(o)]
             )]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
-            self.state.pending_choice = None
+            # (a choice the pick itself opened — RULE 508.4a's planeswalker offer for a creature just put into
+            # combat — is a newer decision than this one and stays open)
+            if self.state.pending_choice is choice:
+                self.state.pending_choice = None
             self.state.release_batches()
             if choice.get("rest_destination") and choice.get("rest_ids"):
                 if declined and choice.get("decline_leaves_untouched"):
@@ -4591,6 +4632,7 @@ class MiscSystemsMixin:
                 source.exiled_with_ids.append(obj.instance_id)
         elif action in (
             "library_to_battlefield", "library_to_battlefield_tapped", "library_to_battlefield_attacking",
+            "library_to_battlefield_spell_attacking",
             "library_to_battlefield_cheap_bonus",
         ):
             # MEC-41 (Nissa, Steward of Elements' 0 ability): the object is
@@ -4604,10 +4646,27 @@ class MiscSystemsMixin:
                 int(obj.mana_value or 0) <= CHEAP_CREATURE_MAX_MANA_VALUE
             ):
                 obj.entry_bonus_counters["+1/+1"] = CHEAP_CREATURE_BONUS_COUNTERS  # "enters with" — see `_apply_entry_counters`
+            entry_specs = None
+            if action == "library_to_battlefield_spell_attacking":
+                # The Sprinkler of Stardust explicitly makes spell cards into permanents;
+                # RULE 613.4b/613.4f gives it 2/2 and its combat-damage ability.
+                entry_specs = [{"type": "grant_until", "params": {
+                    "duration": "rest_of_game", "self_subject": True, "target_kind": None,
+                    "static": {"type": "type_change", "params": {
+                        "add_types": ["creature"], "remove_types": ["instant", "sorcery"],
+                        "power": 2, "toughness": 2,
+                    }},
+                    "extra_statics": [{"type": "grant_triggered_ability", "params": {
+                        "trigger_event": "DAMAGE", "filter": {"combat": True, "is_player": True},
+                        "recipient_relation": "opponent",
+                        "grant_effects": [{"type": "copy_imprinted_card", "params": {"from_self": True}}],
+                    }}],
+                }}]
             self._put_searched_card(
                 player, obj,
                 "battlefield_attacking" if action.endswith("_attacking")
                 else "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
+                entry_specs=entry_specs,
             )
         elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn"):
             self._grant_temp_play_permission(
@@ -4694,6 +4753,20 @@ class MiscSystemsMixin:
             )
         elif action == "turn_face_up":
             self.turn_face_up(obj)
+        elif action in ("put_onto_battlefield", "put_onto_battlefield_tapped", "put_onto_battlefield_attacking"):
+            # "Put a creature card from [defending player's] hand onto the battlefield under your control [tapped
+            # and attacking]" (Zara): the chooser controls it as it enters (RULE 110.2); RULE 508.4 puts it into combat.
+            owner = self.state.player_by_id(obj.owner_id)
+            if owner is not None and obj in owner.hand:
+                owner.remove_from_zone(obj, Zone.HAND)
+                obj.controller_id = player.id
+                destination = "battlefield_attacking" if action.endswith("attacking") else (
+                    "battlefield_tapped" if action.endswith("tapped") else "battlefield"
+                )
+                self._put_searched_card(
+                    player, obj, destination,
+                    attacking_player_id=owner.id if destination == "battlefield_attacking" else None,
+                )
         elif action == "manifest_from_hand":
             if obj in player.hand:
                 player.remove_from_zone(obj, Zone.HAND)
@@ -5731,6 +5804,14 @@ class MiscSystemsMixin:
             for obj in self.state.permanents_controlled_by(player.id)
         ):
             return False
+        if cost.sacrifice_count and isinstance(cost.sacrifice_count[0], int):
+            # "sacrifice two Blood tokens" (Strefan) — enough matching, sacrificable permanents to pay it all.
+            needed, word = cost.sacrifice_count
+            if sum(
+                1 for obj in self.state.permanents_controlled_by(player.id)
+                if _matches_permanent_type(obj, word) and not obj.cant_be_sacrificed_this_turn
+            ) < needed:
+                return False
         # RULE 122 energy: "unless you pay an amount of {E} equal to its
         # mana value." (Volatile Stormdrake, MEC-43) — the same
         # affordability check `GameEngine._can_pay_activation_cost` already
@@ -5805,6 +5886,8 @@ class MiscSystemsMixin:
         if cost.sacrifice:
             # "another"/"other …": the source is not a legal pick (RULE 109.5).
             self.sacrifice(player, cost.sacrifice, 1, exclude=source if _names_other_word(cost.sacrifice) else None)
+        if cost.sacrifice_count and isinstance(cost.sacrifice_count[0], int):
+            self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0])
         if cost.pay_energy:
             self.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice_or_discard:

@@ -300,4 +300,6 @@ class TestBacklogSizes:
         # card-specific limitation; the copy itself uses Card.as_copy's type mask.
         # Revival Trance's reflexive Espers copy (`copy_exiled_creature_as_artifact`) and Snort's APNAP
         # discard/draw/damage batch (`snort`) are examined one-card specials: 63 -> 65.
-        assert n <= 65, f"one-card specials grew to {n}"
+        # PAR-152: Meandered Towershell captures a creature/Aura exile pair and
+        # returns the Aura attached to that exact creature in a later combat: 65 -> 66.
+        assert n <= 66, f"one-card specials grew to {n}"

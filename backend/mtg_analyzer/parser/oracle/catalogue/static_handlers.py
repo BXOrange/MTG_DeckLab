@@ -98,7 +98,7 @@ from .subgrammars import (
 #: permanent's own controller" way `game/continuous.py`'s
 #: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
-    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "ATTACKS_ALONE", "BLOCKS", "UNTAPPED", "DAMAGE", "BECOMES_TARGET",
+    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "STATE_CHECK", "DIES", "ATTACKS", "ATTACKS_ALONE", "BLOCKS", "UNTAPPED", "DAMAGE", "BECOMES_TARGET",
      "STEP_BEGIN", "LIFE_GAINED", "DRAW", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
 )
 #: PAR-32: trigger-dict gate keys that survive re-granting unchanged — a
@@ -107,7 +107,7 @@ _GRANTABLE_TRIGGER_EVENTS = frozenset(
 #: `effect_binder` predicate that `continuous._apply_layer_6_ability`
 #: composes onto the re-granted trigger's condition.
 _REGRANT_PASSTHROUGH_TRIGGER_KEYS = frozenset(
-    {"attacked_player_has_lowest_life", "spell_from_exile",
+    {"attacked_player_has_lowest_life", "spell_from_exile", "controls_none_matching",
      "spell_shares_creature_type_with_source", "spell_exclude_card_types", "contributors",
      "spell_filter", "spell_cast_from", "recipient_relation", "recipient_filter"}
 )
@@ -2626,6 +2626,8 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             group_condition = dict(condition)
         else:
             return None
+    elif trigger.get("controls_none_matching") and not trigger.get("condition"):
+        pass  # RULE 603.8 state trigger: the gate (re-evaluated against the host) is the whole condition
     elif len(events) == 1 and trigger.get("condition") != {"subject": "self"}:
         cond = trigger.get("condition") or {}
         # PAR-32: a `{"subject": "group"}` condition re-grants fine as long
@@ -3537,6 +3539,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # sibling (Tale of Momo, That's Rough Buddy). Both feed the shared
     # whitelist, so the RULE 603.4 effect gate and any "as long as" static
     # (Aether Revolt) pick them up at once.
+    # Void: one shared condition for the entire game, not controller-scoped.
+    (re.compile(r"a nonland permanent left the battlefield this turn or a spell was warped this turn", re.I),
+     lambda m: {"kind": "void_this_turn"}),
     (re.compile(r"an? permanent left the battlefield under your control this turn", re.I),
      lambda m: {"kind": "permanent_left_battlefield_this_turn", "min": 1}),
     (re.compile(r"an? creature left the battlefield under your control this turn", re.I),
@@ -3592,6 +3597,12 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # attacker; it is deliberately not the source-only Boast condition.
     (re.compile(r"you attacked this turn", re.I),
      lambda m: {"kind": "you_attacked_this_turn"}),
+    # PAR-152 (Nemesis Phoenix): "you're attacking two or more opponents" — normalize has already made the number a digit.
+    (re.compile(r"you(?:'re| are) attacking (?P<n>\d+) or more opponents", re.I),
+     lambda m: {"kind": "attacking_opponents_at_least", "min": int(m.group("n"))}),
+    # "it's the declare attackers step" (a step window, Nemesis Phoenix's activation timing).
+    (re.compile(r"it'?s the (?P<step>declare attackers|beginning of combat|end) step", re.I),
+     lambda m: {"kind": "during_step", "step": m.group("step").lower().replace(" ", "_")}),
     # PAR-64: "~ has indestructible as long as it attacked this turn." uses
     # the object's own declaration flag (Boast's existing engine predicate),
     # not Raid's controller-scoped history.

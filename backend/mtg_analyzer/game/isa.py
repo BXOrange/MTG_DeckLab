@@ -685,6 +685,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "put_commander_into_hand": "move_object",
     "put_equal_or_lesser_mv_from_hand": "move_object",
     "put_from_hand_onto_battlefield": "move_object",
+    "put_from_defending_hand": "move_object",
     "put_hand_cards_on_top": "move_object",
     "put_hand_on_bottom": "move_object",
     "put_self_onto_battlefield_from_hand": "move_object",
@@ -976,6 +977,7 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: ISA. Value names the card (or family) each was written for. This list
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
+    "exile_self_and_grantor_until_attack": "Meandered Towershell's captured creature/Aura pair",
     "exile_opponent_graveyards_copy_creature": "Espers to Magicite",
     "living_death": "Living Death's three simultaneous zone-change batches",
     "copy_exiled_creature_as_artifact": "Espers to Magicite's reflexive exile-batch copy",

@@ -316,6 +316,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "nonland_permanents_entered_this_turn",
         # "…enters during the declare attackers step" (Misleading Signpost) — RULE 500's current step.
         "during_step",  # + ``step``
+        # "…only if you're attacking two or more opponents" (Nemesis Phoenix) — RULE 506.2 + 508.4: the distinct
+        # players the controller's attacking creatures attack (a planeswalker or battle counts as its controller).
+        "attacking_opponents_at_least",  # + ``min``
         # "if that player is you" / "…if you control that creature" — the
         # subject (a player, or a player resolved off a firing event) against
         # the ability's own controller.
@@ -348,6 +351,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # MEC-84 (Revolt / Disappear): "a permanent left the battlefield under
         # your control this turn" — a controller-scoped turn history, ``min``
         # 1 by default. ``creature_…`` is the RULE 700.4-narrowed sibling.
+        "void_this_turn",  # game-wide nonland departure or a warped spell
         "permanent_left_battlefield_this_turn",  # + ``min``/``max``
         "creature_left_battlefield_this_turn",  # + ``min``/``max``
         # "if an opponent lost N or more life this turn" — any one opponent,
@@ -779,6 +783,20 @@ def condition_holds(
         return max(o.power or 0 for o in mine) >= max(o.power or 0 for o in creatures)
     if kind == "during_step":
         return getattr(state, "current_step", "") == str(condition.get("step", ""))
+    if kind == "attacking_opponents_at_least":
+        defended: set[str] = set()
+        for obj in state.battlefield:
+            if obj.controller_id != controller_id or not getattr(obj, "attacking", False):
+                continue
+            target = obj.combat_defender or {}
+            if target.get("kind") == "player":
+                defended.add(target.get("id"))
+            elif target.get("instance_id") is not None:
+                held = state.find_object(target["instance_id"])
+                if held is not None:
+                    defended.add(held.controller_id if not getattr(held, "protector_id", None) else held.protector_id)
+        defended.discard(controller_id)
+        return len(defended) >= int(condition.get("min", 2))
     if kind == "nonland_permanents_entered_this_turn":
         from ..models.game.events import EventType  # function-scoped: models must not import game at load
 
@@ -1296,6 +1314,17 @@ def condition_holds(
         # `RulesEngine._move_to_graveyard`'s own DIES handling.
         died = getattr(state, "creatures_died_this_turn", None) or {}
         return _within(int(died.get(controller_id, 0) or 0), condition)
+    if kind == "void_this_turn":
+        from ..models.game.events import EventType
+
+        # Void is game-wide, including tokens and opponents' permanents.
+        # RULE 603.10: use the departure event's last-known types.
+        return any(
+            (e.type == EventType.LEAVES_BATTLEFIELD and e.get("object_types")
+             and "land" not in e.get("object_types"))
+            or (e.type == EventType.SPELL_CAST and e.get("warped", False))
+            for e in state.events_this_turn()
+        )
     if kind == "permanent_left_battlefield_this_turn":  # MEC-84 — Revolt
         left = getattr(state, "permanents_left_battlefield_this_turn", None) or {}
         return _within(int(left.get(controller_id, 0) or 0), condition, default_min=1)

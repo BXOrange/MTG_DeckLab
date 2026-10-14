@@ -331,6 +331,9 @@ export default [
               ['full', 'Omen-Karten (720) — wie eine Abenteuer-Hälfte gewirkt, nach der Auflösung in die Bibliothek gemischt statt ins Exil'],
               ['full', 'Aufdecken-oder-kontrollieren-Länder („decke eine Drachenkarte auf oder kontrolliere einen Drachen") — wer den Typ kontrolliert, überspringt die Aufdeck-Frage'],
               ['full', 'Behaltenes Mana („du verlierst ungenutztes rotes Mana nicht, wenn Schritte und Phasen enden") und „zahle beliebig viel {R}"-X-Zahlungen'],
+              ['full', 'Getappt und angreifend ins Spiel (508.4) — Angriffsziel wählen, Folgen für die eingesetzte Kreatur und Rückkehr im nächsten Angreiferdeklarationssegment'],
+              ['full', 'Zustandsauslöser (603.8) für fehlende legendäre Kreaturentypen — auch nach Eintritt und Kontrollwechsel, keine Wiederholung solange der Auslöser wartet'],
+              ['partial', 'Warp (702.185) — erkannt; Wirken für Warp-Kosten und spätere Rückkehr aus dem Exil noch offen'],
               ['full', 'Angriffsumlenkung („wähle, welchen Spieler oder Planeswalker eine angreifende Kreatur angreift") und Angriffszwang für Verteidiger'],
               ['full', 'Verliehenes Entfliehen (702.138, Underworld Breach)'],
               ['full', 'Verliehenes Flashback für eine Zielkarte im Friedhof (702.34, Snapcaster Mage)'],
@@ -459,7 +462,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (60,8 % · 21.296 / 35.046, PARSER_VERSION 638)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (61,4 % · 21.501 / 35.046, PARSER_VERSION 653)'],
               ['partial', 'Davon Commander-legal (63,9 % · 20.492 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

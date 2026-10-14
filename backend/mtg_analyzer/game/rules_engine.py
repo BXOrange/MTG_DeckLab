@@ -540,7 +540,14 @@ class RulesEngine(
         if choice.get("battlefield_batch") and not choice.get("entry_effect"):
             from .effects.battlefield_batches import restore_batch_runtime
             restore_batch_runtime(self, choice)
-        handler.func(self, choice, continuations.coerce_answer(handler, answer))
+        # The ability that asked: a card it puts onto the battlefield attacking joins its attack (RULE 508.4a,
+        # `_resolving_source_defender`), though the stack item it came from has long finished resolving.
+        outer_choice_source = getattr(self.context, "choice_source_id", None)
+        self.context.choice_source_id = choice.get("source_id", choice.get("then_source_id"))
+        try:
+            handler.func(self, choice, continuations.coerce_answer(handler, answer))
+        finally:
+            self.context.choice_source_id = outer_choice_source
         if choice.get("entry_effect"):
             if self.state.pending_choice:
                 self.state.pending_choice["entry_effect"] = True

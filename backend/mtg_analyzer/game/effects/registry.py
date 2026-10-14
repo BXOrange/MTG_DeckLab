@@ -7,6 +7,7 @@ from ._runtime import install, register
 install(globals())
 
 EffectRegistry.register("living_death", lambda p: LivingDeathEffect())
+EffectRegistry.register("exile_self_and_grantor_until_attack", lambda p: ExileSelfAndGrantorUntilAttackEffect())
 EffectRegistry.register("play_hideaway_card", lambda p: PlayHideawayCardEffect(p.get("condition")))
 EffectRegistry.register("sacrifice_to_return_targets", lambda p: SacrificeToReturnTargetsEffect())
 EffectRegistry.register("return_remembered_graveyard_cards", lambda p: ReturnRememberedGraveyardCardsEffect(
@@ -297,6 +298,7 @@ EffectRegistry.register(
         criteria=p.get("criteria"),
         else_effects=p.get("else_effects"),
         distinct_card_types=bool(p.get("distinct_card_types", False)),
+        placed_effects=p.get("placed_effects"),
     ),
 )
 EffectRegistry.register(
@@ -345,6 +347,7 @@ EffectRegistry.register(
     "look_at_hand",  # "look at target player's hand" (Clairvoyance) — an informational choice
     lambda p: LookAtHandEffect(
         target_kind=p.get("target_kind", "player"), previous_subject=bool(p.get("previous_subject", False)),
+        defending_player=bool(p.get("defending_player", False)),
     ),
 )
 EffectRegistry.register(
@@ -435,6 +438,7 @@ EffectRegistry.register(
     "put_revealed_card",
     lambda p: PutRevealedCardEffect(
         destination=p.get("destination", "hand"), whose=p.get("whose", "you"),
+        fights_source=bool(p.get("fights_source", False)),
     ),
 )
 EffectRegistry.register(
@@ -1164,7 +1168,7 @@ EffectRegistry.register(
     # without paying its mana cost." (Isochron Scepter) — see
     # `CopyImprintedCardEffect`.
     "copy_imprinted_card",
-    lambda p: CopyImprintedCardEffect(from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost")),
+    lambda p: CopyImprintedCardEffect(from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost"), from_self=bool(p.get("from_self", False))),
 )
 EffectRegistry.register(
     # RULE 601.2b-adjacent "as ~ enters, you may choose a nonland
@@ -1749,6 +1753,7 @@ EffectRegistry.register(
         scope=p.get("scope", "controller"),
         capture=p.get("capture"),
         min_turn_offset=p.get("min_turn_offset", 0),
+        step_player=p.get("step_player"),
         description=p.get("description", ""),
         condition=p.get("condition"),
         related_filter=p.get("related_filter"),
@@ -2107,7 +2112,10 @@ EffectRegistry.register(
     # "Return that card to the battlefield under its owner's control at the beginning of the next
     # end step." (PAR-136, the Flickerwisp/Turn to Mist family) — the battlefield sibling above.
     "return_specific_to_battlefield",
-    lambda p: ReturnSpecificToBattlefieldEffect(objects=[], tapped=bool(p.get("tapped", False))),
+    lambda p: ReturnSpecificToBattlefieldEffect(
+        objects=[], tapped=bool(p.get("tapped", False)), attacking=bool(p.get("attacking", False)),
+        under_your_control=bool(p.get("under_your_control", False)),
+    ),
 )
 EffectRegistry.register(
     # "When this Aura leaves the battlefield, that creature's controller
@@ -2365,6 +2373,16 @@ EffectRegistry.register(
         zones=p.get("zones"),
         max_mana_value_from_trigger=p.get("max_mana_value_from_trigger"),
         then_effects=p.get("then_effects"),
+        placed_effects=p.get("placed_effects"),
+    ),
+)
+EffectRegistry.register(
+    # "…look at defending player's hand. You may put a creature card from it onto the battlefield under your control
+    # tapped and attacking" (Zara, Renegade Recruiter) — RULE 508.4 / 110.2.
+    "put_from_defending_hand",
+    lambda p: PutFromDefendingHandEffect(
+        criteria=p.get("criteria", ""), tapped=bool(p.get("tapped", True)),
+        attacking=bool(p.get("attacking", True)), placed_effects=p.get("placed_effects"),
     ),
 )
 EffectRegistry.register(
@@ -2714,6 +2732,7 @@ EffectRegistry.register(
         count_max=p.get("target_count_max"),
         trigger_event_key=p.get("trigger_event_key"),
         tapped=bool(p.get("tapped", False)),
+        attacking=bool(p.get("attacking", False)),
     ),
 )
 EffectRegistry.register(
@@ -3530,7 +3549,9 @@ EffectRegistry.register(
     # "{N}: Put this card from your hand onto the battlefield." (Talon
     # Gates of Madara-shaped).
     "put_self_onto_battlefield_from_hand",
-    lambda p: PutSelfOntoBattlefieldFromHandEffect(),
+    lambda p: PutSelfOntoBattlefieldFromHandEffect(
+        tapped=bool(p.get("tapped", False)), attacking=bool(p.get("attacking", False)),
+    ),
 )
 EffectRegistry.register(
     # "return it to the battlefield. It's a[n] <type> with '<ability>'. ~
@@ -4130,6 +4151,9 @@ EffectRegistry.register(
             **({"attacked_player_has_lowest_life": True}
                if p.get("attacked_player_has_lowest_life") else {}),
             **({"spell_from_exile": True} if p.get("spell_from_exile") else {}),
+            # PAR-152: RULE 603.8 "when you don't control a legendary Vampire" (Olivia, Crimson Bride).
+            **({"controls_none_matching": dict(p["controls_none_matching"])}
+               if isinstance(p.get("controls_none_matching"), dict) else {}),
             # PAR-131: the composed cast-trigger keys ("Whenever you cast a
             # noncreature spell" — Black Mage's Rod; "… from exile" —
             # Passionate Archaeologist) re-granted verbatim.

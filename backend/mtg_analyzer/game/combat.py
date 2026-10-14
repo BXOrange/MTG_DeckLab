@@ -578,7 +578,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "min_power", "max_power", "min_toughness", "max_toughness",
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
-        "card_type", "without_card_type", "power_vs_reference", "attacking",
+        "card_type", "without_card_type", "power_vs_reference", "toughness_vs_reference", "attacking",
         # "…that's blocking" / "…that's attacking or blocking" (Surge of
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
@@ -996,6 +996,15 @@ def matches_object_filter(
         if relation == "greater" and (obj.power or 0) <= (reference.power or 0):
             return False
         if relation == "less" and (obj.power or 0) >= (reference.power or 0):
+            return False
+    # "…with toughness less than ~'s toughness" (Thunderkin Awakener) — the toughness sibling of the key above.
+    toughness_relation = filt.get("toughness_vs_reference")
+    if toughness_relation is not None:
+        if reference is None:
+            return False
+        if toughness_relation == "greater" and (obj.toughness or 0) <= (reference.toughness or 0):
+            return False
+        if toughness_relation == "less" and (obj.toughness or 0) >= (reference.toughness or 0):
             return False
     instance_id = filt.get("instance_id")
     if instance_id is not None and obj.instance_id != instance_id:

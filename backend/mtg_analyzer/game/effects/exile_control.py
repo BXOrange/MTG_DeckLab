@@ -771,14 +771,30 @@ class CopyImprintedCardEffect(GameEffect):
     copy, which stays real (an offered, not forced, action).
     """
 
-    def __init__(self, from_previous=False, cast_cost=None, source=None):
+    def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None):
         super().__init__(source)
         self.from_previous = from_previous
+        self.from_self = from_self
         self.cast_cost = cast_cost
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
         if source is None:
+            return
+        if self.from_self:
+            # RULE 707.12: copy the card, not its layer-4 creature animation.
+            # No free-cast instruction here: normal mana costs still apply.
+            player = _controller_of(source, context)
+            if player is None:
+                return
+            from ...models.game.game_object import GameObject
+            from ..binding.core import bind_from_catalogue
+
+            copy_obj = GameObject(source.card.as_copy(), owner_id=player.id, zone=Zone.EXILE)
+            copy_obj.is_copy = True
+            bind_from_catalogue(copy_obj)
+            player.add_to_zone(copy_obj, Zone.EXILE)
+            context.engine._request_resolution_play(player, [copy_obj], free=False, only_spells=True, mandatory=True)
             return
         if self.from_previous:
             exiled = next((obj for obj in context.previous_targets if obj is not None and obj.zone == Zone.EXILE), None)

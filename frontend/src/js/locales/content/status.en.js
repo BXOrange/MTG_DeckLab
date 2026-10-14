@@ -331,6 +331,9 @@ export default [
               ['full', 'Omen cards (720) — cast as an Adventure-style half, shuffled into the library on resolution instead of exiled'],
               ['full', 'Reveal-or-control lands ("reveal a Dragon card or control a Dragon") — controlling the type skips the reveal question'],
               ['full', 'Retained mana ("you don\'t lose unspent red mana as steps and phases end") and "pay any amount of {R}" X payments'],
+              ['full', 'Entering tapped and attacking (508.4) — defender choice, riders on the placed creature and return at the next declare-attackers step'],
+              ['full', 'State triggers (603.8) for missing legendary creature types — including entry and control changes, no repeat while the firing is pending'],
+              ['partial', 'Warp (702.185) — recognized; casting for Warp costs and later casting from exile remain open'],
               ['full', 'Attack redirection ("choose which player or planeswalker an attacking creature attacks") and forced-defender attack requirements'],
               ['full', 'Granted Escape (702.138, Underworld Breach)'],
               ['full', 'Granted Flashback for a target card in the graveyard (702.34, Snapcaster Mage)'],
@@ -459,7 +462,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (60.8% · 21,296 / 35,046, PARSER_VERSION 638)'],
+              ['partial', 'Total oracle-parser coverage (61.4% · 21,501 / 35,046, PARSER_VERSION 653)'],
               ['partial', 'Of which Commander-legal (63.9% · 20,492 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

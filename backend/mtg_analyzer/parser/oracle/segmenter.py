@@ -915,6 +915,13 @@ _BASIC_LAND_TYPE_SINGULAR: dict[str, str] = {
     "plains": "plains", "mountains": "mountain", "mountain": "mountain",
     "forests": "forest", "forest": "forest",
 }
+#: PAR-152 (Olivia, Crimson Bride's granted ability): "When you don't control a legendary Vampire, exile ~." — the
+#: state trigger of RULE 603.8 over a legendary/subtype quality, the sibling of the basic-land-type row below.
+_CONTROL_NONE_MATCHING_RE = re.compile(
+    r"^when you don'?t control an? (?P<leg>legendary )?(?P<sub>[a-z]+),\s*"
+    r"(?P<body>(?:sacrifice|exile) (?:~|this \w+))\.?$",
+    re.IGNORECASE | re.S,
+)
 _CONTROL_NONE_SACRIFICE_RE = re.compile(
     r"^when you control no (?P<type>swamps?|islands?|plains|mountains?|forests?),\s*"
     r"(?P<body>sacrifice (?:~|this \w+))\.?$",
@@ -1546,7 +1553,8 @@ _ANY_PLAYER_MAY_ACTIVATE_RE = re.compile(
     r"\s*\bany player may activate this ability(?P<sorcery> but only as a sorcery)?\.?\s*$", re.IGNORECASE
 )
 _ACTIVATE_ONLY_IF_TRAILING_RE = re.compile(
-    r"\.\s*activate (?:this ability )?only if (?P<cond>.+?)(?P<once> and only once)?\.?$",
+    r"\.\s*activate (?:this ability )?only (?:if (?P<cond>.+?)|during the (?P<step>declare attackers) step"
+    r"(?: and only if (?P<cond2>.+?))?)(?P<once> and only once)?\.?$",
     re.IGNORECASE,
 )
 
@@ -3660,7 +3668,7 @@ def _kicked_condition(match: "re.Match[str]") -> dict[str, Any]:
 #: — a two-valued gate would make ``else`` the catch-all for every unmodelled
 #: condition, which is fail-*open*.
 _IF_OTHERWISE_RE = re.compile(
-    r"^if (?P<cond>[^,]{2,80}),\s+(?P<then>.+?)[.]\s+otherwise,?\s+(?P<els>.+)$",
+    r"^if (?P<cond>[^,]{2,160}),\s+(?P<then>.+?)[.]\s+otherwise,?\s+(?P<els>.+)$",
     re.IGNORECASE)
 
 
@@ -4846,15 +4854,15 @@ def _bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list
 #: (`_peel_condition`), which is why these can sit last without over-claiming:
 #: they only ever convert an *already-unclaimed* body into a gated one.
 _GENERIC_IF_PREFIX_RE = re.compile(
-    r"^if (?P<cond>[^,]{2,80}),\s+(?P<rest>.+)$", re.IGNORECASE)
+    r"^if (?P<cond>[^,]{2,160}),\s+(?P<rest>.+)$", re.IGNORECASE)
 _GENERIC_IF_SUFFIX_RE = re.compile(
-    r"^(?P<rest>.+?),?\s+if (?P<cond>[^,]{2,80})$", re.IGNORECASE)
+    r"^(?P<rest>.+?),?\s+if (?P<cond>[^,]{2,160})$", re.IGNORECASE)
 #: "…unless `<x>`" is the same gate negated — ENG-36 added the ``not``
 #: combinator to `static_conditions` for exactly this shape.
 _GENERIC_UNLESS_PREFIX_RE = re.compile(
-    r"^unless (?P<cond>[^,]{2,80}),\s+(?P<rest>.+)$", re.IGNORECASE)
+    r"^unless (?P<cond>[^,]{2,160}),\s+(?P<rest>.+)$", re.IGNORECASE)
 _GENERIC_UNLESS_SUFFIX_RE = re.compile(
-    r"^(?P<rest>.+?),?\s+unless (?P<cond>[^,]{2,80})$", re.IGNORECASE)
+    r"^(?P<rest>.+?),?\s+unless (?P<cond>[^,]{2,160})$", re.IGNORECASE)
 
 
 def _generic_condition(m: "re.Match[str]") -> "Optional[dict[str, Any]]":
@@ -5263,7 +5271,7 @@ def parse_effect_body(
     if as_printed is not None or lifted is None:
         # Resolve-time "of an opponent's choice" wordings ("a nonland card of an opponent's choice", Tasigur) are
         # claimed by their own rows and keep their meaning; only a body nothing else claims is lifted.
-        return as_printed
+        return _fold_placement_tails(as_printed)
     plain, choosers = lifted
     specs = _parse_effect_body_inner(
         plain, self_subject=self_subject, previous_subject=previous_subject, group_subject=group_subject,
@@ -5294,7 +5302,69 @@ def parse_effect_body(
         if controls:
             params["target_chooser_controls"] = True
         stamped[index] = replace(stamped[index], params=params)
-    return stamped
+    return _fold_placement_tails(stamped)
+
+
+#: PAR-152: a placement that waits on its controller's pick ("you may put a creature card from your hand onto the
+#: battlefield tapped and attacking") parks the rest of the body until the pick is answered, so a following
+#: "it"/"that creature" clause would resolve with no referent (and a delayed trigger would capture the source).
+#: These specs about the placed card are carried *inside* the placement instead, as `placed_effects`, run once a
+#: card was placed with that card as their referent. `{type: [params that make the spec a placed-card rider]}`.
+_PLACED_CARD_RIDERS: dict[str, tuple[tuple[str, tuple[object, ...]], ...]] = {
+    "pump": (("previous_subject", (True,)),),
+    "add_counters": (("previous_subject", (True,)),),
+    "grant_until": (("previous_subject", (True,)),),
+    # ``self``: "if you do, convert ~ at end of combat" (Ultra Magnus) only happens when a card was placed.
+    "create_delayed_trigger": (("capture", ("previous_or_self", "self")),),
+}
+_PLACEMENT_WITH_RIDERS: frozenset[str] = frozenset(
+    {"put_from_hand_onto_battlefield", "put_from_defending_hand", "inspect_top_choose"}
+)
+
+
+def _fold_rider_dicts(effects: list[dict]) -> list[dict]:
+    """`_fold_placement_tails` over serialized ``{"type", "params"}`` effects (an ``optional`` wrapper's body)."""
+    folded: list[dict] = []
+    index = 0
+    while index < len(effects):
+        effect = effects[index]
+        riders: list[dict] = []
+        if effect.get("type") in _PLACEMENT_WITH_RIDERS:
+            for later in effects[index + 1:]:
+                needs = _PLACED_CARD_RIDERS.get(later.get("type"))
+                params = later.get("params") or {}
+                if needs is None or not all(params.get(key) in values for key, values in needs):
+                    break
+                riders.append(later)
+        if riders:
+            params = dict(effect.get("params") or {})
+            params["placed_effects"] = [*params.get("placed_effects", []), *riders]
+            folded.append({**effect, "params": params})
+            index += 1 + len(riders)
+        else:
+            folded.append(effect)
+            index += 1
+    return folded
+
+
+def _fold_placement_tails(specs: Optional[list[EffectSpec]]) -> Optional[list[EffectSpec]]:
+    if not specs:
+        return specs
+    as_dicts = [spec.to_dict() for spec in specs]
+    # "You may put …. If you do, convert ~ at end of combat." is one ``optional`` whose body carries both.
+    folded_dicts = []
+    for d in _fold_rider_dicts(as_dicts):
+        if d["type"] == "optional" and isinstance(d["params"].get("effects"), list):
+            inner = _fold_rider_dicts(d["params"]["effects"])
+            # The pick is itself optional (the player may place nothing), so a lone placement needs no second
+            # "do you want to?" wrapper; "if you do" is carried by its ``placed_effects``.
+            d = inner[0] if len(inner) == 1 and inner[0]["type"] in _PLACEMENT_WITH_RIDERS else {
+                **d, "params": {**d["params"], "effects": inner},
+            }
+        folded_dicts.append(d)
+    if folded_dicts == as_dicts:
+        return specs
+    return [EffectSpec.from_dict(d) for d in folded_dicts]
 
 
 def _parse_effect_body_inner(
@@ -5353,6 +5423,12 @@ def _parse_effect_body_inner(
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+    # Preserve the existing hand-cheat package before placement-tail folding.
+    # Its choice already owns haste and the delayed sacrifice (MEC-73).
+    if "that creature gains haste until end of turn" in body:
+        packaged = match_clause(body, self_subject=self_subject, previous_subject=previous_subject)
+        if packaged and len(packaged) == 1 and packaged[0].type == "cheat_creature_from_hand":
+            return packaged
     # "you may **have** target creature get -2/-2 until end of turn" (Blightcaster, Battle-Rattle Shaman, the
     # cycling trio, Painsmith, …): "have … get" is only how the optional wording carries the verb — the effect is
     # "target creature gets -2/-2", which every pump / keyword-grant row already reads.
@@ -6576,6 +6652,11 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # card is left as the next clause's referent (`created_objects`, also across the look-at-two pause).
     if last.type in ("create_token", "copy_permanent", "become_copy", "manifest", "manifest_dread"):
         return True
+    # PAR-152: "…put a Vampire card from your hand onto the battlefield tapped and attacking. **It** gains
+    # indestructible until end of turn." (Strefan) — the placed card is the pronoun's referent; the rider travels
+    # with the placement (`_fold_placement_tails`) so it still has it once the pick is answered.
+    if last.type in _PLACEMENT_WITH_RIDERS:
+        return True
     # "Return it to the battlefield … with 2 +1/+1 counters on it. It's a Demon in addition …" (PAR-142):
     # the returned permanent is what the rider's "it" names (`ReturnSelfToBattlefieldEffect` sets it).
     if last.type == "return_self_to_battlefield":
@@ -7112,7 +7193,7 @@ def _attacking_token_body(body: str) -> Optional[list[EffectSpec]]:
 #: Only conditions about a fact the entering permanent carries from its cast are read this way so far; the other
 #: leading-if conditions of an enters trigger (kicked, "you control a Forest", …) keep the resolution check alone.
 _INTERVENING_IF_AT_TRIGGER_KINDS = frozenset({"mana_color_spent_to_cast_at_least"})
-_ETB_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,80}),\s+.+$", re.IGNORECASE | re.S)
+_ETB_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,160}),\s+.+$", re.IGNORECASE | re.S)
 
 
 def _etb_intervening_if(event: Any, condition: Optional[dict[str, Any]], body: str) -> Optional[dict[str, Any]]:
@@ -8297,6 +8378,20 @@ def _segment_line_unsplit(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    control_none_matching = _CONTROL_NONE_MATCHING_RE.match(raw)
+    if control_none_matching is not None:
+        effects = parse_effect_body(control_none_matching.group("body"), self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        quality: dict[str, Any] = {"subtype": control_none_matching.group("sub").lower()}
+        if control_none_matching.group("leg"):
+            quality["legendary"] = True
+        return Segment(raw=raw, spec=AbilitySpec(
+            "triggered", effects=effects,
+            trigger={"event": "STATE_CHECK", "controls_none_matching": quality},
+            raw_text=raw, parser=provenance,
+        ), claimed=True)
+
     control_none_sac = _CONTROL_NONE_SACRIFICE_RE.match(raw)
     if control_none_sac is not None:
         effects = parse_effect_body(control_none_sac.group("body"), self_subject=True)
@@ -8911,7 +9006,11 @@ def _segment_line_unsplit(
                 tail_markers.extend(sorcery)
         activation_tail = _ACTIVATE_ONLY_IF_TRAILING_RE.search(effect_text)
         if activation_tail is not None:
-            tail = "activate only if " + activation_tail.group("cond").strip()
+            conds = [
+                f"it's the {activation_tail.group('step').lower()} step" if activation_tail.group("step") else None,
+                (activation_tail.group("cond") or activation_tail.group("cond2") or "").strip() or None,
+            ]
+            tail = "activate only if " + " and ".join(c for c in conds if c)
             parsed_tail = parse_effect_body(tail)
             if parsed_tail is None:
                 return Segment(raw=raw)
@@ -9810,6 +9909,15 @@ def _peel_optional(body: str) -> tuple[str, bool]:
     body = body.strip()
     if _PAY_ENERGY_THEN_PEEL_GUARD_RE.match(body):
         return body, False
+    # PAR-152 (Jocasta): "…, if this card is in your graveyard, you may return it to the battlefield tapped and
+    # attacking." — the intervening-if just says where the trigger functions (a graveyard-zone trigger, like
+    # Bloodghast's), so it folds into the self-return clause the graveyard rows already read.
+    in_graveyard = re.match(
+        rf"^if (?:this card|~) is in your graveyard,\s+you may return it to the battlefield(?P<rest>.*)$",
+        body, re.S,
+    )
+    if in_graveyard is not None:
+        return f"return this card from your graveyard to the battlefield{in_graveyard.group('rest')}", True
     m = re.match(r"^you may\s+(?P<rest>.+)$", body, re.S)
     if m is not None:
         rest = m.group("rest")

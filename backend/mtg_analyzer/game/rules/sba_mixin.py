@@ -160,6 +160,8 @@ class StateBasedActionsMixin:
             if not acted:
                 break
             any_action = True
+        # RULE 603.8: notice state triggers after the board is stable.
+        self._collect_triggers(GameEvent(EventType.STATE_CHECK))
         return any_action
     def _revert_source_bound_control(self) -> bool:
         """RULE 611.2b: "gain control of X for as long as you control ~" (or "...~ remains on the battlefield") ends,

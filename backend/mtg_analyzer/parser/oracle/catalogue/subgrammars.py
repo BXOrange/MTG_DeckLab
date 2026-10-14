@@ -214,6 +214,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
      "creature_or_planeswalker_you_dont_control"),
     (r"target creature or planeswalker", "creature_or_planeswalker"),
     (r"target attacking or blocking creature", "attacking_or_blocking_creature"),
+    # PAR-152: "target attacking creature you control" (Fireflux Squad) — the state adjective is read back as a
+    # filter (`resolve_target_creature_state_filter`), the scope is the controller's own pool.
+    (r"target (?:attacking|blocking|tapped|untapped) creature you control", "creature_you_control"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
     (r"target werewolf creature", "werewolf_creature"),
     # PAR-141: "target `<adjective>` creature [you control]" — the adjective is read back as a filter
@@ -911,7 +914,7 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
 #: confirmed via `inspect-db` against the real cache — a live rules bug, not
 #: a coverage gap), just one layer up from where that fix landed.
 _TARGET_COMBAT_STATE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?:" + NOT_YOU_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?: you control|" + NOT_YOU_TAIL + r")?",
     re.IGNORECASE,
 )
 

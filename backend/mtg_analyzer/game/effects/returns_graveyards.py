@@ -2377,8 +2377,13 @@ class InspectTopChooseEffect(GameEffect):
         source: Optional["GameObject"] = None,
         criteria: Optional[dict[str, Any]] = None,
         else_effects: Optional[list[dict[str, Any]]] = None,
+        placed_effects: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-152: instructions about the card(s) picked ("Until your next turn, it gains trample if you control a
+        #: Dwarf…", Doors of Durin) — run once something was picked, with the pick as their "it"
+        #: (`_apply_choose_objects_tail`'s `previous_targets`).
+        self.placed_effects = list(placed_effects or [])
         #: PAR-144: a `models.cards.card_query` dict ("a creature or land card", "a card with
         #: mana value X or less") — named ``criteria`` so `RulesEngine._substitute_x` rewrites its
         #: ``"x"`` mana-value bound like every other criteria-carrying effect's.
@@ -2423,6 +2428,7 @@ class InspectTopChooseEffect(GameEffect):
             criteria=criteria,
             else_specs=self.else_effects,
             distinct_card_types=self.distinct_card_types,
+            then_specs=self.placed_effects or None,
         )
 
     def _resolved_criteria(self, context: Optional[GameContext] = None) -> Optional[dict[str, Any]]:
@@ -2479,9 +2485,12 @@ class BlinkEffect(GameEffect):
         count_max: Optional[int] = None,
         trigger_event_key: Optional[str] = None,
         tapped: bool = False,
+        attacking: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…return it to the battlefield under your control tapped **and attacking**" (The Neutrinos) — RULE 508.4.
+        self.attacking = bool(attacking)
         #: Returns tapped ("…then return them to the battlefield tapped under their owner's control").
         self.tapped = bool(tapped)
         #: ``target_kind="trigger_subject"`` (PAR-123, Gossip's Talent's "exile
@@ -2506,7 +2515,7 @@ class BlinkEffect(GameEffect):
         controller = _controller_of(self.source, context) if self.under_your_control else None
         for target in chosen:
             if target is not None:
-                context.blink(target, controller=controller, tapped=self.tapped)
+                context.blink(target, controller=controller, tapped=self.tapped, attacking=self.attacking)
 
 
 

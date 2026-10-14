@@ -87,6 +87,10 @@ class GameContext:
         # RULE 610.3a/b: incarnation of the source of the resolving stack item.
         self.resolving_source_incarnation: Optional[int] = None
         self.resolving_stack_item: Optional[Any] = None
+        #: The source of the choice being answered right now (`RulesEngine.resolve_choice`) — an ability resumed after
+        #: its pick has no resolving stack item, yet a card it puts onto the battlefield attacking joins that source's
+        #: attack (`RulesEngine._resolving_source_defender`).
+        self.choice_source_id: Optional[int] = None
         #: PAR-123: the player "you" means while a body runs *as someone else* — "**its
         #: controller** creates a 1/1 Snake token" is the ordinary "you create a token" done by
         #: the firing object's controller (RULE 109.5: the player an ability's "you" names).
@@ -892,8 +896,11 @@ class GameContext:
             face_down_kind=face_down_kind,
         )
 
-    def blink(self, target: "GameObject", controller: Optional["Player"] = None, tapped: bool = False) -> None:
-        self.engine.blink(target, controller=controller, tapped=tapped)
+    def blink(
+        self, target: "GameObject", controller: Optional["Player"] = None, tapped: bool = False,
+        attacking: bool = False,
+    ) -> None:
+        self.engine.blink(target, controller=controller, tapped=tapped, attacking=attacking)
 
     def exile_return_transformed(self, target: "GameObject") -> None:
         self.engine.exile_return_transformed(target)

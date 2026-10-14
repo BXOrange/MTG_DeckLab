@@ -309,6 +309,9 @@ class ActivationCost:
     #: word (`continuous.has_subtype`-compatible) of the permanent to
     #: return, or ``None`` when this isn't such a cost.
     return_to_hand: Optional[str] = None
+    #: "Return an **unblocked attacking** Rogue you control …" (Zareth San): the combat-state qualifier on the
+    #: ``return_to_hand`` pick — ``"attacking"`` or ``"unblocked_attacking"`` (RULE 506.4 / 509.1).
+    return_to_hand_state: Optional[str] = None
     #: "…exile a `<color>` card from your hand rather than pay this spell's
     #: mana cost." (RULE 118.9, Force of Will/Negation/Vigor — MEC-15) — a
     #: WUBRG letter naming which color the exiled hand card must be, or
@@ -823,6 +826,7 @@ class ActivationCost:
             "exile_self": self.exile_self,
             "exile_others": list(self.exile_others) if self.exile_others else None,
             "return_to_hand": self.return_to_hand,
+            "return_to_hand_state": self.return_to_hand_state,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
             "sacrifice_filter": dict(self.sacrifice_filter) if self.sacrifice_filter else None,
             "exile_hand_card_color": self.exile_hand_card_color,
@@ -985,6 +989,8 @@ def parse_activation_cost(
         parsed.put_hand_card_on_library = bool(cost["put_hand_card_on_library"])
     if cost.get("return_to_hand"):
         parsed.return_to_hand = str(cost["return_to_hand"])
+    if cost.get("return_to_hand_state"):
+        parsed.return_to_hand_state = str(cost["return_to_hand_state"])
     if cost.get("return_to_hand_count"):
         count, subtype = cost["return_to_hand_count"]
         parsed.return_to_hand_count = (int(count), str(subtype))
@@ -1274,7 +1280,10 @@ def _parse_text(text: str) -> ActivationCost:
 
     return_to_hand = hits.get("return_to_hand")
     if return_to_hand:
-        cost.return_to_hand = return_to_hand.group(1).lower()
+        cost.return_to_hand = return_to_hand.group(2).lower()
+        qualifier = return_to_hand.group(1).strip().lower().replace(" ", "_")
+        if qualifier:
+            cost.return_to_hand_state = qualifier
     elif "return_self_to_hand" in hits:
         # ENG-49: "Return ~ to its owner's hand" (Rootha) — the source itself.
         cost.return_to_hand = RETURN_SELF_TO_HAND

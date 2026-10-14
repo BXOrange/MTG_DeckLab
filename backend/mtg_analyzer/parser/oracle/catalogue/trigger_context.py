@@ -14,6 +14,9 @@ PHASE_TAILS: list[tuple[str, dict[str, Any]]] = [
     ("during your turn", {"phase_relation": "you"}),
     ("during an opponent's turn", {"phase_relation": "not_you"}),
     ("during each opponent's turn", {"phase_relation": "not_you"}),
+    # PAR-152 (Noctis, Heir Apparent): "whenever a creature you control enters **during combat**" — the event
+    # happens in the combat phase (RULE 500.1), whoever's turn it is.
+    ("during combat", {"during_combat": True}),
 ]
 
 #: Controller phrase after a subject noun → the group condition's ``controller``

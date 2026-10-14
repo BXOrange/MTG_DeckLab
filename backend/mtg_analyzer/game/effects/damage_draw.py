@@ -1243,11 +1243,14 @@ class PutRevealedCardEffect(GameEffect):
 
     def __init__(
         self, destination: str = "hand", whose: str = "you",
-        source: Optional["GameObject"] = None,
+        source: Optional["GameObject"] = None, fights_source: bool = False,
     ) -> None:
         super().__init__(source)
         self.destination = str(destination or "hand")
         self.whose = str(whose or "you")
+        #: "When you put a creature card onto the battlefield this way, **it fights ~**." (Hans Eriksson) — RULE
+        #: 603.12 reflexive trigger fired once the card is on the battlefield; the fight (RULE 701.14) is its payoff.
+        self.fights_source = bool(fights_source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         card = getattr(context, "revealed_card", None)
@@ -1258,6 +1261,25 @@ class PutRevealedCardEffect(GameEffect):
             return
         if self.destination == "exile":
             context.exile(card)
+            return
+        if self.destination == "battlefield_attacking":
+            # RULE 508.4: "…onto the battlefield tapped and attacking" — the shared entry path applies entry
+            # counters, fires the enters event and puts the card into the source's combat.
+            player.library.pop()
+            defending = _defending_player_of(self.source, context) if self.fights_source else None
+            context.engine._put_searched_card(
+                player, card, "battlefield_attacking",
+                attacking_player_id=defending.id if defending is not None else None,
+            )
+            if self.fights_source and card.zone == Zone.BATTLEFIELD:
+                context.enqueue_reflexive_trigger(
+                    [{"type": "fight", "params": {"fighter_kind": "trigger_subject", "other_kind": None}}],
+                    self.source,
+                    GameEvent(
+                        EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=card.name,
+                        instance_id=card.instance_id, from_zone="library",
+                    ),
+                )
             return
         player.library.pop()
         if self.destination in ("battlefield", "battlefield_tapped"):
@@ -1747,8 +1769,13 @@ class LookAtHandEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "player",
         previous_subject: bool = False,
+        defending_player: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Look at **defending player's** hand." (Zara, Renegade Recruiter) — no target: the player the source attacks.
+        self.defending_player = bool(defending_player)
+        if defending_player:
+            target_kind = None
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         #: "…look at **that player's** hand" after an earlier clause aimed at a player.
         self.previous_subject = bool(previous_subject)
@@ -1761,6 +1788,8 @@ class LookAtHandEffect(GameEffect):
             owner = prev[0] if prev else None
         if owner is None and self.target_spec is not None and targets:
             owner = targets[0]
+        if owner is None and self.defending_player:
+            owner = _defending_player_of(self.source, context)
         if looker is not None and owner is not None:
             context.look_at_hand(looker, owner, source=self.source)
 

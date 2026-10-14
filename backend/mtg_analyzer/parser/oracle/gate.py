@@ -4021,7 +4021,22 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      (Satya) and a d20 row with "create one of those tokens. You may roll again." (Delina). +10 ticket cards; the shared
 #      pieces also claim Ambitious Assault, Ashling's/Brigid's Command, Biorganic Carapace, Chishiro, Coastline Marauders,
 #      Goro-Goro, Kami's Flare, Upriser Renegade, Walking Skyscraper.
-PARSER_VERSION = "650"
+# 651: PAR-152 -- "put/return ... tapped and attacking" placements and the surroundings each card gives them. A pick that
+#      parks the body (hand, library, opponent's hand) now carries its follow-ups as `placed_effects` (the "it gains ...",
+#      "return that creature to its owner's hand at the beginning of the next end step", "convert ~ at end of combat" tail
+#      runs with the placed card as its referent; before, a delayed tail after a hand pick captured the *source*): Strefan
+#      (sacrifice two Blood tokens, `matches_permanent_word` instead of "any permanent"), Ultra Magnus (convert = transform,
+#      RULE 701.28), Zara (look at defending player's hand, take a creature under your control), Doors of Durin
+#      (conditional keyword rows), Fireflux Squad ("you may exile another target attacking creature you control. If you do"),
+#      Paladin Elizabeth Taggerdy (X is ~'s power), Thunderkin Awakener ("choose target ... with toughness less than"),
+#      Hans Eriksson (reveal-and-branch with a reflexive fight), Chorale of the Void's placement, Olivia, Crimson Bride (a
+#      granted RULE 603.8 state trigger), Jocasta / Nemesis Phoenix (return from graveyard attacking; "attacking two or more
+#      opponents"), The Neutrinos (blink attacking), Zareth San (unblocked attacking Rogue cost, put self from hand attacking,
+#      "that player's graveyard"), Meandering Towershell / Noctis (exile now, return attacking at the declare attackers
+#      step; "enters during combat" tail). A creature put into combat joins its source's attack (RULE 508.4a). +35 cards
+#      (collateral: Arms Race, Swift Warkite, Through the Breach, Killer Instinct, Giant Opportunity, Meneldor, Slip On the
+#      Ring, Mongrel Pack, Port Inspector, Rakshasa Debaser, Scion of Darkness, Ink-Eyes, Starscream, Zuko, ...).
+PARSER_VERSION = "653"
 
 
 def parser_source_hash() -> str:

@@ -1700,9 +1700,14 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         source: Optional["GameObject"] = None,
         max_mana_value_from_trigger: Optional[str] = None,
         then_effects: Optional[list[dict]] = None,
+        placed_effects: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
+        #: Instructions about the card just put onto the battlefield — "It gains indestructible until end of turn." /
+        #: "Return that creature to its owner's hand at the beginning of the next end step." (Strefan, Zara) — run
+        #: only when a card was placed, with that card as their referent (`previous_targets` / `created_objects`).
+        self.placed_effects = list(placed_effects or [])
         #: "…put a creature card **and/or** a land card from your hand onto the battlefield." (Yuna's Decision) — the next pick, run once
         #: this one is answered (placed *or* declined), since two choices opened in one resolution would overwrite each other.
         self.then_effects = list(then_effects or [])
@@ -1777,7 +1782,43 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         context._request_search(
             player, criteria, destination, count, optional=True, zones=list(self.zones),
             then_specs_if_none=(self.miss_effect_specs + self.then_effects) or None, source=self.source,
-            then_specs=self.then_effects or None,
+            then_specs=(self.then_effects + self.placed_effects) or None,
+        )
+
+
+class PutFromDefendingHandEffect(GameEffect):
+    """"You may put a creature card from **it** onto the battlefield **under your control** tapped and attacking that
+    player or a planeswalker they control." (Zara, Renegade Recruiter, after "look at defending player's hand") — RULE
+    508.4 + 110.2: the controller picks a matching card from the *defending player's* hand and takes control of it as
+    it enters, joining the source's attack (`put_onto_battlefield_attacking`, then the planeswalker offer).
+
+    The pick is the general `choose_objects` decision (``put_onto_battlefield_attacking`` action); ``placed_effects``
+    ("Return that creature to its owner's hand at the beginning of the next end step.") run on the card put there.
+    """
+
+    def __init__(
+        self, criteria: Any = "", tapped: bool = True, attacking: bool = True,
+        placed_effects: Optional[list[dict]] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.criteria = criteria
+        self.action = (
+            "put_onto_battlefield_attacking" if attacking and tapped
+            else "put_onto_battlefield_tapped" if tapped else "put_onto_battlefield"
+        )
+        self.placed_effects = list(placed_effects or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        owner = _defending_player_of(self.source, context)
+        if controller is None or owner is None:
+            return
+        candidates = [o for o in owner.hand if card_query.matches(o.card, self.criteria)]
+        if not candidates:
+            return
+        context.choose_objects(
+            controller, candidates, self.action, count=1, optional=True, source=self.source,
+            then_specs=self.placed_effects or None,
         )
 
 

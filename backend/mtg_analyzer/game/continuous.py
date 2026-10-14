@@ -2931,6 +2931,9 @@ def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None, grantor:
     effect = EffectRegistry.create(spec["type"], params)
     if obj is not None:
         effect.source = obj
+    if getattr(effect, "capture_grantor", False):
+        effect.grantor = grantor
+        effect.grantor_incarnation = getattr(grantor, "zone_incarnation", None)
     condition = spec.get("condition")
     if condition:
         effect = ConditionalEffect(dict(condition), effect, source=obj)
@@ -3096,7 +3099,9 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     obj._granted_mana.extend(mana)
                 _trace(obj, 6, _source_name(ability), "gains a mana ability")
             if trigger_event:
-                key = (id(ability), obj.instance_id)
+                # RULE 400.7: a new host or grantor zone visit gets fresh granted effects.
+                key = (id(ability), obj.instance_id, obj.zone_incarnation,
+                       getattr(ability.source, "zone_incarnation", None))
                 live_grant_keys.add(key)
                 granted = state._granted_ability_cache.get(key)
                 if granted is None:
@@ -3120,6 +3125,11 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                         cond = _build_group_ok(
                             group_condition, obj, {"event": trigger_event}, obj.instance_id
                         )
+                    elif ability.params.get("controls_none_matching"):
+                        # RULE 603.8 state trigger: the gate reads the current board;
+                        # the internal STATE_CHECK carries no object subject.
+                        def cond(event, context):
+                            return True
                     else:
                         cond = _granted_trigger_condition(
                             obj, bool(ability.params.get("controllers_turn_only", False)),
@@ -3144,7 +3154,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                         for _k in ("attacked_player_has_lowest_life", "spell_from_exile",
                                    "spell_shares_creature_type_with_source", "spell_exclude_card_types",
                                    "spell_filter", "spell_cast_from",
-                                   "recipient_relation", "recipient_filter")
+                                   "recipient_relation", "recipient_filter", "controls_none_matching")
                         if ability.params.get(_k)
                     ]
                     if isinstance(ability.params.get("active_if"), dict):
@@ -3183,8 +3193,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # "<host> has '{cost}: <effect>.'" (Umbral Mantle/Squirrel
                 # Nest-shaped) — the activated-ability sibling of the
                 # trigger_event branch above, same cache/dedup shape. A
-                # 3-element key (vs. the 2-element one above) so the two
-                # grant kinds never collide sharing one cache dict, even
+                # A kind tag keeps activated grants separate from trigger grants
+                # when both share the same cache, even
                 # though nothing in this codebase currently grants both off
                 # the same StaticAbility.
                 key = (id(ability), obj.instance_id, "activated")

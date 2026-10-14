@@ -281,8 +281,10 @@ class CreateDelayedTriggerEffect(GameEffect):
         source: Optional["GameObject"] = None,
         related_filter: Optional[dict[str, Any]] = None,
         trigger_event_key: Optional[str] = None,
+        step_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        self.step_player = step_player
         self.step = str(step)
         #: ``capture="trigger_subject"``'s event field name (see `apply`) —
         #: `PAR-123`'s own `GROUP_SUBJECT_KEY_SENTINEL`, resolved by the binder.
@@ -502,6 +504,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                 step=self.step,
                 effects=inner,
                 scope=self.scope,
+                step_player_id=getattr(self.source, "owner_id", None) if self.step_player == "owner" else None,
                 targets=list(targets or []),
                 description=self.description,
                 min_turn=context.state.internal_turn.number + self.min_turn_offset,
@@ -2957,17 +2960,27 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         objects: list["GameObject"],
         source: Optional["GameObject"] = None,
         tapped: bool = False,
+        attacking: bool = False,
+        under_your_control: bool = False,
     ) -> None:
         super().__init__(source)
         self.objects = objects
         #: "…to the battlefield **tapped** under their owners' control…" (Disorder in the Court).
         self.tapped = bool(tapped)
+        #: "…return it to the battlefield under your control tapped **and attacking** at the beginning of the declare
+        #: attackers step on your next turn" (Meandering Towershell, Noctis) — RULE 508.4: it joins the combat that is
+        #: starting; under the delayed ability's controller rather than the owner when "under your control".
+        self.attacking = bool(attacking)
+        self.under_your_control = bool(under_your_control)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        destination = "battlefield_tapped" if self.tapped else "battlefield"
+        destination = (
+            "battlefield_attacking" if self.attacking else "battlefield_tapped" if self.tapped else "battlefield"
+        )
+        controller_id = context.resolving_controller_id if self.under_your_control else None
         for obj in list(self.objects):
             if obj.zone == Zone.EXILE and obj in context.state.player_by_id(obj.owner_id).exile:
-                context.return_from_graveyard(obj, destination)
+                context.return_from_graveyard(obj, destination, controller_id=controller_id)
 
 
 class ReturnUncastExiledEffect(GameEffect):
@@ -3736,6 +3749,65 @@ class ExileSelectedThenReturnOneEffect(GameEffect):
             player, permanents, "return_from_exile_finality", count=1, optional=False,
             prompt="Permanente Karte mit Endgültigkeitsmarke ins Spiel bringen", source=self.source,
         )
+
+
+class ExileSelfAndGrantorUntilAttackEffect(GameEffect):
+    """Meandered Towershell's granted attack ability (RULE 603.7/400.7).
+
+    The creature controls its own granted trigger, independently of the Aura.
+    Both exile visits are captured; the Aura can return only attached to the
+    exact creature this delayed ability returned.
+    """
+    capture_grantor = True
+    grantor = None
+    grantor_incarnation = None
+
+    def apply(self, context: GameContext, targets=None) -> None:
+        from ...models.game.game_state import DelayedTrigger
+
+        creature = self.source
+        aura = self.grantor
+        item = getattr(context, "resolving_stack_item", None)
+        source_incarnation = getattr(item, "source_zone_incarnation", None)
+        if creature is None or creature not in context.state.battlefield or (
+            source_incarnation is not None and creature.zone_incarnation != source_incarnation
+        ):
+            return
+        controller_id = context.resolving_controller_id or creature.controller_id
+        context.exile(creature)
+        if aura is not None and aura in context.state.battlefield and aura.zone_incarnation == self.grantor_incarnation:
+            context.exile(aura)
+        else:
+            aura = None
+        context.state.delayed_triggers.append(DelayedTrigger(
+            controller_id=controller_id, step="declare_attackers", scope="controller",
+            min_turn=context.state.internal_turn.number + 1,
+            effects=[ReturnExiledCreatureAndAuraEffect(creature, aura, source=creature)],
+        ))
+
+
+class ReturnExiledCreatureAndAuraEffect(GameEffect):
+    """RULE 400.7/303.4f: return the captured creature, then its captured Aura attached."""
+
+    def __init__(self, creature, aura, source=None):
+        super().__init__(source)
+        self.creature = creature
+        self.aura = aura
+        self.creature_incarnation = creature.zone_incarnation
+        self.aura_incarnation = getattr(aura, "zone_incarnation", None)
+
+    def apply(self, context: GameContext, targets=None) -> None:
+        creature, aura = self.creature, self.aura
+        if creature.zone != Zone.EXILE or creature.zone_incarnation != self.creature_incarnation:
+            return
+        context.return_from_graveyard(
+            creature, "battlefield_attacking", controller_id=context.resolving_controller_id,
+        )
+        if (creature not in context.state.battlefield or aura is None or aura.zone != Zone.EXILE
+                or aura.zone_incarnation != self.aura_incarnation):
+            return
+        if context.engine._attachment_legal(aura, creature, check_control=False):
+            context.return_from_graveyard(aura, "battlefield", attach_to=creature)
 
 
 register(globals())

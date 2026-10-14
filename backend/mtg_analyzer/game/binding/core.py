@@ -483,6 +483,25 @@ def recipient_filter_predicate(filt: dict[str, Any], source: Any = None) -> Call
     return _recipient_filter_ok
 
 
+def controls_none_matching_predicate(flt: dict[str, Any], source: Any) -> Callable[[Any, Any], bool]:
+    """RULE 603.8 state condition, read against the ability's current controller."""
+    from .. import continuous  # function-scoped, as the other layer-engine reads here
+
+    def _ok(event: Any, context: Any) -> bool:
+        state = getattr(context, "state", None)
+        if state is None:
+            return False
+        controller_id = getattr(source, "controller_id", None)
+        return not any(
+            o.controller_id == controller_id
+            and (not flt.get("legendary") or o.is_legendary)
+            and (not flt.get("subtype") or continuous.has_subtype(o, str(flt["subtype"])))
+            for o in state.battlefield
+        )
+
+    return _ok
+
+
 def regrant_trigger_gate_predicate(
     key: str, controller_id: Optional[str], source: Any = None, value: Any = None
 ) -> Optional[Callable[[Any, Any], bool]]:
@@ -496,6 +515,8 @@ def regrant_trigger_gate_predicate(
     ``spell_cast_from`` / ``recipient_relation`` / ``recipient_filter``)."""
     if key == "attacked_player_has_lowest_life":
         return attacked_player_lowest_life_predicate(controller_id)
+    if key == "controls_none_matching" and isinstance(value, dict):
+        return controls_none_matching_predicate(value, source)
     if key == "spell_from_exile":
         return lambda event, context: bool((event or {}).get("from_exile"))
     if key == "spell_filter" and isinstance(value, dict):
@@ -2712,6 +2733,15 @@ def _trigger_condition(
             )
 
         predicates.append(_controls_none_ok)
+
+    # "When you don't control a legendary Vampire, exile ~." (Olivia, Crimson Bride's granted ability, RULE 603.8) —
+    # a state check over a legendary/subtype filter, including entry and control changes.
+    if trigger.get("during_combat"):
+        predicates.append(lambda event, context: getattr(getattr(context, "state", None), "current_phase", "") == "combat")
+
+    controls_none_matching = trigger.get("controls_none_matching")
+    if controls_none_matching is not None:
+        predicates.append(controls_none_matching_predicate(dict(controls_none_matching), source))
 
     # "Whenever ~ attacks a player who controls N or more lands, …" (Owlbear
     # Cub — RULE 508.1). Gate the ordinary `ATTACKS` event on the *defending*

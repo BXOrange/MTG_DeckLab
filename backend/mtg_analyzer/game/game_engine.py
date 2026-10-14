@@ -58,6 +58,7 @@ class GameEngine(
     def __init__(self, state: "GameState", *, rules=None) -> None:
         self.state = state
         self.rules = rules if rules is not None else RulesEngine(state)
+        self.rules.resolution_play_actions_provider = self.resolution_play_actions
         #: Cursor for interactive step-by-step play (see ``start`` /
         #: ``advance_step``): the current turn's ``(phase, step)`` list and
         #: how far through it we are. ``run_turn``/``run_goldfish_turn`` do
@@ -186,8 +187,8 @@ class GameEngine(
             self.rules.check_state_based_actions()
             self.give_priority(self.state.active_player)
 
-    def resolution_play_actions(self, player):
-        choice = self.state.pending_choice
+    def resolution_play_actions(self, player, *, choice=None):
+        choice = choice or self.state.pending_choice
         if not choice or choice.get("kind") != "play_during_resolution" or choice["player_id"] != player.id:
             return []
         actions = [{"type": "decline"}]
@@ -210,6 +211,11 @@ class GameEngine(
                         self._offer_cast(actions, player, obj)
                     elif self.can_cast(player, obj, face=face):
                         actions.append(self._cast_action(player, obj, face=face))
+        if choice.get("mandatory") and any(
+            a["type"] == "cast_spell" and not a.get("auto_tap") for a in actions
+        ):
+            # RULE 118.3c: casting is mandatory, activating mana abilities is not.
+            actions = [a for a in actions if a["type"] != "decline"]
         if choice.get("miracle"):
             actions = [action for action in actions if action.get("alt_cost") or action["type"] == "decline"]
         for action in actions:

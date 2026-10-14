@@ -244,7 +244,10 @@ _PUT_HAND_CARD_ON_LIBRARY_RE = re.compile(
 #: is kept as printed (singular on real cards — "Forest", not "Forests") and
 #: lowercased for `continuous.has_subtype`'s case-insensitive match.
 _RETURN_TO_HAND_RE = re.compile(
-    r"return an?\s+([a-z]+)\s+you control to (?:its|your) owner'?s?\s*hand", re.IGNORECASE
+    # PAR-152 (Zareth San): "return an **unblocked attacking** Rogue you control to its owner's hand" — group 1 is the
+    # combat-state qualifier, group 2 the subtype word.
+    r"return an?\s+((?:unblocked\s+)?(?:attacking\s+)?)([a-z]+)\s+you control to (?:its|your) owner'?s?\s*hand",
+    re.IGNORECASE
 )
 #: "Unattach ~" (Blinding Powder's granted "Unattach ~: …"; the name itself
 #: when a quoted grant is read before name normalization) — the Aura/

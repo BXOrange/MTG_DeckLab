@@ -2308,7 +2308,10 @@ def _legal_targets_for(
             defending = (trigger_event or {}).get("defending_player_id")
             graveyards = [p.graveyard for p in state.living_players() if p.id == defending]
         elif scope == "that_player":
-            graveyards = [p.graveyard for p in state.living_players() if p.id == spec.scoped_player_id]
+            # "…from **that player's** graveyard" (Zareth San): a `per_player` round's player, else the player the
+            # firing event names (the one just dealt combat damage).
+            that_player = spec.scoped_player_id or trigger_player_antecedent(state, trigger_event)
+            graveyards = [p.graveyard for p in state.living_players() if p.id == that_player]
         else:  # "any": every player's graveyard, including the controller's own
             graveyards = [p.graveyard for p in state.living_players()]
         return [

@@ -198,7 +198,7 @@ class LegalActionsMixin:
         if ability.cost.return_to_hand and ability.cost.return_to_hand != RETURN_SELF_TO_HAND:
             action["return_cost"] = {"count": 1, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
-                for obj in self._return_to_hand_pool(player, ability.cost.return_to_hand)
+                for obj in self._return_to_hand_pool(player, ability.cost.return_to_hand, ability.cost.return_to_hand_state)
             ]}
         elif ability.cost.return_to_hand_count:
             count, word = ability.cost.return_to_hand_count

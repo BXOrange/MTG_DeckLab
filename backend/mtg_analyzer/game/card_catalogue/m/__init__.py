@@ -109,3 +109,5 @@ from . import mandate_of_peace  # noqa: F401
 from . import mog_moogle_warrior  # noqa: F401
 from . import michelangelo_the_heart  # noqa: F401
 from . import mole_module  # noqa: F401
+
+from . import meandered_towershell  # noqa: F401

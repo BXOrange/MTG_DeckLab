@@ -182,7 +182,7 @@ class SearchMixin:
                                  free: bool = True, exile_after_cast: bool = False,
                                  lock_casting: bool = False, mana_wildcard: Optional[str] = None,
                                  owner_life_loss: bool = False, owner_life_losses: Optional[list[dict]] = None,
-                                 cast_rider: Optional[str] = None) -> None:
+                                 cast_rider: Optional[str] = None, mandatory: bool = False) -> None:
         """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
@@ -193,7 +193,7 @@ class SearchMixin:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
             return
         choice = {
-            "kind": "play_during_resolution", "player_id": player.id,
+            "kind": "play_during_resolution", "player_id": player.id, "mandatory": bool(mandatory),
             "zone": zone, "free": free, "exile_after_cast": exile_after_cast, "lock_casting": lock_casting,
             "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
             "mana_wildcard": mana_wildcard, "cast_rider": cast_rider,
@@ -258,6 +258,12 @@ class SearchMixin:
         if answer not in (None, "decline"):
             self.state.pending_choice = choice
             raise ValueError("play the card through the ordinary casting or land action")
+        provider = getattr(self, "resolution_play_actions_provider", None)
+        if choice.get("mandatory") and provider is not None:
+            player = self.state.player_by_id(choice["player_id"])
+            if not any(a["type"] == "decline" for a in provider(player, choice=choice)):
+                self.state.pending_choice = choice
+                raise ValueError("Casting this copy is mandatory when its costs can be paid")
         self._finish_resolution_play_permission()
 
     """Library search/dig/cascade/discover, scry/surveil, and every other 'look at N cards' shape."""
@@ -1603,10 +1609,22 @@ class SearchMixin:
                 self._object_by_instance_id(choice.get("then_source_id")),
             )
         elif not declined and choice.get("then_specs"):
-            self._apply_effect_specs(
-                list(choice["then_specs"]),
-                self._object_by_instance_id(choice.get("then_source_id")),
-            )
+            # RULE 608.2c: the follow-up's "it" / "that creature" is the card just found ("…onto the battlefield
+            # tapped and attacking. It gains indestructible…" / "Return that creature to its owner's hand at the
+            # beginning of the next end step."), the same referent a targeted clause's targets would be.
+            outer_previous = getattr(self.context, "previous_targets", [])
+            outer_created = getattr(self.context, "created_objects", [])
+            placed = [o for o in (self._object_by_instance_id(i) for i in found) if o is not None]
+            self.context.previous_targets = placed
+            self.context.created_objects = list(placed)
+            try:
+                self._apply_effect_specs(
+                    list(choice["then_specs"]),
+                    self._object_by_instance_id(choice.get("then_source_id")),
+                )
+            finally:
+                self.context.previous_targets = outer_previous
+                self.context.created_objects = outer_created
     @continuations.choice("search_destination", rule="608.2d")
     def _resume_search_destination(self, choice, answer):
         if answer not in {"battlefield_tapped", "hand"}:
@@ -1926,6 +1944,8 @@ class SearchMixin:
     def _put_searched_card(
         self, player: Player, obj: GameObject, destination: str,
         chooser_id: Optional[str] = None,
+        entry_specs: Optional[list[dict]] = None,
+        attacking_player_id: Optional[str] = None,
     ) -> None:
         from_zone = obj.zone.value
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking", "battlefield_attacking_triggering"):
@@ -1957,6 +1977,13 @@ class SearchMixin:
             else:
                 obj.tapped = destination != "battlefield"
             self.state.add_to_battlefield(obj)
+            if entry_specs:
+                # RULE 613 / 603.6a: entry animation is visible to ETB triggers.
+                first = len(self.state.floating_statics)
+                self._apply_effect_specs(entry_specs, obj)
+                for ability in self.state.floating_statics[first:]:
+                    ability.params["object_incarnations"] = {obj.instance_id: obj.zone_incarnation}
+                self.context.recompute()
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
@@ -1971,7 +1998,11 @@ class SearchMixin:
                 # RULE 508.4: "…onto the battlefield tapped **and attacking**"
                 # (Preeminent Captain, Kaalia of the Vast). The tap is set
                 # above; this puts it into the current combat.
-                entered_attacking = self.put_onto_battlefield_attacking(obj)
+                entered_attacking = self.put_onto_battlefield_attacking(
+                    obj, {"kind": "player", "id": attacking_player_id} if attacking_player_id else None,
+                )
+                if entered_attacking and attacking_player_id:
+                    self._offer_attack_defenders(player, [(obj, attacking_player_id)])
                 # The Vast Scrier's explicit post-entry instruction, not the
                 # generic RULE 508.3a path: make this creature's printed
                 # attack triggers fire without changing declaration history.
@@ -3295,6 +3326,7 @@ class SearchMixin:
         criteria: Optional[dict[str, Any]] = None,
         else_specs: Optional[list[dict]] = None,
         distinct_card_types: bool = False,
+        then_specs: Optional[list[dict]] = None,
     ) -> None:
         """Inspect a bounded top-N group from ``player``'s library, offer a
         filtered choice among them, and route the rest to ``rest_destination``
@@ -3383,6 +3415,7 @@ class SearchMixin:
             decline_leaves_untouched=decline_leaves_untouched,
             else_specs=else_specs,
             distinct_card_types=distinct_card_types,
+            then_specs=then_specs,
         )
         if action == "exile_face_down_linked" and self.state.pending_choice:
             event = self.context.trigger_event or {}
