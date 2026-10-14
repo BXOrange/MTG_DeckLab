@@ -29,7 +29,7 @@ dupliziert deren Inhalt bewusst nicht.
 | Anforderung, Design, Referenz oder Implementierungsstand | [`docs/README.md`](docs/README.md) und das dort geroutete Dokument |
 | Bedienung der Anwendung | [`user-docs/`](user-docs/) |
 | Nächsten Backlog-Auftrag planen, wenn `workingOn.md` leer ist | [Backlog-Loop-Planer](.github/agents/backlog-loop-planner.agent.md) |
-| Paketierte Workflows für Claude Code und Codex (`.claude/skills/` mit Codex-Einstiegspunkten unter `.agents/skills/`) | [`CLAUDE.md`](CLAUDE.md) |
+| Paketierte Skills und Agenten-Workflows für Claude Code und Codex (`.claude/skills/`, `.claude/agents/` mit Codex-Einstiegspunkten unter `.agents/skills/`) | [`CLAUDE.md`](CLAUDE.md) |
 
 Bei Widersprüchen gilt: konkrete, näher am Code oder Thema liegende
 Dokumentation vor dieser Datei; der offizielle Comprehensive-Rules-Text vor
