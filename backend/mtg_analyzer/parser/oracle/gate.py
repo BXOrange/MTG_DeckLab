@@ -4039,7 +4039,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "656"
+PARSER_VERSION = "658"
 
 
 def parser_source_hash() -> str:
@@ -4160,7 +4160,7 @@ def _is_spell(card: Any) -> bool:
 
 def _split_triggered_modal_block(
     lines: list[str], start: int, provenance: ParserProvenance
-) -> Optional[tuple[dict[str, Any], bool, bool, bool, bool, int, list[str], int]]:
+) -> Optional[tuple[list[dict[str, Any]], bool, bool, bool, bool, Optional[dict[str, Any]], int, list[str], int]]:
     """A permanent's modal *triggered* ability: "When ~ enters, choose 1 —"
     on one line, then two or more "• " mode lines (RULE 700.2 wrapped in a
     RULE 603.1 trigger) — the trigger-wrapped sibling of `split_modal_block`
@@ -4177,7 +4177,7 @@ def _split_triggered_modal_block(
     ability would claim also drives a modal block (Elder Gargaroth, Ojutai
     Exemplars, Etherwrought Page, Cosmogrand Zenith, …).
 
-    Returns ``(trigger, or_both, or_more, repeatable, exhausted, choose, mode_bodies, next_index)``,
+    Returns ``(triggers, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_index)``,
     or ``None`` if ``lines[start]`` isn't this shape at all, its wrapper
     isn't a recognised trigger, or ``choose`` exceeds the number of mode
     lines actually printed — fail-closed, the caller falls back to ordinary
@@ -4204,8 +4204,12 @@ def _split_triggered_modal_block(
     )
     if not probe.claimed or probe.spec is None or probe.spec.ability_kind != "triggered":
         return None
-    trigger = probe.spec.trigger
-    if not trigger or trigger.get("event") is None:
+    triggers = [spec.trigger for spec in [probe.spec, *probe.extra_specs]]
+    if any(not trigger or trigger.get("event") is None for trigger in triggers):
+        return None
+    # Exhausted mode history belongs to the printed ability, while separate
+    # event bindings currently have independent mode histories.
+    if len(triggers) > 1 and header and header.group("exhausted"):
         return None
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
@@ -4215,7 +4219,7 @@ def _split_triggered_modal_block(
     if choose < 1 or choose > len(mode_bodies):
         return None
     return (
-        trigger,
+        triggers,
         bool(header and header.group("or_both")),
         bool(header and header.group("or_more")),
         "same mode more than once" in modal_body.lower(),
@@ -5525,10 +5529,11 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
-                trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_i = trig_block
-                _process_triggered_modal_block(
-                    lines[i], trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies
-                )
+                triggers, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_i = trig_block
+                for trigger in triggers:
+                    _process_triggered_modal_block(
+                        lines[i], trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies
+                    )
                 i = next_i
                 continue
             dice_table = _split_dice_table_block(lines, i)

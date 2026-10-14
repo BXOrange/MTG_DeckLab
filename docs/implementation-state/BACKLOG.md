@@ -81,8 +81,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 - **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).
 
-- **PAR-158 · Multi-event attack/block/target trigger heads.** Trigger heads naming more than one event ("whenever ~ attacks, blocks, or becomes the target of …") that the segmenter does not yet split; size first (PLAY-ALL).
-
 ## MEC — Game mechanic
 
 ## PLR — Player management

@@ -4590,6 +4590,18 @@ focused phase/continuation/ISA/parser-lock tests also passed, including the twel
 
 ### PAR-119 (attack / block / player-event axes) and two wrong-but-modeled fixes (PARSER_VERSION 456)
 
+- **PAR-158 — coordinated event heads (PARSER_VERSION 658):** The shared trigger-head
+  decomposition restores elided object subjects across supported event verbs and accepts
+  comma-separated event lists. Each event retains its own targeting/damage filters;
+  modal triggered abilities preserve every head instead of keeping only the first.
+  Shared trailing qualifiers, overlapping events, independent trigger caps and exhausted
+  modal histories remain fail-closed where separate bindings cannot preserve one ability's
+  semantics. Parser and live gameplay tests cover attack/block/target firing, opponent and
+  spell/ability filters, Shield Mare and modal choices (`test_par158_multi_event_trigger_heads.py`).
+  Cache measurement: +5 covered, zero regressions — Kitsune, Dragon's Daughter,
+  Misfortune Teller, Park Heights Maverick, Shield Mare and Tomebound Lich. Remaining
+  combat-related clauses need effect bodies or atomic subject/relational head grammar,
+  rather than this event-list decomposition (see PAR-132 calibration).
 
 ### PAR-119: attack leftovers, entry origin, player-event and cast leftovers, "otherwise" (commit `d2967b79`, PARSER_VERSION 501)
 

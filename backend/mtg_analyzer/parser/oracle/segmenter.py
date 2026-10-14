@@ -257,7 +257,8 @@ _TRIGGER_LIST_NOUN = r"(?:cards?|creatures?|permanents?|artifacts?|enchantments?
 _TRIGGER_RE = re.compile(
     r"^(?:when|whenever|at)\b(?P<cond>(?:[^,]|,\s+(?=non[a-z]+\b)"
     rf"|,\s+(?=(?:[a-z'-]+(?:,\s+(?:or\s+)?|\s+or\s+))+[a-z'-]+ {_TRIGGER_LIST_NOUN}\b)"
-    rf"|,\s+(?=or\s+[a-z'-]+ {_TRIGGER_LIST_NOUN}\b))*),\s*(?P<body>.+)$",
+    rf"|,\s+(?=or\s+[a-z'-]+ {_TRIGGER_LIST_NOUN}\b)"
+    rf"|,\s+(?=(?:or\s+)?(?:{_MULTI_EVENT_VERB_ALT}|becomes the target)\b))*),\s*(?P<body>.+)$",
     re.S,
 )
 
@@ -3550,7 +3551,7 @@ def _compound_heads_disjoint(first: dict[str, Any], second: dict[str, Any]) -> b
 
 
 def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
-    """RULE 603.1's "`<A>` or `<B>`" trigger condition → its two heads, or ``None``.
+    """RULE 603.1's coordinated trigger condition → its independent heads, or ``None``.
 
     Either two whole heads ("a creature dies or a creature card is put into a graveyard
     from a library" — Dreadhound; "~ dies or another artifact you control dies") or one
@@ -3559,23 +3560,42 @@ def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
     into exile" is the battlefield departure it pairs with (Syr Vondam).
     """
     cond = cond.strip()
-    for sep in re.finditer(r"\s+or\s+", cond):
+    for sep in re.finditer(r",\s*(?:or\s+)?|\s+or\s+", cond):
         left, right = cond[:sep.start()], cond[sep.end():]
         first = trigger_condition_dict(left)
-        if first is None:
+        if first is None or not isinstance(first.get("event"), str):
             continue
-        second_text = right
-        second = trigger_condition_dict(second_text)
-        if second is None:
-            subject = re.fullmatch(r"(?P<subject>.+?)\s+dies", left)
-            if subject is None:
-                continue
+        candidates = [right]
+        # RULE 603.1: coordinated verbs inherit the same object subject.
+        # Validate each expansion with the ordinary head grammar rather than
+        # enumerating attack/block/target phrase combinations. Internal "or"
+        # in a subtype or "spell or ability" remains part of its own head.
+        shared_tail = _SHARED_TAIL_RE.search(right)
+        # A trailing phase/origin qualifier can qualify the entire verb list.
+        # Do not broaden earlier verbs by attaching it to the final verb alone.
+        # The established dies/exile union instead has an event-specific zone.
+        inherit_subject = shared_tail is None or right.startswith("is put into exile")
+        for boundary in reversed(list(re.finditer(r"\s+", left))) if inherit_subject else []:
+            subject = left[:boundary.start()]
             verb = "is put into exile from the battlefield" if right == "is put into exile" else right
-            second_text = f"{subject.group('subject')} {verb}"
+            candidates.append(f"{subject} {verb}")
+        for second_text in candidates:
             second = trigger_condition_dict(second_text)
-            if second is None:
+            # Recursion consumes at least one separator; subject restoration
+            # cannot recurse on an equally large coordination expression.
+            heads = [second_text] if second is not None and isinstance(second.get("event"), str) else (
+                _compound_trigger_heads(second_text)
+                if len(re.findall(r",|\s+or\s+", second_text))
+                < len(re.findall(r",|\s+or\s+", cond)) else None
+            )
+            if heads is None:
                 continue
-        return [left, second_text] if _compound_heads_disjoint(first, second) else None
+            triggers = [first, *[trigger_condition_dict(head) for head in heads]]
+            if any(trigger is None for trigger in triggers):
+                continue
+            if all(_compound_heads_disjoint(a, b)
+                   for index, a in enumerate(triggers) for b in triggers[index + 1:]):
+                return [left, *heads]
     return None
 
 
@@ -3596,7 +3616,12 @@ def _compound_trigger_segment(
         )
         if not part.claimed or part.spec is None or part.keyword_line:
             return None
-        specs.extend(replace(spec, raw_text=raw) for spec in [part.spec, *part.extra_specs])
+        part_specs = [part.spec, *part.extra_specs]
+        # A trigger cap belongs to the one printed ability, not independently
+        # to each event binding. No shared trigger-limit identity exists yet.
+        if any((spec.trigger or {}).get("limit") for spec in part_specs):
+            return None
+        specs.extend(replace(spec, raw_text=raw) for spec in part_specs)
     return Segment(raw=raw, spec=specs[0], extra_specs=specs[1:], claimed=True)
 
 
