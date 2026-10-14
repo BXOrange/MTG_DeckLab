@@ -1332,9 +1332,13 @@ class RollDieEffect(GameEffect):
         modifier: int = 0,
         modifier_amount: Optional[dict[str, Any]] = None,
         modifier_subtract: bool = False,
+        referent_ids: Optional[list[int]] = None,
     ) -> None:
         super().__init__(source)
         self.sides = int(sides)
+        #: A repeated roll ("you may roll again", Delina) keeps the referent the first roll's table rows read ("that
+        #: creature" — the header's chosen target): the objects' ids, restored as `previous_targets` when it rolls.
+        self.referent_ids = [int(i) for i in (referent_ids or [])]
         #: RULE 706.4 "roll a d20 **and add / subtract N**": a fixed ``modifier`` or an `effect_amounts` measurement
         #: taken when the roll happens (``modifier_amount``; ``modifier_subtract`` negates it). It changes the
         #: result (`GameContext.die_result`), never the natural dice in ``die_results``.
@@ -1359,6 +1363,10 @@ class RollDieEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
+        if self.referent_ids:
+            context.previous_targets = [
+                obj for obj in (context.state.find_object(i) for i in self.referent_ids) if obj is not None
+            ]
         count = self.count
         if self.count_amount is not None:
             from .. import effect_amounts  # function-scoped: effects↔amounts cycle
@@ -1458,6 +1466,20 @@ class RollDieEffect(GameEffect):
 
             for effect in _build(specs, self.source):
                 effect.apply(context, targets)
+            if row.get("roll_again") == "may":
+                self._offer_roll_again(context, targets)
+
+    def _offer_roll_again(self, context: GameContext, targets: Optional[list[Any]]) -> None:
+        """"…You may roll again." closing a results-table row (Delina, Wild Mage): the controller may repeat the whole
+        roll — table included — with the same referent."""
+        from .composition import OptionalEffect  # function-scoped: composition imports this package
+
+        again = {"type": "roll_die", "params": {
+            "sides": self.sides, "count": self.count, "ignore_lowest": self.ignore_lowest,
+            "ignore_highest": self.ignore_highest, "outcomes": self.outcomes,
+            "referent_ids": [o.instance_id for o in context.previous_targets if getattr(o, "instance_id", None)],
+        }}
+        OptionalEffect(effects=[again], prompt="Noch einmal würfeln?", source=self.source).apply(context, targets)
 
 
 CHOOSE_DIE_GROUP_KIND = "choose_die_group"

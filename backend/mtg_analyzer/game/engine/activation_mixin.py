@@ -1391,11 +1391,15 @@ class ActivationMixin:
                     source.crewed_by_ids.append(obj.instance_id)
         if cost.saddle_power:
             # RULE 702.171a (Guardian Sunmare, MEC-40) — same pool/tap
-            # mechanics as ``crew_power`` just above; no "saddled_by"
-            # bookkeeping equivalent to `crewed_by_ids` since no printed
-            # card asks "who saddled it".
+            # mechanics as ``crew_power`` just above. The tapped creatures are remembered for the turn:
+            # "a creature that saddled it this turn" (Calamity, Galloping Inferno).
+            turn = self.state.internal_turn.number
+            saddlers = list(source.saddled_by[1]) if source.saddled_by[0] == turn else []
             for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices, crewing=False) or []:
                 self.rules.set_tapped(obj, True)
+                if obj.instance_id not in saddlers:
+                    saddlers.append(obj.instance_id)
+            source.saddled_by = (turn, saddlers)
         if cost.station:
             # RULE 702.184a: tap the chosen creature, then remember its
             # power (`GameObject.station_tapped_power`) for the resolving

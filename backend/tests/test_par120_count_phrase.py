@@ -178,7 +178,7 @@ def test_spec_validation_rejects_a_bad_selector():
 def test_the_spec_vocabularies_match_the_engines():
     assert SELECTOR_ZONES == {"battlefield"} | set(continuous.COUNT_SELECTOR_ZONES)
     assert SELECTOR_DISTINCT == set(continuous._DISTINCT_KEYS) | set(continuous._DISTINCT_SET_KEYS)
-    assert SELECTOR_SCOPES == {"you", "opponents", "any", "chosen"}
+    assert SELECTOR_SCOPES == {"you", "opponents", "any", "chosen", "defending"}  # PAR-153: the source's defender
 
 
 def test_cda_amount_expressions_and_distinct_values_execute():

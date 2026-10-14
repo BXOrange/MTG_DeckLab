@@ -164,6 +164,9 @@ class _CompositeEffect(GameEffect):
             damaged_this_way=list(getattr(context, "damaged_this_way", []) or []),
             previous_selector=getattr(context, "previous_selector", None),
             revealed_card=getattr(context, "revealed_card", None),
+            # What the body made is a referent for the clauses after this node too: "create X tokens …, where X is
+            # …. Exile the tokens at the beginning of the next end step." (Nacatl War-Pride's `bind`).
+            created_sink=context.created_objects,
         )
 
 
@@ -577,6 +580,14 @@ class ForEachEffect(_CompositeEffect):
                 return [p for p in living if p.id == controller_id]
             return living
         selector = self.over.get("selector")
+        if isinstance(selector, dict) and selector.get("zone", "battlefield") != "battlefield":
+            # PAR-153: "for each creature card you own in exile with a memory counter on it" (Altaïr) — a card
+            # zone, which `group_selector_objects` (battlefield statics) does not read.
+            from ..continuous import _structured_selector_objects  # function-scoped: cycle
+
+            return list(_structured_selector_objects(
+                context.state, effect_conditions._controller_id(self.source, context), selector, self.source,
+            ))
         if selector:
             from ..continuous import group_selector_objects  # function-scoped: cycle
 

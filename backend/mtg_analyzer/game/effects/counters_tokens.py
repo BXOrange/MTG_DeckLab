@@ -3788,7 +3788,7 @@ class CopyPermanentEffect(GameEffect):
             referent
             if referent in (
                 "source", "previous", "previous_each", "trigger_event", "linked_exile",
-                "attachments_each", "iteration",
+                "attachments_each", "iteration", "exiled_by_source",
             )
             else "source"
         )
@@ -4004,6 +4004,18 @@ class CopyPermanentEffect(GameEffect):
                     from ...models.game.game_object import GameObject
 
                     target = GameObject(copiable, owner_id=(event or {}).get("owner_id"), zone=Zone.BATTLEFIELD)
+            elif self.referent == "exiled_by_source":
+                # RULE 610.3: "…a copy of the exiled card" — the card this very permanent's "exile … until ~
+                # leaves the battlefield" took (Phantom Steed). Read, not consumed: it attacks every turn.
+                target = None
+                for record in reversed(context.state.until_source_leaves_exiles):
+                    if (self.source is not None and record["source_id"] == self.source.instance_id
+                            and record["source_incarnation"] == self.source.zone_incarnation):
+                        candidate = context.state.find_object(record["exile_id"])
+                        if (candidate is not None and candidate.zone == Zone.EXILE
+                                and candidate.zone_incarnation == record["exile_incarnation"]):
+                            target = candidate
+                            break
             elif self.referent == "linked_exile":
                 iid = getattr(self.source, "linked_exile_id", None)
                 if self.source is not None:
@@ -4084,11 +4096,23 @@ class CopyPermanentEffect(GameEffect):
             return
         if self.enter_attacking:
             defender = getattr(copied, "combat_defender", None) if getattr(copied, "attacking", False) else None
+            inherited = False
+            if not defender and getattr(self.source, "attacking", False):
+                # "Whenever ~ attacks, create a tapped and attacking token that's a copy of <a card that is not
+                # itself attacking>" (Phantom Steed, Gyrus): RULE 508.4a lets the controller pick; absent a
+                # choice UI the tokens join their source's attack, and may then be moved to a planeswalker.
+                defender = getattr(self.source, "combat_defender", None)
+                inherited = bool(defender)
+            joined = []
             for obj in made:
                 if defender:
-                    context.engine.put_onto_battlefield_attacking(obj, defender=dict(defender))
+                    if context.engine.put_onto_battlefield_attacking(obj, defender=dict(defender)):
+                        joined.append(obj)
                 else:
                     context.engine.put_onto_battlefield_attacking(obj)
+            if inherited and defender.get("kind") == "player" and joined and getattr(context, "iteration_item", None) is None:
+                controller = context.state.player_by_id(self.source.controller_id)
+                context.engine._offer_attack_defenders(controller, [(obj, defender["id"]) for obj in joined])
 
 
 class EnterAsCopyReplacement(GameEffect):

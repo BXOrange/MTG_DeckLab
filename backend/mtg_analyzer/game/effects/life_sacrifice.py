@@ -2465,6 +2465,10 @@ class TragicArroganceEffect(GameEffect):
                     context.put_into_graveyard(o)
 
 
+#: `SacrificeUnlessPayEffect`'s cost sentinel for "an amount of {E} equal to its mana value" (Satya, Aetherflux Genius).
+ENERGY_EQUAL_MANA_VALUE_COST = "energy_equal_mana_value"
+
+
 class SacrificeUnlessPayEffect(GameEffect):
     """"Sacrifice ~ unless you pay `<cost>`." (RULE 701.17 + an "unless"
     payment) — the single most common upkeep-trigger body on old cards
@@ -2512,6 +2516,12 @@ class SacrificeUnlessPayEffect(GameEffect):
         cost_text = self.cost_text
         if cost_text == "source_mana_cost":
             cost_text = getattr(subject.card, "mana_cost_string", "")
+        elif cost_text == ENERGY_EQUAL_MANA_VALUE_COST:
+            # "…sacrifice that token unless you pay an amount of {E} equal to its mana value" (Satya): one {E}
+            # per point of the token's mana value (RULE 122 energy; a mana value of 0 costs nothing to keep).
+            cost_text = "{E}" * int(subject.mana_value or 0)
+            if not cost_text:
+                return
         cost = parse_activation_cost(cost_text)
         if cost.is_free:
             # `parse_activation_cost` returns a *free* cost for text it

@@ -56,7 +56,10 @@ def test_subtype_and_tail_forms_are_folded_without_claiming_unknown_forms():
     ) == {"count_selector": {"zone": "battlefield", "of": "you", "filter": {"subtype": "town", "not_reference": True}}, "generic_per": 1}
     assert _parse(
         "This ability costs {1} less to activate for each modified creature you control."
-    ) == {"count_selector": "modified_creatures_you_control", "generic_per": 1}
+    ) == {  # PAR-153: the shared count grammar reads "modified" itself now (the named selector counts the same set)
+        "count_selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "modified": True}},
+        "generic_per": 1,
+    }
     assert _parse(
         "This ability costs {1} less to activate for each creature with power 4 or greater your opponents control."
     ) == {

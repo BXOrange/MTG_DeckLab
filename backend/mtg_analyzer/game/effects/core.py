@@ -1335,6 +1335,7 @@ def _apply_effects_partitioned(
     coin_outcome: Optional[dict[str, Any]] = None,
     stack_item: Optional[Any] = None,
     die_state: Optional[dict[str, Any]] = None,
+    created_sink: Optional[list[Any]] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -1431,6 +1432,7 @@ def _apply_effects_partitioned(
     context.milled_objects = None
     context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
+    created_before_run = len(context.created_objects)
     context.life_lost_this_way = life_lost_this_way
     context.excess_damage_this_way = excess_damage_this_way
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
@@ -1565,6 +1567,10 @@ def _apply_effects_partitioned(
                 return True
         return False
     finally:
+        if created_sink is not None:
+            # A loop body (`for_each`, ENG-35) hands what each pass made back to the instruction that ran the loop,
+            # so a later "exile those tokens at end of combat" names them (Mirror-Style Master, Altaïr).
+            created_sink.extend(context.created_objects[created_before_run:])
         context.previous_targets = outer_previous
         context.moved_objects = outer_moved
         context.milled_objects = outer_milled

@@ -1053,6 +1053,14 @@ def _structured_selector_objects(
         or (scope == "attached_controller" and source is not None
             and p.id == getattr(state.find_object(getattr(source, "attached_to", None)), "controller_id", None))
     ]
+    if scope == "defending":
+        # RULE 506.2: "defending player" — the player (or the planeswalker's/battle's controller) the source
+        # attacks (Nacatl War-Pride's "creatures defending player controls").
+        defender = getattr(source, "combat_defender", None) or {}
+        defending_id = defender.get("id") if defender.get("kind") == "player" else None
+        if defending_id is None and defender.get("instance_id") is not None:
+            defending_id = getattr(state.find_object(defender["instance_id"]), "controller_id", None)
+        players = [p for p in state.players if p.id == defending_id]
     zone = spec.get("zone", "battlefield")
     filt = spec.get("filter") or None
     matched: list[Any] = []

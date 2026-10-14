@@ -217,7 +217,7 @@ GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
 #: because this package cannot import `game/`; `tests/test_par120_count_phrase.py`
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
-SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen"})
+SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen", "defending"})
 SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "color", "door_name"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
 SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})

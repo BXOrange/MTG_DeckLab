@@ -62,6 +62,7 @@ from .subgrammars import (
     resolve_color_word,
     resolve_spell_filter,
     resolve_target_creature_state_filter,
+    target_adjective_filter,
     target_quality_filter,
     resolve_target_kind,
     target_is_optional,
@@ -768,6 +769,12 @@ def _copy_head_params(m: re.Match[str]) -> Optional[dict]:
     return params
 
 
+#: The trailing state of a copy that is put onto the battlefield attacking (RULE 508.4): "…a copy of that card
+#: **and that's tapped and attacking**" (Gyrus), "…copies of it **and that are tapped and attacking**" (Nacatl
+#: War-Pride); the leading "create a tapped and attacking token" spelling is `_COPY_HEAD`'s own ``ta``/``tb``.
+_COPY_AND_TA = r"(?P<and_ta> and that(?:'s| are) tapped and attacking)?"
+
+
 #: RULE 707/706.2's "create a token that's a copy of target X[, except
 #: <modifier>[, <modifier>...][ and <modifier>]]" (Cackling Counterpart/
 #: Rite of Replication/Multiversal Recruitment/Impostor Syndrome-shaped) —
@@ -778,7 +785,7 @@ def _copy_head_params(m: re.Match[str]) -> Optional[dict]:
 _COPY_PERMANENT_RE = _c(
     # The comma before "except" is optional: "a copy of that creature except it's an artifact" (Faerie Artisans).
     # PAR-148: "…a copy of another target attacking creature **and that's tapped and attacking**" (Flamerush Rider).
-    rf"{_COPY_HEAD}{TARGET}(?P<and_ta> and that'?s tapped and attacking)?(?:,?\s+except (?P<except_tail>.+))?"
+    rf"{_COPY_HEAD}{TARGET}{_COPY_AND_TA}(?:,?\s+except (?P<except_tail>.+))?"
 )
 
 #: PAR-142: the granted end-step clause of a temporary copy — "…except it has haste and \"at the beginning of the
@@ -786,8 +793,10 @@ _COPY_PERMANENT_RE = _c(
 #: Shimmer). The same delayed trigger the sentence form "sacrifice it at the beginning of the next end step"
 #: (Kiki-Jiki) emits, on the object the copy made — so the grant is modelled as that delayed trigger, not a
 #: granted ability on the token.
+#: PAR-153 (Delina, Wild Mage): the same grant timed "at end of combat" (RULE 511.2) -- ``when`` tells them apart.
 _COPY_END_STEP_GRANT_RE = re.compile(
-    r'(?:,? and |, )"at the beginning of the end step, (?P<verb>sacrifice|exile) ~\.?"\s*$', re.IGNORECASE,
+    r'(?:,? and |, )(?:it has )?"at (?P<when>the beginning of the end step|end of combat), (?P<verb>sacrifice|exile) ~\.?"\s*$',
+    re.IGNORECASE,
 )
 
 
@@ -796,10 +805,13 @@ def _copy_with_tail(params: dict, tail: Optional[str]) -> Optional[list[EffectSp
     modifiers, and — for a granted end-step clause — the delayed trigger that ends the copy. ``None`` (fail
     closed) when any piece of the tail is unrecognised."""
     delayed: Optional[str] = None
+    step = "end"
     if tail:
         grant = _COPY_END_STEP_GRANT_RE.search(tail)
         if grant is not None:
             delayed = grant.group("verb").lower()
+            if grant.group("when").lower() == "end of combat":
+                step = "end_combat"
             tail = tail[: grant.start()]
         extra = _parse_copy_except_tail(tail) if tail.strip() else {}
         if extra is None:
@@ -808,7 +820,9 @@ def _copy_with_tail(params: dict, tail: Optional[str]) -> Optional[list[EffectSp
     specs = [EffectSpec("copy_permanent", params)]
     if delayed is not None:
         specs.append(EffectSpec("create_delayed_trigger", {
-            "step": "end", "scope": "any", "capture": "previous_or_self",
+            "step": step, "scope": "any",
+            # An end-of-combat grant ends the copy this clause made, never the creature it copied.
+            "capture": "created_objects" if step == "end_combat" else "previous_or_self",
             "effects": [{"type": _DELAYED_TAIL_INNER[delayed], "params": {}}],
         }))
     return specs
@@ -829,6 +843,155 @@ def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if state_filter:
         params["creature_filter"] = state_filter  # "target nonlegendary creature" (Kiki-Jiki)
     return _copy_with_tail(params, m.groupdict().get("except_tail"))
+
+
+#: PAR-153: the noun-phrase axis of a copy's target that `TARGET` has no row for — a creature **subtype** as the noun
+#: ("another target villain you control", Loki, the Deceiver) and/or **several adjectives** ("target attacking
+#: legendary creature you control other than ~", Shaun, Father of Synths). Each adjective is one filter fragment
+#: (a combat state, or `target_adjective_filter`'s supertype/colour/"nontoken"/subtype vocabulary), merged into the
+#: ``creature_filter`` the plain target row carries; a word outside that vocabulary fails the clause closed. Only
+#: reached when `_COPY_PERMANENT_RE` (every phrase `TARGET` knows) did not claim the clause.
+_COPY_NP_RE = _c(
+    rf"{_COPY_HEAD}(?P<up_to_one>up to (?:1|one) )?(?P<other>(?:another|other) )?target "
+    r"(?P<adjs>(?:[a-z-]+ )*?)(?P<noun>[a-z-]+) you control(?P<excl> other than ~)?"
+    rf"{_COPY_AND_TA}(?:,?\s+except (?P<except_tail>.+))?"
+)
+
+#: RULE 205.3: subtypes of the other card types — a creature target never carries them, so a "target <word> you
+#: control" naming one is some other target kind (an Equipment, an Aura, a Gate…) and not this row's business.
+_NONCREATURE_SUBTYPE_WORDS: frozenset[str] = frozenset({
+    # artifact (205.3g)
+    "attraction", "blood", "clue", "contraption", "equipment", "food", "fortification", "gold", "incubator",
+    "junk", "map", "powerstone", "treasure", "vehicle", "lander", "shard", "role",
+    # enchantment (205.3h)
+    "aura", "background", "case", "class", "curse", "rune", "saga", "shard", "shrine", "cartouche", "room",
+    # land (205.3i)
+    "cave", "desert", "forest", "gate", "island", "lair", "locus", "mine", "mountain", "plains", "power-plant",
+    "sphere", "swamp", "tower", "town", "urza's",
+    # spell / planeswalker / battle (205.3j-k)
+    "adventure", "arcane", "lesson", "omen", "trap", "siege",
+})
+
+#: A combat-state adjective of a target phrase → its `combat.matches_object_filter` fragment.
+_COPY_NP_STATE_WORDS: dict[str, dict] = {
+    "attacking": {"attacking": True}, "blocking": {"blocking": True},
+    "tapped": {"tapped": True}, "untapped": {"tapped": False},
+}
+
+
+def _copy_np_filter(adjs: str, noun: str) -> Optional[dict]:
+    """The ``creature_filter`` of ``<adjectives> <noun>`` (``None`` = a word outside the vocabulary)."""
+    from .subtype_vocabulary import SUBTYPES
+
+    fragment: dict = {}
+    for word in adjs.split():
+        piece = _COPY_NP_STATE_WORDS.get(word.lower())
+        if piece is None:
+            piece = target_adjective_filter(word)
+        if piece is None:
+            return None
+        fragment.update(piece)
+    noun = noun.lower()
+    if noun != "creature":
+        if noun not in SUBTYPES or noun in _NONCREATURE_SUBTYPE_WORDS or "subtype" in fragment:
+            return None
+        fragment["subtype"] = noun.capitalize()
+    return fragment
+
+
+def _copy_permanent_np(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    fragment = _copy_np_filter(m.group("adjs"), m.group("noun"))
+    head = _copy_head_params(m)
+    if fragment is None or head is None:
+        return None
+    other = bool(m.group("other") or m.group("excl"))
+    params: dict = {
+        "target_kind": "other_creature_you_control" if other else "creature_you_control", **head,
+    }
+    if m.group("up_to_one"):
+        params["optional"] = True
+    if fragment:
+        params["creature_filter"] = fragment
+    if m.groupdict().get("and_ta"):
+        params["tapped"] = True
+        params["attacking"] = True
+    return _copy_with_tail(params, m.groupdict().get("except_tail"))
+
+
+#: PAR-153: "…a copy of **the exiled card**, except it's an Illusion in addition to its other types" (Phantom Steed)
+#: — the card this permanent's own "exile … until ~ leaves the battlefield" took (RULE 610.3): neither a fresh target
+#: nor a pronoun for an earlier clause, so its own referent (`CopyPermanentEffect`'s ``"exiled_by_source"``).
+_COPY_EXILED_CARD_RE = _c(
+    rf"{_COPY_HEAD}the exiled card{_COPY_AND_TA}(?:,?\s+except (?P<except_tail>.+))?"
+)
+
+
+def _copy_exiled_card(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    head = _copy_head_params(m)
+    if head is None:
+        return None
+    params: dict = {"target_kind": None, "referent": "exiled_by_source", **head}
+    if m.groupdict().get("and_ta"):
+        params["tapped"] = True
+        params["attacking"] = True
+    return _copy_with_tail(params, m.groupdict().get("except_tail"))
+
+
+#: PAR-153: "create X tokens that are copies of **it** and that are tapped and attacking" in a "whenever ~ …"
+#: ability (Nacatl War-Pride) — the pronoun is the ability's own source, which only a self-subject trigger body
+#: guarantees (an earlier clause's target would read the same), so the row is `self_subject_only`.
+_COPY_SELF_IT_RE = _c(
+    rf"{_COPY_HEAD}it{_COPY_AND_TA}(?:,?\s+except (?P<except_tail>.+))?"
+)
+
+
+def _copy_self_it(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    head = _copy_head_params(m)
+    if head is None:
+        return None
+    if not (m.groupdict().get("and_ta") or m.groupdict().get("ta") or m.groupdict().get("tb")):
+        # Only the attack-time shape: a bare "create a token that's a copy of it" is a cast trigger's copy of the
+        # *spell* ("When you cast this spell …", Osgood) and a counted "two tokens that are copies of it" copies a
+        # prototyped permanent (Skitterbeam Battalion) -- neither is this row's reading.
+        return None
+    params: dict = {"target_kind": None, "referent": "source", **head}
+    if m.groupdict().get("and_ta"):
+        params["tapped"] = True
+        params["attacking"] = True
+    return _copy_with_tail(params, m.groupdict().get("except_tail"))
+
+
+#: PAR-153 (Calamity, Galloping Inferno): "choose a nonlegendary creature that saddled it this turn and create a tapped
+#: and attacking token that's a copy of it. Sacrifice that token at the beginning of the next end step. Repeat this
+#: process once." — RULE 702.171 saddlers (`GameObject.saddled_by_ids`) are the pool of a `choose_objects` pick, whose
+#: ``then`` copies the pick (RULE 508.4, tapped and attacking) and arms its end-step sacrifice. "Repeat this process
+#: once" runs the whole choose-copy-sacrifice again (the same creature may be chosen twice, per the rulings), so the
+#: pair is emitted twice. The three sentences are one row because the sacrifice names a token only the pick's own
+#: ``then`` creates.
+_CHOOSE_SADDLER_COPY_RE = _c(
+    r"choose an? (?P<adj>nonlegendary )?creature that saddled it this turn and create a tapped and attacking token "
+    r"that'?s a copy of it\.? sacrifice that token at the beginning of the next end step"
+    r"(?P<repeat>\.? repeat this process once)?"
+)
+
+
+def _choose_saddler_copy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    pick: dict = {
+        "action": "select_referent", "what": "creature", "count": 1, "saddlers_only": True,
+        "then": [
+            {"type": "copy_permanent", "params": {
+                "target_kind": None, "referent": "previous", "tapped": True, "attacking": True,
+            }},
+            {"type": "create_delayed_trigger", "params": {
+                "step": "end", "scope": "any", "capture": "created_objects",
+                "effects": [{"type": "sacrifice_specific", "params": {}}],
+            }},
+        ],
+    }
+    if m.group("adj"):
+        pick["permanent_filter"] = {"nonlegendary": True}
+    rounds = 2 if m.group("repeat") else 1
+    return [EffectSpec("choose_objects", dict(pick)) for _ in range(rounds)]
 
 
 #: "Create a token that's a copy of ~, except it has haste." (Splinter
@@ -885,7 +1048,7 @@ def _copy_permanent_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpe
 #: off an earlier clause that announced a target. Shares
 #: `_parse_copy_except_tail` with the plain-target row above.
 _COPY_PERMANENT_PREVIOUS_RE = _c(
-    rf"{_COPY_HEAD}(?:it|that (?:card|creature|permanent|artifact|enchantment|land))"
+    rf"{_COPY_HEAD}(?:it|that (?:card|creature|permanent|artifact|enchantment|land)){_COPY_AND_TA}"
     r"(?:,?\s+except (?P<except_tail>.+))?"
 )
 
@@ -897,6 +1060,9 @@ def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # "create a **tapped and attacking** token that's a copy of that card…" (RULE 508.4 — Sauron, the
     # Necromancer). `CopyPermanentEffect` already takes ``tapped``/``attacking``.
     params: dict = {"target_kind": None, "referent": "previous", **head}
+    if m.groupdict().get("and_ta"):
+        params["tapped"] = True
+        params["attacking"] = True
     return _copy_with_tail(params, m.groupdict().get("except_tail"))
 
 
@@ -5998,8 +6164,14 @@ def _return_pick_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _EXILE_FROM_GRAVEYARD_RE = _c(
     rf"exile (?P<up_to_one>{UP_TO_ONE})(?:target |an? )"
     rf"(?:(?P<colors>{_COLOR_WORD_LIST_INNER}) )?"
-    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card(?P<cycling> with a cycling ability)? from "
+    # PAR-153: a creature-subtype adjective ("target Assassin creature card", Altaïr Ibn-La'Ahad).
+    r"(?:(?P<sub>[a-z-]+) (?=creature card))?"
+    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card(?P<cycling> with a cycling ability)?"
+    # PAR-153: "…creature card **with lesser power** from your graveyard" (Gyrus) — less than the source's power.
+    r"(?P<lesser> with lesser power)? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
+    # PAR-153: "…from your graveyard **with a memory counter on it**" — the card is exiled carrying it.
+    r"(?: with an? (?P<ckind>[a-z]+) counter on it)?"
 )
 
 
@@ -6021,6 +6193,22 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["colors"] = colors
     elif m.groupdict().get("colors"):
         return None  # a colour list we couldn't resolve — fail closed
+    creature_filter: dict = {}
+    if m.groupdict().get("sub"):
+        from .subtype_vocabulary import SUBTYPES
+
+        sub = m.group("sub").lower()
+        if sub not in SUBTYPES or sub in _NONCREATURE_SUBTYPE_WORDS or m.groupdict().get("type") != "creature":
+            return None
+        creature_filter["subtype"] = sub.capitalize()
+    if m.groupdict().get("lesser"):
+        if m.groupdict().get("type") != "creature":
+            return None  # only a creature card has the power to compare
+        creature_filter["power_vs_reference"] = "less"
+    if creature_filter:
+        params["creature_filter"] = creature_filter
+    if m.groupdict().get("ckind"):
+        params["exile_counters"] = {m.group("ckind").lower(): 1}
     return [EffectSpec("exile", params)]
 
 
@@ -15118,6 +15306,8 @@ _DELAYED_SAC_EXILE_WHEN_FIRST_RE = _c(
     r"(?:your|its owner'?s) hand"
     r")"
     r"(?P<unless> unless ~ is your ring-bearer)?"
+    # PAR-153 (Satya, Aetherflux Genius): "sacrifice that token unless you pay an amount of {E} equal to its mana value".
+    r"(?P<unless_energy> unless you pay an amount of \{e\} equal to its mana value)?"
     r"(?:\.\s*(?:if|when) you do,\s*(?P<after>.+))?"
 )
 
@@ -15143,6 +15333,10 @@ def _delayed_sac_exile_when_first(m: re.Match[str]) -> Optional[list[EffectSpec]
     inner = _DELAYED_TAIL_INNER[verb]
     obj = (m.groupdict().get("obj") or m.groupdict().get("obj_return") or "").strip().lower()
     effects_list: list[dict] = [{"type": inner, "params": {}}]
+    if m.groupdict().get("unless_energy"):
+        if verb != "sacrifice":
+            return None
+        effects_list = [{"type": "sacrifice_unless_pay", "params": {"cost": "energy_equal_mana_value"}}]
     after = (m.groupdict().get("after") or "").strip()
     if after:
         # No `previous_subject`/`self_subject` here on purpose — see this
@@ -16923,6 +17117,11 @@ HANDLERS: list[EffectHandler] = [
         _COPY_SELF_RE,
         _copy_self,
     ),
+    # PAR-153: the noun-phrase axis `TARGET` lacks (creature-subtype noun, stacked adjectives, "other than ~").
+    EffectHandler("copy_permanent_np", _COPY_NP_RE, _copy_permanent_np),
+    EffectHandler("copy_exiled_card", _COPY_EXILED_CARD_RE, _copy_exiled_card),
+    EffectHandler("choose_saddler_copy", _CHOOSE_SADDLER_COPY_RE, _choose_saddler_copy),
+    EffectHandler("copy_self_it", _COPY_SELF_IT_RE, _copy_self_it, self_subject_only=True),
 
     # PAR-18: "exile up to 1 target creature card from a graveyard. Create a
     # token that's a copy of it/that card[, except <modifier(s)>]." — the

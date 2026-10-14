@@ -374,6 +374,9 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
         prefix = first.split(" of ")[0].strip()
     elif " the " in first:
         prefix = first.split(" the ")[0].strip()
+    elif " Ibn-" in first:
+        # PAR-153: a comma-less patronymic ("Altaïr Ibn-La'Ahad") self-refers by the given name too.
+        prefix = first.split(" Ibn-")[0].strip()
     else:
         return text
     if not prefix or " " in prefix:

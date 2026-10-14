@@ -4012,7 +4012,16 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      the Seer's granted last-time-counter cast with the "remove a time counter from each other card you own in exile" sweep.
 #      One `exile_hand_card` spec (new params) over `exile_hand_choice`; the stamp (`time_counters_on_exiled`) and the sweep
 #      (`remove_time_counters_from_exile`) ride the pick's then/else specs. +3 cards.
-PARSER_VERSION = "649"
+# 650: PAR-153 -- tapped-and-attacking token copies along their referent axes. `copy_permanent` gains the noun-phrase row
+#      (a creature-subtype noun, stacked adjectives, "other than ~": Loki the Deceiver, Shaun), "the exiled card" (Phantom
+#      Steed, `referent="exiled_by_source"`), "copies of it and that are tapped and attacking" (Nacatl War-Pride, with the
+#      `of: defending` count scope and "must be blocked by exactly one creature"), the "and that's tapped and attacking" tail
+#      on a pronoun referent (Gyrus), a `for_each` over attacking modified creatures / marked exile cards (Mirror-Style
+#      Master, Altair), a chosen saddler (Calamity: `choose_objects` `saddlers_only`), the energy sacrifice-unless-pay tail
+#      (Satya) and a d20 row with "create one of those tokens. You may roll again." (Delina). +10 ticket cards; the shared
+#      pieces also claim Ambitious Assault, Ashling's/Brigid's Command, Biorganic Carapace, Chishiro, Coastline Marauders,
+#      Goro-Goro, Kami's Flare, Upriser Renegade, Walking Skyscraper.
+PARSER_VERSION = "650"
 
 
 def parser_source_hash() -> str:
@@ -4230,6 +4239,9 @@ _DICE_INDICATED_ROW_RE = re.compile(r"^(?P<lo>\d+)\s*[—–-]\s*(?P<body>.+?)\.
 #: later row names the earlier row's token, so it is that row's text with the count changed.
 _DICE_ONE_TOKEN_ROW_RE = re.compile(r"^create an? (?P<token>.+?) tokens?$", re.IGNORECASE)
 _DICE_OF_THOSE_TOKENS_RE = re.compile(r"^create (?P<n>\d+) of those tokens$", re.IGNORECASE)
+_DICE_COPY_TOKEN_ROW_RE = re.compile(r"^create an? (?:tapped and attacking )?token that'?s a copy of ", re.IGNORECASE)
+#: "…you may roll again" closing a results-table row (Delina, Wild Mage): the roll repeats, table and all.
+_DICE_ROLL_AGAIN_TAIL_RE = re.compile(r"\.?\s*you may roll again\.?$", re.IGNORECASE)
 
 
 def _expand_of_those_tokens(
@@ -4237,15 +4249,22 @@ def _expand_of_those_tokens(
 ) -> list[tuple[Optional[int], Optional[int], str]]:
     """``rows`` with each "create N of those tokens" spelled out as the token an earlier row of the table created."""
     token: Optional[str] = None
+    copy_body: Optional[str] = None
     out: list[tuple[Optional[int], Optional[int], str]] = []
     for lo, hi, body in rows:
         plural = _DICE_OF_THOSE_TOKENS_RE.match(body.strip())
-        if plural is not None and token is not None:
+        if plural is not None and copy_body is not None and plural.group("n") == "1":
+            # PAR-153 (Delina): "create one of those tokens" after a "create a … token that's a copy of …" row is
+            # that same row again (the tokens are its copy, with its exceptions).
+            body = copy_body
+        elif plural is not None and token is not None:
             body = f"create {plural.group('n')} {token} tokens"
         else:
             single = _DICE_ONE_TOKEN_ROW_RE.match(body.strip())
             if single is not None and "token" not in single.group("token"):
                 token = single.group("token")
+            if _DICE_COPY_TOKEN_ROW_RE.match(body.strip()):
+                copy_body = body.strip()
         out.append((lo, hi, body))
     return out
 
@@ -4273,8 +4292,8 @@ def _split_dice_table_block(
 
     Returns ``(header, rows, next_index)`` where ``rows`` is a list of ``(lo, hi_or_None, body_text)`` — ``lo`` is
     ``None`` for "N or less" (open below) and ``hi`` ``None`` is the ``N+`` open-ended endpoint — or ``None`` if
-    ``lines[start]`` isn't this shape or a row is malformed (fail-closed). The "you may roll again" recursion
-    (Delina) is deliberately out of scope: its rows fail to parse and the card stays UNMODELED.
+    ``lines[start]`` isn't this shape or a row is malformed (fail-closed). The "you may roll again" tail of a row is
+    recognised by `_process_dice_table_block` (PAR-153, Delina).
     """
     header = lines[start].strip()
     if _DICE_HEADER_ROLL_RE.search(header) is None:
@@ -5241,7 +5260,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         )
         self_referent = spec.ability_kind != "triggered" or (spec.trigger or {}).get("condition") == {"subject": "self"}
         outcomes: list[dict[str, Any]] = []
-        for lo, hi, body in _expand_of_those_tokens(rows):
+        roll_again_rows: set[int] = set()
+        stripped_rows: list[tuple[Optional[int], Optional[int], str]] = []
+        for lo, hi, body in rows:
+            again = _DICE_ROLL_AGAIN_TAIL_RE.search(body)
+            if again is not None:
+                roll_again_rows.add(len(stripped_rows))
+                body = body[: again.start()].strip()
+            stripped_rows.append((lo, hi, body))
+        for index, (lo, hi, body) in enumerate(_expand_of_those_tokens(stripped_rows)):
             # "it" in a row is whatever the header established: a chosen target, else the ability's own source.
             body_specs = parse_effect_body(body) or (
                 parse_effect_body(body, previous_subject=True) if referent
@@ -5251,6 +5278,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 _fail()
                 return
             row_out: dict[str, Any] = {"effects": [s.to_dict() for s in body_specs]}
+            if index in roll_again_rows:
+                row_out["roll_again"] = "may"
             if lo is not None:
                 row_out["min"] = lo
             if hi is not None:

@@ -675,6 +675,9 @@ class GameObject:
         #: against the *current* turn number, so it naturally goes stale
         #: the instant the turn changes.
         self.saddled_until_turn: Optional[int] = None
+        #: RULE 702.171: the creatures tapped to pay "Saddle N" this turn — "a creature that saddled it this turn"
+        #: (Calamity, Galloping Inferno) — as ``(turn number, instance ids)``; stale once the turn changes.
+        self.saddled_by: tuple[Optional[int], list[int]] = (None, [])
         #: ENG-27: whether this object's own "if you haven't added mana
         #: with this ability this turn, you may add …" trigger (Carpet of
         #: Flowers) already has this turn. A per-*ability* gate, unlike
@@ -1598,6 +1601,7 @@ class GameObject:
         self.last_cost_exiled_ids = []
         self.last_cost_exiled_incarnations = {}
         self.linked_exile_ids = []
+        self.saddled_by = (None, [])
         self.haunting_instance_id = None
         self.exile_after_free_cast = False
         self.exiled_with_ids = []

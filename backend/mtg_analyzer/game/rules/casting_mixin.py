@@ -1985,6 +1985,7 @@ class CastingResolutionMixin:
                 targets,
                 None,
                 source=frame.get("source"),
+                created_sink=self.context.created_objects,
             )
         finally:
             self.context.iteration_item = outer_item

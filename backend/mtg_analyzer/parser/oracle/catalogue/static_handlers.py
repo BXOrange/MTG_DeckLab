@@ -1236,6 +1236,11 @@ _MUST_BE_BLOCKED_RE = re.compile(
     rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) must be blocked if able",
     re.IGNORECASE,
 )
+#: RULE 509.1c: "~ must be blocked by exactly one creature if able" (Nacatl War-Pride) — the count-limited sibling.
+_MUST_BE_BLOCKED_BY_ONE_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) must be blocked by exactly (?:1|one) creature if able",
+    re.IGNORECASE,
+)
 #: "All creatures able to block ~ do so." (Lure-shaped) — unlike every other
 #: row in this family, the printed *subject* of the sentence is the set of
 #: candidate blockers, not the restricted/required permanent itself (which
@@ -5674,6 +5679,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _MUST_BE_BLOCKED_RE.fullmatch(text)
     if m is not None:
         return _combat_restriction_specs(m.group("subject"), ["must_be_blocked"])
+
+    m = _MUST_BE_BLOCKED_BY_ONE_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["must_be_blocked_by_exactly_one"])
 
     m = _ALL_MUST_BLOCK_RE.fullmatch(text)
     if m is not None:

@@ -88,9 +88,16 @@ class ExileEffect(GameEffect):
         kind_if_flag: Optional[dict[str, str]] = None,
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
+        exile_counters: Optional[dict[str, int]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…exile up to one target Assassin creature card from your graveyard **with a memory counter on it**"
+        #: (Altaïr Ibn-La'Ahad, RULE 122.1): the card enters exile carrying these counters.
+        self.exile_counters = {
+            str(kind): n for kind, n in (exile_counters or {}).items()
+            if isinstance(n, int) and not isinstance(n, bool) and n > 0
+        }
         self._captured_target_incarnation = None
         self._captured_target_zone = None
         #: PAR-128: "exile all artifacts and enchantments your opponents control" — a structured
@@ -212,6 +219,9 @@ class ExileEffect(GameEffect):
 
     def _exile_object(self, context: GameContext, obj: Any) -> None:
         context.exile(obj)
+        if obj.zone == Zone.EXILE:
+            for kind, n in self.exile_counters.items():
+                obj.add_counters(kind, n)
         if self.until_source_leaves and obj.zone == Zone.EXILE:
             context.state.until_source_leaves_exiles.append({
                 "source_id": self.source.instance_id,

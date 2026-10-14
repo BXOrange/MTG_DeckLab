@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from .characteristic_phrase import parse_object_phrase
+from .characteristic_phrase import parse_object_phrase, parse_qualifier
 
 #: A count phrase's location suffix → the selector keys it sets. "Your opponents'"
 #: and "all" scopes are sums over those players' zones.
@@ -45,6 +45,8 @@ _ZONE_SUFFIXES: list[tuple[str, dict[str, str]]] = [
 ]
 
 _OF_FOR_CONTROLLER = {"you": "you", "not_you": "opponents"}
+_MODIFIED_ADJECTIVE = re.compile(r"\bmodified (?=(?:creature|permanent)s?\b)")
+_ZONE_COUNTER_TAIL = re.compile(r" with (?P<q>an? [a-z+/\-0-9]+ counters? on (?:it|them))$")
 _DIFFERENT = re.compile(r"\s+with different (?P<what>powers|toughnesses|names|mana values)")
 _DISTINCT_KEYS = {
     "powers": "power", "toughnesses": "toughness", "names": "name", "mana values": "mana_value",
@@ -109,6 +111,14 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         return {"terms": [first, second]}
     selector: dict[str, Any] = {}
     extra: dict[str, Any] = {}
+    # PAR-153: RULE 700.9 "attacking modified creature you control" (Mirror-Style Master) -- a permanent with a counter,
+    # Equipment or controlled Aura on it (`continuous.is_modified`). Read here, in a live count/iteration, and not in
+    # `characteristic_phrase`'s shared adjectives: a trigger head ("whenever a modified creature you control dies") would
+    # have to judge it from last-known information, which the trigger filters do not carry.
+    modified = _MODIFIED_ADJECTIVE.search(text)
+    if modified is not None:
+        extra["modified"] = True
+        text = (text[: modified.start()] + text[modified.end():]).strip()
     if text.startswith("other "):
         # "the number of other Rats on the battlefield" (Pestilence Rats): the
         # counting object's own source is excluded (the `another` idiom).
@@ -145,6 +155,15 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if different is not None:
         selector["distinct"] = _DISTINCT_KEYS[different.group("what")]
         text = (text[: different.start()] + text[different.end():]).strip()
+    # PAR-153: "creature cards you own in exile **with a memory counter on it**" (Altaïr) — a counter qualifier
+    # that trails the zone words; lifted off and ANDed into the filter like the other trailing tails.
+    zone_counter = _ZONE_COUNTER_TAIL.search(text)
+    if zone_counter is not None and any(text[: zone_counter.start()].endswith(z) for z, _ in _ZONE_SUFFIXES):
+        qualifier = parse_qualifier(zone_counter.group("q"))
+        if qualifier is None:
+            return None
+        extra.update(qualifier)
+        text = text[: zone_counter.start()]
     for suffix, keys in _ZONE_SUFFIXES:
         if text.endswith(suffix):
             parsed = parse_object_phrase(text[: -len(suffix)], plural=True)
@@ -157,6 +176,17 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
             if filt:
                 selector["filter"] = filt
             return selector
+    # PAR-153: "the number of creatures defending player controls" (Nacatl War-Pride) — the player the source is
+    # attacking (RULE 506.2), read off its ``combat_defender`` when the count is taken.
+    defending_control_tail = " defending player controls"
+    if text.endswith(defending_control_tail):
+        parsed = parse_object_phrase(text[:-len(defending_control_tail)], plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        filt = _merge_filters(parsed[0], extra)
+        if filt is None:
+            return None
+        return {"zone": "battlefield", "of": "defending", **({"filter": filt} if filt else {})}
     chosen_control_tail = " the chosen player controls"
     if text.endswith(chosen_control_tail):
         parsed = parse_object_phrase(text[:-len(chosen_control_tail)], plural=True)

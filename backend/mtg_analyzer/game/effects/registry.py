@@ -1101,6 +1101,7 @@ EffectRegistry.register(
         unless_flag=p.get("unless_flag"),
         kind_if_flag=p.get("kind_if_flag"),
         group=p.get("group"), group_player=p.get("group_player"),
+        exile_counters=p.get("exile_counters"),
     ),
 )
 EffectRegistry.register(
@@ -2431,6 +2432,7 @@ EffectRegistry.register(
         else_effects=p.get("else_effects"),
         count_amount=p.get("count_amount"),
         target_kind=p.get("target_kind"),
+        saddlers_only=bool(p.get("saddlers_only", False)),
     ),
 )
 EffectRegistry.register(
@@ -3288,7 +3290,9 @@ EffectRegistry.register(
         enter_counters=p.get("enter_counters"),
         target_count=int(p.get("target_count", 1) or 1),
         target_count_max=p.get("target_count_max"),
-        target_optional=bool(p.get("target_optional", False)),
+        # The parser's "up to one target" is spelled ``optional`` (`handlers._optional_param`) -- RULE 115.1a: zero
+        # targets is a legal choice (Satya, Aetherflux Genius); ``target_optional`` is the hand-authored spelling.
+        target_optional=bool(p.get("target_optional", p.get("optional", False))),
         set_power=p.get("set_power"),
         set_toughness=p.get("set_toughness"),
         set_colors=p.get("set_colors"),
@@ -3447,6 +3451,7 @@ EffectRegistry.register(
         modifier=p.get("modifier", 0),
         modifier_amount=p.get("modifier_amount"),
         modifier_subtract=p.get("modifier_subtract", False),
+        referent_ids=p.get("referent_ids"),
     ),
 )
 EffectRegistry.register(

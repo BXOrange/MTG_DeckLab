@@ -346,7 +346,10 @@ class CombatMixin:
         for attacker in self.attackers:
             must_any = combat.has(attacker, "must_be_blocked")
             must_all = combat.has(attacker, "all_must_block")
-            if not must_any and not must_all:
+            # RULE 509.1c: "must be blocked by exactly one creature if able" (Nacatl War-Pride) — a block by
+            # none (while some creature could) or by more than one both fail the requirement.
+            must_one = combat.has(attacker, "must_be_blocked_by_exactly_one")
+            if not must_any and not must_all and not must_one:
                 continue
             defender = self._defending_player(attacker.combat_defender)
             if defender is None:
@@ -361,6 +364,8 @@ class CombatMixin:
                         raise ValueError(f"{candidate.name} must block {attacker.name}")
             elif must_any and candidates and not attacker.blocked_by:
                 raise ValueError(f"{attacker.name} must be blocked if able")
+            if must_one and (len(attacker.blocked_by) > 1 or (not attacker.blocked_by and candidates)):
+                raise ValueError(f"{attacker.name} must be blocked by exactly one creature if able")
 
         for obj in self.state.permanents():
             # RULE 509.1c: "blocks this turn if able" — blocks any attacker it legally can (one is enough).

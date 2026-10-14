@@ -2048,6 +2048,14 @@ class TriggerCollectionMixin:
                 self._place_trigger(
                     ability, targets=[target], effects_override=effects_override, event=event
                 )
+        elif (
+            answer in (None, "decline") and ability is not None and not getattr(ability, "optional", False)
+            and any(o.get("id") == "decline" for o in choice.get("options", []))
+        ):
+            # RULE 115.1a: declining the target of a *mandatory* "up to one target" trigger chooses zero targets; the
+            # ability still goes on the stack and resolves with nothing chosen (Satya, Aetherflux Genius still
+            # gets its energy). Only a "you may" ability (RULE 603.5) drops out altogether.
+            self._place_trigger(ability, effects_override=effects_override, event=event)
         self._place_triggers(queue)
     @continuations.choice("trigger_target_multi", answer=continuations.ANSWER_STR, rule="603.3")
     def _resume_trigger_target_multi(self, choice: dict[str, Any], answer: Optional[str]) -> None:

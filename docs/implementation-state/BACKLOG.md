@@ -75,10 +75,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   (Fireflux Squad), a delayed return at the next declare-attackers step (Meandering/Meandered Towershell, Noctis, The Neutrinos), a
   granted trigger on the returned card (Olivia, Thunderkin Awakener), plus Jocasta, Nemesis Phoenix, Paladin Elizabeth Taggerdy, Strefan,
   Ultra Magnus, The Sprinkler of Stardust, Chorale of the Void, Zareth San.
-- **PAR-153 · Tapped-and-attacking token copies.** 10 cards: the referent is a subtype/"other than ~"/"up to 1 other" target (Loki,
-  Shaun, Satya), "the exiled card" (Phantom Steed), a graveyard card exiled first (Gyrus, Altaïr), a counted "for each attacking
-  modified creature"/"x tokens" (Mirror-Style Master, Nacatl War-Pride), a chosen saddler (Calamity) or a d20 row (Delina); each
-  reuses `copy_permanent` (`tapped`/`attacking`) with its own delayed exile/sacrifice.
 - **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
   checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
   step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a

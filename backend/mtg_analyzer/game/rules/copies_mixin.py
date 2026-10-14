@@ -229,6 +229,11 @@ class CopiesMixin:
             # "…in addition to its other colors" (PAR-135): the copiable colours plus these, expressed
             # through `Card.as_copy`'s replace-only ``set_colors`` so the card model needs no change.
             set_colors = sorted({*(set_colors if set_colors is not None else copiable.color_identity), *add_colors})
+        if add_types:
+            # "…it's a Synth artifact creature in addition to its other types" (Shaun, Father of Synths): a type the
+            # original already has is not added a second time ("Creature Artifact Creature").
+            present = {word.lower() for word in copiable.type_line.partition("—")[0].split()}
+            add_types = [t for t in add_types if t.lower() not in present]
         if (add_types or add_subtypes or not_legendary or set_power is not None
                 or set_toughness is not None or set_colors is not None):
             copiable = copiable.as_copy(

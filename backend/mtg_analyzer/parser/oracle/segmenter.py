@@ -4742,6 +4742,8 @@ _LEADING_FOR_EACH_OBJECT_RE = re.compile(
 )
 #: The ``referent`` values that are the pronoun "it" — re-pointed at the loop item.
 _ITERATION_REFERENTS = frozenset({"previous"})
+#: The zones a leading "for each <objects>" may iterate: the battlefield, and exile (cards a prior clause exiled).
+_ITERATION_ZONES = frozenset({"battlefield", "exile"})
 
 
 #: RULE 705 (PAR-151): "for each flip you win, `<effect>`" — the leading spelling of the suffix
@@ -4779,7 +4781,12 @@ def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
         over = {"batch_members": True}
     else:
         selector = parse_count_phrase(m.group("group"))
-        if selector is None or selector.get("zone") != "battlefield" or "terms" in selector:
+        # PAR-153: a card zone too — "for each creature card you own in exile with a memory counter on it,
+        # create a … token that's a copy of it" (Altaïr); `ForEachEffect` reads the zone's cards.
+        if (
+            selector is None or selector.get("zone") not in _ITERATION_ZONES or "terms" in selector
+            or "distinct" in selector or "aggregate" in selector
+        ):
             return None
         over = {"selector": selector}
     inner = parse_effect_body(m.group("rest").strip(), previous_subject=True)

@@ -1352,8 +1352,12 @@ class ChooseObjectsEffect(GameEffect):
         mana_value_less_than_trigger: bool = False,
         count_amount: Optional[dict[str, Any]] = None,
         target_kind: Optional[str] = None,
+        saddlers_only: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "choose a nonlegendary creature **that saddled it this turn**" (Calamity, Galloping Inferno): the pool is
+        #: the creatures tapped to pay this source's "Saddle N" during the current turn (RULE 702.171).
+        self.saddlers_only = bool(saddlers_only)
         # RULE 115: only an explicitly targeted chooser announces a player target.
         self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
         #: An `effect_amounts` operand measured as this resolves, replacing ``count`` — "untap up to X lands, where X
@@ -1388,6 +1392,11 @@ class ChooseObjectsEffect(GameEffect):
         #: False}` would apply, but this chooser has no such filter param
         #: of its own since no prior card needed one.
         self.require_untapped = require_untapped
+
+    def _saddled_this_turn(self, context: GameContext, obj: Any) -> bool:
+        """Whether ``obj`` was tapped to pay this source's Saddle cost during the current turn."""
+        turn, ids = getattr(self.source, "saddled_by", (None, []))
+        return turn == context.state.internal_turn.number and obj.instance_id in ids
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .. import combat
@@ -1437,6 +1446,7 @@ class ChooseObjectsEffect(GameEffect):
             and not (self.action == "sacrifice" and obj.cant_be_sacrificed_this_turn)
             and not (self.exclude_self and obj is self.source)
             and not (self.require_untapped and obj.tapped)
+            and (not self.saddlers_only or self._saddled_this_turn(context, obj))
         ]
         count = len(candidates) if self.count == "all" else self.count
         if self.count_amount is not None:
