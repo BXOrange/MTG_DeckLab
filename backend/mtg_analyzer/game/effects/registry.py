@@ -4682,6 +4682,11 @@ EffectRegistry.register(
             # "Equipment you control have equip {0}" (Puresteel Paladin): ``scope="activation"`` plus ``set_to_zero`` for the named
             # ``attach_kind`` (`continuous.activation_cost_reduction_for`).
             **({"set_to_zero": True, "attach_kind": str(p.get("attach_kind", "equip"))} if p.get("set_to_zero") else {}),
+            # RULE 702.6 "Equip abilities you activate …" (Bureau Headmaster, Dwarven Mauler) / an Equipment's own equip discount (Plate
+            # Armor): ``attach_kind`` without ``set_to_zero`` is a plain generic reduction narrowed by ``self_only`` / ``other_equipment``
+            # / ``targets_source`` / ``per_target_plus_one_counter`` (`continuous.activation_cost_reduction_for`).
+            **({"attach_kind": str(p["attach_kind"])} if p.get("attach_kind") and not p.get("set_to_zero") else {}),
+            **{k: True for k in ("self_only", "other_equipment", "per_target_plus_one_counter") if p.get(k)},
             # Professor Hojo: the first activation each turn that targets a creature you control (needs ``scope="activation"``).
             **({"first_targeting_own_creature": True} if p.get("first_targeting_own_creature") else {}),
             # "Activated abilities of Foods you control cost {1} less to

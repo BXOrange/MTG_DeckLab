@@ -4743,6 +4743,7 @@ _SET_COST_TO_ZERO_REDUCTION = 1000
 def activation_cost_reduction_for(
     state: "GameState", source: "GameObject", is_mana_ability: bool = False, cost: Any = None,
     targets_own_creature: Optional[bool] = None, activating_player_id: Optional[str] = None,
+    targets: Optional[list[Any]] = None,
 ) -> tuple[int, int]:
     """Net generic-mana reduction for *activating* ``source``'s own
     activated ability (Power Artifact-shaped "Enchanted artifact's
@@ -4817,6 +4818,39 @@ def activation_cost_reduction_for(
             if gate and not static_conditions.condition_holds(gate, state, ability.source, source_controller):
                 continue
             net += _SET_COST_TO_ZERO_REDUCTION
+            continue
+        if ability.params.get("attach_kind"):
+            # RULE 702.6: "Equip abilities you activate [of other Equipment | that target ~] cost {N} less to activate" (Bureau
+            # Headmaster, Bladehold War-Whip, Dwarven Mauler) and an Equipment's own "This ability costs {N} less to activate for
+            # each …" (Plate Armor, Warrior's Blades): only the named attach keyword's ability, activated by the static's controller.
+            if getattr(cost, "attach_kind", None) != ability.params["attach_kind"]:
+                continue
+            if (activating_player_id or source.controller_id) != source_controller:
+                continue
+            if ability.params.get("self_only") and source is not ability.source:
+                continue
+            if ability.params.get("other_equipment") and source is ability.source:
+                continue
+            gate = ability.params.get("active_if")
+            if gate and not static_conditions.condition_holds(gate, state, ability.source, source_controller):
+                continue
+            multiplier = 1
+            if ability.params.get("targets_source"):
+                # RULE 601.2c precedes 601.2f: the chosen target decides. ``None`` is the offer-time probe (no target chosen yet),
+                # treated best-case like a spell discount.
+                if targets is not None and not any(
+                    getattr(t, "instance_id", None) == ability.source.instance_id for t in targets
+                ):
+                    continue
+            if ability.params.get("per_target_plus_one_counter"):
+                # "for each +1/+1 counter on the creature it targets" (Warrior's Blades); no target yet reads as none.
+                multiplier = max(
+                    (max(0, int(getattr(t, "plus_one_counters", 0) or 0)) for t in targets or []), default=0
+                )
+            per = ability.params.get("per")
+            if per:
+                multiplier *= count_selector(state, source_controller, per, ability.source)
+            net += int(ability.params.get("generic", 1)) * multiplier
             continue
         if ability.affects == "attached_permanent":
             if getattr(ability.source, "attached_to", None) != source.instance_id:

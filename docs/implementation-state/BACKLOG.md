@@ -169,13 +169,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-1 · An "Equip …" line is claimed as a keyword line and its text silently dropped.** The
-  segmenter reads any line starting with "Equip" as a keyword line (`keyword_line=True`), so "Equip
-  abilities you activate [that target X] cost {N} less to activate." and "Equip {N}. This ability costs
-  … less to activate …" emit no spec: Bureau Headmaster, Bladehold War-Whip, Cloud Planet's Champion,
-  Dwarven Mauler, Helitrooper, Plate Armor / A-Plate Armor and Warrior's Blades are `MODELED` without
-  their equip-cost discount. Fix: fail the line closed unless it is a bare equip cost, then give the
-  discount its own row (activation costs have no `targets` yet — see Kopala/Strong Back).
 - **BUG-2 · "target player draws N cards and loses N life" in a reflexive / exploit trigger.** The subject-less
   "and loses …" now carries `previous_subject` (direct triggers and spells are right: Vault Plunderer, Bloodgift
   Demon); check that Unscrupulous Contractor's reflexive trigger and Fell Stinger's exploit trigger make the

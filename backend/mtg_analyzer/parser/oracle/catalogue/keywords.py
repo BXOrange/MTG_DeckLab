@@ -71,6 +71,17 @@ _COST_RUN = r"\{[^}]+\}(?:\s*\{[^}]+\})*"
 _GAP = r"[^.\n{]*?"
 
 
+#: The one equip rider the keyword line carries as a flag: a mana cost, then "Activate only once each turn." (`ActivatedAbility.once_per_turn`).
+EQUIP_ONCE_EACH_TURN_RE = re.compile(rf"^equip\s+{_COST_RUN}\.\s*activate only once each turn\.?\s*$", re.I | re.M)
+
+
+#: RULE 702.6a: "Equip—<cost>[. Activate only once each turn.]" -- a cost with no mana symbol leading it ("Sacrifice a creature",
+#: "Pay 3 life", "{2}, Pay 2 life"). The mana-only `equip` regex below would read a stray "{3}" out of "Pay {3} or discard a card".
+EQUIP_DASH_COST_RE = re.compile(
+    r"^(?:[^\n\u2014]+?\s\u2014\s)?equip\s*[\u2014\u2013-]\s*(?P<cost>[^.\n(]+?)\.(?P<once>\s*activate only once each turn\.)?\s*(?:\(.*)?$", re.I | re.M
+)
+
+
 def _slug(name: str) -> str:
     """A display/Scryfall keyword name → its canonical catalogue slug.
 
@@ -151,8 +162,10 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # only 2 cards cache-wide print it, and Commander's Plate's own is
     # hand-authored (`game/card_catalogue`) rather than built as a
     # second keyword shape for that small a yield.
+    # BUG-1: "Equip abilities you activate … cost {1} less" (Bladehold War-Whip) is a static, not the keyword line — without the
+    # ``abilities`` exclusion the gap ran on into that line's discount and stamped {1} as the card's equip cost.
     "equip": re.compile(
-        rf"\bEquip\b(?!\s+(?:commander|legendary creature)\b){_GAP}(?P<cost>{_COST_RUN})", re.I,
+        rf"\bEquip\b(?!\s+(?:commander|legendary creature|abilities)\b){_GAP}(?P<cost>{_COST_RUN})", re.I,
     ),
 }
 
@@ -708,6 +721,19 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if kdef.slug == "equip" and (dash := EQUIP_DASH_COST_RE.search(text)) is not None:
+            # A non-mana equip cost is carried as text (the Ward idiom, `costs.parse_activation_cost` reads it) only when the cost
+            # grammar fully represents it; otherwise no cost is recorded and the line stays unclaimed (never a free equip).
+            from .cost_text import scan_cost_text
+
+            param.pop("cost", None)
+            if scan_cost_text(dash.group("cost").strip()).leftover is None:
+                param["cost"] = dash.group("cost").strip()
+            if dash.group("once"):
+                param["once_per_turn"] = True
+        elif kdef.slug == "equip" and EQUIP_ONCE_EACH_TURN_RE.search(text):
+            # RULE 602.5b: "Equip {N}. Activate only once each turn." (Leather Armor) -- a per-turn activation cap on the equip ability.
+            param["once_per_turn"] = True
         if kdef.slug == "specialize":
             rider = re.search(
                 r"specialize\s+\{[^}]+\}\.\s*this ability costs \{(?P<discount>\d+)\} "

@@ -41,7 +41,7 @@ from .catalogue.handlers import (
     _MAY_EFFECT_THEN_ANTECEDENT_PHRASES,
     match_clause,
 )
-from .catalogue.keywords import ALIAS_DISPLAYS, GIFT_QUALITIES, KEYWORDS, KeywordShape
+from .catalogue.keywords import ALIAS_DISPLAYS, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
@@ -6559,6 +6559,11 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
     return False
 
 
+#: RULE 702.6: an "Equip …" line that is more than the bare cost — the "Equip abilities you activate" static family, or a sentence
+#: after the cost ("Equip {3}. This ability costs {1} less …"). "Equip legendary creature {3}" and "Equip—<cost>" stay bare.
+_EQUIP_RIDER_RE = re.compile(r"^equip(?:\s+abilities\b|\b[^.]*\.\s*\S)", re.IGNORECASE)
+
+
 def is_keyword_line(line: str) -> bool:
     """Whether ``line`` is only keyword abilities, for the gate.
 
@@ -7574,7 +7579,17 @@ def _segment_line_unsplit(
     if _SPECIALIZE_WITH_RIDER_RE.match(raw):
         return Segment(raw=raw, claimed=False)
 
-    if is_keyword_line(raw):
+    # BUG-1: "Equip—<non-mana cost>[. Activate only once each turn.]" is a keyword line only when the cost grammar fully represents
+    # the cost (RULE 602.1, `costs.parse_activation_cost`); a choice cost ("Pay {3} or discard a card") stays unclaimed, never free.
+    equip_dash = EQUIP_DASH_COST_RE.fullmatch(raw.strip())
+    if equip_dash is not None:
+        if scan_cost_text(equip_dash.group("cost").strip()).leftover is None:
+            return Segment(raw=raw, claimed=True, keyword_line=True)
+        return Segment(raw=raw, claimed=False)
+
+    # BUG-1: an "Equip abilities you activate …" static, or an "Equip {N}. <rider>" sentence, is not a bare equip cost. The keyword
+    # token's greedy `.*$` would claim it whole and drop the rider, so it falls through to the static handlers instead.
+    if is_keyword_line(raw) and (_EQUIP_RIDER_RE.match(raw) is None or EQUIP_ONCE_EACH_TURN_RE.fullmatch(raw)):
         return Segment(raw=raw, claimed=True, keyword_line=True)
 
     # PAR-79 fifth increment: see `_ETB_AND_CAST_TRIGGER_RE`'s own docstring

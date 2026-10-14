@@ -3492,7 +3492,10 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     if name not in {"equip", "fortify", "reconfigure"}:
         return None
 
-    cost_text = keyword.get("cost") or "{0}"
+    cost_text = keyword.get("cost")
+    if not cost_text:
+        # BUG-1: the parser recorded no cost (an unparsed "Equip\u2014<cost>" line); binding it as {0} would make the attach free.
+        return None
     target_kind = "permanent"
     # RULE 301.5c/306.2/702.151b: none of Equip/Fortify/Reconfigure tap the
     # source as part of their cost — it's exactly the printed cost, payable
@@ -3514,6 +3517,7 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         source=obj,
         description=_ability_description(obj, spec) or f"{name}",
         attach_kind=name,
+        once_per_turn=bool(keyword.get("once_per_turn")),
     )
 
 

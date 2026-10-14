@@ -3978,7 +3978,22 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      When you do, <effect>" on a dies trigger lowers onto `may_exile_source_then` (RULE 603.12; Paramecia Coloniex, The Balrog
 #      of Moria, Sandbender Scavengers), with "return target creature card with mana value less than or equal to ~'s power" riding
 #      `max_mana_value="source_power"`.
-PARSER_VERSION = "644"
+# 645: BUG-1 -- an "Equip ..." line that is more than a bare equip cost is no longer swallowed as a keyword line (RULE 702.6): "Equip
+#      abilities you activate [of other Equipment | that target ~] cost {N} less to activate" (Bureau Headmaster, Bladehold War-Whip,
+#      Cloud Planet's Champion, Dwarven Mauler, Helitrooper) and "Equip {N}. This ability costs {M} less to activate for each other
+#      Equipment you control / +1/+1 counter on the creature it targets" (Plate Armor, Warrior's Blades) now emit a `cost_reduction`
+#      (`scope="activation"`, `attach_kind="equip"`; `continuous.activation_cost_reduction_for` reads the chosen target). The
+#      equip keyword's cost regex no longer reads the discount line's {N} (Bladehold War-Whip printed equip {3}{R}{W}). Any other
+#      target slot (Strong Back's "enchanted creature") stays unclaimed.
+#      "Equip {N}. Activate only once each turn." (Leather Armor) rides the keyword as `once_per_turn`. "Equip\u2014<non-mana cost>[.
+#      Activate only once each turn.]" (Demonmail Hauberk, Nightmare Lash, Murderer's Axe, Inventor's Axe, Piston Sledge, Sigil of
+#      Distinction, Shredder's Armor, ...) carries the cost as text for `costs.parse_activation_cost` (the Ward idiom) when
+#      `scan_cost_text` fully represents it; a choice or "for each" cost (Bloodthorn Flail, Gavel of the Righteous, Hand of Vecna) is
+#      unclaimed (also when a "<label> \u2014 " prefix precedes it, Dark Knight's Greatsword); the gate marks any card whose equip/fortify/reconfigure
+#      keyword carries no cost UNMODELED, and `_keyword_activated_ability` no longer binds a cost-less equip/fortify/reconfigure as {0} (it was a free equip).
+#: RULE 702.6/702.67/702.151: the attach keywords whose printed cost must be captured for the ability to bind.
+_ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
+PARSER_VERSION = "645"
 
 
 def parser_source_hash() -> str:
@@ -5509,6 +5524,17 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
+
+    # BUG-1: an attach keyword whose cost the parser could not carry binds no ability (`_keyword_activated_ability` refuses a cost-less
+    # equip), so the card would be MODELED with its equip silently missing. Keep the claim and the binder in agreement.
+    for kw_spec in keyword_specs:
+        kw = kw_spec.keyword or {}
+        # Scryfall lists a DFC's keywords across both faces; only a keyword printed on this face's own text must bind.
+        if kw.get("name") in _ATTACH_KEYWORDS and not kw.get("cost") and re.search(
+            rf"\b{kw['name']}\b", raw, re.IGNORECASE
+        ):
+            all_claimed = False
+            unclaimed.append(kw_spec.raw_text)
 
     return ParseResult(
         specs=list(keyword_specs) + effect_specs,

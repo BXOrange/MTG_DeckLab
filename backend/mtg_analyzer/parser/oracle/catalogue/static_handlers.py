@@ -583,6 +583,28 @@ _ACTIVATION_COST_REDUCTION_TYPE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# RULE 702.6: "Equip abilities you activate [of other Equipment | that target ~]
+# cost {N} less to activate." (Bureau Headmaster, Bladehold War-Whip, Cloud
+# Planet's Champion, Dwarven Mauler, Helitrooper) — a static discount on the
+# controller's equip activations (`continuous.activation_cost_reduction_for`'s
+# ``attach_kind`` branch). The target slot is closed to "~"; any other target
+# ("enchanted creature", Strong Back) stays unclaimed.
+_EQUIP_ACTIVATION_DISCOUNT_RE = re.compile(
+    r"equip abilities you activate(?P<slot> of other equipment| that target ~)? "
+    r"cost \{(?P<n>\d+)\} less to activate\.?",
+    re.IGNORECASE,
+)
+
+# An Equipment's own "Equip {N}. This ability costs {M} less to activate for
+# each <X>." (Plate Armor, Warrior's Blades). The keyword spec still supplies
+# the equip ability and its printed cost; this row only carries the discount.
+# Closed vocabulary: the count must be one the engine evaluates.
+_EQUIP_SELF_DISCOUNT_RE = re.compile(
+    r"equip (?:\{[^}]+\})+\. this ability costs \{(?P<n>\d+)\} less to activate "
+    r"for each (?P<what>other equipment you control|\+1/\+1 counter on the creature it targets)\.?",
+    re.IGNORECASE,
+)
+
 # "This spell costs {N} less to cast for each `<X>`."  (RULE 601.2f
 # self-scoped discount printed on the spell itself — Embercleave, Ghoultree,
 # Primeval Protector, Vanquish the Horde) — ``affects="self"`` with a `per`
@@ -5017,6 +5039,30 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params["spell_type"] = words[0]
         elif len(words) == 2:
             params["spell_type"] = words
+        return [EffectSpec("cost_reduction", params)]
+
+    m = _EQUIP_ACTIVATION_DISCOUNT_RE.fullmatch(text)
+    if m is not None:
+        params = {
+            "scope": "activation", "attach_kind": "equip", "generic": int(m.group("n")),
+        }
+        slot = (m.group("slot") or "").strip().lower()
+        if slot == "of other equipment":
+            params["other_equipment"] = True
+        elif slot:
+            params["targets_source"] = True
+        return [EffectSpec("cost_reduction", params)]
+
+    m = _EQUIP_SELF_DISCOUNT_RE.fullmatch(text)
+    if m is not None:
+        params = {
+            "scope": "activation", "attach_kind": "equip", "self_only": True,
+            "generic": int(m.group("n")),
+        }
+        if m.group("what").lower().startswith("other"):
+            params["per"] = "other_permanents_you_control_of_subtype_equipment"
+        else:
+            params["per_target_plus_one_counter"] = True
         return [EffectSpec("cost_reduction", params)]
 
     m = _ACTIVATION_COST_REDUCTION_TYPE_RE.fullmatch(text)

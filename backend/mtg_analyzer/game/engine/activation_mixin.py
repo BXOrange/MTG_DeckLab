@@ -102,7 +102,8 @@ class ActivationMixin:
 
     def _activation_probe_targets(self, player, source, ability):
         """Possible targets for a target-dependent activation-cost probe."""
-        if not any(static.params.get("first_targeting_own_creature")
+        if not any(static.params.get("first_targeting_own_creature") or static.params.get("targets_source")
+                   or static.params.get("per_target_plus_one_counter")
                    for static in continuous._battlefield_static_abilities(self.state)):
             return []
         return [self.state.find_object(option.get("instance_id"))
@@ -474,7 +475,7 @@ class ActivationMixin:
                 and target.controller_id == (activating_player_id or source.controller_id)
                 for target in targets
             )),
-            activating_player_id=activating_player_id,
+            activating_player_id=activating_player_id, targets=targets,
         )
         colored_reduction: dict[str, int] = {}
         if cost is not None and cost.dynamic_reduction:
