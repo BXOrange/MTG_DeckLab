@@ -149,3 +149,171 @@ def test_ichor_elixir_rolls_two_planar_dice_keeps_one():
     face = eng.rules.roll_planar_die(eng.state.player_by_id("p1"))
     assert used() == 2 and len(fired) == 1
     assert face in ("chaos", "planeswalk", "blank")
+
+
+# --- the roller's interactive pick (milestone 2) -----------------------------
+
+
+from mtg_analyzer.game.rules_engine import RulesEngine  # noqa: E402
+from mtg_analyzer.services.bot_policies.base import Bot  # noqa: E402
+from mtg_analyzer.services.game_session import GameSession  # noqa: E402
+from tests.support.game import make_engine  # noqa: E402
+
+
+@pytest.fixture
+def script_dice(monkeypatch):
+    """``script_dice(3, 5)``: the next dice show these faces (``random_int`` is 0-based)."""
+    real = RulesEngine.random_int
+    queue: list[int] = []
+
+    def fake(self, n):
+        return queue.pop(0) - 1 if queue else real(self, n)
+
+    monkeypatch.setattr(RulesEngine, "random_int", fake)
+
+    def feed(*faces):
+        queue[:] = list(faces)
+
+    return feed
+
+
+def _session():
+    eng = make_engine(
+        [Card(id=f"F{i}", name=f"F{i}", type_line="Land") for i in range(5)],
+        [Card(id=f"G{i}", name=f"G{i}", type_line="Land") for i in range(5)], hand=0)
+    eng.state.current_step = "main1"
+    return GameSession(eng)
+
+
+def _cast_roller(session, text="Roll a d20. You gain life equal to the result."):
+    eng = session.engine
+    p1 = eng.state.player_by_id("p1")
+    spell = GameObject(Card(id="Roller", name="Roller", type_line="Sorcery", oracle_text=text, is_sorcery=True),
+                       owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(spell)
+    p1.hand.append(spell)
+    p1.mana_pool.add_many({"C": 10, "R": 5, "G": 5, "U": 5, "B": 5, "W": 5})
+    eng.cast_spell(p1, spell)
+    eng.resolve_until_stable()
+
+
+def _answer(session, label):
+    pending = session.engine.state.pending_choice
+    option = next(o for o in pending["options"] if o["label"] == str(label))
+    session.apply_action({"type": "choose", "option_id": option["id"]})
+
+
+def test_human_picks_the_low_die_and_the_low_result_is_used(script_dice):
+    session = _session()
+    eng = session.engine
+    _put(eng, "Krark's Other Thumb", OTHER_THUMB)
+    fired = _spy(eng, EventType.DIE_RESULT)
+    script_dice(15, 4)
+    life = eng.state.player_by_id("p1").life
+    _cast_roller(session)
+    pending = eng.state.pending_choice
+    assert pending["kind"] == "choose_die_group" and pending["player_id"] == "p1"
+    assert sorted(o["label"] for o in pending["options"]) == ["15", "4"]  # the player sees every result
+    assert not fired  # nothing announced before the pick
+    _answer(session, 4)
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice is None
+    assert [e.data["natural_result"] for e in fired] == [4]  # only the kept die ever happened
+    assert eng.state.player_by_id("p1").life == life + 4
+
+
+def test_bot_takes_the_automatic_default_pick(script_dice):
+    session = _session()
+    eng = session.engine
+    _put(eng, "Krark's Other Thumb", OTHER_THUMB)
+    script_dice(4, 15)
+    life = eng.state.player_by_id("p1").life
+    _cast_roller(session)
+    answers = [a for a in session.legal_actions() if a["type"] in ("choose", "decline")]
+    bot = Bot("p1")
+    session.apply_action(bot.answer_choice({"pending_choice": eng.state.pending_choice}, answers))
+    eng.resolve_until_stable()
+    assert eng.state.player_by_id("p1").life == life + 15  # highest die, the milestone-1 default
+
+
+def test_bare_engine_keeps_the_automatic_pick(script_dice):
+    eng = _engine()
+    _put(eng, "Krark's Other Thumb", OTHER_THUMB)
+    script_dice(4, 15)
+    assert eng.rules.roll_die(eng.state.player_by_id("p1"), sides=20, count=1) == [15]
+    assert eng.state.pending_choice is None
+
+
+def test_identical_dice_need_no_pick(script_dice):
+    session = _session()
+    eng = session.engine
+    _put(eng, "Krark's Other Thumb", OTHER_THUMB)
+    script_dice(9, 9)
+    life = eng.state.player_by_id("p1").life
+    _cast_roller(session)
+    assert eng.state.pending_choice is None
+    assert eng.state.player_by_id("p1").life == life + 9
+
+
+def test_each_die_of_a_multi_die_roll_is_its_own_pick(script_dice):
+    session = _session()
+    eng = session.engine
+    _put(eng, "Krark's Other Thumb", OTHER_THUMB)
+    script_dice(2, 6, 1, 5)  # pair one: 2 / 6, pair two: 1 / 5
+    life = eng.state.player_by_id("p1").life
+    _cast_roller(session, "Roll two d6. You gain life equal to the result.")
+    pending = eng.state.pending_choice
+    assert pending["group"] == 0 and pending["groups"] == 2
+    _answer(session, 2)
+    pending = eng.state.pending_choice
+    assert pending["group"] == 1 and sorted(o["label"] for o in pending["options"]) == ["1", "5"]
+    _answer(session, 5)
+    eng.resolve_until_stable()
+    assert eng.state.player_by_id("p1").life == life + 2 + 5
+
+
+def test_low_pick_selects_the_results_table_row(script_dice):
+    session = _session()
+    eng = session.engine
+    _put(eng, "Krark's Other Thumb", OTHER_THUMB)
+    script_dice(18, 3)
+    life = eng.state.player_by_id("p1").life
+    _cast_roller(session, "Roll a d20.\n1-5 | You gain 7 life.\n6-20 | You lose 7 life.")
+    _answer(session, 3)
+    eng.resolve_until_stable()
+    assert eng.state.player_by_id("p1").life == life + 7
+
+
+def test_pending_pick_survives_undo_snapshot_flag(script_dice):
+    session = _session()
+    assert session.engine.state.interactive_roll_picks is True
+    assert session.engine.state.clone().interactive_roll_picks is True
+
+
+def test_ichor_elixir_human_chooses_the_planar_face(monkeypatch):
+    session = _session()
+    eng = session.engine
+    _put(eng, "Ichor Elixir", ELIXIR)
+    faces = iter(["blank", "chaos"])
+    monkeypatch.setattr(RulesEngine, "random_choice", lambda self, options: next(faces))
+    fired = _spy(eng, EventType.PLANAR_DIE_ROLLED)
+    assert eng.rules.roll_planar_die(eng.state.player_by_id("p1")) is None
+    pending = eng.state.pending_choice
+    assert pending["kind"] == "choose_planar_face"
+    assert [o["id"] for o in pending["options"]] == ["chaos", "blank"]  # default (chaos) first
+    assert not fired
+    session.apply_action({"type": "choose", "option_id": "blank"})  # the human prefers a blank
+    assert [e.data["face"] for e in fired] == ["blank"]
+
+
+def test_ichor_elixir_bot_default_is_chaos(monkeypatch):
+    session = _session()
+    eng = session.engine
+    _put(eng, "Ichor Elixir", ELIXIR)
+    faces = iter(["blank", "chaos"])
+    monkeypatch.setattr(RulesEngine, "random_choice", lambda self, options: next(faces))
+    fired = _spy(eng, EventType.PLANAR_DIE_ROLLED)
+    eng.rules.roll_planar_die(eng.state.player_by_id("p1"))
+    answers = [a for a in session.legal_actions() if a["type"] in ("choose", "decline")]
+    session.apply_action(Bot("p1").answer_choice({"pending_choice": eng.state.pending_choice}, answers))
+    assert [e.data["face"] for e in fired] == ["chaos"]

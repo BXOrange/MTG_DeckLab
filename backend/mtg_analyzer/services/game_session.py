@@ -561,6 +561,7 @@ class GameSession:
         #: engine and has to re-arm it.
         self.interactive_priority = mode == MULTIPLAYER
         engine.interactive_priority = self.interactive_priority
+        engine.state.interactive_roll_picks = True  # MEC-117: pending pick answered by a human or bot
         #: Turn-1 draw option (UC3): True → the human draws on their first
         #: turn ("on the draw"); False (default) → they skip it, the standard
         #: on-the-play rule. Chosen in the setup screen; applied at keep-hand.

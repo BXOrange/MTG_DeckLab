@@ -78,6 +78,9 @@ from ..effects.core import (
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
 from .. import continuations
 
+#: MEC-117: the pending-choice kind for which planar-die face counts (Ichor Elixir's "ignore one").
+CHOOSE_PLANAR_FACE_KIND = "choose_planar_face"
+
 #: ENG-48: the highest {X} a resolve-time "you may pay {X}" offers. Payment
 #: comes from the payer's mana pool only (`_can_pay_player_cost`), so the real
 #: bound is almost always the pool itself; this only stops the affordability
@@ -2593,13 +2596,15 @@ class MiscSystemsMixin:
     #: ignore one (a bot-style default, not a rule).
     _PLANAR_FACE_PREFERENCE = ("chaos", "planeswalk")
 
-    def roll_planar_die(self, player: Player) -> str:
+    def roll_planar_die(self, player: Player) -> Optional[str]:
         """Roll the planar die (RULE 901.6) and apply its face.
 
         Returns the face rolled: ``"chaos"`` (901.13 — the face-up plane's
         chaos ability triggers), ``"planeswalk"`` (901.14 — planeswalk right
         away) or ``"blank"`` (nothing happens, which is four of the six
-        faces). Paying the {X} cost is the *special action*'s job
+        faces) — or ``None`` while the roller still has to choose which of
+        several planar dice counts (MEC-117, Ichor Elixir; the face is applied
+        by the `choose_planar_face` continuation). Paying the {X} cost is the *special action*'s job
         (`GameEngine.roll_planar_die`); this is the roll itself, so a test — or a card
         that rolls the die for free — can use it directly. Every roll fires
         `PLANAR_DIE_ROLLED`, which is what the next roll's {X} counts (RULE 901.6b).
@@ -2612,18 +2617,43 @@ class MiscSystemsMixin:
             dice = max(1, min(int(replaced.get("dice", dice)), self._MAX_PLANAR_DICE))
         # Ichor Elixir: "roll that many planar dice plus one and ignore one" —
         # the ignored faces never happened (RULE 706.6-style), only one counts.
-        # Documented simplification: the roller's pick is not interactive; the
-        # kept face is the first by `_PLANAR_FACE_PREFERENCE` (chaos, then
-        # planeswalk, then blank).
         rolled = [self.random_choice(list(variants.PLANAR_DIE_FACES)) for _ in range(dice)]
-        face = min(rolled, key=lambda f: self._PLANAR_FACE_PREFERENCE.index(f)
-                   if f in self._PLANAR_FACE_PREFERENCE else len(self._PLANAR_FACE_PREFERENCE))
+        distinct = sorted(set(rolled), key=self._planar_face_rank)
+        if getattr(self.state, "interactive_roll_picks", False) and len(distinct) > 1:
+            # MEC-117 (RULE 706.3 ruling): the roller sees every face, then
+            # chooses which one counts. The first option is the automatic pick
+            # (chaos, then planeswalk, then blank) a bot takes; the face is
+            # applied by `_resume_choose_planar_face`, so nothing is returned yet.
+            self.open_choice({
+                "kind": CHOOSE_PLANAR_FACE_KIND, "player_id": player.id, "optional": False,
+                "prompt": "Wähle das Ergebnis des Planarwürfels, das zählt (die übrigen werden ignoriert)",
+                "rolled": list(rolled),
+                "options": [{"id": face, "label": face} for face in distinct],
+            })
+            return None
+        # Automatic pick (bare engine): the first face by `_PLANAR_FACE_PREFERENCE`.
+        return self._apply_planar_face(player, distinct[0])
+
+    def _planar_face_rank(self, face: str) -> int:
+        return (self._PLANAR_FACE_PREFERENCE.index(face)
+                if face in self._PLANAR_FACE_PREFERENCE else len(self._PLANAR_FACE_PREFERENCE))
+
+    def _apply_planar_face(self, player: Player, face: str) -> str:
+        """The kept planar-die result happens (RULE 901.13 chaos / 901.14 planeswalk)."""
         self.state.fire_event(GameEvent(EventType.PLANAR_DIE_ROLLED, player_id=player.id, face=face))
         if face == "chaos":
             self.trigger_chaos(player)
         elif face == "planeswalk":
             self.planeswalk(player)
         return face
+
+    @continuations.choice(CHOOSE_PLANAR_FACE_KIND, answer=continuations.ANSWER_STR, rule="901.6")
+    def _resume_choose_planar_face(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        faces = list(choice["rolled"])
+        if answer not in faces:
+            self.open_choice(choice)
+            raise ValueError("Choose one of the rolled faces")
+        self._apply_planar_face(self.state.player_by_id(choice["player_id"]), answer)
 
     def trigger_chaos(self, player: Player) -> None:
         """RULE 901.13: "chaos ensues" — fire `CHAOS_ENSUED` for the

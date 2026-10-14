@@ -389,8 +389,32 @@ class ManaCountersMixin:
         does not yet claim. The engine has no interactive reroll pause
         either; a reroll effect would re-call this method.
         """
-        if player is None:
+        roll = self._begin_die_roll(player, sides, count, ignore_lowest, ignore_highest)
+        if roll is None:
             return []
+        # The automatic pick (bots, bare-engine callers): each group's highest die.
+        picks = [max(group) for group in roll["groups"]]
+        return self._finish_die_roll(player, roll, picks, modifier)
+
+    def _begin_die_roll(
+        self,
+        player: Optional[Player],
+        sides: int = 20,
+        count: int = 1,
+        ignore_lowest: int = 0,
+        ignore_highest: int = 0,
+    ) -> Optional[dict[str, Any]]:
+        """First half of `roll_die` (RULE 706): fire the pre-roll `ROLL_DICE`
+        replacement event and roll every physical die. Returns the roll --
+        ``groups`` holds one list of natural results per die the instruction
+        rolled (RULE 706.3 + Krark's Other Thumb: more than one when an
+        "ignore one" replacement doubled it, of which only one counts) -- for
+        `_finish_die_roll`, or ``None`` with no roller. The split exists so a
+        roller who gets a choice (MEC-117) can pick each group's kept die
+        between the two halves; nothing is announced until the second half.
+        """
+        if player is None:
+            return None
         sides = max(self._MIN_DIE_SIDES, min(int(sides), self._MAX_DIE_SIDES))
         count = max(1, min(int(count), self._MAX_DICE_COUNT))
         ignore_lowest = max(0, int(ignore_lowest))
@@ -415,12 +439,28 @@ class ManaCountersMixin:
             doublings = max(0, int(replaced.get("ignore_one_doublings", 0)))
         # RULE 706.3 + Krark's Other Thumb: every die becomes a group of
         # 2**doublings dice (each Thumb replaces each roll of the event) of
-        # which only one counts. Documented simplification: the roller's pick
-        # is not interactive (`roll_die` returns plain ints mid-resolution), so
-        # the group's highest die is kept.
+        # which only one counts.
         group = min(2 ** doublings, self._MAX_DICE_COUNT)
         natural = [self.random_int(sides) + 1 for _ in range(count * group)]
-        grouped = [max(natural[i:i + group]) for i in range(0, len(natural), group)]
+        return {
+            "sides": sides,
+            "ignore_lowest": ignore_lowest,
+            "ignore_highest": ignore_highest,
+            "groups": [natural[i:i + group] for i in range(0, len(natural), group)],
+        }
+
+    def _finish_die_roll(
+        self, player: Player, roll: dict[str, Any], picks: list[int], modifier: int = 0,
+    ) -> list[int]:
+        """Second half of `roll_die`: ``picks`` is the kept natural result of
+        each group of ``roll`` (RULE 706.3, the roller's choice among an
+        "ignore one" group's dice); apply the ignore-lowest/highest rider,
+        then fire the roll's events for the kept results only (RULE 706.6)."""
+        sides = roll["sides"]
+        ignore_lowest = roll["ignore_lowest"]
+        ignore_highest = roll["ignore_highest"]
+        natural = [value for group in roll["groups"] for value in group]
+        grouped = list(picks)
         # RULE 706.3's "ignore the lowest/highest roll" rider: drop that many
         # of each extreme from the *natural* results, keeping the rest in the
         # order they were rolled (order only matters for a "first result"/

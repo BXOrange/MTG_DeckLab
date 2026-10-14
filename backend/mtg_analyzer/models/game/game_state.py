@@ -586,6 +586,12 @@ class GameState:
         #: `_apply_effects_partitioned`, drained by `RulesEngine.
         #: resume_deferred_effects` from `GameEngine.resolve_until_stable`.
         self.deferred_effects: list[dict[str, Any]] = []
+        #: MEC-117 (RULE 706.3 / 901.6): whether a roller who gets to "ignore
+        #: one" result is *asked* which to keep. Set by `GameSession` (a human
+        #: or a bot answers the pending choice; the bot default is the
+        #: automatic pick); a bare engine leaves it off and keeps the
+        #: automatic result, so nothing waits on an answer nobody can give.
+        self.interactive_roll_picks = False
         #: RULE 700.2 / MEC-68: modes selected by a particular triggered
         #: ability during the current turn. Keys are stable for the lifetime
         #: of a bound ability (source instance id + ability object id), and

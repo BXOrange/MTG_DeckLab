@@ -1377,18 +1377,51 @@ class RollDieEffect(GameEffect):
             modifier = effect_amounts.amount_of(self.modifier_amount, context, self.source, targets)
         if self.modifier_subtract:
             modifier = -modifier
-        results = context.engine.roll_die(
+        roll = context.engine._begin_die_roll(
             player,
             sides=self.sides,
             count=int(count),
             ignore_lowest=self.ignore_lowest,
             ignore_highest=self.ignore_highest,
-            modifier=modifier,
         )
+        if roll is None:  # no roller: nothing rolled
+            self._stash_roll(context, [], modifier)
+            self._after_roll(context, player, targets)
+            return
+        pick_finish = _RollDiePickFinishEffect(self, player.id, roll, modifier, targets)
+        if (
+            getattr(context.state, "interactive_roll_picks", False)
+            and pick_finish.next_group() is not None
+        ):
+            # RULE 706.3 + Krark's Other Thumb: the roller sees every result,
+            # then chooses which one of each pair counts. Park the rest of this
+            # roll (its events, "that result", the results table) as the next
+            # deferred frame and ask; `_resume_choose_die_group` fills the
+            # picks, and the frame finishes the roll when the answers are in.
+            # The remainder of the effect list is inserted below this frame (at
+            # the depth recorded here) by `_apply_effects_partitioned`.
+            pick_finish.depth = len(context.state.deferred_effects)
+            context.state.deferred_effects.append({
+                "effects": [pick_finish], "targets": targets, "target_groups": None,
+                "source": self.source, "stack_item": None,
+                "acting_player_id": context.acting_player_id,
+            })
+            pick_finish.open_next_choice(context.engine)
+            return
+        results = context.engine._finish_die_roll(
+            player, roll, [max(group) for group in roll["groups"]], modifier,
+        )
+        self._stash_roll(context, results, modifier)
+        self._after_roll(context, player, targets)
+
+    def _stash_roll(self, context: GameContext, results: list[int], modifier: int) -> None:
         context.die_results = list(results)
         context.die_result = sum(results) + modifier  # RULE 706.4: "the result" is the modified one
         context.rolled_doubles = len(results) > 1 and len(set(results)) == 1
         context.die_choice = None
+
+    def _after_roll(self, context: GameContext, player: Any, targets: Optional[list[Any]]) -> None:
+        results = context.die_results
         if self.choose and len(results) == 2:
             if len(set(results)) == 1:
                 # Two equal dice leave nothing to choose between.
@@ -1425,6 +1458,92 @@ class RollDieEffect(GameEffect):
 
             for effect in _build(specs, self.source):
                 effect.apply(context, targets)
+
+
+CHOOSE_DIE_GROUP_KIND = "choose_die_group"
+
+
+class _RollDiePickFinishEffect(GameEffect):
+    """MEC-117: the parked second half of a `RollDieEffect` whose roller has
+    "ignore one" choices to make (RULE 706.3, Krark's Other Thumb: "roll two
+    for each one and choose which one counts").
+
+    Sits alone in a deferred tail frame while one `choose_die_group` choice is
+    open per group of dice that actually differ; once every group has a pick,
+    the frame resumes (`resume_deferred_effects`), announces the kept results
+    (`RulesEngine._finish_die_roll`) and runs the roll's tail
+    (`RollDieEffect._after_roll`: "that result", reflexive trigger, results
+    table). The unchosen dice never happened, so only the kept ones fire
+    triggers.
+    """
+
+    def __init__(
+        self, roll_effect: "RollDieEffect", player_id: str, roll: dict[str, Any], modifier: int,
+        targets: Optional[list[Any]],
+    ) -> None:
+        super().__init__(roll_effect.source)
+        self.roll_effect = roll_effect
+        self.player_id = player_id
+        self.roll = roll
+        self.modifier = modifier
+        self.targets = targets
+        #: Index into `GameState.deferred_effects` of the roll's own remainder (set by `RollDieEffect.apply`).
+        self.depth = 0
+        #: The kept natural result per group; a group whose dice all show the same face has nothing to choose.
+        self.picks: list[Optional[int]] = [
+            group[0] if len(set(group)) == 1 else None for group in roll["groups"]
+        ]
+
+    def next_group(self) -> Optional[int]:
+        return next((i for i, pick in enumerate(self.picks) if pick is None), None)
+
+    def open_next_choice(self, engine: Any) -> None:
+        index = self.next_group()
+        if index is None:
+            return
+        group = self.roll["groups"][index]
+        # One option per distinct face, highest first: the first option is the
+        # automatic pick a bot (or any default answer) takes.
+        firsts = {}
+        for i, value in enumerate(group):
+            firsts.setdefault(value, i)
+        options = [{"id": str(i), "label": str(value)} for value, i in sorted(firsts.items(), reverse=True)]
+        engine.open_choice({
+            "kind": CHOOSE_DIE_GROUP_KIND, "player_id": self.player_id, "optional": False,
+            "prompt": "Wähle das Würfelergebnis, das zählt (die übrigen werden ignoriert)",
+            "results": list(group), "group": index, "groups": len(self.roll["groups"]),
+            "options": options,
+            "source_id": getattr(self.source, "instance_id", None),
+        })
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = context.state.player_by_id(self.player_id)
+        results = context.engine._finish_die_roll(player, self.roll, list(self.picks), self.modifier)
+        self.roll_effect._stash_roll(context, results, self.modifier)
+        # The roll's own remainder was parked with the pre-roll ``die_state``; hand it the real result.
+        deferred = context.state.deferred_effects
+        if len(deferred) > self.depth and deferred[self.depth].get("die_state") is not None:
+            deferred[self.depth]["die_state"] = {
+                "die_result": context.die_result, "die_results": list(context.die_results),
+                "rolled_doubles": context.rolled_doubles, "die_choice": None,
+            }
+        self.roll_effect._after_roll(context, player, self.targets)
+
+
+@continuations.choice(CHOOSE_DIE_GROUP_KIND, answer=continuations.ANSWER_INT_REQUIRED, rule="706.3")
+def _resume_choose_die_group(rules, choice, answer):
+    """RULE 706.3: record the chosen die of one group on the parked roll, then ask for the next group."""
+    group = list(choice["results"])
+    if answer not in range(len(group)):
+        rules.open_choice(choice)
+        raise ValueError("Choose one of the listed results")
+    for entry in reversed(rules.state.deferred_effects):
+        effects = entry.get("effects") if isinstance(entry, dict) else None
+        frame = effects[0] if effects else None
+        if isinstance(frame, _RollDiePickFinishEffect) and frame.next_group() == choice["group"]:
+            frame.picks[choice["group"]] = group[answer]
+            frame.open_next_choice(rules)
+            return
 
 
 CHOOSE_DIE_RESULT_KIND = "choose_die_result"
