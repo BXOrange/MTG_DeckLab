@@ -607,6 +607,7 @@ EffectRegistry.register(
         amount=p.get("amount", "all"),
         recipient=p.get("recipient", "self"),
         optional=bool(p.get("optional", False)),
+        only_to_you=bool(p.get("only_to_you", False)),
     ),
 )
 EffectRegistry.register(
@@ -1875,6 +1876,7 @@ EffectRegistry.register(
         distinct=bool(p.get("distinct", False)),
         other_exact_mana_value=p.get("other_exact_mana_value"),
         other_instance_id=p.get("other_instance_id"),
+        tap_fighters=bool(p.get("tap_fighters", False)),
     ),
 )
 EffectRegistry.register(
@@ -1940,6 +1942,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         greatest=p.get("greatest"),
         action=p.get("action", "sacrifice"),
+        chooser=p.get("chooser"),
     ),
 )
 EffectRegistry.register(

@@ -71,7 +71,8 @@ function labelStep(name) {
 // "answer one of these options" shape, so one renderer covers them.
 const CHOICE_ICONS = {
   search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
-  land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯',
+  land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯', opponent_target: '🎯', opponent_chooser: '🧑‍⚖️',
+  opponent_sacrifice_chooser: '🧑‍⚖️',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎', door_choice: '🚪',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
@@ -97,7 +98,8 @@ const TARGET_OWNER_ZONES = ['graveyard', 'exile', 'hand', 'command'];
 // Pending-choice kinds that are RULE 115 target selections (an ability's
 // target, picked from the generic choice popup) — the ones whose candidates
 // can also be clicked on the board once the popup is pushed aside (VIS-14).
-const TARGET_CHOICE_KINDS = new Set(['trigger_target', 'trigger_target_multi', 'copy_targets']);
+// MEC-118: `opponent_target` is the same pick made by the opponent a spell's controller named ("of an opponent's choice").
+const TARGET_CHOICE_KINDS = new Set(['trigger_target', 'trigger_target_multi', 'copy_targets', 'opponent_target']);
 
 /**
  * @param {object} [opts]

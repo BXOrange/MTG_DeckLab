@@ -1076,6 +1076,7 @@ class CastingResolutionMixin:
         if not defer_cast_event:
             self._fire_expend_events(player, obj)
             self.check_ward(item, player)
+            self._begin_opponent_targets(item)  # MEC-118
         return item
 
     def _stage_cast_event(self, item, event, deferred):
@@ -1117,6 +1118,7 @@ class CastingResolutionMixin:
         living = {p.id for p in self.state.living_players()}
         self.state.stack.extend(ward for ward in item.deferred_ward_triggers if ward.controller_id in living)
         item.deferred_ward_triggers = []
+        self._begin_opponent_targets(item)  # MEC-118: the chosen opponent picks their targets now
 
     def _fire_expend_events(self, player: Player, obj: GameObject) -> None:
         """RULE 700.14: fire one `EXPEND` per N this payment crossed.
@@ -1275,6 +1277,7 @@ class CastingResolutionMixin:
         )
         if not defer_cast_event:
             self.check_ward(item, player)
+            self._begin_opponent_targets(item)  # MEC-118
         return item
     def _note_graveyard_exit(self, obj: GameObject) -> None:
         """Record a card leaving its owner's graveyard before it becomes new.
@@ -2127,6 +2130,18 @@ class CastingResolutionMixin:
         if len(item.effects) == 1 and getattr(item.effects[0], "controller_from_trigger_event", False):
             chooser_id = self._trigger_controller_id(item.effects[0], item.trigger_event)
 
+        opponent_of_spec = {id(spec): item.opponent_chosen.get(index) for index, spec in enumerate(specs)}
+
+        def meets(spec, target):
+            # MEC-118: "...of an opponent's choice they control" -- still a creature the opponent who chose it controls
+            # (Evangelize's ruling: otherwise the spell doesn't resolve).
+            if spec.chooser_controls and getattr(target, "controller_id", None) != opponent_of_spec.get(id(spec)):
+                return False
+            return target_meets_restrictions(
+                self.state, chooser_id, spec, target,
+                source=item.source or item.obj, trigger_event=item.trigger_event,
+            )
+
         def still_in_target_zone(spec, target):
             # Stack targets are StackItems, unlike battlefield/graveyard
             # targets. A zone move cannot leave an untargeted rider alive.
@@ -2137,10 +2152,7 @@ class CastingResolutionMixin:
                     return False
                 # RULE 608.2b: player hexproof/protection gained in response (702.11b-c, 702.16b), or a
                 # scope the player no longer meets, makes the player an illegal target -- same predicate as announce.
-                return target_meets_restrictions(
-                    self.state, chooser_id, spec, target,
-                    source=item.source or item.obj, trigger_event=item.trigger_event,
-                )
+                return meets(spec, target)
             if isinstance(target, GameObject):
                 indices = [i for i, t in enumerate(item.targets) if t is target]
                 if indices and not any(i >= len(item.target_incarnations)
@@ -2165,10 +2177,7 @@ class CastingResolutionMixin:
                 # "attacking", a power/toughness bound, controller, colour, ...) must still hold, and so must
                 # targetability (hexproof/shroud/protection gained in response, RULE 702.11b/18/16b) -- all judged
                 # by the same predicate that offered the target at announcement.
-                return target_meets_restrictions(
-                    self.state, chooser_id, spec, target,
-                    source=item.source or item.obj, trigger_event=item.trigger_event,
-                )
+                return meets(spec, target)
             return True
 
         fallback_creature = (item.obj is not None and (item.obj.bestowed or item.obj.cast_via_mutate))

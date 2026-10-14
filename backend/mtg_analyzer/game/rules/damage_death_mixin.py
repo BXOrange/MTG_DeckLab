@@ -640,7 +640,7 @@ class DamageDeathMixin:
 
     def sacrifice(
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
-        exclude: Optional[GameObject] = None,
+        exclude: Optional[GameObject] = None, chooser: Optional[Player] = None,
     ) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -679,8 +679,10 @@ class DamageDeathMixin:
             # sacrifices the rest") — keep the named number, sacrifice the others.
             keep = 1 if count == "all_but_one" else int(count[len(ALL_BUT_PREFIX):])
             count = max(0, len(candidates) - keep)
+        # ``chooser`` ("a land of an opponent's choice", Demonic Hordes -- MEC-118): someone else picks which of
+        # ``player``'s permanents go; the sacrifice itself is still ``player``'s (RULE 701.17a).
         self._request_choose_objects(
-            player, candidates, "sacrifice", count=count,
+            chooser or player, candidates, "sacrifice", count=count,
             prompt="Wähle eine bleibende Karte zum Opfern",
         )
     def _return_until_source_leaves_exiles(self, event: GameEvent) -> None:
@@ -1598,6 +1600,7 @@ class DamageDeathMixin:
 
     def redirect_damage_from_source(
         self, source: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
+        only_to_player_id: Optional[str] = None,
     ) -> None:
         """RULE 616.1c "the next time a source of your choice would deal
         damage this turn, that damage is dealt to `<X>` instead" (Opal-Eye,
@@ -1623,7 +1626,11 @@ class DamageDeathMixin:
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
-            condition=lambda e, c: e.get("source_id") == watched_source_id,
+            condition=lambda e, c: e.get("source_id") == watched_source_id and (
+                # "...would deal damage to you" (Nova Pentacle): only damage headed for that player.
+                only_to_player_id is None
+                or (bool(e.get("is_player")) and e.get("target_id") == only_to_player_id)
+            ),
             description=f"{source.name}: Schadensumleitung",
         )
         effect.damage_prevention_shield = True

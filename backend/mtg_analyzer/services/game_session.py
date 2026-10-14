@@ -50,6 +50,7 @@ from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import card_registry, continuous, mana_potential, rooms
 from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.rules.opponent_target_mixin import OPPONENT_CHOICE_KINDS
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
 from mtg_analyzer.services.table_feed import TableFeed
@@ -978,6 +979,10 @@ class GameSession:
             pc_owner = state.pending_choice.get("player_id")
             if pc_owner is not None:
                 decider = state.decider_for(pc_owner)
+                # MEC-118 (RULE 601.2c): an opponent's pick is theirs alone -- the spell's controller, who holds
+                # priority, must not be able to answer it by posting the choice themselves.
+                if state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS and actor.id != decider:
+                    raise GameActionError(f"{actor.name} is not the player making this choice")
                 if decider != pc_owner and actor.id != decider:
                     raise ValueError(
                         f"{actor.name} is not answering this choice — "

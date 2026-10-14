@@ -122,6 +122,10 @@ class StackItem:
         # RULE 400.7: retain each target's particular zone visit, including repeated targets.
         self.target_incarnations = [getattr(t, "zone_incarnation", getattr(getattr(t, "obj", None), "zone_incarnation", None))
                                     for t in self.targets]
+        #: MEC-118: "of an opponent's choice" requirements the opponent has been asked about (picked, or nothing legal
+        #: left) and which opponent was named for each -- see `rules/opponent_target_mixin.py`.
+        self.opponent_done: set[int] = set()
+        self.opponent_chosen: dict[int, str] = {}
         self.copy_target_roles: list[Any] = []
         self.resolution_target_slots: Optional[list[Any]] = None
         #: RULE 603.1: the event that *caused* this triggered ability, kept

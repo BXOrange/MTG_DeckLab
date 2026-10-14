@@ -4537,6 +4537,7 @@ class MiscSystemsMixin:
             if recipient is not None:
                 self.redirect_damage_from_source(
                     obj, recipient, redirect_shield.get("amount", "all"),
+                    only_to_player_id=redirect_shield.get("only_to_player_id"),
                 )
         elif action == "grant_perpetual_blitz":
             obj.perpetual_keywords.add("blitz")
@@ -5592,6 +5593,9 @@ class MiscSystemsMixin:
         from — a second, sibling call at each of the three sites would risk
         a future call site adding one but not the other.
         """
+        if self._open_opponent_slots(item):
+            # MEC-118: an opponent still has a target to pick; the targets are announced (and warded) once all are in.
+            return []
         # Sequential copy instructions capture the trigger now but place it
         # after their choices finish, preserving source/controller/cost LKI.
         self._fire_becomes_target_events(item)

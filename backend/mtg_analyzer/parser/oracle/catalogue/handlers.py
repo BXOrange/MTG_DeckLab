@@ -6817,6 +6817,35 @@ def _gain_control_while_source(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("gain_control_until_eot", params)]
 
 
+#: MEC-118: "Tap target creature you control and target creature an opponent controls. Those creatures fight each
+#: other." (Arena, Magus of the Arena) -- one `fight` over two announced targets that taps both first.
+_TAP_AND_FIGHT_RE = _c(
+    r"tap target creature you control and target creature (?P<other>an opponent controls|you don't control)\."
+    r"\s*those creatures fight each other"
+)
+
+
+def _tap_and_fight(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("fight", {
+        "fighter_kind": "creature_you_control", "other_kind": "creature_you_dont_control", "tap_fighters": True,
+    })]
+
+
+#: MEC-118: RULE 611.2b -- "for as long as ~ remains tapped, gain control of target creature [an opponent controls]"
+#: (Preacher): the no-duration steal that ends when the source untaps (`while_source="tapped"`).
+_GAIN_CONTROL_WHILE_TAPPED_RE = _c(rf"for as long as (?:~|this creature) remains tapped, gain control of {TARGET}")
+
+
+def _gain_control_while_tapped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if not target_kind_allowed(kind, _GAIN_CONTROL_PERMANENT_KINDS) or target_quality_filter(m.group("target")):
+        return None
+    return [EffectSpec("gain_control_until_eot", {
+        "target_kind": kind, **_optional_param(m), "duration": "permanent", "haste": False, "untap": False,
+        "while_source": "tapped",
+    })]
+
+
 #: The untargeted mass sibling — "Untap all creatures and gain control of
 #: them until end of turn. They gain haste until end of turn." (Insurrection)
 #: — RULE 601.2c's "all creatures" over the same `GainControlUntilEndOfTurnEffect`,
@@ -18659,6 +18688,8 @@ HANDLERS: list[EffectHandler] = [
     ),
     # PAR-150: "gain control of ... for as long as you control ~" (RULE 611.2b; Rangers of Ithilien).
     EffectHandler("gain_control_while_source", _GAIN_CONTROL_WHILE_SOURCE_RE, _gain_control_while_source),
+    EffectHandler("tap_and_fight", _TAP_AND_FIGHT_RE, _tap_and_fight),
+    EffectHandler("gain_control_while_tapped", _GAIN_CONTROL_WHILE_TAPPED_RE, _gain_control_while_tapped),
     # PAR-150: "gain control of up to three target creatures" (no duration; Jace, Ingenious Mind-Mage).
     EffectHandler("gain_control_multi_target", _GAIN_CONTROL_MULTI_RE, _gain_control_multi),
     # "gain control of target <permanent> [. untap it]" with no duration —

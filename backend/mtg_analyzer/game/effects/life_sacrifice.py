@@ -946,12 +946,19 @@ class RequestRedirectDamageSourceEffect(GameEffect):
         recipient: str = "self",
         optional: bool = False,
         source: Optional["GameObject"] = None,
+        only_to_you: bool = False,
     ) -> None:
         super().__init__(source)
         self.source_filter = dict(source_filter or {})
         self.amount = amount
         self.recipient = recipient
         self.optional = optional
+        #: "...would deal damage **to you** this turn" (Nova Pentacle): only damage headed for this effect's
+        #: controller is redirected, not damage to anything else.
+        self.only_to_you = only_to_you
+        if recipient == "target":
+            # "...is dealt to target creature [of an opponent's choice] instead" -- announced with the ability.
+            self.target_spec = TargetSpec(kind="creature")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         src = self.source
@@ -960,7 +967,7 @@ class RequestRedirectDamageSourceEffect(GameEffect):
         player = _controller_of(src, context)
         if player is None:
             return
-        recipient_obj: Any = src if self.recipient == "self" else None
+        recipient_obj: Any = src if self.recipient == "self" else (targets[0] if targets else None)
         if recipient_obj is None:
             return
         from .. import combat  # local: avoid the combat<->effects import cycle
@@ -977,6 +984,7 @@ class RequestRedirectDamageSourceEffect(GameEffect):
                 "recipient_id": recipient_obj.instance_id,
                 "recipient_is_player": False,
                 "amount": self.amount,
+                "only_to_player_id": player.id if self.only_to_you else None,
             },
         )
 
@@ -1863,8 +1871,13 @@ class SacrificeEffect(GameEffect):
         source: Optional["GameObject"] = None,
         greatest: Optional[str] = None,
         action: str = "sacrifice",
+        chooser: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: ``"opponent"`` -- "sacrifice a land **of an opponent's choice**" (Demonic Hordes, MEC-118): resolve-time,
+        #: untargeted, so the sacrificing player keeps the sacrifice but an opponent picks which permanent goes
+        #: (the controller names the opponent first when there are several).
+        self.chooser = chooser if chooser == "opponent" else None
         #: "…a creature or planeswalker **with the greatest mana value** among creatures and planeswalkers they
         #: control" (Blot Out, Flare of Malice, Soul Shatter): ``"power"`` (the original ``greatest_power``) or
         #: ``"mana_value"`` narrow the pick to the tied leaders, among which that player chooses (RULE 601.2c).
@@ -1970,6 +1983,9 @@ class SacrificeEffect(GameEffect):
                 return
 
     def _sacrifice_one(self, context: GameContext, player: "Player") -> None:
+        if self.chooser == "opponent" and self.greatest is None:
+            context.engine._request_opponent_sacrifice(player, self.what, self.count)
+            return
         if self.greatest is None:
             context.sacrifice(player, self.what, self.count)
             return

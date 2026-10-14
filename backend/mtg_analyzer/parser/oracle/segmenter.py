@@ -51,7 +51,7 @@ from .catalogue.static_handlers import (
     static_effect_specs,
 )
 from .catalogue.subgrammars import COLOR_WORD_ALT, resolve_color_word, target_kind_allowed
-from .spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, ParserProvenance
+from .spec import GROUP_SUBJECT_KEY_SENTINEL, TARGET_CHOOSER_OPPONENT, AbilitySpec, EffectSpec, ParserProvenance
 
 #: RULE 603.1's object-subject trigger *verbs*, longest phrase first, each
 #: mapped to the `EventType` the engine actually fires for it. **One table**
@@ -5171,7 +5171,94 @@ def _with_after_tail(
     return specs + after_specs
 
 
+#: MEC-118, RULE 115.1 / 601.2c: "target `<X>` **of an opponent's choice**" [+ "they control"].  The phrase only moves
+#: *who picks* the target, so it is lifted out of the clause (the rest reads like the ordinary clause an existing row
+#: already claims) and re-attached as ``target_chooser`` params on the specs that clause produced.
+_OPPONENT_CHOICE_RE = re.compile(r" of an opponent's choice(?P<they> they control)?")
+#: "target creature **of your choice**, then destroy target creature of an opponent's choice" (Diaochan): redundant
+#: wording of the controller's own pick, dropped only next to an opponent's-choice phrase.
+_OF_YOUR_CHOICE_RE = re.compile(r" of your choice(?=[,. ]|$)")
+_TARGET_WORD_RE = re.compile(r"\btarget\b")
+#: Effect types that announce exactly one target per spec (the chooser phrase is matched to a spec by order of the
+#: "target" words, so a type that may announce several -- or none -- would mis-assign it; anything else fails closed).
+_ONE_TARGET_EFFECT_TYPES = frozenset({"damage", "destroy", "gain_control_until_eot", "return_from_graveyard"})
+#: The wording that replaces "they control" once the chooser phrase is lifted out (the opponent-controlled pool).
+_OPPONENT_CONTROLS_TAIL = " an opponent controls"
+
+
+def _lift_opponent_choice(body: str) -> Optional[tuple[str, list[tuple[int, bool]]]]:
+    """``body`` without its "of an opponent's choice" phrases, plus ``(target ordinal, they-control)`` for each.
+
+    ``None`` when ``body`` has no such phrase.  The ordinal counts the "target" words before the phrase (0-based)."""
+    if not _OPPONENT_CHOICE_RE.search(body):
+        return None
+    body = _OF_YOUR_CHOICE_RE.sub("", body)
+    lifted: list[tuple[int, bool]] = []
+    out: list[str] = []
+    cursor = 0
+    for match in _OPPONENT_CHOICE_RE.finditer(body):
+        out.append(body[cursor:match.start()])
+        ordinal = len(_TARGET_WORD_RE.findall("".join(out))) - 1
+        if ordinal < 0:
+            return None
+        lifted.append((ordinal, match.group("they") is not None))
+        out.append(_OPPONENT_CONTROLS_TAIL if match.group("they") else "")
+        cursor = match.end()
+    out.append(body[cursor:])
+    return "".join(out), lifted
+
+
 def parse_effect_body(
+    body: str, *, self_subject: bool = False, previous_subject: bool = False,
+    group_subject: bool = False, previous_selector: bool = False,
+    attached_subject: bool = False,
+) -> Optional[list[EffectSpec]]:
+    """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
+    the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
+    the targets cannot be matched to specs one to one)."""
+    as_printed = _parse_effect_body_inner(
+        body, self_subject=self_subject, previous_subject=previous_subject, group_subject=group_subject,
+        previous_selector=previous_selector, attached_subject=attached_subject,
+    )
+    lifted = _lift_opponent_choice(body)
+    if as_printed is not None or lifted is None:
+        # Resolve-time "of an opponent's choice" wordings ("a nonland card of an opponent's choice", Tasigur) are
+        # claimed by their own rows and keep their meaning; only a body nothing else claims is lifted.
+        return as_printed
+    plain, choosers = lifted
+    specs = _parse_effect_body_inner(
+        plain, self_subject=self_subject, previous_subject=previous_subject, group_subject=group_subject,
+        previous_selector=previous_selector, attached_subject=attached_subject,
+    )
+    if specs is None:
+        return None
+    mentions = len(_TARGET_WORD_RE.findall(plain))
+    # One entry per announced target, in printed order: (carrier spec, that target's slot within the spec).
+    slots: list[tuple[EffectSpec, int]] = []
+    for spec in specs:
+        if spec.type in _ONE_TARGET_EFFECT_TYPES:
+            if spec.params.get("count", 1) != 1:
+                return None
+            slots.append((spec, 0))
+        elif spec.type == "fight" and spec.params.get("fighter_kind") and spec.params.get("other_kind"):
+            slots.extend([(spec, 0), (spec, 1)])
+    if len(slots) != mentions:
+        return None
+    stamped = list(specs)
+    for ordinal, controls in choosers:
+        carrier, slot = slots[ordinal]
+        index = next(i for i, spec in enumerate(stamped) if spec is carrier)
+        params = dict(stamped[index].params)
+        params["target_chooser"] = TARGET_CHOOSER_OPPONENT
+        if slot or carrier.type == "fight":
+            params["target_chooser_slots"] = sorted({*params.get("target_chooser_slots", []), slot})
+        if controls:
+            params["target_chooser_controls"] = True
+        stamped[index] = replace(stamped[index], params=params)
+    return stamped
+
+
+def _parse_effect_body_inner(
     body: str, *, self_subject: bool = False, previous_subject: bool = False,
     group_subject: bool = False, previous_selector: bool = False,
     attached_subject: bool = False,
@@ -5231,6 +5318,17 @@ def parse_effect_body(
     # cycling trio, Painsmith, …): "have … get" is only how the optional wording carries the verb — the effect is
     # "target creature gets -2/-2", which every pump / keyword-grant row already reads.
     body = _MAY_HAVE_TARGET_GET_RE.sub(r"\g<1>\g<2> \g<3>s ", body)
+
+    # "destroy target nonbasic land you don't control and target nonbasic land you don't control." (Volcanic Offering):
+    # one verb over two target phrases is two destroy instructions, in printed order (RULE 115.1).  One sentence only:
+    # a rider after it ("They can't be regenerated.", Plague Spores) would attach to just the second instruction.
+    destroy_pair = re.fullmatch(r"destroy (?P<a>target [^.]+?) and (?P<b>target [^.]+)", body, re.IGNORECASE)
+    if destroy_pair is not None:
+        first = parse_effect_body(f"destroy {destroy_pair.group('a')}")
+        second = parse_effect_body(f"destroy {destroy_pair.group('b')}")
+        if first and second and len(first) == len(second) == 1:
+            return first + second
+        return None
 
     # PAR-130: a per-player target announcement followed by the clause(s)
     # acting on "that/those/the chosen" objects. The generic connector split
@@ -5490,6 +5588,8 @@ def parse_effect_body(
         )
         if before_specs is None:
             return None
+        plural_regen = bool(re.search(r"\.\s*they can'?t be regenerated", body, re.IGNORECASE))
+        plural_flagged = False
         for i in range(len(before_specs) - 1, -1, -1):
             if before_specs[i].type == "destroy":
                 flagged = dict(before_specs[i].params)
@@ -5497,6 +5597,9 @@ def parse_effect_body(
                 before_specs[i] = EffectSpec(
                     before_specs[i].type, flagged, condition=before_specs[i].condition
                 )
+                if plural_regen:
+                    plural_flagged = True
+                    continue  # "They can't be regenerated." covers every creature the sentence before destroyed
                 break
             wrapped = before_specs[i].params.get("effects") if (
                 before_specs[i].type == "trigger_subject_referent") else None
@@ -5511,7 +5614,8 @@ def parse_effect_body(
                 )
                 break
         else:
-            return None  # nothing to deny regeneration to — fail closed
+            if not plural_flagged:
+                return None  # nothing to deny regeneration to — fail closed
         return _with_after_tail(
             before_specs, no_regen.group("after"),
             previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,

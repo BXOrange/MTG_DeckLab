@@ -1353,7 +1353,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         #: PAR-150: RULE 611.2b "...for as long as you control ~" (``"controlled"``) / "...for as long as ~ remains
         #: on the battlefield" (``"on_battlefield"``) -- a no-duration control change that ends when the source
         #: stops qualifying (`RulesEngine._revert_source_bound_control`). Meaningful with ``duration="permanent"``.
-        self.while_source = while_source if while_source in ("controlled", "on_battlefield") else None
+        #: ``"tapped"`` is "...for as long as ~ remains tapped" (Preacher): the source must be tapped, which it is
+        #: whenever the ability's {T} cost was paid, and the control change ends the moment it untaps.
+        self.while_source = while_source if while_source in ("controlled", "on_battlefield", "tapped") else None
         #: PAR-150: RULE 115.1a "gain control of up to 3 target creatures" (Jace, Ingenious Mind-Mage) -- the
         #: `TargetSpec` count/range/optional triple every multi-target effect carries.
         self.count, self.count_max, self.optional = count, count_max, optional
@@ -1427,12 +1429,16 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             if self.duration == "permanent":
                 # RULE 611.2 no-duration continuous effect — cleanup must not
                 # revert it, so don't stamp ``control_change_until_eot``.
+                if self.while_source == "tapped" and (self.source is None or not self.source.tapped):
+                    # Untapped before the ability resolved: "remains tapped" already failed, so nothing happens.
+                    return
                 if self.while_source and self.source is not None:
                     target.control_change_while_source = {
                         "revert_to": (target.control_change_while_source or {}).get("revert_to", target.controller_id),
                         "player_id": controller.id, "source_id": self.source.instance_id,
                         "incarnation": self.source.zone_incarnation,
                         "needs_control": self.while_source == "controlled",
+                        "needs_tapped": self.while_source == "tapped",
                     }
                 target.controller_id = controller.id
                 target.summoning_sick = True  # RULE 302.6 under a new controller

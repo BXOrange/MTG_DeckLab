@@ -176,6 +176,7 @@ class StateBasedActionsMixin:
                 source is not None and source.zone == Zone.BATTLEFIELD
                 and source.zone_incarnation == window["incarnation"]
                 and (not window["needs_control"] or source.controller_id == window["player_id"])
+                and (not window.get("needs_tapped") or source.tapped)  # "for as long as ~ remains tapped"
             )
             if alive:
                 continue

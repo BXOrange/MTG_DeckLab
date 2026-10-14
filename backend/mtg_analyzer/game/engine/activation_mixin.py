@@ -65,6 +65,8 @@ from ..targeting import (
     TargetSpec,
     ability_target_specs,
     all_requirements_satisfiable,
+    chooser_requirement_entry,
+    chooser_requirement_satisfiable,
     effects_target_specs,
     legal_targets,
     partition_targets,
@@ -72,6 +74,7 @@ from ..targeting import (
     per_player_target_groups,
     target_rounds,
     validate_that_player_groups,
+    with_chooser_slots,
     resolved_count,
     spell_target_specs,
 )
@@ -346,6 +349,12 @@ class ActivationMixin:
         )
         out: list[dict[str, Any]] = []
         for spec in target_rounds(self.state, player.id, source, specs)[0]:
+            if spec.chooser:
+                # MEC-118: an opponent picks this one, so the activator is never asked (RULE 601.2c).
+                blocked = chooser_requirement_entry(self.state, player.id, spec, source)
+                if blocked is not None:
+                    out.append(blocked)
+                continue
             entry = {
                 "kind": spec.kind,
                 "optional": spec.optional,
@@ -1751,6 +1760,8 @@ class ActivationMixin:
             raise ValueError(f"X must be at least {ability.cost.minimum_x}")
         resolved_effects = self._resolve_activation_mode(ability, mode)
         resolved_specs = effects_target_specs(resolved_effects)
+        # MEC-118: widen the activator's picks with an empty slot per "of an opponent's choice" requirement.
+        target_groups = with_chooser_slots(resolved_specs, targets, target_groups)
         target_groups = per_player_target_groups(
             self.state, player.id, source, resolved_specs, targets, target_groups,
         )
@@ -1779,6 +1790,12 @@ class ActivationMixin:
             for spec, picks in zip(resolved_specs, groups):
                 if spec.per_player:
                     continue  # per_player_target_groups validated every scoped round.
+                if spec.chooser:
+                    # Announced here, picked by the chosen opponent right after the ability is on the stack;
+                    # castability was already gated on some opponent having a legal pick.
+                    if picks or not chooser_requirement_satisfiable(self.state, player.id, spec, source):
+                        raise ValueError("illegal targets for the ability")
+                    continue
                 count = resolved_count(spec, self.state, player.id, source)
                 minimum = 0 if spec.optional else count
                 maximum = spec.count_max if spec.count_max is not None else count
@@ -1894,5 +1911,6 @@ class ActivationMixin:
             )
         )
         self.rules.check_ward(item, player)
+        self.rules._begin_opponent_targets(item)  # MEC-118: the chosen opponent picks their targets now
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)

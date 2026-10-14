@@ -60,6 +60,7 @@ from ..targeting import (
     TargetSpec,
     ability_target_specs,
     all_requirements_satisfiable,
+    chooser_requirement_satisfiable,
     legal_targets,
     partition_targets,
     per_player_groups,
@@ -67,6 +68,7 @@ from ..targeting import (
     requirements_with_targets,
     resolved_count,
     spell_target_specs,
+    with_chooser_slots,
 )
 from ..graveyard_cast import graveyard_cast_grant_for
 from ..top_library import (
@@ -2261,6 +2263,9 @@ class CastingMixin:
             # PAR-130: a "for each opponent, … target `<X>` that player
             # controls" requirement was offered as one round per player;
             # validate those picks and merge them back per requirement.
+            # MEC-118: an empty slot per "of an opponent's choice" requirement; the opponent fills it once the spell
+            # is on the stack (`RulesEngine._begin_opponent_targets`).
+            target_groups = with_chooser_slots(spell_target_specs(obj), targets, target_groups)
             target_groups = per_player_groups(self.state, player.id, obj, targets, target_groups)
             if target_groups is None:
                 target_groups = partition_targets(spell_target_specs(obj), targets)
@@ -2276,6 +2281,10 @@ class CastingMixin:
                 if len(groups) != len(specs):
                     raise ValueError("the spell's target requirements must be answered")
                 for spec, picks in zip(specs, groups):
+                    if spec.chooser:
+                        if picks or not chooser_requirement_satisfiable(self.state, player.id, spec, obj):
+                            raise ValueError("illegal targets for the spell")
+                        continue
                     minimum = 0 if spec.optional else resolved_count(spec, self.state, player.id, obj)
                     maximum = spec.count_max if spec.count_max is not None else resolved_count(spec, self.state, player.id, obj)
                     options = legal_targets(self.state, player.id, spec, source=obj)

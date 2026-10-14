@@ -19,6 +19,7 @@ from . import deathmist_raptor  # noqa: F401
 from . import decimate  # noqa: F401
 from . import deepglow_skate  # noqa: F401
 from . import defy_death  # noqa: F401
+from . import demonic_hordes  # noqa: F401
 from . import depthshaker_titan  # noqa: F401
 from . import deekah_fractal_theorist  # noqa: F401
 from . import defense_grid  # noqa: F401

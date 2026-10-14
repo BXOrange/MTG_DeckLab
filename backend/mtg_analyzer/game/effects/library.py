@@ -2895,8 +2895,12 @@ class FightEffect(GameEffect):
         source: Optional["GameObject"] = None,
         other_exact_mana_value: Optional[Union[int, str]] = None,
         other_instance_id: Optional[int] = None,
+        tap_fighters: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Tap target creature you control and target creature ... Those creatures fight each other." (Arena, Magus of
+        #: the Arena): RULE 701.26a tapping both before the fight; a creature already gone is simply not tapped.
+        self.tap_fighters = tap_fighters
         self.fighter_kind = fighter_kind
         self.other_kind = other_kind
         self.distinct = distinct
@@ -2930,9 +2934,13 @@ class FightEffect(GameEffect):
             other = _implicit_fight_subject(self.other_kind, self, context)
         else:
             other = next(chosen, None)
+        battlefield = context.state.permanents()
+        if self.tap_fighters:
+            for creature in (fighter, other):
+                if creature is not None and creature in battlefield:
+                    context.set_tapped(creature, tapped=True)
         # RULE 701.14b: gone from the battlefield, or no longer a creature →
         # neither fights (an "up to one" clause with no target lands here too).
-        battlefield = context.state.permanents()
         for creature in (fighter, other):
             if creature is None or creature not in battlefield or not creature.is_creature:
                 return

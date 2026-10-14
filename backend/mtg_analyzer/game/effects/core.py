@@ -658,8 +658,10 @@ class GameContext:
             if actual > 0:
                 self.life_lost_this_way += actual
 
-    def sacrifice(self, player: "Player", what: str = "permanent", count: int = 1) -> None:
-        self.engine.sacrifice(player, what, count)
+    def sacrifice(
+        self, player: "Player", what: str = "permanent", count: int = 1, chooser: Optional["Player"] = None,
+    ) -> None:
+        self.engine.sacrifice(player, what, count, chooser=chooser)
 
     def offer_play_during_resolution(self, player: "Player", cards: list["GameObject"], *, repeat: bool = False) -> None:
         """RULE 608.2g: ask for an immediate play through the ordinary actions."""
@@ -2150,7 +2152,16 @@ class EffectRegistry:
             raise ValueError(f"unknown effect type: {effect_type!r}")
         from . import operands  # function-scoped: operands is a leaf module beside this one
 
-        return cls._factories[effect_type](operands.lower(effect_type, params))
+        effect = cls._factories[effect_type](operands.lower(effect_type, params))
+        chooser = (params or {}).get("target_chooser")
+        if chooser:
+            # MEC-118, RULE 601.2c: "target `<X>` of an opponent's choice" -- stamped onto the effect's requirements by
+            # `targeting._stamped_specs`, so every effect type gets it without a constructor parameter each.
+            effect.target_chooser = chooser
+            effect.target_chooser_controls = bool((params or {}).get("target_chooser_controls", False))
+            slots = (params or {}).get("target_chooser_slots")
+            effect.target_chooser_slots = frozenset(int(i) for i in slots) if slots is not None else None
+        return effect
 
     @classmethod
     def is_registered(cls, effect_type: str) -> bool:

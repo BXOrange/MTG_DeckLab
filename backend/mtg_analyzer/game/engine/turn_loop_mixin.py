@@ -47,6 +47,7 @@ from ..mana_abilities import (
     validate_color_split,
 )
 from ..phases import GamePhase, GameStep, default_turn_sequence
+from ..rules.opponent_target_mixin import OPPONENT_CHOICE_KINDS
 from ..rules_engine import RulesEngine
 from ..targeting import (
     TargetSpec,
@@ -1202,7 +1203,13 @@ class TurnLoopMixin:
         cast_payment = choice_kind == "cast_pip_life_payment"
         immediate_play = self.state.resolution_play_waiting
         cleanup_discard = self.state.cleanup_discard_pending
+        # MEC-118: an opponent's pick completes the announcement of a spell or ability that is already on the stack, so
+        # (like a cast payment) it stays there for responses; only a solo-played trigger settles straight away.
+        opponent_pick = choice_kind in OPPONENT_CHOICE_KINDS
+        leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
         self.rules.resolve_choice(answer)
+        if opponent_pick and (self.state.pending_choice or self.interactive_priority or leaves_on_stack):
+            return
         if self.interactive_priority and choice_kind == "miracle_reveal":
             while not self.state.pending_choice and self.rules.resume_deferred_effects():
                 pass

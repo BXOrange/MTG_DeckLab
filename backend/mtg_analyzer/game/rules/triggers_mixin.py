@@ -77,7 +77,7 @@ from ..effects.core import (
     WardEffect,
     WinConditionEffect,
 )
-from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from ..targeting import TargetSpec, chooser_requirement_satisfiable, stamped_specs, collapse_groups, expand_counts, legal_targets
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
@@ -1358,7 +1358,7 @@ class TriggerCollectionMixin:
             # genuinely needs two differently-typed targets — "attach target
             # Equipment you control to target creature you control" — is
             # gathered as two requirements (`GameEffect.extra_target_specs`).
-            specs.extend(getattr(effect, "target_specs", None) or [])
+            specs.extend(stamped_specs(effect, polarity=False))
         return specs
     def _trigger_controller_id(
         self, ability: "TriggeredAbility", event: Optional[GameEvent]
@@ -1402,6 +1402,10 @@ class TriggerCollectionMixin:
         ordering flow for whatever's still unordered afterward.
         """
         while queue:
+            if self._opponent_target_pending():
+                # MEC-118: an opponent is still picking the previous trigger's target; the choice resumes this queue.
+                self._opponent_resume_queue = queue + self._opponent_resume_queue
+                return
             firing = queue.pop(0)
             ability, event = firing
             if getattr(ability, "action_key", None) is not None and ability.action_used_this_turn(self.context):
@@ -1452,6 +1456,9 @@ class TriggerCollectionMixin:
                 return
             if not self._place_or_pause_trigger(ability, ability.effects, queue, event=event):
                 return
+        if self._opponent_target_pending():
+            self._opponent_resume_queue = queue + self._opponent_resume_queue
+            return
         self._maybe_continue_ordering()
     def _open_doubler_tap_offer(self, firing: "_TapOfferFiring", queue: list[Any]) -> bool:
         """RULE 603.2d: ask the controller how many permanents to tap for the next paid
@@ -1571,6 +1578,15 @@ class TriggerCollectionMixin:
             self._pending_trigger_event = event
             self.open_choice(self._trigger_may_choice(ability, event=event))
             return False
+        if len(specs) == 1 and specs[0].chooser:
+            # MEC-118, RULE 603.3d / 601.2c: an opponent picks this trigger's target as it is put on the stack.
+            # RULE 603.3c: with nobody able to pick a legal target the trigger is removed from the stack.
+            if not chooser_requirement_satisfiable(
+                self.state, self._trigger_controller_id(ability, event), specs[0], ability.source, event,
+            ):
+                return True
+            self._place_trigger(ability, target_groups=[[]], effects_override=override, event=event)
+            return True
         if len(specs) == 1:
             # The overwhelming common case — one targeting effect, unchanged
             # from before `target_groups` existed (a flat ``targets`` list
@@ -1686,6 +1702,14 @@ class TriggerCollectionMixin:
             return True
         spec = specs[idx]
         controller_id = self._trigger_controller_id(ability, event)
+        if spec.chooser:
+            # MEC-118: left empty for the chosen opponent (`_begin_opponent_targets`) unless nobody can pick one
+            # (RULE 603.3c drops the whole trigger).
+            if not chooser_requirement_satisfiable(self.state, controller_id, spec, ability.source, event):
+                return True
+            return self._continue_trigger_multi_target(
+                ability, override, queue, specs, groups + [[]], event, spans
+            )
         options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
         # RULE 601.2c: the same object can't be chosen twice for one
         # requirement, so the rounds an expanded multi-target spec was split
@@ -2163,6 +2187,7 @@ class TriggerCollectionMixin:
             controller = None
         if controller is not None:
             self.check_ward(item, controller)
+        self._begin_opponent_targets(item)  # MEC-118: the chosen opponent picks their targets now
     def _trigger_order_choice(self) -> dict[str, Any]:
         """Build the `pending_choice` for ordering the active player's triggers.
 

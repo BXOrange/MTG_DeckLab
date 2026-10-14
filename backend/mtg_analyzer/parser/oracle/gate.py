@@ -3997,7 +3997,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      `ignore_one` replacement (`replacements._IGNORE_ONE_RE`; engine: `FLIP_COIN`/`ROLL_DICE`/`PLANAR_DIE_ROLL` pre-events).
 #: RULE 702.6/702.67/702.151: the attach keywords whose printed cost must be captured for the ability to bind.
 _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
-PARSER_VERSION = "646"
+PARSER_VERSION = "647"
 
 
 def parser_source_hash() -> str:

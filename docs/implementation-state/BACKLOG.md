@@ -107,12 +107,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-118 · "Target `<object>` of an opponent's choice" (RULE 115 / 601.2c).** An opponent, not the controller, picks a
-  target as the spell or ability is put on the stack; no primitive exists (only resolve-time choosers). 12 cached cards:
-  Diaochan, Artful Beauty, Arena, Magus of the Arena, Cuombajj Witches, Karplusan Minotaur, Evangelize, Preacher, Volcanic
-  Offering, Nova Pentacle, Mausoleum Turnkey, Demonic Hordes (opponent picks a land), Death or Glory (pile split, may be
-  separate). Touches `TargetSpec`, announcement, bots and the target UI.
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token

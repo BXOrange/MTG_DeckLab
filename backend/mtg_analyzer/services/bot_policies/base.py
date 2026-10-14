@@ -172,6 +172,10 @@ class Bot:
         use their pregame cards and answer any mandatory follow-up cost.
         """
         kind = (view.get("pending_choice") or {}).get("kind")
+        if kind == "opponent_target" and answers:
+            return self.pick_opponent_target(view, answers)
+        if kind == "opponent_chooser" and answers:
+            return self.pick_opponent_chooser(view, answers)
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
         # RULE 103.6: use offered opening-hand permissions, including
@@ -182,6 +186,52 @@ class Bot:
                 return hit
         decline = next((a for a in answers if a["type"] == "decline"), None)
         return decline or answers[0]
+
+    def _option_worth(self, view: dict[str, Any], answer: dict[str, Any]) -> int:
+        """A crude "how much is this permanent worth" for choosing among offered targets: power + toughness + mana
+        value off the (redacted) view, 0 for a player or anything not visible."""
+        obj = self._visible_object(view, answer)
+        return sum(int(obj.get(key) or 0) for key in ("power", "toughness", "mana_value")) if obj else 0
+
+    @staticmethod
+    def _visible_object(view: dict[str, Any], answer: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """The battlefield or graveyard object an offered option names, as the bot's own view shows it."""
+        state = view["state"]
+        pools = [state.get("battlefield", [])] + [p.get("graveyard", []) for p in state.get("players", [])]
+        return next((o for pool in pools for o in pool if o.get("instance_id") == answer.get("instance_id")), None)
+
+    def pick_opponent_target(
+        self, view: dict[str, Any], answers: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """MEC-118 (RULE 601.2c): this bot is the opponent picking a target for someone else's spell or ability.
+
+        Reads only its own view. Against a harmful effect (the default: anything not marked beneficial) it hands the
+        spell's controller as much damage to their own side as the pool allows -- their most valuable permanent --
+        and otherwise sacrifices its own least valuable one; for an effect that helps its target (a return from the
+        graveyard, polarity unset) the reverse."""
+        pending = view.get("pending_choice") or {}
+        controller = pending.get("controller_id")
+        beneficial = pending.get("polarity") != "harmful"
+        choices = [a for a in answers if a["type"] == "choose"] or answers
+
+        def side(answer: dict[str, Any]) -> int:
+            # 1 = the spell controller's own object or the controller as a player, 0 = anything else.
+            if answer.get("option_id") == controller:
+                return 1
+            obj = self._visible_object(view, answer)
+            return int(obj is not None and (obj.get("controller_id") or obj.get("owner_id")) == controller)
+
+        hurts_them = [a for a in choices if side(a) == (0 if beneficial else 1)]
+        if hurts_them:
+            return max(hurts_them, key=lambda a: self._option_worth(view, a))
+        return min(choices, key=lambda a: self._option_worth(view, a))
+
+    def pick_opponent_chooser(
+        self, view: dict[str, Any], answers: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """MEC-118: this bot controls the spell and names the opponent who will pick its target. Default: the
+        first one offered (no judgement about which opponent would choose worst)."""
+        return next((a for a in answers if a["type"] == "choose"), answers[0])
 
     def blocks(
         self, view: dict[str, Any], offers: list[dict[str, Any]]

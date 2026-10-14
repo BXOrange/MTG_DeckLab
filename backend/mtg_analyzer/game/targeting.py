@@ -26,6 +26,7 @@ from typing import Any, Optional, Union
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
 from ..models.game.player import Player
+from ..parser.oracle.spec import TARGET_CHOOSER_OPPONENT
 from . import combat
 
 #: A graveyard-card target's *scope* — whose graveyard(s) are searched — by
@@ -170,6 +171,9 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
     "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
 }
 
+
+#: RULE 115.1/601.2c: the value of `TargetSpec.chooser` for "of an opponent's choice".
+CHOOSER_OPPONENT = TARGET_CHOOSER_OPPONENT
 
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
@@ -714,6 +718,15 @@ class TargetSpec:
     #: antecedent.  This is stamped only after the full ordered requirement
     #: list is known; a standalone spec therefore remains fail-closed.
     prior_target_antecedent: bool = False
+    #: MEC-118, RULE 115.1/601.2c: "target `<X>` **of an opponent's choice**" -- a player other than the spell's
+    #: controller picks this requirement's target as the spell or ability is put on the stack.  ``CHOOSER_OPPONENT``
+    #: is the only chooser printed so far.  The controller never sees the requirement in the offer
+    #: (`requirements_with_targets`); the engine opens the choice for the chosen opponent after announcement
+    #: (`RulesEngine._begin_opponent_targets`).  ``None`` is an ordinary requirement the controller answers.
+    chooser: Optional[str] = None
+    #: "...of an opponent's choice **they control**" (Evangelize, Preacher, Arena): the target must also be controlled
+    #: by the opponent who chose it, which only the chosen opponent's own offer can express.
+    chooser_controls: bool = False
 
     @property
     def effective_count(self) -> int:
@@ -867,8 +880,7 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
         # `target_specs` (not ``target_spec``) so an effect that genuinely
         # needs two differently-typed targets in one clause announces both
         # — see `game/effects/core.py`'s `GameEffect.extra_target_specs`.
-        polarity = effect.target_polarity()
-        specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
+        specs.extend(stamped_specs(effect))
     if not specs and "enchant" in (getattr(obj, "parametric_keywords", None) or {}):
         enchant = (getattr(obj, "parametric_keywords", None) or {}).get("enchant") or {}
         quality = str(enchant.get("quality", "")).strip().lower()
@@ -890,6 +902,24 @@ def _with_polarity(spec: TargetSpec, polarity: Optional[str]) -> TargetSpec:
     if polarity is None or spec.polarity is not None:
         return spec
     return replace(spec, polarity=polarity)
+
+
+def stamped_specs(effect: Any, *, polarity: bool = True) -> list[TargetSpec]:
+    """``effect``'s requirements in printed order, tagged with its polarity and, for an effect carrying
+    ``target_chooser`` ("of an opponent's choice", MEC-118), its chooser.
+
+    ``target_chooser_slots`` narrows the chooser to some of the effect's own requirements ("tap target creature you
+    control and target creature of an opponent's choice they control": only the second is the opponent's)."""
+    hint = effect.target_polarity() if polarity else None
+    chooser = getattr(effect, "target_chooser", None)
+    slots = getattr(effect, "target_chooser_slots", None)
+    stamped: list[TargetSpec] = []
+    for index, spec in enumerate(getattr(effect, "target_specs", None) or []):
+        spec = _with_polarity(spec, hint)
+        if chooser and (slots is None or index in slots):
+            spec = replace(spec, chooser=chooser, chooser_controls=bool(getattr(effect, "target_chooser_controls", False)))
+        stamped.append(spec)
+    return stamped
 
 
 def _aura_enchant_polarity(obj: GameObject) -> Optional[str]:
@@ -2503,8 +2533,7 @@ def effects_target_specs(effects: Any) -> list[TargetSpec]:
     wrapper object."""
     specs: list[TargetSpec] = []
     for effect in effects or []:
-        polarity = effect.target_polarity()
-        specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
+        specs.extend(stamped_specs(effect))
     return _mark_prior_target_antecedents(specs)
 
 
@@ -2669,6 +2698,11 @@ def requirements_with_targets(
     (a `per_player` requirement as one entry per round — `spell_target_rounds`)."""
     out: list[dict[str, Any]] = []
     for spec in spell_target_rounds(state, controller_id, obj)[0]:
+        if spec.chooser:
+            blocked = chooser_requirement_entry(state, controller_id, spec, obj)
+            if blocked is not None:
+                out.append(blocked)
+            continue
         entry = {
             "kind": spec.kind,
             "optional": spec.optional,
@@ -2697,6 +2731,102 @@ def requirements_with_targets(
             entry["count_max"] = spec.count_max
         out.append(entry)
     return out
+
+
+def chooser_opponents(state: GameState, controller_id: str) -> list[Player]:
+    """The players who could be "an opponent" of ``controller_id`` for an "of an opponent's choice" requirement
+    (RULE 102.2 / 800.4a: living opponents)."""
+    return [p for p in state.living_players() if p.id != controller_id]
+
+
+def chooser_options(
+    state: GameState,
+    controller_id: str,
+    chooser_id: str,
+    spec: TargetSpec,
+    source: Optional[GameObject] = None,
+    trigger_event: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    """What opponent ``chooser_id`` may pick for the "of an opponent's choice" requirement ``spec`` (MEC-118).
+
+    The legality is the spell controller's -- "you" and "you don't control" in the requirement still mean the player
+    who controls the spell or ability (RULE 115.1, Cuombajj Witches ruling: the opponent chooses, the controller
+    controls) -- except ``chooser_controls`` ("they control"), which narrows the pool to the chooser's own
+    permanents (Evangelize's ruling: the target is a creature the chosen opponent controls)."""
+    options = legal_targets(state, controller_id, spec, source=source, trigger_event=trigger_event)
+    if not spec.chooser_controls:
+        return options
+    kept = []
+    for option in options:
+        if "instance_id" in option:
+            obj = state.find_object(option["instance_id"])
+            if obj is None or obj.controller_id != chooser_id:
+                continue
+        elif option.get("player_id") != chooser_id:
+            continue
+        kept.append(option)
+    return kept
+
+
+def chooser_requirement_satisfiable(
+    state: GameState,
+    controller_id: str,
+    spec: TargetSpec,
+    source: Optional[GameObject] = None,
+    trigger_event: Optional[dict[str, Any]] = None,
+) -> bool:
+    """RULE 601.2c / 603.3c for an "of an opponent's choice" requirement: the spell can be cast (the trigger put on
+    the stack) only if some opponent has a legal target to pick; an "up to" requirement is never blocked."""
+    if spec.optional:
+        return True
+    return any(
+        chooser_options(state, controller_id, opponent.id, spec, source, trigger_event)
+        for opponent in chooser_opponents(state, controller_id)
+    )
+
+
+def chooser_requirement_entry(
+    state: GameState, controller_id: str, spec: TargetSpec, source: Optional[GameObject]
+) -> Optional[dict[str, Any]]:
+    """The offer entry for an "of an opponent's choice" requirement: ``None`` (the controller is never asked, so
+    nothing is offered) while some opponent can answer, else an empty mandatory entry that locks the action
+    (`all_requirements_satisfiable`, RULE 601.2c)."""
+    if chooser_requirement_satisfiable(state, controller_id, spec, source):
+        return None
+    return {
+        "kind": spec.kind, "optional": False, "count": 1, "label": spec.label(), "options": [],
+        "distinct_controllers": False, "distinct_from_others": False, "polarity": spec.polarity,
+    }
+
+
+def with_chooser_slots(
+    specs: list[TargetSpec], targets: Optional[list[Any]], target_groups: Optional[list[list[Any]]],
+) -> Optional[list[list[Any]]]:
+    """The caster's picks widened to one group per requirement, with an empty group where an opponent chooses
+    (MEC-118, RULE 601.2c).
+
+    The controller answers only the requirements `requirements_with_targets` offered, so ``targets`` /
+    ``target_groups`` cover the non-chooser specs; the chooser slots stay ``[]`` until the engine fills them from
+    the opponent's answer (`RulesEngine._begin_opponent_targets`).  A spell with no chooser requirement gets
+    ``target_groups`` back untouched."""
+    if not any(spec.chooser for spec in specs):
+        return target_groups
+    own = [spec for spec in specs if not spec.chooser]
+    if target_groups is not None and len(target_groups) == len(specs):
+        return target_groups
+    if target_groups is None:
+        if len(own) <= 1:
+            groups = [list(targets or [])] if own else []
+        else:
+            groups = partition_targets(own, targets)
+            if groups is None:
+                raise ValueError("send one target group per offered requirement")
+    else:
+        groups = [list(group) for group in target_groups]
+    if len(groups) != len(own):
+        raise ValueError("send one target group per offered requirement")
+    answers = iter(groups)
+    return [[] if spec.chooser else next(answers) for spec in specs]
 
 
 def partition_targets(

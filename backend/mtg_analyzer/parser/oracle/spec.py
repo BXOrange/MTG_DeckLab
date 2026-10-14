@@ -26,6 +26,9 @@ from typing import Any, Optional
 
 #: The kinds of ability an `AbilitySpec` can describe (docs/09 IR).
 #: Mirrors the effect hierarchy in game/effects/core.py plus "keyword".
+#: MEC-118, RULE 115.1 / 601.2c: the ``target_chooser`` param value for "target `<X>` of an opponent's choice".
+TARGET_CHOOSER_OPPONENT = "opponent"
+
 ALLOWED_ABILITY_KINDS: frozenset[str] = frozenset(
     {"spell_effect", "triggered", "activated", "static", "replacement",
      "enter_replacement", "keyword"}

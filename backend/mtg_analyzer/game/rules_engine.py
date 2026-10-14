@@ -80,6 +80,7 @@ from .rules.damage_death_mixin import DamageDeathMixin
 from .rules.draw_discard_mixin import DrawDiscardMixin
 from .rules.mana_counters_mixin import ManaCountersMixin
 from .rules.misc_mixin import MiscSystemsMixin
+from .rules.opponent_target_mixin import OpponentTargetMixin
 from .rules.rooms_mixin import RoomsRulesMixin
 from .rules.sba_mixin import StateBasedActionsMixin
 from .rules.search_mixin import SearchMixin
@@ -178,6 +179,7 @@ class RulesEngine(
     SearchMixin,
     StateBasedActionsMixin,
     MiscSystemsMixin,
+    OpponentTargetMixin,
     RoomsRulesMixin,
 ):
     """Applies MTG rules to a `GameState`.
@@ -226,6 +228,8 @@ class RulesEngine(
         self._pending_doubler_tap: Optional[dict[str, Any]] = None
         self._pending_trigger_ability: Optional[TriggeredAbility] = None
         self._pending_trigger_queue: list[tuple[TriggeredAbility, GameEvent]] = []
+        #: MEC-118: triggers still to place once the opponent has picked a trigger's target (`OpponentTargetMixin`).
+        self._opponent_resume_queue: list[tuple[TriggeredAbility, GameEvent]] = []
         self._pending_trigger_effects: Optional[list[Any]] = None
         #: The `GameEvent` that fired the paused trigger — carried across the
         #: pause so `_place_trigger` can still stamp it onto the `StackItem`
