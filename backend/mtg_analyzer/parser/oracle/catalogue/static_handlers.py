@@ -4391,6 +4391,12 @@ _SELF_ANTHEM_FOR_EACH_RE = re.compile(
 #: `_SELF_ANTHEM_FOR_EACH_RE` is tried before `_SELF_ANTHEM_RE` — its
 #: fixed-digit pattern would otherwise claim the "+1/+1" prefix and drop the
 #: "for each …" scaling.
+# RULE 107.3c / 613.4c: attached bonuses may define X independently of costs.
+_ATTACHED_ANTHEM_X_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>x|\d+)/\+(?P<t>x|\d+), where x is (?P<what>.+?)\.?",
+    re.IGNORECASE,
+)
+
 _ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
     rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
     # PAR-109: the comma before the grant is optional ("…for each counter on it, and has trample and lifelink.",
@@ -5526,6 +5532,27 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # (Katara, Seeking Revenge). Tried before `_SELF_ANTHEM_RE` since that
     # row's `[+-]\d+/[+-]\d+` would claim the "+1/+1" prefix and drop the
     # "for each …" scaling.
+    m = _ATTACHED_ANTHEM_X_RE.fullmatch(text)
+    if m is not None and "x" in (m.group("p"), m.group("t")):
+        from .count_phrase import parse_amount_phrase
+
+        what = m.group("what").strip()
+        # RULE 301.5a: "its" refers to the host, while ~ names the Equipment.
+        selector = "affected_mana_value" if what == "its mana value" else parse_amount_phrase(what)
+        if selector is None:
+            return None
+        if isinstance(selector, dict) and "terms" in selector and " on it" in what:
+            return None  # Compound pronouns require per-term referent tracking.
+        if isinstance(selector, dict) and selector.get("counters_on") == "source" and what.endswith(" on it"):
+            selector = {**selector, "counters_on": "affected"}
+        params = {"affects": "attached_permanent"}
+        for axis, group in (("power", "p"), ("toughness", "t")):
+            value = m.group(group)
+            params[axis] = 1 if value == "x" else int(value)
+            if value == "x":
+                params[axis + "_count"] = selector
+        return [EffectSpec("anthem", params)]
+
     m = _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE.fullmatch(text)
     if m is not None:
         from .count_phrase import parse_count_phrase

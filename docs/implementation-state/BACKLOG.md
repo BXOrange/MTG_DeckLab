@@ -83,8 +83,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 - **PAR-158 · Multi-event attack/block/target trigger heads.** Trigger heads naming more than one event ("whenever ~ attacks, blocks, or becomes the target of …") that the segmenter does not yet split; size first (PLAY-ALL).
 
-- **PAR-159 · Equipped-creature X pump.** "Equipped creature gets +X/+X …" statics and pumps whose X is measured off the board or the equipment; size first (PLAY-ALL).
-
 ## MEC — Game mechanic
 
 - **MEC-119 · Warp casting (RULE 702.185).** Implement alternative Warp costs,

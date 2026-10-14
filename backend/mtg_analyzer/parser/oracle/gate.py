@@ -4036,7 +4036,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      step; "enters during combat" tail). A creature put into combat joins its source's attack (RULE 508.4a). +35 cards
 #      (collateral: Arms Race, Swift Warkite, Through the Breach, Killer Instinct, Giant Opportunity, Meneldor, Slip On the
 #      Ring, Mongrel Pack, Port Inspector, Rakshasa Debaser, Scion of Darkness, Ink-Eyes, Starscream, Zuko, ...).
-PARSER_VERSION = "653"
+PARSER_VERSION = "654"
 
 
 def parser_source_hash() -> str:

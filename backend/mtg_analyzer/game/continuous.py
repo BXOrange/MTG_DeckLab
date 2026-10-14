@@ -2226,6 +2226,12 @@ def _pt_mod_count(
     on this Equipment"), or the ordinary controller-scoped `count_selector`
     vocabulary (Blackblade Reforged's "for each land you control",
     Nettlecyst's "for each artifact and/or enchantment you control")."""
+    if isinstance(selector, dict) and selector.get("counters_on") == "affected":
+        counters = obj.counters or {}
+        return int(counters.get(selector["kind"], 0)) if selector.get("kind") else _all_counters_on(obj)
+    if selector == "affected_mana_value":
+        # RULE 301.5a / 202.3: Hedron Matrix measures the equipped creature.
+        return int(obj.mana_value or 0)
     if selector == "equipment_attached_to_self":
         return _equipment_attached_count(state, obj)
     if selector == "times_attacked_this_turn_self":

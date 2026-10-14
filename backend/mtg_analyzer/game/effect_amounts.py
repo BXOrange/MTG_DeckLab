@@ -93,6 +93,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "resource",  # + ``resource``, ``of``
         # RULE 107.3c — the {X} this spell/ability was announced for.
         "x_paid",  # + ``of``
+        "ability_resolution_count",  # current ability, including this resolution
         # PAR-67: how many counters this activated ability's own cost just
         # removed (`costs.REMOVE_COUNTERS_ALL`/X/ANY) — the cost-paid
         # sibling of ``this_way``'s resolve-time tallies.
@@ -250,6 +251,9 @@ def _base(
 ) -> int:
     kind = amount.get("kind")
     controller_id = effect_conditions._controller_id(source, context)
+
+    if kind == "ability_resolution_count":
+        return int(getattr(context, "ability_resolution_count", None) or 0)
 
     if kind == "fixed":
         value = amount.get("amount", 0)

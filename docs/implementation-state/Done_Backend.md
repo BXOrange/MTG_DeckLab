@@ -2197,6 +2197,8 @@ The same predicate can gate sacrifice-dependent resolving sequences.
 
 - **What:** "equipped/enchanted/fortified … gets +N/+N [and has `<kw>`]" and "… has `<kw>`" now parse to `anthem`/`grant_keyword` specs with `affects="attached_permanent"`…
 - **Files:** `parser/oracle/catalogue/static_handlers.py`
+- **Defined X bonuses (PAR-159, PARSER_VERSION 654):** Attached anthems reuse quantity selectors for board/graveyard counts and source counters; host counters and host mana value remain distinct from the Equipment. Both axes may scale independently, including Cranial Ram's fixed +1 toughness. Bronze Cudgels uses the existing attached pump and actual ability-resolution count, reading the attachment at resolution and resetting the count each turn. Unsupported intensity/dice operands and compound host-counter arithmetic fail closed.
+- **Validation:** Nine additional modeled cards, zero snapshot regressions: Bonehoard, Bronze Cudgels, Chainsaw, Cranial Ram, Hedron Matrix, Opaline Bracers, Staff of Titania, Exoskeletal Armor and Wreath of Geists. `tests/test_par159_attached_x_pump.py` checks parsing, dynamic recomputation, opposing-controller hosts, source/host quantities, attachment changes and cleanup. Independent normal suite: 13,296 passed / 336 skipped; two sandbox-localhost failures passed in the complete proxy-module retry (3 passed). All full-cache modules: 531 passed. Authoritative coverage: 21,510 / 35,046 (61.4%); Commander-legal: 20,698 / 32,068 (64.5%).
 
 ### Layer-6 Grant of an Activated Ability
 

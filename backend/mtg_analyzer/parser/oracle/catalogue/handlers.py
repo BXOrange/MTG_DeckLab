@@ -20520,6 +20520,16 @@ HANDLERS: list[EffectHandler] = [
     # Catoblepas) / mass "creatures you control get +X/+X …" sibling
     # (Klothys's Design) — tried before the plain digit-amount `pump` row
     # below since "x" would otherwise never match that row's `\d+`.
+    # RULE 608.2 / 301.5a: Bronze Cudgels uses completed resolutions, not activations.
+    EffectHandler(
+        "pump_attached_resolution_count",
+        _c(r"until end of turn, equipped creature gets \+x/\+0, where x is the number of times this ability has resolved this turn"),
+        lambda m: [EffectSpec("pump", {
+            "target_kind": "attached_permanent", "power": 0, "toughness": 0,
+            "dynamic_amount": {"kind": "ability_resolution_count"},
+            "amount_from_count_selector_axis": "power",
+        })],
+    ),
     EffectHandler("pump_devotion_target", _PUMP_DEVOTION_TARGET_RE, _pump_devotion_target),
     EffectHandler("pump_mana_value", _PUMP_MANA_VALUE_RE, _pump_mana_value),
     EffectHandler(
