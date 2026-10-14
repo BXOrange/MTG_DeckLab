@@ -333,7 +333,7 @@ export default [
               ['full', 'Behaltenes Mana („du verlierst ungenutztes rotes Mana nicht, wenn Schritte und Phasen enden") und „zahle beliebig viel {R}"-X-Zahlungen'],
               ['full', 'Getappt und angreifend ins Spiel (508.4) — Angriffsziel wählen, Folgen für die eingesetzte Kreatur und Rückkehr im nächsten Angreiferdeklarationssegment'],
               ['full', 'Zustandsauslöser (603.8) für fehlende legendäre Kreaturentypen — auch nach Eintritt und Kontrollwechsel, keine Wiederholung solange der Auslöser wartet'],
-              ['partial', 'Warp (702.185) — erkannt; Wirken für Warp-Kosten und spätere Rückkehr aus dem Exil noch offen'],
+              ['full', 'Warp (702.185) — aus der Hand für Warp-Kosten wirken, im nächsten Endsegment exilieren und nach diesem Zug aus dem Exil wirken; Warp-Ereignis für Void'],
               ['full', 'Angriffsumlenkung („wähle, welchen Spieler oder Planeswalker eine angreifende Kreatur angreift") und Angriffszwang für Verteidiger'],
               ['full', 'Verliehenes Entfliehen (702.138, Underworld Breach)'],
               ['full', 'Verliehenes Flashback für eine Zielkarte im Friedhof (702.34, Snapcaster Mage)'],
@@ -462,7 +462,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (61,4 % · 21.510 / 35.046, PARSER_VERSION 654)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (61,4 % · 21.510 / 35.046, PARSER_VERSION 656)'],
               ['partial', 'Davon Commander-legal (64,5 % · 20.698 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

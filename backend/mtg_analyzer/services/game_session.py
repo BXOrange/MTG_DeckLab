@@ -1208,6 +1208,7 @@ class GameSession:
             alt_cost=bool(action.get("alt_cost", False)),
             blitz=action.get("blitz"),
             evoke=bool(action.get("evoke", False)),
+            warp=bool(action.get("warp", False)),
             surge=bool(action.get("surge", False)),
             exile_discount=int(action.get("exile_discount", 0)),
             # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —

@@ -2494,6 +2494,8 @@ class CastingResolutionMixin:
                     object_types=sorted(obj.type_words),
                 )
             )
+            from ..warp import resolve_warp
+            resolve_warp(self.state, obj, item.controller_id)
             if obj.cast_via_evoke:
                 # RULE 702.74a: "it's sacrificed when it enters the
                 # battlefield" — a consequence of entering, not a

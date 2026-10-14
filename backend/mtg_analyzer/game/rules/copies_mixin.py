@@ -408,6 +408,7 @@ class CopiesMixin:
                     setattr(copy_obj, field, copy.deepcopy(getattr(item.obj, field)))
             # RULE 707.10: copying a spell copies alternative-cost decisions.
             copy_obj.blitz_cost_paid = item.obj.blitz_cost_paid
+            copy_obj.cast_via_warp = item.obj.cast_via_warp
             bind_from_catalogue(copy_obj)
             if copy_obj.bestowed:
                 self._begin_bestow(copy_obj)

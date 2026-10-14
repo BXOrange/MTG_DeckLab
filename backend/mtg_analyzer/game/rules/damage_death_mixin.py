@@ -734,7 +734,7 @@ class DamageDeathMixin:
             if own_batch:
                 self.state._deferred_entry_events = None
 
-    def exile(self, obj: GameObject) -> None:
+    def exile(self, obj: GameObject, *, warped: bool = False) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
 
         Fires `LEAVES_BATTLEFIELD` when it was in play, then `EXILE`. RULE
@@ -788,12 +788,17 @@ class DamageDeathMixin:
         obj.damage_marked = 0
         obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
         owner.add_to_zone(obj, Zone.EXILE)
+        if warped:
+            # RULE 702.185b: observers of EXILE see this designation already.
+            obj.warped_card = True
+            obj.warp_exiled_incarnation = obj.zone_incarnation
+            obj.warp_exiled_turn = self.state.internal_turn.number
         self._split_melded_after_move(obj, Zone.EXILE)  # RULE 712.19
         self._flag_commander_zone_choice(obj)
         self.state.fire_event(
             GameEvent(
                 EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
-                instance_id=obj.instance_id, from_zone=_from_zone,
+                instance_id=obj.instance_id, from_zone=_from_zone, warped=warped,
             )
         )
     def return_to_hand(self, obj: GameObject) -> None:

@@ -101,6 +101,13 @@ def _slug(name: str) -> str:
 # in `_auto_regex` since it's a single-keyword override, not a shape-wide rule.
 
 _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
+    # RULE 702.185a: the card's own Warp cost is on its keyword line.
+    # A preceding grant ("cards in your hand have warp {3}") must not
+    # replace that cost; a non-mana rider must not be silently discarded.
+    "warp": re.compile(
+        rf"^warp\s*[—–-]?\s*(?P<cost>{_COST_RUN})\s*\.?\s*(?=\(|$)",
+        re.I | re.M,
+    ),
     # RULE 702.16 — "protection from <quality>" up to the clause end. The
     # trailing lookahead also stops before a reminder-text parenthetical that
     # follows a space rather than punctuation ("Protection from black (This

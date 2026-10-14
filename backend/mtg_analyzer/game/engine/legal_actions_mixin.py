@@ -259,6 +259,7 @@ class LegalActionsMixin:
         alt_cost: bool = False,
         blitz: Optional[int] = None,
         evoke: bool = False,
+        warp: bool = False,
         surge: bool = False,
         help_pay: bool = False,
         bestow: bool = False,
@@ -308,7 +309,7 @@ class LegalActionsMixin:
             obj._gift_preview = True
             try:
                 action = self._cast_action(player, obj, face=face, mode=mode, entwine=entwine, free=free,
-                                           alt_cost=alt_cost, blitz=blitz, evoke=evoke, surge=surge, help_pay=help_pay,
+                                           alt_cost=alt_cost, blitz=blitz, evoke=evoke, warp=warp, surge=surge, help_pay=help_pay,
                                            pay_additional=pay_additional)
             finally:
                 obj.gift_promised, obj.gift_recipient_id = saved
@@ -405,6 +406,10 @@ class LegalActionsMixin:
                         for candidate in player.hand if candidate is not obj
                     ],
                 }
+        if warp:
+            action["warp"] = True
+            action["warp_cost_label"] = self._warp_cost(obj).raw
+            action["cost_label"] = self.effective_cast_cost(player, obj, warp=True, mode=mode).raw
         if free or alt_cost or evoke or surge:
             # RULE 601.2f-adjacent free cast / RULE 118.9 alternative cost
             # (MEC-15) / RULE 702.74b Evoke (MEC-42) / RULE 702.117 Surge — a wholly different
@@ -448,12 +453,12 @@ class LegalActionsMixin:
                 if not self.can_cast(player, obj, entwine=True):
                     action["locked"] = True
                     action["lock_reason"] = "Verflechten-Kosten nicht bezahlbar"
-            cost = self.rules.mana_cost_of(obj.card)
+            cost = self._warp_cost(obj) if warp else self.rules.mana_cost_of(obj.card)
             # RULE 202.3: the printed mana value, always present — a client
             # ordering offers by cost (`services/bots.py`' cheapest-first line)
             # otherwise has nowhere to read it from, since `GameObject.to_dict`
             # carries board state rather than printed characteristics.
-            action["mana_value"] = cost.converted_mana_cost
+            action["mana_value"] = self.rules.mana_cost_of(obj.card).converted_mana_cost
             # RULE 601.2b (PAR-30 — Crashing Wave / Foggy Swamp Visions /
             # Waterbender's Restoration): a spell whose only {X} lives in a
             # *mandatory* "waterbend {X}" additional cost still announces X
@@ -473,7 +478,7 @@ class LegalActionsMixin:
             )
             if cost.has_variable or _add_has_x:
                 action["has_x"] = True
-                action["max_x"] = self.max_affordable_x(player, obj)
+                action["max_x"] = self.max_affordable_x(player, obj, warp=warp)
                 if _add is not None and _add.sacrifice_count and _add.sacrifice_count[0] == SACRIFICE_COUNT_X:
                     action["max_x"] = min(action["max_x"], len(self._sacrifice_count_pool(player, _add.sacrifice_count[1], obj)))
 
@@ -546,7 +551,7 @@ class LegalActionsMixin:
                 or tax or graveyard_keyword or floor > cost.converted_mana_cost or modal_extra_cost
             ) and cost.raw:
                 action["base_cost"] = cost.raw
-                action["effective_cost"] = self.effective_cast_cost(player, obj, mode=mode).raw
+                action["effective_cost"] = self.effective_cast_cost(player, obj, mode=mode, warp=warp).raw
                 if reduction or any(c.get("colored") for c in self_contributors):
                     action["cost_reduction"] = contributors
                 if tax:
@@ -633,7 +638,7 @@ class LegalActionsMixin:
             action["help_pay"] = True
             action["help_pay_kind"] = self._help_pay_keyword(obj)
             reduced = self._cast_help_capacity(
-                player, obj, self.effective_cast_cost(player, obj, mode=mode)
+                player, obj, self.effective_cast_cost(player, obj, mode=mode, warp=warp)
             )
             action["effective_cost"] = reduced.raw
 
@@ -803,6 +808,11 @@ class LegalActionsMixin:
         # amount), so — unlike free/alt_cost's zero-mana paths above — it
         # needs the same mana-potential probe `_plain_castable_now_or_via_
         # potential` runs for the printed cost, just against the evoke cost.
+        if self._warp_cost(obj) is not None:
+            if self.can_cast(player, obj, warp=True, assume_mana_available=True):
+                cost = self.effective_cast_cost(player, obj, warp=True)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    return True
         has_evoke = self._has_evoke(obj)
         if has_evoke:
             if self.can_cast(player, obj, face=face, evoke=True):
@@ -963,6 +973,10 @@ class LegalActionsMixin:
         # RULE 702.74b (MEC-42): a printed or granted Evoke cost is a third,
         # independent payment method — same "offered alongside, never in
         # place of" treatment as free/alt_cost above.
+        if self._warp_cost(obj) is not None and self.can_cast(player, obj, warp=True, assume_mana_available=True):
+            cost = self.effective_cast_cost(player, obj, warp=True)
+            if mana_potential.is_castable_via_potential(self, player, cost):
+                actions.append(self._cast_action(player, obj, warp=True))
         has_evoke = self._has_evoke(obj)
         if has_evoke and self.can_cast(player, obj, evoke=True):
             actions.append(self._cast_action(player, obj, evoke=True))
@@ -1114,7 +1128,8 @@ class LegalActionsMixin:
             # caller (UI or otherwise) could ever actually cast one of
             # these; found end-to-end testing Ephemerate's Rebound.
             castable = (
-                self._castable_from_exile(obj)
+                self._has_warp_permission(player, obj)
+                or self._castable_from_exile(obj)
                 or self._has_temp_play_permission(obj, player)
                 or self._has_conditional_exile_permission(obj, player)
                 or self._can_cast_foretold(player, obj)

@@ -426,6 +426,10 @@ class GameObject:
         #: consequence, not a replacement — its own ETB trigger still
         #: fires first), then clears this flag.
         self.blitz_cost_paid: bool = False  # RULE 702.152, through stack→battlefield.
+        self.cast_via_warp: bool = False
+        self.warped_card: bool = False
+        self.warp_exiled_incarnation: int = -1
+        self.warp_exiled_turn: int = -1
         self.cast_via_evoke: bool = False
         #: RULE 702.109c/d (PAR-26): whether this creature spell was cast
         #: for its Dash cost — if so, `RulesEngine`'s permanent-spell
@@ -1724,6 +1728,10 @@ class GameObject:
     def zone(self, value: Zone) -> None:
         if value != self._zone:
             self.zone_incarnation += 1
+            # RULE 400.7 / 702.185b: Warp designation belongs to this exile visit.
+            self.warped_card = False
+            if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
+                self.cast_via_warp = False
             # RULE 400.7c: a granted spell ability follows it onto the battlefield,
             # but no other zone visit retains that grant.
             if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
@@ -2231,6 +2239,7 @@ class GameObject:
             "instance_id": self.instance_id,
             "card_id": self.card.id,
             "name": self.card.name,
+            "warped": self.warped_card,
             "miracle_revealed": self.miracle_revealed_incarnation == self.zone_incarnation,
             "names": list(self.names),
             "mana_value": self.mana_value,

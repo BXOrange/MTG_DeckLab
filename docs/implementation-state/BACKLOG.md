@@ -85,11 +85,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-119 · Warp casting (RULE 702.185).** Implement alternative Warp costs,
-  the end-step exile and later casting permission; emit `SPELL_CAST.warped` for
-  Void conditions. 38 cached cards have Warp; current keyword recognition
-  supplies no casting behavior.
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token

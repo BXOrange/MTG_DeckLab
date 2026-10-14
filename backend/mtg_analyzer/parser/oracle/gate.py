@@ -4036,7 +4036,10 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      step; "enters during combat" tail). A creature put into combat joins its source's attack (RULE 508.4a). +35 cards
 #      (collateral: Arms Race, Swift Warkite, Through the Breach, Killer Instinct, Giant Opportunity, Meneldor, Slip On the
 #      Ring, Mongrel Pack, Port Inspector, Rakshasa Debaser, Scion of Darkness, Ink-Eyes, Starscream, Zuko, ...).
-PARSER_VERSION = "654"
+# 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
+#      never a preceding grant or an incompletely supported non-mana cost.
+# 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
+PARSER_VERSION = "656"
 
 
 def parser_source_hash() -> str:
@@ -5595,6 +5598,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # Scryfall lists a DFC's keywords across both faces; only a keyword printed on this face's own text must bind.
         if kw.get("name") in _ATTACH_KEYWORDS and not kw.get("cost") and re.search(
             rf"\b{kw['name']}\b", raw, re.IGNORECASE
+        ):
+            all_claimed = False
+            unclaimed.append(kw_spec.raw_text)
+        # RULE 702.185a: Warp cannot work without the complete alternative
+        # cost. Do not claim an unsupported native cost as a bare keyword.
+        if kw.get("name") == "warp" and not kw.get("cost") and re.search(
+            r"^warp\b", raw, re.IGNORECASE | re.MULTILINE
         ):
             all_claimed = False
             unclaimed.append(kw_spec.raw_text)
