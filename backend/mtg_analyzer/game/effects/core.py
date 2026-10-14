@@ -914,9 +914,9 @@ class GameContext:
 
     def add_mana_any_color(
         self, player: "Player", colors: Optional[list[str]] = None, amount: int = 1,
-        keep_until: Optional[str] = None,
+        keep_until: Optional[str] = None, restriction: Optional[dict] = None,
     ) -> None:
-        self.engine.add_mana_any_color(player, colors, amount=amount, keep_until=keep_until)
+        self.engine.add_mana_any_color(player, colors, amount=amount, keep_until=keep_until, restriction=restriction)
 
 
 def _event_player(context: GameContext, key: str = "controller_id") -> Optional["Player"]:

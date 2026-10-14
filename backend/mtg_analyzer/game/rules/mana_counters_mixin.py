@@ -187,7 +187,7 @@ class ManaCountersMixin:
     _MANA_TYPE_LABELS: dict[str, str] = {**_ANY_COLOR_LABELS, "C": "Farblos"}
     def add_mana_any_color(
         self, player: Player, colors: Optional[list[str]] = None, amount: int = 1,
-        keep_until: Optional[str] = None,
+        keep_until: Optional[str] = None, restriction: Optional[dict] = None,
     ) -> None:
         """Open the interactive colour choice for a resolve-time "add one
         mana of any color" effect (RULE 106.4) — e.g. Deathrite Shaman's
@@ -217,7 +217,7 @@ class ManaCountersMixin:
         if not offered or amount <= 0:
             return
         if len(offered) == 1:
-            self.add_mana(player, offered[0], amount, keep_until=keep_until)
+            self.add_mana(player, offered[0], amount, keep_until=keep_until, restriction=restriction)
             return
         self.open_choice({
             "kind": "add_mana_any_color",
@@ -229,6 +229,8 @@ class ManaCountersMixin:
                 for color in offered
             ],
             **({"keep_until": keep_until} if keep_until else {}),
+            # RULE 106.6 / 605.3a: "Spend this mana only to cast Dragon spells." rides the pick to the pool.
+            **({"restriction": dict(restriction)} if restriction else {}),
         })
     @continuations.choice("add_mana_any_color", answer=continuations.ANSWER_STR, rule="106.4")
     def _resume_add_mana_any_color(self, choice: dict[str, Any], answer: Optional[str]) -> None:
@@ -243,7 +245,10 @@ class ManaCountersMixin:
         player = self.state.player_by_id(choice["player_id"])
         offered = [o["id"] for o in choice.get("options") or []]
         color = answer if answer in offered else (offered[0] if offered else "W")
-        self.add_mana(player, color, int(choice.get("amount", 1) or 1), keep_until=choice.get("keep_until"))
+        self.add_mana(
+            player, color, int(choice.get("amount", 1) or 1), keep_until=choice.get("keep_until"),
+            restriction=choice.get("restriction"),
+        )
     def grant_protection_choice(
         self, target: GameObject, player: Player, allow_colorless: bool = False
     ) -> None:

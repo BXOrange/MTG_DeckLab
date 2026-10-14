@@ -162,10 +162,13 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # only 2 cards cache-wide print it, and Commander's Plate's own is
     # hand-authored (`game/card_catalogue`) rather than built as a
     # second keyword shape for that small a yield.
+    # PAR-109: "Equip planeswalker {1}" (Luxior, Giada's Gift) is a second Equip ability that attaches to planeswalkers only
+    # (hand-authored); the plain "Equip {3}" below it is the card's creature Equip -- "creature or planeswalker" still
+    # reads as the creature cost (Luxior and Shadowspear).
     # BUG-1: "Equip abilities you activate … cost {1} less" (Bladehold War-Whip) is a static, not the keyword line — without the
     # ``abilities`` exclusion the gap ran on into that line's discount and stamped {1} as the card's equip cost.
     "equip": re.compile(
-        rf"\bEquip\b(?!\s+(?:commander|legendary creature|abilities)\b){_GAP}(?P<cost>{_COST_RUN})", re.I,
+        rf"\bEquip\b(?!\s+(?:commander|legendary creature|abilities|planeswalker)\b){_GAP}(?P<cost>{_COST_RUN})", re.I,
     ),
 }
 

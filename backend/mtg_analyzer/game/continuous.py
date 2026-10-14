@@ -2036,10 +2036,7 @@ def count_selector(
         # on ``source``, unlike ``source_<kind>_counters``'s single-kind read.
         if source is None:
             return 0
-        counters = getattr(source, "counters", None) or {}
-        return int(getattr(source, "plus_one_counters", 0) or 0) + sum(
-            int(v or 0) for v in counters.values()
-        )
+        return _all_counters_on(source)
     if selector == "source_colors_count":
         # "equipped creature gets +1/+0 for each of its colors." (Civic
         # Saber; Blessing of the Nephilim, PAR-43) — the source's own
@@ -2205,6 +2202,13 @@ def _equipment_attached_count(state: "GameState", obj: "GameObject") -> int:
     return _attached_subtype_count(state, obj, "equipment")
 
 
+def _all_counters_on(obj: "GameObject") -> int:
+    """Every counter of every kind on ``obj`` (RULE 122), +1/+1 counters being tracked apart from ``counters``."""
+    # `GameObject.plus_one_counters` is a *net* read over this same dict's +1/+1 and -1/-1 entries: adding it would
+    # count them twice.
+    return sum(int(v or 0) for v in (getattr(obj, "counters", None) or {}).values())
+
+
 def _pt_mod_count(
     state: "GameState", ability: StaticAbility, obj: "GameObject", selector: "str | dict[str, Any]"
 ) -> int:
@@ -2227,6 +2231,10 @@ def _pt_mod_count(
         # (Champion of the Flame; Mantle of the Ancients, PAR-43) — the sum
         # of the two single-subtype counts above.
         return _equipment_attached_count(state, obj) + _attached_subtype_count(state, obj, "aura")
+    if selector == "total_counters_on_affected":
+        # "equipped creature gets +1/+1 for each counter on it." (Luxior, Giada's Gift) -- "it" is the permanent
+        # the bonus applies to, every counter kind on it (RULE 122), loyalty counters included.
+        return _all_counters_on(obj)
     if selector == "plus_one_counters_on_self":
         return getattr(ability.source, "plus_one_counters", 0)
     if selector == "counters_on_self":

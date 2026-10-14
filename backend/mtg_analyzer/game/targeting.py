@@ -236,6 +236,11 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "another target planeswalker or creature you control" (Jace, Multiverse Architect's −3) — the planeswalker
         # sibling of the entry above.
         "another_creature_or_planeswalker_you_control",
+        # "Equip planeswalker {1}" / "Equip creature or planeswalker {3}" (Luxior, Giada's Gift; Luxior and Shadowspear)
+        # -- the equip ability's own RULE 115 target (hexproof and protection apply), unlike the enter-as-copy pool
+        # `creature_or_planeswalker_you_control`.
+        "planeswalker_you_control",
+        "targetable_creature_or_planeswalker_you_control",
         # "two target artifacts, creatures, and/or lands you control" (Ghostly
         # Flicker) — the three-type union sibling of the entries above.
         "artifact_creature_or_land_you_control",
@@ -767,6 +772,9 @@ class TargetSpec:
             "another_creature_or_land_you_control": "andere Kreatur oder Land unter deiner Kontrolle",
             "another_creature_or_planeswalker_you_control":
                 "andere Kreatur oder Planeswalker unter deiner Kontrolle",
+            "planeswalker_you_control": "Planeswalker unter deiner Kontrolle",
+            "targetable_creature_or_planeswalker_you_control":
+                "Kreatur oder Planeswalker unter deiner Kontrolle",
             "artifact_creature_or_land_you_control": "Artefakt, Kreatur oder Land unter deiner Kontrolle",
             "permanent_you_own": "Permanent, das du besitzt",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
@@ -1461,6 +1469,9 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "other_vehicle_you_control": TargetFrame("vehicle", SCOPE_YOU),
     "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
     "another_creature_or_planeswalker_you_control": TargetFrame("creature_or_planeswalker", SCOPE_YOU),
+    "planeswalker_you_control": TargetFrame("planeswalker", SCOPE_YOU, exclude_source=False),
+    "targetable_creature_or_planeswalker_you_control": TargetFrame(
+        "creature_or_planeswalker", SCOPE_YOU, exclude_source=False),
     "artifact_creature_or_land_you_control": TargetFrame(
         "artifact_creature_or_land", SCOPE_YOU, exclude_source=False),
     "artifact_or_enchantment": TargetFrame("artifact_or_enchantment"),

@@ -15792,6 +15792,17 @@ def _cant_be_regenerated_prev(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("cant_be_regenerated", {"previous_subject": True})]
 
 
+#: PAR-109 (Lim-Dul's Cohort): "Whenever ~ blocks or becomes blocked by a creature, that creature can't be
+#: regenerated this turn." -- under a block-relation head "that creature" is the creature on the other side of the
+#: block (RULE 509 / 506), not an earlier clause's pick. Emitted with ``trigger_related`` and no filter yet:
+#: `segmenter._retarget_block_relation` fills in the head's `related_filter`, and any other head fails closed.
+_CANT_BE_REGENERATED_RELATED_RE = _c(r"that creature can'?t be regenerated this turn")
+
+
+def _cant_be_regenerated_related(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("cant_be_regenerated", {"trigger_related": True})]
+
+
 def _cant_be_regenerated_hit(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("cant_be_regenerated", {"damaged_this_way": True})]
 
@@ -19473,6 +19484,10 @@ HANDLERS: list[EffectHandler] = [
         previous_subject_only=True,
     ),
     EffectHandler("cant_be_regenerated_hit", _CANT_BE_REGENERATED_HIT_RE, _cant_be_regenerated_hit),
+    EffectHandler(
+        "cant_be_regenerated_related", _CANT_BE_REGENERATED_RELATED_RE, _cant_be_regenerated_related,
+        self_subject_only=True,
+    ),
     EffectHandler(
         "cant_block_this_turn_multi",
         _CANT_BLOCK_TURN_MULTI_RE,

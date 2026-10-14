@@ -542,7 +542,8 @@ class DamageDeathMixin:
         if by_effect and obj.counters.get("shield", 0) > 0:
             self.add_counters(obj, -1, "shield")
             return
-        if not can_be_regenerated or getattr(obj, "temp_cant_be_regenerated", False):
+        if (not can_be_regenerated or getattr(obj, "temp_cant_be_regenerated", False)
+                or self._damaged_by_regen_denier(obj)):
             self._move_to_graveyard(obj)
             return
         event = GameEvent(EventType.DESTROY, target_id=obj.instance_id, object=obj.name)
@@ -552,6 +553,16 @@ class DamageDeathMixin:
                 self._move_to_graveyard(obj)
 
         self.apply_replacements(event, on_resolved=_finish)
+    def _damaged_by_regen_denier(self, obj: GameObject) -> bool:
+        """RULE 701.16 (Bone Shaman): ``obj`` was dealt damage this turn by a source whose controller activated "creatures
+        dealt damage by ~ this turn can't be regenerated this turn" (`temp_deny_regen_to_damaged`). The damage may come
+        before or after the activation -- the clause only asks who was damaged "this turn"."""
+        for source_id in self.state.creatures_damaged_by_source_this_turn.get(obj.instance_id, ()):
+            source = self.state.find_object(source_id)
+            if source is not None and getattr(source, "temp_deny_regen_to_damaged", False):
+                return True
+        return False
+
     def regenerate(self, obj: GameObject) -> None:
         """RULE 701.16: give ``obj`` a regeneration shield.
 

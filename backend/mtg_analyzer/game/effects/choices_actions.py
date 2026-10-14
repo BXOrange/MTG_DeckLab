@@ -205,6 +205,7 @@ class AddManaEffect(GameEffect):
                 if any_amount > 0:
                     context.add_mana_any_color(
                         player, colors=self.any_color_choices, amount=any_amount, keep_until=self.keep_until,
+                        restriction=self.restriction,
                     )
                     used_this_turn = True
             else:

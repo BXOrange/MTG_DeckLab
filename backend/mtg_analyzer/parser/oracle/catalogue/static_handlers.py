@@ -4377,7 +4377,9 @@ _SELF_ANTHEM_FOR_EACH_RE = re.compile(
 #: "for each …" scaling.
 _ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
     rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
-    r"(?: and has (?P<kw>[a-z][a-z, ]*?))?\.?",
+    # PAR-109: the comma before the grant is optional ("…for each counter on it, and has trample and lifelink.",
+    # Luxior and Shadowspear).
+    r"(?:,? and has (?P<kw>[a-z][a-z, ]*?))?\.?",
     re.IGNORECASE,
 )
 #: PAR-120 (PARSER_VERSION 472): 17 of the original 30 entries retired —
@@ -4442,6 +4444,10 @@ def _for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | d
         return f"source_{m.group(1)}_counters"
     if what == "counter on ~":
         return "total_counters_on_source"
+    if not self_form and what in ("counter on it", "counters on it"):
+        # PAR-109 (Luxior, Giada's Gift; Luxior and Shadowspear): in an Aura/Equipment's clause "it" is the
+        # equipped/enchanted permanent, so the count is every counter on the creature the bonus applies to.
+        return "total_counters_on_affected"
     if self_form:
         m = re.fullmatch(r"([a-z][a-z]*) counters? on it", what)
         if m:

@@ -3995,9 +3995,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Thumb), "If you would roll a die, instead roll 2 of those dice and ignore 1 of those results." (Krark's Other Thumb) and "If
 #      you would roll 1 or more planar dice, instead roll that many planar dice plus 1 and ignore 1." (Ichor Elixir) now lower to the
 #      `ignore_one` replacement (`replacements._IGNORE_ONE_RE`; engine: `FLIP_COIN`/`ROLL_DICE`/`PLANAR_DIE_ROLL` pre-events).
+# 648: PAR-109 -- the residue of the static/activated-ability batch. (1) "Add ... Spend this mana only to cast `<X>` spells." tags the
+#      added mana's `add_mana` specs with a RULE 605.3a restriction (`segmenter._SPEND_MANA_SENTENCE_RE`; closed vocabulary: spells,
+#      creature/instant-or-sorcery/`<type>` and "`<type>` or `<type>`" spells -- Desolation of Smaug, Geosurge, Jaya Ballard,
+#      Sarkhan Fireblood, Abstract Paintmage; the any-colour pick keeps the restriction). (2) "Whenever ~ blocks or becomes blocked by
+#      a creature, that creature can't be regenerated this turn." (Lim-Dul's Cohort): `cant_be_regenerated` ``trigger_related`` reads
+#      the other side of the block, filled by `_retarget_block_relation`; any other head fails closed. (3) "equipped creature gets
+#      +N/+N for each counter on it" counts every counter on the equipped creature (`total_counters_on_affected`) and the grant tail
+#      may follow a comma. (4) the plain Equip keyword no longer reads "Equip planeswalker {1}" as the card's creature cost.
+#      Hand-authored in the same batch: Bone Shaman, Brad Boimler (Eager Ensign), Atalya (Samite Master), Luxior (both).
 #: RULE 702.6/702.67/702.151: the attach keywords whose printed cost must be captured for the ability to bind.
 _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
-PARSER_VERSION = "647"
+PARSER_VERSION = "648"
 
 
 def parser_source_hash() -> str:

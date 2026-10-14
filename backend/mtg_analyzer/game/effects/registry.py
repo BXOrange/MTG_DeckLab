@@ -531,6 +531,12 @@ EffectRegistry.register(
     lambda p: DoubleTokensThisTurnEffect(multiplier=int(p.get("multiplier", 2) or 2)),
 )
 EffectRegistry.register(
+    # Brad Boimler, Eager Ensign -- "until end of turn, if 1 or more counters would be put on a permanent you control,
+    # that many plus 1 of each of those kinds ... instead": `double_counters` ``plus``' turn-scoped sibling.
+    "plus_counters_this_turn",
+    lambda p: PlusCountersThisTurnEffect(plus=int(p.get("plus", 1) or 1)),
+)
+EffectRegistry.register(
     "prevent_life_gain",
     # RULE 119.3's "can't gain life this turn" — distinct from
     # "prevent_damage_shield" above (a damage shield, numeric or "all");
@@ -2759,7 +2765,14 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "creature") if "target_kind" in p else None,
         previous_subject=bool(p.get("previous_subject", False)),
         damaged_this_way=bool(p.get("damaged_this_way", False)),
+        trigger_related=bool(p.get("trigger_related", False)),
+        related_filter=p.get("related_filter"),
     ),
+)
+EffectRegistry.register(
+    # Bone Shaman's "creatures dealt damage by ~ this turn can't be regenerated this turn" -- RULE 701.16.
+    "deny_regen_to_damaged",
+    lambda p: DenyRegenToDamagedEffect(),
 )
 EffectRegistry.register(
     # "Target creature can't block this turn" (Falter/Abandon the Post) and
@@ -2810,6 +2823,7 @@ EffectRegistry.register(
         mover=p.get("mover"),
         mover_kind=p.get("mover_kind"),
         mover_optional=bool(p.get("mover_optional", False)),
+        allow_planeswalker=bool(p.get("allow_planeswalker", False)),
     ),
 )
 EffectRegistry.register(

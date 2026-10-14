@@ -315,7 +315,9 @@ class ActivationMixin:
             and condition_query.conditional_flash_holds(conditional_flash, source, self.state)
         )
         return (
-            source.is_planeswalker
+            # The printed type: a planeswalker that a layer-4 effect made "not a planeswalker" (Luxior) still has its
+            # loyalty abilities, and the card text says they can still be activated.
+            source.card.is_planeswalker
             and (self._sorcery_speed_ok(player) or has_conditional_flash)
             and not source.activated_loyalty_this_turn
         )

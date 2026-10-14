@@ -586,14 +586,21 @@ class CantBeRegeneratedEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         previous_subject: bool = False,
         damaged_this_way: bool = False,
+        trigger_related: bool = False,
+        related_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.previous_subject = previous_subject
         self.damaged_this_way = damaged_this_way
+        #: "Whenever ~ blocks or becomes blocked by a creature, that creature can't be regenerated this turn."
+        #: (Lim-Dul's Cohort): the creature(s) on the other side of the block, the firing event's ``related_ids``
+        #: that satisfy the head's ``related_filter``.
+        self.trigger_related = trigger_related
+        self.related_filter = related_filter
         self.target_spec = (
             TargetSpec(kind=target_kind)
-            if target_kind is not None and not previous_subject and not damaged_this_way
+            if target_kind is not None and not previous_subject and not damaged_this_way and not trigger_related
             else None
         )
 
@@ -603,6 +610,16 @@ class CantBeRegeneratedEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.damaged_this_way:
             objs = list(context.damaged_this_way)
+        elif self.trigger_related:
+            from ...game.combat import matches_object_filter
+
+            objs = []
+            for iid in (context.trigger_event or {}).get("related_ids") or []:
+                obj = context.state.find_object(iid)
+                if obj is not None and matches_object_filter(
+                    obj, self.related_filter or {}, reference=self.source, state=context.state
+                ):
+                    objs.append(obj)
         elif self.previous_subject:
             objs = list(context.previous_targets)
         else:
@@ -610,6 +627,16 @@ class CantBeRegeneratedEffect(GameEffect):
         for obj in objs:
             if obj is not None and getattr(obj, "is_creature", False):
                 obj.temp_cant_be_regenerated = True
+
+
+class DenyRegenToDamagedEffect(GameEffect):
+    """"Creatures dealt damage by ~ this turn can't be regenerated this turn." (Bone Shaman) -- marks the source;
+    `RulesEngine.destroy` then skips the regeneration pass (RULE 701.16) for any creature it damaged this turn.
+    Cleared at cleanup (RULE 514.2)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            self.source.temp_deny_regen_to_damaged = True
 
 
 class CantBlockEffect(GameEffect):
@@ -952,9 +979,13 @@ class AttachEffect(GameEffect):
         mover: Optional[str] = None,
         mover_kind: Optional[str] = None,
         mover_optional: bool = False,
+        allow_planeswalker: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Equip planeswalker {1}" (Luxior, Giada's Gift): this attach ability's host may be a planeswalker, which
+        #: becomes a creature only once attached (`RulesEngine._attachment_legal`).
+        self.allow_planeswalker = bool(allow_planeswalker)
         #: A following clause can attach the token it just made rather than
         #: this ability's source: "create an Aura token … attached to target
         #: creature" (Scriv, the Obligator).  This is deliberately a narrow
@@ -992,9 +1023,9 @@ class AttachEffect(GameEffect):
             return
         if isinstance(mover, list):
             for obj in mover:
-                context.engine.attach_to_target(obj, target)
+                context.engine.attach_to_target(obj, target, allow_planeswalker=self.allow_planeswalker)
         else:
-            context.engine.attach_to_target(mover, target)
+            context.engine.attach_to_target(mover, target, allow_planeswalker=self.allow_planeswalker)
 
 
 class AttachEquipmentEffect(GameEffect):

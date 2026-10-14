@@ -2199,6 +2199,38 @@ _KEEP_MANA_SENTENCE_RE = re.compile(
 )
 _KEEP_MANA_UNTIL = {"end of turn": "end_of_turn", "end of combat": "end_of_combat"}
 
+#: PAR-109 (Desolation of Smaug, Sarkhan Fireblood, Jaya Ballard, Geosurge, Metamorphosis, Abstract Paintmage): "Add
+#: {R}{R}{R}. Spend this mana only to cast instant or sorcery spells." -- RULE 106.6 / 605.3a. Like the keep-mana
+#: sentence above it is a property of the mana the previous clause added, so it tags that clause's `add_mana` specs
+#: with a ``restriction`` dict (the shape `game/mana_abilities._parse_restriction` builds for a printed mana ability;
+#: this package cannot import `game/`, so the closed vocabulary is mirrored). Anything before it that adds no mana, or
+#: a restriction outside the vocabulary, fails closed.
+_SPEND_MANA_SENTENCE_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*spend this mana only to cast (?P<what>[a-z]+(?: (?:or|and) [a-z]+)? spells|spells)"
+    r"(?:\.\s*(?P<after>.+))?\.?$",
+    re.IGNORECASE | re.DOTALL,
+)
+_SPEND_MANA_ANY_SPELL = {"kind": "spell"}
+_SPEND_MANA_INSTANT_SORCERY = {"kind": "instant_or_sorcery_spell"}
+#: Card-type words a "cast a(n) `<type>` spell" restriction may name (a `type_spell` restriction reads the spell's
+#: types and subtypes alike through `continuous.has_subtype`).
+_SPEND_MANA_TYPE_WORD_RE = re.compile(r"^[a-z]+$")
+
+
+def _spend_mana_restriction(what: str) -> Optional[dict[str, Any]]:
+    """The restriction dict for "`<X>` spells" in "spend this mana only to cast `<X>` spells", or ``None``."""
+    words = what.lower().removesuffix(" spells").removesuffix("spells").strip()
+    if not words:
+        return dict(_SPEND_MANA_ANY_SPELL)
+    parts = re.split(r" (?:or|and) ", words)
+    if parts == ["instant", "sorcery"]:
+        return dict(_SPEND_MANA_INSTANT_SORCERY)
+    if not all(_SPEND_MANA_TYPE_WORD_RE.match(part) for part in parts) or len(parts) > 2:
+        return None
+    if parts == ["creature"]:
+        return {"kind": "creature_spell", "allow_ability": False}
+    return {"kind": "type_spell", "types": parts, "allow_ability": False}
+
 #: "~ deals N damage to target creature. **If that creature would die this
 #: turn, exile it instead.**" (RULE 616 / 701.11 — Magma Spray / Feed the
 #: Flames / Bot Bashing Time / Elspeth's Smite; also the pump form, Bleed
@@ -5562,6 +5594,24 @@ def _parse_effect_body_inner(
                 )
         # regex matched but nothing stampable — fall through, fail closed
 
+    spend_mana = _SPEND_MANA_SENTENCE_RE.match(body)
+    if spend_mana is not None:
+        restriction = _spend_mana_restriction(spend_mana.group("what"))
+        before_specs = parse_effect_body(
+            spend_mana.group("before"), self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject,
+        ) if restriction is not None else None
+        if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
+            return None
+        before_specs = [
+            EffectSpec(spec.type, {**spec.params, "restriction": dict(restriction)}, condition=spec.condition)
+            if spec.type == "add_mana" else spec
+            for spec in before_specs
+        ]
+        return _with_after_tail(
+            before_specs, spend_mana.group("after"), previous_subject=previous_subject, group_subject=group_subject,
+        )
+
     keep_mana = _KEEP_MANA_SENTENCE_RE.match(body)
     if keep_mana is not None:
         before_specs = parse_effect_body(
@@ -7236,6 +7286,11 @@ def _retarget_block_relation(
         return effects
     out: "list[EffectSpec]" = []
     for e in effects:
+        if e.params.get("trigger_related") and "related_filter" not in e.params:
+            e = EffectSpec(
+                e.type, {**e.params, "related_filter": dict(head_trigger.get("related_filter") or {})},
+                condition=e.condition,
+            )
         if e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self":
             params = dict(e.params)
             params["capture"] = "trigger_related"
@@ -9558,6 +9613,8 @@ def _segment_line_unsplit(
                 return Segment(raw=raw)
         if composed_head:
             effects = _retarget_block_relation(event, head_trigger, effects)
+        if "'trigger_related': True" in repr(effects) and "'related_filter'" not in repr(effects):
+            return Segment(raw=raw)  # "that creature" of a block relation, under a head that has no other side
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
         limit = limit or body_limit
         intervening = _etb_intervening_if(event, condition, body)

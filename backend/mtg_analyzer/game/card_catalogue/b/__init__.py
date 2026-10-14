@@ -41,12 +41,14 @@ from . import blossoming_bogbeast  # noqa: F401
 from . import blowfly_infestation  # noqa: F401
 from . import bone_devourer  # noqa: F401
 from . import bone_mask  # noqa: F401
+from . import bone_shaman  # noqa: F401
 from . import bontu_s_monument  # noqa: F401
 from . import borne_upon_a_wind  # noqa: F401
 from . import boromir_warden_of_the_tower  # noqa: F401
 from . import boros_charm  # noqa: F401
 from . import boseiju_who_endures  # noqa: F401
 from . import boss_s_chauffeur  # noqa: F401
+from . import brad_boimler_eager_ensign  # noqa: F401
 from . import brainstorm  # noqa: F401
 from . import brass_squire  # noqa: F401
 from . import brawn  # noqa: F401

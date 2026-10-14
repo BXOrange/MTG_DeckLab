@@ -1340,7 +1340,9 @@ class CastingResolutionMixin:
             if name in keywords:
                 return name
         return None
-    def _attachment_legal(self, obj: GameObject, target: Any, check_control: bool = True) -> bool:
+    def _attachment_legal(
+        self, obj: GameObject, target: Any, check_control: bool = True, allow_planeswalker: bool = False,
+    ) -> bool:
         """Whether ``obj`` can legally attach to ``target`` (basic MVP rules).
 
         ``check_control`` is the "creature you control" half of equip/reconfigure/fortify. RULE 301.5b
@@ -1393,7 +1395,12 @@ class CastingResolutionMixin:
             # Only the Equipment's own controller may activate its equip
             # ability (RULE 301.5d), so that's the controller who must
             # match — not necessarily the target's *owner*.
-            return target.is_creature and (not check_control or target.controller_id == obj.controller_id)
+            # RULE 702.6e-style variants ("Equip planeswalker {1}"): the planeswalker is no creature until the Equipment
+            # that makes it one is attached, so the ability itself widens the target (``allow_planeswalker``); a
+            # permanent already attached is a creature through that Equipment's own static, which keeps it legal on
+            # the RULE 704.5n re-check.
+            is_host = target.is_creature or (allow_planeswalker and target.card.is_planeswalker)
+            return is_host and (not check_control or target.controller_id == obj.controller_id)
         if kind == "reconfigure":
             # RULE 702.151a: "another target creature you control."
             return (
@@ -1434,12 +1441,15 @@ class CastingResolutionMixin:
                 return target.is_planeswalker
             return True
         return True
-    def attach_to_target(self, obj: GameObject, target: Any, check_control: bool = True) -> bool:
+    def attach_to_target(
+        self, obj: GameObject, target: Any, check_control: bool = True, allow_planeswalker: bool = False,
+    ) -> bool:
         """Attach an Aura/Equipment-like object to a legal target (RULE 303/301.5).
 
         ``check_control=False`` is an effect attaching it outside the equip ability — see
-        `_attachment_legal`."""
-        if not self._attachment_legal(obj, target, check_control):
+        `_attachment_legal`. ``allow_planeswalker`` is a planeswalker-equip ability's own reach ("Equip planeswalker
+        {1}", Luxior)."""
+        if not self._attachment_legal(obj, target, check_control, allow_planeswalker):
             return False
         obj.attached_to = target.id if isinstance(target, Player) else target.instance_id
         return True

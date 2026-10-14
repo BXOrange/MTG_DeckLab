@@ -1317,6 +1317,9 @@ class GameObject:
         #: RULE 701.16 / "can't be regenerated this turn" (Gravebind, Incinerate's rider) —
         #: `RulesEngine.destroy` skips the regeneration replacement pass; cleared at cleanup.
         self.temp_cant_be_regenerated: bool = False
+        #: Bone Shaman's "creatures dealt damage by ~ this turn can't be regenerated this turn": while set, a creature this
+        #: object damaged this turn is destroyed without the regeneration pass (`RulesEngine.destroy`); cleared at cleanup.
+        self.temp_deny_regen_to_damaged: bool = False
         #: "You can't sacrifice those creatures this turn." (Call for Aid —
         #: an anti-abuse rider on a mass threaten). Checked by
         #: `RulesEngine.sacrifice` / `GameEngine._sacrifice_candidate`;
@@ -1662,6 +1665,7 @@ class GameObject:
         self.temp_pt_switch_count = 0
         self.temp_cant_block = False
         self.temp_cant_be_regenerated = False
+        self.temp_deny_regen_to_damaged = False
         self.temp_combat_restrictions = []
         self.temp_protections = set()
         self.temp_cant_be_target_of_spell_colors = set()
@@ -1854,7 +1858,9 @@ class GameObject:
 
     @property
     def is_planeswalker(self) -> bool:
-        return self.card.is_planeswalker
+        # RULE 613.1d: a layer-4 effect may take the type away ("equipped permanent isn't a planeswalker", Luxior).
+        # `card.is_planeswalker` is still the printed fact, which RULE 606 loyalty abilities go by.
+        return self.card.is_planeswalker and "planeswalker" not in self._removed_types
 
     @property
     def is_battle(self) -> bool:

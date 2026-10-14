@@ -145,15 +145,12 @@ def test_attached_anthem_for_each_with_keyword_tail():
     assert specs[1] == EffectSpec("grant_keyword", {"keywords": ["flying"], "affects": "attached_permanent"})
 
 
-def test_attached_anthem_on_it_counter_phrasing_stays_unclaimed():
-    # Unlike the self-scoped form, "on it" in an Aura/Equipment's own clause
-    # names the *equipped/enchanted permanent*, not the Aura/Equipment
-    # itself (Luxior, Giada's Gift's loyalty counters land on the creature
-    # it turns into a planeswalker) — ambiguous enough with the source's own
-    # "on ~" idiom that this must fail closed rather than guess.
-    assert static_effect_specs(
-        "Equipped creature gets +1/+1 for each counter on it."
-    ) is None
+def test_attached_anthem_on_it_counter_phrasing_counts_the_equipped_permanents_counters():
+    # In an Aura/Equipment's own clause "it" names the *equipped/enchanted permanent*, not the Aura/Equipment itself
+    # (Luxior, Giada's Gift: the loyalty counters of the planeswalker it turns into a creature). PAR-109 reads it
+    # that way (`total_counters_on_affected`); a count of the source's own counters is still spelled "on ~".
+    [spec] = static_effect_specs("Equipped creature gets +1/+1 for each counter on it.")
+    assert spec.params["power_count"] == spec.params["toughness_count"] == "total_counters_on_affected"
 
 
 def test_real_cards_modeled():

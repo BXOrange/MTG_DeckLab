@@ -516,6 +516,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "bounce_own_land_from_trigger": "move_object",
     "cant_block_this_turn": "create_continuous_effect",
     "cant_be_regenerated": "create_continuous_effect",
+    "deny_regen_to_damaged": "create_continuous_effect",
     "cast_exiled_face_down": "cast",
     "cast_target_elemental_from_graveyard_free": "cast",
     "cheat_creature_from_hand": "move_object",
@@ -961,7 +962,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
 #: of reusing the branch node.
 _REPLACEMENT_TYPES: frozenset[str] = frozenset({
     "entry_effect",
-    "double_tokens_this_turn", "dungeon_room_trigger_doubler", "enters_tapped_static", "extra_etb_counter",
+    "double_tokens_this_turn", "plus_counters_this_turn", "dungeon_room_trigger_doubler", "enters_tapped_static", "extra_etb_counter",
     "global_wither", "graveyard_redirect", "graveyard_redirect_to_exile_this_turn",
     "mana_multiplier", "mana_type_override", "mirror_produced_mana",
     "multiply_damage_from_target", "prevent_all_life_gain", "prevent_life_gain",

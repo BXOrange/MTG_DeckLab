@@ -697,6 +697,45 @@ class DoubleTokensThisTurnEffect(GameEffect):
         player.player_effects.append(effect)
 
 
+class PlusCountersThisTurnEffect(GameEffect):
+    """RULE 614/616, RULE 122.6: "Until end of turn, if 1 or more counters would be put on a permanent you control,
+    that many plus 1 of each of those kinds of counters are put on that permanent instead." (Brad Boimler, Eager
+    Ensign) -- the turn-scoped sibling of the standing `double_counters` ``plus`` replacement. Built exactly like
+    `DoubleTokensThisTurnEffect`: a `ReplacementEffect` on the controller's `Player.player_effects` that removes
+    itself once its turn is over. The standing replacement's own scoping (`recipient`) is reused by building it
+    through `ReplacementRegistry` with the effect's source, so the two never drift apart.
+    """
+
+    def __init__(self, plus: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.plus = int(plus)
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        from .replacements import ReplacementRegistry  # function-scoped: replacements imports this package
+
+        effect = ReplacementRegistry.create("double_counters", {
+            "plus": self.plus, "recipient": "permanent_you_control",
+            "description": f"{player.name}: Zusaetzliche Marken bis zum Zugende",
+        })
+        effect.source = self.source
+        turn = context.state.internal_turn.number
+        standing_applies = effect.condition
+
+        def _applies(event: GameEvent, ctx: GameContext) -> bool:
+            if ctx.state.internal_turn.number != turn:
+                if effect in player.player_effects:
+                    player.player_effects.remove(effect)  # the turn is over: the effect has ended
+                return False
+            return standing_applies(event, ctx)
+
+        effect.condition = _applies
+        player.player_effects.append(effect)
+
+
 class DisableDamagePreventionEffect(GameEffect):
     """RULE 615: "Damage can't be prevented this turn." (Insult //
     Injury/Isengard Unleashed, MEC-30) — untargeted, no recipient at all;
