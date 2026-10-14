@@ -2479,6 +2479,13 @@ the existing `composite_optional`/`reselect_attack` choices. Left open: several
 instances on one creature trigger once (ENG-53, RULE 702.116b) and Muddle the
 Ever-Changing's "except it has myriad" copy grant. Regressions: `test_myriad.py`.
 
+
+### Per-instance triggered keywords and Flanking (ENG-53, RULE 113.2c)
+
+- **What:** `combat.keyword_instances(obj, keyword)` counts printed (1) plus each layer-6 grant (`GameObject._granted_keyword_instances`, filled by `continuous.recompute` per granting effect and per `temp_keywords` grant, reset in `reset_derived`); `has()` and the keyword set stay as they were, so redundant keywords (flying, haste, …) are untouched. Myriad (702.116b) places one trigger per instance; Rampage (702.23b) one each for the printed and granted instance with its own N; Annihilator, Bushido and Afflict already built one trigger per printed/granted instance. Granted Exalted, Battle cry, Prowess and Mentor had **no** trigger at all (Sublime Archangel's "other creatures have exalted" did nothing): `GRANTED_TRIGGERED_FLAG_KEYWORDS` synthesizes one trigger per granting ability. Flanking (702.25) had no engine behaviour while 25 parser-built cards (Suq'Ata Lancer, Knight of Valor, …) plus Sidar Kondo and Flanking Licid counted as modeled: `binding/core._kw_flanking` triggers on each `BLOCKS` by a blocker without flanking and gives it -1/-1 until end of turn, once per instance (a 1-toughness blocker dies to SBA before damage).
+- **Left open:** `temp_parametric_keywords` is keyed by name, so two same-turn temporary grants of one parametric keyword with different N collapse to the last; keyword-counter grants add no instances.
+- **Files:** `game/combat.py`, `game/continuous.py`, `game/rules/misc_mixin.py`, `game/binding/core.py`, `models/game/game_object.py`. Tests: `tests/test_eng53_keyword_instances.py` (18).
+
 ### Melee from completed attack declarations (RULE 702.121)
 
 Melee is collected from `ATTACKERS_DECLARED`, after all attackers and defenders

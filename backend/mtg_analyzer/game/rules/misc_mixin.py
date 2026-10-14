@@ -5857,20 +5857,23 @@ class MiscSystemsMixin:
         beyond the first" — zero bonus for a single blocker, so nothing to
         place).
         """
-        param = (getattr(attacker, "parametric_keywords", None) or {}).get("rampage")
-        if not param or param.get("n") is None:
-            return
-        bonus = int(param["n"]) * max(0, blocker_count - 1)
-        if bonus <= 0:
-            return
-        ability = TriggeredAbility(
-            trigger_event=EventType.BECOMES_BLOCKED,
-            effects=[PumpEffect(power=bonus, toughness=bonus)],
-            controller_id=attacker.controller_id,
-            source=attacker,
-            description=f"Rampage {param['n']}",
-        )
-        self._place_trigger(ability)
+        # RULE 702.23b: each rampage instance triggers separately, each with its own N: the printed one, then a granted one.
+        printed = (getattr(attacker, "parametric_keywords", None) or {}).get("rampage")
+        granted = (getattr(attacker, "_granted_parametric_keywords", None) or {}).get("rampage")
+        amounts = [int(p["n"]) for p in (printed,) if p and p.get("n") is not None]
+        amounts += [int(granted)] if granted is not None else []
+        for n in amounts:
+            bonus = n * max(0, blocker_count - 1)
+            if bonus <= 0:
+                continue
+            ability = TriggeredAbility(
+                trigger_event=EventType.BECOMES_BLOCKED,
+                effects=[PumpEffect(power=bonus, toughness=bonus)],
+                controller_id=attacker.controller_id,
+                source=attacker,
+                description=f"Rampage {n}",
+            )
+            self._place_trigger(ability)
     def _check_myriad(self, attacker: GameObject) -> None:
         """RULE 702.116a Myriad: "Whenever this creature attacks, for each opponent other than defending
         player, you may create a token that's a copy of this creature that's tapped and attacking that player
@@ -5880,9 +5883,11 @@ class MiscSystemsMixin:
         seen. The body is ordinary composition: a `for_each` over the other opponents, each iteration a "you
         may" around the tapped-and-attacking copy plus its own end-of-combat exile (RULE 603.7). The tokens are
         put onto the battlefield attacking, never declared, so no attack trigger fires for them (RULE 508.3a),
-        and a 2-player game has no such opponent, so nothing is created. RULE 702.116b wants each myriad instance
-        to trigger separately, but keywords are a set, so a creature with several instances triggers once (ENG-53)."""
-        if not combat.has(attacker, "myriad"):
+        and a 2-player game has no such opponent, so nothing is created. RULE 702.116b: each myriad instance triggers
+        separately, so a creature with a printed and a granted instance (or two grants) places one trigger per
+        instance (`combat.keyword_instances`, ENG-53)."""
+        instances = combat.keyword_instances(attacker, "myriad")
+        if not instances:
             return
         from ...parser.oracle.spec import EffectSpec
         from ..binding.core import build_effects  # function-scoped: binder imports the rules mixins
@@ -5892,27 +5897,28 @@ class MiscSystemsMixin:
             return
         if not [p for p in self.state.living_players() if p.id not in (attacker.controller_id, defending.id)]:
             return
-        ability = TriggeredAbility(
-            trigger_event=EventType.ATTACKS, controller_id=attacker.controller_id, source=attacker,
-            description="Myriad",
-            effects=build_effects([EffectSpec("for_each", {
-                "over": {"players": "each_opponent_except_defending"},
-                "effects": [{"type": "optional", "params": {
-                    "prompt": "Myriad: Kopie erstellen?",
-                    "effects": [
-                        {"type": "copy_permanent", "params": {
-                            "target_kind": None, "tapped": True, "attacking": True,
-                            "attack_iteration_player": True}},
-                        {"type": "create_delayed_trigger", "params": {
-                            "step": "end_combat", "scope": "any", "capture": "created_objects",
-                            "effects": [{"type": "exile_specific", "params": {}}]}},
-                    ]}}],
-            })], attacker),
-        )
-        self._place_trigger(ability, event=GameEvent(
-            EventType.ATTACKS, instance_id=attacker.instance_id, player_id=attacker.controller_id,
-            defending_player_id=defending.id,
-        ))
+        for _ in range(instances):
+            ability = TriggeredAbility(
+                trigger_event=EventType.ATTACKS, controller_id=attacker.controller_id, source=attacker,
+                description="Myriad",
+                effects=build_effects([EffectSpec("for_each", {
+                    "over": {"players": "each_opponent_except_defending"},
+                    "effects": [{"type": "optional", "params": {
+                        "prompt": "Myriad: Kopie erstellen?",
+                        "effects": [
+                            {"type": "copy_permanent", "params": {
+                                "target_kind": None, "tapped": True, "attacking": True,
+                                "attack_iteration_player": True}},
+                            {"type": "create_delayed_trigger", "params": {
+                                "step": "end_combat", "scope": "any", "capture": "created_objects",
+                                "effects": [{"type": "exile_specific", "params": {}}]}},
+                        ]}}],
+                })], attacker),
+            )
+            self._place_trigger(ability, event=GameEvent(
+                EventType.ATTACKS, instance_id=attacker.instance_id, player_id=attacker.controller_id,
+                defending_player_id=defending.id,
+            ))
 
     def check_dethrone(self, attacker: GameObject) -> None:
         """RULE 702.107: place Dethrone's own triggered ability, if any,

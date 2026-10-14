@@ -4287,6 +4287,30 @@ def _kw_battle_cry(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility
     ]
 
 
+def _kw_flanking(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.25a Flanking — "Whenever a creature without flanking blocks this creature, the blocking creature gets
+    -1/-1 until end of turn." Fires off the per-blocker `BLOCKS` event (its ``related_ids`` name the blocked attacker),
+    so each blocker is judged on its own and the pump lands on that blocker (``trigger_subject``). RULE 702.25b: each
+    flanking instance triggers separately, which one ability per instance (printed bind, layer-6 grant) provides."""
+    from ..combat import has as _has_keyword
+
+    def _flanked_by_blocker_without_flanking(event: Any, context: Any, src=obj) -> bool:
+        if src.instance_id not in (event.get("related_ids") or []):
+            return False
+        blocker = context.state.find_object(event.get("instance_id")) if getattr(context, "state", None) else None
+        return blocker is not None and not _has_keyword(blocker, "flanking")
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.BLOCKS,
+            effects=[PumpEffect(power=-1, toughness=-1, trigger_subject=True)],
+            condition=_flanked_by_blocker_without_flanking,
+            source=obj,
+            description=_ability_description(obj, spec) or "Flanking",
+        )
+    ]
+
+
 def _kw_mentor(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     """RULE 702.134a Mentor — "Whenever this creature attacks, put a +1/+1
     counter on target attacking creature with lesser power." A self-only
@@ -4475,6 +4499,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "exalted": _kw_exalted,
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,
+    "flanking": _kw_flanking,
     "backup": _kw_backup,
     "exploit": _kw_exploit,
     "firebending": _kw_firebending,

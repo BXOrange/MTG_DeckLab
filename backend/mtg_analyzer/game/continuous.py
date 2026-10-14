@@ -2921,6 +2921,38 @@ def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None, grantor:
     return effect
 
 
+#: Flag keywords whose RULE 702 text is a triggered ability with no parameter: a *granted* instance (Sublime Archangel's
+#: "other creatures you control have exalted") needs the same synthesized trigger a printed one gets at bind time, and each
+#: instance triggers separately (RULE 702.83b Exalted, 702.92b Battle cry, 702.108b Prowess, 702.134b Mentor, 702.25b Flanking).
+GRANTED_TRIGGERED_FLAG_KEYWORDS: frozenset[str] = frozenset({"exalted", "battle_cry", "prowess", "mentor", "flanking"})
+
+
+def _count_keyword_instances(obj: "GameObject", keywords: Any) -> None:
+    """RULE 113.2c: one grant = one more instance of each keyword it hands out (`combat.keyword_instances`)."""
+    counts = obj._granted_keyword_instances
+    for keyword in set(keywords):
+        counts[keyword] = counts.get(keyword, 0) + 1
+
+
+def _grant_flag_keyword_triggers(state: "GameState", obj: "GameObject", keywords: Any, owner: tuple,
+                                 live_grant_keys: set) -> None:
+    """Synthesize the triggered ability of each granted `GRANTED_TRIGGERED_FLAG_KEYWORDS` keyword onto ``obj``.
+
+    Cached per (granting ability, recipient, keyword) in `_granted_ability_cache` like every other layer-6 grant, so the
+    trigger keeps its identity across recomputes and a second grant of the same keyword is a second ability, not a merge."""
+    for keyword in sorted(set(keywords) & GRANTED_TRIGGERED_FLAG_KEYWORDS):
+        key = (owner[1], obj.instance_id, owner[0], keyword)
+        live_grant_keys.add(key)
+        built = state._granted_ability_cache.get(key)
+        if built is None:
+            from ..parser.oracle.spec import AbilitySpec
+            from .binding.core import _KEYWORD_TRIGGERED_BUILDERS  # local: avoid an import cycle
+
+            built = _KEYWORD_TRIGGERED_BUILDERS[keyword](obj, AbilitySpec("keyword", keyword={"name": keyword}), None)
+            state._granted_ability_cache[key] = built
+        obj._granted_triggered_abilities.extend(built)
+
+
 def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     # -- Layer 6: ability-adding effects (keyword / mana / triggered-ability
     # grants — RULE 613.7f). A grant is re-derived every pass exactly like
@@ -2977,6 +3009,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 _trace(obj, 6, _source_name(ability), "loses all abilities")
             if keywords:
                 obj._granted_keywords.update(keywords)
+                _count_keyword_instances(obj, keywords)
+                _grant_flag_keyword_triggers(state, obj, keywords, ("flag", id(ability)), live_grant_keys)
                 _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
             for pk in parametric_grants:
                 pname = str(pk.get("name") or "")
@@ -3236,6 +3270,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     for obj in state.battlefield:
         if obj.temp_keywords:
             obj._granted_keywords.update(obj.temp_keywords)
+            _count_keyword_instances(obj, obj.temp_keywords)
+            _grant_flag_keyword_triggers(state, obj, obj.temp_keywords, ("flag_temp", id(obj)), live_grant_keys)
             # Attribute each keyword to its source spell/ability where the
             # resolved effect recorded one (`temp_effects`); keywords granted
             # by paths that don't (haste/first-strike/indestructible helpers)

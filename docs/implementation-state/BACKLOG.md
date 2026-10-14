@@ -32,11 +32,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-53 · Multiple instances of a triggered keyword trigger once.** `GameObject` keywords are a set, so a
-  permanent with a printed and a granted instance (or two grants) triggers once; RULE 702.116b requires one trigger
-  per Myriad instance (confirmed: `RulesEngine._check_myriad`). Count instances from printed + layer-granted +
-  `temp_keywords` sources and check the other per-instance triggered keywords (exalted 702.83b, battle cry, flanking,
-  bushido, rampage, afflict, annihilator) for the same collapse.
 
 ## PAR — Parser
 

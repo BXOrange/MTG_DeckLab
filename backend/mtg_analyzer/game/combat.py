@@ -293,6 +293,21 @@ def has(obj: "GameObject", keyword: str) -> bool:
     return callable(getter) and getter(keyword) is not None
 
 
+def keyword_instances(obj: "GameObject", keyword: str) -> int:
+    """RULE 113.2c / 702.116b: how many separate instances of a *flag* keyword ``obj`` has.
+
+    ``_obj_keywords`` is a set, so it can only say "has it"; a triggered keyword (Myriad, Exalted, Battle cry, ...) needs
+    the count because each instance triggers separately. Printed (the card's own list or a parser-bound
+    ``intrinsic_keywords`` entry) counts once; every layer-6 grant, ``temp_keywords`` grant and keyword counter adds one
+    (`GameObject._granted_keyword_instances`, re-derived each `continuous.recompute`). Redundant keywords (flying, haste,
+    ...) must keep using `has`; only a trigger site wants this count. 0 when ``obj`` does not have the keyword at all."""
+    if not has(obj, keyword):
+        return 0
+    printed = int(keyword in keywords_of(obj.card) or keyword in (getattr(obj, "intrinsic_keywords", None) or ()))
+    granted = int((getattr(obj, "_granted_keyword_instances", None) or {}).get(keyword, 0))
+    return max(1, printed + granted)
+
+
 def has_flying(obj: "GameObject") -> bool:
     return "flying" in _obj_keywords(obj)
 

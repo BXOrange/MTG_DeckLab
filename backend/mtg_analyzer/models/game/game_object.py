@@ -981,6 +981,10 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        #: RULE 113.2c: how many separate grants stand behind each entry of `_granted_keywords` (a set can't say). A
+        #: triggered keyword fires once per instance (RULE 702.116b Myriad, 702.83b Exalted, ...); see
+        #: `combat.keyword_instances`. Re-derived by every `continuous.recompute`.
+        self._granted_keyword_instances: dict[str, int] = {}
         #: ENG-31: a *granted* parametric keyword's number, keyed by slug —
         #: "target creature gains firebending N until end of turn" (Fire
         #: Nation Palace), "~ has firebending N as long as <cond>" (Fire
@@ -1405,6 +1409,7 @@ class GameObject:
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._granted_keyword_instances = {}
         self._granted_parametric_keywords = {}
         self.granted_ward_cost = None
         self._removed_keywords = set()
