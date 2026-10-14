@@ -2262,6 +2262,54 @@ def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("free_cast_from_hand", params)]
 
 
+#: PAR-118: the shared clause "exile a card from your hand with a number of time counters on it equal to its mana
+#: value" (the counters are always the mana value on all three printed cards) plus whichever rider follows:
+#:
+#: * ``suspend``  — "If it doesn't have suspend, it gains suspend." (The Eleventh Doctor);
+#: * ``opponent`` — "Then target opponent does the same. Cards exiled this way that don't have suspend gain suspend."
+#:   (The Wedding of River Song; the grant covers both players' cards);
+#: * ``alaundo``  — "… and put a number of time counters on it equal to its mana value. It gains "When the last time
+#:   counter is removed from this card, if it's exiled, you may cast it without paying its mana cost. If you cast a
+#:   creature spell this way, it gains haste until end of turn." Then remove a time counter from each other card you
+#:   own in exile." The granted trigger is exactly the free-cast window `RulesEngine.remove_suspend_time_counter`
+#:   opens for any exiled card whose last time counter goes (haste for a creature included), so the grant needs no
+#:   separate object state — the quoted text is recognised, not re-interpreted.
+_EXILE_HAND_TIME_RE = _c(
+    # Both multi-sentence cards open "Draw N card(s), then …": the draw rides in front so the window that sees the
+    # later sentences (the sentence split would otherwise strand them) starts at the draw.
+    rf"(?:draw {COUNT} cards?, then )?"
+    r"(?P<may>you may )?exile an? (?P<nonland>nonland )?card from your hand"
+    r"(?:"
+    r" with a number of time counters on it equal to its mana value"
+    r"(?:\. (?P<suspend>if it doesn't have suspend, it gains suspend)"
+    r"|\. then (?P<opponent>target opponent does the same)\. "
+    r"cards exiled this way that don't have suspend gain suspend)?"
+    r"|"
+    r" and put a number of time counters on it equal to its mana value\. "
+    r"it gains \"when the last time counter is removed from this card, if it's exiled, "
+    r"you may cast it without paying its mana cost\. "
+    r"if you cast a creature spell this way, it gains haste until end of turn\.\" "
+    r"then (?P<alaundo>remove a time counter from each other card you own in exile)"
+    r")\.?"
+)
+
+
+def _exile_hand_time_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict[str, Any] = {"time_counters_from_mana_value": True}
+    draw = [EffectSpec("draw", {"count": count_of(m.group("n"))})] if m.group("n") else []
+    if m.group("may"):
+        params["optional"] = True
+    if m.group("nonland"):
+        params["nonland"] = True
+    if m.group("suspend"):
+        params["grant_suspend"] = True
+    if m.group("opponent"):
+        params.update(grant_suspend=True, then_opponent=True)
+    if m.group("alaundo"):
+        params["sweep_time_counters"] = True
+    return draw + [EffectSpec("exile_hand_card", params)]
+
+
 #: ENG-33: "you may put a `<type>` card from your hand onto the battlefield"
 #: (Dr. Eggman, Sonic's Nemesis — a villainous-choice option body).
 #: `PutFromHandOntoBattlefieldEffect` already exists (Tooth and Nail); this
@@ -17563,6 +17611,10 @@ HANDLERS: list[EffectHandler] = [
             ),
         })],
     ),
+    # PAR-118 (RULE 702.62): "[you may] exile a [nonland] card from your hand [and put] with a number of time counters
+    # on it equal to its mana value" and its three printed riders (The Eleventh Doctor, The Wedding of River Song,
+    # Alaundo the Seer) — see `_EXILE_HAND_TIME_RE`.
+    EffectHandler("exile_hand_time_counters", _EXILE_HAND_TIME_RE, _exile_hand_time_counters),
     # PAR-74: "target player reveals their hand and discards all cards with
     # that spell's mana value." (Infernal Kirin) — "reveals their hand" is
     # pure flavor at this engine's fidelity (same treatment `_SEARCH_REVEAL`

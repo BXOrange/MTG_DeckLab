@@ -1585,6 +1585,28 @@ class ExileHandCardEffect(GameEffect):
     chooses" (not this effect's controller), same `_request_choose_objects`
     chooser `discard_choice` uses, just with its ``"exile"`` action instead
     of ``"discard"``.
+
+    PAR-118 (RULE 702.62, Suspend; the Doctor Who "exile a card from your
+    hand with a number of time counters on it equal to its mana value"
+    family — The Eleventh Doctor, The Wedding of River Song, Alaundo the
+    Seer) widens it with the optional pick and the suspend stamp:
+
+    * ``optional`` — "you **may** exile": the pick gets a decline option.
+    * ``nonland`` — "a **nonland** card": lands are not offered (RULE 701.5a
+      names the pool; an empty pool simply does nothing).
+    * ``time_counters_from_mana_value`` — each exiled card gets that many
+      time counters (`TimeCountersOnExiledEffect`, queued as the pick's
+      ``then_specs`` so it only runs for a card that really was exiled).
+    * ``grant_suspend`` — "if it doesn't have suspend, it gains suspend".
+    * ``sweep_time_counters`` — Alaundo's "Then remove a time counter from
+      each other card you own in exile" (`RemoveTimeCountersFromExileEffect`),
+      run after the stamp and also when nothing was exiled.
+    * ``then_opponent`` — The Wedding's "Then target **opponent** does the
+      same": the targeted opponent runs this same pick for themselves
+      (RULE 701.5a: *they* choose, from their own hand) once the controller's
+      pick is settled, whether exiled or declined; two pending choices opened
+      in one resolution would overwrite each other, so the second one is
+      chained through the first one's ``then_specs``/``else_specs``.
     """
 
     def __init__(
@@ -1594,32 +1616,126 @@ class ExileHandCardEffect(GameEffect):
         target_kind: Optional[str] = None,
         previous_subject: bool = False,
         zone: str = "hand",
+        optional: bool = False,
+        nonland: bool = False,
+        time_counters_from_mana_value: bool = False,
+        grant_suspend: bool = False,
+        sweep_time_counters: bool = False,
+        then_opponent: bool = False,
+        player_id: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         #: ``"graveyard"`` — "target player exiles a card from their graveyard" (Merrow Bonegnawer).
         self.zone = zone if zone in ("hand", "graveyard") else "hand"
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        if then_opponent:
+            # "…Then **target opponent** does the same." — a RULE 115 target chosen with the spell, who acts second.
+            self.target_spec = TargetSpec(kind="opponent")
         #: "**That player** exiles a card from their hand." — the `Player`
         #: an earlier clause of this resolution RULE 115-targeted, the same
         #: `DiscardEffect.previous_subject` idiom.
         self.previous_subject = bool(previous_subject)
+        self.optional = bool(optional)
+        self.nonland = bool(nonland)
+        self.time_counters_from_mana_value = bool(time_counters_from_mana_value)
+        self.grant_suspend = bool(grant_suspend)
+        self.sweep_time_counters = bool(sweep_time_counters)
+        self.then_opponent = bool(then_opponent)
+        #: The chained opponent half's actor (set on the continuation spec, never by the parser).
+        self.player_id = player_id
 
     def target_polarity(self) -> Optional[str]:
-        return "harmful"
+        return None if self.then_opponent else "harmful"
+
+    def _own_params(self, **override: Any) -> dict[str, Any]:
+        """This effect's printed behaviour as spec params (for the chained opponent half)."""
+        params: dict[str, Any] = {
+            "count": self.count, "zone": self.zone, "optional": self.optional, "nonland": self.nonland,
+            "time_counters_from_mana_value": self.time_counters_from_mana_value,
+            "grant_suspend": self.grant_suspend,
+        }
+        params.update(override)
+        return params
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = None
-        if self.previous_subject:
+        if self.player_id is not None:
+            player = context.state.player_by_id(self.player_id)
+        if player is None and self.previous_subject:
             prev = list(context.previous_targets)
             player = prev[0] if prev else None
-        if player is None and self.target_spec is not None and targets:
+        if player is None and self.target_spec is not None and not self.then_opponent and targets:
             player = targets[0]
         if player is None:
             player = _controller_of(self.source, context)
         if player is None or self.count <= 0:
             return
-        context.exile_hand_choice(player, self.count, source=self.source, zone=self.zone)
+        opponent = targets[0] if self.then_opponent and targets else None
+        chain: list[dict[str, Any]] = []
+        if opponent is not None:
+            chain.append({"type": "exile_hand_card", "params": self._own_params(player_id=opponent.id)})
+        then_specs: list[dict[str, Any]] = []
+        if self.time_counters_from_mana_value:
+            then_specs.append({"type": "time_counters_on_exiled", "params": {"grant_suspend": self.grant_suspend}})
+        if self.sweep_time_counters:
+            then_specs.append({"type": "remove_time_counters_from_exile", "params": {"exclude_previous": True}})
+        else_specs: list[dict[str, Any]] = []
+        if self.sweep_time_counters:
+            else_specs.append({"type": "remove_time_counters_from_exile", "params": {}})
+        context.exile_hand_choice(
+            player, self.count, source=self.source, zone=self.zone, optional=self.optional,
+            nonland=self.nonland, then_specs=then_specs + chain or None, else_specs=else_specs + chain or None,
+        )
+
+
+class TimeCountersOnExiledEffect(GameEffect):
+    """RULE 702.62 / 122.1: the cards the previous clause just exiled ("it" —
+    `GameContext.previous_targets`, set by the chooser's "if you do" tail)
+    each get a number of time counters equal to their mana value, and, with
+    ``grant_suspend``, "if it doesn't have suspend, it gains suspend"
+    (`GameObject.granted_suspend`, collected from exile by
+    `_collect_suspend_triggers`). The mana value is the card's own — a card
+    in exile has X = 0 (RULE 202.3e), so a hand card needs no special case."""
+
+    def __init__(self, grant_suspend: bool = False, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.grant_suspend = bool(grant_suspend)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..rules.triggers_mixin import _has_suspend  # function-scoped: effects must not import rules at load
+
+        for obj in list(context.previous_targets):
+            if getattr(obj, "zone", None) != Zone.EXILE:
+                continue
+            obj.add_counters("time", int(obj.mana_value or 0))
+            if self.grant_suspend and not _has_suspend(obj):
+                obj.granted_suspend = True
+
+
+class RemoveTimeCountersFromExileEffect(GameEffect):
+    """Alaundo the Seer's "Then remove a time counter from each other card you
+    own in exile." (RULE 122.1 / 702.62a): one time counter comes off every
+    card the controller owns in exile that has one, through
+    `RulesEngine.remove_suspend_time_counter` so the last one opens the
+    "when the last time counter is removed … you may cast it without paying
+    its mana cost" window (the very trigger Alaundo grants its exiled cards,
+    which that primitive already is, haste for creatures included).
+    ``exclude_previous`` leaves out the card the clause before just exiled."""
+
+    def __init__(self, exclude_previous: bool = False, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.exclude_previous = bool(exclude_previous)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        skipped = {id(o) for o in context.previous_targets} if self.exclude_previous else set()
+        for obj in list(player.exile):
+            if id(obj) in skipped or obj.owner_id != player.id or obj.counters.get("time", 0) <= 0:
+                continue
+            context.engine.remove_suspend_time_counter(obj)
 
 
 class LookAtHandEffect(GameEffect):

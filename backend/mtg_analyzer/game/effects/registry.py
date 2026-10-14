@@ -323,7 +323,23 @@ EffectRegistry.register(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
         previous_subject=bool(p.get("previous_subject", False)),
         zone=p.get("zone", "hand"),
+        optional=bool(p.get("optional", False)), nonland=bool(p.get("nonland", False)),
+        time_counters_from_mana_value=bool(p.get("time_counters_from_mana_value", False)),
+        grant_suspend=bool(p.get("grant_suspend", False)),
+        sweep_time_counters=bool(p.get("sweep_time_counters", False)),
+        then_opponent=bool(p.get("then_opponent", False)), player_id=p.get("player_id"),
     ),
+)
+EffectRegistry.register(
+    # PAR-118: the stamp half of "exile a card from your hand with a number of time counters on it equal to its
+    # mana value. If it doesn't have suspend, it gains suspend." — see `TimeCountersOnExiledEffect`.
+    "time_counters_on_exiled",
+    lambda p: TimeCountersOnExiledEffect(grant_suspend=bool(p.get("grant_suspend", False))),
+)
+EffectRegistry.register(
+    # PAR-118: Alaundo the Seer's "remove a time counter from each other card you own in exile".
+    "remove_time_counters_from_exile",
+    lambda p: RemoveTimeCountersFromExileEffect(exclude_previous=bool(p.get("exclude_previous", False))),
 )
 EffectRegistry.register(
     "look_at_hand",  # "look at target player's hand" (Clairvoyance) — an informational choice

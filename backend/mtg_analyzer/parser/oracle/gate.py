@@ -4006,7 +4006,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #      Hand-authored in the same batch: Bone Shaman, Brad Boimler (Eager Ensign), Atalya (Samite Master), Luxior (both).
 #: RULE 702.6/702.67/702.151: the attach keywords whose printed cost must be captured for the ability to bind.
 _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
-PARSER_VERSION = "648"
+# 649: PAR-118 -- "[Draw N cards, then] [you may] exile a [nonland] card from your hand with a number of time counters on it equal to its
+#      mana value" plus its three printed riders: "If it doesn't have suspend, it gains suspend." (The Eleventh Doctor), "Then target
+#      opponent does the same. Cards exiled this way that don't have suspend gain suspend." (The Wedding of River Song), and Alaundo
+#      the Seer's granted last-time-counter cast with the "remove a time counter from each other card you own in exile" sweep.
+#      One `exile_hand_card` spec (new params) over `exile_hand_choice`; the stamp (`time_counters_on_exiled`) and the sweep
+#      (`remove_time_counters_from_exile`) ride the pick's then/else specs. +3 cards.
+PARSER_VERSION = "649"
 
 
 def parser_source_hash() -> str:

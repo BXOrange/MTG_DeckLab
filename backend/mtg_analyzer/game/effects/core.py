@@ -353,9 +353,12 @@ class GameContext:
         then_specs: Optional[list[dict]] = None,
         optional: bool = False,
         zone: str = "hand",
+        nonland: bool = False,
+        else_specs: Optional[list[dict]] = None,
     ) -> None:
         self.engine.exile_hand_choice(
-            player, count, source=source, then_specs=then_specs, optional=optional, zone=zone
+            player, count, source=source, then_specs=then_specs, optional=optional, zone=zone,
+            nonland=nonland, else_specs=else_specs,
         )
 
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:

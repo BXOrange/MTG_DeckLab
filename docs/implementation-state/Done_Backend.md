@@ -6000,6 +6000,7 @@ Reusable support includes additional token batches under replacement effects (Ch
 ### MEC-64 — Suspend hand-zone special action
 
 - **What:** Implemented RULE 702.62a's first Suspend ability as the
+- **PAR-118 (PARSER_VERSION 649, +3, 0 regressed): exile from hand with time counters.** `exile_hand_card` gained `time_counters_from_mana_value`, `grant_suspend`, `nonland`, `then_opponent` and `sweep_time_counters` (new `TimeCountersOnExiledEffect` / `RemoveTimeCountersFromExileEffect`; `exile_hand_choice` gained `nonland` / `else_specs`). The Eleventh Doctor (pick, counters = mana value, gains suspend); The Wedding of River Song (optional nonland pick, then the target opponent picks from their own hand even if you declined; both cards gain suspend; its "Time travel." then runs under the engine's existing simplification); Alaundo the Seer (forced pick without suspend, then one time counter off each other card you own in exile — the quoted "last time counter" grant is the free-cast-with-haste window `remove_suspend_time_counter` already opens, so it is recognised, not re-modelled). Parser row `handlers._EXILE_HAND_TIME_RE`. Tests: `tests/test_par118_exile_hand_time_counters.py` (8).
 
 ### MEC-68 / PAR-57 — Exhausted triggered modes per turn
 

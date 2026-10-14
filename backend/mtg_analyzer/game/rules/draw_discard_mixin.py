@@ -701,6 +701,8 @@ class DrawDiscardMixin:
         then_specs: Optional[list[dict]] = None,
         optional: bool = False,
         zone: str = "hand",
+        nonland: bool = False,
+        else_specs: Optional[list[dict]] = None,
     ) -> None:
         """Interactive exile-from-hand (PAR-74 — Kyoki, Sanity's Eclipse:
         "target opponent exiles a card from their hand."). The exile sibling
@@ -713,11 +715,19 @@ class DrawDiscardMixin:
         ``zone="graveyard"`` is the same pick over the player's own graveyard
         ("target player exiles a card from their graveyard" — Merrow
         Bonegnawer, Scrabbling Claws).
+
+        PAR-118: ``nonland`` offers only nonland cards ("exile a nonland card
+        from your hand", The Wedding of River Song); ``else_specs`` run when
+        nothing ends up exiled (declined or no eligible card), the mirror of
+        ``then_specs``.
         """
         graveyard = zone == "graveyard"
+        pool = list(player.graveyard if graveyard else player.hand)
+        if nonland:
+            pool = [obj for obj in pool if not obj.is_land]
         self._request_choose_objects(
-            player, list(player.graveyard if graveyard else player.hand), "exile", count=count,
-            optional=optional,
+            player, pool, "exile", count=count,
+            optional=optional, else_specs=else_specs,
             prompt=(
                 "Wähle eine Karte aus deinem Friedhof zum Exilieren" if graveyard
                 else "Wähle eine Karte aus deiner Hand zum Exilieren"
