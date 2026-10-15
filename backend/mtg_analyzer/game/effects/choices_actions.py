@@ -3255,64 +3255,69 @@ class ReturnDyingSubjectToBattlefieldEffect(GameEffect):
 
 
 class GiftOfImmortalityDiesEffect(GameEffect):
-    """"When enchanted creature dies, return that card to the battlefield
-    under its owner's control. Return this card to the battlefield attached
-    to that creature at the beginning of the next end step." (Gift of
-    Immortality, PAR-60.)
+    """Return the dying host and remember its new incarnation for the Aura.
 
-    One atomic effect: (1) return the dying creature (DIES event
-    ``instance_id``) from its owner's graveyard, remembering the *new*
-    permanent's instance id on this Aura, then (2) arm a RULE 603.7 delayed
-    trigger for the next end step that returns this Aura from the graveyard
-    and re-attaches it to that remembered creature (still a legal attach —
-    if it has since left, the Aura's own RULE 704.5n SBA sends it back to
-    the graveyard, matching the printed "that creature" wording).
+    RULE 400.7e/f/j: the death trigger can find only the immediate graveyard
+    visits of its host and Aura, then the delayed effect can find the host
+    returned by this effect, rather than a later permanent using the same id.
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ...models.game.game_state import DelayedTrigger
 
-        iid = (context.trigger_event or {}).get("instance_id")
-        creature = context.state.find_object(iid) if iid is not None else None
-        new_id: Optional[int] = None
-        if creature is not None and creature.zone == Zone.GRAVEYARD:
+        event = context.trigger_event or {}
+        creature = context.state.find_object(event.get("instance_id"))
+        host_id = host_incarnation = None
+        if (creature is not None and creature.zone == Zone.GRAVEYARD
+                and creature.zone_incarnation == event.get("graveyard_incarnation")):
             context.return_from_graveyard(creature, "battlefield")
-            new_id = creature.instance_id  # `return_from_graveyard` reuses the object
+            if creature.zone == Zone.BATTLEFIELD:
+                host_id = creature.instance_id
+                host_incarnation = creature.zone_incarnation
+        source_incarnation = event.get("source_zone_incarnation")
+        aura_incarnation = source_incarnation + 1 if source_incarnation is not None else None
         context.state.delayed_triggers.append(
             DelayedTrigger(
                 controller_id=getattr(self.source, "controller_id", None)
                 or context.active_player.id,
                 step="end",
                 scope="any",
-                effects=[ReturnSelfAttachedEffect(attach_to_id=new_id, source=self.source)],
+                effects=[ReturnSelfAttachedEffect(
+                    attach_to_id=host_id, host_incarnation=host_incarnation,
+                    aura_incarnation=aura_incarnation, source=self.source,
+                )],
                 description="Gift of Immortality: Aura re-attach",
             )
         )
 
 
 class ReturnSelfAttachedEffect(GameEffect):
-    """Return this Aura from the graveyard to the battlefield, attached to a
-    specific permanent id (Gift of Immortality's delayed re-attach). If that
-    permanent is gone, the Aura still returns and its own RULE 704.5n SBA
-    handles the illegal-attachment case.
+    """Return the remembered Aura attached to the exact returned permanent.
+
+    RULE 303.4i: an undefined or illegal host leaves the Aura in its graveyard;
+    it must not enter unattached and generate an erroneous entry event.
     """
 
     def __init__(self, attach_to_id: Optional[int] = None,
+                 host_incarnation: Optional[int] = None,
+                 aura_incarnation: Optional[int] = None,
                  source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
         self.attach_to_id = attach_to_id
+        self.host_incarnation = host_incarnation
+        self.aura_incarnation = aura_incarnation
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        aura = self.source
-        if aura is None or aura.zone != Zone.GRAVEYARD:
+        # Resolve ids against the current state, including after snapshot undo.
+        aura = context.state.find_object(getattr(self.source, "instance_id", None))
+        host = context.state.find_object(self.attach_to_id) if self.attach_to_id is not None else None
+        if (aura is None or aura.zone != Zone.GRAVEYARD
+                or aura.zone_incarnation != self.aura_incarnation
+                or host is None or host.zone != Zone.BATTLEFIELD
+                or host.zone_incarnation != self.host_incarnation
+                or not context.engine._attachment_legal(aura, host, check_control=False)):
             return
-        context.return_from_graveyard(aura, "battlefield")
-        host = (
-            context.state.find_object(self.attach_to_id)
-            if self.attach_to_id is not None else None
-        )
-        if host is not None and host.zone == Zone.BATTLEFIELD:
-            aura.attached_to = host.instance_id
+        context.return_from_graveyard(aura, "battlefield", attach_to=host)
         context.recompute()
 
 
