@@ -180,6 +180,9 @@ class StateBasedActionsMixin:
                 and (not window["needs_control"] or source.controller_id == window["player_id"])
                 and (not window.get("needs_tapped") or source.tapped)  # "for as long as ~ remains tapped"
             )
+            if window.get("needs_haunted"):
+                from ..effects.haunted import is_haunted
+                alive = is_haunted(self.state, obj)
             if alive:
                 continue
             obj.controller_id = window["revert_to"]

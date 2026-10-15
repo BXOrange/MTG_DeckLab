@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-166`**; next free `MEC`: **`MEC-120`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-166`**; next free `MEC`: **`MEC-122`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -69,17 +69,15 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
-- **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
-  checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
-  step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a
-  quoted ability (48 cards, only 5 SOLO — Dack Fayden, Liliana the Last Hope, Tezzeret Artifice Master,
-  A-Saheeli, The Capitoline Triad; the rest are blocked by other planeswalker abilities). Decision open: which
-  of these earn a handler; the emblem case is weak on SOLO yield.
+- **PAR-149 · Combat timing, dying enchanted hosts and quoted emblems.** Support all three families: combat-only / before-blockers / declare-blockers casting restrictions; enchanted creature/land dying followed by returning that card; emblems with quoted abilities. Measure current blockers before extending existing primitives.
 - **PAR-156 · Counter or pump, then fight.** "Put a +1/+1 counter on / pump target creature, then it fights …" sequences not yet claimed; size against the cache first, and check whether the existing `fight` previous-target rows already cover the second half (PLAY-ALL).
 
 - **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).
 
 ## MEC — Game mechanic
+
+- **MEC-120 · Cast permissions for sideboard cards (RULE 100.4 / 400.11 / 601).** Add actual outside-the-game card storage and a controller-scoped nonland casting permission for the sideboard emblem exposed by PAR-149; preserve normal casting costs, timing, targets, private information and object identity. Existing Learn and Karn implementations explicitly have no outside-the-game storage, so an inert permission marker cannot implement this behavior.
+- **MEC-121 · Replace losing the game (RULE 104.3 / 614 / 616).** Add a real loss-replacement path for Puresteel Angel's emblem, including life reset, graveyard shuffle, poison removal and consuming the emblem; reuse ordinary replacement ordering, preserve concession and remaining independent loss conditions, and validate state-based and effect-driven loss. PAR-149's quoted body is fail-closed until this runtime exists; current `_player_loses` only supports preventing loss.
 
 ## PLR — Player management
 

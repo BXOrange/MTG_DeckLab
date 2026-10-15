@@ -27,8 +27,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from ..normalize import SELF
-from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
+from ..spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, ParserProvenance
 from .dig import parse_dig, parse_reveal_top_branch
+from .dying_hosts import dying_host_return_specs
 from .counters import KEYWORD_COUNTER_KINDS, counter_choice_list, parse_counter_choice_items
 from .referent_condition import PRONOUN_NOUN_ALT
 from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
@@ -6534,10 +6535,11 @@ _SEARCH_CRITERIA = (
     # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
     # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
     r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
-    rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
+    rf"(?:(?P<color>(?:{_SEARCH_COLOR_WORD})(?: or (?:{_SEARCH_COLOR_WORD}))*)\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
     rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+permanent\s+)?"
     rf"(?:(?P<aura>aura)\s+)?"
+    r"(?P<permanent>permanent )?"
     rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
     r"cards?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
@@ -6685,6 +6687,9 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
     (`_SEARCH_COLOR_WORD`'s own local addition — see its docstring for why
     this isn't `resolve_color_word`), or ``None``."""
     word = (m.groupdict().get("color") or "").strip().lower()
+    if " or " in word:
+        return ["colorless" if part == "colorless" else resolve_color_word(part)
+                for part in word.split(" or ")]
     if word == "colorless":
         return "colorless"
     return resolve_color_word(word)
@@ -6692,6 +6697,10 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
 
 def _search_criteria_from_match(m: re.Match[str]) -> dict:
     crit: dict = {}
+    if m.groupdict().get("permanent"):
+        # RULE 110.4: permanent cards have at least one permanent card type.
+        from .characteristic_phrase import PERMANENT_CARD_TYPES
+        crit["type"] = list(PERMANENT_CARD_TYPES)
     basic = bool(m.groupdict().get("basic"))
     if basic:
         crit["basic"] = True
@@ -7530,7 +7539,7 @@ _COPY_THAT_SPELL_RE = _c(
 
 def _copy_that_spell(m: re.Match[str]) -> list[EffectSpec]:
     word = m.group("n")
-    params: dict = {"spell_from_trigger_event": "instance_id"}
+    params: dict = {"spell_from_trigger_event": "instance_id", "choose_new_targets": True}
     if word == "x times":
         params["count"] = "x"
     elif word not in (None, "an additional time"):
@@ -9774,6 +9783,22 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if params is None:
         return None
     return [EffectSpec("create_token", params)]
+
+
+def _create_tokens_count_plus(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_count_phrase
+    group = parse_count_phrase(m.group("group"))
+    if group is None:
+        return None
+    # Reuse the ordinary token grammar for all independent token axes.
+    tokens = match_clause(m.group("create").replace("create x ", "create 1 ", 1))
+    if tokens is None or len(tokens) != 1 or tokens[0].type != "create_token":
+        return None
+    return [EffectSpec("bind", {
+        "name": "tokens", "amount": {"kind": "count_selector", "selector": group,
+                                      "plus": int(m.group("plus"))},
+        "effects": [{"type": "create_token", "params": {**tokens[0].params, "count": "$tokens"}}],
+    })]
 
 
 _CREATE_TOKEN_QUOTED_CDA_RE = _c(
@@ -14778,7 +14803,7 @@ def _take_initiative(m: re.Match[str]) -> list[EffectSpec]:
 # it fresh at resolve time against a synthetic `Emblem` source (RULE 114.4) —
 # there's no host permanent to flatten onto in the first place.
 _EMBLEM_RE = re.compile(
-    r'(?P<who>you |target player )?gets? an emblem with "(?P<inner>.+)"',
+    r'(?P<who>you |target player |each opponent )?gets? an emblem with,? "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -14799,12 +14824,27 @@ _EMBLEM_UNSUPPORTED_AFFECTS: frozenset[str] = frozenset(
 def _emblem_ability_spec(inner: str) -> Optional[dict]:
     from ..segmenter import segment_line  # lazy: segmenter imports this module
 
+    # RULE 114.4: "this emblem" is the ability's source. Inside an outer
+    # quotation, Oracle uses single quotes for a granted ability.
+    inner = inner.strip().replace("this emblem", SELF)
+    inner = re.sub(
+        r"(\b(?:have|has|gains?) )'(.+)'(?=[., ]*$)",
+        lambda match: match.group(1) + '"' + match.group(2) + '"', inner,
+    )
     segment = segment_line(
-        inner.strip(),
+        inner,
         allow_spell_effect=False,
         provenance=ParserProvenance(version="nested", source="rule:oracle"),
     )
     spec = segment.spec
+    if spec is None:
+        from .emblem_bodies import emblem_body_spec
+        spec = emblem_body_spec(inner)
+    if spec is None:
+        from .emblem_statics import emblem_static_effect_specs
+        static_effects = emblem_static_effect_specs(inner)
+        if static_effects:
+            spec = AbilitySpec("static", effects=static_effects, raw_text=inner)
     if spec is None or spec.modes:
         return None
     if spec.ability_kind == "triggered":
@@ -14840,12 +14880,18 @@ def _emblem_ability_spec(inner: str) -> Optional[dict]:
 
 
 def _create_emblem(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    ability = _emblem_ability_spec(m.group("inner"))
-    if ability is None:
+    # RULE 114.2: quoted abilities joined by "and" belong to ONE emblem.
+    # Split only at an outer quotation boundary, never inside an ability.
+    bodies = re.split(r'"\s+and\s+"', m.group("inner"))
+    abilities = [_emblem_ability_spec(body) for body in bodies]
+    if any(ability is None for ability in abilities):
         return None
-    params: dict = {"ability": ability}
-    if (m.groupdict().get("who") or "").strip() == "target player":
+    params: dict = {"ability": abilities[0]} if len(abilities) == 1 else {"abilities": abilities}
+    who = (m.groupdict().get("who") or "").strip()
+    if who == "target player":
         params["target_kind"] = "player"
+    elif who == "each opponent":
+        params["each_opponent"] = True
     return [EffectSpec("create_emblem", params)]
 
 
@@ -21315,6 +21361,15 @@ HANDLERS: list[EffectHandler] = [
         _ANIMATE_TARGET_RE,
         _animate_target,
     ),
+    # RULE 613.1d/613.4b: the alternative noun order says the same type
+    # and base-P/T change (Tezzeret the Schemer's emblem).
+    EffectHandler(
+        "animate_target_base_pt_order",
+        _c(rf"{TARGET} becomes an? (?P<quals>[a-z ]*?)creature with base power and toughness "
+           r"(?P<p>\d+)/(?P<t>\d+)(?P<duration> until end of turn)?"),
+        lambda m: match_clause(f"{m.group('target')} becomes a {m.group('p')}/{m.group('t')} "
+                               f"{m.group('quals')}creature{m.group('duration') or ''}"),
+    ),
     EffectHandler(
         "animate_target_leading_eot",
         _ANIMATE_TARGET_LEADING_EOT_RE,
@@ -21540,6 +21595,22 @@ HANDLERS: list[EffectHandler] = [
         _EMBLEM_RE,
         _create_emblem,
     ),
+    # RULE 603.2: use the cast event's payment snapshot, even after that
+    # spell has left the stack (Chandra, Dressed to Kill).
+    EffectHandler(
+        "damage_cast_mana_spent",
+        _c(rf"{re.escape(SELF)} deals x damage to {TARGET}, where x is the amount of mana spent to cast that spell"),
+        lambda m: [EffectSpec("damage", {"target_kind": resolve_target_kind(m.group("target")),
+                                         "amount_from_trigger_event": "mana_spent"})]
+        if resolve_target_kind(m.group("target")) is not None else None,
+    ),
+    # RULE 701.8: discarding the entire hand is mandatory, with no subset
+    # choice (Sarkhan's emblem, and the same ordinary spell/trigger body).
+    EffectHandler(
+        "discard_whole_hand",
+        _c(r"(?:you )?discard (?:your hand|all (?:the )?cards in your hand)"),
+        lambda m: [EffectSpec("discard", {"whole_hand": True})],
+    ),
     # "Create that many 1/1 green Elf Warrior creature tokens." (Lathril,
     # Blade of the Elves-shaped) — tried before the plain `create_token`
     # row below, same "strict superset" reasoning.
@@ -21567,6 +21638,12 @@ HANDLERS: list[EffectHandler] = [
         "create_token_xx_where",
         _CREATE_TOKEN_XX_WHERE_RE,
         _create_token_xx_where,
+    ),
+    # RULE 608.2: resolve-time count plus a fixed addend (Liliana's emblem).
+    EffectHandler(
+        "create_tokens_count_plus",
+        _c(r"(?P<create>create x .+), where x is (?P<plus>\d+) plus the number of (?P<group>.+)"),
+        _create_tokens_count_plus,
     ),
     # RULE 202.2f/700.6 "create a number of 1/1 white Soldier creature
     # tokens equal to your devotion to white." (Evangel of Heliod/Master of
@@ -22012,6 +22089,10 @@ def _match_clause_once(
     group_subject: bool = False, previous_selector: bool = False,
     attached_subject: bool = False,
 ) -> Optional[list[EffectSpec]]:
+    if attached_subject:
+        host_return = dying_host_return_specs(clause)
+        if host_return is not None:
+            return host_return
     for handler in HANDLERS:
         if handler.self_subject_only and not self_subject:
             continue

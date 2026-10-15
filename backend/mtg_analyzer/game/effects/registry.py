@@ -2,9 +2,20 @@
 from __future__ import annotations
 
 from .core import EffectRegistry
+from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
+from .haunted import HauntedCreatureEffect
 from ._runtime import install, register
 
 install(globals())
+
+EffectRegistry.register("gain_control_of_cast_targets", lambda p: GainControlOfCastTargetsEffect())
+EffectRegistry.register("complete_turn_life_loss", lambda p: CompleteTurnLifeLossEffect(p.get('threshold', 0)))
+EffectRegistry.register('haunted_owner_damage', lambda p: HauntedCreatureEffect('damage_owner', p.get('amount', 0)))
+EffectRegistry.register('control_while_haunted', lambda p: HauntedCreatureEffect('control'))
+EffectRegistry.register("delay_return_dying_subject", lambda p: DelayReturnDyingSubjectEffect())
+EffectRegistry.register("loyalty_instant_timing", lambda p: StaticAbility("loyalty_instant_timing", affects="controller"))
+EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility("reveal_opponents_hands", affects="opponents"))
+EffectRegistry.register("creature_damage_life_floor", lambda p: StaticAbility("creature_damage_life_floor", affects="controller"))
 
 EffectRegistry.register("living_death", lambda p: LivingDeathEffect())
 EffectRegistry.register("exile_self_and_grantor_until_attack", lambda p: ExileSelfAndGrantorUntilAttackEffect())
@@ -1200,6 +1211,8 @@ EffectRegistry.register(
         arm_all=bool(p.get("arm_all", False)),
         during_resolution=bool(p.get("during_resolution", False)),
         instant_sorcery_only=bool(p.get("instant_sorcery_only", False)),
+        zones=p.get("zones"),
+        legendary_only=bool(p.get("legendary_only", False)),
     ),
 )
 EffectRegistry.register(
@@ -3510,7 +3523,13 @@ EffectRegistry.register(
     # "When enchanted creature dies, return that card to the battlefield
     # under its owner's control." (Gift of Immortality, PAR-60)
     "return_dying_subject_to_battlefield",
-    lambda p: ReturnDyingSubjectToBattlefieldEffect(),
+    lambda p: ReturnDyingSubjectToBattlefieldEffect(
+        destination=p.get("destination", "battlefield"),
+        under_your_control=bool(p.get("under_your_control", False)),
+        tapped=bool(p.get("tapped", False)), extra_counters=p.get("extra_counters"),
+        return_source_transformed=bool(p.get("return_source_transformed", False)),
+        source_hand_mana_cost=p.get("source_hand_mana_cost", ""),
+    ),
 )
 EffectRegistry.register(
     # "…return that card under its owner's control. Return this card
@@ -5045,7 +5064,8 @@ EffectRegistry.register(
     # static.
     "untap_cap",
     lambda p: StaticAbility(
-        "untap_cap", affects="all_players", params={"count": p.get("count", 1), **_selectors(p)}
+        "untap_cap", affects="all_players", params={"count": p.get("count", 1),
+                                                     "scope": p.get("scope", "all"), **_selectors(p)}
     ),
 )
 EffectRegistry.register(
@@ -5575,6 +5595,7 @@ EffectRegistry.register(
         ability=p.get("ability"),
         abilities=p.get("abilities"),
         target_kind=p.get("target_kind"),
+        each_opponent=bool(p.get("each_opponent", False)),
     ),
 )
 EffectRegistry.register(

@@ -3201,23 +3201,57 @@ class MarchesaDelayedReturnEffect(GameEffect):
 
 
 class ReturnDyingSubjectToBattlefieldEffect(GameEffect):
-    """"When enchanted creature dies, return that card to the battlefield
-    under its owner's control." (Gift of Immortality's first clause, PAR-60.)
+    """RULE 400.7e: return the dying host, distinct from its Aura source."""
 
-    Reads the firing DIES event's ``instance_id`` (the enchanted creature,
-    now in its owner's graveyard) and returns it to the battlefield under
-    its **owner's** control (`context.return_from_graveyard`'s default). A
-    no-op if the card has since left that graveyard.
-    """
+    def __init__(self, destination: str = "battlefield", under_your_control: bool = False,
+                 tapped: bool = False, extra_counters: Optional[dict] = None,
+                 return_source_transformed: bool = False, source_hand_mana_cost: str = "",
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.destination = destination if destination in {"hand", "battlefield"} else "battlefield"
+        self.under_your_control = under_your_control
+        self.tapped = tapped
+        self.extra_counters = dict(extra_counters or {})
+        self.return_source_transformed = return_source_transformed
+        self.source_hand_mana_cost = source_hand_mana_cost
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        iid = (context.trigger_event or {}).get("instance_id")
-        if iid is None:
-            return
-        obj = context.state.find_object(iid)
-        if obj is None or obj.zone != Zone.GRAVEYARD:
-            return
-        context.return_from_graveyard(obj, "battlefield")
+        event = context.trigger_event or {}
+        obj = context.state.find_object(event.get("instance_id"))
+        # RULE 400.7e: find only the immediate graveyard incarnation. An exile
+        # and return to that same graveyard cannot revive this trigger's card.
+        player = _controller_of(self.source, context)
+        returned = False
+        if (obj is not None and obj.zone == Zone.GRAVEYARD
+                and obj.zone_incarnation == event.get("graveyard_incarnation", obj.zone_incarnation)):
+            destination = "battlefield_tapped" if self.tapped and self.destination == "battlefield" else self.destination
+            context.return_from_graveyard(
+                obj, destination,
+                controller_id=player.id if self.under_your_control and player is not None else None,
+                entry_counters=self.extra_counters,
+            )
+            expected = Zone.HAND if self.destination == "hand" else Zone.BATTLEFIELD
+            returned = obj.zone == expected
+            if returned:
+                context.created_objects.append(obj)
+        source = self.source
+        # RULE 400.7f: the host's leaves trigger can find the Aura's immediate
+        # graveyard visit after the unattached-Aura SBA, even though it died later.
+        source_incarnation = event.get("source_zone_incarnation")
+        source_available = (source is not None and getattr(source, "zone", None) == Zone.GRAVEYARD
+                            and (source_incarnation is None or source.zone_incarnation == source_incarnation + 1))
+        if self.return_source_transformed and source_available:
+            context.return_from_graveyard(source, "battlefield", controller_id=player.id,
+                                          transformed=True)
+        elif self.source_hand_mana_cost and returned and obj.zone == Zone.HAND:
+            from ..costs import parse_activation_cost
+            # RULE 118.12 / 609.3: the optional cost may still be paid when the
+            # ensuing Aura return cannot happen (e.g. it was exiled).
+            effects = ([{"type": "return_self_from_graveyard_to_hand", "params": {}}]
+                       if source_available else [])
+            context.engine._request_pay_cost_then(
+                player, parse_activation_cost(self.source_hand_mana_cost), effects, source,
+            )
 
 
 class GiftOfImmortalityDiesEffect(GameEffect):

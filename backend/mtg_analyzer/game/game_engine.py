@@ -85,9 +85,11 @@ class GameEngine(
 
     def _has_resolution_play_permission(self, player, obj) -> bool:
         choice = self.state.resolution_play_choice
+        zone = choice.get("zone", "exile") if choice else "exile"
+        zones = [zone] if isinstance(zone, str) else zone
         return bool(choice and choice["player_id"] == player.id
                     and obj.instance_id in choice["instance_ids"]
-                    and obj.zone.value == choice.get("zone", "exile"))
+                    and obj.zone.value in zones)
 
     def play_resolution_card(self, player, obj, targets=None, x=0, *, face="front", **cast_options):
         """Play an offered card using ordinary target, mode and cost validation.
@@ -170,7 +172,8 @@ class GameEngine(
             self.state.resolution_play_followup = None
             cards = [self.state.find_object(iid) for iid in followup["instance_ids"]]
             zone = followup.get("zone", "exile")
-            cards = [obj for obj in cards if obj is not None and obj.zone.value == zone]
+            zones = [zone] if isinstance(zone, str) else zone
+            cards = [obj for obj in cards if obj is not None and obj.zone.value in zones]
             self.rules._request_resolution_play(
                 self.state.player_by_id(followup["player_id"]), cards, repeat=True,
                 zone=zone, only_spells=followup.get("only_spells", False),

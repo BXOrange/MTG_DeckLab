@@ -2050,6 +2050,9 @@ def count_selector(
         # Saber; Blessing of the Nephilim, PAR-43) — the source's own
         # layer-5 derived colour set (RULE 105.2a).
         return len(getattr(source, "colors", None) or ()) if source is not None else 0
+    if selector == "differently_named_completed_dungeons":
+        player = state.player_by_id(controller_id) if controller_id else None
+        return len(set(player.completed_dungeons)) if player is not None else 0
     if selector == "cards_in_your_graveyard":
         try:
             player = state.player_by_id(controller_id) if controller_id else None
@@ -6189,7 +6192,7 @@ def life_for_mana_pip_color(state: "GameState", player: "Player") -> Optional[st
     return None
 
 
-def active_untap_caps(state: "GameState") -> list[dict[str, Any]]:
+def active_untap_caps(state: "GameState", player: Optional["Player"] = None) -> list[dict[str, Any]]:
     """Every currently-active "players can't untap more than N `<type>`
     during their untap steps" restriction (RULE 502.3-adjacent — Winter
     Orb's lands, Static Orb's permanents, Winter Moon's nonbasic lands),
@@ -6212,6 +6215,9 @@ def active_untap_caps(state: "GameState") -> list[dict[str, Any]]:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "untap_cap":
             continue
+        scope = ability.params.get("scope", "all")
+        if player is not None and scope == "opponents" and player.id == ability.source.controller_id:
+            continue
         active_if = ability.params.get("active_if")
         if active_if:
             controller_id = getattr(ability.source, "controller_id", None)
@@ -6219,6 +6225,7 @@ def active_untap_caps(state: "GameState") -> list[dict[str, Any]]:
                 continue
         caps.append(
             {
+                **({"scope": scope} if scope != "all" else {}),
                 "count": ability.params.get("count", 1),
                 "card_type": ability.params.get("card_type", "land"),
                 "nonbasic": bool(ability.params.get("nonbasic")),
@@ -6372,7 +6379,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: UI's layer-trace panel rather than a bare "99", same treatment "cost"
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
-    {"cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition",
+    {"loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",

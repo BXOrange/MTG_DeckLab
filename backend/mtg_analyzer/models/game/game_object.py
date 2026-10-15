@@ -778,6 +778,7 @@ class GameObject:
         #: RULE 702.55 Haunt: the creature this exiled card currently haunts.
         #: The link is cleared by any later zone change (`reset_as_new_object`).
         self.haunting_instance_id: Optional[int] = None
+        self.haunting_incarnation: Optional[int] = None
         #: A one-shot free-cast rider (Impulsivity): exile this spell rather
         #: than letting it reach a graveyard after it resolves.
         self.exile_after_free_cast: bool = False
@@ -1607,6 +1608,7 @@ class GameObject:
         self.linked_exile_ids = []
         self.saddled_by = (None, [])
         self.haunting_instance_id = None
+        self.haunting_incarnation = None
         self.exile_after_free_cast = False
         self.exiled_with_ids = []
         self.revealed_with_ids = []

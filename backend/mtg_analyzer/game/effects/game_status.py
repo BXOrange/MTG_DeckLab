@@ -277,12 +277,14 @@ class CreateEmblemEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         abilities: Optional[list] = None,
+        each_opponent: bool = False,
     ) -> None:
         super().__init__(source)
         #: A single ability dict, or (You Compleat Me — "an emblem with 'A'
         #: and 'B'") ``abilities`` a list of them for one emblem.
         self.ability = ability
         self.abilities = list(abilities) if abilities else None
+        self.each_opponent = bool(each_opponent)
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
@@ -294,6 +296,11 @@ class CreateEmblemEffect(GameEffect):
             player = _controller_of(self.source, context)
         payload = self.abilities or self.ability
         if player is None or not payload:
+            return
+        if self.each_opponent:
+            for opponent in context.state.players:
+                if opponent.id != player.id and not opponent.has_lost:
+                    context.create_emblem(opponent, payload)
             return
         context.create_emblem(player, payload)
 
@@ -344,8 +351,22 @@ class HauntEffect(GameEffect):
             return
         if self.source.zone not in (Zone.GRAVEYARD, Zone.BATTLEFIELD):
             return
+        event = context.trigger_event or {}
+        if event.get("instance_id") == self.source.instance_id and event.get("graveyard_incarnation") is not None:
+            # RULE 400.7e: the dies trigger finds only the card just moved
+            # to the graveyard, never a later incarnation of that card.
+            if (self.source.zone != Zone.GRAVEYARD
+                    or self.source.zone_incarnation != event["graveyard_incarnation"]):
+                return
+        elif (context.resolving_source_incarnation is not None
+              and self.source.zone_incarnation != context.resolving_source_incarnation):
+            return
+        # RULE 611.2b: an ended haunted-control duration cannot restart
+        # merely because another card starts haunting before the next SBA.
+        context.engine._revert_source_bound_control()
         context.exile(self.source)
         self.source.haunting_instance_id = target.instance_id
+        self.source.haunting_incarnation = target.zone_incarnation
 
 
 class HauntLinkedDeathEffect(GameEffect):
@@ -362,6 +383,7 @@ class HauntLinkedDeathEffect(GameEffect):
             self.source is not None
             and self.source.zone == Zone.EXILE
             and getattr(self.source, "haunting_instance_id", None) == event.get("instance_id")
+            and self.source.haunting_incarnation == event.get("graveyard_incarnation", -1) - 1
         ):
             context.engine._apply_effect_specs(self.effects, self.source)
 

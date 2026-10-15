@@ -21,14 +21,16 @@ from typing import Optional
 #: repeatedly peeling the innermost parens removes it without a real grammar.
 _REMINDER = re.compile(r"\s*\([^()]*\)")
 
-#: Spelled-out small numbers → digits. Capped at twelve — larger counts are
-#: printed as digits on real cards, and "a"/"an" stay words (a handler that
+#: Spelled-out small numbers → digits. Includes twenty (Ersta's Wizard
+#: threshold); "a"/"an" stay words (a handler that
 #: wants "a card" == "1 card" folds that itself, so we don't corrupt the many
 #: non-numeric "a"/"an" occurrences here).
 _NUMBER_WORDS: dict[str, str] = {
     "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
     "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
     "ten": "10", "eleven": "11", "twelve": "12",
+    "thirteen": "13", "fourteen": "14", "fifteen": "15", "sixteen": "16",
+    "seventeen": "17", "eighteen": "18", "nineteen": "19", "twenty": "20",
 }
 _NUMBER_WORD_RE = re.compile(
     r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.IGNORECASE

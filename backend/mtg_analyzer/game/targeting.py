@@ -177,7 +177,7 @@ CHOOSER_OPPONENT = TARGET_CHOOSER_OPPONENT
 
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
-        "any", "creature", "attacking_or_blocking_creature", "creature_blocking_source", "permanent", "player", "spell",
+        "any", "creature", "haunted_creature", "attacking_or_blocking_creature", "creature_blocking_source", "permanent", "player", "spell",
         # RULE 702.165a Backup — "target creature" that explicitly includes
         # the source itself (PAR-26); the plain `creature` branch minus its
         # RULE 115.6-style self-exclusion.
@@ -1433,6 +1433,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "creature_you_dont_control": TargetFrame(
         "creature", SCOPE_NOT_YOU, exclude_source=False,
         apply_creature_filter=True, apply_max_mana_value=True),
+    "haunted_creature": TargetFrame("creature"),
     "werewolf_creature": TargetFrame("werewolf_creature", apply_creature_filter=True),
     "attacking_or_blocking_creature": TargetFrame("attacking_or_blocking_creature"),
     "artifact_you_dont_control": TargetFrame(
@@ -1662,6 +1663,10 @@ def _legal_from_frame(
     for obj in state.permanents():
         if not type_ok(obj):
             continue
+        if spec.kind == "haunted_creature":
+            from .effects.haunted import is_haunted
+            if not is_haunted(state, obj):
+                continue
         if deferred_that_player_scope:
             if obj.controller_id is None:
                 continue

@@ -1130,11 +1130,23 @@ class AbilitySpec:
 
     def _validate_cast_timing_restriction(self) -> None:
         """Validate PAR-35's deliberately closed combat-window restriction."""
-        if self.cast_timing_restriction not in (
-            {"phase": "combat"},
-            {"step": "declare_attackers", "controller_attacked": True},
-            # "Cast this spell only during the declare blockers step on an opponent's turn." (Illusionist's Gambit)
-            {"step": "declare_blockers", "opponents_turn": True},
+        restriction = self.cast_timing_restriction
+        if not isinstance(restriction, dict):
+            raise SpecValidationError("unknown cast_timing_restriction")
+        if restriction == {"step": "declare_attackers", "controller_attacked": True}:
+            return
+        if restriction == {"before_blockers": True, "first_combat": True}:
+            return
+        base = dict(restriction)
+        for key in ("your_turn", "opponents_turn"):
+            if key in base and base.pop(key) is not True:
+                raise SpecValidationError("unknown cast_timing_restriction")
+        if restriction.get("your_turn") and restriction.get("opponents_turn"):
+            raise SpecValidationError("contradictory cast_timing_restriction")
+        if base not in (
+            {"phase": "combat"}, {"step": "declare_blockers"},
+            {"phase": "combat", "before_blockers": True},
+            {"phase": "combat", "after_blockers": True},
         ):
             raise SpecValidationError("unknown cast_timing_restriction")
 
@@ -1650,6 +1662,12 @@ class AbilitySpec:
         for retired, replacement in RETIRED_EFFECT_PARAMS.items():
             if retired in params:
                 raise SpecValidationError(f"{retired!r} is retired: use {replacement}")
+        if _effect_type == 'complete_turn_life_loss':
+            params['threshold'] = max(0, min(int(params.get('threshold', 0)), MAX_EFFECT_MAGNITUDE))
+        if _effect_type == 'free_cast_from_hand' and 'zones' in params:
+            if not isinstance(params['zones'], list) or any(
+                    zone not in ('hand', 'graveyard', 'exile') for zone in params['zones']):
+                raise SpecValidationError('invalid free cast zone')
         if _effect_type in _COMPOSITION_EFFECT_TYPES:
             node_condition = params.get("condition")
             if isinstance(node_condition, dict) and node_condition:

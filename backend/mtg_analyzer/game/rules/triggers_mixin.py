@@ -1082,7 +1082,8 @@ class TriggerCollectionMixin:
             return
         for owner in self.state.players:
             for obj in owner.exile:
-                if getattr(obj, "haunting_instance_id", None) != dying_id:
+                if (getattr(obj, "haunting_instance_id", None) != dying_id
+                        or obj.haunting_incarnation != event.get("graveyard_incarnation", -1) - 1):
                     continue
                 for ability in obj.triggered_abilities:
                     if not isinstance(ability, TriggeredAbility):

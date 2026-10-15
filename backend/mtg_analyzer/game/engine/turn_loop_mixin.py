@@ -173,6 +173,10 @@ class TurnLoopMixin:
             state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
+        # RULE 606.3: loyalty usage expires every turn, including an
+        # opponent's turn on which an emblem may permit activation.
+        for permanent in self.state.battlefield:
+            permanent.activated_loyalty_this_turn = False
         # RULE 700.2 / MEC-68: "this turn" modal history expires before a
         # new turn's triggers can be collected or placed.
         self.state.trigger_mode_history.clear()
@@ -659,7 +663,7 @@ class TurnLoopMixin:
         # same non-interactive MVP simplification `_sacrifice_candidate`'s
         # callers already make elsewhere. 2+ active caps are enforced
         # independently (each keeps its own running count), not merged.
-        untap_caps = continuous.active_untap_caps(self.state)
+        untap_caps = continuous.active_untap_caps(self.state, active)
         cap_counts = [0] * len(untap_caps)
         # RULE 502.3-adjacent (Stasis): "players skip their untap steps" is
         # unconditional and total — unlike `active_untap_caps`'s count limit,
@@ -667,6 +671,12 @@ class TurnLoopMixin:
         # same "whole step skipped" treatment `should_skip_step` gets, not
         # `has_no_untap_static`'s "just don't untap this one").
         skip_whole_step = continuous.all_untap_steps_skipped(self.state)
+        from ..emblem_permissions import request_untap_selection
+        if not skip_whole_step and request_untap_selection(self.rules, active, untap_caps):
+            return
+        selected_untaps = getattr(self.state, '_untap_cap_selected_ids', None)
+        if selected_untaps is not None:
+            del self.state._untap_cap_selected_ids
         # PAR-109: "Untap ~ during each other player's untap step" — permanents of the players whose untap
         # step this is *not* untap now as well (the step's own skip/no-untap gates still apply).
         if not skip_whole_step:
@@ -690,7 +700,7 @@ class TurnLoopMixin:
             # RULE 702.19b: exert's one-time consequence — consumed and
             # cleared here, not a standing static like `has_no_untap_static`
             # above, so it only ever blocks the *next* untap step.
-            capped_out = obj.skip_next_untap
+            capped_out = obj.skip_next_untap or (selected_untaps is not None and obj.tapped and obj.instance_id not in selected_untaps)
             obj.skip_next_untap = False
             for i, cap in enumerate(untap_caps):
                 if capped_out:
@@ -713,7 +723,7 @@ class TurnLoopMixin:
                 self.rules.set_tapped(obj, False)
                 untapped_count += int(was_tapped and not obj.tapped)
                 for i, cap in enumerate(untap_caps):
-                    if continuous.matches_untap_cap_filter(obj, cap):
+                    if was_tapped and not obj.tapped and continuous.matches_untap_cap_filter(obj, cap):
                         cap_counts[i] += 1
             # Controlled since the turn began → no longer summoning sick.
             obj.summoning_sick = False
@@ -1211,6 +1221,10 @@ class TurnLoopMixin:
         opponent_pick = choice_kind in OPPONENT_CHOICE_KINDS
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
         self.rules.resolve_choice(answer)
+        if choice_kind == 'untap_cap_selection':
+            if not self.state.pending_choice:
+                self._step_untap()
+            return  # RULE 502.4: no priority or trigger resolution until upkeep.
         if opponent_pick and (self.state.pending_choice or self.interactive_priority or leaves_on_stack):
             return
         if self.interactive_priority and choice_kind == "miracle_reveal":

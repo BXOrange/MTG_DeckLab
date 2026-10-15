@@ -62,7 +62,8 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
     # asks — so those zones are scanned too, for turn-scoped grants only.
     on_battlefield = list(state.permanents_controlled_by(player.id))
     off_battlefield = [*player.graveyard, *player.exile]
-    for obj in [*on_battlefield, *off_battlefield]:
+    # RULE 114.4: emblem permissions function in the command zone.
+    for obj in [*on_battlefield, *player.emblems, *off_battlefield]:
         for effect in getattr(obj, "static_effects", None) or []:
             if not isinstance(effect, GraveyardCastPermissionEffect):
                 continue

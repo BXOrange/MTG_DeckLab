@@ -4942,6 +4942,7 @@ class MiscSystemsMixin:
         """
         from ...parser.oracle.spec import AbilitySpec
         from ..binding.core import bind_ability
+        from ..effects.core import GraveyardCastPermissionEffect
 
         self.state._timestamp_counter = getattr(self.state, "_timestamp_counter", 0) + 1
         emblem = Emblem(controller_id=player.id, timestamp=self.state._timestamp_counter)
@@ -4961,7 +4962,9 @@ class MiscSystemsMixin:
                 emblem.activated_abilities.append(bound)
             elif isinstance(bound, list):
                 for effect in bound:
-                    if isinstance(effect, StaticAbility):
+                    if isinstance(effect, (StaticAbility, GraveyardCastPermissionEffect)):
+                        # RULE 114.4: standing play permissions also function
+                        # from the command zone; their own scanners read these.
                         emblem.static_effects.append(effect)
                     elif isinstance(effect, TriggeredAbility):
                         # The compound "~ enters or attacks"-shaped multi-event

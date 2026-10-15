@@ -356,6 +356,13 @@ class TypeEntry:
 
 #: INSTRUCTION — type name -> the ISA operation it realises one-to-one.
 _INSTRUCTION_TYPES: dict[str, str] = {
+    "complete_turn_life_loss": "lose_life",
+    "reveal_opponents_hands": "reveal",
+    "creature_damage_life_floor": "deal_damage",
+    "haunted_owner_damage": "deal_damage",
+    "control_while_haunted": "gain_control",
+    "gain_control_of_cast_targets": "gain_control",
+    "delay_return_dying_subject": "create_delayed_trigger",
     "adapt": "adapt",
     "add_counters": "put_counter",
     "add_entry_counters": "put_counter",
@@ -927,6 +934,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
 #: (`14_` §1.1): they are continuously re-derived by `continuous.recompute`,
 #: never executed. Composition operators do not apply to them.
 _STATIC_TYPES: frozenset[str] = frozenset({
+    "loyalty_instant_timing",
     "grant_blitz", "blitz_cost_reduction", "blitz_graveyard_permission",
     "activation_prohibition", "anthem", "attack_tax", "block_tax", "cant_attack_defender", "cant_lose_game", "opponents_cant_win",
     "cant_be_countered", "cant_be_copied", "cast_limit", "cast_prohibition", "color_change",

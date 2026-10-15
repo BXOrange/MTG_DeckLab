@@ -1432,6 +1432,12 @@ def _contributor_condition(
     opponents_batch = bool(trigger.get("opponents_batch"))
 
     def _contributors_ok(event: Any, context: Any, members=members, need=need) -> bool:
+        threshold = trigger.get('recipient_life_lost_less_than')
+        if threshold is not None:
+            # RULE 603.4: Lolth's intervening-if measures the damaged player's turn.
+            lost = context.state.life_lost_this_turn.get(event.get('target_id'), 0)
+            if lost >= threshold:
+                return False
         matched = members(event, context)
         if len({m.get("source_id") for m in matched}) < need:
             return False

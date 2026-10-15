@@ -379,7 +379,7 @@ def _redact_hidden_zones(
         own = perspective is not None and (
             player.get("id") == perspective or player.get("id") in reveal_hands
         )
-        if not own:
+        if not own and player.get("id") not in reveal_hands:
             player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")]
         # A library is hidden even from its owner (they don't know their own
         # draw order); only a card an effect actually reveals is kept.
@@ -2329,7 +2329,8 @@ class GameSession:
         # control. The frontend swaps `perspective` → `acting_as` for every
         # "is it me to act" check (turn, priority, pending choice).
         acting_as = perspective
-        reveal_hands: set[str] = set()
+        from ..game.emblem_permissions import publicly_revealed_hand_ids
+        reveal_hands: set[str] = publicly_revealed_hand_ids(self.engine.state)
         choice_decider: Optional[str] = None
         if perspective is not None:
             driven = self.engine.state.driving_seat_for(perspective)
@@ -2491,7 +2492,9 @@ class GameSession:
         the same reason: watching is not playing.
         """
         view = self.view()
-        _redact_hidden_zones(view["state"], perspective=None)
+        from ..game.emblem_permissions import publicly_revealed_hand_ids
+        _redact_hidden_zones(view["state"], perspective=None,
+                             also_visible_hand_ids=publicly_revealed_hand_ids(self.engine.state))
         view["perspective"] = None
         view["observer"] = True
         view["legal_actions"] = []

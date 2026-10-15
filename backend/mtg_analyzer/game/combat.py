@@ -263,7 +263,8 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
         # (RULE 613.7f — it is a Pacifism's effect, not text the creature loses). Its own printed ones go.
         return frozenset(getattr(obj, "granted_keywords", set()) or set()) & _EFFECT_RESTRICTION_FLAGS
     return (
-        (keywords_of(obj.card) - frozenset(getattr(obj, "suppressed_keywords", None) or ()))
+        ((keywords_of(obj.card) if getattr(obj, "card", None) is not None else frozenset())
+         - frozenset(getattr(obj, "suppressed_keywords", None) or ()))
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
         | (frozenset({"haste"}) if getattr(obj, "granted_haste_sacrifice", False)
            and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset())
@@ -1354,7 +1355,7 @@ def protection_qualities_cover(quals: "frozenset[str] | set[str]", source: "Game
     # Effective colour (a layer-5 colour-changing effect if any, else the
     # printed identity) — the model's colour proxy (RULE 105).
     source_colors = set(getattr(source, "colors", None) or set())
-    if "creatures" in quals and source.is_creature:
+    if "creatures" in quals and getattr(source, "is_creature", False):
         return True
     if "all_colors" in quals and source_colors:
         return True

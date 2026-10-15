@@ -860,6 +860,9 @@ class CastingMixin:
             return False
         restriction = getattr(obj, "cast_timing_restriction", None)
         if restriction is not None:
+            from ..cast_timing import combat_cast_window_allows
+            if not combat_cast_window_allows(self, player, restriction):
+                return False
             if restriction.get("phase") and self.state.current_phase != restriction["phase"]:
                 return False
             if restriction.get("step") and self.state.current_step != restriction["step"]:

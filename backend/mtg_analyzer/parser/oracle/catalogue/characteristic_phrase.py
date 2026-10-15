@@ -213,6 +213,13 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
         # ("untapped artifacts, creatures, and lands", Maraxus of Keld).
         # Keep this narrow: a general adjective's distribution is ambiguous.
         first = parts[0].split()
+        # RULE 105.2: a colour before a list of card types qualifies the
+        # complete list ("a red instant or sorcery spell", Jaya).
+        if len(first) == 2 and all(len(p.split()) == 1 for p in parts[1:]):
+            adjective = _word_fragment(first[0], plural=plural)
+            types = _alternation([first[1], *parts[1:]], plural=plural)
+            if adjective and set(adjective) == {"color"} and types and set(types) == {"card_type_any"}:
+                return {**types, **adjective}
         if (len(first) == 2 and first[0] in ("tapped", "untapped")
                 and all(len(p.split()) == 1 for p in parts[1:])):
             base = _alternation([first[1], *parts[1:]], plural=plural)

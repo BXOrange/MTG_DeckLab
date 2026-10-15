@@ -171,12 +171,12 @@ def _damage_source_matches(
     source = state.find_object(source_id) if source_id is not None else None
     if source is None:
         return False
-    if source_filter.get("creature") and not source.is_creature:
+    if source_filter.get("creature") and not getattr(source, "is_creature", False):
         return False
-    if source_filter.get("artifact") and not source.card.is_artifact:
+    if source_filter.get("artifact") and not getattr(getattr(source, "card", None), "is_artifact", False):
         return False
     subtype = source_filter.get("subtype")
-    if subtype and subtype.lower() not in source.card.type_line.lower():
+    if subtype and subtype.lower() not in str(getattr(getattr(source, "card", None), "type_line", "")).lower():
         return False
     keyword = source_filter.get("keyword")
     if keyword and not combat.has(source, keyword):
@@ -190,7 +190,7 @@ def _damage_source_matches(
     if controller == "not_you" and source.controller_id == protected_player_id:
         return False
     color = source_filter.get("color")
-    if color and color.upper() not in (source.colors or set()):
+    if color and color.upper() not in (getattr(source, "colors", None) or set()):
         return False
     if source_filter.get("attacking") and not getattr(source, "attacking", False):
         return False
@@ -314,10 +314,11 @@ class DamageDeathMixin:
             # you control" / "combat damage" / "a red source" — see
             # `_double_damage_replacement`/`_additional_damage_replacement`.
             source_id=source.instance_id if source is not None else None,
-            source_zone_incarnation=source.zone_incarnation if source is not None else None,
-            source_subtypes=sorted(continuous.derived_subtype_words(source)) if source is not None else [],
+            source_zone_incarnation=getattr(source, "zone_incarnation", None),
+            source_subtypes=(sorted(continuous.derived_subtype_words(source))
+                             if getattr(source, "card", None) is not None else []),
             source_controller_id=source.controller_id if source is not None else None,
-            source_colors=tuple(getattr(source.card, "color_identity", None) or ()) if source is not None else (),
+            source_colors=tuple(getattr(getattr(source, "card", None), "color_identity", None) or ()) if source is not None else (),
             # Gratuitous Violence-shaped "a *creature* you control" doubling
             # (as opposed to Furnace of Rath's unscoped "a source") needs
             # this to tell the two apart — see `_double_damage_replacement`.
@@ -332,7 +333,7 @@ class DamageDeathMixin:
             # property of the *resolving effect*, not of damage in general.
             source_is_instant_or_sorcery=bool(
                 source is not None
-                and (getattr(source.card, "is_instant", False) or getattr(source.card, "is_sorcery", False))
+                and (getattr(getattr(source, "card", None), "is_instant", False) or getattr(getattr(source, "card", None), "is_sorcery", False))
             ),
             source_targets_only_single_creature=bool(
                 single_target_hint and not is_player and getattr(target, "is_creature", False)
@@ -378,8 +379,8 @@ class DamageDeathMixin:
             # *source*, so an infect source's damage to a planeswalker/battle
             # still falls through to the ordinary loyalty/defense branches
             # below (neither rule mentions those permanent types).
-            infect = source is not None and has_infect(source)
-            wither = source is not None and has_wither(source)
+            infect = getattr(source, "card", None) is not None and has_infect(source)
+            wither = getattr(source, "card", None) is not None and has_wither(source)
             if not wither:
                 # "All damage is dealt as though its source had wither."
                 # (Everlasting Torment) — RULE 609.4b as-though, a standing
@@ -407,7 +408,13 @@ class DamageDeathMixin:
                 # `lose_life` choke point as any other life loss so triggers
                 # watching for "loses life" fire consistently regardless of
                 # cause.
-                self.lose_life(final_target, final, cause="damage")
+                from ..emblem_permissions import creature_damage_life_floor
+                # RULE 120.3 / 614.1a: Worship changes the life consequence,
+                # not the damage dealt (lifelink and damage triggers see it all).
+                life_lost = final
+                if creature_damage_life_floor(self.state, final_target):
+                    life_lost = min(final, max(0, final_target.life - 1))
+                self.lose_life(final_target, life_lost, cause="damage")
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
@@ -1024,6 +1031,7 @@ class DamageDeathMixin:
         transformed: bool = False,
         attach_to: Optional[GameObject] = None,
         face_down_kind: Optional[str] = None,
+        entry_counters: Optional[dict[str, Any]] = None,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -1061,6 +1069,10 @@ class DamageDeathMixin:
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
         obj.reset_as_new_object()
+        if entry_counters and destination in ("battlefield", "battlefield_tapped"):
+            kind = str(entry_counters.get("kind", "+1/+1"))
+            count = int(entry_counters.get("count", 1))
+            obj.entry_bonus_counters[kind] = max(0, count)
         if attach_to is not None:
             obj.attached_to = attach_to.instance_id
         # RULE 712.8: the back face must be present before entry triggers

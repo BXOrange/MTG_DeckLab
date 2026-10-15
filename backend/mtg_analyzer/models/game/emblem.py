@@ -68,6 +68,10 @@ class Emblem:
         #: error-message/UI-label formatting the ordinary `GameObject` paths
         #: already do (`f"{source.name} ..."`).
         self.name = "Emblem"
+        # Standing graveyard-play permission bookkeeping uses its granting
+        # source, including a command-zone emblem (RULE 114.4).
+        self.graveyard_casts_this_turn = 0
+        self.graveyard_cast_types_this_turn: set[str] = set()
 
     def to_dict(self) -> dict[str, Any]:
         return {

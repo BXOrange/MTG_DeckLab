@@ -178,7 +178,7 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 class SearchMixin:
     def _request_resolution_play(self, player: Player, cards: list[GameObject], *, repeat: bool = False,
                                  only_spells: bool = False, max_mana_value: Optional[int] = None,
-                                 bottom_remaining: Optional[list[int]] = None, zone: str = "exile",
+                                 bottom_remaining: Optional[list[int]] = None, zone: str | list[str] = "exile",
                                  free: bool = True, exile_after_cast: bool = False,
                                  lock_casting: bool = False, mana_wildcard: Optional[str] = None,
                                  owner_life_loss: bool = False, owner_life_losses: Optional[list[dict]] = None,
@@ -186,7 +186,8 @@ class SearchMixin:
         """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
-        cards = [obj for obj in cards if obj.zone.value == zone]
+        zones = [zone] if isinstance(zone, str) else zone
+        cards = [obj for obj in cards if obj.zone.value in zones]
         if not cards:
             if owner_life_loss:
                 for loss in owner_life_losses or []:

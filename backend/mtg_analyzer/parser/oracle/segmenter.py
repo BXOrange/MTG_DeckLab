@@ -2826,6 +2826,17 @@ _DECLARE_ATTACKERS_IF_ATTACKED_RE = re.compile(
     r"^cast this spell only during the declare attackers step and only if you've been "
     r"attacked this step\.?$", re.IGNORECASE,
 )
+#: RULE 506.7b-c: combat-local points plus explicit turn ownership.
+_COMBAT_CAST_ONLY_RE = re.compile(
+    r"^cast this spell only (?P<window>during combat|during the declare blockers step)"
+    r"(?: on (?P<turn>your|an opponent's) turn)?"
+    r"(?: (?P<point>before|after) blockers are declared)?\.?$", re.IGNORECASE,
+)
+_BEFORE_BLOCKERS_CAST_ONLY_RE = re.compile(
+    r"^cast this spell only (?:before combat or during combat )?before blockers are declared\.?$",
+    re.IGNORECASE,
+)
+
 #: PAR-35: paid Flash, where the mana applies only outside a normal sorcery
 #: window (enforced by ``GameEngine.effective_cast_cost``).
 _CONDITIONAL_FLASH_FOR_EXTRA_MANA_RE = re.compile(
@@ -5288,6 +5299,13 @@ def parse_effect_body(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
+    if attached_subject:
+        # RULE 400.7e: keep a dying host's conditional return riders atomic
+        # before sentence/connector splitting can lose their shared referent.
+        from .catalogue.dying_hosts import dying_host_return_specs
+        host_return = dying_host_return_specs(body)
+        if host_return is not None:
+            return host_return
     as_printed = _parse_effect_body_inner(
         body, self_subject=self_subject, previous_subject=previous_subject, group_subject=group_subject,
         previous_selector=previous_selector, attached_subject=attached_subject,
@@ -8746,6 +8764,27 @@ def _segment_line_unsplit(
         return Segment(raw=raw, spec=AbilitySpec(
             "spell_effect", effects=[],
             cast_timing_restriction={"step": "declare_attackers", "controller_attacked": True},
+            raw_text=raw, parser=provenance,
+        ), claimed=True)
+
+    combat_cast = _COMBAT_CAST_ONLY_RE.fullmatch(raw)
+    if combat_cast:
+        groups = combat_cast.groupdict()
+        restriction = {"phase": "combat"} if groups["window"].lower() == "during combat" else {"step": "declare_blockers"}
+        if groups["turn"]:
+            restriction["your_turn" if groups["turn"].lower() == "your" else "opponents_turn"] = True
+        if groups["point"]:
+            if "step" in restriction:
+                return Segment(raw=raw)  # contradictory or unsupported composite
+            restriction[groups["point"].lower() + "_blockers"] = True
+        return Segment(raw=raw, spec=AbilitySpec(
+            "spell_effect", effects=[], cast_timing_restriction=restriction,
+            raw_text=raw, parser=provenance,
+        ), claimed=True)
+    if _BEFORE_BLOCKERS_CAST_ONLY_RE.fullmatch(raw):
+        return Segment(raw=raw, spec=AbilitySpec(
+            "spell_effect", effects=[],
+            cast_timing_restriction={"before_blockers": True, "first_combat": True},
             raw_text=raw, parser=provenance,
         ), claimed=True)
 

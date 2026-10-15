@@ -314,6 +314,8 @@ class ActivationMixin:
             conditional_flash is not None
             and condition_query.conditional_flash_holds(conditional_flash, source, self.state)
         )
+        from ..emblem_permissions import loyalty_instant_timing
+        has_conditional_flash = has_conditional_flash or loyalty_instant_timing(self.state, player)
         return (
             # The printed type: a planeswalker that a layer-4 effect made "not a planeswalker" (Luxior) still has its
             # loyalty abilities, and the card text says they can still be activated.

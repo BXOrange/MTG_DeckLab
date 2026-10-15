@@ -1142,6 +1142,7 @@ _ATTACHED_SUBJECTS = (
     "enchanted land",
     # PAR-142: the Animate-Artifact family (Ensoul Artifact, Mightstone's Animation, Zoetic Glyph).
     "enchanted artifact",
+    "enchanted planeswalker",
 )
 _ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
 
@@ -2023,6 +2024,7 @@ def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
     ``static``).
     """
     text = clause.strip().rstrip(".").strip()
+
     copy_specs = enter_as_copy_specs(text)
     if copy_specs is not None:
         return copy_specs
@@ -2355,6 +2357,9 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     # to the outer English list, not the granted ability, and would otherwise
     # make the recursive effect-body parse fail closed.
     inner = normalize(inner).rstrip(" ,.;")
+    # RULE 114.2: a quotation nested inside a granted ability uses single
+    # quotation marks; preserve apostrophes within that emblem's ability.
+    inner = re.sub(r"(emblem with )'(.+)'$", r'\1"\2"', inner)
     # "another +1/+1 counter" is one additional counter instruction, not a
     # distinct counter kind.  Canonicalise the tightly-scoped printed form so
     # the ordinary counter body can be recursively parsed in any granted
@@ -4669,6 +4674,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+    fixed_base = re.fullmatch(
+        r"creatures(?P<scope> you control| your opponents control)? have base power and toughness "
+        r"(?P<p>\d+)/(?P<t>\d+)", text, re.IGNORECASE,
+    )
+    if fixed_base is not None:
+        # RULE 613.4b: this sets base P/T; counters and ordinary pumps still
+        # apply afterwards (The Capitoline Triad's command-zone emblem).
+        affects = {None: "all_creatures", " you control": "creatures_you_control",
+                   " your opponents control": "opponents_creatures"}[fixed_base.group("scope")]
+        return [EffectSpec("pt_set", {"affects": affects,
+                                      "power": int(fixed_base.group("p")),
+                                      "toughness": int(fixed_base.group("t"))})]
     # RULE 702.152: a grant, a cost adjustment, and a restricted zone permission.
     match = re.fullmatch(r"each creature spell you cast with mana value (\d+) or greater has blitz\. the blitz cost is equal to its mana cost", text)
     if match:

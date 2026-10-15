@@ -1088,6 +1088,12 @@ class CastingResolutionMixin:
                 # "Whenever you cast a spell that targets one or more
                 # permanents, incubate 2." (Tiller of Flesh) — RULE 608.2b.
                 targets_a_permanent=_targets_a_permanent(targets),
+                # RULE 603.2 / 608.2h: Dack's emblem remembers the cast's
+                # original permanent targets, independently of later retargets.
+                target_permanent_incarnations={
+                    t.instance_id: t.zone_incarnation for t in (targets or [])
+                    if isinstance(t, GameObject) and t.zone == Zone.BATTLEFIELD
+                },
                 target_instance_ids=_target_instance_ids(targets),
                 # "Whenever you cast a spell with one or more targets, draw that many cards."
                 # (Voracious Bibliophile) — RULE 115.1: how many targets were chosen.

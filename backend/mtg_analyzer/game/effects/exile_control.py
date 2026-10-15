@@ -943,8 +943,12 @@ class FreeCastFromHandEffect(GameEffect):
         arm_all: bool = False,
         during_resolution: bool = False,
         instant_sorcery_only: bool = False,
+        zones: Optional[list[str]] = None,
+        legendary_only: bool = False,
     ) -> None:
         super().__init__(source)
+        self.zones = list(zones or ['hand'])
+        self.legendary_only = bool(legendary_only)
         #: "…cast **an instant or sorcery spell** …" (Arcane Endeavor) — only instant and sorcery cards are offered.
         self.instant_sorcery_only = bool(instant_sorcery_only)
         #: "You may cast **any number of** spells from your hand without paying their mana costs." (Aetherflux
@@ -1008,8 +1012,11 @@ class FreeCastFromHandEffect(GameEffect):
         if self.shares_type_with_trigger:
             event_types = (getattr(context, "trigger_event", None) or {}).get("object_types") or []
             shared_types = {str(t).lower() for t in event_types}
+        pool = [obj for zone in self.zones for obj in getattr(player, zone, [])]
         candidates = [
-            obj for obj in player.hand
+            obj for obj in pool
+            if (obj.zone != Zone.EXILE or obj.owner_id == player.id)
+            and (not self.legendary_only or 'legendary' in (obj.card.type_line or '').lower())
             if not obj.card.is_land
             and (not self.noncreature_only or not obj.is_creature)
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
@@ -1019,7 +1026,7 @@ class FreeCastFromHandEffect(GameEffect):
         ]
         if self.during_resolution:
             context.engine._request_resolution_play(
-                player, candidates, zone="hand", repeat=self.arm_all, only_spells=True,
+                player, candidates, zone=self.zones, repeat=self.arm_all, only_spells=True,
                 max_mana_value=max_mv + 1 if isinstance(max_mv, int) else None,
             )
             return
