@@ -1222,9 +1222,7 @@ class TurnLoopMixin:
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
         self.rules.resolve_choice(answer)
         if choice_kind == 'untap_cap_selection':
-            if not self.state.pending_choice:
-                self._step_untap()
-            return  # RULE 502.4: no priority or trigger resolution until upkeep.
+            return self._resume_untap_cap_selection()
         if opponent_pick and (self.state.pending_choice or self.interactive_priority or leaves_on_stack):
             return
         if self.interactive_priority and choice_kind == "miracle_reveal":
@@ -1242,6 +1240,10 @@ class TurnLoopMixin:
         if cleanup_discard and not self.state.pending_choice:
             self._step_cleanup()
         self.resolve_until_stable()
+    def _resume_untap_cap_selection(self) -> None:
+        """RULE 502.4: finish untapping without granting priority before upkeep."""
+        if not self.state.pending_choice:
+            self._step_untap()
     def set_skip_untap(self, player: Player, obj: GameObject, value: bool) -> None:
         """Toggle RULE 502.1's "you may choose not to untap ~ during your
         untap step" permission on ``obj`` (Rubinia Soulsinger/Hivis of the

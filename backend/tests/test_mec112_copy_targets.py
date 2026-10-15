@@ -9,6 +9,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import StackItem
 from mtg_analyzer.parser.oracle.spec import EffectSpec
+from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 from tests.test_hideaway_keyword import _game
 
@@ -103,6 +104,31 @@ def test_copy_self_constructor_accepts_sealed_permission():
     effect = build_effects([EffectSpec('copy_self_spell', {})], original.obj,
                            copy_targets_text='You may choose new targets for the copy.')[0]
     assert effect.choose_new_targets
+
+
+@pytest.mark.parametrize('retarget', [False, True])
+def test_parsed_adventure_copy_permission_can_retarget_or_keep_original(retarget):
+    engine, original = _bolt()
+    listener_card = Card(id='Adventure copier', name='Adventure copier', type_line='Enchantment',
+                         oracle_text=('Whenever you cast an Adventure spell, you may copy it. '
+                                      'You may choose new targets for the copy.'))
+    parsed = parse_oracle(listener_card)
+    assert parsed.modeled
+    listener = GameObject(listener_card, owner_id='p1', zone=Zone.BATTLEFIELD)
+    effect = build_effects(parsed.specs[0].effects, listener)[0]
+    context = engine.rules.context
+    context.trigger_event = {'instance_id': original.obj.instance_id}
+    effect.apply(context)
+    assert engine.state.pending_choice['kind'] == 'copy_targets'
+    if retarget:
+        _choose(engine, 'p3')
+    else:
+        engine.rules.resolve_choice('decline')
+    copied = engine.state.stack[-1]
+    expected = engine.state.player_by_id('p3' if retarget else 'p2')
+    assert copied is not original and copied.targets == [expected]
+    engine.rules.resolve_top_of_stack()
+    assert expected.life == 17
 
 
 def _creature(engine, name, owner='p1', toughness=2):

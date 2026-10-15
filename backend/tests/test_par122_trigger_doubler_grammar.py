@@ -581,7 +581,9 @@ def test_copy_it_under_a_cast_trigger_copies_the_cast_spell():
     (spec,) = _specs("Whenever you cast an Adventure spell, you may copy it. You may choose new targets for the copy.")
     assert spec.optional is True
     assert spec.effects[0].type == "copy_spell"
-    assert spec.effects[0].params == {"spell_from_trigger_event": "instance_id"}
+    assert spec.effects[0].params == {
+        "spell_from_trigger_event": "instance_id", "choose_new_targets": True,
+    }
 
 
 def test_a_conditional_grant_on_the_attached_creature_names_its_state():

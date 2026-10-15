@@ -716,6 +716,8 @@ def _declare_blockers_setup(engine, attackers=2):
     raiders[0].blocked_by = [blocker.instance_id]
     engine.state.current_step = "declare_blockers"
     engine.state.current_phase = "combat"
+    # This fixture constructs the completed declaration directly (RULE 509.1).
+    engine.state.declared_blockers_this_combat.add(p1.id)
     return raiders, blocker
 
 
@@ -743,6 +745,9 @@ def test_illusionist_s_gambit_can_only_be_cast_in_the_declare_blockers_step_on_a
     gambit = _card(engine, "Illusionist's Gambit", zone=Zone.HAND)
     p1.mana_pool.add_many({"U": 2, "C": 2})
     assert engine.can_cast(p1, gambit)
+    engine.state.declared_blockers_this_combat.clear()
+    assert not engine.can_cast(p1, gambit)  # blockers must be declared before priority
+    engine.state.declared_blockers_this_combat.add(p1.id)
     engine.state.current_step = "declare_attackers"
     assert not engine.can_cast(p1, gambit)  # wrong step
     engine.state.current_step = "declare_blockers"
