@@ -2189,7 +2189,6 @@ class MiscSystemsMixin:
                 token_card
             ) or continuous.enters_tapped_from_static(self.state, token)
             self._apply_entry_counters(token)  # a token was never cast, so X is 0
-            self._apply_granted_entry_counters(token)
             self.state.add_to_battlefield(token)
             self.state.fire_event(
                 GameEvent(

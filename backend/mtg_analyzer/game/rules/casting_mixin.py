@@ -331,9 +331,27 @@ class CastingResolutionMixin:
         # RULE 614.12 / 101.2: an entrant's own counter prohibition also applies.
         if amount > 0 and continuous.counters_prohibited_for(self.state, obj, kind, as_enters=True):
             return
-        obj.add_counters(kind, amount)
+        collection = getattr(obj, '_entry_counter_collection', None)
+        if collection is not None:
+            collection[kind] = collection.get(kind, 0) + amount
+        else:
+            obj.add_counters(kind, amount)
 
     def _apply_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
+        # RULE 122.6 / 614.12: printed, granted and mana-spend entry counters
+        # form one placement; all applicable replacements see the total.
+        amounts = {}
+        obj._entry_counter_collection = amounts
+        try:
+            self._collect_entry_counters(obj, x_paid)
+            self._apply_granted_entry_counters(obj)
+        finally:
+            del obj._entry_counter_collection
+        for kind, amount in amounts.items():
+            if amount > 0:
+                self.add_counters(obj, amount, kind, source=obj)
+
+    def _collect_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
         counters on it, read off its printed text.
 
@@ -345,6 +363,8 @@ class CastingResolutionMixin:
         107.3c) — 0 for anything that didn't just resolve off a cast-for-X
         (a token, a card reanimated/searched onto the battlefield, …).
         """
+        from ..mana_spend_riders import apply_entry_riders
+        apply_entry_riders(self, obj)
         # RULE 702.32a Fading N / RULE 702.61a Vanishing N: "this permanent
         # enters with N <fade|time> counters on it". Read off the parsed
         # keyword rather than the reminder text — the keyword *is* the rule,
@@ -867,6 +887,7 @@ class CastingResolutionMixin:
         free_cast = (obj.instance_id in self.state.free_cast_instance_ids
                      and self.state.resolution_play_choice is None)
         source_mana_spent = {}
+        mana_payment_riders = []
         obj.colors_spent_to_cast = frozenset()
         obj.mana_spent_to_cast_treasure = 0
         obj.mana_spent_to_cast_creature = 0
@@ -914,6 +935,7 @@ class CastingResolutionMixin:
                 allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             )
+            mana_payment_riders = list(player.mana_pool.last_payment_riders)
             obj.colors_spent_to_cast = frozenset(
                 color for color in _FIVE_COLORS
                 if pool_before.get(color, 0) > player.mana_pool.pool.get(color, 0)
@@ -1009,6 +1031,8 @@ class CastingResolutionMixin:
             x=x,
             target_groups=target_groups,
         )
+        item.mana_rider_commander_cast_count = player.commander_casts.get(obj.instance_id, 0) + int(cast_from_zone == Zone.COMMAND.value)
+        item.mana_payment_riders = mana_payment_riders
         self.state.stack.append(item)
         self._note_crime(item)
         self.state.record_stat(
@@ -1099,6 +1123,8 @@ class CastingResolutionMixin:
                 item, self.state.player_by_id(item.controller_id), defer_stack=True,
             )
         else:
+            from ..mana_spend_riders import apply_cast_riders
+            apply_cast_riders(self, item, event)
             self.state.fire_event(event)
 
     def _finish_cast_announcement(self, item):
@@ -1113,6 +1139,8 @@ class CastingResolutionMixin:
             self.state.fire_event(GameEvent(EventType.CAST_COST_PAID, player_id=player.id,
                 controller_id=player.id, instance_id=obj.instance_id, stack_id=item.stack_id,
                 sacrificed_count=obj.sacrificed_cost_count))
+        from ..mana_spend_riders import apply_cast_riders
+        apply_cast_riders(self, item, event)
         self.state.fire_event(event)
         self._fire_expend_events(player, obj)
         living = {p.id for p in self.state.living_players()}
@@ -2435,7 +2463,6 @@ class CastingResolutionMixin:
             if obj.tapped and continuous.enters_untapped_from_static(self.state, obj):
                 obj.tapped = False  # a land entering by an effect, under Horizon Explorer
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
-            self._apply_granted_entry_counters(obj)
             # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —
             # `_offer_read_ahead` stashes it here) replaces the ordinary
             # single lore counter `add_to_battlefield` would otherwise seed —

@@ -75,8 +75,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   quoted ability (48 cards, only 5 SOLO — Dack Fayden, Liliana the Last Hope, Tezzeret Artifice Master,
   A-Saheeli, The Capitoline Triad; the rest are blocked by other planeswalker abilities). Decision open: which
   of these earn a handler; the emblem case is weak on SOLO yield.
-- **PAR-155 · Broader mana-ability counter riders.** Mana abilities that carry a counter rider beyond the shapes already modeled; size the real cards with `parser_probe.py rank`/`blocked` first (PLAY-ALL).
-
 - **PAR-156 · Counter or pump, then fight.** "Put a +1/+1 counter on / pump target creature, then it fights …" sequences not yet claimed; size against the cache first, and check whether the existing `fight` previous-target rows already cover the second half (PLAY-ALL).
 
 - **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).

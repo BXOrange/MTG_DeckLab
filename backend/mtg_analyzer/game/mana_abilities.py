@@ -80,6 +80,7 @@ from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Iterable, Optional
 
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
+from ..parser.oracle.normalize import strip_reminder_text
 from . import continuous, static_conditions
 from .costs import ActivationCost, parse_activation_cost
 
@@ -512,6 +513,12 @@ class ManaAbility:
     self_rad_counters: int = 0
     #: RULE 605.3b: counters placed on the source resolve with mana production.
     source_counters: dict[str, int] = field(default_factory=dict)
+    #: RULE 608.2c: counter placement printed before Add precedes the amount lookup.
+    source_counters_before_mana: bool = False
+    unscaled_options: list[dict[str, int]] = field(default_factory=list)
+    player_counters: dict[str, int] = field(default_factory=dict)
+    spend_rider: Optional[dict[str, Any]] = None
+    next_cast_rider: Optional[dict[str, Any]] = None
     min_level: Optional[int] = None
     max_level: Optional[int] = None
     #: RULE 702.184 Station: a "N+ | {T}: Add …" tier ability works only while
@@ -933,6 +940,49 @@ def mana_options(card: Any) -> list[dict[str, int]]:
 _ONCE_PER_GAME_LABEL_RE = re.compile(r"(?:exhaust|power-up)\s*[—-]\s*", re.IGNORECASE)
 
 
+def _counter_mana_riders(text: str) -> tuple[Optional[dict], Optional[dict]]:
+    """RULE 106.6: attach conditional payoffs to this mana, not its source's tap."""
+    text = text.lower()
+    trigger = re.search(
+        r"when you spend this mana to cast a dragon creature spell, it enters with an additional \+1/\+1 counter on it and gains hexproof until your next turn(?:\.|$)", text,
+    )
+    if trigger:
+        return {"kind": "entry_counters", "count": 1, "creature": True, "subtype": "Dragon",
+                "keyword": "hexproof", "duration": "until_next_turn", "triggered": True}, None
+    if re.search(
+        r"if you spend this mana to cast your commander, it enters with a number of additional \+1/\+1 counters on it equal to the number of times it'?s been cast from the command zone this game(?:\.|$)", text,
+    ):
+        return {"kind": "entry_counters", "count": "commander_casts", "commander": True}, None
+    spent = re.search(r"(?:if|when) (?:this|that) mana is spent (?:to cast|on) (?:a |an )?(?P<kind>[^,.]+?) spell, (?P<body>[^.]+)", text)
+    if spent:
+        kind, body = spent.group("kind"), spent.group("body")
+        if kind not in {"creature", "non-human creature", "multicolored creature", "legendary", "goblin"}:
+            return None, None
+        filt = {}
+        if "creature" in kind: filt["creature"] = True
+        if "non-human" in kind: filt["exclude_subtype"] = "Human"
+        if "multicolored" in kind: filt["multicolored"] = True
+        if "legendary" in kind: filt["legendary"] = True
+        if "goblin" in kind: filt["subtype"] = "Goblin"
+        if body == "that creature enters with an additional +1/+1 counter on it":
+            return {"kind": "entry_counters", "count": 1, **filt}, None
+        if body == "put a +1/+1 counter on this land":
+            return {"kind": "source_counters", "count": 1, "counter": "+1/+1", "triggered": True, **filt}, None
+        if body == "you get an experience counter":
+            return {"kind": "player_counters", "count": 1, "counter": "experience", **filt}, None
+    nxt = re.search(r"when you next cast an? (?P<kind>bird creature|creature|artifact) spell this turn, (?P<body>[^.]+)", text)
+    if nxt:
+        kind, body = nxt.group("kind"), nxt.group("body")
+        filt = {"creature": True} if "creature" in kind else {"artifact": True}
+        if "bird" in kind: filt["subtype"] = "Bird"
+        if body == "that spell gains sunburst":
+            return None, {"kind": "sunburst", **filt}
+        count = re.fullmatch(r"(?:it|that creature) enters with (?P<n>an|two) additional \+1/\+1 counters? on it", body)
+        if count:
+            return None, {"kind": "entry_counters", "count": _rad_count_of(count), **filt}
+    return None, None
+
+
 def _parse_mana_ability_lines(
     text: str, name: Optional[str], want_hand_exile: bool = False
 ) -> list[ManaAbility]:
@@ -953,7 +1003,8 @@ def _parse_mana_ability_lines(
     hand-exile lines.
     """
     abilities: list[ManaAbility] = []
-    for line in text.split("\n"):
+    # RULE 207.2: reminder text cannot introduce a target or a quoted grant.
+    for line in strip_reminder_text(text).split("\n"):
         line = line.strip()
         station = _STATION_TIER_RE.match(line)
         if station is not None:
@@ -986,12 +1037,30 @@ def _parse_mana_ability_lines(
         # Tulip" → "Exile ~"), the way the oracle normalizer spells it.
         cost_text = _self_named_as_tilde(cost_text, name)
         effect_text = effect_text.strip()
+        spend_rider, next_cast_rider = _counter_mana_riders(effect_text)
+        folded_effect = _fold_self_name(effect_text, name)
+        # RULE 605.3b / 608.2c: only complete, unconditional rider sentences.
+        # A spend-trigger's "When ... , put ..." is not an immediate placement.
+        counter_match = re.search(
+            r"(?:^|(?<=\.))\s*put (?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) "
+            r"(?P<kind>[a-z][a-z -]*|[+\-]\d+/[+\-]\d+) counters? on "
+            r"(?:this (?:land|artifact|creature|permanent)|~)\.", folded_effect, re.IGNORECASE,
+        )
+        player_match = re.search(
+            r"(?:^|(?<=\.))\s*you get (?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) "
+            r"(?P<kind>poison|experience) counters?\.", effect_text, re.IGNORECASE,
+        )
+        counter_before = bool(counter_match and counter_match.start() < folded_effect.lower().find("add "))
         if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
             continue  # RULE 605.1a — a targeted ability is never a mana ability
         if _EXILED_CREATURE_MV_ADD_RE.search(effect_text):
             cost = parse_activation_cost(cost_text)
             _apply_mana_activation_limit(cost, effect_text)
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 options=[{color: 1} for color in _ALL_COLORS],
                 amount_selector={"kind": "cost_exiled_creature_mv_plus_one"},
@@ -1010,6 +1079,10 @@ def _parse_mana_ability_lines(
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector="colors_among_permanents_you_control",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
@@ -1033,6 +1106,10 @@ def _parse_mana_ability_lines(
                 else "colors_of_legendary_creatures_planeswalkers_you_control"
             )
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector=kind,
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
@@ -1048,6 +1125,10 @@ def _parse_mana_ability_lines(
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
             scope = "opponents" if "opponent" in land_produce_match.group("scope") else "you"
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector=f"colors_lands_{scope}_control_could_produce",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
@@ -1070,6 +1151,10 @@ def _parse_mana_ability_lines(
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector="colors_in_commanders_color_identity",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
@@ -1084,6 +1169,10 @@ def _parse_mana_ability_lines(
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 options=[{color: 1} for color in _ALL_COLORS],
                 x_scaled=True,
@@ -1104,6 +1193,10 @@ def _parse_mana_ability_lines(
             combination_selector, combination_colors = combination_match
             damage_match = _SELF_DAMAGE_RE.search(effect_text)
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 options=[{color: 1} for color in (combination_colors or _ALL_COLORS)],
                 amount_selector=combination_selector,
@@ -1118,6 +1211,10 @@ def _parse_mana_ability_lines(
             token = chosen.group("n").lower()
             amount = int(token) if token.isdigit() else _ANY_COLOR_COUNT_WORDS.get(token, 1)
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 options=[{_CHOSEN_COLOR_KEY: amount}],
                 color_selector="chosen_color",
@@ -1127,6 +1224,10 @@ def _parse_mana_ability_lines(
             continue
         if _IMPRINTED_COLOR_ADD_RE.match(add_match.group(1).strip()):
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector="imprinted_card_colors",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
@@ -1135,6 +1236,10 @@ def _parse_mana_ability_lines(
             continue
         if _DEVOTION_CHOSEN_COLOR_ADD_RE.match(add_match.group(1).strip()):
             abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector="devotion_to_chosen_color",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
@@ -1146,19 +1251,21 @@ def _parse_mana_ability_lines(
         if not options:
             continue
         damage_match = _SELF_DAMAGE_RE.search(effect_text)
-        counter_match = re.search(
-            r"put (?:a|an|one|1) ([a-z][a-z -]*|\+1/\+1|-1/-1) counter on (?:this (?:land|artifact|creature|permanent)|~)\.",
-            _fold_self_name(effect_text, name), re.IGNORECASE,
-        )
         abilities.append(ManaAbility(
+            spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+            source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+            source_counters_before_mana=counter_before,
+            player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
             cost=cost,
             options=options,
             amount_selector=selector,
             self_damage=int(damage_match.group(1)) if damage_match else 0,
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
-            source_counters={counter_match.group(1).lower(): 1} if counter_match else {},
             restriction=_parse_restriction(effect_text),
         ))
+    for ability in abilities:
+        if ability.source_counters_before_mana:
+            ability.unscaled_options = [dict(opt) for opt in ability.options]
     # ENG-51: a cost part the grammar can't read would never be charged, so
     # the mana ability would be cheaper than printed — refuse it instead. A
     # planeswalker's "+1: Add {R}{R}" line is a loyalty ability, read elsewhere.
@@ -1181,7 +1288,8 @@ def _split_leveler_blocks_raw(text: str) -> tuple[list[str], list[tuple[int, Opt
     preamble: list[str] = []
     blocks: list[tuple[int, Optional[int], list[str]]] = []
     current: Optional[tuple[int, Optional[int], list[str]]] = None
-    for line in text.split("\n"):
+    # RULE 207.2: reminder text cannot introduce a target or a quoted grant.
+    for line in strip_reminder_text(text).split("\n"):
         match = _LEVEL_TIER_RAW_RE.match(line.strip())
         if match is not None:
             if current is not None:
@@ -1313,10 +1421,14 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         ManaAbility(
             cost=ability.cost,
             options=resolve_options(ability, obj, state),
-            amount_selector=None,
+            amount_selector=ability.amount_selector if ability.source_counters_before_mana else None,
             self_damage=ability.self_damage,
             self_rad_counters=ability.self_rad_counters,
             source_counters=dict(ability.source_counters),
+            source_counters_before_mana=ability.source_counters_before_mana,
+            unscaled_options=[dict(opt) for opt in ability.unscaled_options],
+            player_counters=dict(ability.player_counters),
+            spend_rider=ability.spend_rider, next_cast_rider=ability.next_cast_rider,
             restriction=ability.restriction,
             any_combination=ability.any_combination,
             color_selector=ability.color_selector,
@@ -1363,7 +1475,8 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             for u in upgrades
         ]
     borrowed = [
-        dataclass_replace(ability, options=resolve_options(ability, obj, state), amount_selector=None)
+        dataclass_replace(ability, options=resolve_options(ability, obj, state),
+                          amount_selector=ability.amount_selector if ability.source_counters_before_mana else None)
         for ability in getattr(obj, "_borrowed_mana_abilities", [])
     ]
     return printed + granted + borrowed + derived_basic
@@ -1402,10 +1515,14 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
         ManaAbility(
             cost=ability.cost,
             options=resolve_options(ability, obj, state),
-            amount_selector=None,
+            amount_selector=ability.amount_selector if ability.source_counters_before_mana else None,
             self_damage=ability.self_damage,
             self_rad_counters=ability.self_rad_counters,
             source_counters=dict(ability.source_counters),
+            source_counters_before_mana=ability.source_counters_before_mana,
+            unscaled_options=[dict(opt) for opt in ability.unscaled_options],
+            player_counters=dict(ability.player_counters),
+            spend_rider=ability.spend_rider, next_cast_rider=ability.next_cast_rider,
             restriction=ability.restriction,
             any_combination=ability.any_combination,
         )

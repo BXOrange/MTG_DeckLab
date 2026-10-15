@@ -57,6 +57,7 @@ export default [
           {
             items: [
               ['full', 'Mana-Modell (106)'],
+              ['full', 'Counter-Zusätze von Manafähigkeiten (106.6/605): gedruckte Menge und Reihenfolge, Boni beim Bezahlen und verzögerte nächste-Zauber-Trigger; Eintritts-Counter werden gemeinsam ersetzt'],
               ['full', 'Mana-Potenzial (offen/genutzt) + Auto-Tap beim Zaubern/Aktivieren — tappt nie Opfer-/Exil-Manaquellen (Treasures, Spirit Guides)'],
               ['full', 'Manafähigkeit „ein Mana jeder Farbe unter den eigenen Permanenten" (Bloom Tender) und zielgerichtetes „X Mana einer Farbe, wobei X Inseln eines Ziels" mit Einmal-pro-Zug-Sperre (Carpet of Flowers)'],
               ['full', 'Zielwahl / Targeting (115)'],

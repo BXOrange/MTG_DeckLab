@@ -51,6 +51,13 @@ the card's implementation and tests; shipped narrative in
 
 ## Costs and choices
 
+- Mana effects attached to individual produced units (RULE 106.6) travel through
+  `ManaPool.rider_lots` and `last_payment_riders`; partial payments consume only
+  their own units. Next-cast delayed triggers are state-owned and independent of
+  spending the generated mana. Immediate spending effects precede `SPELL_CAST`.
+- `_apply_entry_counters` combines printed, granted and mana-derived entry counters
+  before one replacement-aware placement per kind (RULE 122.6 / 614.12). Callers
+  must not also apply granted entry counters separately.
 - Announced costs (RULE 601.2i) expose their pools on the legal action
   (`return_cost`, `exile_cost`, `ActivationCost.sacrifice_count`); the shared
   board gathers targets first, then the cost picker, and submits the choice IDs,

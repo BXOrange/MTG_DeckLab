@@ -125,6 +125,9 @@ class ManaPool:
         #: with no mana component at all, since callers skip `pay()`
         #: entirely rather than calling it with an empty cost.
         self.last_payment_types: dict[str, int] = {}
+        # RULE 106.6: subset lots retain effects attached to produced mana.
+        self.rider_lots: list[dict[str, Any]] = []
+        self.last_payment_riders: list[dict[str, Any]] = []
         #: How much of `pool` (per type) came from a snow-typed source (RULE
         #: 205.4g — "{S} spent", MEC-43 round 3) — a subset count, always
         #: ``<= pool[type]``, mirroring `pool_by_source`'s "shadow tally"
@@ -156,6 +159,7 @@ class ManaPool:
     def add(
         self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None,
         source_kind: Optional[str] = None, is_snow: bool = False, keep_until: Optional[str] = None,
+        rider: Optional[dict[str, Any]] = None,
     ) -> None:
         """Add ``amount`` mana of ``mana_type`` (``W U B R G C``).
 
@@ -177,6 +181,9 @@ class ManaPool:
             raise ValueError("amount must be non-negative")
         if restriction is None:
             self.pool[mana_type] += amount
+            if rider and amount:
+                self.rider_lots.append({"rider": dict(rider), "source_kind": source_kind,
+                                        "amounts": {mana_type: amount}, "keep_until": keep_until})
             self._add_to_source_pool(mana_type, amount, source_kind)
             if is_snow:
                 self.snow_pool[mana_type] = self.snow_pool.get(mana_type, 0) + amount
@@ -185,22 +192,26 @@ class ManaPool:
                 bucket[mana_type] = bucket.get(mana_type, 0) + amount
             return
         for lot in self.restricted:
-            if lot["restriction"] == restriction and lot.get("source_kind") == source_kind:
+            if (lot["restriction"] == restriction and lot.get("source_kind") == source_kind
+                    and lot.get("rider") == rider):
                 lot["amounts"][mana_type] = lot["amounts"].get(mana_type, 0) + amount
                 return
         lot: dict[str, Any] = {"restriction": restriction, "amounts": {mana_type: amount}}
         if source_kind is not None:
             lot["source_kind"] = source_kind  # only when tagged, so untagged lots keep their original shape
+        if rider:
+            lot["rider"] = dict(rider)
         self.restricted.append(lot)
 
     def add_many(
         self, amounts: dict[str, int], restriction: Optional[dict] = None,
         source_kind: Optional[str] = None, is_snow: bool = False, keep_until: Optional[str] = None,
+        rider: Optional[dict[str, Any]] = None,
     ) -> None:
         for mana_type, amount in amounts.items():
             self.add(
                 mana_type, amount, restriction=restriction, source_kind=source_kind, is_snow=is_snow,
-                keep_until=keep_until,
+                keep_until=keep_until, rider=rider,
             )
 
     def set_amount(self, mana_type: str, amount: int) -> None:
@@ -212,6 +223,12 @@ class ManaPool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
         if amount < 0:
             raise ValueError("amount must be non-negative")
+        removed = max(0, self.pool[mana_type] - amount)
+        for lot in self.rider_lots:
+            take = min(removed, lot["amounts"].get(mana_type, 0))
+            lot["amounts"][mana_type] = lot["amounts"].get(mana_type, 0) - take
+            removed -= take
+        self.rider_lots = [lot for lot in self.rider_lots if any(lot["amounts"].values())]
         self.pool[mana_type] = amount
         self._trim_kept()
 
@@ -248,6 +265,18 @@ class ManaPool:
             self.pool[mana_type] = min(self.pool[mana_type], survives[mana_type])
             self.snow_pool[mana_type] = 0
         self.restricted.clear()
+        capacity = dict(self.pool)
+        retained = []
+        for lot in self.rider_lots:
+            if lot.get("keep_until") not in self.kept:
+                continue
+            amounts = {t: min(n, capacity.get(t, 0)) for t, n in lot["amounts"].items()}
+            for t, n in amounts.items():
+                capacity[t] -= n
+            if any(amounts.values()):
+                retained.append(dict(lot, amounts=amounts, source_kind=None))
+        self.rider_lots = retained
+        self.last_payment_riders = []
         self.pool_by_source.clear()
         if survives and any(survives.values()):
             # What stays is plain, untagged mana from here on (its origin no longer matters).
@@ -354,6 +383,7 @@ class ManaPool:
         if solution is None:
             raise ValueError(f"cannot pay {cost!r} from {self.pool!r}")
         self.last_payment_by_kind = {}
+        self.last_payment_riders = []
         colored_spends, generic_needed, life_spent = solution
 
         for color in colored_spends:
@@ -398,6 +428,20 @@ class ManaPool:
             if take:
                 bucket[mana_type] -= take
                 remaining -= take
+                kind = next((k for k, b in self.pool_by_source.items() if b is bucket), None)
+                self._consume_riders(mana_type, take, kind)
+
+    def _consume_riders(self, mana_type: str, amount: int, source_kind: Optional[str]) -> None:
+        # RULE 106.6a: each actual mana unit carries a separate effect. Prefer
+        # tagged mana deterministically within the chosen source-kind bucket.
+        for lot in self.rider_lots:
+            if lot.get("source_kind") != source_kind or amount <= 0:
+                continue
+            take = min(amount, lot["amounts"].get(mana_type, 0))
+            lot["amounts"][mana_type] = lot["amounts"].get(mana_type, 0) - take
+            amount -= take
+            self.last_payment_riders.extend(dict(lot["rider"]) for _ in range(take))
+        self.rider_lots = [lot for lot in self.rider_lots if any(lot["amounts"].values())]
 
     def _consume(
         self, mana_type: str, amount: int, usable_lots: list[dict],
@@ -414,6 +458,8 @@ class ManaPool:
             if take:
                 lot["amounts"][mana_type] -= take
                 amount -= take
+                if lot.get("rider"):
+                    self.last_payment_riders.extend(dict(lot["rider"]) for _ in range(take))
                 kind = lot.get("source_kind")
                 if kind:
                     self.last_payment_by_kind[kind] = self.last_payment_by_kind.get(kind, 0) + take

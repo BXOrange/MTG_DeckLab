@@ -99,12 +99,22 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ## Mana System
 
-### Mana-ability source counters (RULE 605.3b)
+### Mana-ability counter riders (PAR-155; RULE 106.6 / 605.3b)
 
-The mana grammar recognizes a single named counter placed on the source after
-ordinary mana production. `ManaAbility.source_counters` survives runtime option
-resolution and applies through the counter-replacement path without a stack item.
-The World Shaper regression checks the counter immediately after activation.
+The mana grammar preserves printed counter quantities and immediate source/player
+placements. Counter placement before variable mana production applies replacements
+before reading the resulting amount. Conditional spending bonuses travel with each
+produced mana unit through partial payments; next-cast bonuses remain independent
+of whether that mana is spent. Delayed triggers use the stack and preserve source
+and spell incarnations, including temporary hexproof and granted sunburst.
+
+Printed, granted and mana-derived entry counters form one placement through counter
+replacements and prohibitions across spell, token, search and graveyard-return paths.
+Regression tests in `test_par155_mana_counter_riders.py` and
+`test_par155_mana_spend_riders.py` execute real card text, multiplied mana, partial
+payments, countered triggers, copies and zone changes. Full-cache validation:
+13,719 passed, one skipped. Coverage remains 21,515/35,046 (Commander 20,703/32,068),
+parser v658; these changes correct runtime behavior without expanding parser claims.
 
 ### Mana cost model: Hybrid and Phyrexian mana
 

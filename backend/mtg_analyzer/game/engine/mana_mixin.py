@@ -16,6 +16,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+from dataclasses import replace
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -43,11 +44,13 @@ from ..mana_abilities import (
     mana_abilities_for,
     mana_source_kind_for,
     option_label,
+    resolve_options,
     restriction_predicate_for_activation,
     restriction_predicate_for_cast,
     validate_color_split,
 )
 from .. import mana_potential
+from ..mana_spend_riders import arm_next_cast_rider, build_rider
 from ..phases import GamePhase, GameStep, default_turn_sequence
 from ..rules_engine import RulesEngine
 from ..targeting import (
@@ -153,7 +156,10 @@ class ManaMixin:
             # {U}/{R}, not full WUBRG), so the same list both offers the
             # single-colour buttons above and bounds the split here.
             allowed_colors = {next(iter(opt)) for opt in ability.options}
-            produced = validate_color_split(color_split, total, allowed_colors)
+            produced = validate_color_split(
+                color_split, sum(color_split.values()) if ability.source_counters_before_mana else total,
+                allowed_colors,
+            )
         else:
             if not 0 <= option_index < len(ability.options):
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
@@ -162,6 +168,21 @@ class ManaMixin:
             player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         )
+        if ability.source_counters_before_mana:
+            # RULE 608.2c: apply replacements to the counter placement first;
+            # the later Add reads the resulting count, not a predicted increment.
+            for kind, amount in ability.source_counters.items():
+                self.rules.add_counters(source, amount, kind, source=source)
+            updated_options = resolve_options(
+                replace(ability, options=ability.unscaled_options), source, self.state,
+            )
+            if ability.any_combination and color_split is not None:
+                produced = validate_color_split(
+                    color_split, sum(updated_options[0].values()),
+                    {next(iter(opt)) for opt in updated_options},
+                )
+            else:
+                produced = dict(updated_options[option_index])
         if ability.x_scaled and not (ability.any_combination and color_split is not None):
             # ENG-51: "Add X mana of any one color" — the chosen colour, X times.
             produced = {color: amount * x for color, amount in produced.items()}
@@ -223,7 +244,10 @@ class ManaMixin:
         player.mana_pool.add_many(
             produced, restriction=restriction, source_kind=mana_source_kind_for(source),
             is_snow=is_snow_source_for(source),
+            rider=build_rider(ability.spend_rider, source) if ability.spend_rider else None,
         )
+        if ability.next_cast_rider:
+            arm_next_cast_rider(self.state, source, ability.next_cast_rider)
         if ability.self_damage:
             # RULE 605.1a: a mana ability may have effects besides producing
             # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
@@ -233,8 +257,11 @@ class ManaMixin:
             # RULE 728's own rider (Harold and Bob's granted ability) —
             # same "applied right alongside, no stack" treatment.
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
-        for kind, amount in ability.source_counters.items():
-            self.rules.add_counters(source, amount, kind, source=source)
+        if not ability.source_counters_before_mana:
+            for kind, amount in ability.source_counters.items():
+                self.rules.add_counters(source, amount, kind, source=source)
+        for kind, amount in ability.player_counters.items():
+            self.rules.add_player_counters(player, amount, kind, source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of
@@ -304,7 +331,10 @@ class ManaMixin:
         player.mana_pool.add_many(
             produced, restriction=ability.restriction, source_kind=mana_source_kind_for(source),
             is_snow=is_snow_source_for(source),
+            rider=build_rider(ability.spend_rider, source) if ability.spend_rider else None,
         )
+        if ability.next_cast_rider:
+            arm_next_cast_rider(self.state, source, ability.next_cast_rider)
         if ability.self_damage:
             self.rules.deal_damage(player, ability.self_damage, source=source)
         if ability.self_rad_counters:

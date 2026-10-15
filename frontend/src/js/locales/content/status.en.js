@@ -57,6 +57,7 @@ export default [
           {
             items: [
               ['full', 'Mana model (106)'],
+              ['full', 'Mana-ability counter riders (106.6/605): printed amounts and order, spending bonuses and delayed next-cast triggers; entry counters share one replacement-aware placement'],
               ['full', 'Mana potential (open/used) + auto-tap when casting/activating — never taps sacrifice/exile mana sources (Treasures, Spirit Guides)'],
               ['full', 'Mana ability "one mana of any color among permanents you control" (Bloom Tender) and targeted "X mana of one color, where X is Islands a target controls" with a once-per-turn lock (Carpet of Flowers)'],
               ['full', 'Targeting (115)'],

@@ -117,7 +117,6 @@ def _commit_battlefield_batch(rules, frame):
     # battlefield source for the other entrants' replacement effects.
     for obj, record in entrants:
         rules._apply_entry_counters(obj)
-        rules._apply_granted_entry_counters(obj)
         obj.summoning_sick = True
     buffered = []
     state._deferred_entry_events = buffered
