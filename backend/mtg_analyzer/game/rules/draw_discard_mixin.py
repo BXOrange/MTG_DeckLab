@@ -279,7 +279,6 @@ class DrawDiscardMixin:
         if len(player.library) < n:
             # Trying to draw from an empty library is a loss (RULE
             # 704.5c), flagged for the SBA check rather than raising.
-            player.loss_reason = player.loss_reason or "draw_from_empty"
             player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
         for draw_index in range(n):
             drawn = player.draw(1)

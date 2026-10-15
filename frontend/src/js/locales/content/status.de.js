@@ -72,6 +72,7 @@ export default [
               ['full', 'Tokens & Marken (111/122)'],
               ['full', 'Markenverbote, auch beim Betreten des Spielfelds (101.2/122)'],
               ['full', 'Embleme (114)'],
+              ['full', 'Niederlagen-Ersetzung (104/614/616): Puresteel-Emblem, gleichzeitige Niederlagen, verschachtelte Entscheidungen und Undo'],
             ],
           },
         ],
@@ -463,7 +464,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (61,6 % · 21.571 / 35.046, PARSER_VERSION 660)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (61,6 % · 21.572 / 35.046, PARSER_VERSION 661)'],
               ['partial', 'Davon Commander-legal (64,7 % · 20.755 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

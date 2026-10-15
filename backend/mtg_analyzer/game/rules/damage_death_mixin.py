@@ -1264,23 +1264,22 @@ class DamageDeathMixin:
         # synchronously with the unchanged amount, exactly as before.
         event = GameEvent(EventType.LIFE_GAIN, player_id=player.id, amount=amount)
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            final = int(resolved.get("amount", amount) or 0)
-            # MEC-54: "your maximum life total is N." (You Compleat Me) — a
-            # gain can raise the total only up to the cap, never past it.
-            cap = self._max_life_total(player)
-            if cap is not None:
-                final = min(final, max(cap - player.life, 0))
-            if final <= 0:
-                return
-            player.gain_life(final)
-            self.state.fire_event(
-                GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=final)
-            )
+        self.apply_replacements(event, on_resolved={
+            "kind": "life_gain", "player_id": player.id, "amount": amount,
+        })
 
-        self.apply_replacements(event, on_resolved=_finish)
+    def _finish_life_gain(self, player_id, amount, resolved):
+        player = self.state.player_by_id(player_id)
+        if player is None or resolved is None:
+            return
+        final = int(resolved.get("amount", amount) or 0)
+        cap = self._max_life_total(player)
+        if cap is not None:
+            final = min(final, max(cap - player.life, 0))
+        if final <= 0:
+            return
+        player.gain_life(final)
+        self.state.fire_event(GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=final))
 
     def prevent_life_gain_this_turn(self, players: list[Player]) -> None:
         """RULE 119.3/616.1: "`<players>` can't gain life this turn."

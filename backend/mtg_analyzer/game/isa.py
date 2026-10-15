@@ -972,6 +972,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
 #: whether these get their own operators (`instead`, `rather than`) instead
 #: of reusing the branch node.
 _REPLACEMENT_TYPES: frozenset[str] = frozenset({
+    "recover_instead_of_losing",
     "entry_effect",
     "double_tokens_this_turn", "plus_counters_this_turn", "dungeon_room_trigger_doubler", "enters_tapped_static", "extra_etb_counter",
     "global_wither", "graveyard_redirect", "graveyard_redirect_to_exile_this_turn",

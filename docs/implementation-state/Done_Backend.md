@@ -638,6 +638,12 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 - **Files:** `game/rules/damage_death_mixin.py` (`_MaxLifeTotalMarker`, `_max_life_total`, `set_max_life_total`, `gain_life` clamp), `game/effects/core.py` (`SetLifeEffect.only_reduce`, `SetMaxLifeTotalEffect`), `tests/test_mec54_max_life_and_you_compleat_me.py`
 - **Why:** A single choke point (`gain_life`) already routes every effect-driven life gain, so the cap needed no new event/replacement — just one `min()` there plus the im…
 
+### Loss replacement and simultaneous loss decisions (MEC-121, PARSER_VERSION 661)
+
+- **What:** `PLAYER_WOULD_LOSE` now passes through ordinary replacement ordering before the separate actual-loss notification. Puresteel Angel's real emblem sets life through normal gain/loss replacements, shuffles the graveyard, removes poison and consumes exactly the chosen emblem. Simultaneous losses produce one event per player and affected-player decisions in APNAP order; game-over checks wait for every replacement payload. Failed empty-library draws are occurrences consumed at the SBA check, including under cannot-lose effects.
+- **Continuations:** State-owned replacement frames and loss batches survive cloning and session rewind, including nested life-gain and Commander choices. Concession cancels only the departed player's recovery and preserves other players' decisions and outer spell instructions; an explicit victory ends rescues without consuming unused emblems. Graveyard shuffling uses ordinary zone-exit bookkeeping and one aggregate event across pauses, releasing only its own held batch.
+- **Validation:** Full backend `--full-cache`: 14,005 passed, 1 skipped; independent focused suite: 598 passed. Actual full Puresteel Oracle parsing, entry exile, combat-created emblem and source departure are tested. Additional cases cover simultaneous draws/losses, nested replacements, effect sequences, concession at each suspension, event aggregation and undo. Parser comparison: +1 Puresteel Angel, zero regressions. Coverage: 21,572/35,046 (61.6%); Commander-legal 20,755/32,068 (64.7%). This implements Puresteel's payload, not Lich's Mirror's different recovery instructions.
+
 ### "X loses N life" effect family and gain/lose-life controller fallback
 
 - **What:** Added `lose_life`/`lose_life_selector` handlers and registered `LoseLifeEffect` (previously only reachable internally by Afflict) with the same mass-selector sh…

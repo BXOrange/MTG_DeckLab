@@ -4688,7 +4688,12 @@ def _mass_group_params(text: str, quant: str) -> Optional[dict]:
         return None
     if quant == "each":
         text = _SINGULAR_GROUP_HEADS.sub(r"\1s", text)
-    group = parse_count_phrase(text)
+    # RULE 105.2c: not colorless means at least one of the five colors.
+    # Reuse grouped mass effects and the existing color-union filter.
+    colored = re.fullmatch(r"(?P<noun>artifacts) that aren't colorless", text)
+    group = parse_count_phrase(colored.group("noun") if colored else text)
+    if colored and group is not None:
+        group = {**group, "filter": {**group.get("filter", {}), "color_any": ["W", "U", "B", "R", "G"]}}
     if group is None or group.get("zone") != "battlefield":
         return None
     params: dict = {"group": group}

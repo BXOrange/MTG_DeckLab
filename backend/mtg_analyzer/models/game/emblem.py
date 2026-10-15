@@ -5,8 +5,8 @@
 controlled by that player — into the command zone (RULE 114.2). It is
 neither a card nor a permanent (RULE 114.5): no name, mana cost, or types,
 just the ability the creating effect names, and that ability "functions in
-the command zone" (RULE 114.4) for as long as the game lasts (nothing
-removes an emblem in practice).
+the command zone" (RULE 114.4) for as long as it remains there (an ability can explicitly remove its own
+emblem, as Puresteel Angel does).
 
 Rather than model this as a real `GameObject` sitting in a zone — which
 would need every permanent-shaped attribute (`card`, `power`, `zone`, …)

@@ -2316,6 +2316,26 @@ class ExileOwnGraveyardCardsEffect(GameEffect):
         )
 
 
+class FinishGraveyardShuffleEffect(GameEffect):
+    """Finish one graveyard-move event after any RULE 903.9 choices."""
+    def __init__(self, player_id, owns_hold, source=None):
+        super().__init__(source)
+        self.player_id = player_id
+        self.owns_hold = owns_hold
+
+    def cancel_batch(self, context):
+        # An outer spell may already own the hold; never release its batch.
+        if self.owns_hold:
+            self.owns_hold = False
+            context.state.release_batches()
+
+    def apply(self, context, targets=None):
+        player = context.state.player_by_id(self.player_id)
+        if player is not None:
+            context.shuffle_library(player)
+        self.cancel_batch(context)
+
+
 class ShuffleGraveyardIntoLibraryEffect(GameEffect):
     """"Shuffle your graveyard into your library." (RULE 701.20) — the
     graveyard-only sibling of `RulesEngine.shuffle_hand_and_graveyard_
@@ -2339,10 +2359,19 @@ class ShuffleGraveyardIntoLibraryEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is None:
             return
-        for obj in list(player.graveyard):
-            player.remove_from_zone(obj, Zone.GRAVEYARD)
-            player.add_to_zone(obj, Zone.LIBRARY)
-        context.shuffle_library(player)
+        # RULE 400.7/603.2: use the shared zone-exit path so graveyard
+        # permissions expire and leave-graveyard events see each real move.
+        # A commander's RULE 903.9 choice can suspend this list; do not
+        # overwrite it by moving a second commander before it is answered.
+        # RULE 603.2c: all cards leave in one instruction, including when a
+        # commander's choice pauses it. The finalizer survives state cloning.
+        owns_hold = not context.state._batch_hold
+        if owns_hold:
+            context.state.hold_batches()
+        effects = [ReturnToLibraryEffect(target=obj, target_kind=None, source=self.source)
+                   for obj in list(player.graveyard)]
+        effects.append(FinishGraveyardShuffleEffect(player.id, owns_hold, source=self.source))
+        _apply_effects_partitioned(effects, context, None, None, source=self.source)
 
 
 class ShuffleTargetGraveyardCardsIntoLibraryEffect(GameEffect):

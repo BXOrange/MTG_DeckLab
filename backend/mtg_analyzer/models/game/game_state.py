@@ -547,6 +547,11 @@ class GameState:
         # RULE 514.1: suspend cleanup until the active player has discarded.
         self.cleanup_discard_pending: bool = False
 
+        # RULE 704.7/616.1: ID-based simultaneous loss work survives snapshots.
+        self.player_loss_batch: Optional[dict[str, Any]] = None
+        # Only serializable engine continuations use this replacement frame.
+        self.replacement_continuation: Optional[dict[str, Any]] = None
+
         #: Ids of players who have left the game (conceded — RULE 104.3a)
         #: but whose objects are still on the board. Concession normally
         #: happens at sorcery speed, and yanking a board away mid-turn is

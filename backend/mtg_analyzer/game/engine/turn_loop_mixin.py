@@ -1100,7 +1100,7 @@ class TurnLoopMixin:
                 # that same, still-resolving object.
                 continue
             self.rules.check_state_based_actions()
-            if self.state.game_over:
+            if self.state.game_over or self.state.pending_choice or self.state.player_loss_batch:
                 return
             self.rules.put_triggers_on_stack()
             if self.state.pending_choice:
@@ -1156,6 +1156,8 @@ class TurnLoopMixin:
         if self.state.stack:
             self.rules.resolve_top_of_stack()
             self.rules.check_state_based_actions()
+            if self.state.pending_choice or self.state.player_loss_batch:
+                return True  # RULE 117.5: replacement instructions finish first.
             if self.state.game_over:
                 # What just resolved ended the game outright (Vraska, Golgari
                 # Queen's "that player loses the game" emblem, Door to

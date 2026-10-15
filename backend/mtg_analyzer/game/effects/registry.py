@@ -4,6 +4,7 @@ from __future__ import annotations
 from .core import EffectRegistry
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
+from .loss_replacements import RecoverInsteadOfLosingEffect
 from ._runtime import install, register
 
 install(globals())
@@ -13,6 +14,7 @@ EffectRegistry.register("complete_turn_life_loss", lambda p: CompleteTurnLifeLos
 EffectRegistry.register('haunted_owner_damage', lambda p: HauntedCreatureEffect('damage_owner', p.get('amount', 0)))
 EffectRegistry.register('control_while_haunted', lambda p: HauntedCreatureEffect('control'))
 EffectRegistry.register("delay_return_dying_subject", lambda p: DelayReturnDyingSubjectEffect())
+EffectRegistry.register("recover_instead_of_losing", lambda p: RecoverInsteadOfLosingEffect())
 EffectRegistry.register("sideboard_cast_permission", lambda p: StaticAbility("sideboard_cast_permission", affects="controller"))
 EffectRegistry.register("loyalty_instant_timing", lambda p: StaticAbility("loyalty_instant_timing", affects="controller"))
 EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility("reveal_opponents_hands", affects="opponents"))

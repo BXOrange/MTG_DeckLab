@@ -3736,9 +3736,9 @@ class LoseGameEffect(GameEffect):
                 if event.type == "ATTACKS" and event.get("declared") and event.get("instance_id") == source_id
                 and event.get("defender_kind") == "player" and event.get("defending_player_id") is not None
             }
-            for player in list(context.state.living_players_apnap()):
-                if player.id in attacked_ids:
-                    context.lose_game(player, self.reason)
+            context.lose_games([
+                player for player in context.state.living_players_apnap() if player.id in attacked_ids
+            ], self.reason)
             return
         player = _controller_of(self.source, context)
         if player is not None:

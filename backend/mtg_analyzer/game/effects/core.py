@@ -410,6 +410,10 @@ class GameContext:
     def lose_game(self, player: "Player", reason: str = "effect") -> None:
         self.engine._player_loses(player, reason)
 
+    def lose_games(self, players: list["Player"], reason: str = "effect") -> None:
+        """RULE 704.7/616.1: one simultaneous loss instruction for a group."""
+        self.engine._lose_players([(player.id, reason) for player in players])
+
     def monstrosity(self, target: "GameObject", amount: int = 1) -> bool:
         # RULE 701.37a.
         return self.engine.monstrosity(target, amount)

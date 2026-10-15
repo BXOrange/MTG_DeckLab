@@ -871,7 +871,14 @@ class GameSession:
         """
         player = self._actor(player_id)
         self._snapshot(f"concede: {player.name}", player.id)
+        loss_in_progress = self.engine.state.player_loss_batch is not None
+        pending_before = self.engine.state.pending_choice
         self.engine.rules.concede(player)
+        choice_canceled = pending_before is not None and self.engine.state.pending_choice is not pending_before
+        if (loss_in_progress or choice_canceled) and not self.engine.state.game_over:
+            # A concession can replace answering a rescue's pending choice.
+            # Finish the surviving outer resolution just as answering would.
+            self.engine.resolve_until_stable()
         # RULE 104.3a leaves the game *now*, so a seat that hadn't kept its
         # opening hand yet must stop blocking the rest of the table.
         self._setup_pending.discard(player.id)

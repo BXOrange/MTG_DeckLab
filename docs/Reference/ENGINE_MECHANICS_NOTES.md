@@ -21,6 +21,14 @@ the card's implementation and tests; shipped narrative in
 
 ## Resolution
 
+- Loss replacements use `PLAYER_WOULD_LOSE`; `PLAYER_LOST` announces only an
+  actual loss. State-owned APNAP loss batches defer game-over checks until all
+  choices and recovery instructions finish. Replacement descriptors preserve
+  current-state references across rewind, including nested life-gain choices.
+- Graveyard shuffling uses ordinary zone exits and a state-owned finalizer to
+  group all exits across Commander decisions. The finalizer releases only its
+  own held event batch; concession cancels that player's recovery without
+  discarding other players' decisions or an outer spell's instructions.
 - Placement riders travel in `placed_effects` and run only after a successful
   choice, with the placed object as their referent. Unrestricted attacking
   placement offers every legal defender; an explicit defending-player placement

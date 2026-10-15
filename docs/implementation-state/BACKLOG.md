@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-166`**; next free `MEC`: **`MEC-122`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-166`**; next free `MEC`: **`MEC-123`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -65,7 +65,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-121 · Replace losing the game (RULE 104.3 / 614 / 616).** Add a real loss-replacement path for Puresteel Angel's emblem, including life reset, graveyard shuffle, poison removal and consuming the emblem; reuse ordinary replacement ordering, preserve concession and remaining independent loss conditions, and validate state-based and effect-driven loss. PAR-149's quoted body is fail-closed until this runtime exists; current `_player_loses` only supports preventing loss.
+
+- **MEC-122 · Opponent draw-step turn-based actions (RULE 504.1 / 614 / 616).** Add source-scoped additional draws for other players during the active player's draw-step turn-based action, preserving active-player-first order, replacement/choice continuations, distinct emblem multiplicity and no priority between draws. Correct Teferi, Who Slows the Sunset's authored emblem to use this runtime and the existing simultaneous opponent-untap static; current UNTAP/STEP_BEGIN triggers have incorrect timing. Verified PAR-149 dependency; no registered primitive currently performs these other-player turn-based draws.
 
 ## PLR — Player management
 

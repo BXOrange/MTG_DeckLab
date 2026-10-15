@@ -348,7 +348,7 @@ class RulesEngine(
         self._pending_replacement_applied: set[int] = set()
         self._pending_replacement_applicable: list[ReplacementEffect] = []
         self._pending_replacement_callback: Optional[
-            Callable[[Optional[GameEvent]], None]
+            Union[Callable[[Optional[GameEvent]], None], dict[str, Any]]
         ] = None
         #: The permanent currently awaiting an `enter_as_copy` choice (RULE
         #: 614.1c/614.12), its `EnterAsCopyReplacement`, and the battlefield-
@@ -592,7 +592,7 @@ class RulesEngine(
     def apply_replacements(
         self,
         event: GameEvent,
-        on_resolved: Optional[Callable[[Optional[GameEvent]], None]] = None,
+        on_resolved: Optional[Union[Callable[[Optional[GameEvent]], None], dict[str, Any]]] = None,
     ) -> Optional[GameEvent]:
         """Rewrite ``event`` through applicable replacement effects.
 
@@ -616,6 +616,10 @@ class RulesEngine(
         second one to answer — that event falls back to deterministic
         discovery order rather than clobbering the first.
 
+        ID-based ``dict`` continuations for life gain and player loss are
+        stored in GameState along with the pending effect graph, so restoring
+        an interactive snapshot resumes against the current engine/state.
+
         Without ``on_resolved`` (back-compat for direct callers/tests that
         read the return value), ambiguity always falls back to
         deterministic discovery order, exactly as before this method grew
@@ -626,7 +630,7 @@ class RulesEngine(
         self,
         event: GameEvent,
         applied: set[int],
-        on_resolved: Optional[Callable[[Optional[GameEvent]], None]],
+        on_resolved: Optional[Union[Callable[[Optional[GameEvent]], None], dict[str, Any]]],
     ) -> Optional[GameEvent]:
         current: Optional[GameEvent] = event
         prevention_disabled = self.state.damage_prevention_disabled
@@ -656,15 +660,34 @@ class RulesEngine(
                 self._pending_replacement_applied = applied
                 self._pending_replacement_applicable = applicable
                 self._pending_replacement_callback = on_resolved
+                if isinstance(on_resolved, dict):
+                    # Store actual effects rather than id() values: clone remaps
+                    # both these references and their live sources together.
+                    self.state.replacement_continuation = {
+                        "event": current, "applied": [
+                            effect for effect in self._all_replacement_effects() if id(effect) in applied
+                        ], "applicable": applicable, "callback": on_resolved,
+                    }
                 self.open_choice(self._replacement_order_choice(current, applicable))
                 return None
             chosen = applicable[0]
             applied.add(id(chosen))
             current = chosen.apply_replacement(current, self.context)
         if on_resolved is not None:
-            on_resolved(current)
+            self._finish_replacement_continuation(on_resolved, current)
             return None
         return current
+    def _finish_replacement_continuation(self, callback, event):
+        if isinstance(callback, dict):
+            if callback["kind"] == "player_loss":
+                self._finish_player_loss_event(callback["player_id"], callback["reason"], event)
+            elif callback["kind"] == "life_gain":
+                self._finish_life_gain(callback["player_id"], callback["amount"], event)
+            else:
+                raise ValueError("Unknown replacement continuation")
+        else:
+            callback(event)
+
     def _event_affected_player_id(self, event: GameEvent) -> Optional[str]:
         """Whose choice a RULE 616.1 replacement-order pick belongs to: the
         player about to draw/discard/mill, take the damage/counters, or (for
@@ -714,6 +737,13 @@ class RulesEngine(
         applicable afterward; otherwise finishes the chain and invokes the
         stashed continuation with the final event.
         """
+        frame = self.state.replacement_continuation
+        self.state.replacement_continuation = None
+        if frame is not None:
+            self._pending_replacement_callback = frame["callback"]
+            self._pending_replacement_applicable = frame["applicable"]
+            self._pending_replacement_event = frame["event"]
+            self._pending_replacement_applied = {id(effect) for effect in frame["applied"]}
         callback = self._pending_replacement_callback
         if callback is None:
             return
@@ -731,6 +761,6 @@ class RulesEngine(
         applied.add(id(chosen))
         current = chosen.apply_replacement(event, self.context) if event is not None else None
         if current is None:
-            callback(None)
+            self._finish_replacement_continuation(callback, None)
             return
         self._run_replacement_loop(current, applied, callback)

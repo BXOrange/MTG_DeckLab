@@ -152,6 +152,8 @@ class StateBasedActionsMixin:
         an empty library loss, 0-toughness creatures, lethal marked damage,
         and the legend rule.
         """
+        if self.state.pending_choice or self.state.player_loss_batch:
+            return False
         any_action = False
         while True:
             # RULE 704.3: each sweep's actions happen simultaneously, as one event.
@@ -160,6 +162,8 @@ class StateBasedActionsMixin:
             if not acted:
                 break
             any_action = True
+        if self.state.pending_choice or self.state.player_loss_batch or self.state.deferred_effects:
+            return any_action
         # RULE 603.8: notice state triggers after the board is stable.
         self._collect_triggers(GameEvent(EventType.STATE_CHECK))
         return any_action
@@ -370,34 +374,26 @@ class StateBasedActionsMixin:
         return False
 
     def _sba_check_player_loss(self) -> bool:
-        """704.5a/c: player at 0 or less life, drawing from empty, or 10+
-        poison loses. 704.5m/903.10a: 21+ combat damage from a single
-        commander also loses — checked in the same per-player pass since
-        both read `_loss_prevented(player)` first."""
-        for player in self.state.players:
-            if player.has_lost:
-                continue
+        # RULE 704.7: simultaneous life/poison/draw losses are ONE event
+        # per player. RULE 616.1: serialize affected-player choices APNAP.
+        losses = []
+        for player in self.state.living_players_apnap():
             drew_empty = getattr(player, "attempted_draw_from_empty", False)
-            # 704.5c: 0-or-less life, drawing from empty, or 10+ poison loses.
-            poisoned = player.poison >= 10
-            if (player.life <= 0 or drew_empty or poisoned) and not self._loss_prevented(player):
-                if player.loss_reason:
-                    reason = player.loss_reason
-                elif player.life <= 0:
-                    reason = "life"
-                elif poisoned:
-                    reason = "poison"
-                else:
-                    reason = "draw_from_empty"
-                self._player_loses(player, reason)
-                return True
-            # 704.5m / 903.10a: 21+ combat damage from a single commander.
-            if not self._loss_prevented(player) and any(
-                entry["amount"] >= 21 for entry in player.commander_damage.values()
-            ):
-                self._player_loses(player, "commander_damage")
-                return True
-        return False
+            # RULE 704.5b: only occurrences since this check count, even
+            # when a standing cannot-lose effect currently prevents losing.
+            player.attempted_draw_from_empty = False
+            reason = (
+                "life" if player.life <= 0 else
+                "poison" if player.poison >= 10 else
+                "draw_from_empty" if drew_empty else
+                "commander_damage" if any(e["amount"] >= 21 for e in player.commander_damage.values()) else None
+            )
+            if reason is not None and not self._loss_prevented(player):
+                losses.append((player.id, reason))
+        if not losses:
+            return False
+        self._lose_players(losses, prevention_checked=True)
+        return True
 
     def _sba_check_zero_toughness(self) -> bool:
         """704.5f: creature with toughness <= 0 goes to graveyard."""
@@ -660,34 +656,157 @@ class StateBasedActionsMixin:
             isinstance(e, WinConditionEffect) and e.prevents_loss()
             for e in player.player_effects
         ) or continuous.player_cant_lose(self.state, player)  # RULE 104.3b standing static (Herald of Eternal Dawn)
-    def _player_loses(self, player: Player, reason: str) -> None:
-        """A player loses the game — RULE 104.2/104.3, however it happened
-        (a state-based loss such as 0 life/poison/empty library, a
-        concession, an opponent's alternative win condition, or a
-        "target player loses the game" effect all funnel through here).
+    def _lose_players(self, losses, prevention_checked=False):
+        """One simultaneous loss event, with resumable RULE 616 APNAP choices."""
+        eligible = [
+            (pid, reason) for pid, reason in losses
+            if (player := self.state.player_by_id(pid)) is not None and not player.has_lost
+            and (prevention_checked or reason in ("conceded", "opponent_won") or not self._loss_prevented(player))
+        ]
+        # RULE 616.1/704.7: one event per player, choices in APNAP order
+        # even when an effect supplies its targets in another order.
+        reasons = dict(eligible)
+        eligible = [(p.id, reasons[p.id]) for p in self.state.living_players_apnap() if p.id in reasons]
+        if not eligible:
+            return
+        if self.state.player_loss_batch is not None:
+            self.state.player_loss_batch["queue"].extend(eligible)
+            return
+        self.state.player_loss_batch = {
+            "queue": eligible, "index": 0, "waiting": False, "payload_pending": False,
+        }
+        self._advance_player_loss_batch()
 
-        The RULE 800.4a cleanup (their objects leave the game with them) is
-        deliberately **deferred** rather than run inline, because a loss can
-        fire mid-turn (a combat-damage SBA, a concession, a resolving spell)
-        and pulling a whole board out from under the remaining players right
-        then is disorienting: the id is parked on
-        `GameState.pending_leave_ids` and swept by `GameEngine.begin_turn`
-        when the next player's turn starts. Once only one living player is
-        left the game is over anyway, so the board is simply left standing
-        for the end-of-match review and the sweep never runs.
+    def _advance_player_loss_batch(self):
+        batch = self.state.player_loss_batch
+        if batch is None or batch["waiting"] or batch["payload_pending"]:
+            return
+        if batch["index"] >= len(batch["queue"]):
+            self.state.player_loss_batch = None
+            self._check_game_over()
+            if not self.state.game_over:
+                for player in self.state.players:
+                    if player.has_lost and player.id not in self.state.pending_leave_ids:
+                        self.state.pending_leave_ids.append(player.id)
+            return
+        pid, reason = batch["queue"][batch["index"]]
+        batch["index"] += 1
+        player = self.state.player_by_id(pid)
+        if player is None or player.has_lost:
+            self._advance_player_loss_batch()
+            return
+        batch["waiting"] = True
+        batch["current_player_id"] = pid
+        batch["recovery_source_id"] = None
+        event = GameEvent(EventType.PLAYER_WOULD_LOSE, player_id=pid, reason=reason)
+        self.apply_replacements(event, on_resolved={"kind": "player_loss", "player_id": pid, "reason": reason})
+
+    def _finish_player_loss_event(self, player_id, reason, event):
+        if event is not None:
+            self._commit_player_loss(self.state.player_by_id(player_id), reason)
+        batch = self.state.player_loss_batch
+        if batch is not None:
+            batch["waiting"] = False
+            self._advance_player_loss_batch()
+
+    def _finish_loss_replacement_payload(self):
+        batch = self.state.player_loss_batch
+        if batch is not None:
+            batch["payload_pending"] = False
+            self._advance_player_loss_batch()
+
+    def _player_loses(self, player: Player, reason: str) -> None:
+        if player.has_lost:
+            return
+        # RULE 104.3a/104.1: concession and another player's actual victory
+        # cannot be exchanged for a rescue. Cannot-win is checked at victory.
+        if reason in ("conceded", "opponent_won"):
+            self._commit_player_loss(player, reason)
+            self._check_game_over()
+            ending_game = reason == "opponent_won" or self.state.game_over
+            self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
+            self._cancel_conceded_loss_recovery(player.id, ending_game=ending_game)
+            # Keep a finished game's board for review; only continuing
+            # multiplayer games owe a RULE 800.4a departure sweep.
+            if not self.state.game_over and player.id not in self.state.pending_leave_ids:
+                self.state.pending_leave_ids.append(player.id)
+            return
+        self._lose_players([(player.id, reason)])
+
+    def _cancel_conceded_graveyard_shuffle(self, player_id, ending_game=False):
+        """Cancel this shared primitive's pending commander picks, not outer tails."""
+        from ..effects.exile_control import FinishGraveyardShuffleEffect
+        remaining = []
+        canceled = False
+        for deferred in self.state.deferred_effects:
+            finalizers = [effect for effect in deferred.get("effects", [])
+                          if isinstance(effect, FinishGraveyardShuffleEffect)
+                          and (effect.player_id == player_id or ending_game)]
+            if finalizers:
+                canceled = True
+                for effect in finalizers:
+                    effect.cancel_batch(self.context)
+            else:
+                remaining.append(deferred)
+        self.state.deferred_effects = remaining
+        choice = self.state.pending_choice
+        if canceled and choice is not None and choice.get("kind") == "commander_zone" and (
+            choice.get("player_id") == player_id or ending_game
+        ):
+            self.state.pending_choice = None
+
+    def _cancel_conceded_loss_recovery(self, player_id, ending_game=False):
+        """RULE 104.3a: a departed player never owes a rescue decision.
+
+        Cancel only the current loss/recovery, keeping another player's
+        pending choice and the outer resolving spell's deferred instructions.
         """
-        # RULE 104.3b: "You can't lose the game" also stops an effect-driven loss ("target player loses the game"),
-        # but never a concession (RULE 104.3a). The state-based paths have already checked `_loss_prevented`.
-        if reason != "conceded" and self._loss_prevented(player):
+        batch = self.state.player_loss_batch
+        if batch is None:
+            return
+        current_id = batch.get("current_player_id")
+        if current_id != player_id and not ending_game:
+            return
+        frame = self.state.replacement_continuation
+        choice = self.state.pending_choice
+        own_frame = frame is not None and frame["callback"].get("player_id") == current_id
+        own_choice = choice is not None and choice.get("player_id") == current_id and (
+            own_frame or (batch["payload_pending"] and choice.get("kind") == "commander_zone")
+        )
+        if own_choice or ending_game:
+            self.state.pending_choice = None
+        if own_frame or ending_game:
+            self.state.replacement_continuation = None
+            self._pending_replacement_event = None
+            self._pending_replacement_applied = set()
+            self._pending_replacement_applicable = []
+            self._pending_replacement_callback = None
+        source_id = batch.get("recovery_source_id")
+        remaining = []
+        from ..effects.exile_control import FinishGraveyardShuffleEffect
+        for deferred in self.state.deferred_effects:
+            source = deferred.get("source")
+            if source_id is not None and getattr(source, "instance_id", None) == source_id:
+                for effect in deferred.get("effects", []):
+                    if isinstance(effect, FinishGraveyardShuffleEffect):
+                        effect.cancel_batch(self.context)
+            else:
+                remaining.append(deferred)
+        self.state.deferred_effects = remaining
+        batch["waiting"] = False
+        batch["payload_pending"] = False
+        if ending_game:
+            self.state.player_loss_batch = None
+        else:
+            self._advance_player_loss_batch()
+
+    def _commit_player_loss(self, player, reason):
+        if player is None or player.has_lost:
             return
         player.has_lost = True
         player.loss_reason = reason
-        self.state.fire_event(
-            GameEvent(EventType.PLAYER_LOST, player_id=player.id, reason=reason)
-        )
-        self._check_game_over()
-        if not self.state.game_over and player.id not in self.state.pending_leave_ids:
-            self.state.pending_leave_ids.append(player.id)
+        self.state.fire_event(GameEvent(EventType.PLAYER_LOST, player_id=player.id, reason=reason))
+
     def concede(self, player: Player) -> None:
         """RULE 104.3a: ``player`` concedes and leaves the game immediately.
 
