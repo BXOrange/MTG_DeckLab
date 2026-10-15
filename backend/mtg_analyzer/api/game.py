@@ -75,9 +75,9 @@ def expand_entries(entries, cards_by_name: dict[str, Card]) -> tuple[list[Card],
 
 
 def resolve_seat_deck(
-    deck_id, decks: DeckDatabase, loader: LazyCardLoader
-) -> tuple[list, list, list[str]]:
-    """One seat's saved deck → (library, commanders, blocking errors).
+    deck_id, decks: DeckDatabase, loader: LazyCardLoader, *, include_sideboard: bool = False
+) -> tuple[list, list, list[str]] | tuple[list, list, list[str], list]:
+    """Resolve a seat to library, commanders and errors; optionally append sideboard.
 
     The shared resolution both `api/multiplayer.py` (a table seat) and
     `api/solo.py` (the human, and each bot opponent) use: parse the saved
@@ -85,24 +85,29 @@ def resolve_seat_deck(
     anything illegal or unresolvable — every real game applies the same gate
     goldfish's `start_goldfish` above does.
     """
+    def result(library, commanders, errors, sideboard=None):
+        return (library, commanders, errors, sideboard or []) if include_sideboard else (library, commanders, errors)
     if not deck_id:
-        return [], [], ["Kein Deck ausgewählt."]
+        return result([], [], ["Kein Deck ausgewählt."])
     deck = decks.get_deck(deck_id)
     if deck is None:
-        return [], [], ["Deck existiert nicht mehr."]
+        return result([], [], ["Deck existiert nicht mehr."])
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text)
     resolved = loader.load_cards(
-        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
+        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
     )
     apply_legality(parsed, resolved)
     library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
     commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
     if not parsed.validation.is_legal:
-        return [], [], list(parsed.validation.errors)
+        return result([], [], list(parsed.validation.errors))
     if not library and not commanders:
         missing = sorted(set(missing_lib) | set(missing_cmd))
-        return [], [], [f"Keine auflösbaren Karten: {', '.join(missing) or '—'}"]
-    return library, commanders, []
+        return result([], [], [f"Keine auflösbaren Karten: {', '.join(missing) or '—'}"])
+    sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
+    if missing_sideboard:
+        return result([], [], [f"Sideboard: {', '.join(missing_sideboard)}"])
+    return result(library, commanders, [], sideboard)
 
 
 @router.post("/goldfish")
@@ -127,13 +132,14 @@ def start_goldfish(
 
     parsed = parse_deck_sections(commander_text, mainboard_text, sideboard_text)
     resolved = loader.load_cards(
-        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
+        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
     )
     apply_legality(parsed, resolved)
 
     library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
     commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
-    missing = sorted(set(missing_lib) | set(missing_cmd) | set(resolved.not_found))
+    sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
+    missing = sorted(set(missing_lib) | set(missing_cmd) | set(missing_sideboard) | set(resolved.not_found))
 
     # Only legal decks may start a goldfish game (docs/02 UC3, this file's
     # module docstring). Enforced here as well as in the UI so the rule
@@ -165,6 +171,7 @@ def start_goldfish(
         commanders=commanders,
         starting_life=request.starting_life,
         starting_hand=request.starting_hand,
+        sideboard=sideboard,
         game_format=request.game_format,
     )
     view = session.view()
@@ -243,12 +250,13 @@ def deck_tokens(
 
     parsed = parse_deck_sections(commander_text, mainboard_text, sideboard_text)
     resolved = loader.load_cards(
-        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
+        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
     )
     library, _ = expand_entries(parsed.main_deck, resolved.cards)
     commanders, _ = expand_entries(parsed.commanders, resolved.cards)
 
-    tokens = producible_tokens(commanders + library)
+    sideboard, _ = expand_entries(parsed.sideboard, resolved.cards)
+    tokens = producible_tokens(commanders + library + sideboard)
     return {
         "tokens": [
             {

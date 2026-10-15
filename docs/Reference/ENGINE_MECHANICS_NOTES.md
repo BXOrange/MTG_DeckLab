@@ -51,6 +51,13 @@ the card's implementation and tests; shipped narrative in
 
 ## Costs and choices
 
+- Outside-game cards (RULE 400.11) live in `Player.sideboard`, outside all
+  zones and generic object/target pools. A live `sideboard_cast_permission`
+  admits owned nonland cards through ordinary casting; successful commitment
+  removes outside membership and preserves the instance ID. Sideboard views
+  remain owner-private even when hands are revealed or another player controls
+  the turn (RULE 723.4/5); turn controllers receive uniform opaque selections
+  and generic rejected-announcement errors.
 - Mana effects attached to individual produced units (RULE 106.6) travel through
   `ManaPool.rider_lots` and `last_payment_riders`; partial payments consume only
   their own units. Next-cast delayed triggers are state-owned and independent of

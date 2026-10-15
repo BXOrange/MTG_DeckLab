@@ -69,6 +69,8 @@ class Player:
         #: library, the *end* of the list is the top of the deck (draws
         #: pop from the end), so shuffling and dealing are cheap.
         self.zones: dict[Zone, list[GameObject]] = {zone: [] for zone in self.PERSONAL_ZONES}
+        # RULE 400.11: outside the game is not a zone.
+        self.sideboard: list[GameObject] = []
 
         #: Per-turn flags, reset by the engine at the start of each turn.
         self.lands_played_this_turn = 0
@@ -337,6 +339,8 @@ class Player:
             "speed": self.speed,
             "library_count": len(self.library),
             "hand_count": len(self.hand),
+            "sideboard_count": len(self.sideboard),
+            "sideboard": [obj.to_dict() for obj in self.sideboard],
             "hand": [obj.to_dict() for obj in self.hand],
             "graveyard": [obj.to_dict() for obj in self.graveyard],
             "exile": [obj.to_dict() for obj in self.exile],

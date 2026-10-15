@@ -1029,6 +1029,12 @@ class LegalActionsMixin:
         if self.state.game_over or player.has_lost:
             return actions
 
+        for obj in list(player.sideboard):
+            if self._castable_now_or_via_potential(player, obj):
+                self._offer_cast(actions, player, obj)
+            if obj.card.back_face() is not None and self._castable_now_or_via_potential(player, obj, face="back"):
+                actions.append(self._cast_action(player, obj, face="back"))
+
         for obj in list(player.hand):
             if self.can_play_land(player, obj):
                 actions.append(self._land_action(obj))

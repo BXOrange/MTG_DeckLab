@@ -756,7 +756,9 @@ class CastingMixin:
         if (warp and x and self.rules.mana_cost_of(obj.card).has_variable
                 and not self._warp_cost(obj).has_variable):
             return False  # RULE 107.3b: an alternative cost without X fixes X at zero.
+        from ..sideboard import can_cast_from_sideboard
         in_castable_zone = (
+            can_cast_from_sideboard(self.state, player, obj) or
             obj in player.hand
             or (obj in player.graveyard and blitz is not None and blitz_mechanic.graveyard_permission(obj))
             or self._has_resolution_play_permission(player, obj)

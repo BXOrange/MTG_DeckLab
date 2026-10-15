@@ -322,7 +322,7 @@ async def start_game(
 
     seats: list[dict[str, Any]] = []
     for seat in game.seating_order():
-        library, commanders, errors = resolve_seat_deck(seat.deck_id, decks, loader)
+        library, commanders, errors, sideboard = resolve_seat_deck(seat.deck_id, decks, loader, include_sideboard=True)
         if errors:
             raise HTTPException(
                 422,
@@ -339,6 +339,7 @@ async def start_game(
                 "name": seat.name,
                 "library": library,
                 "commanders": commanders,
+                "sideboard": sideboard,
             }
         )
 

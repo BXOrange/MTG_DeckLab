@@ -5,6 +5,8 @@ from ..spec import EffectSpec
 
 def emblem_static_effect_specs(text):
     text = text.lower().strip().rstrip('.')
+    if text == "you can cast nonland cards from your sideboard":
+        return [EffectSpec("sideboard_cast_permission", {})]
     if text == "your opponents can't cast noncreature spells":
         return [EffectSpec('cast_prohibition', {'scope':'opponents','noncreature':True})]
     if text == "you may activate loyalty abilities of planeswalkers you control on any player's turn any time you could cast an instant":

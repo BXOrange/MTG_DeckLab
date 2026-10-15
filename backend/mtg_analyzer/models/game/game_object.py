@@ -78,7 +78,7 @@ class GameObject:
         self,
         card: Card,
         owner_id: str,
-        zone: Zone = Zone.LIBRARY,
+        zone: Optional[Zone] = Zone.LIBRARY,
         controller_id: Optional[str] = None,
         is_commander: bool = False,
         is_token: Optional[bool] = None,
@@ -2248,7 +2248,7 @@ class GameObject:
             "mana_cost": self.mana_cost_string,
             "owner_id": self.owner_id,
             "controller_id": self.controller_id,
-            "zone": self.zone.value,
+            "zone": self.zone.value if self.zone is not None else None,
             "tapped": self.tapped,
             # Whether a double-faced permanent is on its back face (RULE 712.8).
             "transformed": self.transformed,
@@ -2376,4 +2376,4 @@ class GameObject:
         }
 
     def __repr__(self) -> str:
-        return f"GameObject(#{self.instance_id} {self.card.name!r} in {self.zone.value})"
+        return f"GameObject(#{self.instance_id} {self.card.name!r} in {self.zone.value if self.zone is not None else 'outside the game'})"

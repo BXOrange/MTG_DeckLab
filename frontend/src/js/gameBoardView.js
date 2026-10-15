@@ -1760,6 +1760,8 @@ export function createGameBoardView(opts = {}) {
             </div>
             ${collapsibleZoneHtml('gf-graveyard', t('bd.zone.graveyard'), `${p.id}:graveyard`, p.graveyard.length, zoneListHtml(p.graveyard, t('bd.zone.empty')))}
             ${collapsibleZoneHtml('gf-exile', t('bd.zone.exile'), `${p.id}:exile`, p.exile.length, objGrid(p.exile, t('bd.zone.empty'), byInstance, pending))}
+            ${ownHand && (p.sideboard || []).length ? collapsibleZoneHtml('gf-sideboard', t('bd.zone.sideboard'), `${p.id}:sideboard`, p.sideboard.length, objGrid(p.sideboard, t('bd.zone.empty'), byInstance, pending)) : ''}
+            ${blindSideboardHtml(p, s)}
           </aside>
 
           <div class="gf-main">
@@ -2390,6 +2392,17 @@ export function createGameBoardView(opts = {}) {
       if (control) el.addEventListener('click', control.onClick);
     });
 
+    root.querySelectorAll('[data-blind-cast]').forEach(el => {
+      el.addEventListener('click', () => {
+        const form = el.closest('.gf-blind-sideboard');
+        const mode = form.querySelector('[data-blind-mode]').value;
+        act({type: 'cast_spell', instance_id: Number(form.querySelector('[data-blind-slot]').value),
+          x: Number(form.querySelector('[data-blind-x]').value),
+          face: form.querySelector('[data-blind-face]').value,
+          ...(mode ? {mode: Number(mode) - 1} : {}),
+          targets: [...form.querySelector('[data-blind-targets]').selectedOptions].map(o => JSON.parse(o.value))});
+      });
+    });
     root.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
         const action = JSON.parse(el.dataset.action);
@@ -3024,6 +3037,24 @@ export function createGameBoardView(opts = {}) {
           rowHtml(t('bd.bf.rowLandsPermanents'), other.concat(lands)),
         ];
     return `<div class="gf-bf-rows">${rows.join('')}</div>`;
+  }
+
+  function blindSideboardHtml(player, state) {
+    const slots = (view.legal_actions || []).filter(a => a.blind_sideboard && player.id === view.acting_as);
+    if (!slots.length) return '';
+    // RULE 723.4: choices use only public objects, never hidden cast metadata.
+    const targets = [
+      ...(state.players || []).map(p => ({value: {player_id: p.id}, label: p.name})),
+      ...(state.battlefield || []).map(o => ({value: {instance_id: o.instance_id}, label: o.name})),
+      ...(state.stack || []).map(o => ({value: o.object ? {instance_id: o.object.instance_id} : {stack_id: o.stack_id}, label: o.object?.name || o.description || 'Stack'})),
+    ];
+    return `<details class="gf-blind-sideboard"><summary>${t('bd.sideboard.blind')}</summary>
+      <label>${t('bd.sideboard.card')} <select data-blind-slot>${slots.map((a, i) => `<option value="${a.instance_id}">${i + 1}</option>`).join('')}</select></label>
+      <label>X <input data-blind-x type="number" min="0" value="0"></label>
+      <label>${t('bd.sideboard.face')} <select data-blind-face><option value="front">1</option><option value="back">2</option></select></label>
+      <label>${t('bd.sideboard.mode')} <input data-blind-mode type="number" min="1" placeholder="–"></label>
+      <label>${t('bd.sideboard.targets')} <select data-blind-targets multiple>${targets.map(o => `<option value='${escapeAttr(JSON.stringify(o.value))}'>${escapeHtml(o.label)}</option>`).join('')}</select></label>
+      <button type="button" data-blind-cast>${t('bd.sideboard.cast')}</button></details>`;
   }
 
   function objGrid(objs, empty, byInstance = {}, pending = null) {

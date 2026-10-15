@@ -87,6 +87,7 @@ class TurnLoopMixin:
         starting_hand: int = 7,
         game_format: Optional[str] = None,
         archenemy_id: Optional[str] = None,
+        player_sideboards: Optional[dict[str, list[Card]]] = None,
     ) -> "GameEngine":
         """Build a game from ``(player_id, name, library_cards)`` tuples.
 
@@ -113,6 +114,8 @@ class TurnLoopMixin:
             for card in cards:
                 obj = GameObject(card=card, owner_id=player_id, zone=Zone.LIBRARY)
                 player.library.append(obj)
+            from ..sideboard import load_sideboard
+            load_sideboard(player, (player_sideboards or {}).get(player_id, []))
             players.append(player)
 
         state = GameState(players=players)

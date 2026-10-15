@@ -65,7 +65,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-120 · Cast permissions for sideboard cards (RULE 100.4 / 400.11 / 601).** Add actual outside-the-game card storage and a controller-scoped nonland casting permission for the sideboard emblem exposed by PAR-149; preserve normal casting costs, timing, targets, private information and object identity. Existing Learn and Karn implementations explicitly have no outside-the-game storage, so an inert permission marker cannot implement this behavior.
 - **MEC-121 · Replace losing the game (RULE 104.3 / 614 / 616).** Add a real loss-replacement path for Puresteel Angel's emblem, including life reset, graveyard shuffle, poison removal and consuming the emblem; reuse ordinary replacement ordering, preserve concession and remaining independent loss conditions, and validate state-based and effect-driven loss. PAR-149's quoted body is fail-closed until this runtime exists; current `_player_loses` only supports preventing loss.
 
 ## PLR — Player management

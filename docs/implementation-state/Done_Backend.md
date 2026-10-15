@@ -2759,6 +2759,12 @@ pending cast after an invalid answer. Regression coverage lives in
 - **What:** "Activate only as a sorcery."/"…any time you could cast a sorcery." is claimed and folded into `ActivationCost.sorcery_speed_only`, already enforced by `GameEng…
 - **Files:** `parser/oracle/catalogue/handlers.py`, `game/binding/core.py`
 
+### Sideboard casting permission (MEC-120, PARSER_VERSION 660)
+
+- **What:** `Player.sideboard` stores owned cards outside all game zones (RULE 400.11). The quoted nonland-sideboard emblem grants a live, controller-scoped casting permission using ordinary costs, timing, targets and chosen faces. Successful casting preserves the card ID and brings it into the game; failed casts preserve outside membership and resources. Goldfish, Solo and Multiplayer load actual text/saved-deck sideboards. Owner-private views, opaque controlled-turn announcements, numeric-ID-safe generic rejections and undo preserve hidden information (RULE 723.4/5).
+- **Files:** `game/sideboard.py`, game models, casting/legal-action mixins, session/API loaders and `catalogue/emblem_statics.py`; shared board rendering documented in `Done_Frontend.md`.
+- **Validation:** Full backend `--full-cache`: 13,960 passed, 1 skipped. Gameplay/API regressions cover paid targeted casting, MDFC faces, permission removal, private views, rejected actions and same-ID undo. Chromium verified owner and controlled-turn paid targeted casts and rewind without JavaScript/server errors. Parser snapshot comparison: +0/-0; other Seek Bolas's Counsel modes remain independent blockers. Fresh authoritative coverage: 21,571/35,046 (61.6%); Commander-legal 20,755/32,068 (64.7%).
+
 ### Standing Graveyard-Cast Permission
 
 - **What:** `GraveyardCastPermissionEffect` lets a permanent grant "you may cast spells from your graveyard" at the card's own normal mana cost — a genuine permission, not…

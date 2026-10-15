@@ -94,7 +94,7 @@ export default [
         rule: 'RULE 400–411',
         sections: [
           {
-            items: [['full', 'Zonenwechsel-Neuidentität, „Blink" (400.7)']],
+            items: [['full', 'Zonenwechsel-Neuidentität, „Blink“ (400.7)'], ['full', 'Sideboard außerhalb des Spiels (400.11): Nichtlandkarten mit Emblem-Erlaubnis normal wirken; private Ansicht und verdeckte Auswahl bei kontrollierten Zügen']],
           },
         ],
       },
@@ -463,8 +463,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (61,4 % · 21.515 / 35.046, PARSER_VERSION 658)'],
-              ['partial', 'Davon Commander-legal (64,5 % · 20.698 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (61,6 % · 21.571 / 35.046, PARSER_VERSION 660)'],
+              ['partial', 'Davon Commander-legal (64,7 % · 20.755 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

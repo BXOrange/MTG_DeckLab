@@ -198,6 +198,8 @@ repointed there.
 - **What:** Actions render directly under the affected card (land-play/cast buttons on hand cards, one tap button per mana option on lands, a per-creature attack button) rather than as aggregate global controls.
 - **Files:** `goldfishView.js`, `gameBoardView.js`
 
+- **Sideboard casting (MEC-120):** The owner sees a collapsible sideboard using the shared cost/target casting controls. A player controlling another turn receives opaque numbered selections and generic announcements without seeing outside-card characteristics (RULE 723.4/5). Chromium verified paid targeted casting, rewind restoring the same card ID and a controlled-turn targeted cast; no JavaScript errors.
+
 ### Art preload + London mulligan screen
 
 - **What:** A loading screen preloads every deck card's art before the board first renders (fixing turn-by-turn art pop-in); a mulligan screen (London style) gates all other actions until the opening hand is kept, including the bottom-N-cards selection after N mulligans.

@@ -92,7 +92,7 @@ def start(
     # handed to the session directly (`GameSession._banner_colors`).
     banner_colors: dict[str, str] = {}
     for player_id, deck_id, _kind, name in plan:
-        library, commanders, errors = resolve_seat_deck(deck_id, decks, loader)
+        library, commanders, errors, sideboard = resolve_seat_deck(deck_id, decks, loader, include_sideboard=True)
         if errors:
             who = "Dein Deck" if player_id == SOLO_HUMAN_ID else f'Das Deck von "{name}"'
             raise HTTPException(
@@ -102,7 +102,7 @@ def start(
             )
         random.shuffle(library)
         seats.append(
-            {"player_id": player_id, "name": name, "library": library, "commanders": commanders}
+            {"player_id": player_id, "name": name, "library": library, "commanders": commanders, "sideboard": sideboard}
         )
         deck = decks.get_deck(deck_id)
         identity = getattr(deck, "color_identity", None)

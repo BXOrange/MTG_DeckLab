@@ -1158,7 +1158,7 @@ class GameState:
             if item is not None and item.obj is not None and item.obj.instance_id == instance_id:
                 return item.obj
         for player in self.players:
-            for zone in player.zones.values():
+            for zone in [*player.zones.values(), player.sideboard]:
                 for obj in zone:
                     if obj.instance_id == instance_id:
                         return obj

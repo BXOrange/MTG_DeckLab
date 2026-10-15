@@ -934,7 +934,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
 #: (`14_` §1.1): they are continuously re-derived by `continuous.recompute`,
 #: never executed. Composition operators do not apply to them.
 _STATIC_TYPES: frozenset[str] = frozenset({
-    "loyalty_instant_timing",
+    "loyalty_instant_timing", "sideboard_cast_permission",
     "grant_blitz", "blitz_cost_reduction", "blitz_graveyard_permission",
     "activation_prohibition", "anthem", "attack_tax", "block_tax", "cant_attack_defender", "cant_lose_game", "opponents_cant_win",
     "cant_be_countered", "cant_be_copied", "cast_limit", "cast_prohibition", "color_change",

@@ -114,6 +114,10 @@ class GameActionError(Exception):
     """An action was illegal or malformed for the current game state."""
 
 
+class _BlindSideboardCastError(ValueError):
+    """A private cast rejection requiring the ordinary atomic rollback path."""
+
+
 class MultiplayerNotImplementedError(Exception):
     """Retained for the legacy ``POST /api/game/multiplayer`` stub route.
 
@@ -158,6 +162,7 @@ def build_goldfish_engine(
     game_format: Optional[str] = None,
     dummy_starting_life: Optional[int] = None,
     dummy_count: int = 1,
+    sideboard: Optional[list[Card]] = None,
 ) -> GameEngine:
     """Build a goldfish `GameEngine` and deal an opening hand (UC3).
 
@@ -210,6 +215,8 @@ def build_goldfish_engine(
         bind_from_catalogue(obj)
         player.add_to_zone(obj, Zone.COMMAND)
 
+    from ..game.sideboard import load_sideboard
+    load_sideboard(player, sideboard)
     players = [player]
     if with_dummy:
         dummy_life = dummy_starting_life if dummy_starting_life is not None else starting_life
@@ -271,6 +278,8 @@ def build_multiplayer_engine(
             obj = GameObject(card, owner_id=player.id, zone=Zone.COMMAND, is_commander=True)
             bind_from_catalogue(obj)
             player.add_to_zone(obj, Zone.COMMAND)
+        from ..game.sideboard import load_sideboard
+        load_sideboard(player, seat.get("sideboard"))
         players.append(player)
 
     state = GameState(players=players)
@@ -376,6 +385,9 @@ def _redact_hidden_zones(
     # 720.3-720.7 hidden-info edges are an accepted simplification.
     reveal_hands = set(also_visible_hand_ids or ())
     for player in state_dict.get("players", []):
+        # RULE 723.4: turn control reveals in-game information only.
+        if perspective != player.get("id"):
+            player["sideboard"] = []
         own = perspective is not None and (
             player.get("id") == perspective or player.get("id") in reveal_hands
         )
@@ -1026,7 +1038,18 @@ class GameSession:
             # VIS-12: acting for real means the seat is deciding again, not
             # fast-forwarding — the same signal the board's countdown uses.
             self._yields.pop(active.id, None)
-        handler(self, action, active)
+        try:
+            outside_id = int(action.get("instance_id"))
+        except (TypeError, ValueError):
+            outside_id = None
+        outside = (kind == "cast_spell" and actor is not None and actor.id != active.id
+                   and any(obj.instance_id == outside_id for obj in active.sideboard))
+        try:
+            handler(self, action, active)
+        except (ValueError, KeyError, TypeError, GameActionError) as exc:
+            if outside:
+                raise _BlindSideboardCastError("Sideboard casting announcement is not legal") from None
+            raise
 
     def _dispatch_choose(self, action: dict[str, Any], active: Player) -> None:
         # A choice is answered by an option id ("cast"/"hand"/"decline" or
@@ -2113,7 +2136,10 @@ class GameSession:
             if isinstance(target, dict) and "player_id" in target:
                 resolved.append(self.engine.state.player_by_id(target["player_id"]))
             elif isinstance(target, dict) and "instance_id" in target:
-                resolved.append(self._object_by_id(target["instance_id"]))
+                obj = self._object_by_id(target["instance_id"])
+                if getattr(obj, "zone", None) is None:
+                    raise GameActionError("Cards outside the game cannot be targeted")
+                resolved.append(obj)
             elif isinstance(target, dict) and "stack_id" in target:
                 # RULE 115/608.2b "target activated or triggered ability"
                 # (ENG-26, `targeting.py`'s ``"ability"`` kind) — the item
@@ -2238,7 +2264,17 @@ class GameSession:
                     for action in self.engine.legal_actions(seat)
                     if action["type"] == "declare_blockers"
                 ]
-        return self.engine.legal_actions(seat)
+        actions = self.engine.legal_actions(seat)
+        if perspective is not None and perspective != seat.id:
+            # RULE 723.4/5: choose plays without learning outside-card characteristics.
+            outside_ids = {obj.instance_id for obj in seat.sideboard}
+            actions = [a for a in actions if a.get("instance_id") not in outside_ids]
+            from ..game.sideboard import has_permission
+            if has_permission(state, seat):
+                actions.extend({"type": "cast_spell", "instance_id": obj.instance_id,
+                                "blind_sideboard": True, "name": "Sideboard"}
+                               for obj in seat.sideboard)
+        return actions
 
     def analysis(self) -> dict[str, Any]:
         """A per-player digest of the game so far for the end-of-game review.
@@ -2520,10 +2556,11 @@ class GameSessionManager:
         starting_hand: int = 7,
         mulligan_style: str = "london",
         game_format: Optional[str] = None,
+        sideboard: Optional[list[Card]] = None,
     ) -> GameSession:
         engine = build_goldfish_engine(
             library, commanders, player_name, starting_life, starting_hand,
-            with_dummy=True, game_format=game_format,
+            with_dummy=True, game_format=game_format, sideboard=sideboard,
         )
         session = GameSession(
             engine,

@@ -999,7 +999,7 @@ class CastingResolutionMixin:
         # from their hand" (Possibility Storm) reads it as the event's
         # ``from_hand`` key.
         from_hand = obj.zone == Zone.HAND
-        cast_from_zone = obj.zone.value
+        cast_from_zone = obj.zone.value if obj.zone is not None else None
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         continuous.recompute(self.state)
@@ -1229,7 +1229,7 @@ class CastingResolutionMixin:
         if target_groups is not None and targets is None:
             targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
-        cast_from_zone = obj.zone.value
+        cast_from_zone = obj.zone.value if obj.zone is not None else None
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         continuous.recompute(self.state)
@@ -1357,6 +1357,9 @@ class CastingResolutionMixin:
         if left_graveyard:
             self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
         for candidate in self.state.players:
+            if obj in candidate.sideboard:
+                candidate.sideboard.remove(obj)
+                return
             for cards in candidate.zones.values():
                 if obj in cards:
                     cards.remove(obj)
