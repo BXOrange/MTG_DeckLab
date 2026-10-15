@@ -14,24 +14,26 @@ That segmentation is the input to the PAR-*/MEC-* ticket pipeline in
 Buckets (each UNMODELED Commander-legal card lands in exactly one, tested in
 this order):
 
-  F  never-supported  — RULE 123 Stickers &c. Out of the denominator.
+  F  non-goals — RULE 123 Stickers by type/text, Attractions and Conspiracy
+     draft mechanics. Excluded from actionable work, with raw coverage totals
+     preserved (report-only non-goals are counted separately).
   A  block-wrapper / re-measure — every unclaimed clause is either a
      modal/Spree/Leveler *wrapper header* or a mode body that DOES claim on
-     its own (`match_clause`). The card is one segmenter/wrapper fix or one
+     its own (`segment_line`). The card is one segmenter/wrapper fix or one
      sibling-clause ticket away; no ticket of its own.
   D  primitive-blocked — an unclaimed clause matches a known missing-engine-
      primitive signature. -> MEC-* (primitive + handler + PARSER_VERSION
      bump in one batch). NOTE: these labels name the *gap*, not a ticket -
      file a fresh MEC-* when starting one (see BACKLOG.md's MEC section).
-  C  set-specific mechanic — an unclaimed clause names a keyword mechanic the
-     `PARSER_LONG_TAIL.md` "Two tracks" table lists as Not done (Doctor's
-     companion, Party, Rebel/Mercenary, Ki/Spirit-or-Arcane, ...). -> PAR-*,
-     worked deck-first.
+  C  set-specific parser residue — an unclaimed clause mentions a set
+     mechanic (Party, Rebel/Mercenary, Ki/Spirit-or-Arcane, ...). -> PAR-*,
+     worked deck-first; this does not imply its runtime is absent.
   B  recurring template — some unclaimed template blocks >= --min-cluster
      Commander-legal cards. -> PAR-* (one ticket per template cluster),
      `extend-parser` loop.
-  E  bespoke tail — the rest: only rare templates, no primitive gap, no
-     near-miss handler. -> PAR-* hand-authoring batches / the PAR-12 pointer.
+  E  remaining rare clauses, diagnosed by shared trigger/cost head, effect
+     body and repairable modifier axes. Rarity alone does not imply bespoke
+     behavior or justify hand-authoring.
 
 READ-ONLY. Never writes `coverage.db` — that is `coverage_report.py`'s job.
 
@@ -61,7 +63,8 @@ from mtg_analyzer.parser.oracle import (  # noqa: E402
 from mtg_analyzer.parser.oracle.normalize import normalize  # noqa: E402
 from mtg_analyzer.parser.oracle.segmenter import segment_line  # noqa: E402
 from mtg_analyzer.parser.oracle.spec import ParserProvenance  # noqa: E402
-from mtg_analyzer.services import coverage_db as cov  # noqa: E402
+from mtg_analyzer.parser.composition_diagnostics import CompositionProbe  # noqa: E402
+from mtg_analyzer.services.coverage_db import commander_legal_names as cov_commander_legal_names  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402
 from mtg_analyzer.services.raw_card_store import RawCardStore  # noqa: E402
 
@@ -88,71 +91,25 @@ _WRAPPER_TEMPLATE_RES: tuple[re.Pattern[str], ...] = (
 #: `f"+ {c} — {b}"`). Strip the prefix, then classify the body by its content.
 _MODE_BODY_PREFIX_RE = re.compile(r"^(?:•\s+|\+\s+.*?\s+—\s+)")
 
-#: Known missing-engine-primitive signatures -> Bucket D (MEC-*). Matched
-#: case-insensitively against the RAW unclaimed clause (keeps `~`, `{2}`, digits).
-#: Labels name the missing primitive, deliberately NOT a ticket id: the
-#: tickets these once pointed at (MEC-47/49, PAR-30) are closed and MEC-48 is
-#: parked in DEFERRED.md, so citing them here went stale. File a fresh MEC-*.
-#:
-#: **ENG-34 re-pointed these at the ISA** (`game/isa.py`). Where a row's gap
-#: is a missing *instruction* rather than a missing handler, its label now
-#: names that instruction and the CR rule defining it, so the routing here
-#: and the CR-versus-engine diff are the same ground truth rather than two
-#: independently-drifting prose lists. Rows whose gap is a residue of an
-#: instruction that *does* exist keep a descriptive label — naming an ISA
-#: instruction that is implemented would be misleading.
-#:
-#: The six `RULE 7xx` rows below are that diff: ISA instructions with no
-#: engine realisation at all, derived by `scripts/isa_report.py` rather than
-#: discovered card-by-card, which is what `14_` §7 means by a
-#: systematically-generated MEC backlog. The Attractions family (RULE
-#: 701.51/701.52/701.45) is deliberately **not** here — it is a permanent
-#: non-goal in DEFERRED.md, so those cards belong in bucket F's spirit, not
-#: in a bucket-D worklist.
-_PRIMITIVE_GAP_SIGNATURES: dict[str, re.Pattern[str]] = {
-    # --- ENG-34's CR-versus-engine diff: no ISA instruction realised ------
-    "ISA gap: roll_die (RULE 706) — no dice subsystem at all":
-        re.compile(r"\broll(?:s|ed)? (?:a|one or more|\d+|two|three) (?:six|twenty|"
-                   r"\d+)?[- ]?sided (?:di[ce]|die)\b|\broll(?:s|ed)? a d\d+", re.I),
-    "ISA gap: fateseal (RULE 701.29)":
-        re.compile(r"\bfateseal(?:s|ed)?\b", re.I),
-    "ISA gap: meld (RULE 701.42)":
-        re.compile(r"\bmeld(?:s|ed)? (?:them|it)\b|\bmelds with\b", re.I),
-    "ISA gap: heal (RULE 701.69)":
-        re.compile(r"\bheal(?:s|ed)? \d+\b", re.I),
-    "ISA gap: harness (RULE 701.64)":
-        re.compile(r"\bharness(?:es|ed)?\b", re.I),
-    "ISA gap: triple (RULE 701.11) — only `double` exists":
-        re.compile(r"\btriple(?:s|d)? (?:that|the|its|your|target)\b", re.I),
-    "Licid — creature becomes an Aura":
-        re.compile(r"loses this ability and becomes an aura enchantment", re.I),
-    "Specialize (Duskmourn) — parked, see DEFERRED.md":
-        re.compile(r"\bspecial(?:ize|izes|ized)\b", re.I),
-    "damage-source-this-turn tracker":
-        re.compile(r"dealt damage by ~ this turn\b", re.I),
-    "Waterbend residue":
-        re.compile(r"\bwaterbend(?:s|ing)?\b", re.I),
-    "bending-verb trigger":
-        re.compile(r"whenever you (?:waterbend|earthbend|firebend|airbend)", re.I),
-    "Clash win-branch":
-        re.compile(r"\bclash(?:es|ed)?\b", re.I),
-    "Suspect one-offs":
-        re.compile(r"\bsuspect(?:ed|s)?\b", re.I),
-    "Incubate primitives":
-        re.compile(r"\bincubate[sd]?\b", re.I),
-    "Collect Evidence / Forage / Behold bodies":
-        re.compile(r"\bcollect evidence\b|\bforage[sd]?\b|\bbehold[s]?\b", re.I),
-    "Face a Villainous Choice residue":
-        re.compile(r"villainous choice|face a villainous", re.I),
-    "Exchange control / life totals":
-        re.compile(r"\bexchange control of\b|exchange the control|exchange life totals|"
-                   r"exchange (?:your |)life totals", re.I),
-    "tapped-and-attacking put-from-zone residue":
-        re.compile(r"tapped and attacking", re.I),
+#: Known *absent* runtime signatures only. PAR-146 rechecked all 18 former
+#: entries against live primitives: dice, exchange, meld, Haunt-era damage
+#: tracking, suspect, incubate, etc. already exist. Residual grammar mentioning
+#: those actions belongs in B/E, never in a fabricated MEC queue. Add a row
+#: only after establishing that an actual runtime primitive is absent.
+_PRIMITIVE_GAP_SIGNATURES: dict[str, re.Pattern[str]] = {}
+
+#: Report-only permanent non-goals (DEFERRED.md). Unlike parser
+#: NEVER_SUPPORTED, these do not change raw coverage totals/denominators.
+_REPORT_NON_GOAL_SIGNATURES = {
+    "Attractions (RULE 717; permanent non-goal)":
+        re.compile(r"\bopen an attraction\b|\ban attraction\b", re.I),
+    "Conspiracy draft-matters (permanent non-goal)":
+        re.compile(r"draft this card face up|reveal the top card of your draft", re.I),
 }
 
 #: Set-specific keyword mechanics the PARSER_LONG_TAIL.md "Two tracks" table
-#: lists as Not done -> Bucket C (PAR-*, deck-first). Value is (label, regex).
+#: identifies as set-specific -> Bucket C (PAR-*, deck-first). These are
+#: parser-residue tags, not claims that a named mechanic is unimplemented.
 #: NOTE: labels deliberately carry no ticket-id guess. A card landing in one
 #: of these buckets does not mean the named mechanic is unshipped — Party and
 #: Ki-counter/Spirit-or-Arcane both already have closed tickets, and the
@@ -174,14 +131,6 @@ _SET_SPECIFIC_SIGNATURES: dict[str, re.Pattern[str]] = {
         re.compile(r"\benters prepared\b", re.I),
     "'storied' — investigate":
         re.compile(r"^storied\b|\bstoried\b", re.I),
-    "Conspiracy draft-matters (non-goal candidate)":
-        re.compile(r"draft this card face up|reveal the top card of your draft", re.I),
-    "Attractions (RULE 717 — permanent non-goal)":
-        re.compile(r"\bopen an attraction\b|\ban attraction\b", re.I),
-    "Horsemanship (dead pool)":
-        re.compile(r"\bhorsemanship\b", re.I),
-    "Banding (dead pool)":
-        re.compile(r"\bbands? with other\b|\bbanding\b", re.I),
 }
 
 
@@ -243,10 +192,14 @@ def _match_signature(clauses: list[str], table: dict[str, re.Pattern[str]]) -> s
 
 
 def classify(real_templates: list[str], real_raw: list[str], is_a: bool,
-             coverage: str, template_freq: Counter[str], min_cluster: int) -> tuple[str, str]:
+             coverage: str, template_freq: Counter[str], min_cluster: int,
+             type_line: str = "") -> tuple[str, str]:
     """Return (bucket_letter, detail) from a card's `analyse_card` breakdown."""
-    if coverage == NEVER_SUPPORTED:
+    if coverage == NEVER_SUPPORTED or type_line.strip().casefold() == "stickers":
         return "F", "never-supported (RULE 123)"
+    non_goal = _match_signature(real_raw, _REPORT_NON_GOAL_SIGNATURES)
+    if non_goal:
+        return "F", non_goal
     if is_a:
         return "A", "wrapper/segmenter fail-close over otherwise-claimed bodies"
     if not real_templates:
@@ -271,119 +224,159 @@ def classify(real_templates: list[str], real_raw: list[str], is_a: bool,
     return "E", rarest
 
 
-# --- driver ------------------------------------------------------------------
+# --- aggregation / driver ----------------------------------------------------
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--min-cluster", type=int, default=5,
-                    help="Bucket B threshold: a template must block >= this many "
-                         "Commander-legal cards to seed a PAR-* ticket (default 5)")
-    ap.add_argument("--samples", type=int, default=5, help="example card names per cluster")
-    ap.add_argument("--top-b", type=int, default=60, help="how many Bucket B clusters to print")
-    ap.add_argument("--card-db", type=Path, default=DEFAULT_DB_PATH)
-    ap.add_argument("--limit", type=int, default=None, help="only the first N cached cards (quick test)")
-    ap.add_argument("--json", type=Path, default=None, help="also write the full breakdown as JSON here")
-    args = ap.parse_args()
-
-    cards = CardDatabase(args.card_db).list_cards()
-    if args.limit is not None:
-        cards = cards[: args.limit]
-
-    with RawCardStore() as raw_store:
-        legal_names = cov.commander_legal_names(raw_store)
-    cards = [c for c in cards if getattr(c, "name", None) in legal_names]
-
-    # Pass 1: parse + per-card breakdown; tally real-gap template frequency
-    # (deduped per card) over all Commander-legal UNMODELED cards.
-    total = len(cards)
+def build_report(cards, min_cluster: int = 5) -> dict:
+    """Pure report over supplied Commander-legal cards; never touches a ledger."""
+    cards = list(cards)
     covered = 0
-    breakdowns: list[tuple[str, list[str], list[str], bool, str]] = []
+    never_supported = 0
+    breakdowns = []
     template_freq: Counter[str] = Counter()
     for card in cards:
         name = getattr(card, "name", "") or ""
         result = parse_oracle(card)
-        if result.coverage != NEVER_SUPPORTED and (result.modeled or is_registered(name)):
+        # RULE 123.2: Sticker inserts are not playable cards, even when their
+        # empty/ordinary text would otherwise parse or a name is registered.
+        sticker = (getattr(card, "type_line", "") or "").strip().casefold() == "stickers"
+        coverage = NEVER_SUPPORTED if sticker else result.coverage
+        if coverage != NEVER_SUPPORTED and (result.modeled or is_registered(name)):
             covered += 1
             continue
-        clauses = [] if result.coverage == NEVER_SUPPORTED else list(result.unclaimed)
-        real_templates, real_raw, is_a = analyse_card(card, clauses, result.coverage)
-        breakdowns.append((name, real_templates, real_raw, is_a, result.coverage))
-        for tmpl in set(real_templates):
-            template_freq[tmpl] += 1
+        never_supported += int(coverage == NEVER_SUPPORTED)
+        clauses = [] if coverage == NEVER_SUPPORTED else list(result.unclaimed)
+        templates, raw, is_a = analyse_card(card, clauses, coverage)
+        breakdowns.append((name, templates, raw, is_a, coverage, getattr(card, "type_line", "") or ""))
+        template_freq.update(set(templates))
 
-    # Pass 2: classify from the stored breakdowns.
     bucket_names: dict[str, list[str]] = defaultdict(list)
-    b_clusters: dict[str, list[str]] = defaultdict(list)
-    c_clusters: dict[str, list[str]] = defaultdict(list)
-    d_clusters: dict[str, list[str]] = defaultdict(list)
-    e_rows: list[tuple[str, str]] = []
-    for name, real_templates, real_raw, is_a, coverage in breakdowns:
-        bucket, detail = classify(real_templates, real_raw, is_a, coverage,
-                                  template_freq, args.min_cluster)
+    clusters = {letter: defaultdict(list) for letter in "BCD"}
+    e_rows = []
+    excluded_reasons: dict[str, list[str]] = defaultdict(list)
+    axes = defaultdict(lambda: {"clauses": set(), "cards": set(), "examples": set()})
+    modifiers = defaultdict(lambda: {"clauses": set(), "cards": set(), "examples": set()})
+    probe = CompositionProbe(_PROV)
+    for name, templates, raw, is_a, coverage, type_line in breakdowns:
+        bucket, detail = classify(templates, raw, is_a, coverage, template_freq, min_cluster, type_line)
         bucket_names[bucket].append(name)
-        if bucket == "B":
-            b_clusters[detail].append(name)
-        elif bucket == "C":
-            c_clusters[detail].append(name)
-        elif bucket == "D":
-            d_clusters[detail].append(name)
+        if bucket in clusters:
+            clusters[bucket][detail].append(name)
+        elif bucket == "F":
+            excluded_reasons[detail].append(name)
         elif bucket == "E":
-            e_rows.append((name, detail))
+            card_axes = set()
+            for clause in raw:
+                diagnosis = probe.split(clause)
+                if diagnosis is None:
+                    axis = "other/static/non-split"
+                else:
+                    kind, _head, body, head_ok, body_ok = diagnosis
+                    axis = f"{kind} H{'+' if head_ok else '-'}B{'+' if body_ok else '-'}"
+                    if kind == "trigger" and head_ok and not body_ok:
+                        for modifier, sentence, _shorter in probe.modifier_repairs(body):
+                            slot = modifiers[modifier]
+                            slot["clauses"].add(sentence)
+                            slot["cards"].add(name)
+                            slot["examples"].add(sentence)
+                slot = axes[axis]
+                slot["clauses"].add(clause)
+                slot["cards"].add(name)
+                slot["examples"].add(clause)
+                card_axes.add(axis)
+            if not raw:
+                axis = "no recorded clause"
+                axes[axis]["cards"].add(name)
+                card_axes.add(axis)
+            e_rows.append({"card": name, "template": detail, "axes": sorted(card_axes)})
 
-    never_supported = len(bucket_names["F"])
-    frac = covered / total if total else 1.0
+    def ranked(table, key):
+        return [{key: label, "cards": sorted(names)}
+                for label, names in sorted(table.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
 
-    # --- report ---
-    print(f"\nCommander-legal tail report — PARSER_VERSION {cov.PARSER_VERSION}")
-    print(f"  commander-legal: {total}   covered: {covered} ({frac:.1%})   "
-          f"UNMODELED: {total - covered - never_supported}   never-supported: {never_supported}")
-    print(f"\nBucket histogram (UNMODELED Commander-legal cards by cause):")
-    _LABELS = {
-        "A": "block-wrapper / re-measure   (no ticket)",
-        "B": "recurring template           -> PAR-*",
-        "C": "set-specific mechanic        -> PAR-* (deck-first)",
-        "D": "primitive-blocked            -> MEC-*",
-        "E": "bespoke tail                 -> PAR-* hand-authoring / PAR-12",
-        "F": "never-supported              (out of denominator)",
+    def diagnostic_rows(table):
+        return [{"axis": label, "clause_count": len(info["clauses"]),
+                 "cards": sorted(info["cards"]), "examples": sorted(info["examples"])[:5]}
+                for label, info in sorted(table.items(), key=lambda kv: (-len(kv[1]["cards"]), kv[0]))]
+
+    total = len(cards)
+    return {
+        "parser_version": PARSER_VERSION,
+        "totals": {"commander_legal": total, "covered": covered,
+                   "unmodeled": total - covered - never_supported,
+                   "never_supported": never_supported,
+                   "report_only_non_goals": len(bucket_names["F"]) - never_supported,
+                   "fraction": round(covered / total if total else 1.0, 4)},
+        "buckets": {"A": sorted(bucket_names["A"]),
+                    "B": ranked(clusters["B"], "template"),
+                    "C": ranked(clusters["C"], "mechanic"),
+                    "D": ranked(clusters["D"], "cluster"),
+                    "E": sorted(e_rows, key=lambda row: row["card"]),
+                    "F": sorted(bucket_names["F"])},
+        "excluded_reasons": ranked(excluded_reasons, "reason"),
+        "E_axes": diagnostic_rows(axes),
+        "E_modifier_axes": diagnostic_rows(modifiers),
     }
+
+
+def print_report(payload: dict, samples: int = 5, top_b: int = 60, min_cluster: int = 5) -> None:
+    totals, buckets = payload["totals"], payload["buckets"]
+    print(f"\nCommander-legal tail report — PARSER_VERSION {payload['parser_version']}")
+    print(f"  commander-legal: {totals['commander_legal']}   covered: {totals['covered']} "
+          f"({totals['fraction']:.1%})   UNMODELED: {totals['unmodeled']}   "
+          f"never-supported: {totals['never_supported']}")
+    print(f"  Report-only non-goals: {totals['report_only_non_goals']} "
+          "(raw coverage totals unchanged)")
+    labels = {"A": "block-wrapper / re-measure", "B": "recurring template -> PAR-*",
+              "C": "set-mechanic parser residue -> PAR-*", "D": "absent runtime primitive -> MEC-*",
+              "E": "composition/rare-clause diagnostics", "F": "non-goals / never-supported (no work ticket)"}
+    print("\nBucket histogram (one outer bucket per uncovered card):")
     for letter in "ABCDEF":
-        print(f"  {letter}  {_LABELS[letter]:<44s} {len(bucket_names[letter]):6d}")
+        rows = buckets[letter]
+        count = sum(len(row["cards"]) for row in rows) if letter in "BCD" else len(rows)
+        print(f"  {letter}  {labels[letter]:<48s} {count:6d}")
 
-    def _dump_clusters(title: str, clusters: dict[str, list[str]], limit: int | None = None) -> None:
-        print(f"\n{'─' * 3} {title} {'─' * 3}")
-        ranked = sorted(clusters.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-        for detail, names in (ranked[:limit] if limit else ranked):
-            print(f"  N={len(names):<4d} {detail}")
-            print(f"           e.g. {', '.join(sorted(names)[: args.samples])}")
+    for letter, key in (("D", "cluster"), ("C", "mechanic"), ("B", "template")):
+        print(f"\n─── Bucket {letter} — {labels[letter]} ───")
+        rows = buckets[letter][:top_b] if letter == "B" else buckets[letter]
+        for row in rows:
+            print(f"  N={len(row['cards']):<4d} {row[key]}")
+            print(f"           e.g. {', '.join(row['cards'][:samples])}")
 
-    _dump_clusters(f"Bucket D — primitive-blocked clusters -> MEC-*", d_clusters)
-    _dump_clusters(f"Bucket C — set-specific mechanics -> PAR-* (deck-first)", c_clusters)
-    _dump_clusters(f"Bucket B — recurring templates (>= {args.min_cluster} cards) -> PAR-*",
-                   b_clusters, limit=args.top_b)
+    print("\n─── Bucket F — excluded worklist families ───")
+    for row in payload["excluded_reasons"]:
+        print(f"  N={len(row['cards']):<4d} {row['reason']}")
+        print(f"           e.g. {', '.join(row['cards'][:samples])}")
 
-    print(f"\n{'─' * 3} Bucket E — bespoke tail (hand-authoring), sample {min(len(e_rows), 40)} of {len(e_rows)} {'─' * 3}")
-    for name, tmpl in sorted(e_rows)[:40]:
-        print(f"  {name}   | {tmpl}")
+    print("\n─── Bucket E — head/body axes (overlapping card sets; not additive) ───")
+    print("  H/B: head/body claims under a known-good partner; H+B+ is a composition gap.")
+    for row in payload["E_axes"]:
+        print(f"  {row['axis']:<28s} {row['clause_count']:5d} clauses  {len(row['cards']):5d} cards")
+        print(f"           e.g. {', '.join(row['cards'][:samples])}")
+    print("\n─── Bucket E — single-modifier deletions that repair failing trigger-body sentences ───")
+    print("  Diagnostic candidates, not behavior claims; card sets overlap.")
+    for row in payload["E_modifier_axes"]:
+        print(f"  {row['axis']:<46s} {row['clause_count']:5d} sentences  {len(row['cards']):5d} cards")
+        print(f"           e.g. {', '.join(row['cards'][:samples])}")
 
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--min-cluster", type=int, default=5)
+    ap.add_argument("--samples", type=int, default=5)
+    ap.add_argument("--top-b", type=int, default=60)
+    ap.add_argument("--card-db", type=Path, default=DEFAULT_DB_PATH)
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--json", type=Path, default=None)
+    args = ap.parse_args()
+    cards = CardDatabase(args.card_db).list_cards()
+    if args.limit is not None:
+        cards = cards[:args.limit]
+    with RawCardStore() as raw_store:
+        legal_names = cov_commander_legal_names(raw_store)
+    payload = build_report([card for card in cards if card.name in legal_names], args.min_cluster)
+    print_report(payload, args.samples, args.top_b, args.min_cluster)
     if args.json:
-        payload = {
-            "parser_version": cov.PARSER_VERSION,
-            "totals": {"commander_legal": total, "covered": covered,
-                       "unmodeled": total - covered - never_supported,
-                       "never_supported": never_supported, "fraction": round(frac, 4)},
-            "buckets": {
-                "A": sorted(bucket_names["A"]),
-                "B": [{"template": t, "cards": sorted(n)}
-                      for t, n in sorted(b_clusters.items(), key=lambda kv: -len(kv[1]))],
-                "C": [{"mechanic": t, "cards": sorted(n)}
-                      for t, n in sorted(c_clusters.items(), key=lambda kv: -len(kv[1]))],
-                "D": [{"cluster": t, "cards": sorted(n)}
-                      for t, n in sorted(d_clusters.items(), key=lambda kv: -len(kv[1]))],
-                "E": [{"card": n, "template": t} for n, t in sorted(e_rows)],
-                "F": sorted(bucket_names["F"]),
-            },
-        }
         args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         print(f"\nWrote JSON breakdown to {args.json}")
 

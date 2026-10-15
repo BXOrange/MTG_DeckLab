@@ -341,51 +341,10 @@ def cmd_diff(args):
 
 #: A trigger clause is "<when/whenever/at cond>, <body>"; an activated one is
 #: "<cost>: <body>". The head/body split is what `composition` probes.
-_TRIGGER_SPLIT = re.compile(r"^(?P<head>(?:when|whenever|at)\b[^,]*),\s*(?P<body>.+)$", re.S)
-_ACTIVATED_SPLIT = re.compile(
-    r"^(?P<head>[^:\"]{1,80}(?:\{[^}]+\}|sacrifice|discard|pay|exile|tap|untap|remove|return)[^:\"]{0,80}):\s*(?P<body>.+)$",
-    re.S,
+from mtg_analyzer.parser.composition_diagnostics import (  # noqa: E402
+    CompositionProbe, _TRIGGER_SPLIT, _ACTIVATED_SPLIT, _SENTENCE_SPLIT,
+    _HEAD_FAMILIES, _MODIFIER_AXES, _claims,
 )
-_SENTENCE_SPLIT = re.compile(r"(?<=[a-z\)\"'])\.\s+(?=[a-z])")
-
-#: Trigger-head event families, first match wins (a head is filed under one).
-_HEAD_FAMILIES = [
-    ("cast", r"\byou cast\b|\bcasts? (a|an|your|their|another)\b|\bplayer casts\b|\bis cast\b"),
-    ("sacrifice", r"\bsacrifices?\b"),
-    ("discard", r"\bdiscards?\b"),
-    ("cycle", r"\bcycles?\b"),
-    ("attack/block", r"\battacks?\b|\battack with\b|\bbecomes blocked\b|\bisn't blocked\b|\bblocks?\b"),
-    ("enter/leave/die", r"\benters?\b|\bleaves?\b|\bdies\b|\bdie\b|\bexiled\b|\bput into\b"),
-    ("damage/life", r"\bdeals?\b.*\bdamage\b|\bdealt damage\b|\blos(?:e|es) life\b|\bgains? life\b"),
-    ("draw/mill/counter", r"\bdraws?\b|\bmilled?\b|\bcounters?\b"),
-    ("phase/step", r"^at\b"),
-]
-
-#: Modifier phrases removed one at a time from a failing effect sentence: if the
-#: shortened sentence parses, that modifier axis is what the parser lacks.
-_MODIFIER_AXES = {
-    "leading 'if <cond>,'": r"^if [^,]+, ",
-    "for each <count>": r",? for each [^.,]+",
-    "where X is / equal to <amount>": r",? where x is [^.]+|,? equal to [^.,]+",
-    "trailing 'if <cond>'": r",? if [^.]+$",
-    "trailing 'unless <cond>'": r",? unless [^.]+$",
-    "'you may' optional": r"^you may ",
-    "scope word (each opponent / target player)": r"^(each opponent|each player|target opponent|target player) ",
-    "'you don't control / an opponent controls'": r" (you don't control|an opponent controls|your opponents control)",
-    "'another / other'": r"\b(another|other) ",
-    "'up to N'": r"up to \d+ ",
-    "'then <clause>'": r",? then [^.]+$",
-    "duration (until / this turn)": r",? (until [^.,]+|this turn)",
-    "'tapped'": r" tapped\b",
-    "'instead'": r",? instead",
-}
-
-
-def _claims(line: str, provenance) -> bool:
-    try:
-        return segment_line(line, allow_spell_effect=True, provenance=provenance).claimed
-    except Exception:  # a probe must never die on one odd clause
-        return False
 
 
 def cmd_composition(args):
@@ -419,21 +378,13 @@ def cmd_composition(args):
             if len(unclaimed) == 1:
                 info["solo"].add(name)
 
-    head_cache: dict[str, bool] = {}
-    body_cache: dict[str, bool] = {}
+    composition_probe = CompositionProbe(provenance)
     split = []
     for text, info in clauses.items():
-        kind = "trigger"
-        m = _TRIGGER_SPLIT.match(text)
-        if not m:
-            kind, m = "activated", _ACTIVATED_SPLIT.match(text)
-        if not m:
+        diagnosis = composition_probe.split(text)
+        if diagnosis is None:
             continue
-        head, body = m.group("head").strip(), m.group("body").strip()
-        hprobe = f"{head}, draw a card." if kind == "trigger" else f"{head}: draw a card."
-        bprobe = f"when ~ enters, {body}" if kind == "trigger" else f"{{t}}: {body}"
-        head_ok = head_cache.setdefault(hprobe, _claims(hprobe, provenance))
-        body_ok = body_cache.setdefault(bprobe, _claims(bprobe, provenance))
+        kind, head, body, head_ok, body_ok = diagnosis
         split.append((text, kind, head, body, head_ok, body_ok, info))
 
     def label(head_ok: bool, body_ok: bool) -> str:
@@ -492,10 +443,9 @@ def cmd_composition(args):
             slot = sentences.setdefault(sentence, {"cards": set(), "solo": set()})
             slot["cards"] |= info["cards"]
             slot["solo"] |= info["solo"]
-    sentence_cache: dict[str, bool] = {}
 
     def sentence_ok(s: str) -> bool:
-        return sentence_cache.setdefault(s, _claims(f"when ~ enters, {s}", provenance))
+        return composition_probe.claims(f"when ~ enters, {s}")
 
     if args.view == "mods":
         present: Counter[str] = Counter()

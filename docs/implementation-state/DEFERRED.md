@@ -88,6 +88,8 @@ Never to be built — not gaps.
   keeping them out of the backlog ranking. PAR-145 (v586) also excludes Sticker
   Sheet inserts from the coverage denominator (RULE 123.2): 48 Commander-legal
   Unfinity sheets (`sunf`) plus the empty-text Secret Lair "Sticker sheet" (`sld`).
+  PAR-146 confirms Stickers are permanently deferred, routed to Bucket F in
+  `commander_tail_report.py`, and not in scope for any ticket.
 - **Contraptions (Unfinity's "crank this contraption" sub-mechanic).**
   Silver-border/Unstable only, like Stickers/Attractions — confirmed via
   `PAR-93`'s legality audit: all 45 cards using the phrase are from

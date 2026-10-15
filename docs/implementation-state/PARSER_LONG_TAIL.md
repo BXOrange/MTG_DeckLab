@@ -592,6 +592,16 @@ a missing body (4,087 cards where that is the only gap); `composition mods` — 
 repaired / 446 SOLO cards; "for each" 234 / 124 / 84; "where X is" 695 / 86 / 71. These are the probe's own forms,
 not a step/relation analysis.
 
+### PAR-146: Commander tail taxonomy resolution at PARSER_VERSION 659 (2026-10-15)
+
+Taxonomy re-validated and corrected via `scripts/commander_tail_report.py` and `mtg_analyzer.parser.composition_diagnostics.CompositionProbe`:
+- **Bucket D (0 cards):** All 18 former primitive-blocked signatures were audited against runtime code. Each named core runtime instruction exists (Specialize retains its documented designation-only simplification) (`roll_die`, `meld`, `clash`, `suspect`, `incubate`, `exchange_control`, `create_token` attacking, `PumpEffect.self_multiplier=3`, etc.). Stale signatures were cleared so cards route accurately to B or E.
+- **Bucket C (4 cards):** Banding and Horsemanship signatures removed (shipped in MEC-87/88). C tags remaining set-specific parser residue (Party: 4 cards).
+- **Bucket F (128 cards):** Non-goals and out-of-scope families. 95 `never-supported` (RULE 123 Stickers by type line "Stickers" and text), 20 Attractions, 13 Conspiracy draft-matters. Report-only non-goals preserve raw coverage accounting. The tail report fraction uses all 32,116 raw names; the authoritative coverage script separately excludes Sticker inserts from its denominator. Stickers are permanently deferred and generate no work tickets.
+- **Bucket B (139 cards):** 10 recurring templates >= 5 cards.
+- **Bucket E (11,079 cards):** Split by composition diagnostics: `other/static/non-split` (5,353 cards), `trigger H+B-` (3,691 cards), `activated H+B-` (1,809 cards), `trigger H-B+` (412 cards), `trigger H-B-` (375 cards), `activated H-B+` (66 cards), `activated H-B-` (50 cards), `trigger H+B+` (25 cards), `activated H+B+` (10 cards). Trigger-body modifier candidate repairs identified leading 'if <cond>,' (400 cards), for each <count> (103 cards), where X is / equal to <amount> (83 cards), etc.
+
+
 ### PAR-132 calibration: dependent bodies around an already-complete target scope
 
 PAR-130 completed the `that player controls` scope itself: event, per-player and prior-target

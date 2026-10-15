@@ -58,17 +58,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
-- **PAR-146 · `commander_tail_report.py` taxonomy re-validation.** Measured at PARSER_VERSION 584
-  (`PARSER_LONG_TAIL.md`, "Commander tail re-validation"): the `roll_die` row ("no dice subsystem at all",
-  43 cards) and the `tapped and attacking` row (59) name primitives that exist (`RollDieEffect`,
-  `create_token` `attacking`/`enter_attacking`); the Banding/Horsemanship rows describe shipped MEC-87/88;
-  the other Bucket D rows (damage-source tracker 9, exchange control 7, Villainous Choice 6, collect
-  evidence/forage/behold 5, suspect 3, incubate 2, clash 1, meld 1, triple 1, waterbend 1) are unchecked —
-  exchange control and meld look stale (`Done_Backend.md` Gilded Drake swap; CLAUDE.md lists meld as done).
-  Scope: check each remaining row with `parser_probe.py card`/`blocked`, fix or drop the stale ones, list
-  Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
-  body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
-  should print each row's check status.
 - **PAR-149 · Combat timing, dying enchanted hosts and quoted emblems.** Support all three families: combat-only / before-blockers / declare-blockers casting restrictions; enchanted creature/land dying followed by returning that card; emblems with quoted abilities. Measure current blockers before extending existing primitives.
 - **PAR-156 · Counter or pump, then fight.** "Put a +1/+1 counter on / pump target creature, then it fights …" sequences not yet claimed; size against the cache first, and check whether the existing `fight` previous-target rows already cover the second half (PLAY-ALL).
 
