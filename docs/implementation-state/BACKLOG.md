@@ -58,7 +58,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
-- **PAR-156 · Counter or pump, then fight.** Complete the remaining physical-line-dependent source pump/fight sequence through MEC-123; full family scope and residue live in `workingOn.md` (PLAY-ALL).
 
 - **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).
 
