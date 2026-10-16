@@ -2141,6 +2141,11 @@ def _trigger_condition(
 
     # "Whenever an opponent casts a noncreature spell with mana value less than this creature's power, …" (Pollywog
     # Prodigy) — the cast spell's mana value against the ability source's *current* derived power.
+    if trigger.get("printed_rules_lines_at_least") is not None:
+        required = int(trigger["printed_rules_lines_at_least"])
+        predicates.append(lambda event, context, n=required:
+                          type(event.get("printed_rules_lines")) is int and event.get("printed_rules_lines") >= n)
+
     if trigger.get("spell_mana_value_less_than_source_power"):
         def _mv_below_power(event: Any, context: Any, src=source) -> bool:
             return int(event.get("mana_value", 0) or 0) < int(getattr(src, "power", 0) or 0)
@@ -4847,6 +4852,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             if spec.modes:
                 _attach_modes(obj, spec.modes)
         elif spec.ability_kind == "triggered":
+            if (spec.trigger or {}).get("printed_rules_lines_at_least") is not None:
+                for ability in bound if isinstance(bound, list) else [bound]:
+                    ability.printed_rules_lines_required = True
             # A compound multi-event trigger ("~ enters or attacks") binds
             # to a *list* of `TriggeredAbility` (one per event) instead of
             # one (`bind_ability`'s ``triggered`` branch) — extend rather

@@ -89,6 +89,14 @@ class GameObject:
         #: is swapped to the back face by `transform` and back by
         #: `transform_back`; this keeps the front so the swap is reversible.
         self._front_card = card
+        # Physical printing identity survives transforms and copy effects (Un-card measurements).
+        self.physical_printing = {
+            "printing_id": card.id,
+            "front": {"name": card.name, "image_url": card.image_uri_normal,
+                      "printing_label": card.set_code.upper() if card.set_code else ""},
+            "back": {"name": card.back_name or card.name, "image_url": card.back_image_uri_normal,
+                     "printing_label": card.set_code.upper() if card.set_code else ""},
+        }
         #: Whether a double-faced permanent is currently on its back face
         #: (RULE 712.8). Combat/continuous read `card`, so a transform is just
         #: this swap — everything downstream sees the active face.

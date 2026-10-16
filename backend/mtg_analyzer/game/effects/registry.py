@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core import EffectRegistry
+from .physical_properties import MeasurePhysicalPropertyEffect
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
@@ -20,6 +21,8 @@ EffectRegistry.register("sideboard_cast_permission", lambda p: StaticAbility("si
 EffectRegistry.register("loyalty_instant_timing", lambda p: StaticAbility("loyalty_instant_timing", affects="controller"))
 EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility("reveal_opponents_hands", affects="opponents"))
 EffectRegistry.register("creature_damage_life_floor", lambda p: StaticAbility("creature_damage_life_floor", affects="controller"))
+
+EffectRegistry.register("measure_physical_property", lambda p: MeasurePhysicalPropertyEffect())
 
 EffectRegistry.register("living_death", lambda p: LivingDeathEffect())
 EffectRegistry.register("exile_self_and_grantor_until_attack", lambda p: ExileSelfAndGrantorUntilAttackEffect())

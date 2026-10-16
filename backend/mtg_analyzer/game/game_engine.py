@@ -140,6 +140,9 @@ class GameEngine(
             obj.granted_haste_sacrifice = previous_rider
             self.state.pending_choice = choice
             raise
+        if self.state.pending_physical_cast is not None:
+            self.state.pending_physical_cast["resolution_play"] = choice
+            return result
         if self.state.pending_cast_payment is not None:
             # Additional-cost choices suspend this same immediate cast, not its permission.
             self.state.pending_cast_payment["resolution_play"] = choice

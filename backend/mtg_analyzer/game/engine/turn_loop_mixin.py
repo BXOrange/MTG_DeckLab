@@ -1291,13 +1291,8 @@ class TurnLoopMixin:
                 self.state.priority_player_index = index
                 return
     def resolve_pending_choice(self, answer: Any) -> None:
-        """Answer the choice through its registered continuation.
-
-        Multiplayer trigger announcements return for responses. Choices
-        inside a resolution finish its deferred instructions; solo play then
-        settles the stack. Cast-payment and immediate-play windows retain
-        their own resumption paths.
-        """
+        """Answer the registered continuation, resuming instructions or
+        preserving the response window of a completed announcement."""
         choice_kind = (self.state.pending_choice or {}).get("kind", "")
         placing_trigger = choice_kind.startswith("trigger_") or choice_kind == "order_triggers"
         cast_payment = choice_kind == "cast_pip_life_payment"
@@ -1308,6 +1303,10 @@ class TurnLoopMixin:
         opponent_pick = choice_kind in OPPONENT_CHOICE_KINDS
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
         self.rules.resolve_choice(answer)
+        if choice_kind == "physical_property_measurement" and self.state.pending_physical_cast is not None:
+            from ..physical_properties import resume_cast
+            resume_cast(self)
+            return  # An announcement leaves the spell available for responses.
         if self.state.turn_based_draws is not None:
             return self.resolve_until_stable()
         if choice_kind == 'untap_cap_selection':

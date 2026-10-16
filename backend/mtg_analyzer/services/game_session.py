@@ -36,6 +36,8 @@ active.
 
 from __future__ import annotations
 
+from ..game.physical_properties import choice_decider as _physical_choice_decider
+
 import json
 import uuid
 from typing import Any, Callable, Optional
@@ -997,10 +999,11 @@ class GameSession:
         ):
             pc_owner = state.pending_choice.get("player_id")
             if pc_owner is not None:
-                decider = state.decider_for(pc_owner)
+                decider = _physical_choice_decider(state, state.pending_choice)
                 # MEC-118 (RULE 601.2c): an opponent's pick is theirs alone -- the spell's controller, who holds
                 # priority, must not be able to answer it by posting the choice themselves.
-                if state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS and actor.id != decider:
+                if (state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS
+                        or state.pending_choice.get("kind") == "physical_property_measurement") and actor.id != decider:
                     raise GameActionError(f"{actor.name} is not the player making this choice")
                 if decider != pc_owner and actor.id != decider:
                     raise ValueError(
@@ -2200,6 +2203,12 @@ class GameSession:
         """
         state = self.engine.state
         seat = self._actor(perspective) if perspective is not None else state.active_player
+        factual = state.pending_choice
+        if factual and factual.get("kind") == "physical_property_measurement":
+            if perspective is not None and perspective != _physical_choice_decider(state, factual):
+                return []
+            return [{"type": "choose", "free_text": True, "property": factual["property"],
+                     "minimum": factual["minimum"], "maximum": factual["maximum"]}]
         # MEC-51 (RULE 720): while `perspective` controls another seat's
         # turn (or combat, during combat), they are offered *that* seat's
         # actions — priority, casting, declare-attackers, and any pending
@@ -2387,7 +2396,7 @@ class GameSession:
                 reveal_hands.add(woc["target_id"])
             pc = state_dict.get("pending_choice")
             if pc and pc.get("player_id"):
-                choice_decider = self.engine.state.decider_for(pc["player_id"])
+                choice_decider = _physical_choice_decider(self.engine.state, pc)
         if perspective is not None:
             _redact_hidden_zones(
                 state_dict, perspective, top_visible,

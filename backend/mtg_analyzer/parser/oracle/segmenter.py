@@ -5299,6 +5299,10 @@ def parse_effect_body(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
+    from .catalogue.physical_properties import physical_fight_specs
+    physical_fight = physical_fight_specs(body)
+    if physical_fight is not None:
+        return physical_fight
     from .catalogue.fight_sequences import fight_sequence_specs, source_counter_fight_specs
     fight_sequence = fight_sequence_specs(body) or source_counter_fight_specs(body)
     if fight_sequence is not None:
@@ -7941,6 +7945,17 @@ def _segment_line_unsplit(
             trigger={"event": "PLAYER_ATTACKED", "condition": {"subject": "you"}},
             raw_text=raw, parser=provenance,
         ), claimed=True)
+
+    wordy = re.fullmatch(r"whenever you cast a wordy spell, (.+)", raw)
+    if wordy is not None:
+        effects = parse_effect_body(wordy[1])
+        if effects is None:
+            return Segment(raw=raw)
+        return Segment(raw=raw, spec=AbilitySpec(
+            "triggered", effects=effects,
+            trigger={"event": "SPELL_CAST", "condition": {"subject": "group", "controller": "you", "type": "permanent"},
+                     "printed_rules_lines_at_least": 4},
+            raw_text=raw, parser=provenance), claimed=True)
 
     magecraft = _MAGECRAFT_RE.match(raw)
     if magecraft is not None:

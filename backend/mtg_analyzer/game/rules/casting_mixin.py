@@ -868,6 +868,8 @@ class CastingResolutionMixin:
         explicitly, so `check_ward` below and every other flat-``targets``
         consumer still sees every chosen target.
         """
+        from ..physical_properties import cast_lines
+        physical_lines = cast_lines(self.state, obj, player.id)
         if target_groups is not None and targets is None:
             targets = [t for group in target_groups for t in group]
         if cost is None:
@@ -1041,6 +1043,7 @@ class CastingResolutionMixin:
         self._stage_cast_event(item,
             GameEvent(
                 EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name,
+                printed_rules_lines=physical_lines,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 zone_incarnation=obj.zone_incarnation,
                 mana_spent=obj.mana_spent_to_cast,
@@ -1226,6 +1229,8 @@ class CastingResolutionMixin:
         as in `cast_spell` — a free cast of a two-requirement spell is still
         a cast of that spell.
         """
+        from ..physical_properties import cast_lines
+        physical_lines = cast_lines(self.state, obj, player.id)
         if target_groups is not None and targets is None:
             targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
@@ -1274,6 +1279,7 @@ class CastingResolutionMixin:
         self._stage_cast_event(item,
             GameEvent(
                 EventType.SPELL_CAST,
+                printed_rules_lines=physical_lines,
                 player_id=player.id,
                 card_id=obj.card.id,
                 spell=obj.name,
@@ -2079,6 +2085,8 @@ class CastingResolutionMixin:
         # another ability's continuation after this nested body completes.
         outer_acting = self.context.acting_player_id
         self.context.acting_player_id = resumed.get("acting_player_id")
+        outer_source_incarnation = self.context.resolving_source_incarnation
+        self.context.resolving_source_incarnation = resumed.get("source_incarnation")
         try:
             deferred_again = _apply_effects_partitioned(
                 resumed["effects"],
@@ -2105,6 +2113,7 @@ class CastingResolutionMixin:
                 stack_item=stack_item,
             )
         finally:
+            self.context.resolving_source_incarnation = outer_source_incarnation
             self.context.acting_player_id = outer_acting
         if not deferred_again and stack_item is not None:
             # RULE 608.2m: this remainder just finished with nothing left

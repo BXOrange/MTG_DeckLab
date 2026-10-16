@@ -633,6 +633,13 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 
 - Untargeted opponent decisions use a serialized chooser-selection continuation: the controller selects an opponent when several are eligible, then only that opponent answers the actual decision. Per-opponent greatest-mana-value choices gather every answer before the selected permanents move together. This removes automatic tie breaking while retaining normal pending-choice views and undo.
 
+### Physical printed-line observations (MEC-123, PARSER_VERSION 664)
+
+- **What:** A shared state-owned observation records an explicit nonnegative count for the actual printing and face. Unknown counts remain unknown until the authorized player reports them; Oracle wrapping supplies no estimate. Alexander Clamilton uses the same operand for wordy casting and revealed-card pump/fight.
+- **Casting and privacy:** Pure clone preflight validates the complete announcement before asking for a fact. Resumption preserves targets, modes and costs, paying once; invalid or stale announcements abort cleanly. Private controlled-turn outside-game cards are reported by their owner without revealing them to the controller. Public cast events carry the factual count. Clones and undo retain observations and suspended instructions.
+- **Continuations:** Revealed-card measurements preserve original target groups. An empty library supplies zero while the remaining fight still executes. Concession cancels owned announcements, play permissions and abandoned payoffs, while surviving outer instructions execute once.
+- **Validation:** Full-cache backend: 14,141 passed, 1 skipped; two additional proxy cases were blocked by sandbox socket permissions, and the complete three-case proxy file passed with local socket access. 695 focused cleanup tests passed. Real API/browser verification exercised wordy counts 4 and 3, scry, undo, paid activation, target selection and the measured fight, with no JavaScript errors. Cache +1/-0; authoritative coverage 21,592/35,046 (61.6%), Commander 20,773/32,068 (64.8%).
+
 ### GainLifeEffect and CounterSpellEffect
 
 - **What:** `GainLifeEffect` and `CounterSpellEffect` (removes a spell from the stack to its owner's graveyard, RULE 701.5) registered alongside damage/draw/discard/destroy…

@@ -724,6 +724,30 @@ class StateBasedActionsMixin:
             self._commit_player_loss(player, reason)
             self._check_game_over()
             ending_game = reason == "opponent_won" or self.state.game_over
+            physical_cast = self.state.pending_physical_cast
+            choice = self.state.pending_choice
+            if (physical_cast is not None and (physical_cast["player_id"] == player.id or ending_game)):
+                self.state.pending_physical_cast = None
+                owned_play = physical_cast.get("resolution_play")
+                if owned_play is not None and self.state.resolution_play_choice is owned_play:
+                    # RULE 800.4a/608.2g: revoke only this canceled cast's
+                    # immediate-play permission. Surviving outer instructions
+                    # remain queued and are drained normally, exactly once.
+                    self._finish_resolution_play_permission(cancelled=True)
+                    followup = self.state.resolution_play_followup
+                    if followup is not None and followup.get("player_id") == physical_cast["player_id"]:
+                        self.state.resolution_play_followup = None
+                    self.state.resolution_play_waiting = bool(
+                        self.state.resolution_play_choice or self.state.resolution_play_followup)
+            if (choice and choice.get("kind") == "physical_property_measurement"
+                    and (choice.get("player_id") == player.id or ending_game)):
+                self.state.pending_choice = None
+                # RULE 800.4a: an eliminated player's resolving ability has
+                # no remaining instructions, including an unknown fact read.
+                self.state.deferred_effects = [
+                    frame for frame in self.state.deferred_effects
+                    if not ending_game and getattr(frame.get("source"), "controller_id", None) != player.id
+                ]
             self._cancel_conceded_turn_draw(player.id, ending_game=ending_game)
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
             self._cancel_conceded_fight(player.id, ending_game=ending_game)

@@ -218,7 +218,7 @@ class SearchMixin:
             self.state.mana_wildcard_permission.update({iid: mana_wildcard for iid in choice["instance_ids"]})
         self.open_choice(choice)
 
-    def _finish_resolution_play_permission(self, played_id: Optional[int] = None) -> None:
+    def _finish_resolution_play_permission(self, played_id: Optional[int] = None, *, cancelled: bool = False) -> None:
         choice = self.state.resolution_play_choice
         if choice is None:
             return
@@ -243,14 +243,14 @@ class SearchMixin:
             else:
                 self.state.mana_wildcard_permission[iid] = prior
         # RULE 608.2c/g: the "then" payoff follows the entire repeated casting sequence.
-        if (choice.get("owner_life_loss") and (played_id is None or not choice.get("repeat")
+        if (not cancelled and choice.get("owner_life_loss") and (played_id is None or not choice.get("repeat")
                 or not any(iid != played_id for iid in choice["instance_ids"]))):
             with self.state.simultaneous():
                 for loss in choice.get("owner_life_losses", []):
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
             choice["owner_life_losses"] = []
         self.state.resolution_play_choice = None
-        if choice.get("bottom_remaining"):
+        if not cancelled and choice.get("bottom_remaining"):
             self._bottom_remaining(self.state.player_by_id(choice["player_id"]), choice["bottom_remaining"],
                                    zone=choice.get("zone", "exile"))
 

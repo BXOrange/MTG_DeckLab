@@ -1573,6 +1573,7 @@ def _apply_effects_partitioned(
                         "target_groups": target_groups,
                         "group_index": group_index,
                         "source": source,
+                        "source_incarnation": context.resolving_source_incarnation,
                         "previous_targets": list(context.previous_targets),
                         "created_objects": list(context.created_objects),
                         "life_lost_this_way": context.life_lost_this_way,

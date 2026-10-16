@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from .. import physical_properties
+
 import itertools
 import inspect
 import copy
@@ -1681,6 +1683,7 @@ class CastingMixin:
             if mana_potential.is_castable_via_potential(self, player, cost):
                 return x
         return 0
+    @physical_properties.preflight
     @_choose_cast_pip_life_payment
     def cast_spell(
         self,
@@ -2305,7 +2308,8 @@ class CastingMixin:
             if target_groups is None:
                 target_groups = partition_targets(spell_target_specs(obj), targets)
             validate_that_player_groups(spell_target_specs(obj), target_groups, obj.name)
-            if (self.state.resolution_play_choice is not None
+            if (getattr(self.state, "_physical_cast_validation", False)
+                    or self.state.resolution_play_choice is not None
                     or (additional is not None and additional.sacrifice_count)
                     or any(spec.any_number for spec in spell_target_specs(obj))):
                 # Announced choices use the ordinary modal target specs

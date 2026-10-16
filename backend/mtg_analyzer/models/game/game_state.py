@@ -577,6 +577,8 @@ class GameState:
         self.pending_choice: Optional[dict[str, Any]] = None
         #: A proposed cast awaiting granted additional-cost choices; omitted from wire views.
         self.pending_cast_payment: Optional[dict[str, Any]] = None
+        self.physical_property_facts: dict[tuple[str, str, str], int] = {}
+        self.pending_physical_cast: Optional[dict[str, Any]] = None
         # Resolve-time payment frame belongs to state so rewind preserves it.
         self.pending_pay_cost_then: Optional[dict[str, Any]] = None
         # RULE 608.2g: scoped permission while a resolving effect offers

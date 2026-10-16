@@ -225,6 +225,11 @@ repointed there.
 - **What:** A themed modal panel answers any `pending_choice` kind server-side offers — library search, cascade/discover, replacement-order, shock-land pay-life, trigger target/"you may", trigger ordering, enter-as-copy, counter-unless-pays — via the shared `CHOICE_ICONS`/generic one-button-per-option mechanism.
 - **Files:** `gameBoardView.js`
 
+### Physical measurement input (MEC-123)
+
+- **What:** The shared choice panel displays the printing/face and image, accepts an explicit bounded nonnegative integer and submits the ordinary choose action. It starts empty, rejects fractions and scientific notation, retains the draft after errors, and supports Enter. Printing labels are escaped; internal IDs remain internal.
+- **Validation:** Real browser verification against the actual backend covered Alexander's wordy cast, undo and measured reveal/pump/fight, including normal priority and target selection; no JavaScript errors.
+
 ### Drag-and-drop replacement-order UI
 
 - **What:** The one RULE 616.1e/f `replacement_order` choice gets a dedicated drag-and-drop reorder list — the app's only drag-and-drop UI — rather than the generic one-button-per-option modal; confirming replays the chosen order as ordinary sequential `choose` picks.

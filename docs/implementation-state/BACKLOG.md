@@ -58,13 +58,12 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
-- **PAR-156 · Counter or pump, then fight.** "Put a +1/+1 counter on / pump target creature, then it fights …" sequences not yet claimed; size against the cache first, and check whether the existing `fight` previous-target rows already cover the second half (PLAY-ALL).
+- **PAR-156 · Counter or pump, then fight.** Complete the remaining physical-line-dependent source pump/fight sequence through MEC-123; full family scope and residue live in `workingOn.md` (PLAY-ALL).
 
 - **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).
 
 ## MEC — Game mechanic
 
-- **MEC-123 · Physical printed rules-text line measurements.** Supply an explicit, printing/face-specific factual line count without deriving it from Oracle wrapping or adding Card fields. Reuse one state-owned observable-property operand for revealed-card effects and pre-cast wordy checks; preserve announcement targets/costs, privacy, controlled turns, clone/undo and concession. Deliver the real Alexander Clamilton reveal/pump/fight and wordy-scry behavior. Verified PAR-156 dependency: existing number choices lose original target groups and cannot represent an unknown factual count; the official Unsanctioned FAQ requires physical printed lines.
 
 
 

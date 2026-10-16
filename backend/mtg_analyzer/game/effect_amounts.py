@@ -80,6 +80,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
     {
         # A plain number, so a body can be written uniformly whether its
         # magnitude is measured or printed.
+        "physical_property",  # an explicitly observed printing/face fact
         "fixed",  # + ``amount``
         # RULE 109.3 off a referent — the ``<who>_<char>`` grammar
         # `_characteristic_of_subject` introduced, with the referent axis now
@@ -475,6 +476,15 @@ def _base(
     if kind == "damage_dealt_this_turn":
         player = _as_player(context, subject, controller_id)
         return int(context.state.damage_dealt_to_players_this_turn.get(getattr(player, "id", None), 0))
+
+    if kind == "physical_property":
+        if subject is None:
+            return 0  # An empty library revealed no object to measure.
+        from .physical_properties import measured
+        value = measured(context.state, subject)
+        if value is None:
+            raise ValueError("Physical property must be observed before using its amount")
+        return value
 
     if kind == "characteristic":
         characteristic = str(amount.get("characteristic", ""))
