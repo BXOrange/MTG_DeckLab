@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-166`**; next free `MEC`: **`MEC-123`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-166`**; next free `MEC`: **`MEC-124`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -63,6 +63,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).
 
 ## MEC — Game mechanic
+
+- **MEC-123 · Physical printed rules-text line measurements.** Supply an explicit, printing/face-specific factual line count without deriving it from Oracle wrapping or adding Card fields. Reuse one state-owned observable-property operand for revealed-card effects and pre-cast wordy checks; preserve announcement targets/costs, privacy, controlled turns, clone/undo and concession. Deliver the real Alexander Clamilton reveal/pump/fight and wordy-scry behavior. Verified PAR-156 dependency: existing number choices lose original target groups and cannot represent an unknown factual count; the official Unsanctioned FAQ requires physical printed lines.
 
 
 

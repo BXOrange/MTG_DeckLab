@@ -2891,6 +2891,41 @@ class ExileTopPlayUntilNextExileEffect(GameEffect):
             self.source.exiled_with_ids.append(obj.instance_id)
 
 
+class _FightHitEffect(GameEffect):
+    """One snapshotted directed hit; replacement continuation owns its receipt."""
+    def __init__(self, source, target, amount, receipt):
+        super().__init__(source)
+        self.target, self.amount, self.receipt = target, amount, receipt
+
+    def apply(self, context, targets=None):
+        if self.target not in context.state.permanents():
+            return
+        context.engine.deal_damage(self.target, self.amount, self.source,
+                                   fight_receipt=self.receipt)
+
+
+class _FinishFightEffect(GameEffect):
+    def __init__(self, fighter, other, receipts, owns_hold, then_trigger=None, source=None):
+        super().__init__(source)
+        self.fighter, self.other, self.receipts = fighter, other, receipts
+        self.owns_hold, self.then_trigger = owns_hold, then_trigger
+
+    def cancel_batch(self, context):
+        if self.owns_hold:
+            self.owns_hold = False
+            context.state.release_batches()
+
+    def apply(self, context, targets=None):
+        for creature in (self.fighter, self.other):
+            context.state.fire_event(GameEvent(
+                EventType.FIGHTS, instance_id=creature.instance_id,
+                controller_id=creature.controller_id, object_types=sorted(creature.type_words),
+            ))
+        if self.then_trigger and self.receipts[0]['dealt'] > self.receipts[0]['lethal']:
+            context.enqueue_reflexive_trigger(self.then_trigger, self.source)
+        self.cancel_batch(context)
+
+
 class FightEffect(GameEffect):
     """RULE 701.14 — "Target creature you control fights target creature you
     don't control." (Prey Upon), "~ fights up to one target creature you don't
@@ -2937,10 +2972,12 @@ class FightEffect(GameEffect):
         other_exact_mana_value: Optional[Union[int, str]] = None,
         other_instance_id: Optional[int] = None,
         tap_fighters: bool = False,
+        excess_then_trigger: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         #: "Tap target creature you control and target creature ... Those creatures fight each other." (Arena, Magus of
         #: the Arena): RULE 701.26a tapping both before the fight; a creature already gone is simply not tapped.
+        self.excess_then_trigger = list(excess_then_trigger or [])
         self.tap_fighters = tap_fighters
         self.fighter_kind = fighter_kind
         self.other_kind = other_kind
@@ -2975,6 +3012,13 @@ class FightEffect(GameEffect):
             other = _implicit_fight_subject(self.other_kind, self, context)
         else:
             other = next(chosen, None)
+        # RULE 400.7/701.14b: a fight cannot use a later incarnation of its source.
+        # One-sided source damage instead uses last-known information (RULE 608.2h).
+        incarnation = getattr(context, "resolving_source_incarnation", None)
+        if (self.source is not None and incarnation is not None
+                and self.source.zone_incarnation != incarnation
+                and (self.fighter_kind is None or self.other_kind is None)):
+            return
         battlefield = context.state.permanents()
         if self.tap_fighters:
             for creature in (fighter, other):
@@ -2994,21 +3038,34 @@ class FightEffect(GameEffect):
             # earlier clause's pick as its own and have the creature fight
             # itself. No printed card means that.
             return
-        self._fight(context, fighter, other)
+        self._fight(context, fighter, other, self.excess_then_trigger, self.source)
 
     @staticmethod
-    def _fight(context: GameContext, fighter: Any, other: Any) -> None:
-        """RULE 701.14a: both deal damage equal to their power to each other (the powers snapshotted first),
-        then each fires `FIGHTS`. Shared with effects that pair creatures themselves (Ezuri's Predation)."""
-        fighter_power = fighter.power or 0
-        other_power = other.power or 0
-        context.deal_damage(other, fighter_power, fighter)
-        context.deal_damage(fighter, other_power, other)
-        for creature in (fighter, other):
-            context.state.fire_event(GameEvent(
-                EventType.FIGHTS, instance_id=creature.instance_id,
-                controller_id=creature.controller_id, object_types=sorted(creature.type_words),
-            ))
+    def _fight(context: GameContext, fighter: Any, other: Any,
+               then_trigger=None, source=None) -> None:
+        # RULE 701.14a/120.4: snapshot both hits before any damage result.
+        from .. import combat
+        from .core import _apply_effects_partitioned
+        hits = ((fighter, other), (other, fighter))
+        receipts = []
+        effects = []
+        for dealer, recipient in hits:
+            lethal = max(0, (recipient.toughness or 0) - recipient.damage_marked)
+            if lethal and combat.has(dealer, 'deathtouch'):
+                lethal = min(lethal, 1)
+            receipt = {'dealt':0, 'lethal':lethal}
+            receipts.append(receipt)
+            effects.append(_FightHitEffect(dealer, recipient, dealer.power or 0, receipt))
+        context.fight_results.append({'receipts':receipts})
+        owns_hold = not context.state._batch_hold
+        if owns_hold:
+            context.state.hold_batches()
+        effects.append(_FinishFightEffect(fighter, other, receipts, owns_hold,
+                                         then_trigger=then_trigger, source=source))
+        prior = sum(max(0,r["dealt"]-r["lethal"]) for f in context.fight_results for r in f["receipts"])
+        _apply_effects_partitioned(effects, context, None, None, source=source,
+                                   fight_results=context.fight_results,
+                                   excess_damage_this_way=context.excess_damage_this_way-prior)
 
 
 class DamageEqualToPowerEffect(GameEffect):
@@ -3250,16 +3307,17 @@ class ChooseTargetsEffect(GameEffect):
         distinct_controllers: bool = False,
         optional: bool = False,
         per_player: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         kinds = kinds or []
         if len(kinds) == 1 and count:
             specs = [TargetSpec(
                 kind=kinds[0], count=count, distinct_controllers=distinct_controllers,
-                optional=optional, per_player=per_player,
+                optional=optional, per_player=per_player, creature_filter=creature_filter,
             )]
         else:
-            specs = [TargetSpec(kind=kind, optional=optional, per_player=per_player) for kind in kinds]
+            specs = [TargetSpec(kind=kind, optional=optional, per_player=per_player, creature_filter=creature_filter) for kind in kinds]
         if specs:
             self.target_spec = specs[0]
             self.extra_target_specs = tuple(specs[1:])

@@ -1922,6 +1922,7 @@ EffectRegistry.register(
         other_exact_mana_value=p.get("other_exact_mana_value"),
         other_instance_id=p.get("other_instance_id"),
         tap_fighters=bool(p.get("tap_fighters", False)),
+        excess_then_trigger=p.get("excess_then_trigger"),
     ),
 )
 EffectRegistry.register(
@@ -1962,6 +1963,7 @@ EffectRegistry.register(
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         optional=bool(p.get("optional", False)),
         per_player=p.get("per_player"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(

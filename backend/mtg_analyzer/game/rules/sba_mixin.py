@@ -726,6 +726,7 @@ class StateBasedActionsMixin:
             ending_game = reason == "opponent_won" or self.state.game_over
             self._cancel_conceded_turn_draw(player.id, ending_game=ending_game)
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
+            self._cancel_conceded_fight(player.id, ending_game=ending_game)
             self._cancel_conceded_loss_recovery(player.id, ending_game=ending_game)
             # Keep a finished game's board for review; only continuing
             # multiplayer games owe a RULE 800.4a departure sweep.
@@ -751,6 +752,26 @@ class StateBasedActionsMixin:
             self.state.pending_turn_step = None
             self.state.turn_draw_pending_triggers = None
             self.state.turn_draw_delayed_triggers.clear()
+
+    def _cancel_conceded_fight(self, player_id, ending_game=False):
+        from ..effects.library import _FinishFightEffect
+        frame = self.state.replacement_continuation
+        callback = frame.get("callback") if frame else None
+        choice = self.state.pending_choice
+        if (isinstance(callback, dict) and callback.get("kind") == "damage"
+                and callback.get("fight_receipt") is not None
+                and choice is not None and (choice.get("player_id") == player_id or ending_game)):
+            self.state.pending_choice = None
+            self.state.replacement_continuation = None
+            self._pending_replacement_event = None
+            self._pending_replacement_applied = set()
+            self._pending_replacement_applicable = []
+            self._pending_replacement_callback = None
+        if ending_game:
+            for deferred in self.state.deferred_effects:
+                for effect in deferred.get("effects", []):
+                    if isinstance(effect, _FinishFightEffect):
+                        effect.cancel_batch(self.context)
 
     def _cancel_conceded_graveyard_shuffle(self, player_id, ending_game=False):
         """Cancel this shared primitive's pending commander picks, not outer tails."""

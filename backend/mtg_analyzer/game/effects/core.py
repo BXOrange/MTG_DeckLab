@@ -180,6 +180,7 @@ class GameContext:
         #: as `previous_targets`/`created_objects` above.
         self.life_lost_this_way: int = 0
         #: RULE 120.9: actual damage beyond the amount needed to be lethal.
+        self.fight_results: list[dict] = []
         self.excess_damage_this_way: int = 0
         #: "Destroy each nonland permanent with mana value 2 or less. Add
         #: {B} or {G} for each permanent destroyed this way." (Culling
@@ -1336,6 +1337,7 @@ def _apply_effects_partitioned(
     created_objects: Optional[list[Any]] = None,
     life_lost_this_way: int = 0,
     excess_damage_this_way: int = 0,
+    fight_results: Optional[list[dict]] = None,
     permanents_destroyed_this_way: int = 0,
     objects_exiled_this_way: int = 0,
     counters_removed_this_way: int = 0,
@@ -1424,6 +1426,7 @@ def _apply_effects_partitioned(
     outer_created = getattr(context, "created_objects", [])
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
     outer_excess_damage = getattr(context, "excess_damage_this_way", 0)
+    outer_fight_results = context.fight_results
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
     outer_counters_removed = getattr(context, "counters_removed_this_way", 0)
@@ -1447,6 +1450,19 @@ def _apply_effects_partitioned(
     created_before_run = len(context.created_objects)
     context.life_lost_this_way = life_lost_this_way
     context.excess_damage_this_way = excess_damage_this_way
+    context.fight_results = fight_results if fight_results is not None else []
+    accounted_fight_excess = 0
+
+    def sync_fights():
+        nonlocal accounted_fight_excess
+        excess = sum(max(0, r["dealt"]-r["lethal"]) for frame in context.fight_results for r in frame["receipts"])
+        context.excess_damage_this_way += excess-accounted_fight_excess
+        accounted_fight_excess = excess
+        for frame in context.fight_results:
+            for r in frame["receipts"]:
+                hit = r.get("damaged")
+                if hit is not None and hit not in context.damaged_this_way:
+                    context.damaged_this_way.append(hit)
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
     context.objects_exiled_this_way = objects_exiled_this_way
     context.counters_removed_this_way = counters_removed_this_way
@@ -1469,6 +1485,7 @@ def _apply_effects_partitioned(
     context.resolution_target_groups = target_groups
     try:
         for position, effect in enumerate(effects):
+            sync_fights()
             # RULE 613: continuous effects apply between instructions; this does not run SBAs.
             context.recompute()
             if source is not None and effect.source is None:
@@ -1502,6 +1519,7 @@ def _apply_effects_partitioned(
                 with _simultaneous(state):
                     effect.apply(context, _effect_target_slots(effect, specs, targets))
                 used = list(targets or [])
+            sync_fights()
             if specs and used:
                 context.previous_targets = list(used)
             if (
@@ -1558,7 +1576,8 @@ def _apply_effects_partitioned(
                         "previous_targets": list(context.previous_targets),
                         "created_objects": list(context.created_objects),
                         "life_lost_this_way": context.life_lost_this_way,
-                        "excess_damage_this_way": context.excess_damage_this_way,
+                        "excess_damage_this_way": context.excess_damage_this_way-accounted_fight_excess,
+                        "fight_results": context.fight_results,
                         "permanents_destroyed_this_way": context.permanents_destroyed_this_way,
                         "objects_exiled_this_way": context.objects_exiled_this_way,
                         "counters_removed_this_way": context.counters_removed_this_way,
@@ -1590,6 +1609,7 @@ def _apply_effects_partitioned(
         context.created_objects = outer_created
         context.life_lost_this_way = outer_life_lost
         context.excess_damage_this_way = outer_excess_damage
+        context.fight_results = outer_fight_results
         context.permanents_destroyed_this_way = outer_permanents_destroyed
         context.objects_exiled_this_way = outer_objects_exiled
         context.counters_removed_this_way = outer_counters_removed

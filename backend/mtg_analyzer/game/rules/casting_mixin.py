@@ -1963,6 +1963,8 @@ class CastingResolutionMixin:
         if choice.get("copiable_stack_id") is not None:
             self.context.trigger_event = {**(self.context.trigger_event or {}),
                                          "copiable_stack_id": choice["copiable_stack_id"]}
+        outer_source_incarnation = self.context.resolving_source_incarnation
+        self.context.resolving_source_incarnation = choice.get("source_incarnation")
         outer_acting = self.context.acting_player_id
         self.context.acting_player_id = choice.get("acting_player_id")
         try:
@@ -1971,6 +1973,7 @@ class CastingResolutionMixin:
                 previous_targets=previous, revealed_card=revealed,
             )
         finally:
+            self.context.resolving_source_incarnation = outer_source_incarnation
             self.context.trigger_event = outer_trigger_event
             self.context.acting_player_id = outer_acting
 
@@ -2088,6 +2091,7 @@ class CastingResolutionMixin:
                 created_objects=resumed.get("created_objects"),
                 life_lost_this_way=resumed.get("life_lost_this_way", 0),
                 excess_damage_this_way=resumed.get("excess_damage_this_way", 0),
+                fight_results=resumed.get("fight_results"),
                 permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
                 objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
                 counters_removed_this_way=resumed.get("counters_removed_this_way", 0),

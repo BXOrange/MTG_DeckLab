@@ -666,6 +666,8 @@ class CreateTurnTriggerEffect(GameEffect):
             trigger["condition"] = {
                 **dict(trigger.get("condition") or {}),
                 "instance_id_override": target.instance_id,
+                **({"graveyard_incarnation_override": target.zone_incarnation + 1}
+                   if trigger.get("event") == "DIES" else {}),
             }
         # RULE 400.7: a body that acts on this ability's own source ("destroy ~") must not touch a later
         # incarnation of it, so the zone stay it was created in rides along as a parameter.

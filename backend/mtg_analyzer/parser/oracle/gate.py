@@ -4039,7 +4039,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "662"
+PARSER_VERSION = "663"
 
 
 def parser_source_hash() -> str:
@@ -4795,6 +4795,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # creature"/"… instead" must see the paragraph before it.
         raw = _SPELL_RIDER_PARAGRAPH_RE.sub(r" \g<rider>", raw)
     normalized = normalize(raw, getattr(card, "name", None), getattr(card, "keywords", None))
+    from .catalogue.fight_sequences import reordered_fight_text
+    normalized = reordered_fight_text(normalized)
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)
 

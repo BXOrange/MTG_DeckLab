@@ -2586,6 +2586,12 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 - **What:** `FightEffect` is one atomic effect, not two `DealDamageEffect`s, because 701.14b's cancellation is mutual (either fighter gone/non-creature at resolution → neit…
 - **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/catalogue/subgrammars.py`
 
+### Counter/pump-before-fight sequences (PAR-156 milestone, PARSER_VERSION 663)
+
+- **What:** Shared grammar announces each fighter once, applies conditional counters/pumps only to the friendly creature, then fights regardless of a failed bonus condition. Before-fighting paragraphs are ordered before damage. Source-counter composites reuse payment/reflexive triggers and resolution counts; optional fights retain the source bonus when no fight is chosen. Permanent bonuses expire on the affected object's zone change.
+- **Runtime:** Directed fight hits snapshot both powers and lethal thresholds before damage. Replacement descriptors and deferred receipt graphs survive choices, clone and rewind, retaining actual damaged objects and excess damage for later effects. Reflexive artifact removal observes only damage to the opposing fighter. Owned event batches release after completion or concession. Incarnation checks apply to actual self/fight instructions; group/trigger-subject effects survive source departure and one-sided damage keeps last-known information.
+- **Validation:** 61 family tests, 265 focused full-cache tests; full backend --full-cache: 14,097 passed, 1 skipped. Actual Durable Handicraft and Noble Hierarch guard group/trigger-subject independence. Hero of Oxid Ridge and Mournwillow additionally execute the shared power-limited block restriction; delirium checks both trigger and resolution conditions. Cache +19/-0; authoritative coverage 21,591/35,046 (61.6%), Commander 20,773/32,068 (64.8%). Alexander's physical printed-line dependency remains open as MEC-123, so PAR-156 is not closed by this milestone.
+
 ### One-Sided Fight / Damage Equal to Power
 
 - **What:** `DamageEqualToPowerEffect` — "target creature deals damage equal to its power to target creature" (Rabid Bite) and the "when ~ dies, it deals damage equal to it…

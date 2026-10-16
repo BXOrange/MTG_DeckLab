@@ -687,6 +687,8 @@ class RulesEngine(
                 self._finish_single_draw(callback["player_id"], callback["first_in_draw_step"], event)
             elif callback["kind"] == "mill":
                 self._finish_mill(callback["player_id"], callback["count"], event)
+            elif callback["kind"] == "damage":
+                self._finish_damage(callback, event)
             elif callback["kind"] == "life_gain":
                 self._finish_life_gain(callback["player_id"], callback["amount"], event)
             else:

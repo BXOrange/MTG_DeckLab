@@ -126,6 +126,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # `is_subtype`, neither of which covers a supertype. "that creature
         # is legendary" (Ringwraiths) is the only printed phrasing so far —
         # no ``of`` default beyond the usual "source".
+        "is_supertype", "controls_own_commander",
         "is_legendary",
         # RULE 205.4a's basic supertype, off the printed type line (a `Card`
         # has no flag for it) — "a basic land card" (Rowen, PAR-120).
@@ -163,6 +164,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "as long as an opponent has N or less life" (Bloodghast, PAR-60) —
         # true when any one opponent satisfies it. + ``amount``.
         "opponent_life_at_most",
+        "card_types_in_graveyard_at_least",  # Delirium; evaluated against distinct RULE 205.2a card types.
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
         # "at the beginning of each opponent's upkeep, if that player has N or
@@ -293,6 +295,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # 4 or greater", "…mana value is 3 or less", "if it has flying", "if it entered this turn".
         "toughness",  # + ``min``/``max`` — the subject's *derived* toughness
         "mana_value",  # + ``min``/``max``/``max_selector`` (a live count) — printed mana value (RULE 202.3)
+        "has_printed_keyword",
         "has_keyword",  # + ``keyword`` (a lowercase slug), granted or intrinsic
         "entered_this_turn",  # RULE 400.7 — the subject came to the battlefield this turn
         # "…if it dealt combat damage to a player this turn" (Wave of Rats, RULE 603.4) — the
@@ -766,12 +769,17 @@ def condition_holds(
             condition = {**condition, "max": continuous.count_selector(
                 state, controller_id, condition["max_selector"], source)}
         return _within(int(getattr(subject, "mana_value", 0) or 0), condition)
-    if kind == "has_keyword":
+    if kind in ("has_keyword", "has_printed_keyword"):
         if subject is None or not hasattr(subject, "instance_id"):
             return False
-        from .combat import has  # local: combat imports this module
-
-        return has(subject, str(condition.get("keyword", "")).lower())
+        from .combat import has
+        keyword = str(condition.get("keyword", "")).lower()
+        if kind == "has_printed_keyword":
+            return (not getattr(subject, "loses_all_abilities", False)
+                    and keyword not in subject.removed_keywords
+                    and keyword not in subject.temp_removed_keywords
+                    and any(str(k).lower() == keyword for k in subject.card.keywords or []))
+        return has(subject, keyword)
     if kind == "entered_this_turn":
         entered = getattr(subject, "turn_entered", None)
         return entered is not None and entered == state.internal_turn.number
@@ -881,6 +889,13 @@ def condition_holds(
         subtype = condition.get("subtype")
         return bool(subtype) and _has_subtype(subject, str(subtype))
 
+    if kind == "is_supertype":
+        return subject is not None and str(condition.get("card_type", "")).lower() in str(subject.card.type_line).partition("—")[0].lower().split()
+    if kind == "controls_own_commander":
+        return controller_id is not None and any(
+            o.is_commander and o.owner_id == controller_id and o.controller_id == controller_id
+            for o in state.permanents()
+        )
     if kind == "is_legendary":
         return subject is not None and bool(getattr(subject, "is_legendary", False))
     if kind == "is_basic":

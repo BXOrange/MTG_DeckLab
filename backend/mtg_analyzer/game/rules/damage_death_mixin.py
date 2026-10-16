@@ -261,6 +261,7 @@ class DamageDeathMixin:
         source: Optional[GameObject] = None,
         combat: bool = False,
         single_target_hint: bool = False,
+        fight_receipt: Optional[dict] = None,
     ) -> None:
         is_player = isinstance(target, Player)
         # RULE 615/510.1e: a source-scoped prevention effect (Loafing Giant),
@@ -340,149 +341,164 @@ class DamageDeathMixin:
             ),
         )
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            final = resolved.get("amount", amount)
-            if final <= 0:
-                return
-            # MEC-30: a redirect (`RulesEngine.redirect_damage_from_source`,
-            # RULE 616.1c — "that damage is dealt to `<X>` instead") rewrites
-            # ``target_id``/``is_player`` on the event itself; re-derive the
-            # *actual* recipient from the resolved event rather than the
-            # outer closure's original ``target``/``is_player``, so every
-            # branch below lands on wherever the damage actually ends up.
-            # Falls back to the original target if the resolved event's own
-            # id can't be found (shouldn't happen, but never silently drops
-            # damage on the floor).
-            final_is_player = bool(resolved.get("is_player", is_player))
-            if final_is_player == is_player and resolved.get("target_id") == target_id:
-                final_target = target
-            elif final_is_player:
-                final_target = self.state.player_by_id(resolved.get("target_id")) or target
-            else:
-                final_target = self.state.find_object(resolved.get("target_id")) or target
-            # RULE 122.1c: "If damage would be dealt to this permanent, prevent that damage and
-            # remove a shield counter from it." Checked on the *resolved* recipient (after any
-            # redirect, RULE 616.1c) and before any result of the damage — infect/wither's -1/-1
-            # counters, loyalty/defense loss, the DAMAGE event its triggers watch — because
-            # prevented damage is never dealt (RULE 615.1). One counter per damage event,
-            # however large the damage.
-            if not final_is_player and getattr(final_target, "counters", {}).get("shield", 0) > 0:
-                self.add_counters(final_target, -1, "shield")
-                return
-            # RULE 702.90b/c: damage from an infect source is never marked/
-            # doesn't cause life loss at all — it is dealt as -1/-1 counters
-            # (creature) or poison counters (player) instead. RULE 702.91a's
-            # Wither is the creature-only half of that same substitution,
-            # with a player still just losing life. Both are checked off the
-            # *source*, so an infect source's damage to a planeswalker/battle
-            # still falls through to the ordinary loyalty/defense branches
-            # below (neither rule mentions those permanent types).
-            infect = getattr(source, "card", None) is not None and has_infect(source)
-            wither = getattr(source, "card", None) is not None and has_wither(source)
-            if not wither:
-                # "All damage is dealt as though its source had wither."
-                # (Everlasting Torment) — RULE 609.4b as-though, a standing
-                # battlefield static that recolours *every* source's damage
-                # to creatures into -1/-1 counters.
-                from .. import continuous  # local: avoid the continuous↔rules cycle
+        self.apply_replacements(event, on_resolved={
+            "kind": "damage", "target": target, "source": source,
+            "amount": amount, "combat": combat, "fight_receipt": fight_receipt,
+        })
 
-                wither = continuous.global_wither_active(self.state)
-            if final_is_player and infect:
-                self.add_player_counters(final_target, final, "poison", source=source)
-                self.state.record_stat(final_target.id, "damage_taken", amount=final)
-                # RULE 120.3 (Final Punishment, MEC-43): damage is still
-                # "dealt" here even though 702.90b redirects its life-loss
-                # consequence into poison counters instead — the DAMAGE event fired
-                # below is what the per-turn damage history is derived from.
-                if source is not None:
-                    self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
-                    if combat and source.is_commander:
-                        final_target.add_commander_damage(source.instance_id, source.name,
-                                                          final * self._commander_damage_multiplier(final_target))
-            elif final_is_player:
-                # RULE 120.3: damage dealt to a player causes that much life
-                # loss. This is a *consequence* of damage, not a separate
-                # event a player chose to trigger — go through the same
-                # `lose_life` choke point as any other life loss so triggers
-                # watching for "loses life" fire consistently regardless of
-                # cause.
-                from ..emblem_permissions import creature_damage_life_floor
-                # RULE 120.3 / 614.1a: Worship changes the life consequence,
-                # not the damage dealt (lifelink and damage triggers see it all).
-                life_lost = final
-                if creature_damage_life_floor(self.state, final_target):
-                    life_lost = min(final, max(0, final_target.life - 1))
-                self.lose_life(final_target, life_lost, cause="damage")
-                self.state.record_stat(final_target.id, "damage_taken", amount=final)
-                if source is not None:
-                    self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
-                    # RULE 903.10a: combat damage from a commander is tallied
-                    # separately toward the 21-damage loss threshold.
-                    if combat and source.is_commander:
-                        final_target.add_commander_damage(source.instance_id, source.name,
-                                                          final * self._commander_damage_multiplier(final_target))
-            elif getattr(final_target, "is_planeswalker", False):
-                # RULE 306.9: damage to a planeswalker removes that many
-                # loyalty counters (the 0-loyalty SBA then sends it to the
-                # graveyard).
-                final_target.add_counters("loyalty", -final)
-            elif getattr(final_target, "is_battle", False):
-                # RULE 310.6: damage to a battle removes that many defense
-                # counters — combat *and* non-combat alike (a burn spell
-                # chips a battle down exactly like an attacker does), which
-                # is why this sits here rather than in the combat path.
-                # Hitting zero isn't handled here: the SBA pass owns both
-                # the Siege's own RULE 310.11b defeat trigger and RULE
-                # 310.7's graveyard move, so *every* route to zero defense
-                # (a "remove a defense counter" effect as much as damage)
-                # goes through one place. `add_counters` floors at zero, so
-                # overkill damage can't leave a negative count behind.
-                final_target.add_counters("defense", -final)
-            elif getattr(final_target, "is_creature", False) and (infect or wither):
-                # RULE 702.90b/702.91a: damage from an infect or wither
-                # source is put on a creature as -1/-1 counters instead of
-                # being marked — routed through the ordinary `add_counters`
-                # choke point (not `deal_damage` again) so this placement is
-                # itself subject to RULE 122's own counter-doubling
-                # replacements (Doubling Season et al.), same as any other
-                # counters being put on a permanent.
-                self.add_counters(final_target, final, "-1/-1", source=source)
-            else:
-                final_target.damage_marked += final
-            # RULE 702.164c: combat damage dealt to a *player* by a source
-            # with toxic gives that player poison counters equal to the
-            # source's total toxic value, "in addition to the damage's
-            # other results" — additive, not a substitution like infect
-            # (702.90b) above, so this runs regardless of which branch just
-            # ran and composes with infect if a source somehow has both
-            # (a rare real shape): infect already converted this same hit
-            # into `final` poison counters instead of life loss, and toxic
-            # piles its own N on top of that. Combat-only per 702.164c's own
-            # wording (unlike infect, which recolors *all* damage, not just
-            # combat damage) — read the resolved event's own `combat` flag
-            # rather than the outer closure's, since a replacement effect
-            # could in principle rewrite it same as `target_id`/`is_player`.
-            if final_is_player and bool(resolved.get("combat", combat)) and source is not None:
-                toxic_n = toxic_value(source)
-                if toxic_n:
-                    self.add_player_counters(final_target, toxic_n, "poison", source=source)
-            # MEC-49: "whenever a creature dealt damage by ~ this turn dies, …"
-            # (`GameState.creatures_damaged_by_source_this_turn`, derived from the
-            # DAMAGE event below, which is flagged when its recipient is a creature).
-            # Any damage to a creature, combat or not, infect/wither included
-            # (RULE 702.90b/702.91a still deal damage, just recolor its result).
-            target_is_creature = not final_is_player and getattr(final_target, "is_creature", False)
-            # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
-            # `source_controller_id` survive onto the broadcast event — a
-            # "whenever equipped creature deals combat damage to a player"
-            # trigger (`effect_binder._trigger_condition`'s ``filter``) reads
-            # exactly these fields, and they'd otherwise be silently dropped
-            # here even though the pre-replacement ``event`` above carried them.
-            self.state.fire_event(resolved.copy_with(amount=final, target_is_creature=target_is_creature))
+    def _finish_damage(self, payload, resolved):
+        target, source = payload["target"], payload["source"]
+        amount, combat = payload["amount"], payload["combat"]
+        is_player = isinstance(target, Player)
+        target_id = target.id if is_player else target.instance_id
+        if resolved is None:
+            return
+        final = resolved.get("amount", amount)
+        if final <= 0:
+            return
+        # MEC-30: a redirect (`RulesEngine.redirect_damage_from_source`,
+        # RULE 616.1c — "that damage is dealt to `<X>` instead") rewrites
+        # ``target_id``/``is_player`` on the event itself; re-derive the
+        # *actual* recipient from the resolved event rather than the
+        # outer closure's original ``target``/``is_player``, so every
+        # branch below lands on wherever the damage actually ends up.
+        # Falls back to the original target if the resolved event's own
+        # id can't be found (shouldn't happen, but never silently drops
+        # damage on the floor).
+        final_is_player = bool(resolved.get("is_player", is_player))
+        if final_is_player == is_player and resolved.get("target_id") == target_id:
+            final_target = target
+        elif final_is_player:
+            final_target = self.state.player_by_id(resolved.get("target_id")) or target
+        else:
+            final_target = self.state.find_object(resolved.get("target_id")) or target
+        # RULE 122.1c: "If damage would be dealt to this permanent, prevent that damage and
+        # remove a shield counter from it." Checked on the *resolved* recipient (after any
+        # redirect, RULE 616.1c) and before any result of the damage — infect/wither's -1/-1
+        # counters, loyalty/defense loss, the DAMAGE event its triggers watch — because
+        # prevented damage is never dealt (RULE 615.1). One counter per damage event,
+        # however large the damage.
+        if not final_is_player and getattr(final_target, "counters", {}).get("shield", 0) > 0:
+            self.add_counters(final_target, -1, "shield")
+            return
+        # RULE 702.90b/c: damage from an infect source is never marked/
+        # doesn't cause life loss at all — it is dealt as -1/-1 counters
+        # (creature) or poison counters (player) instead. RULE 702.91a's
+        # Wither is the creature-only half of that same substitution,
+        # with a player still just losing life. Both are checked off the
+        # *source*, so an infect source's damage to a planeswalker/battle
+        # still falls through to the ordinary loyalty/defense branches
+        # below (neither rule mentions those permanent types).
+        infect = getattr(source, "card", None) is not None and has_infect(source)
+        wither = getattr(source, "card", None) is not None and has_wither(source)
+        if not wither:
+            # "All damage is dealt as though its source had wither."
+            # (Everlasting Torment) — RULE 609.4b as-though, a standing
+            # battlefield static that recolours *every* source's damage
+            # to creatures into -1/-1 counters.
+            from .. import continuous  # local: avoid the continuous↔rules cycle
 
-        self.apply_replacements(event, on_resolved=_finish)
+            wither = continuous.global_wither_active(self.state)
+        if final_is_player and infect:
+            self.add_player_counters(final_target, final, "poison", source=source)
+            self.state.record_stat(final_target.id, "damage_taken", amount=final)
+            # RULE 120.3 (Final Punishment, MEC-43): damage is still
+            # "dealt" here even though 702.90b redirects its life-loss
+            # consequence into poison counters instead — the DAMAGE event fired
+            # below is what the per-turn damage history is derived from.
+            if source is not None:
+                self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                if combat and source.is_commander:
+                    final_target.add_commander_damage(source.instance_id, source.name,
+                                                      final * self._commander_damage_multiplier(final_target))
+        elif final_is_player:
+            # RULE 120.3: damage dealt to a player causes that much life
+            # loss. This is a *consequence* of damage, not a separate
+            # event a player chose to trigger — go through the same
+            # `lose_life` choke point as any other life loss so triggers
+            # watching for "loses life" fire consistently regardless of
+            # cause.
+            from ..emblem_permissions import creature_damage_life_floor
+            # RULE 120.3 / 614.1a: Worship changes the life consequence,
+            # not the damage dealt (lifelink and damage triggers see it all).
+            life_lost = final
+            if creature_damage_life_floor(self.state, final_target):
+                life_lost = min(final, max(0, final_target.life - 1))
+            self.lose_life(final_target, life_lost, cause="damage")
+            self.state.record_stat(final_target.id, "damage_taken", amount=final)
+            if source is not None:
+                self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                # RULE 903.10a: combat damage from a commander is tallied
+                # separately toward the 21-damage loss threshold.
+                if combat and source.is_commander:
+                    final_target.add_commander_damage(source.instance_id, source.name,
+                                                      final * self._commander_damage_multiplier(final_target))
+        elif getattr(final_target, "is_planeswalker", False):
+            # RULE 306.9: damage to a planeswalker removes that many
+            # loyalty counters (the 0-loyalty SBA then sends it to the
+            # graveyard).
+            final_target.add_counters("loyalty", -final)
+        elif getattr(final_target, "is_battle", False):
+            # RULE 310.6: damage to a battle removes that many defense
+            # counters — combat *and* non-combat alike (a burn spell
+            # chips a battle down exactly like an attacker does), which
+            # is why this sits here rather than in the combat path.
+            # Hitting zero isn't handled here: the SBA pass owns both
+            # the Siege's own RULE 310.11b defeat trigger and RULE
+            # 310.7's graveyard move, so *every* route to zero defense
+            # (a "remove a defense counter" effect as much as damage)
+            # goes through one place. `add_counters` floors at zero, so
+            # overkill damage can't leave a negative count behind.
+            final_target.add_counters("defense", -final)
+        elif getattr(final_target, "is_creature", False) and (infect or wither):
+            # RULE 702.90b/702.91a: damage from an infect or wither
+            # source is put on a creature as -1/-1 counters instead of
+            # being marked — routed through the ordinary `add_counters`
+            # choke point (not `deal_damage` again) so this placement is
+            # itself subject to RULE 122's own counter-doubling
+            # replacements (Doubling Season et al.), same as any other
+            # counters being put on a permanent.
+            self.add_counters(final_target, final, "-1/-1", source=source)
+        else:
+            final_target.damage_marked += final
+        # RULE 702.164c: combat damage dealt to a *player* by a source
+        # with toxic gives that player poison counters equal to the
+        # source's total toxic value, "in addition to the damage's
+        # other results" — additive, not a substitution like infect
+        # (702.90b) above, so this runs regardless of which branch just
+        # ran and composes with infect if a source somehow has both
+        # (a rare real shape): infect already converted this same hit
+        # into `final` poison counters instead of life loss, and toxic
+        # piles its own N on top of that. Combat-only per 702.164c's own
+        # wording (unlike infect, which recolors *all* damage, not just
+        # combat damage) — read the resolved event's own `combat` flag
+        # rather than the outer closure's, since a replacement effect
+        # could in principle rewrite it same as `target_id`/`is_player`.
+        if final_is_player and bool(resolved.get("combat", combat)) and source is not None:
+            toxic_n = toxic_value(source)
+            if toxic_n:
+                self.add_player_counters(final_target, toxic_n, "poison", source=source)
+        # MEC-49: "whenever a creature dealt damage by ~ this turn dies, …"
+        # (`GameState.creatures_damaged_by_source_this_turn`, derived from the
+        # DAMAGE event below, which is flagged when its recipient is a creature).
+        # Any damage to a creature, combat or not, infect/wither included
+        # (RULE 702.90b/702.91a still deal damage, just recolor its result).
+        target_is_creature = not final_is_player and getattr(final_target, "is_creature", False)
+        # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
+        # `source_controller_id` survive onto the broadcast event — a
+        # "whenever equipped creature deals combat damage to a player"
+        # trigger (`effect_binder._trigger_condition`'s ``filter``) reads
+        # exactly these fields, and they'd otherwise be silently dropped
+        # here even though the pre-replacement ``event`` above carried them.
+        self.state.fire_event(resolved.copy_with(amount=final, target_is_creature=target_is_creature))
+        receipt = payload.get("fight_receipt")
+        if receipt is not None:
+            if not final_is_player and target_is_creature:
+                receipt["damaged"] = final_target
+            if not final_is_player and final_target is target:
+                receipt["dealt"] = final
+
+
     def lose_life(self, player: Player, amount: int, cause: str = "effect") -> None:
         """A player loses life (RULE 118-119), outside of the damage system.
 

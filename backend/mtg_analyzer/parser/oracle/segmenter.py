@@ -5299,6 +5299,10 @@ def parse_effect_body(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
+    from .catalogue.fight_sequences import fight_sequence_specs, source_counter_fight_specs
+    fight_sequence = fight_sequence_specs(body) or source_counter_fight_specs(body)
+    if fight_sequence is not None:
+        return fight_sequence
     if attached_subject:
         # RULE 400.7e: keep a dying host's conditional return riders atomic
         # before sentence/connector splitting can lose their shared referent.
@@ -7233,9 +7237,9 @@ def _attacking_token_body(body: str) -> Optional[list[EffectSpec]]:
 #: RULE 603.4: "When ~ enters, if `<condition>`, `<effect>`" — the condition is checked when the trigger event occurs
 #: (the ability does not trigger at all otherwise: no stack object, no target to choose) and again as it resolves.
 #: The per-effect gate every body keeps is the resolution check; this is the trigger-time one (`trigger["active_if"]`).
-#: Only conditions about a fact the entering permanent carries from its cast are read this way so far; the other
-#: leading-if conditions of an enters trigger (kicked, "you control a Forest", …) keep the resolution check alone.
-_INTERVENING_IF_AT_TRIGGER_KINDS = frozenset({"mana_color_spent_to_cast_at_least"})
+#: These leading-if conditions are also checked at the trigger event (RULE 603.4);
+#: the effect retains its resolution-time check. Extend only with verified live predicates.
+_INTERVENING_IF_AT_TRIGGER_KINDS = frozenset({"mana_color_spent_to_cast_at_least", "card_types_in_graveyard_at_least"})
 _ETB_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,160}),\s+.+$", re.IGNORECASE | re.S)
 
 
@@ -9794,10 +9798,11 @@ def _segment_line_unsplit(
             # resolution, so the second RULE 603.4 check can only agree with the first — and, read off a source that
             # has since left the battlefield (a new object, RULE 400.7, with nothing spent), it would wrongly
             # disagree where last-known information (RULE 608.2h) says it was spent. One check, at trigger time.
-            effects = [
-                EffectSpec(e.type, e.params, condition=None if e.condition == intervening else e.condition)
-                for e in effects
-            ]
+            if intervening.get("kind") == "mana_color_spent_to_cast_at_least":
+                effects = [
+                    EffectSpec(e.type, e.params, condition=None if e.condition == intervening else e.condition)
+                    for e in effects
+                ]
         spec = AbilitySpec(
             "triggered",
             effects=effects,

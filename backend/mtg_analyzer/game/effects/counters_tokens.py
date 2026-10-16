@@ -454,6 +454,11 @@ class AddCountersEffect(GameEffect):
             if target is None:
                 return
         else:
+            # RULE 400.7: only an instruction acting on this source needs its original zone stay.
+            incarnation = getattr(context, "resolving_source_incarnation", None)
+            if (self.source is not None and incarnation is not None
+                    and self.source.zone_incarnation != incarnation):
+                return
             target = self.source
 
         if target is not None and amount > 0:
@@ -788,6 +793,10 @@ class GrantUntilEffect(GameEffect):
             # tapped."), or ``self_subject`` (MEC-46, this ability's source).
             ability.affects = "objects"
             ability.object_ids = list(chosen_ids)
+            ability.params["object_incarnations"] = {
+                iid: obj.zone_incarnation for iid in chosen_ids
+                if (obj := context.state.find_object(iid)) is not None
+            }
         context.state.floating_statics.append(ability)
 
 
@@ -2848,6 +2857,11 @@ class PumpEffect(GameEffect):
                 return
             target = targets[0] if targets else None
         else:
+            # RULE 400.7: only an instruction acting on this source needs its original zone stay.
+            incarnation = getattr(context, "resolving_source_incarnation", None)
+            if (self.source is not None and incarnation is not None
+                    and self.source.zone_incarnation != incarnation):
+                return
             target = self.source
         if target is None:
             return

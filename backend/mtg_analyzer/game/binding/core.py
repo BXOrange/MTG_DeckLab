@@ -699,7 +699,9 @@ def _subject_condition(
 
         def _self_ok(event: Any, context: Any, iid=instance_id, key=event_key) -> bool:
             event_instance = event.get(key)
-            return event_instance is not None and event_instance == iid
+            return (event_instance is not None and event_instance == iid
+                    and (condition.get("graveyard_incarnation_override") is None
+                         or event.get("graveyard_incarnation") == condition["graveyard_incarnation_override"]))
 
         return _self_ok
 

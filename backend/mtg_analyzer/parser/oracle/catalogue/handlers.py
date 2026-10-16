@@ -30,6 +30,7 @@ from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, ParserProvenance
 from .dig import parse_dig, parse_reveal_top_branch
 from .dying_hosts import dying_host_return_specs
+from .fight_sequences import fight_sequence_specs, source_counter_fight_specs
 from .counters import KEYWORD_COUNTER_KINDS, counter_choice_list, parse_counter_choice_items
 from .referent_condition import PRONOUN_NOUN_ALT
 from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
@@ -8615,7 +8616,9 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         sub = parse_effect_body(parts[0], self_subject=True)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
-    if m.group("link") == "when" and any(s.params.get("target_kind") for s in sub):
+    if m.group("link") == "when" and any(
+        s.params.get("target_kind") or (s.type == "fight" and s.params.get("other_kind") not in (None, "previous_target", "previous_target_2", "trigger_subject", "attached_permanent")) for s in sub
+    ):
         # RULE 603.12: only "When you do" creates a reflexive trigger.
         # "If you do" uses the enclosing spell/ability's announced targets.
         if len(parts) > 1:
@@ -22094,6 +22097,9 @@ def _match_clause_once(
     group_subject: bool = False, previous_selector: bool = False,
     attached_subject: bool = False,
 ) -> Optional[list[EffectSpec]]:
+    fight_sequence = fight_sequence_specs(clause) or source_counter_fight_specs(clause)
+    if fight_sequence is not None:
+        return fight_sequence
     if attached_subject:
         host_return = dying_host_return_specs(clause)
         if host_return is not None:

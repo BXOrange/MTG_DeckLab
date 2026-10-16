@@ -482,6 +482,9 @@ class OptionalEffect(_CompositeEffect):
         context.engine.open_choice({
             "referent_subject_id": referent_subject_id,
             "kind": self.CHOICE_KIND,
+            "source_incarnation": (getattr(context, "resolving_source_incarnation", None)
+                                   if getattr(context, "resolving_source_incarnation", None) is not None
+                                   else getattr(self.source, "zone_incarnation", None)),
             "copiable_stack_id": (context.trigger_event or {}).get("copiable_stack_id"),
             "player_id": chooser.id,
             "prompt": prompt,
