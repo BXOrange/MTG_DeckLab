@@ -44,9 +44,43 @@ seinen Indizes; der aktuelle Code und seine Tests vor veralteter Beschreibung.
   `MagicCompRules`-Text lesen und danach zum betroffenen Code zurückkehren.
 - Kehre zu `CLAUDE.md` zurück, sobald es wieder um Projektentscheidungen,
   Implementierungsmuster, Tests oder Dokumentationspflege geht.
-- Lade den fast 1-MB-großen Regeltext nie vollständig ohne Anlass; das
-  Rules-Wiki liefert die passende Zeile. Nach einem Regelupdate das Wiki mit
+- Nach einem Regelupdate das Rules-Wiki mit
   `python3 docs/Reference/rules_wiki/build_wiki.py` neu erzeugen.
+
+## Schlanker Dateizugriff (Lean Access)
+
+Um Kontextfenster und Tokenverbrauch zu schonen, gelten strikte Zugriffsregeln:
+
+- **`docs/Reference/MagicCompRules *.txt` (~1 MB):** Niemals vollständig in den
+  Kontext laden. Ausschließlich das [Rules-Wiki](docs/Reference/rules_wiki/README.md)
+  oder `grep` nutzen, um die Zeilennummer zu ermitteln, und nur den benötigten
+  Ausschnitt (z. B. 20–40 Zeilen) lesen.
+- **`docs/implementation-state/Done_Backend.md` (~700 KB) & `Done_Frontend.md`:**
+  Niemals als Ganzes öffnen. Frühere Umsetzungen oder Ticket-Referenzen gezielt per
+  `grep`/Suche nach Ticket-ID oder Stichwort abfragen.
+- **`docs/Reference/rules_wiki/rule_line_index.json` (~175 KB):** Nicht als
+  Rohtext laden. Stattdessen Markdown-Indizes konsultieren oder per Skript/`jq`
+  abfragen.
+- **Spezialdokumente nur bei direktem Bezug:** `PARSER_LONG_TAIL.md`, `singletons.md`
+  und `11_CARD_CATALOGUE_AUTHORING_GUIDE.md` nicht zur allgemeinen Orientierung
+  laden, sondern nur bei Bearbeitung der spezifischen Fachaufgabe.
+- **Chirurgisch lesen:** Bei allen Dateien immer gezielte Zeilenbereiche
+  (`StartLine`/`EndLine`) oder Werkzeuge wie `grep` bevorzugen, statt ganze Module
+  oder Dokumente blind einzulesen.
+
+## Anti-Verbositäts-Richtlinie (Anti-Verbosity Policy)
+
+- **Prägnant und direkt:** Antworten, Erklärungen und Statusmeldungen auf das
+  nötige Minimum beschränken. Keine Begrüßungs- oder Höflichkeitsfloskeln, keine
+  Füllsätze und keine Meta-Plauderei („Ich werde nun...“, „Lassen Sie uns...“).
+- **Keine Inhaltswiederholung:** Bereits bekannte Dokumenteninhalte, unveränderte
+  Codeblöcke oder allgemeine Wissensbestände nicht im Chat rezitieren oder
+  paraphrasieren.
+- **Fokus auf Diffs und Fakten:** Bei Befehlsausführungen und Tests nur das
+  Ergebnis, Fehlermeldungen, geänderte Dateien und die direkte Konsequenz nennen.
+- **Kein Arbeitsnotizen-Spam im Chat:** Ausführliche Recherche-Notizen,
+  Checklisten und Zwischenstände gehören in temporäre Scratchpads (`scratch/`),
+  niemals ungefiltert in den Chatverlauf oder in permanente Dokumente.
 
 ## Pflege
 
