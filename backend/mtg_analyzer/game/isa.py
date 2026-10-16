@@ -818,6 +818,16 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    # Bounded flicker compositions suspend on existing entry/die/selection
+    # continuations; physical reports are explicit player observations.
+    "drive_to_work": "608.2d",
+    "exile_attached_group": "614.12",
+    "flicker_acrobatics": "706.1",
+    "flicker_fortune_delayed": "608.2d",
+    "flicker_repeated_rounds": "608.2d",
+    "landfill": "608.2d",
+    "mirror_flicker": "107.1",
+
     "measure_physical_property": "107.1",
     "miracle_cast": "702.94",
     "reveal_split_piles": "608.2d",

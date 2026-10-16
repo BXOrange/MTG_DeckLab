@@ -690,6 +690,8 @@ class GameObject:
         #: RULE 702.171: the creatures tapped to pay "Saddle N" this turn — "a creature that saddled it this turn"
         #: (Calamity, Galloping Inferno) — as ``(turn number, instance ids)``; stale once the turn changes.
         self.saddled_by: tuple[Optional[int], list[int]] = (None, [])
+        #: RULE 400.7: a saddler that leaves and returns is a different creature.
+        self.saddled_by_incarnations: dict[int, int] = {}
         #: ENG-27: whether this object's own "if you haven't added mana
         #: with this ability this turn, you may add …" trigger (Carpet of
         #: Flowers) already has this turn. A per-*ability* gate, unlike
@@ -1408,6 +1410,9 @@ class GameObject:
         #: applied. Persists across a recompute (not cleared by
         #: `reset_derived`).
         self._copy_base: Optional[dict[str, Any]] = None
+        #: RULE 400.7: eager copy effects end when this permanent changes zones.
+        #: Unlike _copy_base, this retains the original even for permanent copies.
+        self._copy_zone_base: Optional[dict[str, Any]] = None
         #: Which `copy_target_id` is *currently* applied (distinct from the
         #: condition itself) — lets `continuous.recompute` tell "already
         #: copying this exact target, no-op" from "target changed, re-copy"
@@ -1499,6 +1504,11 @@ class GameObject:
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).
         self.turn_face_up()
+        if self._copy_zone_base is not None:
+            from ...game.copy_mechanics import restore_face
+
+            restore_face(self, self._copy_zone_base)
+            self._copy_zone_base = None
         was_flipped = self.flipped
         if self.transformed or self.flipped:
             self.card = self._front_card  # RULE 711.8 / 710.4: a new object presents its front face
@@ -1615,6 +1625,7 @@ class GameObject:
         self.last_cost_exiled_incarnations = {}
         self.linked_exile_ids = []
         self.saddled_by = (None, [])
+        self.saddled_by_incarnations = {}
         self.haunting_instance_id = None
         self.haunting_incarnation = None
         self.exile_after_free_cast = False

@@ -5299,6 +5299,10 @@ def parse_effect_body(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
+    from .catalogue.flicker_sequences import flicker_sequence_specs
+    flicker_sequence = flicker_sequence_specs(body)
+    if flicker_sequence is not None:
+        return flicker_sequence
     from .catalogue.physical_properties import physical_fight_specs
     physical_fight = physical_fight_specs(body)
     if physical_fight is not None:

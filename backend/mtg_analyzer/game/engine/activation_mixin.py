@@ -1401,11 +1401,14 @@ class ActivationMixin:
             # "a creature that saddled it this turn" (Calamity, Galloping Inferno).
             turn = self.state.internal_turn.number
             saddlers = list(source.saddled_by[1]) if source.saddled_by[0] == turn else []
+            visits = dict(source.saddled_by_incarnations) if source.saddled_by[0] == turn else {}
             for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices, crewing=False) or []:
                 self.rules.set_tapped(obj, True)
                 if obj.instance_id not in saddlers:
                     saddlers.append(obj.instance_id)
+                visits[obj.instance_id] = obj.zone_incarnation
             source.saddled_by = (turn, saddlers)
+            source.saddled_by_incarnations = visits
         if cost.station:
             # RULE 702.184a: tap the chosen creature, then remember its
             # power (`GameObject.station_tapped_power`) for the resolving

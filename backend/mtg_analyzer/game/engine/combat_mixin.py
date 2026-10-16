@@ -804,6 +804,11 @@ class CombatMixin:
                 GameEvent(
                     EventType.ATTACKS,
                     attacker=obj.name,
+                    # RULE 400.7 / 603.7: retain the original saddle visits even
+                    # if the Mount leaves before its attack ability resolves.
+                    zone_incarnation=obj.zone_incarnation,
+                    saddled_by_visits=(list(obj.saddled_by_incarnations.items())
+                                       if obj.saddled_by[0] == self.state.internal_turn.number else []),
                     player_id=player.id,  # RULE 508.1a: the attacker's controller
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),

@@ -253,6 +253,7 @@ _MULTI_TARGET_SCOPE_TAIL = r" (?:your opponents control|an opponent controls|you
 _MULTI_TARGET_YOU_KINDS: dict[str, str] = {
     "creature": "creature_you_control", "permanent": "permanent_you_control",
     "nonland_permanent": "nonland_permanent_you_control",
+    "creature_or_planeswalker": "targetable_creature_or_planeswalker_you_control",
 }
 _MULTI_TARGET_SCOPED_KINDS: dict[str, str] = {
     r"target creatures and/or planeswalkers": "creature_or_planeswalker",

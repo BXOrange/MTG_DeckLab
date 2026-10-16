@@ -47,3 +47,4 @@ from . import nightmare_shepherd  # noqa: F401
 from . import nykthos_paragon  # noqa: F401
 from . import niv_mizzet_ghost_counsel  # noqa: F401
 from . import ninja_pizza  # noqa: F401
+from . import now_you_see_me  # noqa: F401

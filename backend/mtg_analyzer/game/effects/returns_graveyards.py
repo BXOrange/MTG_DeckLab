@@ -2499,6 +2499,10 @@ class BlinkEffect(GameEffect):
         typed_entry_counters: Optional[list[dict]] = None,
         transformed: bool = False,
         face_down_kind: Optional[str] = None,
+        return_step: Optional[str] = None,
+        return_scope: str = 'any',
+        return_effects: Optional[list[dict]] = None,
+        tapped_if_types: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -2520,6 +2524,10 @@ class BlinkEffect(GameEffect):
         self.typed_entry_counters = typed_entry_counters
         self.transformed = transformed
         self.face_down_kind = face_down_kind
+        self.return_step = return_step
+        self.return_scope = return_scope
+        self.return_effects = return_effects or []
+        self.tapped_if_types = tapped_if_types or []
         self.returned_objects = []
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -2539,16 +2547,30 @@ class BlinkEffect(GameEffect):
                 incarnation = target.zone_incarnation + 1
                 context.engine.exile(target)
                 visits.append((target, incarnation))
+        from .battlefield_batches import start_exile_return_batch
+        from .choices_actions import ReturnSpecificToBattlefieldEffect
+        from ...models.game.game_state import DelayedTrigger
+        from ..binding.core import build_effects
+        objects = [obj for obj, incarnation in visits
+                   if obj.zone == Zone.EXILE and obj.zone_incarnation == incarnation]
+        options = {'tapped': self.tapped, 'attacking': self.attacking, 'entry_counters': self.entry_counters,
+                   'typed_entry_counters': self.typed_entry_counters,
+                   'transformed': self.transformed, 'face_down_kind': self.face_down_kind,
+                   'tapped_if_types': self.tapped_if_types}
         self.returned_objects = []
-        for obj, incarnation in visits:
-            returned = context.engine.return_from_exile(
-                obj, incarnation, controller_id=controller.id if controller else None,
-                tapped=self.tapped, attacking=self.attacking,
-                entry_counters=self.entry_counters, typed_entry_counters=self.typed_entry_counters,
-                transformed=self.transformed, face_down_kind=self.face_down_kind,
-            )
-            if returned is not None:
-                self.returned_objects.append(returned)
+        if self.return_step:
+            return_effect = ReturnSpecificToBattlefieldEffect(objects,
+                source=self.source, under_your_control=self.under_your_control,
+                return_effects=self.return_effects, **options)
+            context.state.delayed_triggers.append(DelayedTrigger(
+                controller_id=_controller_of(self.source, context).id,
+                step=self.return_step, scope=self.return_scope, effects=[return_effect]))
+        else:
+            frame = start_exile_return_batch(context.engine,
+                [(obj.instance_id, incarnation) for obj, incarnation in visits],
+                controller_id=controller.id if controller else None, entry_options=options,
+                after_effects=build_effects(self.return_effects, self.source), source=self.source)
+            self.returned_objects = [context.state.find_object(iid) for iid, inc in frame['returned_visits']]
 
 
 

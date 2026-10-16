@@ -47,13 +47,15 @@ def test_plural_blink_exiles_complete_set_before_any_return(monkeypatch):
     second = _bf(eng, _card('Second'))
     events = []
     exile = eng.rules.exile
-    restore = eng.rules.return_from_exile
+    fire = eng.state.fire_event
     def note_exile(obj):
         events.append(('exile', obj.instance_id)); return exile(obj)
-    def note_return(obj, incarnation, **kwargs):
-        events.append(('return', obj.instance_id)); return restore(obj, incarnation, **kwargs)
+    def note_return(event):
+        if event.type == 'ENTERS_BATTLEFIELD' and getattr(eng.state, '_deferred_entry_events', None) is None:
+            events.append(('return', event.get('instance_id')))
+        return fire(event)
     monkeypatch.setattr(eng.rules, 'exile', note_exile)
-    monkeypatch.setattr(eng.rules, 'return_from_exile', note_return)
+    monkeypatch.setattr(eng.state, 'fire_event', note_return)
     effect = BlinkEffect(entry_counters={'+1/+1': 1})
     effect.apply(eng.rules.context, [first, second])
     assert [x[0] for x in events] == ['exile', 'exile', 'return', 'return']

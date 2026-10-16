@@ -247,7 +247,9 @@ class TestPublicSurfaceShrank:
         # `GameEngine`'s cost payment, none of them from another `RulesEngine` method.
         # PAR-100: hand-to-library ordering is called by PutHandOnBottomEffect.
         count = len(self._public_methods())
-        assert count <= 176, f"RulesEngine still exposes {count} public methods"
+        # PAR-157: return_from_exile is called by effect implementations;
+        # it is the exact-visit public sibling of return_from_graveyard.
+        assert count <= 177, f"RulesEngine still exposes {count} public methods"
 
     def test_the_dispatcher_is_no_longer_a_cascade(self) -> None:
         source = inspect.getsource(GameEngine.resolve_pending_choice)

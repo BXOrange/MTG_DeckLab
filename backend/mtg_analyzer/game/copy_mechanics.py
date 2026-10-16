@@ -113,6 +113,11 @@ def become_copy(
     original printed card — the chain composes."""
     from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
+    # RULE 400.7: a copied permanent returns with its own printed abilities.
+    # Preserve this first face across repeated copies; snapshots do not change
+    # the physical printing identity used for player-observed printed facts.
+    if obj._copy_zone_base is None:
+        obj._copy_zone_base = snapshot_face(obj)
     copiable = getattr(target, "_front_card", target.card)
     obj.card = copiable.as_copy(
         add_types=add_types, add_subtypes=add_subtypes,

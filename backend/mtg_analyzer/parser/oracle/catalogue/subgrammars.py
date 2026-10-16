@@ -285,7 +285,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # *above* the N-way row — it matches a two-word "X or Y" too, and used to
     # turn Naturalize's "target artifact or enchantment" into any permanent.
     (r"target artifact or enchantment", "artifact_or_enchantment"),
-    (r"target (?:artifact or creature|creature or artifact)", "artifact_or_creature"),
+    (rf"target (?:(?:{TARGET_ADJECTIVE}) )?(?:artifact or creature|creature or artifact)", "artifact_or_creature"),
     # PAR-104: "target artifact, enchantment, or creature [with flying]" (Mutant Chain Reaction, Spider Food, Broken
     # Wings, Exorcise, Vivien Reid, …) — the three-type union in any printed order, with the dedicated pool the engine
     # already has rather than the broad ``"permanent"`` the N-way row below would pick (which also offers lands). A
@@ -721,6 +721,7 @@ YOU_TARGET_KINDS: dict[str, str] = {
     "artifact": "artifact_you_control",
     "enchantment": "enchantment_you_control",
     "artifact_or_enchantment": "artifact_or_enchantment_you_control",
+    "creature_or_planeswalker": "targetable_creature_or_planeswalker_you_control",
 }
 #: PAR-130: a target kind → the same pool scoped to "that player"
 #: (`targeting.TARGET_FRAMES`' ``SCOPE_THAT_PLAYER`` rows). Same contract as
@@ -747,6 +748,7 @@ OTHER_TARGET_KINDS: dict[str, str] = {
     "creature_you_control": "other_creature_you_control",
     "land": "other_land",
     "land_you_control": "other_land_you_control",
+    "targetable_creature_or_planeswalker_you_control": "another_creature_or_planeswalker_you_control",
 }
 #: A controller-/"another"-scoped kind → the unscoped kind whose pool it
 #: narrows (RULE 109.5/115.1). A verb that can act on the unscoped kind can act
@@ -755,6 +757,8 @@ OTHER_TARGET_KINDS: dict[str, str] = {
 SCOPED_TARGET_BASE: dict[str, str] = {
     **{scoped: base for base, scoped in NOT_YOU_TARGET_KINDS.items()},
     **{scoped: base for base, scoped in THAT_PLAYER_TARGET_KINDS.items()},
+    "targetable_creature_or_planeswalker_you_control": "creature_or_planeswalker",
+    "another_creature_or_planeswalker_you_control": "creature_or_planeswalker",
     "creature_you_control": "creature",
     "other_creature_you_control": "creature",
     "permanent_you_control": "permanent",
@@ -872,6 +876,15 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     for pattern, kind in _TARGET_LOOKUP:
         if pattern.match(text):
             return kind
+    other = re.match(OTHER_PREFIX, text, re.IGNORECASE)
+    if other is not None:
+        base = resolve_target_kind(text[other.end():])
+        if base in SOURCE_EXCLUDED_TARGET_KINDS:
+            return base
+        if base in OTHER_TARGET_KINDS:
+            return OTHER_TARGET_KINDS[base]
+        # Older explicitly scoped rows compose their own "other" pool;
+        # do not erase that route when this slot has no scoped sibling.
     tail = re.search(NOT_YOU_TAIL + r"\Z", text, re.IGNORECASE)
     if tail is not None:
         base = resolve_target_kind(text[: tail.start()])
@@ -886,14 +899,8 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         scoped = YOU_TARGET_KINDS.get(base) if base is not None else None
         if scoped is not None:
             return scoped
-        # No ``*_you_control`` pool for it: fall through ("another target red creature you control" is
-        # resolved by the "another" prefix below, over the row that already names its own scope).
-    other = re.match(OTHER_PREFIX, text, re.IGNORECASE)
-    if other is not None:
-        base = resolve_target_kind(text[other.end():])
-        if base in SOURCE_EXCLUDED_TARGET_KINDS:
-            return base
-        return OTHER_TARGET_KINDS.get(base) if base is not None else None
+        # An unknown scope remains unclaimed; "another" was resolved before
+        # this scope so narrowing cannot accidentally reinclude the source.
     return None
 
 
@@ -920,7 +927,7 @@ _TARGET_COMBAT_STATE_RE = re.compile(
 
 
 _TARGET_ADJECTIVE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) creature(?: you control)?(?:" + NOT_YOU_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r")?",
     re.IGNORECASE,
 )
 

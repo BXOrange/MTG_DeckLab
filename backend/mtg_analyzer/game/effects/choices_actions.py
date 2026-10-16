@@ -1401,7 +1401,9 @@ class ChooseObjectsEffect(GameEffect):
     def _saddled_this_turn(self, context: GameContext, obj: Any) -> bool:
         """Whether ``obj`` was tapped to pay this source's Saddle cost during the current turn."""
         turn, ids = getattr(self.source, "saddled_by", (None, []))
-        return turn == context.state.internal_turn.number and obj.instance_id in ids
+        expected = self.source.saddled_by_incarnations.get(obj.instance_id, obj.zone_incarnation)
+        return (turn == context.state.internal_turn.number and obj.instance_id in ids
+                and obj.zone_incarnation == expected)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .. import combat
@@ -2968,6 +2970,8 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         typed_entry_counters: Optional[list[dict]] = None,
         transformed: bool = False,
         face_down_kind: Optional[str] = None,
+        return_effects: Optional[list[dict]] = None,
+        tapped_if_types: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.objects = objects
@@ -2982,6 +2986,8 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         self.typed_entry_counters = typed_entry_counters
         self.transformed = transformed
         self.face_down_kind = face_down_kind
+        self.return_effects = return_effects or []
+        self.tapped_if_types = tapped_if_types or []
         self.returned_objects = []
 
     @property
@@ -2996,17 +3002,18 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         self._exile_visits = [(obj, obj.zone_incarnation) for obj in self._objects]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .battlefield_batches import start_exile_return_batch
+        from ..binding.core import build_effects
         controller_id = context.resolving_controller_id if self.under_your_control else None
-        self.returned_objects = []
-        for obj, incarnation in self._exile_visits:
-            returned = context.engine.return_from_exile(
-                obj, incarnation, controller_id=controller_id, tapped=self.tapped,
-                attacking=self.attacking, entry_counters=self.entry_counters,
-                typed_entry_counters=self.typed_entry_counters,
-                transformed=self.transformed, face_down_kind=self.face_down_kind,
-            )
-            if returned is not None:
-                self.returned_objects.append(returned)
+        frame = start_exile_return_batch(context.engine,
+            [(obj.instance_id, incarnation) for obj, incarnation in self._exile_visits],
+            controller_id=controller_id,
+            entry_options={'tapped': self.tapped, 'attacking': self.attacking, 'entry_counters': self.entry_counters,
+                'typed_entry_counters': self.typed_entry_counters,
+                'transformed': self.transformed, 'face_down_kind': self.face_down_kind,
+                'tapped_if_types': self.tapped_if_types},
+            after_effects=build_effects(self.return_effects, self.source), source=self.source)
+        self.returned_objects = [context.state.find_object(iid) for iid, inc in frame['returned_visits']]
 
 
 class ReturnUncastExiledEffect(GameEffect):

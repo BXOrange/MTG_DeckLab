@@ -739,7 +739,8 @@ class StateBasedActionsMixin:
                         self.state.resolution_play_followup = None
                     self.state.resolution_play_waiting = bool(
                         self.state.resolution_play_choice or self.state.resolution_play_followup)
-            if (choice and choice.get("kind") == "physical_property_measurement"
+            if (choice and choice.get("kind") in {"physical_property_measurement", "physical_environment_measurement",
+                                                  "physical_card_story", "landfill_land_type", "landfill_covered_report"}
                     and (choice.get("player_id") == player.id or ending_game)):
                 self.state.pending_choice = None
                 # RULE 800.4a: an eliminated player's resolving ability has
@@ -748,6 +749,8 @@ class StateBasedActionsMixin:
                     frame for frame in self.state.deferred_effects
                     if not ending_game and getattr(frame.get("source"), "controller_id", None) != player.id
                 ]
+            from ..effects.battlefield_batches import cancel_conceded_return_entry
+            cancel_conceded_return_entry(self, player.id, ending_game=ending_game)
             self._cancel_conceded_turn_draw(player.id, ending_game=ending_game)
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
             self._cancel_conceded_fight(player.id, ending_game=ending_game)

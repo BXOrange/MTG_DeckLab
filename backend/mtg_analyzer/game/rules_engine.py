@@ -541,7 +541,12 @@ class RulesEngine(
         self.state.pending_choice = None
         if choice.get("battlefield_batch") and not choice.get("entry_effect"):
             from .effects.battlefield_batches import restore_batch_runtime
-            restore_batch_runtime(self, choice)
+            if not restore_batch_runtime(self, choice):
+                # RULE 400.7: the chooser cannot mutate a later zone visit
+                # of a card that stopped being the prospective entrant.
+                from .effects.battlefield_batches import resume_battlefield_batch
+                resume_battlefield_batch(self, choice)
+                return
         # The ability that asked: a card it puts onto the battlefield attacking joins its attack (RULE 508.4a,
         # `_resolving_source_defender`), though the stack item it came from has long finished resolving.
         outer_choice_source = getattr(self.context, "choice_source_id", None)

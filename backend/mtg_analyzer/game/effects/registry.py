@@ -2139,6 +2139,7 @@ EffectRegistry.register(
         under_your_control=bool(p.get("under_your_control", False)),
         entry_counters=p.get("entry_counters"), typed_entry_counters=p.get("typed_entry_counters"),
         transformed=bool(p.get("transformed", False)), face_down_kind=p.get("face_down_kind"),
+        return_effects=p.get("return_effects"), tapped_if_types=p.get("tapped_if_types"),
     ),
 )
 EffectRegistry.register(
@@ -2759,6 +2760,8 @@ EffectRegistry.register(
         attacking=bool(p.get("attacking", False)),
         entry_counters=p.get("entry_counters"), typed_entry_counters=p.get("typed_entry_counters"),
         transformed=bool(p.get("transformed", False)), face_down_kind=p.get("face_down_kind"),
+        return_effects=p.get("return_effects"), tapped_if_types=p.get("tapped_if_types"),
+        return_step=p.get("return_step"), return_scope=p.get("return_scope", "any"),
     ),
 )
 EffectRegistry.register(
@@ -5661,4 +5664,8 @@ for _kind, _factory in _FLICKER_COMPOSITE_FACTORIES.items():
 
 from .flicker_attachments import EFFECT_FACTORIES as _FLICKER_ATTACHMENT_FACTORIES
 for _kind, _factory in _FLICKER_ATTACHMENT_FACTORIES.items():
+    EffectRegistry.register(_kind, _factory)
+
+from .physical_flicker import EFFECT_FACTORIES as _PHYSICAL_FLICKER_FACTORIES
+for _kind, _factory in _PHYSICAL_FLICKER_FACTORIES.items():
     EffectRegistry.register(_kind, _factory)

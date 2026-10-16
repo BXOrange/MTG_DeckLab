@@ -2017,7 +2017,7 @@ export function createGameBoardView(opts = {}) {
   function pendingChoiceHtml(pending, aside = false) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
     const heading = pending.prompt || pending.description || t('bd.choice.needed');
-    const body = pending.kind === 'physical_property_measurement'
+    const body = ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
       ? physicalMeasurementHtml(pending)
       : pending.kind === 'replacement_order'
       ? replacementOrderHtml(pending)
@@ -2064,8 +2064,9 @@ export function createGameBoardView(opts = {}) {
 
   function physicalMeasurementHtml(pending) {
     const subject = pending.subject || {};
-    const key = JSON.stringify([pending.property, subject.printing_id, subject.face]);
+    const key = JSON.stringify([pending.kind, pending.observation_id, pending.property, subject.printing_id, subject.face]);
     if (measurementDraft.key !== key) measurementDraft = { key, text: '' };
+    const environmental = pending.kind === 'physical_environment_measurement';
     const text = measurementDraft.text;
     const valid = measurementValue(text, pending) !== null;
     const image = subject.image_url || (subject.printing_id
@@ -2073,16 +2074,16 @@ export function createGameBoardView(opts = {}) {
     return `<form data-physical-measurement novalidate>
       ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(subject.name || '')}" width="300" style="max-width:100%;height:auto">` : ''}
       <p>${escapeHtml(subject.name || '')}</p>
-      <p>${escapeHtml(subject.printing_label
+      ${environmental ? '' : `<p>${escapeHtml(subject.printing_label
         ? t('bd.measurement.printing', { printing: subject.printing_label, face: subject.face || 'front' })
-        : t('bd.measurement.face', { face: subject.face || 'front' }))}</p>
-      <p>${escapeHtml(t('bd.measurement.instructions'))}</p>
-      <label>${escapeHtml(t('bd.measurement.lines'))}
+        : t('bd.measurement.face', { face: subject.face || 'front' }))}</p>`}
+      <p>${escapeHtml(t(environmental ? 'bd.measurement.mirrorsInstructions' : 'bd.measurement.instructions'))}</p>
+      <label>${escapeHtml(t(environmental ? 'bd.measurement.mirrors' : 'bd.measurement.lines'))}
         <input data-measurement-value type="text" inputmode="numeric" pattern="[0-9]+" autocomplete="off" required
           value="${escapeAttr(text)}" aria-describedby="gf-measurement-error" ${busy ? 'disabled' : ''}>
       </label>
       <p id="gf-measurement-error" data-measurement-error role="status">${text && !valid ? escapeHtml(t('bd.measurement.invalid')) : ''}</p>
-      <button type="submit" class="primary" data-measurement-submit ${busy || !valid ? 'disabled' : ''}>${escapeHtml(t('bd.measurement.confirm'))}</button>
+      <button type="submit" class="primary" data-measurement-submit ${busy || !valid ? 'disabled' : ''}>${escapeHtml(t(environmental ? 'bd.measurement.confirmObservation' : 'bd.measurement.confirm'))}</button>
     </form>`;
   }
 
@@ -2459,7 +2460,7 @@ export function createGameBoardView(opts = {}) {
         }
         act({ type: 'choose', option_id: value });
       });
-    } else if (view.state?.pending_choice?.kind !== 'physical_property_measurement') {
+    } else if (!['physical_property_measurement', 'physical_environment_measurement'].includes(view.state?.pending_choice?.kind)) {
       measurementDraft = { key: null, text: '' };
     }
     root.querySelectorAll('[data-action]').forEach((el) => {

@@ -69,3 +69,4 @@ from . import fact_or_fiction  # noqa: F401
 from . import fast_forward  # noqa: F401
 from . import foot_chopper  # noqa: F401
 from . import flickerform  # noqa: F401
+from . import fortune_loyal_steed  # noqa: F401

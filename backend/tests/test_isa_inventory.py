@@ -279,7 +279,11 @@ class TestBacklogSizes:
         # `owner_puts_on_top_or_bottom` (the target's owner chooses the library end, Plan for All Outcomes), 102 -> 105.
         # Turtle Power adds two reviewed adapters over existing choose_objects frames:
         # mill/recover-to-battlefield and optional host sacrifice/draw with saved power.
-        assert n <= 107, f"continuation types grew to {n}"
+        # PAR-157 adds seven reviewed compositions over existing choice,
+        # entry and dice frames: repeated rounds, Acrobatics, Fortune's
+        # saddle selection, attached exile groups, and three physical-card
+        # observations (Drive to Work, Landfill, visible mirrors).
+        assert n <= 114, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

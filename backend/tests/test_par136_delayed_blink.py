@@ -71,9 +71,10 @@ def test_the_return_row_needs_an_earlier_clause_that_exiled_something():
     # standing alone nothing was exiled: an ungated row would arm a delayed no-op
     assert match_clause(_RETURN) is None
     specs = parse_effect_body(f"exile target creature. {_RETURN}.")
-    assert [s.type for s in specs] == ["exile", "create_delayed_trigger"]
-    assert specs[1].params["effects"] == [{"type": "return_specific_to_battlefield", "params": {}}]
-    assert specs[1].params["capture"] == "previous_or_self"
+    assert [s.type for s in specs] == ["blink"]
+    assert specs[0].params["return_step"] == "end"
+    assert not specs[0].params.get("under_your_control")
+    assert specs[0].params["target_kind"] == "creature"
 
 
 def test_self_blink_and_mass_forms_parse():

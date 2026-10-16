@@ -21,12 +21,10 @@ def test_another_round_fresh_set_each_pass_and_all_exiles_before_returns():
     spell = _hand(eng, _spell('Another Round', '', 'Sorcery'))
     spell.x_paid = 1
     events = []
-    original = eng.state.fire_event
     def observe(event):
         if event.type in (EventType.LEAVES_BATTLEFIELD, EventType.ENTERS_BATTLEFIELD):
             events.append(event.type)
-        return original(event)
-    eng.state.fire_event = observe
+    eng.state.subscribe(observe)
     AnotherRoundEffect(spell).apply(eng.rules.context)
     assert str(enemy.instance_id) not in [o['id'] for o in eng.state.pending_choice['options']]
     _answer(eng, a.instance_id)
@@ -188,3 +186,194 @@ def test_authored_acrobatics_real_cast_and_actual_delayed_stack():
     eng.resolve_until_stable()
     assert a.zone == Zone.BATTLEFIELD
     assert not eng.state.delayed_triggers
+
+
+def _copy_creature(eng):
+    from mtg_analyzer.models.cards.card import Card
+    return _bf(eng, Card(id='Clone', name='Clone', type_line='Creature — Shapeshifter',
+                        is_creature=True, power=0, toughness=0,
+                        oracle_text='You may have Clone enter as a copy of any creature on the battlefield.'))
+
+
+def test_another_round_waits_for_copy_entry_choice_before_next_selection_after_clone():
+    eng = _engine()
+    enemy = _bf(eng, _creature('Enemy'), player='p2')
+    obj = _copy_creature(eng)
+    source = _hand(eng, _spell('Another Round', '', 'Sorcery'))
+    source.x_paid = 1
+    AnotherRoundEffect(source).apply(eng.rules.context)
+    _answer(eng, obj.instance_id)
+    _answer(eng, 'done')
+    assert eng.state.pending_choice['kind'] == 'enter_as_copy'
+    assert obj.zone == Zone.EXILE
+    from mtg_analyzer.game.game_engine import GameEngine
+    copied = GameEngine(eng.state.clone())
+    copied.rules.resolve_choice(str(enemy.instance_id))
+    actual = copied.state.find_object(obj.instance_id)
+    assert actual.zone == Zone.BATTLEFIELD and actual.name == 'Enemy'
+    assert copied.state.pending_choice['kind'] == 'flicker_round_selection'
+    copied.rules.resolve_choice('done')
+    assert copied.state.pending_choice is None
+    assert obj.zone == Zone.EXILE
+
+
+def test_acrobatics_high_row_waits_for_copy_choice_before_reexile_after_clone():
+    eng = _engine()
+    enemy = _bf(eng, _creature('Enemy'), player='p2')
+    obj = _copy_creature(eng)
+    source = _hand(eng, _spell("Lae'zel's Acrobatics", ''))
+    eng.rules.random_int = lambda sides: 19
+    AcrobaticsEffect(source).apply(eng.rules.context)
+    assert eng.state.pending_choice['kind'] == 'enter_as_copy'
+    assert not eng.state.delayed_triggers
+    from mtg_analyzer.game.game_engine import GameEngine
+    copied = GameEngine(eng.state.clone())
+    copied.rules.resolve_choice(str(enemy.instance_id))
+    actual = copied.state.find_object(obj.instance_id)
+    assert actual.zone == Zone.EXILE
+    assert len(copied.state.delayed_triggers) == 1
+    copied._fire_delayed_triggers('end')
+    copied.resolve_until_stable()
+    assert copied.state.pending_choice['kind'] == 'enter_as_copy'
+    copied.rules.resolve_choice(str(enemy.instance_id))
+    assert actual.zone == Zone.BATTLEFIELD and actual.name == 'Enemy'
+
+
+def _fortune(eng):
+    from mtg_analyzer.models.cards.card import Card
+    return _bf(eng, Card(id='Fortune', name='Fortune, Loyal Steed',
+                        type_line='Legendary Creature — Beast Mount', is_creature=True,
+                        power=2, toughness=4, oracle_text="When Fortune enters, scry 2.\nWhenever Fortune attacks while saddled, at end of combat, exile it and up to one creature that saddled it this turn, then return those cards to the battlefield under their owner's control.\nSaddle 1"))
+
+
+def _saddle_and_attack(eng, fortune, saddler):
+    player = eng.state.player_by_id('p1')
+    eng.activate_ability(player, fortune, ability_index=0, tap_choices=[saddler.instance_id])
+    eng.resolve_until_stable()
+    assert fortune.saddled_by_incarnations == {saddler.instance_id: saddler.zone_incarnation}
+    eng.state.current_step = 'declare_attackers'
+    eng.declare_attackers(player, [fortune])
+
+
+def test_fortune_real_saddle_attack_endcombat_optional_saddler_and_scry():
+    eng = _engine()
+    fortune = _fortune(eng)
+    saddler = _bf(eng, _creature('Saddler'))
+    _saddle_and_attack(eng, fortune, saddler)
+    eng.resolve_until_stable()
+    assert len(eng.state.delayed_triggers) == 1
+    assert eng.state.delayed_triggers[0].step == 'end_combat'
+    before = (fortune.zone_incarnation, saddler.zone_incarnation)
+    eng._fire_delayed_triggers('end_combat')
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice['kind'] == 'fortune_flicker_saddler'
+    _answer(eng, saddler.instance_id)
+    eng.resolve_until_stable()
+    assert (fortune.zone_incarnation, saddler.zone_incarnation) == (before[0] + 2, before[1] + 2)
+    assert eng.state.pending_choice['kind'] == 'scry'
+    assert len([o for o in eng.state.pending_choice['options'] if o.get('instance_id')]) == 2
+
+
+def test_fortune_old_attack_snapshot_survives_mount_blink_before_trigger_resolution():
+    eng = _engine()
+    fortune = _fortune(eng)
+    saddler = _bf(eng, _creature('Saddler'))
+    _saddle_and_attack(eng, fortune, saddler)
+    eng.rules.blink(fortune)
+    # Complete only the new Fortune's ETB scry; old attack event still retains its saddlers.
+    eng.resolve_until_stable()
+    while eng.state.pending_choice:
+        assert eng.state.pending_choice['kind'] == 'scry'
+        eng.rules.resolve_choice('decline')
+        eng.resolve_until_stable()
+    eng._fire_delayed_triggers('end_combat')
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice['kind'] == 'fortune_flicker_saddler'
+    mount_visit = fortune.zone_incarnation
+    saddler_visit = saddler.zone_incarnation
+    _answer(eng, saddler.instance_id)
+    assert fortune.zone_incarnation == mount_visit
+    assert saddler.zone_incarnation == saddler_visit + 2
+
+
+def test_fortune_rejects_blinked_saddler_new_visit():
+    eng = _engine()
+    fortune = _fortune(eng)
+    saddler = _bf(eng, _creature('Saddler'))
+    _saddle_and_attack(eng, fortune, saddler)
+    eng.rules.blink(saddler)
+    eng.resolve_until_stable()
+    before = saddler.zone_incarnation
+    eng._fire_delayed_triggers('end_combat')
+    eng.resolve_until_stable()
+    # Only Fortune flickers, then its real ETB asks to scry.
+    assert saddler.zone_incarnation == before
+    assert eng.state.pending_choice['kind'] == 'scry'
+
+
+def test_eager_copy_persists_same_visit_then_blink_restores_printed_identity():
+    eng = _engine()
+    original = _bf(eng, _creature('Original', 1, 3))
+    copied = _bf(eng, _creature('Copied', 5, 6))
+    second = _bf(eng, _creature('Second copy', 7, 8))
+    printing = dict(original.physical_printing)
+    eng.rules.become_copy(original, copied)
+    eng.rules.become_copy(original, second)
+    eng.recompute_continuous_effects()
+    assert original.name == 'Second copy' and original.power == 7
+    eng._step_cleanup()
+    assert original.name == 'Second copy'  # Permanent copy has no EOT duration.
+    eng.rules.blink(original)
+    assert original.name == 'Original' and original.power == 1
+    assert original.physical_printing == printing
+
+
+@pytest.mark.parametrize('back_face', [False, True])
+def test_copy_reset_restores_original_dfc_front_after_either_original_face(back_face):
+    from mtg_analyzer.models.cards.card import Card
+    eng = _engine()
+    original = _bf(eng, Card(id='dfc', name='Printed Front', type_line='Creature — Human',
+                            is_creature=True, power=1, toughness=2, layout='transform',
+                            back_name='Printed Back', back_type_line='Creature — Werewolf',
+                            back_power=4, back_toughness=4))
+    copied = _bf(eng, _creature('Copied', 5, 6))
+    if back_face:
+        eng.rules.transform_permanent(original)
+        assert original.name == 'Printed Back'
+    eng.rules.become_copy(original, copied)
+    assert original.name == 'Copied'
+    eng.rules.blink(original)
+    assert original.name == 'Printed Front'
+    assert not original.transformed
+    eng.rules.transform_permanent(original)
+    eng.recompute_continuous_effects()
+    assert original.name == 'Printed Back' and original.power == 4
+
+
+def test_cleanup_after_blink_cannot_restore_stale_temporary_copy_snapshot():
+    eng = _engine()
+    original = _bf(eng, _creature('Original', 1, 3))
+    permanent = _bf(eng, _creature('Permanent copy', 5, 6))
+    temporary = _bf(eng, _creature('Temporary copy', 7, 8))
+    eng.rules.become_copy(original, permanent)
+    eng.rules.become_copy_until_end_of_turn(original, temporary)
+    assert original.name == 'Temporary copy'
+    eng.rules.blink(original)
+    assert original.name == 'Original'
+    eng._step_cleanup()
+    assert original.name == 'Original' and original.power == 1
+
+
+def test_genuine_copy_token_keeps_its_created_identity_when_copy_effect_resets():
+    eng = _engine()
+    template = _bf(eng, _creature('Created token identity', 3, 4))
+    other = _bf(eng, _creature('Temporary other identity', 7, 8))
+    token = eng.rules.copy_permanent('p1', template)[0]
+    assert token.is_token and token.name == 'Created token identity'
+    eng.rules.become_copy(token, other)
+    eng.rules.exile(token)
+    token.reset_as_new_object()
+    assert token.name == 'Created token identity'
+    assert eng.rules.return_from_exile(token, token.zone_incarnation) is None
+    eng.resolve_until_stable()
+    assert token not in eng.state.player_by_id('p1').exile
