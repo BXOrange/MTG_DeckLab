@@ -58,7 +58,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
-- **PAR-149 · Combat timing, dying enchanted hosts and quoted emblems.** Support all three families: combat-only / before-blockers / declare-blockers casting restrictions; enchanted creature/land dying followed by returning that card; emblems with quoted abilities. Measure current blockers before extending existing primitives.
 - **PAR-156 · Counter or pump, then fight.** "Put a +1/+1 counter on / pump target creature, then it fights …" sequences not yet claimed; size against the cache first, and check whether the existing `fight` previous-target rows already cover the second half (PLAY-ALL).
 
 - **PAR-157 · Flicker with riders.** Exile-and-return clauses with an attached rider (counters, tapped, a delayed follow-up, …) beyond the plain and delayed-return blink forms already modeled; size first (PLAY-ALL).

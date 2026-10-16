@@ -5600,6 +5600,13 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 - **What:** "`~`'s power and toughness are each equal to the number of `<X>`." (Maro / Molimo / Psychosis Crawler / Dakkon Blackblade / Ashaya-shaped) had no parser recogni…
 - **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/continuous.py` (`count_selector` — `cards_in_your_hand`), `parser/oracle/gate.py` (PARSER_VERSION 105)
 
+### Combat cast windows, dying-host returns and quoted emblems (PAR-149, PARSER_VERSION 659–662)
+
+- **Casting:** Combat-only, before-blockers and declare-blockers restrictions use cast metadata and actual turn/step legality, including alternate/free casting. The cache audit verifies all 26 matching window clauses; before-damage/after-combat restrictions are distinct shapes. Tests cover declared-blocker completion, skipped steps, extra combats, targets and costs.
+- **Dying hosts:** Enchanted creature/land death returns track the event's exact graveyard visit, destination, owner, tapped entry and counters before entry. All 22 matching host-return cards are supported through shared parsing or verified authored behavior. Revisited objects are not mistaken for the original host; attachment returns check legality and attach before entry.
+- **Emblems:** Recursive quote handling preserves multiple abilities on one emblem, opponent allocation and nested granted loyalty abilities. All 91 direct quoted-emblem envelopes and the nested grant were audited against parser or live authored bindings. Shared bodies include ordinary triggers, statics, replacement effects, untap caps, permissions and source/control scopes; sideboard casting, real loss replacement and turn-based opponent-step actions are delivered by MEC-120/121/122. Unknown quoted bodies fail closed rather than becoming inert markers. Independent unrelated clauses can still keep the complete card unmodeled.
+- **Validation:** Final family suite 196 passed; the full backend `--full-cache` on the final implementation passed 14,036 tests with 1 skipped. Real-browser checks cover Dovin untap selection, stun and overlapping caps; MEC-120 additionally verifies owner and controlled-turn sideboard casting. Reconstructed original v658 baseline versus v662: +57 cards, zero regressions (including MEC-121's Puresteel increment). Authoritative coverage 21,572/35,046 (61.6%); Commander-legal 20,755/32,068 (64.7%). Probe scans include Sticker inserts, so their raw denominator differs from authoritative coverage.
+
 ### PAR-31 — "you get an emblem with '<ability>'" inner-body coverage
 
 - **What:** The emblem *wrapper* has always parsed (`handlers._create_emblem` recursively parses the quoted body via `segment_line`); PAR-31's residue was inner-body famili…
