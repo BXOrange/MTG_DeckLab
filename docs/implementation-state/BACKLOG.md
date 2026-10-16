@@ -66,7 +66,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 ## MEC — Game mechanic
 
 
-- **MEC-122 · Opponent draw-step turn-based actions (RULE 504.1 / 614 / 616).** Add source-scoped additional draws for other players during the active player's draw-step turn-based action, preserving active-player-first order, replacement/choice continuations, distinct emblem multiplicity and no priority between draws. Correct Teferi, Who Slows the Sunset's authored emblem to use this runtime and the existing simultaneous opponent-untap static; current UNTAP/STEP_BEGIN triggers have incorrect timing. Verified PAR-149 dependency; no registered primitive currently performs these other-player turn-based draws.
 
 ## PLR — Player management
 

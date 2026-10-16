@@ -610,6 +610,12 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 - **What:** `TurnSequence`/`GamePhase`/`GameStep` model the turn structure as data the engine walks, consulting skip effects per step instead of hardcoding phase logic.
 - **Files:** `game/phases.py`
 
+### Other-player turn-based draw-step actions (MEC-122, PARSER_VERSION 662)
+
+- **What:** Source-scoped `opponent_draw_step` statics add one draw per applicable emblem during the draw-step turn-based action (RULE 504.1 / 121.2c). The active player draws first, followed by other holders in turn order. All draws complete before SBAs, trigger placement or priority. Teferi's emblem and Seedborn Muse use the existing simultaneous foreign-untap static, with stun/phasing and own-step-only restrictions preserved. A skipped whole draw step produces neither beginning-step triggers nor emblem draws.
+- **Continuations:** State-owned player IDs, draw position, pending step and trigger buffers survive replacement ordering, Dredge/Miracle, nested mill choices, cloning and session rewind. Concession cancels the departed player's pending draw and retains surviving holders' draws/triggers. Draw/mill replacement completion descriptors resolve against the current state.
+- **Validation:** Full backend `--full-cache`: 14,036 passed, 1 skipped; repair regression suite 582 passed and independent continuation review 21 passed. Tests execute real Teferi loyalty activation, simultaneous Seedborn untaps, skipped/non-skipped priority windows, Omen Machine, multiple emblems, controlled turns, failed-draw loss timing and undo. Parser comparison versus v661: +0 / -0. Authoritative coverage: 21,572/35,046 (61.6%); Commander-legal 20,755/32,068 (64.7%).
+
 ### Casting/Stack/Mana/Priority/Triggers/SBA core loop
 
 - **What:** Foundational implementation of Casting (RULE 601), Stack (RULE 608 LIFO), Mana (RULE 504), Priority (RULE 117), Triggered Abilities (RULE 603/607), and State-Ba…

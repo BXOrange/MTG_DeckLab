@@ -162,18 +162,21 @@ class TestStops:
         assert session.engine.state.priority_player.id == "bob"
         assert session.view(perspective="bob")["priority"]["stops"] == {}
 
-    def test_no_stop_on_the_opponents_turn_passes_for_the_seat(self):
+    @pytest.mark.parametrize("skip_first_draw", [False, True])
+    def test_no_stop_on_the_opponents_turn_passes_for_the_seat(self, skip_first_draw):
         session = playing()
+        session.engine.state.skip_first_draw = skip_first_draw
         act(session, "set_stops", "bob", own=["upkeep", "main1", "main2"], opponent=["main1"])
         state = session.engine.state
-        # Ann passes upkeep; Bob has no upkeep stop on her turn → passed for,
-        # so the step ends and Ann holds priority in the draw step.
+        # Bob has no upkeep stop, so he passes automatically. RULE
+        # 103.8a skips the starting player's draw step if configured.
         act(session, "pass_priority", "ann")
-        assert state.current_step == "draw"
+        assert state.current_step == ("main1" if skip_first_draw else "draw")
         assert state.priority_player.id == "ann"
-        # …but main1 is a stop: Bob is asked there.
-        act(session, "pass_priority", "ann")
+        if not skip_first_draw:
+            act(session, "pass_priority", "ann")  # Bob also has no draw stop.
         assert state.current_step == "main1"
+        # Main1 IS Bob's stop, so Ann's next pass must ask him.
         act(session, "pass_priority", "ann")
         assert state.priority_player.id == "bob"
 

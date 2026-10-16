@@ -324,7 +324,7 @@ def test_power_artifact_reduces_activation_cost_by_two_floored_at_one_mana():
 
 
 # ---------------------------------------------------------------------------
-# 7. Seedborn Muse — new "not_you" group-trigger scope + mass-untap selector
+# 7. Seedborn Muse — simultaneous foreign-untap turn-based action
 # ---------------------------------------------------------------------------
 
 
@@ -339,22 +339,24 @@ def test_seedborn_muse_untaps_your_permanents_only_during_opponents_untap_step()
     state = eng.state
     p1 = state.active_player
     p2 = state.players[1]
-    _battlefield(state, _card("Seedborn Muse"), controller="p1")
+    muse = _battlefield(state, _card("Seedborn Muse"), controller="p1")
+    assert not muse.triggered_abilities
     bear_obj = _battlefield(state, bear, controller="p1")
     bear_obj.tapped = True
     opp_bear_obj = _battlefield(state, bear, controller="p2")
     opp_bear_obj.tapped = True
 
-    state.fire_event(GameEvent(EventType.UNTAP, player_id="p2"))
-    eng.resolve_until_stable()
+    state.active_player_index = 1
+    eng._step_untap()
+    assert not bear_obj.tapped and not opp_bear_obj.tapped
+    assert not eng.rules.pending_triggers and not state.stack
 
-    assert bear_obj.tapped is False  # p1's own permanents untapped
-    assert opp_bear_obj.tapped is True  # p2's own untap step untaps p2's stuff, not this trigger
-
-    bear_obj.tapped = True
-    state.fire_event(GameEvent(EventType.UNTAP, player_id="p1"))
-    eng.resolve_until_stable()
-    assert bear_obj.tapped is True  # unaffected during Seedborn's own controller's untap step
+    bear_obj.tapped = opp_bear_obj.tapped = True
+    state.active_player_index = 0
+    eng._step_untap()
+    assert not bear_obj.tapped  # ordinary own-step untap
+    assert opp_bear_obj.tapped  # the opponent has no foreign-untap permission
+    assert not eng.rules.pending_triggers and not state.stack
 
 
 # ---------------------------------------------------------------------------

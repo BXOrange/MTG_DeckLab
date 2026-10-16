@@ -36,11 +36,14 @@ def any_target_instant(name="Shock", cost="{R}"):
                 oracle_text="~ deals 2 damage to any target.")
 
 
-def two_player_engine(p1_library, p2_library=()):
+def two_player_engine(p1_library, p2_library=(), *, on_draw=True):
     eng = GameEngine.new_game(
         [("p1", "Alice", list(p1_library)), ("p2", "Bob", list(p2_library))],
         starting_life=20, starting_hand=0,
     )
+    # These draw-step tests require an actual first draw step. The skipped
+    # starting-player step is verified separately below (RULE 103.8a).
+    eng.state.skip_first_draw = not on_draw
     p1 = eng.state.player_by_id("p1")
     p2 = eng.state.player_by_id("p2")
     for c in list(p1.library) + list(p2.library):
@@ -145,3 +148,20 @@ def test_draw_step_fires_once_per_turn_for_whichever_player_is_active():
         eng.advance_step()
     eng.resolve_until_stable()
     assert any(o.name == "P2 Land" for o in eng.state.battlefield if o.controller_id == "p2")
+
+
+def test_starting_player_skipped_draw_step_does_not_trigger_omen_machine():
+    from mtg_analyzer.models.game.events import EventType
+    eng, p1, p2 = two_player_engine([land("P1 Land")], [land("P2 Land")], on_draw=False)
+    _put_omen_machine(eng)
+    _advance_to_draw_step(eng)
+    eng.resolve_until_stable()
+    assert [o.name for o in p1.library] == ["P1 Land"] and p1.exile == []
+    assert not any(e.type == EventType.STEP_BEGIN and e.get("step") == "draw" for e in eng.state.event_log)
+    assert eng.state.priority_player_index is None
+    eng.advance_step()
+    while eng.state.current_step != "draw" or eng.state.active_player.id != "p2":
+        eng.advance_step()
+    eng.resolve_until_stable()
+    assert any(o.name == "P2 Land" for o in eng.state.battlefield if o.controller_id == "p2")
+    assert [o.name for o in p1.library] == ["P1 Land"]

@@ -1309,16 +1309,13 @@ class TurnLoopMixin:
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
         self.rules.resolve_choice(answer)
         if self.state.turn_based_draws is not None:
-            self.resolve_until_stable()
-            return
+            return self.resolve_until_stable()
         if choice_kind == 'untap_cap_selection':
             return self._resume_untap_cap_selection()
         if opponent_pick and (self.state.pending_choice or self.interactive_priority or leaves_on_stack):
             return
         if self.interactive_priority and choice_kind == "miracle_reveal":
-            while not self.state.pending_choice and self.rules.resume_deferred_effects():
-                pass
-            return
+            return self._finish_miracle_reveal_instructions()
         if self.interactive_priority and placing_trigger:
             return  # RULE 117.5 / 603.3: finish announcement, then allow responses.
         if cast_payment:
@@ -1330,6 +1327,11 @@ class TurnLoopMixin:
         if cleanup_discard and not self.state.pending_choice:
             self._step_cleanup()
         self.resolve_until_stable()
+    def _finish_miracle_reveal_instructions(self) -> None:
+        """Finish the drawing instruction, retaining Miracle's response window."""
+        while not self.state.pending_choice and self.rules.resume_deferred_effects():
+            pass
+
     def _resume_untap_cap_selection(self) -> None:
         """RULE 502.4: finish untapping without granting priority before upkeep."""
         if not self.state.pending_choice:
