@@ -150,6 +150,7 @@ export function createGameBoardView(opts = {}) {
   let busy = false;
   let status = '';
   let statusKind = '';
+  let measurementDraft = { key: null, text: '' };
 
   // Player-uploaded custom art (settings.js "Einstellungen" tab, see
   // api.js tokenImageUrl/sleeveImageUrl): `tokenImages` maps a lowercased
@@ -2016,7 +2017,9 @@ export function createGameBoardView(opts = {}) {
   function pendingChoiceHtml(pending, aside = false) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
     const heading = pending.prompt || pending.description || t('bd.choice.needed');
-    const body = pending.kind === 'replacement_order'
+    const body = pending.kind === 'physical_property_measurement'
+      ? physicalMeasurementHtml(pending)
+      : pending.kind === 'replacement_order'
       ? replacementOrderHtml(pending)
       : pending.kind === 'order_triggers'
         ? triggerOrderHtml(pending)
@@ -2049,6 +2052,38 @@ export function createGameBoardView(opts = {}) {
         </div>
       </div>
     `;
+  }
+
+  function measurementValue(text, pending) {
+    if (!/^\d+$/.test(text)) return null;
+    const value = Number(text);
+    const maximum = Number.isSafeInteger(pending.maximum) && pending.maximum >= 0
+      ? Math.min(pending.maximum, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+    return Number.isSafeInteger(value) && value >= 0 && value <= maximum ? String(value) : null;
+  }
+
+  function physicalMeasurementHtml(pending) {
+    const subject = pending.subject || {};
+    const key = JSON.stringify([pending.property, subject.printing_id, subject.face]);
+    if (measurementDraft.key !== key) measurementDraft = { key, text: '' };
+    const text = measurementDraft.text;
+    const valid = measurementValue(text, pending) !== null;
+    const image = subject.image_url || (subject.printing_id
+      ? cardImageUrl(subject.printing_id, 'normal', subject.face || 'front') : null);
+    return `<form data-physical-measurement novalidate>
+      ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(subject.name || '')}" width="300" style="max-width:100%;height:auto">` : ''}
+      <p>${escapeHtml(subject.name || '')}</p>
+      <p>${escapeHtml(subject.printing_label
+        ? t('bd.measurement.printing', { printing: subject.printing_label, face: subject.face || 'front' })
+        : t('bd.measurement.face', { face: subject.face || 'front' }))}</p>
+      <p>${escapeHtml(t('bd.measurement.instructions'))}</p>
+      <label>${escapeHtml(t('bd.measurement.lines'))}
+        <input data-measurement-value type="text" inputmode="numeric" pattern="[0-9]+" autocomplete="off" required
+          value="${escapeAttr(text)}" aria-describedby="gf-measurement-error" ${busy ? 'disabled' : ''}>
+      </label>
+      <p id="gf-measurement-error" data-measurement-error role="status">${text && !valid ? escapeHtml(t('bd.measurement.invalid')) : ''}</p>
+      <button type="submit" class="primary" data-measurement-submit ${busy || !valid ? 'disabled' : ''}>${escapeHtml(t('bd.measurement.confirm'))}</button>
+    </form>`;
   }
 
   function simpleChoiceButtonsHtml(pending) {
@@ -2403,6 +2438,30 @@ export function createGameBoardView(opts = {}) {
           targets: [...form.querySelector('[data-blind-targets]').selectedOptions].map(o => JSON.parse(o.value))});
       });
     });
+    const measurementForm = root.querySelector('[data-physical-measurement]');
+    if (measurementForm) {
+      const input = measurementForm.querySelector('[data-measurement-value]');
+      const submit = measurementForm.querySelector('[data-measurement-submit]');
+      const error = measurementForm.querySelector('[data-measurement-error]');
+      input.addEventListener('input', () => {
+        measurementDraft.text = input.value;
+        const valid = measurementValue(input.value, view.state.pending_choice) !== null;
+        submit.disabled = busy || !valid;
+        error.textContent = input.value && !valid ? t('bd.measurement.invalid') : '';
+      });
+      measurementForm.addEventListener('submit', event => {
+        event.preventDefault();
+        if (busy) return;
+        const value = measurementValue(input.value, view.state.pending_choice);
+        if (value === null) {
+          error.textContent = t('bd.measurement.invalid');
+          return;
+        }
+        act({ type: 'choose', option_id: value });
+      });
+    } else if (view.state?.pending_choice?.kind !== 'physical_property_measurement') {
+      measurementDraft = { key: null, text: '' };
+    }
     root.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
         const action = JSON.parse(el.dataset.action);
