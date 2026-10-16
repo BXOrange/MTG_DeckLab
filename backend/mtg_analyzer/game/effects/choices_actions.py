@@ -2975,13 +2975,25 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         self.attacking = bool(attacking)
         self.under_your_control = bool(under_your_control)
 
+    @property
+    def objects(self):
+        return self._objects
+
+    @objects.setter
+    def objects(self, objects):
+        # RULE 400.7: delayed returns remember the exact captured exile visit,
+        # not merely an ID that a later visit to exile happens to reuse.
+        self._objects = [obj for obj in objects if obj is not None]
+        self._exile_visits = [(obj, obj.zone_incarnation) for obj in self._objects]
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         destination = (
             "battlefield_attacking" if self.attacking else "battlefield_tapped" if self.tapped else "battlefield"
         )
         controller_id = context.resolving_controller_id if self.under_your_control else None
-        for obj in list(self.objects):
-            if obj.zone == Zone.EXILE and obj in context.state.player_by_id(obj.owner_id).exile:
+        for obj, incarnation in self._exile_visits:
+            if (not obj.is_token and obj.zone_incarnation == incarnation
+                    and obj.zone == Zone.EXILE and obj in context.state.player_by_id(obj.owner_id).exile):
                 context.return_from_graveyard(obj, destination, controller_id=controller_id)
 
 
@@ -3177,16 +3189,20 @@ class MarchesaDelayedReturnEffect(GameEffect):
     already use for Ragavan's per-firing damaged player).
     """
 
-    def __init__(self, dying_object: "GameObject", source: Optional["GameObject"] = None) -> None:
+    def __init__(self, dying_object: "GameObject", source: Optional["GameObject"] = None,
+                 graveyard_incarnation: Optional[int] = None) -> None:
         super().__init__(source)
         self.dying_object = dying_object
+        self.graveyard_incarnation = graveyard_incarnation if graveyard_incarnation is not None else dying_object.zone_incarnation
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ...models.game.game_state import DelayedTrigger
 
-        controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
+        # RULE 603.7e: the resolving ability controller owns its delayed trigger.
+        controller_id = _controller_of(self.source, context).id
         inner = ReturnFromGraveyardEffect(
             target=self.dying_object,
+            expected_incarnation=self.graveyard_incarnation,
             destination="battlefield",
             under_your_control=True,
             source=self.source,

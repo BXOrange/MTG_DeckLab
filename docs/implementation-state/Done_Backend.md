@@ -1797,6 +1797,8 @@ Copies use the existing spell-copy primitive and do not count as casts.
 - **Files:** `models/game_state.py`, `game/game_engine.py`, `game/effects/core.py`
 - **ENG-50 (2026-09-28):** Mana Drain's delayed `{C}` resolved to 0 — PAR-124's nested-`inner_specs` X substitution in `_substitute_x` (built for Storm King's Thunder's `CreateTurnTriggerEffect`) also walked `CreateDelayedTriggerEffect.inner_specs` and filled the `"x"` sentinel with Mana Drain's own announced X (0) before `capture="target_mana_value"` could. Effects whose `capture` owns the sentinel (`casting_mixin._X_OWNING_CAPTURES`) are now skipped. Hand-authoring stays the path: the parser still reports Mana Drain `UNMODELED`.
 
+- **Captured return identity (PAR-157 milestone):** Existing delayed-return mechanisms now retain the exact captured exile or graveyard visit (RULE 400.7e/j, 603.7c). Marchesa records the DIES graveyard incarnation before its original trigger resolves and preserves that ability's controller when creating the delayed trigger (603.7e). Later zone revisits and ceased tokens cannot return; immediate flicker also rejects token returns under 111.8. Independent focused regression gate: 57 passed, including clone isolation and control changes before/after delayed-trigger creation. This runtime milestone does not close the rider-family parser work.
+
 ### Reflexive "When you do, `<targeted payoff>`." after an optional cost (RULE 603.11, PARSER_VERSION 206)
 
 - **What:** "You may `<cost>`.

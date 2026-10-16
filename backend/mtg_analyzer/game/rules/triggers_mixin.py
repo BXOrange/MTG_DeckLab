@@ -945,7 +945,10 @@ class TriggerCollectionMixin:
                 )
                 desc = f"{obj.name}: {dying_obj.name} unter deine Kontrolle zurückbringen"
             else:
-                effect = MarchesaDelayedReturnEffect(dying_object=dying_obj, source=obj)
+                effect = MarchesaDelayedReturnEffect(
+                    dying_object=dying_obj, source=obj,
+                    graveyard_incarnation=event.get("graveyard_incarnation", dying_obj.zone_incarnation),
+                )
                 desc = f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen"
             ability = TriggeredAbility(
                 trigger_event=EventType.DIES,

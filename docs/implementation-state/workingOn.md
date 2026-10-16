@@ -42,3 +42,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## PAR-157 · Flicker with riders
+
+- **Started / last update:** 2026-10-16 / 2026-10-16
+- **Goal of this run:** Complete the verified bounded flicker/rider family, including composed and paper Un-set cases.
+- **Done (built + tested):** Initial read-only full-cache sizing identifies 37 paper rider cards, two adjacent delayed-return grammar cases, five explicit Alchemy exclusions and one graveyard-to-hand negative. Independent full-scan auditing additionally checks Landfill and self-transformed-return boundaries before fixing the final matrix. Existing MEC-123/PAR-156 work is closed and committed before this ticket starts.
+- **In progress:** Runtime identity foundation frozen: delayed battlefield returns capture exact exile incarnations; immediate/delayed blink reject tokens and changed exile visits. Actual Marchesa retains the original DIES graveyard incarnation and resolving ability controller across source-control changes. Rules-checked focused selection: 57 passed, /tmp/par157-marchesa-rules.log; source remains parser v664.
+- **Next step:** Runtime foundation independently reviewed and checkpointed; continue shared return entry data and full rider family. No new rider grammar is claimed yet. Complete raw scan additions (Landfill and transformed-return bodies) before calling the 37-card initial matrix exhaustive.
+- **Decisions:** No arbitrary easy subset; counters/face/tapped data precede ETB, delayed returns capture exact exile visits, and post-return riders consume actual returned objects. Paper Un-set facts require explicit observations; Alchemy remains an explicit non-goal.
+- **Baselines / artefacts:** Original v664 snapshot /tmp/par157-before.json; /tmp/par157-baseline.log. Scope plan /tmp/par157-worker-scope.md and actual-card matrix /tmp/par157-worker-current-matrix.json are initial candidates, with verifier additions still to classify.
+- **Known failures:** None at baseline.
+- **Residue:** Full 37-card rider matrix, adjacent grammar cases, independent semantic review, targeted/full-cache/browser checks where applicable, coverage and ticket commit.

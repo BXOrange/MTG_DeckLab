@@ -1017,7 +1017,13 @@ class DamageDeathMixin:
         # itself (only `_move_to_graveyard` does today), so any Aura/
         # Equipment that was on ``obj`` falls off here.
         self._detach_attachments_from(obj)
+        expected_exile = obj.zone_incarnation + 1
         self.exile(obj)
+        # RULE 400.7/111.8: neither a replacement zone visit nor a token
+        # that left the battlefield is the card this instruction can return.
+        if (obj.is_token or obj.zone != Zone.EXILE or obj not in owner.exile
+                or obj.zone_incarnation != expected_exile):
+            return
         # `exile()` appended ``obj`` onto `owner.exile`; `_put_searched_card`'s
         # battlefield branch only appends to `state.battlefield` (its usual
         # callers already popped the card off whatever zone held it), so

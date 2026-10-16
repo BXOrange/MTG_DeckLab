@@ -680,9 +680,11 @@ class ReturnFromGraveyardEffect(GameEffect):
         pick_mode: Optional[str] = None,
         attach_to_previous: bool = False,
         per_player: Optional[str] = None,
+        expected_incarnation: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.expected_incarnation = expected_incarnation
         #: Who chooses from whose graveyard, one opponent at a time in turn order (RULE 101.4):
         #: ``"controller_from_each_opponent"`` — "for each opponent, you may put up to one target creature card from
         #: that player's graveyard onto the battlefield under your control" (Sepulchral Primordial); and
@@ -861,6 +863,13 @@ class ReturnFromGraveyardEffect(GameEffect):
         return ([self.controller_target_spec] + specs) if self.controller_target_spec is not None else specs
 
     def _apply_one(self, context: GameContext, target: Any, controller_override: Optional[str] = None) -> None:
+        # RULE 400.7e/603.7c/111.8: a captured dying card denotes its
+        # original graveyard visit; a token that left cannot return.
+        if (self.expected_incarnation is not None
+                and (target.is_token or target.zone != Zone.GRAVEYARD
+                     or target.zone_incarnation != self.expected_incarnation
+                     or target not in context.state.player_by_id(target.owner_id).graveyard)):
+            return
         if self.destination == "battlefield":
             # RULE 601.3a-adjacent: "`<type>` cards in graveyards … can't
             # enter the battlefield." (Grafdigger's Cage/Weathered
