@@ -2495,6 +2495,10 @@ class BlinkEffect(GameEffect):
         trigger_event_key: Optional[str] = None,
         tapped: bool = False,
         attacking: bool = False,
+        entry_counters: Optional[dict] = None,
+        typed_entry_counters: Optional[list[dict]] = None,
+        transformed: bool = False,
+        face_down_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -2512,19 +2516,39 @@ class BlinkEffect(GameEffect):
             optional=optional, count=count, count_max=count_max,
         )
         self.under_your_control = under_your_control
+        self.entry_counters = entry_counters
+        self.typed_entry_counters = typed_entry_counters
+        self.transformed = transformed
+        self.face_down_kind = face_down_kind
+        self.returned_objects = []
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self._trigger_subject_mode:
             obj_id = (context.trigger_event or {}).get(self.trigger_event_key)
             subject = context.state.find_object(obj_id) if obj_id is not None else None
-            if subject is not None:
-                context.blink(subject)
-            return
-        chosen = targets if targets else ([self.target] if self.target is not None else [])
+            chosen = [subject] if subject is not None else []
+        else:
+            chosen = targets if targets else ([self.target] if self.target is not None else [])
         controller = _controller_of(self.source, context) if self.under_your_control else None
+        # RULE 608.2c: the plural instruction exiles the complete set before
+        # returning any of it. ETB sees no not-yet-exiled batch members.
+        visits = []
         for target in chosen:
-            if target is not None:
-                context.blink(target, controller=controller, tapped=self.tapped, attacking=self.attacking)
+            if target is not None and target.zone == Zone.BATTLEFIELD:
+                context.engine._detach_attachments_from(target)
+                incarnation = target.zone_incarnation + 1
+                context.engine.exile(target)
+                visits.append((target, incarnation))
+        self.returned_objects = []
+        for obj, incarnation in visits:
+            returned = context.engine.return_from_exile(
+                obj, incarnation, controller_id=controller.id if controller else None,
+                tapped=self.tapped, attacking=self.attacking,
+                entry_counters=self.entry_counters, typed_entry_counters=self.typed_entry_counters,
+                transformed=self.transformed, face_down_kind=self.face_down_kind,
+            )
+            if returned is not None:
+                self.returned_objects.append(returned)
 
 
 

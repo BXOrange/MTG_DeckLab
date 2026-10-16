@@ -2964,6 +2964,10 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         tapped: bool = False,
         attacking: bool = False,
         under_your_control: bool = False,
+        entry_counters: Optional[dict] = None,
+        typed_entry_counters: Optional[list[dict]] = None,
+        transformed: bool = False,
+        face_down_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.objects = objects
@@ -2974,6 +2978,11 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         #: starting; under the delayed ability's controller rather than the owner when "under your control".
         self.attacking = bool(attacking)
         self.under_your_control = bool(under_your_control)
+        self.entry_counters = entry_counters
+        self.typed_entry_counters = typed_entry_counters
+        self.transformed = transformed
+        self.face_down_kind = face_down_kind
+        self.returned_objects = []
 
     @property
     def objects(self):
@@ -2987,14 +2996,17 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         self._exile_visits = [(obj, obj.zone_incarnation) for obj in self._objects]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        destination = (
-            "battlefield_attacking" if self.attacking else "battlefield_tapped" if self.tapped else "battlefield"
-        )
         controller_id = context.resolving_controller_id if self.under_your_control else None
+        self.returned_objects = []
         for obj, incarnation in self._exile_visits:
-            if (not obj.is_token and obj.zone_incarnation == incarnation
-                    and obj.zone == Zone.EXILE and obj in context.state.player_by_id(obj.owner_id).exile):
-                context.return_from_graveyard(obj, destination, controller_id=controller_id)
+            returned = context.engine.return_from_exile(
+                obj, incarnation, controller_id=controller_id, tapped=self.tapped,
+                attacking=self.attacking, entry_counters=self.entry_counters,
+                typed_entry_counters=self.typed_entry_counters,
+                transformed=self.transformed, face_down_kind=self.face_down_kind,
+            )
+            if returned is not None:
+                self.returned_objects.append(returned)
 
 
 class ReturnUncastExiledEffect(GameEffect):

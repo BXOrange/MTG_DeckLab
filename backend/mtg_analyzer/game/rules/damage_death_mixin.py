@@ -982,62 +982,53 @@ class DamageDeathMixin:
         owner.add_to_zone(obj, Zone.LIBRARY)
         self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         self.shuffle_library(owner)
-    def blink(
-        self, obj: GameObject, controller: Optional[Player] = None, tapped: bool = False, attacking: bool = False,
-    ) -> None:
-        """Exile ``obj``, then immediately return it to the battlefield under
-        its owner's control (RULE 400.7's "leaves and re-enters" — Ephemerate/
-        Momentary Blink-shaped "exile target permanent, then return it").
+    def return_from_exile(
+        self, obj: GameObject, expected_incarnation: int,
+        controller_id: Optional[str] = None, tapped: bool = False,
+        attacking: bool = False, transformed: bool = False,
+        face_down_kind: Optional[str] = None,
+        entry_counters: Optional[dict[str, Any]] = None,
+        typed_entry_counters: Optional[list[dict[str, Any]]] = None,
+        attach_to: Optional[GameObject] = None,
+    ) -> Optional[GameObject]:
+        """Return one exact exile visit, with entry instructions before ETB.
 
-        Reuses `exile` (a real zone visit, so `LEAVES_BATTLEFIELD`/`EXILE`
-        fire like any other exile) then `_put_searched_card`'s battlefield-
-        entry handling — the same choke point `return_from_graveyard` uses —
-        so the object re-enters as a fresh `ENTERS_BATTLEFIELD` occurrence
-        (RULE 400.7: a new object, ETB triggers refire, summoning sickness
-        resets) rather than a no-op move.
-
-        ``controller``, when given, is Restoration Angel's own "return that
-        card to the battlefield **under your control**" shape — the caster,
-        not necessarily the owner (`return_from_graveyard`'s own
-        ``controller_id`` param is the graveyard-recursion sibling of this
-        same idea). Every real card in this shape also restricts its target
-        to "creature **you control**", so ``controller`` and ``owner`` are
-        the same player in the overwhelming majority of games; the param
-        exists for the rarer case (a control-stolen creature) where they
-        aren't. Omitted (the default), this is plain blink: always under
-        the owner's own control, since no ordinary blink spell lets the
-        caster keep an opponent's creature.
+        RULE 400.7 / 603.7c: leaving and revisiting exile never revives the
+        remembered object. RULE 111.8 also prohibits an immediate token return.
+        The result is the successful new battlefield visit, for later riders.
         """
-        owner = self.state.player_by_id(obj.owner_id)
-        new_controller = controller or owner
-        # RULE 400.7: a new object remembers nothing of the old one — unlike
-        # `exile` on its own (which leaves counters/attachments alone, e.g.
-        # for a card that's merely *staying* in exile), drop everything
-        # before re-entry. `exile` doesn't call `_detach_attachments_from`
-        # itself (only `_move_to_graveyard` does today), so any Aura/
-        # Equipment that was on ``obj`` falls off here.
+        current = self.state.find_object(obj.instance_id)
+        if current is None:
+            return None
+        owner = self.state.player_by_id(current.owner_id)
+        if (current.is_token or current.zone != Zone.EXILE
+                or current.zone_incarnation != expected_incarnation or current not in owner.exile):
+            return None
+        destination = "battlefield_attacking" if attacking else "battlefield_tapped" if tapped else "battlefield"
+        self.return_from_graveyard(
+            current, destination, controller_id=controller_id,
+            transformed=transformed, face_down_kind=face_down_kind,
+            entry_counters=entry_counters, typed_entry_counters=typed_entry_counters,
+            attach_to=attach_to,
+        )
+        return current if current.zone == Zone.BATTLEFIELD else None
+
+    def blink(
+        self, obj: GameObject, controller: Optional[Player] = None,
+        tapped: bool = False, attacking: bool = False,
+        entry_counters: Optional[dict[str, Any]] = None,
+        typed_entry_counters: Optional[list[dict[str, Any]]] = None,
+        transformed: bool = False, face_down_kind: Optional[str] = None,
+    ) -> Optional[GameObject]:
+        """RULE 400.7: exile, then return the actual fresh battlefield visit."""
         self._detach_attachments_from(obj)
         expected_exile = obj.zone_incarnation + 1
         self.exile(obj)
-        # RULE 400.7/111.8: neither a replacement zone visit nor a token
-        # that left the battlefield is the card this instruction can return.
-        if (obj.is_token or obj.zone != Zone.EXILE or obj not in owner.exile
-                or obj.zone_incarnation != expected_exile):
-            return
-        # `exile()` appended ``obj`` onto `owner.exile`; `_put_searched_card`'s
-        # battlefield branch only appends to `state.battlefield` (its usual
-        # callers already popped the card off whatever zone held it), so
-        # without this it would linger in `owner.exile` too — a phantom
-        # duplicate reference (the object's own `.zone` reads BATTLEFIELD
-        # correctly either way, but the exile *zone list* itself wouldn't).
-        owner.remove_from_zone(obj, Zone.EXILE)
-        obj.reset_as_new_object()
-        obj.controller_id = new_controller.id
-        # "…then return them to the battlefield **tapped** under their owner's control" (Gandalf, Shadow's Foe).
-        # RULE 508.4: "…tapped and attacking" puts it into the source's combat (never declared).
-        self._put_searched_card(
-            new_controller, obj,
-            "battlefield_attacking" if attacking else "battlefield_tapped" if tapped else "battlefield",
+        return self.return_from_exile(
+            obj, expected_exile, controller_id=controller.id if controller else None,
+            tapped=tapped, attacking=attacking, entry_counters=entry_counters,
+            typed_entry_counters=typed_entry_counters, transformed=transformed,
+            face_down_kind=face_down_kind,
         )
     @staticmethod
     def _last_known_mana_value(obj: GameObject) -> int:
@@ -1054,6 +1045,7 @@ class DamageDeathMixin:
         attach_to: Optional[GameObject] = None,
         face_down_kind: Optional[str] = None,
         entry_counters: Optional[dict[str, Any]] = None,
+        typed_entry_counters: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -1091,20 +1083,28 @@ class DamageDeathMixin:
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
         obj.reset_as_new_object()
-        if entry_counters and destination in ("battlefield", "battlefield_tapped"):
-            kind = str(entry_counters.get("kind", "+1/+1"))
-            count = int(entry_counters.get("count", 1))
-            obj.entry_bonus_counters[kind] = max(0, count)
         if attach_to is not None:
             obj.attached_to = attach_to.instance_id
         # RULE 712.8: the back face must be present before entry triggers
         # inspect characteristics and continuous effects are applied.
-        if transformed and destination in ("battlefield", "battlefield_tapped"):
+        if transformed and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             self.transform_permanent(obj)
-        if face_down_kind is not None and destination in ("battlefield", "battlefield_tapped"):
+        if face_down_kind is not None and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             # RULE 708.3: it enters face down, so its own abilities never exist to trigger (Yedora, Grave Gardener).
             self.turn_face_down(obj, face_down_kind)
-        if controller_id is not None and destination in ("battlefield", "battlefield_tapped"):
+        if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
+            # RULE 614.12 / 122.6: additive return counters join native entry
+            # counters in the same replacement-aware placement before ETB.
+            amounts = dict(entry_counters or {})
+            if "kind" in amounts:  # historical single-counter IR spelling
+                amounts = {str(amounts["kind"]): amounts.get("count", 1)}
+            for rule in typed_entry_counters or []:
+                if all(word in obj.type_words for word in rule.get("types", [])):
+                    kind = str(rule.get("kind", "+1/+1"))
+                    amounts[kind] = amounts.get(kind, 0) + int(rule.get("count", 1))
+            for kind, count in amounts.items():
+                obj.entry_bonus_counters[str(kind)] = max(0, int(count))
+        if controller_id is not None and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             obj.controller_id = controller_id
             self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
         else:

@@ -144,6 +144,9 @@ class StackItem:
         self.source_zone_incarnation = (trigger_event or {}).get(
             "source_zone_incarnation", getattr(source, "zone_incarnation", None)
         )
+        # RULE 608.2h: filled at the source's departure, not activation,
+        # because an Aura may attach elsewhere while this ability waits.
+        self.source_attachment_lki: Optional[tuple[int, int]] = None
         #: Which ability of ``source`` this item is, for the per-ability
         #: resolution count ("the second time this ability has resolved this
         #: turn" — `GameObject.ability_resolutions`). The ability's printed
@@ -1611,6 +1614,16 @@ class GameState:
         ``fire_event`` (the event here is what actually happened), and
         triggered abilities are queued by subscribers.
         """
+        if event.type == EventType.LEAVES_BATTLEFIELD:
+            departed = self.find_object(event.get("instance_id"))
+            if departed is not None:
+                host = self.find_object(departed.attached_to)
+                relationship = ((host.instance_id, host.zone_incarnation)
+                                if host is not None else None)
+                for item in self.stack:
+                    if (getattr(item.source, "instance_id", None) == departed.instance_id
+                            and item.source_zone_incarnation == departed.zone_incarnation):
+                        item.source_attachment_lki = relationship
         entry_events = getattr(self, "_deferred_entry_events", None)
         if entry_events is not None and event.type in (
             EventType.ENTERS_BATTLEFIELD, EventType.SAGA_CHAPTER, EventType.CLASS_LEVEL,

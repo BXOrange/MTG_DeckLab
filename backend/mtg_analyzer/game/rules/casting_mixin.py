@@ -350,6 +350,11 @@ class CastingResolutionMixin:
         for kind, amount in amounts.items():
             if amount > 0:
                 self.add_counters(obj, amount, kind, source=obj)
+        if obj.is_planeswalker:
+            # Placement may be replaced/prevented entirely. Mark zero as an
+            # actual result so add_to_battlefield's fixture/default seeding
+            # cannot restore counters after the replacement (RULE 614.6).
+            obj.counters.setdefault("loyalty", 0)
 
     def _collect_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
@@ -363,6 +368,10 @@ class CastingResolutionMixin:
         107.3c) — 0 for anything that didn't just resolve off a cast-for-X
         (a token, a card reanimated/searched onto the battlefield, …).
         """
+        # RULE 306.5b / 614.12: native loyalty joins additional return
+        # counters in one entry placement, including counter replacements.
+        if obj.is_planeswalker and obj.card.loyalty:
+            self._add_entry_counters(obj, "loyalty", int(obj.card.loyalty))
         from ..mana_spend_riders import apply_entry_riders
         apply_entry_riders(self, obj)
         # RULE 702.32a Fading N / RULE 702.61a Vanishing N: "this permanent

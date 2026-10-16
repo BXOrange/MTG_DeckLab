@@ -56,3 +56,4 @@ from . import level_up  # noqa: F401
 from . import lita_little_orphan_amphibian  # noqa: F401
 from . import luxior_and_shadowspear  # noqa: F401
 from . import luxior_giada_s_gift  # noqa: F401
+from . import lae_zels_acrobatics  # noqa: F401

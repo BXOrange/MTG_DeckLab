@@ -2137,6 +2137,8 @@ EffectRegistry.register(
     lambda p: ReturnSpecificToBattlefieldEffect(
         objects=[], tapped=bool(p.get("tapped", False)), attacking=bool(p.get("attacking", False)),
         under_your_control=bool(p.get("under_your_control", False)),
+        entry_counters=p.get("entry_counters"), typed_entry_counters=p.get("typed_entry_counters"),
+        transformed=bool(p.get("transformed", False)), face_down_kind=p.get("face_down_kind"),
     ),
 )
 EffectRegistry.register(
@@ -2755,6 +2757,8 @@ EffectRegistry.register(
         trigger_event_key=p.get("trigger_event_key"),
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
+        entry_counters=p.get("entry_counters"), typed_entry_counters=p.get("typed_entry_counters"),
+        transformed=bool(p.get("transformed", False)), face_down_kind=p.get("face_down_kind"),
     ),
 )
 EffectRegistry.register(
@@ -5648,3 +5652,13 @@ def _choose_perpetual_blitz(params):
 
 
 EffectRegistry.register("choose_perpetual_blitz", _choose_perpetual_blitz)
+
+
+# Compound flickers reuse ordinary exile/return and existing die continuations.
+from .flicker_composites import EFFECT_FACTORIES as _FLICKER_COMPOSITE_FACTORIES
+for _kind, _factory in _FLICKER_COMPOSITE_FACTORIES.items():
+    EffectRegistry.register(_kind, _factory)
+
+from .flicker_attachments import EFFECT_FACTORIES as _FLICKER_ATTACHMENT_FACTORIES
+for _kind, _factory in _FLICKER_ATTACHMENT_FACTORIES.items():
+    EffectRegistry.register(_kind, _factory)

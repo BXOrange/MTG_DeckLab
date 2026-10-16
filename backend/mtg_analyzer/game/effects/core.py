@@ -904,9 +904,9 @@ class GameContext:
 
     def blink(
         self, target: "GameObject", controller: Optional["Player"] = None, tapped: bool = False,
-        attacking: bool = False,
-    ) -> None:
-        self.engine.blink(target, controller=controller, tapped=tapped, attacking=attacking)
+        attacking: bool = False, **entry_options: Any,
+    ) -> Optional["GameObject"]:
+        return self.engine.blink(target, controller=controller, tapped=tapped, attacking=attacking, **entry_options)
 
     def exile_return_transformed(self, target: "GameObject") -> None:
         self.engine.exile_return_transformed(target)
