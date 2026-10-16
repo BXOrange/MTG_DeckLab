@@ -548,6 +548,13 @@ class GameState:
         self.cleanup_discard_pending: bool = False
 
         # RULE 704.7/616.1: ID-based simultaneous loss work survives snapshots.
+        # RULE 504.1: turn-based draws, including other players' statics,
+        # finish before SBAs/trigger placement/priority; IDs survive rewind.
+        self.turn_based_draws: Optional[dict[str, Any]] = None
+        self.turn_draw_pending_triggers: Optional[list[Any]] = None
+        self.turn_draw_delayed_triggers: list[StackItem] = []
+        self.pending_turn_step: Optional[dict[str, Any]] = None
+        self.pending_dredge_return: Optional[dict[str, Any]] = None
         self.player_loss_batch: Optional[dict[str, Any]] = None
         # Only serializable engine continuations use this replacement frame.
         self.replacement_continuation: Optional[dict[str, Any]] = None

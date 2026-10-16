@@ -152,7 +152,7 @@ class StateBasedActionsMixin:
         an empty library loss, 0-toughness creatures, lethal marked damage,
         and the legend rule.
         """
-        if self.state.pending_choice or self.state.player_loss_batch:
+        if self.state.pending_choice or self.state.player_loss_batch or self.state.turn_based_draws:
             return False
         any_action = False
         while True:
@@ -724,6 +724,7 @@ class StateBasedActionsMixin:
             self._commit_player_loss(player, reason)
             self._check_game_over()
             ending_game = reason == "opponent_won" or self.state.game_over
+            self._cancel_conceded_turn_draw(player.id, ending_game=ending_game)
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
             self._cancel_conceded_loss_recovery(player.id, ending_game=ending_game)
             # Keep a finished game's board for review; only continuing
@@ -732,6 +733,24 @@ class StateBasedActionsMixin:
                 self.state.pending_leave_ids.append(player.id)
             return
         self._lose_players([(player.id, reason)])
+
+    def _cancel_conceded_turn_draw(self, player_id, ending_game=False):
+        if self.state.turn_based_draws is None and self.state.pending_turn_step is None:
+            return
+        choice = self.state.pending_choice
+        if choice is not None and (choice.get("player_id") == player_id or ending_game):
+            self.state.pending_choice = None
+            self.state.replacement_continuation = None
+            self._pending_replacement_event = None
+            self._pending_replacement_applied = set()
+            self._pending_replacement_applicable = []
+            self._pending_replacement_callback = None
+            self.state.pending_dredge_return = None
+        if ending_game:
+            self.state.turn_based_draws = None
+            self.state.pending_turn_step = None
+            self.state.turn_draw_pending_triggers = None
+            self.state.turn_draw_delayed_triggers.clear()
 
     def _cancel_conceded_graveyard_shuffle(self, player_id, ending_game=False):
         """Cancel this shared primitive's pending commander picks, not outer tails."""

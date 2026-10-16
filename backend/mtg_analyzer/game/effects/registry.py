@@ -15,6 +15,7 @@ EffectRegistry.register('haunted_owner_damage', lambda p: HauntedCreatureEffect(
 EffectRegistry.register('control_while_haunted', lambda p: HauntedCreatureEffect('control'))
 EffectRegistry.register("delay_return_dying_subject", lambda p: DelayReturnDyingSubjectEffect())
 EffectRegistry.register("recover_instead_of_losing", lambda p: RecoverInsteadOfLosingEffect())
+EffectRegistry.register("opponent_draw_step", lambda p: StaticAbility("opponent_draw_step", affects="controller"))
 EffectRegistry.register("sideboard_cast_permission", lambda p: StaticAbility("sideboard_cast_permission", affects="controller"))
 EffectRegistry.register("loyalty_instant_timing", lambda p: StaticAbility("loyalty_instant_timing", affects="controller"))
 EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility("reveal_opponents_hands", affects="opponents"))

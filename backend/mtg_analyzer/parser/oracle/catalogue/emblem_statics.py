@@ -10,6 +10,10 @@ def emblem_static_effect_specs(text):
     if text == ("if you would lose the game, instead your life total becomes 20, "
                 "shuffle your graveyard into your library, you lose all poison counters, and you lose ~"):
         return [EffectSpec('recover_instead_of_losing', {})]
+    if text == "untap all permanents you control during each opponent's untap step":
+        return [EffectSpec('untap_each_untap_step', {'affects': 'permanents_you_control'})]
+    if text == "you draw a card during each opponent's draw step":
+        return [EffectSpec('opponent_draw_step', {})]
     if text == "your opponents can't cast noncreature spells":
         return [EffectSpec('cast_prohibition', {'scope':'opponents','noncreature':True})]
     if text == "you may activate loyalty abilities of planeswalkers you control on any player's turn any time you could cast an instant":

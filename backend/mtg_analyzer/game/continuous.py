@@ -5603,6 +5603,24 @@ def activates_as_though_haste(state: "GameState", obj: "GameObject") -> bool:
     )
 
 
+def opponent_draw_step_players(state: "GameState") -> list[str]:
+    """One RULE 504 turn-based draw instruction per applicable live static."""
+    active_id = state.active_player.id
+    seen = set()
+    counts = {}
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "opponent_draw_step" or id(ability) in seen:
+            continue
+        seen.add(id(ability))
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id != active_id:
+            counts[controller_id] = counts.get(controller_id, 0) + 1
+    # RULE 121.2c: other players take their draws in turn order. Do
+    # not combine distinct emblem instructions into one draw-N event.
+    return [player.id for player in state.living_players_apnap()
+            for _ in range(counts.get(player.id, 0))]
+
+
 def untaps_in_every_untap_step(state: "GameState", obj: "GameObject") -> bool:
     """Whether ``obj`` carries "Untap ~ during each other player's untap step" (Bender's Waterskin, Thousand
     Moons Infantry, Endbringer, Victory Chimes; PAR-109) — consulted by `GameEngine._step_untap` for the

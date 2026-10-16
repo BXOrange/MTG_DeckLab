@@ -511,11 +511,12 @@ def test_teferi_untaps_yours_taps_theirs_gains_two_and_the_emblem_untaps_and_dra
     _loyalty(engine, teferi, -7)
     mine.tapped = True
     hand = len(p1.hand)
-    engine.state.fire_event(GameEvent(EventType.UNTAP, player_id="p2", controller_id="p2"))
-    engine.resolve_until_stable()
-    assert not mine.tapped  # untapped during the opponent's untap step
-    engine.state.active_player_index = 1  # p2's turn
-    _step(engine, "draw", player="p2")
+    from mtg_analyzer.game.phases import GamePhase, GameStep
+    engine.state.active_player_index = 1
+    engine.state.internal_turn.number = 2
+    engine._run_step(GamePhase("beginning", []), GameStep("untap", gives_priority=False))
+    assert not mine.tapped  # simultaneous turn-based action, no trigger
+    engine._run_step(GamePhase("beginning", []), GameStep("draw"))
     assert len(p1.hand) == hand + 1
 
 

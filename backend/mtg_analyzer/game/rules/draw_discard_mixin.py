@@ -195,6 +195,10 @@ class DrawDiscardMixin:
         if count <= 0:
             return
         if count == 1:
+            # RULE 614.17: an impossible draw cannot be replaced by Dredge.
+            draw_limit = continuous.max_draws_per_turn(self.state, player)
+            if draw_limit is not None and self.state.cards_drawn_this_turn.get(player.id, 0) >= draw_limit:
+                return
             # The overwhelmingly common case (every turn-based draw-step
             # draw, most card-draw spells) — skip straight to the per-card
             # path below with no instruction-level replacement pass at all.
@@ -264,15 +268,19 @@ class DrawDiscardMixin:
             EventType.DRAW, player_id=player.id, count=1, first_in_draw_step=first_in_draw_step,
         )
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            if resolved.type == EventType.MILL:
-                self.mill(player, resolved.get("count", 1))
-                return
+        self.apply_replacements(event, on_resolved={
+            "kind": "single_draw", "player_id": player.id, "first_in_draw_step": first_in_draw_step,
+        })
+
+    def _finish_single_draw(self, player_id, first_in_draw_step, resolved):
+        player = self.state.player_by_id(player_id)
+        if player is None or player.has_lost or resolved is None:
+            return
+        if resolved.type == EventType.MILL:
+            self.mill(player, resolved.get("count", 1))
+        else:
             self._finish_draw_batch(player, resolved.get("count", 1), first_in_draw_step)
 
-        self.apply_replacements(event, on_resolved=_finish)
     def _finish_draw_batch(self, player, count, first_in_draw_step=False):
         # A DRAW event (possibly with a bumped count).
         n = count
@@ -363,8 +371,21 @@ class DrawDiscardMixin:
         if card is None or n is None or card.zone != Zone.GRAVEYARD:
             self._single_draw(player)
             return
+        self.state.pending_dredge_return = {"player_id": player.id, "instance_id": card.instance_id,
+                                            "incarnation": card.zone_incarnation}
         self.mill(player, n)
-        if card.zone == Zone.GRAVEYARD:  # RULE 702.52b "return this card"
+        if not self.state.pending_choice:
+            self._finish_pending_dredge_return()
+
+    def _finish_pending_dredge_return(self):
+        pending = self.state.pending_dredge_return
+        if pending is None or self.state.pending_choice:
+            return
+        self.state.pending_dredge_return = None
+        player = self.state.player_by_id(pending["player_id"])
+        card = self.state.find_object(pending["instance_id"])
+        if (player is not None and not player.has_lost and card is not None
+                and card.zone == Zone.GRAVEYARD and card.zone_incarnation == pending["incarnation"]):
             self.return_from_graveyard(card, "hand")
     def mill(self, player: Player, count: int) -> None:
         if count <= 0:
@@ -372,11 +393,12 @@ class DrawDiscardMixin:
         # RULE 614.1/701.13: "if a player would mill N cards, they mill N plus 4 instead" (The Water Crystal) — routed
         # through `apply_replacements` like `gain_life`; with no such replacement active `_mill` runs synchronously.
         event = GameEvent(EventType.WOULD_MILL, player_id=player.id, count=count)
-        self.apply_replacements(
-            event, on_resolved=lambda resolved: resolved is not None and self._mill(
-                player, int(resolved.get("count", count) or 0)
-            ),
-        )
+        self.apply_replacements(event, on_resolved={"kind": "mill", "player_id": player.id, "count": count})
+
+    def _finish_mill(self, player_id, count, resolved):
+        player = self.state.player_by_id(player_id)
+        if player is not None and not player.has_lost and resolved is not None:
+            self._mill(player, int(resolved.get("count", count) or 0))
 
     def _mill(self, player: Player, count: int) -> None:
         milled: list[GameObject] = []

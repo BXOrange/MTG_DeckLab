@@ -1329,7 +1329,7 @@ class TriggerCollectionMixin:
         choose the intra-player order via a `pending_choice` (RULE 603.3b)
         instead of a deterministic placement.
         """
-        if self.state.player_loss_batch:
+        if self.state.player_loss_batch or self.state.turn_based_draws:
             return 0  # RULE 117.5: finish all loss replacements before triggers.
         if not self.pending_triggers:
             return 0

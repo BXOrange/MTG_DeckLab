@@ -196,7 +196,9 @@ class RulesEngine(
         self.context = GameContext(state, self)
         #: Triggered abilities that fired and are waiting to be put on the
         #: stack (RULE 603.3 — after the current action, before priority).
-        self.pending_triggers: list[tuple[TriggeredAbility, GameEvent]] = []
+        self.pending_triggers: list[tuple[TriggeredAbility, GameEvent]] = (
+            state.turn_draw_pending_triggers if state.turn_draw_pending_triggers is not None else []
+        )
         #: RULE 701.30b: the opponent the most recent `clash` was "with" —
         #: `effects.ClashEffect` reads it into `GameContext.clashed_opponent`
         #: for a "that player" referent in the win/otherwise branch.
@@ -681,6 +683,10 @@ class RulesEngine(
         if isinstance(callback, dict):
             if callback["kind"] == "player_loss":
                 self._finish_player_loss_event(callback["player_id"], callback["reason"], event)
+            elif callback["kind"] == "single_draw":
+                self._finish_single_draw(callback["player_id"], callback["first_in_draw_step"], event)
+            elif callback["kind"] == "mill":
+                self._finish_mill(callback["player_id"], callback["count"], event)
             elif callback["kind"] == "life_gain":
                 self._finish_life_gain(callback["player_id"], callback["amount"], event)
             else:

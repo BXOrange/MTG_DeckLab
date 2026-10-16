@@ -445,6 +445,9 @@ class TurnLoopMixin:
     def _run_step(self, phase: GamePhase, step: GameStep) -> None:
         self.state.current_phase = phase.name
         self.state.current_step = step.name
+        if step.name == "draw":
+            self.state.priority_player_index = None
+            self.state.priority_passed.clear()
 
         # Rule-override skips (docs/07 PART 8): "skip your untap step", etc.
         if self.rules.should_skip_step(self.state.active_player, step.name):
@@ -457,7 +460,12 @@ class TurnLoopMixin:
             phase.skipped = True
             return
 
+        if step.name == "draw" and self._skip_first_draw_step():
+            return  # RULE 103.8a: skip the step, including other-player actions.
         if step.name == "draw":
+            self.state.pending_turn_step = {"phase": phase.name, "step": step.name,
+                                            "gives_priority": step.gives_priority}
+            self.state.turn_draw_pending_triggers = self.rules.pending_triggers
             # MEC-32: reset right as this player's own draw step begins, so
             # `RulesEngine._single_draw` can tell "the step's own first
             # draw" apart from a later one within the same step (Notion
@@ -480,7 +488,33 @@ class TurnLoopMixin:
             self.recompute_continuous_effects()
         self._execute_step_body(step)
 
-        if not step.gives_priority:
+        if step.name == "draw":
+            return  # the resumable turn-based sequence owns this window
+        self._finish_step_window(phase.name, step.name, step.gives_priority)
+
+    def _finish_step_window(self, phase_name, step_name, gives_priority):
+        if step_name == "draw":
+            # RULE 117.5: only after ALL turn-based draws, check SBAs before
+            # granting priority. A loss-replacement choice can pause here too.
+            self.rules.check_state_based_actions()
+            if self.state.game_over:
+                self.state.turn_draw_pending_triggers = None
+                self.state.turn_draw_delayed_triggers.clear()
+                return
+            if self.state.pending_choice or self.state.player_loss_batch:
+                self.state.pending_turn_step = {"phase": phase_name, "step": step_name,
+                                                "gives_priority": gives_priority}
+                return
+        if step_name == "draw":
+            living = {player.id for player in self.state.living_players()}
+            self.rules.pending_triggers[:] = [
+                (ability, event) for ability, event in self.rules.pending_triggers
+                if self.rules._trigger_controller_id(ability, event) in living
+            ]
+            self.state.stack.extend(item for item in self.state.turn_draw_delayed_triggers
+                                    if item.controller_id in living)
+            self.state.turn_draw_delayed_triggers.clear()
+        if not gives_priority:
             # RULE 117.3a: nobody receives priority during untap or cleanup.
             # Cleared rather than left pointing at whoever held it last, so
             # "is anybody able to act right now?" is answerable from the
@@ -491,7 +525,12 @@ class TurnLoopMixin:
         else:
             # RULE 117.3a: (re-)grant priority to the active player as this
             # step's window opens.
-            self.give_priority(self.state.active_player)
+            recipient = self.state.active_player
+            if recipient.has_lost:
+                # RULE 800.4j: a departed active player's turn continues;
+                # the next living player receives their priority instead.
+                recipient = next(iter(self.state.living_players_apnap()), recipient)
+            self.give_priority(recipient)
             # Turn-based actions can create triggers; resolve everything and
             # let priority pass around until the stack is empty (RULE 117).
             # Solo/goldfish auto-drains here. With `interactive_priority` the
@@ -506,8 +545,10 @@ class TurnLoopMixin:
 
         # RULE 500.4: unused mana empties as the step ends — except mana an effect lets you keep (`ManaPool.kept`).
         for player in self.state.players:
-            continuous.empty_mana_pool(self.state, player, kept_mana_expiring_at(step.name))
-        self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
+            continuous.empty_mana_pool(self.state, player, kept_mana_expiring_at(step_name))
+        self.state.fire_event(GameEvent(EventType.STEP_END, step=step_name, phase=phase_name))
+        if step_name == "draw":
+            self.state.turn_draw_pending_triggers = None
     def insert_additional_combat_phase(self, main_phase_too: bool = False, *,
                                        after_current_phase: bool = False,
                                        untap_controller_id: Optional[str] = None) -> None:
@@ -613,7 +654,10 @@ class TurnLoopMixin:
         # so the semantics match the parser's `EffectSpec.condition`.
         due = [dt for dt in due if self._delayed_trigger_condition_holds(dt)]
         for dt in due:
-            self.state.stack.append(
+            destination = (self.state.turn_draw_delayed_triggers
+                           if step_name == "draw" and self.state.turn_draw_pending_triggers is not None
+                           else self.state.stack)
+            destination.append(
                 StackItem(
                     kind="ability",
                     controller_id=dt.controller_id,
@@ -686,8 +730,9 @@ class TurnLoopMixin:
             for obj in list(self.state.battlefield):
                 if (
                     obj.controller_id != active.id and obj.tapped
+                    # Own-step restrictions do not prohibit this foreign
+                    # turn-based untap (RULE 502.3); stun still replaces it.
                     and continuous.untaps_in_every_untap_step(self.state, obj)
-                    and not continuous.has_no_untap_static(self.state, obj)
                 ):
                     self.rules.set_tapped(obj, False)
         #: How many of the active player's permanents actually untapped in this step — carried on the UNTAP event for
@@ -765,26 +810,54 @@ class TurnLoopMixin:
         # RULE 731.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.
         self.rules.apply_day_night_turn_check()
+    def _skip_first_draw_step(self):
+        # RULE 103.8a/c: only the starting player of a two-player game skips.
+        return (self.state.internal_turn.number == 1 and len(self.state.players) == 2
+                and self.state.skip_first_draw)
+
     def _step_draw(self) -> None:
-        # RULE 103.8a: in a **two-player** game the player who plays first
-        # skips the draw step of their first turn. RULE 103.8c: "in all
-        # other multiplayer games, no player skips the draw step of their
-        # first turn" — so at a pod of three or four *nobody* skips it,
-        # including the starting player. Gated on exactly two seats for
-        # that reason; it used to read `> 1`, which wrongly carried the
-        # two-player rule into every pod.
-        #
-        # The goldfish dummy counts as the second seat here: a solo game is
-        # modeling a two-player game against a passive opponent, and its
-        # setup screen is what clears `skip_first_draw` to put the human on
-        # the draw instead.
-        skip_draw = (
-            self.state.internal_turn.number == 1
-            and len(self.state.players) == 2
-            and self.state.skip_first_draw
-        )
-        if not skip_draw:
-            self.rules.draw(self.state.active_player, 1)
+        if self._skip_first_draw_step():
+            return
+        if self.state.turn_based_draws is None:
+            if self.state.turn_draw_pending_triggers is None:
+                self.state.turn_draw_pending_triggers = self.rules.pending_triggers
+            self.state.priority_player_index = None
+            self.state.priority_passed.clear()
+            self.recompute_continuous_effects()
+            self.state.turn_based_draws = {
+                "players": [self.state.active_player.id] + continuous.opponent_draw_step_players(self.state),
+                "index": 0,
+            }
+        self._resume_turn_based_draws()
+
+    def _resume_turn_based_draws(self):
+        # RULE 504.1 / Teferi MID ruling: active player first, no priority
+        # between instructions. Each distinct static contributes one draw.
+        if self.state.pending_choice:
+            return
+        self.rules._finish_pending_dredge_return()
+        sequence = self.state.turn_based_draws
+        if sequence is None:
+            return
+        while sequence["index"] < len(sequence["players"]):
+            player_id = sequence["players"][sequence["index"]]
+            sequence["index"] += 1
+            sequence["current_player_id"] = player_id
+            player = self.state.player_by_id(player_id)
+            if player is None or player.has_lost:
+                continue
+            self.rules.draw(player, 1)
+            if self.state.pending_choice:
+                return
+            self.rules._finish_pending_dredge_return()
+        self.state.turn_based_draws = None
+        pending = self.state.pending_turn_step
+        self.state.pending_turn_step = None
+        if pending is not None:
+            self._finish_step_window(pending["phase"], pending["step"], pending["gives_priority"])
+        else:
+            self.state.turn_draw_pending_triggers = None
+
     def _step_main1(self) -> None:
         # RULE 714.3c: as a player's precombat main phase begins, they put a
         # lore counter on each Saga they control with one or more chapter
@@ -1093,6 +1166,15 @@ class TurnLoopMixin:
         for _ in range(_MAX_RESOLUTIONS):
             if self.state.pending_choice:
                 return  # await a player decision before resolving further
+            if self.state.turn_based_draws is not None:
+                self._resume_turn_based_draws()
+                return
+            self.rules._finish_pending_dredge_return()
+            if self.state.pending_turn_step is not None:
+                pending = self.state.pending_turn_step
+                self.state.pending_turn_step = None
+                self._finish_step_window(pending["phase"], pending["step"], pending["gives_priority"])
+                return
             if self.rules.resume_deferred_effects():
                 # RULE 608.2: a resolution that stopped mid-list on an
                 # interactive choice finishes here, *before* anything else
@@ -1226,6 +1308,9 @@ class TurnLoopMixin:
         opponent_pick = choice_kind in OPPONENT_CHOICE_KINDS
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
         self.rules.resolve_choice(answer)
+        if self.state.turn_based_draws is not None:
+            self.resolve_until_stable()
+            return
         if choice_kind == 'untap_cap_selection':
             return self._resume_untap_cap_selection()
         if opponent_pick and (self.state.pending_choice or self.interactive_priority or leaves_on_stack):

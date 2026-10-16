@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
@@ -12,19 +11,11 @@ def _teferi_who_slows_the_sunset() -> list[AbilitySpec]:
 
     — PLAY-ALL (Hope to the last). The −2 is the parser's. The +1 is three optional single-target `tap` effects (artifact,
     creature, land — one target slot each) with the new ``untap_if_yours`` mode (untap what the controller controls, tap the
-    rest), then `gain_life`. The −7 emblem holds Seedborn Muse's untap trigger and a draw trigger at each other player's draw
-    step (`phase_relation` ``not_you``).
+    rest), then `gain_life`. Both emblem abilities modify turn-based actions:
+    simultaneous untapping and a draw after the active player's draw, without priority.
     """
-    untap_all = AbilitySpec(
-        "triggered",
-        [EffectSpec("tap", {"untap": True, "selector": "permanents_you_control"})],
-        trigger={"event": EventType.UNTAP, "condition": {"subject": "group", "controller": "not_you"}},
-    )
-    draw_each_opponent_draw_step = AbilitySpec(
-        "triggered",
-        [EffectSpec("draw", {"count": 1})],
-        trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "draw"}, "phase_relation": "not_you"},
-    )
+    untap_all = AbilitySpec("static", [EffectSpec("untap_each_untap_step", {"affects": "permanents_you_control"})])
+    draw_each_opponent_draw_step = AbilitySpec("static", [EffectSpec("opponent_draw_step", {})])
     return [
         AbilitySpec(
             "activated",

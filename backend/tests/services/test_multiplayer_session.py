@@ -408,9 +408,10 @@ class TestPriority:
         session.apply_action({"type": "pass_priority"}, actor_id="ann")
         assert session.engine.state.current_step == "upkeep"
         session.apply_action({"type": "pass_priority"}, actor_id="bob")
-        # RULE 117.4: all passed on an empty stack → the step ends, and the
-        # active player gets priority again in the next one.
-        assert session.engine.state.current_step == "draw"
+        # RULE 117.4: all passed on an empty stack ends upkeep. RULE
+        # 103.8a skips the starting player's whole first draw step, so
+        # their next priority window is the precombat main phase.
+        assert session.engine.state.current_step == "main1"
         assert session.engine.state.priority_player.id == "ann"
 
     def test_a_player_without_priority_cannot_pass(self):
