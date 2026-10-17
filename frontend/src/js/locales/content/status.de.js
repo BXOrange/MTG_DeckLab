@@ -298,7 +298,7 @@ export default [
               ['full', 'Prowess / Exalted / Battle Cry / Mentor (702.108/702.83/702.92/702.134)'],
               ['full', 'Undying / Persist (702.93/702.79) — auch als verliehene Fähigkeit'],
               ['full', 'Unearth / Embalm / Eternalize (702.84/702.128/702.129) — aus dem Friedhof, nur als Hexerei'],
-              ['full', 'Dredge (702.52) — „aufmahlen statt ziehen"'],
+              ['full', 'Dredge (702.52) — „aufmahlen statt ziehen", auch für jede Karte einer Mehrfach-Ziehanweisung'],
               ['full', 'Affinity (702.41) — Kostenreduktion je Artefakt / Land-Typ'],
               ['partial', 'Convoke / Delve / Improvise (702.51/702.66/702.126) — generischer Anteil per Kreatur/Friedhofkarte/Artefakt, Auto-Minimal (noch keine Einzelauswahl, nur generisch); die Convoke-Kreaturen werden je Zauberspruch gespeichert (702.51c, „jede Kreatur, die diesen Zauberspruch bezahlt hat …")'],
               ['full', 'Backup (702.165) — ETB-Marken auf Zielkreatur (auch sich selbst); geliehene Fähigkeiten vereinfacht'],
@@ -464,7 +464,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (61,7 % · 21.615 / 35.046, PARSER_VERSION 666)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (61,7 % · 21.617 / 35.046, PARSER_VERSION 666)'],
               ['partial', 'Davon Commander-legal (64,8 % · 20.773 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

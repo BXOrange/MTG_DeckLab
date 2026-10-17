@@ -5,6 +5,7 @@ from .core import EffectRegistry
 from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalEndStepEffect
 from .identity_flicker import IdentityFlickerEffect
+from .flicker_riders import EFFECT_FACTORIES as _FLICKER_RIDER_FACTORIES
 from .conditional_flicker import EFFECT_FACTORIES as _CONDITIONAL_FLICKER_FACTORIES
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
@@ -12,6 +13,9 @@ from .loss_replacements import RecoverInsteadOfLosingEffect
 from ._runtime import install, register
 
 install(globals())
+
+for _name, _factory in _FLICKER_RIDER_FACTORIES.items():
+    EffectRegistry.register(_name, _factory)
 
 EffectRegistry.register('identity_flicker', lambda p: IdentityFlickerEffect())
 

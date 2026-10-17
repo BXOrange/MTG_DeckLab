@@ -827,6 +827,8 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "conditional_flicker": "608.2d",
     "return_captured_exile_visits": "614.12",
     "identity_flicker": "614.12",
+    "vanish_into_memory": "608.2h",
+    "self_exile_upkeep_haste": "614.12",
     "flicker_acrobatics": "706.1",
     "flicker_fortune_delayed": "608.2d",
     "flicker_repeated_rounds": "608.2d",

@@ -212,8 +212,7 @@ class DrawDiscardMixin:
             # comfortably under the per-test timeout to tripping it).
             #
             # RULE 702.52a: Dredge replaces a *would-draw*, and is "you
-            # may" — offered here (the single-card path only; a multi-card
-            # `draw()` is a documented simplification) as an interactive
+            # may" — offered here for each card of an instruction as an interactive
             # `dredge` `pending_choice`. If it opens, the draw is deferred:
             # `GameEngine._resume_dredge` either mills+returns the
             # dredged card or falls back to `_single_draw`.
@@ -233,17 +232,40 @@ class DrawDiscardMixin:
         # replacement already shipped.
         event = GameEvent(EventType.DRAW_INSTRUCTION, player_id=player.id, count=count)
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            n = resolved.get("count", count)
-            for index in range(n):
-                self._single_draw(player)
-                if (self.state.pending_choice or {}).get("kind") == "miracle_reveal":
-                    self.state.pending_choice["remaining_instruction"] = n - index - 1
-                    return
+        self.apply_replacements(event, on_resolved={
+            'kind': 'draw_instruction', 'player_id': player.id, 'count': count,
+        })
 
-        self.apply_replacements(event, on_resolved=_finish)
+    def _finish_draw_instruction(self, player_id, count, resolved):
+        if resolved is None:
+            return
+        player = self.state.player_by_id(player_id)
+        if player is None or player.has_lost:
+            return
+        # RULE 121.2/702.52a: instruction-level replacements apply once,
+        # then each individual draw may be replaced. Choice-owned remainder
+        # frames survive Dredge, Miracle, replacement ordering and clone/undo.
+        self._continue_draw_instruction(player_id, max(0, resolved.get('count', count)))
+
+    def _continue_draw_instruction(self, player_id, count):
+        player = self.state.player_by_id(player_id)
+        if player is None or player.has_lost:
+            return
+        for index in range(count):
+            self.draw(player, 1)
+            if self.state.pending_choice:
+                self.state.pending_choice.setdefault('draw_instruction_tails', []).append({
+                    'player_id': player_id, 'count': count - index - 1,
+                })
+                return
+
+    def _resume_draw_instruction_tails(self, tails):
+        self._finish_pending_dredge_return()
+        for index, frame in enumerate(tails):
+            self._continue_draw_instruction(frame['player_id'], frame['count'])
+            if self.state.pending_choice:
+                self.state.pending_choice.setdefault('draw_instruction_tails', []).extend(tails[index + 1:])
+                return
     def _single_draw(self, player: Player) -> None:
         # RULE 121.5-adjacent "each player can't draw more than N cards each
         # turn." (Spirit of the Labyrinth) — a cap checked *before* this draw

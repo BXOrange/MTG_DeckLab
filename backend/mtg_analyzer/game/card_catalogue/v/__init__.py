@@ -4,6 +4,7 @@ from . import valley_floodcaller  # noqa: F401
 from . import valor  # noqa: F401
 from . import vandalblast  # noqa: F401
 from . import vanguard_of_the_restless  # noqa: F401
+from . import vanish_into_memory  # noqa: F401
 from . import vanishing_verse  # noqa: F401
 from . import vanquisher_s_banner  # noqa: F401
 from . import vault_12_the_necropolis  # noqa: F401

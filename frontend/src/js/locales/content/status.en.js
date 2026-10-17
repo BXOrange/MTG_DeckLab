@@ -298,7 +298,7 @@ export default [
               ['full', 'Prowess / Exalted / Battle Cry / Mentor (702.108/702.83/702.92/702.134)'],
               ['full', 'Undying / Persist (702.93/702.79) — also as a granted ability'],
               ['full', 'Unearth / Embalm / Eternalize (702.84/702.128/702.129) — from the graveyard, sorcery speed only'],
-              ['full', 'Dredge (702.52) — "mill instead of drawing"'],
+              ['full', 'Dredge (702.52) — "mill instead of drawing", including each card of a multi-card draw instruction'],
               ['full', 'Affinity (702.41) — cost reduction per artifact / land type'],
               ['partial', 'Convoke / Delve / Improvise (702.51/702.66/702.126) — generic portion per creature/graveyard card/artifact, auto-minimal (no individual selection yet, generic only); the convoking creatures are recorded per spell (702.51c, "each creature that convoked this spell …")'],
               ['full', 'Backup (702.165) — ETB counters on a target creature (including itself); granted abilities simplified'],
@@ -464,7 +464,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (61.7% · 21,615 / 35,046, PARSER_VERSION 666)'],
+              ['partial', 'Total oracle-parser coverage (61.7% · 21,617 / 35,046, PARSER_VERSION 666)'],
               ['partial', 'Of which Commander-legal (64.8% · 20,773 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

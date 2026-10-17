@@ -77,17 +77,17 @@ def _run(eng, src, specs, targets=None):
     _apply_effects_partitioned(effs, eng.rules.context, targets, None, source=src)
 
 
-def _finish_choices(eng):
+def _finish_choices(eng, limit=20):
     """Answer every interactive branch, keeping revealed clash cards on top."""
     guard = 0
-    while eng.state.pending_choice and guard < 20:
+    while eng.state.pending_choice and guard < limit:
         guard += 1
         choice = eng.state.pending_choice
         if choice["kind"] == "clash":
             eng.resolve_pending_choice("top")
         else:
             eng.resolve_pending_choice(choice["options"][0]["instance_id"])
-    assert guard < 20
+    assert guard < limit
 
 
 # --- all six are MODELED -----------------------------------------------------
@@ -118,6 +118,14 @@ def test_hoarders_greed_loops_the_process_while_clashes_win():
     src = _spec_source(eng, "Hoarder's Greed")
     spec = parse_oracle(src.card).specs[0].effects[0]
     _run(eng, src, [spec])
+    assert p1.life == life0 - 2 and len(p1.hand) == 2
+    assert eng.state.pending_choice['kind'] == 'clash'
+    clone = GameEngine(eng.state.clone())
+    _finish_choices(clone)
+    assert clone.state.player_by_id('p1').life == life0 - 8
+    assert len(clone.state.player_by_id('p1').hand) == 8
+    assert p1.life == life0 - 2 and len(p1.hand) == 2
+    _finish_choices(eng)
     assert p1.life == life0 - 8   # 4 passes, 2 life each
     assert len(p1.hand) == 8      # 4 passes, 2 cards each
 
@@ -133,6 +141,8 @@ def test_hoarders_greed_is_capped():
     src = _spec_source(eng, "Hoarder's Greed")
     _run(eng, src, [parse_oracle(src.card).specs[0].effects[0]])
     from mtg_analyzer.game.effects.core import _MAX_CLASH_REPEAT_ITERATIONS
+    # Each round asks both players where their revealed card goes.
+    _finish_choices(eng, limit=2 * _MAX_CLASH_REPEAT_ITERATIONS + 1)
     assert p1.life == 500 - 2 * _MAX_CLASH_REPEAT_ITERATIONS
 
 

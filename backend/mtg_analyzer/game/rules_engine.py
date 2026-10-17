@@ -564,6 +564,11 @@ class RulesEngine(
         if choice.get("battlefield_batch"):
             from .effects.battlefield_batches import resume_battlefield_batch
             resume_battlefield_batch(self, choice)
+        if choice.get('draw_instruction_tails'):
+            if self.state.pending_choice:
+                self.state.pending_choice.setdefault('draw_instruction_tails', []).extend(choice['draw_instruction_tails'])
+            else:
+                self._resume_draw_instruction_tails(choice['draw_instruction_tails'])
 
     @staticmethod
     def mana_cost_of(card: Card) -> ManaCost:
@@ -690,6 +695,8 @@ class RulesEngine(
                 self._finish_player_loss_event(callback["player_id"], callback["reason"], event)
             elif callback["kind"] == "single_draw":
                 self._finish_single_draw(callback["player_id"], callback["first_in_draw_step"], event)
+            elif callback["kind"] == "draw_instruction":
+                self._finish_draw_instruction(callback['player_id'], callback['count'], event)
             elif callback["kind"] == "mill":
                 self._finish_mill(callback["player_id"], callback["count"], event)
             elif callback["kind"] == "damage":

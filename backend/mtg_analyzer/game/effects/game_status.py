@@ -1646,6 +1646,23 @@ class RandomNumberEffect(GameEffect):
 _MAX_CLASH_REPEAT_ITERATIONS = 20
 
 
+class _RepeatProcessNextEffect(GameEffect):
+    """Resume a process only after its current round's choices finish."""
+
+    def __init__(self, process, iteration):
+        super().__init__(process.source)
+        self.process, self.iteration = process, iteration
+
+    def apply(self, context, targets=None):
+        if isinstance(self.process.repeat_while, dict):
+            from .. import effect_conditions
+            repeat = effect_conditions.condition_holds(self.process.repeat_while, context, self.source, None)
+        else:
+            repeat = self.process.repeat_while != 'clash_won' or bool(context.clash_won)
+        if repeat:
+            self.process._apply_iteration(context, self.iteration)
+
+
 class RepeatProcessEffect(GameEffect):
     """"`<process>`, then clash with an opponent. If you win, **repeat this
     process**." (Hoarder's Greed — the process is "you lose 2 life and draw
@@ -1657,9 +1674,9 @@ class RepeatProcessEffect(GameEffect):
     `GameContext.clash_won`, which the process's own trailing `ClashEffect`
     sets each pass, or an `effect_conditions` dict re-evaluated after each
     pass) — runs again, up to
-    `_MAX_CLASH_REPEAT_ITERATIONS`. The inner effects apply directly on
-    ``context`` (not a nested `_apply_effects_partitioned`) so the clash
-    outcome each pass is visible to the loop test.
+    `_MAX_CLASH_REPEAT_ITERATIONS`. A round and its repeat test share one
+    effect frame, so the test reads that round's clash outcome after all
+    interactive choices have completed (RULE 608.2c).
     """
 
     def __init__(
@@ -1673,28 +1690,21 @@ class RepeatProcessEffect(GameEffect):
         self.repeat_while = repeat_while
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        self._apply_iteration(context, 0)
+
+    def _apply_iteration(self, context, iteration):
         from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
+        from .core import _apply_effects_partitioned
 
-        if not self.inner_specs:
+        if not self.inner_specs or iteration >= _MAX_CLASH_REPEAT_ITERATIONS:
             return
-        for _ in range(_MAX_CLASH_REPEAT_ITERATIONS):
-            built = build_effects(
-                [EffectSpec(type=d["type"], params=dict(d.get("params") or {}))
-                 for d in self.inner_specs],
-                self.source,
-            )
-            for effect in built:
-                effect.apply(context, None)
-            if isinstance(self.repeat_while, dict):
-                # "If an Insect card was milled this way, … and repeat this process." (Grist, the Hunger Tide) — an
-                # `effect_conditions` gate read after each pass; the first pass that fails it ends the loop.
-                from .. import effect_conditions  # function-scoped: effect_conditions imports this package
-
-                if not effect_conditions.condition_holds(self.repeat_while, context, self.source, None):
-                    return
-            elif self.repeat_while == "clash_won" and not getattr(context, "clash_won", None):
-                return
+        built = build_effects([
+            EffectSpec(type=d['type'], params=dict(d.get('params') or {})) for d in self.inner_specs
+        ], self.source)
+        _apply_effects_partitioned([
+            *built, _RepeatProcessNextEffect(self, iteration + 1),
+        ], context, None, None, source=self.source)
 
 
 class PlaneswalkEffect(GameEffect):
