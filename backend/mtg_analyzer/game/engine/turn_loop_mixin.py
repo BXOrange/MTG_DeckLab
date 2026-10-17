@@ -478,6 +478,10 @@ class TurnLoopMixin:
             # draw" apart from a later one within the same step (Notion
             # Thief/Chains of Mephistopheles's shared exemption clause).
             self.state.first_draw_done_this_step[self.state.active_player.id] = False
+        # RULE 611.2: durations end as the step begins, before checking
+        # beginning-of-step triggers against the resulting characteristics.
+        if step.name == "end" and durations.sweep(self.state, "end_step"):
+            self.recompute_continuous_effects()
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
         if phase.steps and step is phase.steps[0] and getattr(phase, "untap_controller_id", None):
             # RULE 603.7: Moraug's delayed trigger belongs to this specific combat.
@@ -488,11 +492,6 @@ class TurnLoopMixin:
                 description="Moraug: Kreaturen enttappen", category="triggered_ability",
             ))
         self._fire_delayed_triggers(step.name)
-        # RULE 611: "until the beginning of the next end step" — swept as
-        # that step opens, alongside the delayed triggers due there, since
-        # both are "the next time we reach this step" durations.
-        if step.name == "end" and durations.sweep(self.state, "end_step"):
-            self.recompute_continuous_effects()
         self._execute_step_body(step)
 
         if step.name == "draw":

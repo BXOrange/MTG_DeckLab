@@ -94,7 +94,7 @@ def _valid_record(obj, record, state=None):
         host = state.find_object(host_id)
         if host is None or host.zone.value != 'battlefield' or host.zone_incarnation != host_incarnation:
             return False
-    return (obj is not None
+    return (obj is not None and not record.get('entry_failed')
             and (state is None or (not state.player_by_id(obj.owner_id).has_lost
                                   and not state.player_by_id(record['controller_id']).has_lost))
             and (record.get('expected_incarnation') is None
@@ -168,6 +168,13 @@ def advance_battlefield_batch(rules, frame):
             obj.reset_as_new_object()
             obj.controller_id = record['controller_id']
             if record.get('transformed'):
+                if obj.card.back_face() is None:
+                    # RULE 712.14a: a single-faced physical card cannot
+                    # enter transformed, even if its previous copy could.
+                    record['entry_failed'] = True
+                    frame['cursor'] += 1
+                    frame['stage'] = 'reset'
+                    continue
                 rules.transform_permanent(obj)
             if record.get('face_down_kind'):
                 rules.turn_face_down(obj, record['face_down_kind'])

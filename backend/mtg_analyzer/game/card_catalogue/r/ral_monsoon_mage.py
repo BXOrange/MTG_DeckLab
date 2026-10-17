@@ -27,7 +27,7 @@ def _ral_monsoon_mage() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("coin_flip", {
                 "lose_effects": [{"type": "damage", "params": {"selector": "controller", "amount": 1}}],
-                "win_effects": [{"type": "exile_return_transformed", "params": {}}],
+                "win_effects": [{"type": "blink", "params": {"subject": "source", "transformed": True}}],
             })],
             trigger={
                 "event": "SPELL_CAST",

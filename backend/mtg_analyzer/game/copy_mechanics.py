@@ -6,8 +6,8 @@ primitives used by all three copy mechanisms this engine models:
   `RulesEngine._offer_enter_as_copy`),
 * the continuous, condition-gated layer-1 copy (Vesuvan Shapeshifter-style
   "as long as untapped" — see `continuous._apply_copy_layer`), and
-* the temporary "… until end of turn" copy (Cursed Mirror-style — see
-  `RulesEngine.become_copy_until_end_of_turn`).
+* temporary copies ending at cleanup or the next end step. Ordered layers
+  preserve later copies when an earlier duration expires.
 
 Free functions rather than `RulesEngine` methods so `game/continuous.py` can
 call them without importing `rules_engine` (which already imports
@@ -84,6 +84,7 @@ def become_copy(
     add_keywords: Optional[list[str]] = None,
     not_legendary: bool = False,
     set_colors: Optional[list[str]] = None,
+    duration: Optional[str] = None,
 ) -> None:
     """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
@@ -112,6 +113,9 @@ def become_copy(
     so a *further* copy of ``obj`` sees this copy rather than ``obj``'s own
     original printed card — the chain composes."""
     from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
+
+    if duration is not None or obj._duration_copy_layers:
+        obj._duration_copy_layers.append({'duration': duration, 'base': snapshot_face(obj)})
 
     # RULE 400.7: a copied permanent returns with its own printed abilities.
     # Preserve this first face across repeated copies; snapshots do not change
@@ -143,3 +147,31 @@ def become_copy(
 
     if obj.card.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
         obj.counters["loyalty"] = obj.card.loyalty
+
+
+def expire_copies(state, window: str) -> bool:
+    """End timed copy layers without removing a later permanent or timed copy."""
+    duration = {'cleanup': 'end_of_turn', 'end_step': 'next_end_step'}.get(window)
+    if duration is None:
+        return False
+    changed = False
+    for obj in state.battlefield:
+        layers = obj._duration_copy_layers
+        index = 0
+        while index < len(layers):
+            layer = layers[index]
+            if layer['duration'] != duration:
+                index += 1
+                continue
+            # RULE 613.7: newer copy effects still win. If the removed
+            # layer is underneath one, update what that newer layer reveals
+            # when it ends, rather than changing the current face.
+            if index + 1 < len(layers):
+                layers[index + 1]['base'] = layer['base']
+            else:
+                restore_face(obj, layer['base'])
+            layers.pop(index)
+            changed = True
+        if layers and all(layer['duration'] is None for layer in layers):
+            layers.clear()
+    return changed

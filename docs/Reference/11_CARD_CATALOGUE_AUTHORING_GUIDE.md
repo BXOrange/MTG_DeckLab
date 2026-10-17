@@ -595,9 +595,19 @@ Follow the pattern in `backend/tests/game/catalogue/test_catalogue.py` and
 Everything above assumes the `EffectSpec`/replacement type you need already
 exists. If it doesn't (Fog-style "prevent all combat damage this turn", a
 layer 1 copy effect, a layer 3 text-changing effect), that
-is a `game/effects/core.py` change (a new `GameEffect` subclass +
+is a change in the appropriate module under `game/effects/` (a new `GameEffect` subclass +
 `EffectRegistry.register`/`ReplacementRegistry.register` call), not
 something a catalogue entry alone can do — the catalogue can only compose
 *existing* whitelisted types. Add the new effect class next to its siblings
-in `effects.py`, register it once, and then any catalogue entry (or future
+under `game/effects/`, wire it in `registry.py`, and then any catalogue entry (or future
 parser handler) can reach for it by name.
+
+First separate selection, measured inputs, timing, entry instructions and
+follow-up effects. Compose `bind`, `seq`, existing choices and `blink` before
+adding a fused runtime type. `blink` already supports intervening
+`exile_effects`, frozen `departing_copy` recipients, return timing/entry
+options and successful-return bodies; see
+[Engine mechanic notes](ENGINE_MECHANICS_NOTES.md). Card-specific catalogue
+entries should configure these axes. A new card name alone is not a reason
+for a new runtime effect type. `exile_return_transformed` is a compatibility
+alias; new definitions use `blink` with `subject="source", transformed=True`.

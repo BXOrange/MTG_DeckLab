@@ -107,7 +107,9 @@ def test_transforming_saga_final_chapter_is_modeled():
         s for s in result.specs
         if s.ability_kind == "triggered" and s.trigger.get("chapter") == [3]
     )
-    assert [e.type for e in chapter3.effects] == ["exile_return_transformed"]
+    assert [e.type for e in chapter3.effects] == ["blink"]
+    assert chapter3.effects[0].params['subject'] == 'source'
+    assert chapter3.effects[0].params['transformed'] is True
 
 
 def test_activated_exile_return_transformed_is_modeled():
@@ -121,7 +123,7 @@ def test_activated_exile_return_transformed_is_modeled():
     result = parse_oracle(card)
     assert result.coverage == MODELED
     activated = next(s for s in result.specs if s.ability_kind == "activated")
-    assert [e.type for e in activated.effects] == ["exile_return_transformed", "sorcery_speed_marker"]
+    assert [e.type for e in activated.effects] == ["blink", "sorcery_speed_marker"]
 
 
 def test_gendered_pronoun_variants_are_modeled():
@@ -136,7 +138,7 @@ def test_gendered_pronoun_variants_are_modeled():
         )
         result = parse_oracle(card)
         activated = next(s for s in result.specs if s.ability_kind == "activated")
-        assert [e.type for e in activated.effects] == ["exile_return_transformed", "sorcery_speed_marker"], pronoun
+        assert [e.type for e in activated.effects] == ["blink", "sorcery_speed_marker"], pronoun
 
 
 def test_jin_gitaxias_shaped_extra_condition_is_now_modeled():
@@ -190,6 +192,11 @@ def test_legacy_werewolf_no_spells_cast_now_modeled():
 def test_saga_final_chapter_exiles_and_returns_transformed_end_to_end():
     eng = make_engine()
     eng.begin_turn()
+    # Chapter II must draw successfully so its controller is still in the
+    # game when the final chapter's entry batch runs.
+    eng.state.active_player.library.append(GameObject(
+        Card(id='filler', name='Filler', type_line='Land', is_land=True),
+        owner_id=eng.state.active_player.id, zone=Zone.LIBRARY))
     saga = _saga_in_play(eng, _saga())  # chapter I on ETB
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()

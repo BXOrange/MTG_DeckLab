@@ -1216,8 +1216,11 @@ class ExileReturnTransformedEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is not None:
-            context.exile_return_transformed(self.source)
+        # Compatibility spelling; all parser/catalogue paths share blink's
+        # exact visits, interactive entry and original-source validation.
+        from .exile_sequences import BlinkEffect
+        if self.source is not None and self.source._front_card.back_face() is not None:
+            BlinkEffect(source=self.source, subject='source', transformed=True).apply(context)
 
 
 class MeldEffect(GameEffect):

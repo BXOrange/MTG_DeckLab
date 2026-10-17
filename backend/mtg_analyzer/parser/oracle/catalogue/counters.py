@@ -35,7 +35,8 @@ _ENTERS = r"enters(?: the battlefield)?"
 _AMOUNT = r"(a|an|x|\d+)"
 #: The counter's kind: "+1/+1"/"-1/-1" (number words are already folded to
 #: digits by `normalize`), or a bare word like "ice"/"charge".
-_COUNTER_TYPE = r"(\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+)"
+COUNTER_KIND_PATTERN = r"(?:\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+)"
+_COUNTER_TYPE = rf"({COUNTER_KIND_PATTERN})"
 
 #: RULE 122.1b keyword counters, spelled as the oracle text prints the kind
 #: (the layer engine's matching reader is `game/continuous.py`'s

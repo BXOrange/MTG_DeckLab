@@ -28,6 +28,10 @@ shipped pump/grant already uses, and rewriting them would be a large,
 behaviour-neutral change. New work that needs any *other* duration goes
 through here instead — which is also the only way to get one, since a
 ``temp_*`` field has nowhere to record when it should end.
+
+Timed copies use `GameObject._duration_copy_layers` instead of a floating
+static: `sweep` expires their snapshot layers in the same windows, preserving
+newer copies when an older layer ends.
 """
 
 from __future__ import annotations
@@ -186,12 +190,15 @@ def sweep(state: "GameState", window: str) -> bool:
     recompute (an ended continuous effect changes derived characteristics,
     and RULE 704 wants a state-based-action check right after).
     """
+    from .copy_mechanics import expire_copies
+
+    copies_ended = expire_copies(state, window)
     floating = getattr(state, "floating_statics", None)
     if not floating:
-        return False
+        return copies_ended
     kept = [ab for ab in floating if not is_expired(ab, state, window)]
     if len(kept) == len(floating):
-        return False
+        return copies_ended
     state.floating_statics = kept
     return True
 

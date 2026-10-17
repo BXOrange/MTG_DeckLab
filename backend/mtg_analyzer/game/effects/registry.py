@@ -4,8 +4,7 @@ from __future__ import annotations
 from .core import EffectRegistry
 from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalEndStepEffect
-from .identity_flicker import IdentityFlickerEffect
-from .flicker_riders import EFFECT_FACTORIES as _FLICKER_RIDER_FACTORIES
+from .linked_pool_riders import EFFECT_FACTORIES as _LINKED_POOL_FACTORIES
 from .conditional_flicker import EFFECT_FACTORIES as _CONDITIONAL_FLICKER_FACTORIES
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
@@ -14,10 +13,9 @@ from ._runtime import install, register
 
 install(globals())
 
-for _name, _factory in _FLICKER_RIDER_FACTORIES.items():
+for _name, _factory in _LINKED_POOL_FACTORIES.items():
     EffectRegistry.register(_name, _factory)
 
-EffectRegistry.register('identity_flicker', lambda p: IdentityFlickerEffect())
 
 for _name, _factory in _CONDITIONAL_FLICKER_FACTORIES.items():
     EffectRegistry.register(_name, _factory)
@@ -1352,7 +1350,8 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "return_all_exiled_with",
-    lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature"), tapped=bool(p.get("tapped", False))),
+    lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature"), tapped=bool(p.get("tapped", False)),
+                                      sacrifice_source=bool(p.get("sacrifice_source", False))),
 )
 EffectRegistry.register("transfer_exiled_with_to_created", lambda p: TransferExiledWithToCreatedEffect())  # Mechtitan Core
 EffectRegistry.register(  # "Exile ~ with three time counters on it." (Suspended Sentence)
@@ -2777,6 +2776,8 @@ EffectRegistry.register(
         transformed=bool(p.get("transformed", False)), face_down_kind=p.get("face_down_kind"),
         return_effects=p.get("return_effects"), tapped_if_types=p.get("tapped_if_types"),
         return_step=p.get("return_step"), return_scope=p.get("return_scope", "any"),
+        subject=p.get('subject', 'targets'), exile_effects=p.get('exile_effects'),
+        departing_copy=p.get('departing_copy'), return_if_successful=bool(p.get('return_if_successful', False)),
     ),
 )
 EffectRegistry.register(

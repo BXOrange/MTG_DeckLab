@@ -1,5 +1,6 @@
 """Hand-authored card entries whose name starts with 's' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import sacrifice  # noqa: F401
+from . import safe_haven  # noqa: F401
 from . import sage_of_hours  # noqa: F401
 from . import sage_s_reverie  # noqa: F401
 from . import sakashima_of_a_thousand_faces  # noqa: F401

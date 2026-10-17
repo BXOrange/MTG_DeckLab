@@ -21,7 +21,7 @@ def _fable_of_the_mirror_breaker() -> list[AbilitySpec]:
         AbilitySpec("triggered", [EffectSpec("discard", {
             "count_max": 2, "then_draw_discarded": True,
         })], trigger={"event": EventType.SAGA_CHAPTER, "chapter": [2]}),
-        AbilitySpec("triggered", [EffectSpec("exile_return_transformed", {})],
+        AbilitySpec("triggered", [EffectSpec("blink", {"subject": "source", "transformed": True})],
                     trigger={"event": EventType.SAGA_CHAPTER, "chapter": [3]}),
     ]
 

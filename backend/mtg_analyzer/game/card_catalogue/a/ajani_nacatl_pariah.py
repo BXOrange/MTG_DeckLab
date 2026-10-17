@@ -37,7 +37,7 @@ def _ajani_nacatl_pariah() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("exile_return_transformed", {})],
+            [EffectSpec("blink", {"subject": "source", "transformed": True})],
             trigger={
                 "event": EventType.DIES,
                 "condition": {"subject": "group", "controller": "you", "subtypes": ["cat"]},

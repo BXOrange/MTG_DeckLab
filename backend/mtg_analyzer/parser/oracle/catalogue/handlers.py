@@ -9028,7 +9028,8 @@ _EXILE_RETURN_TRANSFORMED_RE = _c(
 
 
 def _exile_return_transformed(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("exile_return_transformed", {})]
+    from .flicker_sequences import flicker_sequence_specs
+    return flicker_sequence_specs(m.group())
 
 
 #: RULE 610.3: modern "exile <target> until ~ leaves" is one instruction.

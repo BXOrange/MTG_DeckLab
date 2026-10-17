@@ -502,7 +502,7 @@ class StateBasedActionsMixin:
         return False
 
     def _sba_check_saga_completion(self) -> bool:
-        """704.5x/RULE 714.4: a Saga with lore counters >= its final chapter
+        """RULE 704.5s / 714.4: a Saga with lore counters >= its final chapter
         number, and not itself the source of one of its own chapter
         abilities that has triggered but not yet left the stack, is put
         into its owner's graveyard. Checked against *this Saga's own*
@@ -516,8 +516,14 @@ class StateBasedActionsMixin:
             if not obj.card.is_saga:
                 continue
             final = _saga_final_chapter(obj.card)
-            if final and obj.lore >= final and not any(
+            chapter_pending = any(
+                ability.source is obj and event.type == EventType.SAGA_CHAPTER
+                and event.get('source_zone_incarnation', obj.zone_incarnation) == obj.zone_incarnation
+                for ability, event in self.pending_triggers
+            )
+            if final and obj.lore >= final and not chapter_pending and not any(
                 item.source is obj
+                and item.source_zone_incarnation in (None, obj.zone_incarnation)
                 and item.trigger_event is not None
                 and item.trigger_event.type == EventType.SAGA_CHAPTER
                 for item in self.state.stack

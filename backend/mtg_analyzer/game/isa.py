@@ -704,7 +704,6 @@ _ALIAS_TYPES: dict[str, str] = {
     "remove_all_abilities": "create_continuous_effect",
     "remove_keyword": "create_continuous_effect",
     "remove_suspected": "set_status",
-    "return_all_exiled_with": "move_object",
     "return_chosen_creature_type_from_graveyard": "move_object",
     "return_creatures_by_power_parity": "move_object",
     "return_dying_subject_to_battlefield": "move_object",
@@ -741,7 +740,6 @@ _ALIAS_TYPES: dict[str, str] = {
     # fusions: the first appends a type-setting static to the *returned*
     # object, the second builds a synthetic card and can take a RULE 115
     # target, the third is a genuine move-then-draw.)
-    "exile_return_transformed": "transform",
     "return_from_graveyard_transformed": "transform",
     "reveal_top_then_transform": "transform",
     "reveal_until": "reveal",
@@ -773,7 +771,6 @@ _ALIAS_TYPES: dict[str, str] = {
     # RULE 613 layer-1 continuous copy, conditionally active; its condition
     # is an operand of one static instruction, not an if/else composition.
     "conditional_copy": "create_continuous_effect",
-    "blink": "move_object",
     "set_forced_voter": "vote",
     # ENG-37 re-derivation: RULE 701.24 shuffle already subsumes moving the
     # cards in — "shuffle <X> into <a> library" is one atomic action, not a
@@ -826,9 +823,11 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "exile_attached_group": "614.12",
     "conditional_flicker": "608.2d",
     "return_captured_exile_visits": "614.12",
-    "identity_flicker": "614.12",
-    "vanish_into_memory": "608.2h",
-    "self_exile_upkeep_haste": "614.12",
+    "return_all_exiled_with": "614.12",
+    "linked_pool_return_one": "607.2a",
+    "return_exile_counter_pool": "614.12",
+    "blink": "614.12",
+    "exile_return_transformed": "614.12",
     "flicker_acrobatics": "706.1",
     "flicker_fortune_delayed": "608.2d",
     "flicker_repeated_rounds": "608.2d",

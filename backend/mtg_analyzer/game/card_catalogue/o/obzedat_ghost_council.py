@@ -11,7 +11,14 @@ def _obzedat_ghost_council():
         AbilitySpec('triggered', [EffectSpec('lose_life', {'amount': 2, 'target_kind': 'opponent'}),
                                  EffectSpec('gain_life', {'amount': 2})],
                     trigger={'event': EventType.ENTERS_BATTLEFIELD, 'condition': {'subject': 'self'}}),
-        AbilitySpec('triggered', [EffectSpec('self_exile_upkeep_haste')], optional=True,
+        AbilitySpec('triggered', [EffectSpec('blink', {
+            'subject': 'source', 'return_step': 'upkeep', 'return_scope': 'controller',
+            'return_if_successful': True,
+            'return_effects': [{'type': 'grant_until', 'params': {
+                'static': {'type': 'grant_keyword', 'params': {'keywords': ['haste']}},
+                'duration': 'rest_of_game', 'previous_subject': True,
+            }}],
+        })], optional=True,
                     trigger={'event': EventType.STEP_BEGIN, 'filter': {'step': 'end'}, 'phase_relation': 'you'}),
     ]
 

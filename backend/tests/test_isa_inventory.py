@@ -286,7 +286,13 @@ class TestBacklogSizes:
         # PAR-157 adds three reviewed adapters over the same entry/payment
         # frames: conditional return timing, exact captured-visit returns,
         # and Identity Thief's last-known-copy/return sequence.
-        assert n <= 117, f"continuation types grew to {n}"
+        # Linked exile pools now use the shared interactive entry batch;
+        # reclassify the existing return_all_exiled_with type accordingly.
+        # Purgatory composes payment, linked selection and the same entry batch.
+        # Livio's counter-marked global pool uses the same entry batch.
+        # Shared blink phases replace four card adapters; blink and its
+        # transformed-return compatibility alias are continuations (net -2).
+        assert n <= 119, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

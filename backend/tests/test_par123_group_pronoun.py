@@ -75,8 +75,9 @@ def test_the_source_named_first_keeps_a_following_it_on_the_source():
         "Whenever a creature you control attacks alone, exile this enchantment, "
         "then return it to the battlefield under its owner's control."
     )
-    assert [e.type for _, e in effects] == ["exile", "return_self_to_battlefield"]
-    assert all(e.params.get("target_kind") is None for _, e in effects if e.type == "exile")
+    assert [e.type for _, e in effects] == ["blink"]
+    assert effects[0][1].params['subject'] == 'source'
+    assert effects[0][1].params.get('target_kind') is None
 
 
 @pytest.mark.parametrize(

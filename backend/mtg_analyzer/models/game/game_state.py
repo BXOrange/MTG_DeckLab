@@ -1120,6 +1120,9 @@ class GameState:
         self._graveyard_exits: list[dict[str, Any]] = []
         # RULE 610.3: source and exile incarnations; values survive undo snapshots.
         self.until_source_leaves_exiles: list[dict[str, int]] = []
+        # RULE 607.2a: linked abilities belong to one source incarnation;
+        # a card that leaves exile and returns is no longer in that pool.
+        self.linked_exile_visits: dict[tuple[int, int], list[tuple[int, int]]] = {}
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
         self.copiable_stack_recipes: dict[int, StackItem] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []

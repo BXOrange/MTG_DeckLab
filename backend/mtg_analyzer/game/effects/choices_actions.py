@@ -330,6 +330,9 @@ class CreateDelayedTriggerEffect(GameEffect):
         # A gated delayed effect ("if you lose the flip, sacrifice that creature", RULE 705.1) is
         # wrapped in a `ConditionalEffect`; the captured referents below belong on what it gates.
         baked = [e.inner if type(e).__name__ == "ConditionalEffect" else e for e in inner]
+        for effect in baked:
+            if hasattr(effect, 'capture_linked_pool'):
+                effect.capture_linked_pool(context)
         if self.capture == "target_mana_value" and targets:
             captured = _mana_value_of(targets[0])
             for effect in baked:
@@ -3012,7 +3015,8 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
                 'typed_entry_counters': self.typed_entry_counters,
                 'transformed': self.transformed, 'face_down_kind': self.face_down_kind,
                 'tapped_if_types': self.tapped_if_types},
-            after_effects=build_effects(self.return_effects, self.source), source=self.source)
+            after_effects=(self.after_effects if getattr(self, 'after_effects', None) is not None
+                           else build_effects(self.return_effects, self.source)), source=self.source)
         self.returned_objects = [context.state.find_object(iid) for iid, inc in frame['returned_visits']]
 
 

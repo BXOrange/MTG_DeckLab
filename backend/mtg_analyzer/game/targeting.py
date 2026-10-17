@@ -215,6 +215,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # RULE 109.5's "*another* target creature you control" (Giver of
         # Runes) — `creature_you_control` minus the ability's own source.
         "other_creature_you_control",
+        "other_creature",
         # "target creature or enchantment you control" (MEC-43 round 4D,
         # Heliod, Sun-Crowned) — the two-type-union sibling of
         # `creature_you_control`, same "you control" scoping.
@@ -763,6 +764,7 @@ class TargetSpec:
             "spell_or_ability": "Zauberspruch oder Fähigkeit",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
             "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
+            "other_creature": "andere Kreatur",
             "creature_or_enchantment_you_control": "Kreatur oder Verzauberung unter deiner Kontrolle",
             "creature_or_land_you_control": "Kreatur oder Land unter deiner Kontrolle",
             "creature_or_vehicle_you_control": "Kreatur oder Fahrzeug unter deiner Kontrolle",
@@ -1425,6 +1427,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         apply_color=True, apply_creature_filter=True),
     "other_creature_you_control": TargetFrame(
         "creature", SCOPE_YOU, apply_color=True, apply_creature_filter=True),
+    "other_creature": TargetFrame("creature", apply_color=True, apply_creature_filter=True),
     "land_you_control": TargetFrame(
         "land", SCOPE_YOU, exclude_source=False,
         apply_color=True, apply_creature_filter=True),

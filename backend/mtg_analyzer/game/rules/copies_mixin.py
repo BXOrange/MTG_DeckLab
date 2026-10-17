@@ -605,15 +605,11 @@ class CopiesMixin:
         """``obj`` becomes a copy of ``target`` until end of turn (Cursed
         Mirror-style: "{T}: ~ becomes a copy of target creature until end of
         turn."). Unlike `become_copy`'s permanent mutation, `GameEngine.
-        _step_cleanup` (RULE 514.2, the same step that ends pump/keyword
-        "until end of turn" effects) reverts this via the snapshot stashed
-        here — taken only the *first* time this turn, so a second activation
-        before cleanup doesn't overwrite the true original with an
-        already-copied state."""
-        if obj._copy_until_eot_base is None:
-            obj._copy_until_eot_base = copy_mechanics.snapshot_face(obj)
+        _step_cleanup` (RULE 514.2) ends its ordered copy layer. Expiring an
+        older copy preserves later copies and their independent durations."""
         copy_mechanics.become_copy(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+            duration='end_of_turn',
         )
     def set_copy_target(self, obj: GameObject, target: GameObject) -> None:
         """Choose/change the target a layer-1 conditional-copy static ability

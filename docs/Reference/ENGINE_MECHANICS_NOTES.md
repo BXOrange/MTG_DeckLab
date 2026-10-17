@@ -18,6 +18,21 @@ the card's implementation and tests; shipped narrative in
   state-owned source/exile links; a battlefield removal emits a separate
   notification whose batch returns linked cards at once, without a leaves
   trigger. Ordinary two-ability linked exile stays on the separate-trigger path.
+- Timed copies use ordered `copy_mechanics` snapshot layers. Cleanup and
+  next-end-step expiration remove only the matching layers, preserving newer
+  permanent copies and independent durations. Zone changes discard the layers;
+  cloning retains them. End-step durations expire before beginning-of-step
+  trigger checks, independently of delayed returns on the stack.
+- Exile/return sequences compose through `effects/exile_sequences.py`'s
+  `blink`: source/target selection, frozen departing-copy recipients,
+  `exile_effects`, return timing and entry options, then `return_effects`.
+  `bind` captures pre-exile measurements; a bind in the return body measures
+  the new permanent after its entry choices. `return_if_successful` gates
+  that body on actual return. All suspension uses the existing resolution
+  and entry frames; phase bodies must not introduce unannounced targets.
+- Saga completion checks chapter abilities waiting for stack placement as
+  well as those already on the stack (RULE 704.5s / 714.4). An unrelated
+  trigger or a chapter from an older source visit does not protect a Saga.
 
 ## Resolution
 

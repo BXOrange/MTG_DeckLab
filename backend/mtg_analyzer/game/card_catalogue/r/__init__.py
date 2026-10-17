@@ -97,3 +97,4 @@ from . import rejoin_the_fight  # noqa: F401
 from . import rise_of_the_dark_realms  # noqa: F401
 from . import restless_anchorage  # noqa: F401
 from . import raphael_the_muscle  # noqa: F401
+from . import realm_razer  # noqa: F401

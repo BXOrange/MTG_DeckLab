@@ -218,7 +218,18 @@ class ExileEffect(GameEffect):
             self.source.linked_exile_id = None
 
     def _exile_object(self, context: GameContext, obj: Any) -> None:
+        source_visit = None
+        if self.track_exiled_with and self.source is not None:
+            incarnation = context.resolving_source_incarnation
+            source_visit = (self.source.instance_id, self.source.zone_incarnation
+                            if incarnation is None else incarnation)
+            context.state.linked_exile_visits.setdefault(source_visit, [])
+        expected = obj.zone_incarnation + 1
         context.exile(obj)
+        if (source_visit is not None and obj.zone == Zone.EXILE
+                and obj.zone_incarnation == expected and not obj.is_token):
+            context.state.linked_exile_visits.setdefault(source_visit, []).append(
+                (obj.instance_id, obj.zone_incarnation))
         if obj.zone == Zone.EXILE:
             for kind, n in self.exile_counters.items():
                 obj.add_counters(kind, n)
@@ -2087,26 +2098,65 @@ class ReturnAllExiledWithEffect(GameEffect):
     def __init__(
         self, counter_if_creature: Optional[dict[str, Any]] = None, source: Optional["GameObject"] = None,
         tapped: bool = False,
+        sacrifice_source: bool = False,
     ) -> None:
         super().__init__(source)
         self.counter_if_creature = dict(counter_if_creature or {}) or None
+        self.sacrifice_source = bool(sacrifice_source)
+        self.captured_visits = None
         #: "…return all cards exiled with this Vehicle except this card to the battlefield **tapped** under their owners'
         #: control." (Mechtitan Core)
         self.tapped = bool(tapped)
 
+    def capture_linked_pool(self, context: GameContext) -> None:
+        # RULE 603.7c: a delayed ability retains the cards from THIS
+        # resolution, even after the spell/source becomes a new object.
+        incarnation = context.resolving_source_incarnation
+        if incarnation is None:
+            incarnation = self.source.zone_incarnation
+        key = (self.source.instance_id, incarnation)
+        self.captured_visits = list(context.state.linked_exile_visits.get(key, []))
+        context.state.linked_exile_visits[key] = []
+        if self.source.zone != Zone.BATTLEFIELD or self.source.zone_incarnation == incarnation:
+            self.source.exiled_with_ids = []
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
+        from .battlefield_batches import start_exile_return_batch
+        incarnation = context.resolving_source_incarnation
+        if incarnation is None:
+            incarnation = self.source.zone_incarnation
+        if self.sacrifice_source:
+            player = _controller_of(self.source, context)
+            # RULE 701.21a / 400.7: only this permanent, controlled by
+            # the ability's controller, can pay the sacrifice.
+            if (self.source.zone != Zone.BATTLEFIELD or
+                    self.source.zone_incarnation != incarnation or
+                    self.source.controller_id != player.id or
+                    self.source.cant_be_sacrificed_this_turn):
+                return
+        key = (self.source.instance_id, incarnation)
         ids = list(getattr(self.source, "exiled_with_ids", None) or [])
-        self.source.exiled_with_ids = []
-        for instance_id in ids:
-            card_obj = context.state.find_object(instance_id)
-            if card_obj is None or card_obj.zone != Zone.EXILE:
-                continue
-            if self.counter_if_creature:
-                kind = str(self.counter_if_creature.get("kind", "+1/+1"))
-                card_obj.entry_bonus_creature_counters[kind] = int(self.counter_if_creature.get("count", 1))
-            context.return_from_graveyard(card_obj, "battlefield_tapped" if self.tapped else "battlefield")
+        visits = self.captured_visits
+        if visits is None:
+            visits = context.state.linked_exile_visits.get(key)
+        if visits is None and any(k[0] == self.source.instance_id for k in context.state.linked_exile_visits):
+            visits = []
+        if visits is None:
+            visits = [(obj.instance_id, obj.zone_incarnation) for instance_id in ids
+                      if (obj := context.state.find_object(instance_id)) is not None
+                      and obj.zone == Zone.EXILE]
+        if self.captured_visits is None:
+            context.state.linked_exile_visits[key] = []
+        if self.captured_visits is None and (self.source.zone != Zone.BATTLEFIELD or self.source.zone_incarnation == incarnation):
+            self.source.exiled_with_ids = []
+        if self.sacrifice_source:
+            context.put_into_graveyard(self.source)
+        options = {'tapped': self.tapped}
+        if self.counter_if_creature:
+            options['typed_entry_counters'] = [dict(self.counter_if_creature, types=['creature'])]
+        start_exile_return_batch(context.engine, visits, entry_options=options, source=self.source)
 
 
 class CreateTokenForLinkedExileEffect(GameEffect):

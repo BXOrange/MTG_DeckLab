@@ -1420,11 +1420,12 @@ class GameObject:
         #: ability bookkeeping) on every single pass. `None` whenever
         #: nothing is currently applied.
         self._copy_applied_target_id: Optional[int] = None
-        #: Stashed pre-copy snapshot for a "becomes a copy … until end of
-        #: turn" effect (Cursed Mirror-style, `RulesEngine.
-        #: become_copy_until_end_of_turn`) — taken only the first time this
-        #: turn, restored by `GameEngine._step_cleanup` (RULE 514.2).
+        #: Legacy pre-copy snapshot, still consumed at cleanup for callers
+        #: that set it directly. New timed copies use ordered layers below.
         self._copy_until_eot_base: Optional[dict[str, Any]] = None
+        # RULE 613.7 / 611.2: ordered copy layers retain the face below
+        # them, so expiring an older copy cannot undo a newer one.
+        self._duration_copy_layers: list[dict[str, Any]] = []
 
     def reset_derived(self) -> None:
         """Clear layer-engine output before a fresh `continuous.recompute`."""
@@ -1703,6 +1704,7 @@ class GameObject:
         self._copy_base = None
         self._copy_applied_target_id = None
         self._copy_until_eot_base = None
+        self._duration_copy_layers = []
         self._control_base = None
         self.static_trace = []
 

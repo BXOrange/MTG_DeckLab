@@ -21,7 +21,7 @@ def test_entry_and_schedule_axes_parse_as_one_flicker(text):
     assert specs and len(specs) == 1 and specs[0].type == 'blink'
 
 
-@pytest.mark.parametrize('tail', ["with a wish counter on it", "under your opponent's control", "with a +1/+1 counter on it, then win the game"])
+@pytest.mark.parametrize('tail', ["with a counter of your choice on it", "under your opponent's control", "with a +1/+1 counter on it, then win the game"])
 def test_unrecognized_return_instruction_stays_unclaimed(tail):
     assert parse_effect_body("exile target creature, then return that card to the battlefield under its owner's control " + tail) is None
 

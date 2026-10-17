@@ -10,13 +10,12 @@ This module implements every layer this engine meets:
 
 * **Layer 1** — copy effects (RULE 707), *conditional/continuous* ones only:
   "as long as [condition], ~ is a copy of [target]" (Vesuvan Shapeshifter).
-  Transition-only (see `_apply_copy_layer`) — the other two copy mechanisms
-  this engine models are discrete mutations instead, since neither needs to
-  revert on its own: the permanent "you may have this enter as a copy of
+  Transition-only (see `_apply_copy_layer`) — the other copy mechanisms
+  use discrete mutations: the permanent "you may have this enter as a copy of
   target X" (RULE 614.1c/614.12, Clever Impersonator — `RulesEngine.
   _offer_enter_as_copy`, resolved *before* the object is added to the
-  battlefield) and the temporary "… until end of turn" copy (Cursed Mirror —
-  `RulesEngine.become_copy_until_end_of_turn`, reverted at cleanup). All
+  battlefield) and temporary copies ending at cleanup or the next end step
+  (`durations.sweep` removes their ordered copy layers). All
   three share `game/copy_mechanics.py`'s mutate/snapshot/restore primitives
   — see docs/11 §"Copying objects" for why they're split rather than
   unified.
