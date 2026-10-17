@@ -7,6 +7,7 @@ from . import parallax_wave  # noqa: F401
 from . import parallel_lives  # noqa: F401
 from . import parapet_thrasher  # noqa: F401
 from . import parasitic_impetus  # noqa: F401
+from . import parting_gust  # noqa: F401
 from . import path_to_exile  # noqa: F401
 from . import pathbreaker_ibex  # noqa: F401
 from . import patrolling_peacemaker  # noqa: F401

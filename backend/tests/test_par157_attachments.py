@@ -195,6 +195,63 @@ def test_coffin_noted_counters_use_actual_counter_replacements():
     assert host.counters == {'+1/+1': 6}
 
 
+@pytest.mark.parametrize('release', ['end', 'untap'])
+def test_linked_return_waits_for_copy_choice_and_survives_clone(release):
+    from mtg_analyzer.game.game_engine import GameEngine
+    eng = _engine()
+    bear = _bf(eng, _creature('Bear'))
+    host = _bf(eng, _creature('Clone', oracle_text=
+        'You may have Clone enter as a copy of any creature on the battlefield.'))
+    aura = _aura(eng, host)
+    if release == 'end':
+        _activate(eng, aura)
+        _end(eng)
+    else:
+        coffin = _coffin(eng)
+        _activate(eng, coffin, [host])
+        eng.rules.set_tapped(coffin, False)
+        eng.resolve_until_stable()
+    assert eng.state.pending_choice['kind'] == 'enter_as_copy'
+    assert host.zone == aura.zone == Zone.EXILE
+    cloned = GameEngine(eng.state.clone())
+    cloned.rules.resolve_choice(str(bear.instance_id))
+    cloned.resolve_until_stable()
+    returned = cloned.state.find_object(host.instance_id)
+    returned_aura = cloned.state.find_object(aura.instance_id)
+    assert returned.zone == returned_aura.zone == Zone.BATTLEFIELD
+    assert returned.name == 'Bear'
+    assert returned_aura.attached_to == returned.instance_id
+    assert host.zone == aura.zone == Zone.EXILE
+
+
+def test_aura_legality_uses_completed_host_entry_choice():
+    eng = _engine()
+    bear = _bf(eng, _creature('Bear'))
+    host = _bf(eng, _creature('Clone', oracle_text=
+        'You may have Clone enter as a copy of any creature on the battlefield.'))
+    aura = _aura(eng, host)
+    narrow = _aura(eng, host, 'Bear Aura', restriction='Bear')
+    _activate(eng, aura)
+    _end(eng)
+    assert narrow.zone == Zone.EXILE
+    eng.rules.resolve_choice(str(bear.instance_id))
+    eng.resolve_until_stable()
+    assert narrow.zone == Zone.BATTLEFIELD and narrow.attached_to == host.instance_id
+
+
+def test_aura_entry_choice_cannot_attach_to_a_later_host_visit():
+    eng = _engine(); host = _bf(eng, _creature('Bear')); source = _aura(eng, host)
+    aura = _bf(eng, Card(id='prism', name='Prism Aura', type_line='Enchantment — Aura',
+        oracle_text='Enchant creature\nAs this enchantment enters, choose a color.'))
+    aura.attached_to = host.instance_id
+    _activate(eng, source); _end(eng)
+    assert eng.state.pending_choice['kind'] == 'choose_color'
+    assert host.zone == Zone.BATTLEFIELD and aura.zone == Zone.EXILE
+    eng.rules.exile(host); eng.rules.return_from_exile(host, host.zone_incarnation)
+    eng.resolve_pending_choice('U')
+    assert aura.zone == Zone.EXILE
+
+
 def _announce_flickerform(eng, aura):
     eng.state.player_by_id('p1').mana_pool.add('W', 4)
     eng.activate_ability(eng.state.player_by_id('p1'), aura)

@@ -3,12 +3,23 @@ from __future__ import annotations
 
 from .core import EffectRegistry
 from .physical_properties import MeasurePhysicalPropertyEffect
+from .additional_steps import AdditionalEndStepEffect
+from .identity_flicker import IdentityFlickerEffect
+from .conditional_flicker import EFFECT_FACTORIES as _CONDITIONAL_FLICKER_FACTORIES
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
 from ._runtime import install, register
 
 install(globals())
+
+EffectRegistry.register('identity_flicker', lambda p: IdentityFlickerEffect())
+
+for _name, _factory in _CONDITIONAL_FLICKER_FACTORIES.items():
+    EffectRegistry.register(_name, _factory)
+
+EffectRegistry.register('additional_end_step', lambda p: AdditionalEndStepEffect(
+    only_first=bool(p.get('only_first', False))))
 
 EffectRegistry.register("gain_control_of_cast_targets", lambda p: GainControlOfCastTargetsEffect())
 EffectRegistry.register("complete_turn_life_loss", lambda p: CompleteTurnLifeLossEffect(p.get('threshold', 0)))

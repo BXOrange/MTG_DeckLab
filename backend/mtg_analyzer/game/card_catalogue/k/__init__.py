@@ -16,6 +16,7 @@ from . import killian_decisive_mentor  # noqa: F401
 from . import killian_ink_duelist  # noqa: F401
 from . import kimahri_valiant_guardian  # noqa: F401
 from . import kindred_summons  # noqa: F401
+from . import koya_death_from_above  # noqa: F401
 from . import kinetic_ooze  # noqa: F401
 from . import kinnan_bonder_prodigy  # noqa: F401
 from . import kishla_skimmer  # noqa: F401

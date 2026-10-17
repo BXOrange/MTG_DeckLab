@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import copy
 
 from .core import GameEffect, TriggeredAbility
+from .battlefield_batches import start_exile_return_batch
 from ..targeting import TargetSpec
 from ...models.game.events import EventType
 from ...models.game.game_object import Zone
@@ -30,14 +31,25 @@ class ReturnAttachedExileGroupEffect(GameEffect):
         self.tapped = tapped
 
     def apply(self, context, targets=None):
-        host = _find_visit(context, self.host_visit)
-        if host is None:
-            return
-        returned = context.engine.return_from_exile(
-            host, self.host_visit[1], tapped=self.tapped, entry_counters=self.counters,
+        start_exile_return_batch(
+            context.engine, [self.host_visit],
+            entry_options={'tapped': self.tapped, 'entry_counters': self.counters},
+            after_effects=[ReturnLinkedAurasEffect(self.aura_visits, source=self.source)],
+            source=self.source,
         )
-        if returned is None:
-            return  # "If you do" requires the actual host return, not an exile-ID match.
+
+
+class ReturnLinkedAurasEffect(GameEffect):
+    """Return the Aura batch only after the host's entry choices finish."""
+
+    def __init__(self, aura_visits, source=None):
+        super().__init__(source)
+        self.aura_visits = list(aura_visits)
+
+    def apply(self, context, targets=None):
+        if not targets:
+            return
+        returned = targets[0]
         host_visit = _visit(returned)
         eligible = []
         # RULE 303.4i: determine the whole Aura batch against the prospective
@@ -49,25 +61,11 @@ class ReturnAttachedExileGroupEffect(GameEffect):
             prospective = copy(aura)
             prospective.controller_id = aura.owner_id
             if context.engine._attachment_legal(prospective, returned, check_control=False):
-                eligible.append((aura, visit[1]))
-        outer_events = getattr(context.state, '_deferred_entry_events', None)
-        own_batch = outer_events is None
-        if own_batch:
-            context.state._deferred_entry_events = []
-        try:
-            with context.state.simultaneous():
-                for aura, incarnation in eligible:
-                    if _find_visit(context, host_visit) is not returned or returned.zone != Zone.BATTLEFIELD:
-                        break
-                    context.engine.return_from_exile(aura, incarnation, attach_to=returned)
-                if own_batch:
-                    events = context.state._deferred_entry_events
-                    context.state._deferred_entry_events = None
-                    for arrival in events:
-                        context.state.fire_event(arrival)
-        finally:
-            if own_batch:
-                context.state._deferred_entry_events = None
+                eligible.append(visit)
+        start_exile_return_batch(
+            context.engine, eligible, entry_options={'attach_to': host_visit},
+            source=self.source,
+        )
 
 
 class _SourceReleaseTrigger(TriggeredAbility):

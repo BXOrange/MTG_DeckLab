@@ -283,7 +283,10 @@ class TestBacklogSizes:
         # entry and dice frames: repeated rounds, Acrobatics, Fortune's
         # saddle selection, attached exile groups, and three physical-card
         # observations (Drive to Work, Landfill, visible mirrors).
-        assert n <= 114, f"continuation types grew to {n}"
+        # PAR-157 adds three reviewed adapters over the same entry/payment
+        # frames: conditional return timing, exact captured-visit returns,
+        # and Identity Thief's last-known-copy/return sequence.
+        assert n <= 117, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

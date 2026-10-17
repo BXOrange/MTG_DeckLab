@@ -89,6 +89,11 @@ def _prune_departed_entry_choices(rules):
 
 
 def _valid_record(obj, record, state=None):
+    if state is not None and record.get('attach_to'):
+        host_id, host_incarnation = record['attach_to']
+        host = state.find_object(host_id)
+        if host is None or host.zone.value != 'battlefield' or host.zone_incarnation != host_incarnation:
+            return False
     return (obj is not None
             and (state is None or (not state.player_by_id(obj.owner_id).has_lost
                                   and not state.player_by_id(record['controller_id']).has_lost))

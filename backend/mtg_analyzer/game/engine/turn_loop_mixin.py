@@ -176,6 +176,8 @@ class TurnLoopMixin:
             state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
+        self.state.end_steps_this_turn = 0
+        self.state.pending_extra_end_steps = 0
         # RULE 606.3: loyalty usage expires every turn, including an
         # opponent's turn on which an emblem may permit activation.
         for permanent in self.state.battlefield:
@@ -308,11 +310,11 @@ class TurnLoopMixin:
         )
     def run_turn(self) -> None:
         """Run one full turn: walk every step, giving priority where due."""
-        self.begin_turn()
-        for phase, step in default_turn_sequence().iter_steps():
-            if self.state.game_over:
+        self._begin_turn_steps()
+        while self._cursor < len(self._turn_steps):
+            if self.state.game_over or self.state.pending_choice:
                 return
-            self._run_step(phase, step)
+            self.advance_step()
         self.state.fire_event(
             GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)
         )
@@ -345,6 +347,8 @@ class TurnLoopMixin:
         next combat" not yet consumed) or an extra combat not yet queued
         into the list can't be known here.
         """
+        if self.state.pending_extra_end_steps and self.state.current_step == 'end':
+            return 'end'
         for phase, step in self._turn_steps[self._cursor:]:
             if getattr(phase, "skipped", False) or not step.gives_priority:
                 continue
@@ -394,6 +398,7 @@ class TurnLoopMixin:
                 self.insert_additional_combat_phase(**request)
             else:
                 self.insert_additional_combat_phase(request)
+        self._insert_pending_end_steps()
         ended_combat = self.state.end_combat_requested
         if ended_combat:
             self.state.end_combat_requested = False
@@ -462,6 +467,8 @@ class TurnLoopMixin:
 
         if step.name == "draw" and self._skip_first_draw_step():
             return  # RULE 103.8a: skip the step, including other-player actions.
+        if step.name == "end":
+            self.state.end_steps_this_turn += 1
         if step.name == "draw":
             self.state.pending_turn_step = {"phase": phase.name, "step": step.name,
                                             "gives_priority": step.gives_priority}
@@ -549,6 +556,18 @@ class TurnLoopMixin:
         self.state.fire_event(GameEvent(EventType.STEP_END, step=step_name, phase=phase_name))
         if step_name == "draw":
             self.state.turn_draw_pending_triggers = None
+    def _insert_pending_end_steps(self) -> None:
+        count = self.state.pending_extra_end_steps
+        self.state.pending_extra_end_steps = 0
+        if not count or self.state.current_step != 'end' or not self._turn_steps:
+            return
+        # RULE 500.9: insert after this step, before cleanup. Each new
+        # end step opens its own trigger/priority window in the same phase.
+        phase = self._turn_steps[max(0, self._cursor - 1)][0]
+        self._turn_steps[self._cursor:self._cursor] = [
+            (phase, GameStep('end', rule='513')) for _ in range(count)
+        ]
+
     def insert_additional_combat_phase(self, main_phase_too: bool = False, *,
                                        after_current_phase: bool = False,
                                        untap_controller_id: Optional[str] = None) -> None:

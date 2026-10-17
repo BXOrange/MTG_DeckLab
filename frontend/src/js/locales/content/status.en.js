@@ -104,7 +104,7 @@ export default [
         rule: 'RULE 500–514',
         sections: [
           {
-            items: [['full', 'Phases & steps']],
+            items: [['full', 'Phases & steps; additional end steps (500.9), including Y’shtola Rhul']],
           },
           {
             title: 'Combat restrictions',
@@ -464,7 +464,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (61.6% · 21,592 / 35,046, PARSER_VERSION 664)'],
+              ['partial', 'Total oracle-parser coverage (61.7% · 21,615 / 35,046, PARSER_VERSION 666)'],
               ['partial', 'Of which Commander-legal (64.8% · 20,773 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

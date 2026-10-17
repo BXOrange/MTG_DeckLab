@@ -41,3 +41,4 @@ from . import inscription_of_abundance  # noqa: F401
 from . import into_the_pit  # noqa: F401
 from . import intruder_alarm  # noqa: F401
 from . import irma_part_time_mutant  # noqa: F401
+from . import identity_thief  # noqa: F401

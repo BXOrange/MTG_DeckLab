@@ -42,6 +42,16 @@ def test_delayed_return_entry_counter_tracks_only_exact_exile_visit():
     _end_step(eng); assert obj.zone == Zone.BATTLEFIELD and obj.counters == {'+1/+1': 1}
 
 
+@pytest.mark.parametrize('kind, counters', [('Creature — Bear', {'+1/+1': 1}), ('Artifact', {})])
+def test_time_twist_additional_counter_depends_on_returned_type(kind, counters):
+    text = "Exile target permanent you control. Return that card to the battlefield under its owner's control at the beginning of the next end step. If it enters as a creature, it enters with an additional +1/+1 counter on it."
+    assert parse_oracle(_card("Teferi's Time Twist", 'Instant', oracle_text=text)).modeled
+    eng, player = _engine(); obj = _bf(eng, _card('Visitor', kind))
+    _cast(eng, player, text, [obj]); assert obj.zone == Zone.EXILE
+    _end_step(eng)
+    assert obj.zone == Zone.BATTLEFIELD and obj.counters == counters
+
+
 def test_delayed_typed_return_uses_both_current_creature_and_planeswalker_types():
     text = "Exile any number of target creatures and/or planeswalkers you control. At the beginning of the next end step, return each of them to the battlefield under its owner's control. Each of them enters with an additional +1/+1 counter on it if it's a creature and an additional loyalty counter on it if it's a planeswalker."
     eng, player = _engine(); obj = _bf(eng, _card('Creature Walker', 'Creature Planeswalker — Test', loyalty=3))

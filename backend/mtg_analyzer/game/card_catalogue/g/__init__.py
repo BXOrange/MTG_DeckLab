@@ -22,6 +22,7 @@ from . import ghostly_dancers  # noqa: F401
 from . import ghostly_flicker  # noqa: F401
 from . import ghoulish_impetus  # noqa: F401
 from . import giada_font_of_hope  # noqa: F401
+from . import gilraen_dunedain_protector  # noqa: F401
 from . import gift_of_immortality  # noqa: F401
 from . import gifts_ungiven  # noqa: F401
 from . import giggling_skitterspike  # noqa: F401

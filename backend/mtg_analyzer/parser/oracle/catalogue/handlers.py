@@ -19436,6 +19436,11 @@ HANDLERS: list[EffectHandler] = [
         "extra_combat_and_main_phase", _EXTRA_COMBAT_AND_MAIN_PHASE_RE, _extra_combat_and_main_phase
     ),
     EffectHandler("extra_combat_phase", _EXTRA_COMBAT_PHASE_RE, _extra_combat_phase),
+    EffectHandler(
+        'additional_end_step',
+        _c(r"(?:(?:then )?if it's the first end step of the turn, )?there is an additional end step after this step"),
+        lambda m: [EffectSpec('additional_end_step', {'only_first': 'first end step' in m.group(0)})],
+    ),
     # "Choose target creature you control and target creature you don't
     # control." — the target announcement those pair clauses read back.
     EffectHandler("choose_targets", _CHOOSE_TARGETS_RE, _choose_targets),

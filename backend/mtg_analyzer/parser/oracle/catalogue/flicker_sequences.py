@@ -34,7 +34,9 @@ def flicker_sequence_specs(body):
     if len(schedules) > 1:
         return None
     params = dict(original)
-    if 'count' in params:
+    if params.get('optional'):
+        params['target_count_max'] = params.pop('count_max', params.pop('count', 1))
+    elif 'count' in params:
         params['target_count'] = params.pop('count')
     if 'count_max' in params:
         params['target_count_max'] = params.pop('count_max')
@@ -60,12 +62,15 @@ def flicker_sequence_specs(body):
     tail = returned['tail'].strip(' .')
     if tail:
         typed = re.fullmatch(r"each of them enters with an additional \+1/\+1 counter on it if it's a creature and an additional loyalty counter on it if it's a planeswalker", tail)
+        creature_counter = re.fullmatch(r'if it enters as a creature, it enters with an additional \+1/\+1 counter on it', tail)
         land_tapped = re.fullmatch(r'if a land enters this way, it enters tapped', tail)
         if typed:
             params['typed_entry_counters'] = [
                 {'kind': '+1/+1', 'count': 1, 'types': ['creature']},
                 {'kind': 'loyalty', 'count': 1, 'types': ['planeswalker']},
             ]
+        elif creature_counter:
+            params['typed_entry_counters'] = [{'kind': '+1/+1', 'count': 1, 'types': ['creature']}]
         elif land_tapped:
             params['tapped_if_types'] = ['land']
         else:

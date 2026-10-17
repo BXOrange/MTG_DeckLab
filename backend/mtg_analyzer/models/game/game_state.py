@@ -909,6 +909,9 @@ class GameState:
         #: additional_combat_phase`) before running the next step. Plain
         #: board state — deep-copies with `clone`.
         self.pending_extra_combats: list[Any] = []
+        #: RULE 500.9: state-owned inserted end steps survive cloning/undo.
+        self.pending_extra_end_steps: int = 0
+        self.end_steps_this_turn: int = 0
         #: RULE 500.8: inserted phases and their delayed triggers survive undo.
         self.turn_steps: list[Any] = []
         #: A resolving permanent retained through before-entry choices and undo.
