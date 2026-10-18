@@ -2529,6 +2529,12 @@ _DISCARD_THEN_IF_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# A targeted exile and its reflexive payoff have separate announcements.
+_EXILE_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^(?P<before>exile .+?)\.\s*when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: PAR-164: "You may exile `<it / ~>`. **When you do,** `<effect>`." — a dies trigger's source is already a card in
 #: its owner's graveyard (RULE 400.7), so the optional exile is the antecedent and the effect is RULE 603.12's
 #: reflexive trigger, whose target is chosen only after the exile happened. Unlike the certain-antecedent rows
@@ -5937,6 +5943,30 @@ def _parse_effect_body_inner(
                 "effects": [{"type": "return_linked_exile", "params": {"destination": "battlefield"}}],
             }),
         ]
+
+    exile_then = _EXILE_THEN_WHEN_YOU_DO_RE.match(body)
+    if exile_then is not None:
+        before_text = exile_then.group("before")
+        if not re.search(r"\btarget\b", before_text):
+            return None  # nontargeted exile choices must be made during resolution
+        before_specs = parse_effect_body(
+            before_text, self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        after_text = exile_then.group("after")
+        if after_text.lower().startswith("if "):
+            return None  # an intervening-if needs both trigger-time and resolution-time checks
+        after_specs = parse_effect_body(after_text)
+        if not before_specs or len(before_specs) != 1 or before_specs[0].type != "exile" or not after_specs:
+            return None
+        params = dict(before_specs[0].params)
+        # One announced exile action; multi-event/mass antecedents need
+        # explicit batching semantics before exposing a reflexive body.
+        if (params.get("count", 1) != 1 or params.get("count_selector")
+                or params.get("selector") or params.get("group") or params.get("spell_or_permanent")):
+            return None
+        params["then_trigger"] = [spec.to_dict() for spec in after_specs]
+        return [EffectSpec("exile", params)]
 
     may_exile_self_then = _MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE.match(body)
     if may_exile_self_then is not None:

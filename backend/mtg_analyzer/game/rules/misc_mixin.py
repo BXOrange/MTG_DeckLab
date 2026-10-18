@@ -665,8 +665,9 @@ class MiscSystemsMixin:
         source: Optional[GameObject],
         event: Optional[GameEvent] = None,
         modes: Optional[dict[str, Any]] = None,
+        controller_id: Optional[str] = None,
     ) -> None:
-        """RULE 603.11: "`<effect with its own condition>`. **When you
+        """RULE 603.12: "`<effect with its own condition>`. **When you
         do**, `<targeted payoff>`." fires the payoff as its *own* fresh
         triggered ability rather than resolving it off-stack — the whole
         point being that ``effect_specs``' own RULE 115 target (if any) has
@@ -679,7 +680,7 @@ class MiscSystemsMixin:
         placed (normally right after the caller's own resolution finishes).
 
         Two real callers: `_enqueue_pay_cost_then_trigger` (a paid optional
-        cost's own "when you do" — RULE 603.11 proper) and PAR-30's
+        cost's own "when you do" — RULE 603.12 proper) and PAR-30's
         `ExchangeControlThenCopyTokenEffect` (Arteeoh, Dread Scavenger — "if
         you do" gated on whether a *targeted effect* actually happened,
         not a cost payment).
@@ -690,7 +691,7 @@ class MiscSystemsMixin:
         from ...parser.oracle.spec import EffectSpec
 
         built = build_effects(
-            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in effect_specs],
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition")) for d in effect_specs],
             source,
         )
         modal_options = None
@@ -700,14 +701,14 @@ class MiscSystemsMixin:
             for option in modal.get("options") or []:
                 modal_options.append({
                     "effects": build_effects(
-                        [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in option], source,
+                        [EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition")) for d in option], source,
                     ),
                     "description": "",
                 })
             descriptions = list(modal.get("descriptions") or [])
             for index, option in enumerate(modal_options):
                 option["description"] = descriptions[index] if index < len(descriptions) else f"Modus {index + 1}"
-        controller_id = getattr(source, "controller_id", None) or self.state.active_player.id
+        controller_id = controller_id or getattr(source, "controller_id", None) or self.state.active_player.id
         ability = TriggeredAbility(
             trigger_event=getattr(event, "type", None) or EventType.SPELL_RESOLVED,
             effects=built,
@@ -726,7 +727,7 @@ class MiscSystemsMixin:
         stamped_event = event if isinstance(event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)
         self.pending_triggers.append((ability, stamped_event))
     def _enqueue_pay_cost_then_trigger(self, pending: dict[str, Any]) -> None:
-        """RULE 603.11: a paid "you may `<cost>`" whose card continues "When
+        """RULE 603.12: a paid "you may `<cost>`" whose card continues "When
         you do, `<targeted payoff>`" fires that payoff via
         `enqueue_reflexive_trigger`."""
         self.enqueue_reflexive_trigger(

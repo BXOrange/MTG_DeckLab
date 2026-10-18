@@ -1141,6 +1141,7 @@ EffectRegistry.register(
         kind_if_flag=p.get("kind_if_flag"),
         group=p.get("group"), group_player=p.get("group_player"),
         exile_counters=p.get("exile_counters"),
+        then_trigger=p.get("then_trigger"),
     ),
 )
 EffectRegistry.register(

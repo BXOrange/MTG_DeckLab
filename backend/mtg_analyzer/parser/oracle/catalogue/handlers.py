@@ -5761,7 +5761,7 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 #: subtype vocabulary is needed here either). Tried before the bare
 #: "permanent" alternative so it isn't swallowed by it.
 _GRAVEYARD_TYPE_WORD = (
-    r"equipment, instant, or sorcery|noncreature, nonland|"  # PAR-163 (Thor; Practiced Scrollsmith)
+    r"equipment, instant, or sorcery|noncreature, nonland|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
     r"instant, sorcery, or battle|creature or planeswalker|creature or battle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"

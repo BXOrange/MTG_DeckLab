@@ -89,6 +89,7 @@ class ExileEffect(GameEffect):
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
         exile_counters: Optional[dict[str, int]] = None,
+        then_trigger: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -117,6 +118,7 @@ class ExileEffect(GameEffect):
         #: event + `GameState.bends_this_turn` stamp; fired once per
         #: resolution that exiled at least one object, not once per object.
         self.bend_kind = bend_kind
+        self.then_trigger_specs = list(then_trigger or [])
         #: "exile target `<c1>` or `<c2>` permanent" (Celestial Purge) —
         #: `TargetSpec.colors`' OR narrowing, offer-time (`_color_ok`).
         self.colors = tuple(colors) if colors else None
@@ -241,6 +243,14 @@ class ExileEffect(GameEffect):
             })
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        # RULE 603.12: the payoff exists only if this instruction actually
+        # exiled its object. Earlier exiles in the resolution do not count.
+        before = len(context.exiled_objects)
+        self._apply_exile(context, targets)
+        if self.then_trigger_specs and len(context.exiled_objects) > before:
+            context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source)
+
+    def _apply_exile(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.until_source_leaves:
             incarnation = getattr(context, "resolving_source_incarnation", None)
             if (self.source is None or self.source not in context.state.battlefield

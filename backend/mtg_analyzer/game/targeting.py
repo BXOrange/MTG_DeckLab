@@ -55,6 +55,7 @@ _GRAVEYARD_SCOPE_PREFIXES: dict[str, str] = {
 _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "card": lambda o: True,
     "creature": lambda o: o.is_creature,
+    "noncreature": lambda o: not o.is_creature,
     "attacking_or_blocking_creature": lambda o: (
         o.is_creature and (o.attacking or o.blocking is not None)
     ),

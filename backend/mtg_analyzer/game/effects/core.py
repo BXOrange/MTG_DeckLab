@@ -874,9 +874,14 @@ class GameContext:
         self, effect_specs: list[dict[str, Any]], source: Optional["GameObject"],
         event: Optional[GameEvent] = None,
     ) -> None:
-        """RULE 603.11's "When you do, `<targeted payoff>`." — see
+        """RULE 603.12's "When you do, `<targeted payoff>`." — see
         `RulesEngine.enqueue_reflexive_trigger`."""
-        self.engine.enqueue_reflexive_trigger(effect_specs, source, event or self.trigger_event)
+        # RULE 603.12 / 603.7e: the resolving ability controls its new trigger,
+        # including after its permanent changes controller or leaves play.
+        self.engine.enqueue_reflexive_trigger(
+            effect_specs, source, event or self.trigger_event,
+            controller_id=getattr(self, "resolving_controller_id", None),
+        )
 
     def end_the_turn(self) -> None:
         self.engine.end_the_turn()
