@@ -186,6 +186,35 @@ def _strip_unregistered_keyword_labels(text: str, keywords: Optional[list[str]])
     return text
 
 
+#: RULE 207.2d: chapter flavor words have no rules meaning. Scryfall's
+#: plain Oracle text omits italics and often omits these labels from keywords.
+#: Recognize only a title-cased label directly after a Saga chapter marker;
+#: quoted grants, modal instructions and ordinary effect text stay intact.
+_SAGA_FLAVOR_LABEL_RE = re.compile(
+    r"^(?P<chapter>[IVX]+(?:, [IVX]+)*\s*[—–]\s*)"
+    r"(?P<label>[A-Z][A-Za-z'’!-]*(?: (?:[A-Z][A-Za-z'’-]*|of|the|and|a|an|to|in))*)"
+    r"\s+[—–]\s*", re.MULTILINE,
+)
+_SAGA_INSTRUCTION_HEADS = frozenset({
+    'add', 'attach', 'choose', 'copy', 'create', 'destroy', 'discard', 'draw',
+    'each', 'exile', 'gain', 'look', 'mill', 'pay', 'put', 'return', 'reveal',
+    'sacrifice', 'search', 'shuffle', 'tap', 'target', 'this', 'untap', 'you',
+})
+
+
+def _strip_saga_flavor_labels(text: str) -> str:
+    from .catalogue.keywords import KEYWORDS
+
+    def strip(match: re.Match[str]) -> str:
+        label = match['label'].lower()
+        slug = label.replace(' ', '_').replace('-', '_')
+        if slug in KEYWORDS or label.split()[0] in _SAGA_INSTRUCTION_HEADS:
+            return match[0]
+        return match['chapter']
+
+    return _SAGA_FLAVOR_LABEL_RE.sub(strip, text)
+
+
 #: MEC-79 / RULE 701.64b — the Marvel Infinity Stones print their ultimate
 #: ability behind an "``∞ —``" marker line, with reminder text "(Once
 #: harnessed, its ∞ ability is active.)". The marker *is* the rules device:
@@ -413,6 +442,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     fixed evergreen ability-word list.
     """
     text = strip_reminder_text(text or "")
+    text = _strip_saga_flavor_labels(text)
     text = _fold_self_name(text, name)
     text = text.lower()
     text = _fold_self_reference(text)

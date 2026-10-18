@@ -56,6 +56,13 @@ the card's implementation and tests; shipped narrative in
 
 ## Resolution
 
+- Saga flavor labels are normalized independently of chapter bodies. An
+  omitted return recipient means the instructed player (RULE 110.2a);
+  explicit owner/your-control clauses remain separate. Source-pronoun
+  flickers use the trigger’s established self scope and exact blink visit.
+  Coordinated player verbs retain an explicit group subject until another
+  subject is stated, so opponent sacrifice/life-loss pairs affect opponents.
+
 - Untargeted control changes reuse structured battlefield groups, independent
   duration, untap and haste parameters. Group selection uses the resolving
   ability controller even after its source changes controller. Untargeted

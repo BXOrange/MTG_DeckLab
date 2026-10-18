@@ -6,7 +6,7 @@ from .counters import COUNTER_KIND_PATTERN
 
 _REFERENCE = r'(?:~|her|him|it|them|that card|those cards|that creature|that permanent|each of them|the exiled cards?)'
 _SCHEDULE = re.compile(r'at the beginning of (?P<when>the next end step|your next end step|your next upkeep|the next combat)')
-_RETURN = re.compile(rf'return {_REFERENCE} to the battlefield(?P<transformed> transformed)?(?P<face_down> face down)?(?P<tapped> tapped)? under (?P<who>your|(?:its|her|his) owner\'?s|their owners?\'s?) control(?P<tail>.*)')
+_RETURN = re.compile(rf'return {_REFERENCE} to the battlefield(?P<transformed> transformed)?(?P<face_down> face down)?(?P<tapped> tapped)?(?: under (?P<who>your|(?:its|her|his) owner\'?s|their owners?\'s?) control)?(?P<tail>.*)')
 _COUNTER = re.compile(rf'(?:with |and )(?:an? |(?P<count>\d+) )(?P<kind>{COUNTER_KIND_PATTERN}) counters?(?: on (?:it|them))?')
 _RETURN_BODY_TYPES = frozenset({'draw', 'discard', 'gain_life', 'lose_life',
     'create_token', 'grant_until', 'seq', 'bind', 'if_else', 'optional'})
@@ -24,7 +24,7 @@ def source_return_specs(body):
     if matched is None:
         return None
     params = {'tapped': bool(matched['tapped'])}
-    if matched['who'] == 'your':
+    if matched['who'] in (None, 'your'):
         params['under_your_control'] = True
     if matched['counter']:
         count = matched['count']
@@ -108,7 +108,7 @@ def _rider_specs(text, *, live_returned=True):
     return [s.to_dict() for s in specs] if all(safe(s.to_dict()) for s in specs) else None
 
 
-def flicker_sequence_specs(body):
+def flicker_sequence_specs(body, *, self_subject=False):
     """Only claim a complete exile/return instruction with understood riders.
 
     The target grammar is the existing exile builder; a future combination
@@ -123,7 +123,9 @@ def flicker_sequence_specs(body):
     if split is None:
         return None
     from ..segmenter import parse_effect_body
-    subject = '~' if split['subject'] == 'this saga' else split['subject']
+    subject = split['subject']
+    if subject == 'this saga' or (self_subject and subject in {'it', 'him', 'her'}):
+        subject = '~'
     event_group = re.fullmatch(r'each creature that (?P<action>crewed|saddled) (?:it|~) this turn', subject)
     if event_group:
         original = {'subject': 'event_visits',
@@ -134,7 +136,7 @@ def flicker_sequence_specs(body):
         if exiled is None or len(exiled) != 1 or exiled[0].type != 'exile':
             return None
         original = dict(exiled[0].params)
-        if not original.get('target_kind') and split['subject'] not in {'~', 'this saga'}:
+        if not original.get('target_kind') and subject != '~':
             return None
         if any(k not in {
             'target_kind', 'creature_filter', 'optional', 'count', 'count_max', 'target_count', 'target_count_max'
@@ -145,7 +147,7 @@ def flicker_sequence_specs(body):
     if len(schedules) > 1:
         return None
     params = dict(original)
-    if split['subject'] in {'~', 'this saga'}:
+    if subject == '~':
         params.pop('target_kind', None)
         params['subject'] = 'source'
     text = re.sub(r'^if you do, ', '', text)
@@ -171,7 +173,8 @@ def flicker_sequence_specs(body):
     returned = _RETURN.fullmatch(text)
     if returned is None:
         return None
-    if returned['who'] == 'your':
+    # RULE 110.2a: an unspecified recipient is the instructed player.
+    if returned['who'] in (None, 'your'):
         params['under_your_control'] = True
     if returned['tapped']:
         params['tapped'] = True

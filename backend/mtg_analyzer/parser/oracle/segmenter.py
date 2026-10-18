@@ -5303,7 +5303,7 @@ def parse_effect_body(
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
     from .catalogue.flicker_sequences import flicker_sequence_specs, linked_pool_return_specs, source_return_specs
-    flicker_sequence = flicker_sequence_specs(body) or linked_pool_return_specs(body) or source_return_specs(body)
+    flicker_sequence = flicker_sequence_specs(body, self_subject=self_subject) or linked_pool_return_specs(body) or source_return_specs(body)
     if flicker_sequence is not None:
         return flicker_sequence
     from .catalogue.zone_ability_sequences import exile_grant_specs
@@ -6261,6 +6261,7 @@ def _parse_effect_body_inner(
                     merged.append(part)
             parts = merged
             skip_until = 0
+            conjunct_player_scope = None
             for idx, part in enumerate(parts):
                 if idx < skip_until:
                     continue  # consumed by a multi-sentence window
@@ -6270,6 +6271,17 @@ def _parse_effect_body_inner(
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
                 if sep == _AND_CONNECTOR:
                     part = part.rstrip(",").strip()  # "…if {g} was spent to cast this spell**,** and …"
+                    # A repeated third-person verb keeps the current group
+                    # subject: "each opponent sacrifices ... and loses ...".
+                    # A newly stated subject ends that inheritance.
+                    player_head = _PLAYER_SCOPE_SUBJECT_RE.match(part)
+                    if player_head is not None:
+                        who = player_head['who'].lower()
+                        conjunct_player_scope = who if who in _PLAYER_SCOPE_ITERATION else None
+                    elif conjunct_player_scope and _ELIDED_PLAYER_VERB_RE.match(part):
+                        part = f"{conjunct_player_scope} {part}"
+                    else:
+                        conjunct_player_scope = None
                 otherwise = _OTHERWISE_RE.match(part)
                 if otherwise is not None:
                     sub = _otherwise_specs(
