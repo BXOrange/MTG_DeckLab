@@ -2245,6 +2245,33 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+# Library slices share one deterministic exile primitive: whose library,
+# which edge to remove from, and how many cards to remove or retain.
+_LIBRARY_EXILE_RE = _c(
+    r"exile (?:(?P<all>all cards)|all but the (?P<keep_edge>top|bottom) "
+    r"(?:(?P<keep_n>\d+) cards?|(?P<keep_one>card))|the (?P<edge>top|bottom) "
+    r"(?:(?P<n>\d+) cards?|(?P<one>card))) (?:of|from) "
+    r"(?P<owner>your|target player'?s|target opponent'?s|each player'?s|each opponent'?s) library"
+    r"(?P<face_down> face down)?"
+)
+
+
+def _library_exile(m: re.Match[str]) -> list[EffectSpec]:
+    owner = m.group("owner").replace("'", "")
+    params: dict = {"face_down": bool(m.group("face_down"))}
+    if owner.startswith("target "):
+        params.update(player_selector="target", target_kind=resolve_target_kind(owner[:-1]))
+    else:
+        params["player_selector"] = {"your": "controller", "each players": "each_player",
+                                     "each opponents": "each_opponent"}[owner]
+    if m.group("all") or m.group("keep_edge"):
+        params["keep_bottom"] = int(m.group("keep_n") or (1 if m.group("keep_one") else 0))
+        params["position"] = "bottom" if m.group("keep_edge") == "top" else "top"
+    else:
+        params.update(count=int(m.group("n") or 1), position=m.group("edge"))
+    return [EffectSpec("exile_top_of_library", params)]
+
+
 #: RULE 601.3b's "impulsive draw" shape (PAR-13, Dungeon of the Mad Mage's
 #: "Runestone Caverns" — "Exile the top two cards of your library. You may
 #: play them."; also Bonehoard Dracosaur/Painter's Studio's own trailing
@@ -5736,7 +5763,7 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 _GRAVEYARD_TYPE_WORD = (
     r"equipment, instant, or sorcery|noncreature, nonland|"  # PAR-163 (Thor; Practiced Scrollsmith)
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
-    r"instant, sorcery, or battle|creature or battle|zombie|"
+    r"instant, sorcery, or battle|creature or planeswalker|creature or battle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent"
@@ -5776,6 +5803,7 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
         "noncreature, nonland": "noncreature_nonland",
         "zombie": "zombie_card",
         "creature or battle": "creature_or_battle",
+        "creature or planeswalker": "creature_or_planeswalker",
         "instant, sorcery, or battle": "instant_sorcery_or_battle",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
@@ -18025,6 +18053,7 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:you )?draws? {COUNT} cards? at the beginning of the next turn's upkeep"),
         _draw_next_upkeep,
     ),
+    EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
     # draw (Runestone Caverns/Bonehoard Dracosaur/Painter's Studio-shaped).
