@@ -2235,7 +2235,8 @@ class DamageDeathMixin:
             obj.exile_after_free_cast = False
             self.exile(obj)
             return
-        if obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number:
+        if (obj.cast_graveyard_exile_replacement
+                or obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number):
             self.exile(obj)
             return
         owner = self.state.player_by_id(obj.owner_id)

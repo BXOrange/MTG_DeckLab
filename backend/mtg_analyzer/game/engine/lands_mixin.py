@@ -58,7 +58,7 @@ from ..targeting import (
     resolved_count,
     spell_target_specs,
 )
-from ..graveyard_cast import graveyard_cast_grant_for, graveyard_land_play_grant_for, has_temporary_graveyard_play_permission
+from ..graveyard_cast import has_targeted_graveyard_permission, graveyard_cast_grant_for, graveyard_land_play_grant_for, has_temporary_graveyard_play_permission
 from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
@@ -345,7 +345,7 @@ class LandsMixin:
         return (
             graveyard_cast_grant_for(player, self.state, obj.card) is not None
             or has_temporary_graveyard_play_permission(player, self.state)
-            or self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+            or has_targeted_graveyard_permission(player, self.state, obj)
         )
     def _self_graveyard_or_exile_cast_permission(self, obj: GameObject, player: Optional[Player] = None) -> bool:
         """Whether ``obj`` carries its own standing "you may cast this card from your graveyard [or from

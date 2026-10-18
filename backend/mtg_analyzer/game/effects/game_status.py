@@ -881,6 +881,10 @@ class GrantFlashbackToTargetEffect(GameEffect):
     py`'s `_graveyard_cast_keyword`/`_flashback_cost`, the same choke point
     a printed Flashback keyword goes through — the exile-after-cast (RULE
     702.34a) and cost-computation machinery need no changes at all.
+
+    ``as_permission`` instead grants normal-cost casting for the exact graveyard
+    visit. Its optional graveyard replacement follows the spell onto the stack
+    (RULE 400.7h), without flashback’s replacement of every stack departure.
     """
 
     def __init__(
@@ -890,11 +894,13 @@ class GrantFlashbackToTargetEffect(GameEffect):
         as_permission: bool = False,
         lock_casting: bool = False,
         during_resolution: bool = False,
+        exile_if_would_be_put_into_graveyard: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.cost = cost
         self.as_permission = as_permission
+        self.exile_if_would_be_put_into_graveyard = bool(exile_if_would_be_put_into_graveyard)
         #: With ``as_permission``: casting the chosen card also bars its caster from casting any further spells this
         #: turn ("If you do, you can't cast additional spells this turn." — Conduit of Worlds).
         self.lock_casting = bool(lock_casting)
@@ -912,7 +918,12 @@ class GrantFlashbackToTargetEffect(GameEffect):
             )
             return
         if self.as_permission:
-            context.state.temp_graveyard_cast_permissions[target.instance_id] = self.source.controller_id
+            context.state.temp_graveyard_cast_permissions[target.instance_id] = _controller_of(self.source, context).id
+            previous = context.state.temp_graveyard_cast_permission_visits.get(target.instance_id)
+            exile = self.exile_if_would_be_put_into_graveyard or bool(
+                previous and previous[0] == target.zone_incarnation and previous[1]
+            )
+            context.state.temp_graveyard_cast_permission_visits[target.instance_id] = (target.zone_incarnation, exile)
             if self.lock_casting:
                 context.state.cast_lock_instance_ids.add(target.instance_id)
             return

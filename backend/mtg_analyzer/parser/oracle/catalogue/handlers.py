@@ -7495,6 +7495,25 @@ def _grant_flashback_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_flashback_to_target", params)]
 
 
+# Normal-cost permission and its optional spell-zone replacement share the
+# targeted graveyard grant; neither changes the spell's alternative cost.
+_TARGET_GRAVEYARD_CAST_RE = _c(
+    rf"(?:you may )?cast target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard this turn\.?"
+    r"(?:\s*if that spell would be put into your graveyard, exile it instead\.?)?"
+)
+
+
+def _target_graveyard_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    if kind is None:
+        return None
+    return [EffectSpec("grant_flashback_to_target", {
+        "target_kind": kind, "as_permission": True,
+        "exile_if_would_be_put_into_graveyard": "exile it instead" in m.group(0),
+    })]
+
+
 #: "The next [creature] spell you cast this turn can't be countered." (Mistrise Village,
 #: Insist, Overmaster) and "[Creature] spells you control|cast [this turn] can't be
 #: countered [this turn]." (Veil of Summer, Domri, Anarch of Bolas) — a continuous effect
@@ -19383,6 +19402,9 @@ HANDLERS: list[EffectHandler] = [
     # "Target instant or sorcery card in your graveyard gains flashback
     # [<cost>] until end of turn[. The flashback cost is equal to its mana
     # cost.]" (MEC-24, Recoup/Snapcaster Mage-shaped).
+    EffectHandler(
+        "target_graveyard_cast", _TARGET_GRAVEYARD_CAST_RE, _target_graveyard_cast,
+    ),
     EffectHandler(
         "grant_flashback_target",
         _GRANT_FLASHBACK_TARGET_RE,

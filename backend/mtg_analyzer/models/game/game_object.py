@@ -502,6 +502,8 @@ class GameObject:
         #: `cast_via_flashback`, so a later normal recast this same turn
         #: clears a stale value rather than leaving it to misfire.
         self.cast_via_graveyard_cast_permission_until_turn: Optional[int] = None
+        #: RULE 400.7h / 611.2a: no stated replacement duration; this spell visit only.
+        self.cast_graveyard_exile_replacement: bool = False
         #: RULE 702.88b: whether this card has Rebound — a printed-
         #: characteristic-like marker, bound once from `AbilitySpec.rebound`
         #: (`game/binding/core.py`) and never reset, unlike the transient
@@ -1756,6 +1758,8 @@ class GameObject:
     def zone(self, value: Zone) -> None:
         if value != self._zone:
             self.zone_incarnation += 1
+            # RULE 400.7: the spell-specific graveyard replacement ends on departure.
+            self.cast_graveyard_exile_replacement = False
             # RULE 400.7 / 702.185b: Warp designation belongs to this exile visit.
             self.warped_card = False
             if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):

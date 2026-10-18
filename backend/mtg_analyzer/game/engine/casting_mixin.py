@@ -73,7 +73,7 @@ from ..targeting import (
     target_group_within_budget,
     with_chooser_slots,
 )
-from ..graveyard_cast import graveyard_cast_grant_for
+from ..graveyard_cast import has_targeted_graveyard_permission, graveyard_cast_grant_for
 from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
@@ -776,7 +776,7 @@ class CastingMixin:
             or (
                 # "…you may cast a spell from among those cards" (Locke) — cards milled into *any* graveyard.
                 obj.zone == Zone.GRAVEYARD
-                and self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+                and has_targeted_graveyard_permission(player, self.state, obj)
             )
             or (
                 # Hildibrand Manderville: a temporary permission to cast the Adventure half from the graveyard.
@@ -1185,7 +1185,7 @@ class CastingMixin:
         if (obj not in player.graveyard or self._has_resolution_play_permission(player, obj)
                 or self._graveyard_cast_keyword(obj) is not None
                 or has_temporary_graveyard_play_permission(player, self.state)
-                or self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+                or has_targeted_graveyard_permission(player, self.state, obj)
                 or self._self_graveyard_or_exile_cast_permission(obj, player)):
             return None
         return graveyard_cast_grant_for(player, self.state, obj.characteristic_card())
@@ -2353,6 +2353,11 @@ class CastingMixin:
             # Lurrus-shaped standing permission, read *before* the cast for
             # the same "off the object's current zone" reason as above — only
             # relevant when no closed-vocabulary keyword already covers it.
+            targeted_graveyard_exile = (
+                has_targeted_graveyard_permission(player, self.state, obj)
+                and obj.owner_id == player.id
+                and self.state.temp_graveyard_cast_permission_visits.get(obj.instance_id, (None, False))[1]
+            )
             graveyard_grant = self._standing_graveyard_grant(player, obj)
             graveyard_payment = (
                 self._graveyard_sacrifice_payment(
@@ -2616,8 +2621,10 @@ class CastingMixin:
             # this same turn clears it.
             obj.cast_via_escape = graveyard_keyword == "escape"
             self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
+            self.state.temp_graveyard_cast_permission_visits.pop(obj.instance_id, None)
             for iid in milled_group:
                 self.state.temp_graveyard_cast_permissions.pop(iid, None)
+                self.state.temp_graveyard_cast_permission_visits.pop(iid, None)
                 self.state.temp_graveyard_cast_permission_groups.pop(iid, None)
             if obj.instance_id in self.state.cast_lock_instance_ids:
                 # "If you do, you can't cast additional spells this turn." (Conduit of Worlds)
@@ -2649,6 +2656,7 @@ class CastingMixin:
                 if graveyard_grant is not None and graveyard_grant.exile_if_would_be_put_into_graveyard
                 else None
             )
+            obj.cast_graveyard_exile_replacement = bool(targeted_graveyard_exile)
             # Edgar: "that artifact enters tapped" — reassigned every cast, like the flag above.
             obj.enters_tapped_from_cast_grant = bool(graveyard_grant is not None and graveyard_grant.enters_tapped)
             # RULE 702.138b: Escape's own "exile N other cards from your

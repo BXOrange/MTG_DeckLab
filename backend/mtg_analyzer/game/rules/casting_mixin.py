@@ -1371,6 +1371,7 @@ class CastingResolutionMixin:
         left_graveyard = obj.zone == Zone.GRAVEYARD
         if left_graveyard:
             self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
+            self.state.temp_graveyard_cast_permission_visits.pop(obj.instance_id, None)
         for candidate in self.state.players:
             if obj in candidate.sideboard:
                 candidate.sideboard.remove(obj)

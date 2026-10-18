@@ -1460,6 +1460,7 @@ EffectRegistry.register(
         as_permission=bool(p.get("as_permission", False)),
         lock_casting=bool(p.get("lock_casting", False)),
         during_resolution=bool(p.get("during_resolution", False)),
+        exile_if_would_be_put_into_graveyard=bool(p.get("exile_if_would_be_put_into_graveyard", False)),
     ),
 )
 EffectRegistry.register(

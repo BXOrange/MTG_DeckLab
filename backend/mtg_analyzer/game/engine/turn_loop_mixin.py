@@ -1179,6 +1179,7 @@ class TurnLoopMixin:
         # A free-cast flag granted alongside a graveyard permission (The Ur-Sphinx) expires with it.
         self.state.free_cast_instance_ids.difference_update(self.state.temp_graveyard_cast_permissions)
         self.state.temp_graveyard_cast_permissions.clear()
+        self.state.temp_graveyard_cast_permission_visits.clear()
         self.state.temp_graveyard_cast_permission_groups.clear()
         self.state.cast_lock_instance_ids.clear()
         self.state.no_more_spells_this_turn.clear()

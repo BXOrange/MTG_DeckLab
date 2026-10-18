@@ -19,12 +19,23 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from ..models.cards import card_query
+from ..models.game.game_object import Zone
 from .effects.core import GraveyardCastPermissionEffect
 
 if TYPE_CHECKING:
     from ..models.cards.card import Card
     from ..models.game.game_state import GameState
     from ..models.game.player import Player
+
+
+def has_targeted_graveyard_permission(player: "Player", state: "GameState", obj) -> bool:
+    """RULE 400.7: a targeted permission belongs to one graveyard visit."""
+    visit = state.temp_graveyard_cast_permission_visits.get(obj.instance_id)
+    return (
+        obj.zone == Zone.GRAVEYARD
+        and state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+        and (visit is None or visit[0] == obj.zone_incarnation)
+    )
 
 
 def _is_permanent_card(card: "Card") -> bool:

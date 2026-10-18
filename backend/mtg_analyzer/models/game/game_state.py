@@ -802,6 +802,8 @@ class GameState:
         self.temp_flashback_grants: dict[int, str] = {}
         #: Single-card normal-cost graveyard permissions, cleared on casting and cleanup.
         self.temp_graveyard_cast_permissions: dict[int, str] = {}
+        #: Targeted permission: exact graveyard visit and graveyard-exile replacement.
+        self.temp_graveyard_cast_permission_visits: dict[int, tuple[int, bool]] = {}
         self.temp_graveyard_cast_permission_groups: dict[int, frozenset[int]] = {}
         #: Cards whose graveyard cast permission (above) also forbids their caster any further spells that turn
         #: ("If you do, you can't cast additional spells this turn." — Conduit of Worlds), and the players whose

@@ -64,7 +64,7 @@ from ..targeting import (
     resolved_count,
     spell_target_specs,
 )
-from ..graveyard_cast import graveyard_cast_grant_for
+from ..graveyard_cast import has_targeted_graveyard_permission, graveyard_cast_grant_for
 from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
@@ -1207,7 +1207,7 @@ class LegalActionsMixin:
             if other is player:
                 continue
             for obj in list(other.graveyard):
-                if (self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+                if (has_targeted_graveyard_permission(player, self.state, obj)
                         and self._castable_now_or_via_potential(player, obj)):
                     self._offer_cast(actions, player, obj)
 
