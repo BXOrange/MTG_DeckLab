@@ -4039,7 +4039,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "678"
+PARSER_VERSION = "679"
 
 
 def parser_source_hash() -> str:
@@ -4492,6 +4492,35 @@ def _named_mode_gated(spec: AbilitySpec, label: str) -> Optional[AbilitySpec]:
             )
         return spec
     return None
+
+
+def _restore_printed_token_names(specs: list[AbilitySpec], raw: str) -> None:
+    """Keep literal proper names after case-folded grammar recognition."""
+    names = {
+        match.group("name").casefold(): match.group("name")
+        for match in re.finditer(
+            r"\bcreate (?P<name>[^.\n]+?), a legendary \d+/\d+ ", raw, re.IGNORECASE,
+        )
+    }
+    if not names:
+        return
+
+    def restore(value):
+        if isinstance(value, dict):
+            name = value.get("token_name")
+            if isinstance(name, str) and name.casefold() in names:
+                value["token_name"] = names[name.casefold()]
+            for child in value.values():
+                restore(child)
+        elif isinstance(value, list):
+            for child in value:
+                restore(child)
+        elif isinstance(value, EffectSpec):
+            restore(value.params)
+
+    for spec in specs:
+        restore(spec.effects)
+        restore(spec.modes)
 
 
 def parse_oracle(card: Any) -> ParseResult:
@@ -5625,6 +5654,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(kw_spec.raw_text)
 
+    _restore_printed_token_names(effect_specs, raw)
     return ParseResult(
         specs=list(keyword_specs) + effect_specs,
         coverage=MODELED if all_claimed else UNMODELED,

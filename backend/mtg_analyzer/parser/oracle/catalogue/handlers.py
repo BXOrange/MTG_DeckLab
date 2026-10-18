@@ -10127,7 +10127,7 @@ def _create_token_and_attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: rather than a curated `TokenDatabase` lookup, since a card's own unique
 #: token needs no shared ability the database would otherwise supply.
 _CREATE_NAMED_LEGENDARY_TOKEN_RE = _c(
-    r"create (?P<name>[a-z][a-z' ]*), a legendary (?P<p>\d+)/(?P<t>\d+) "
+    r"create (?P<name>[a-z][a-z' -]*(?:, [a-z][a-z' -]*)*), a legendary (?P<p>\d+)/(?P<t>\d+) "
     r"(?P<mid>[a-z ]*?)creature tokens?"
     r"(?: with (?P<kw>[a-z, ]+))?"
 )
@@ -17297,32 +17297,27 @@ def _animate_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: the same colour-word qualifier support `_animate_self` gained just
 #: above — reusing the identical `_split_animate_qualifiers`/`extra_statics`
 #: machinery rather than a second copy.
+# Shared animation body: subject selection, colors/types/keywords, duration
+# and printed type-retention reminders are independent axes.
+_ANIMATE_CREATURE_BODY = (
+    r"(?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creatures?"
+    r"(?: with (?P<kw>[a-z, ]+?))?"
+    r"(?: in addition to (?:its|their) other types)?(?P<eot> until end of turn)?"
+)
 _ANIMATE_TARGET_RE = _c(
     r"target (?:snow )?(?P<kind>land|mountain|forest|artifact|creature|enchantment|creature or land)"
-    # PAR-124: "target creature or land you control becomes …" (Vengeant
-    # Earth) — the controller-scoped qualifier `resolve_target_kind` already
-    # resolves for every kind word here (``land_you_control``/
-    # ``creature_or_land_you_control``, …), just never threaded through this
-    # regex before.
-    r"(?P<you_control> you control)? becomes "
-    r"an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
-    r"(?: with (?P<kw>[a-z, ]+?))?"
-    # "…in addition to its other types until end of turn." (Vengeant
-    # Earth) — the same "printed type is never lost" reminder `_split_
-    # animate_qualifiers`'s ``add_types`` already encodes, just spelled as
-    # its own clause instead of the plain "it's still a `<kind>`" sentence.
-    r"(?: in addition to its other types)?(?P<eot> until end of turn)?"
-    # A basic-land-subtype target (Mountain/Forest) still says merely
-    # "it's still a land" in its reminder sentence.
+    r"(?P<you_control> you control)? becomes an? "
+    + _ANIMATE_CREATURE_BODY +
     r"(?:\. it'?s still an? (?:snow )?(?:(?P=kind)|land))?"
-    # PAR-124: "…it's still a land. **it must be blocked this turn if
-    # able**." (Disturbed Slumber/Elemental Uprising) — folded in here
-    # rather than left to the generic `previous_subject` connector-split
-    # pipeline: that split would hand the *pure-reminder* "it's still a
-    # land" sentence its own unclaimed part first (nothing builds an
-    # `EffectSpec` for it alone), failing the whole body closed before this
-    # tail is ever reached.
     r"(?P<must_blocked>\. it must be blocked this turn if able)?"
+)
+_ANIMATE_PREVIOUS_RE = _c(
+    r"(?P<previous>it|they|that (?:creature|permanent|land|artifact)|"
+    r"those (?:creatures|permanents|lands|artifacts)) becomes? (?:an? )?"
+    + _ANIMATE_CREATURE_BODY +
+    r"(?:\. (?:it'?s|they'?re) still (?:an? )?(?:snow )?"
+    r"(?:land|artifact|enchantment|creature|planeswalker|battle)s?)?"
+    r"(?P<must_blocked>\. (?:it|they) must be blocked this turn if able)?"
 )
 
 
@@ -17331,10 +17326,11 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if quals is None:
         return None
     colors, add_types, add_subtypes = quals
-    kind = resolve_target_kind(
+    previous = bool(m.groupdict().get("previous"))
+    kind = None if previous else resolve_target_kind(
         "target " + m.group("kind") + (m.group("you_control") or "")
     )
-    if kind is None:
+    if kind is None and not previous:
         return None
     static: dict[str, Any] = {
         "type": "type_change",
@@ -17356,6 +17352,7 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     specs = [EffectSpec("grant_until", {
         "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
         "target_kind": kind, "static": static,
+        **({"previous_subject": True} if previous else {}),
         **({"extra_statics": extra_statics} if extra_statics else {}),
     })]
     if m.groupdict().get("must_blocked"):
@@ -21444,6 +21441,10 @@ HANDLERS: list[EffectHandler] = [
         "animate_self_leading_eot",
         _ANIMATE_SELF_LEADING_EOT_RE,
         _animate_self_leading_eot,
+    ),
+    EffectHandler(
+        "animate_previous", _ANIMATE_PREVIOUS_RE, _animate_target,
+        previous_subject_only=True,
     ),
     EffectHandler(
         "animate_target",
