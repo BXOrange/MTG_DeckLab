@@ -45,8 +45,8 @@ class GainControlOfCastTargetsEffect(GainControlUntilEndOfTurnEffect):
 
 
 class _ReturnCapturedDyingSubjectEffect(ReturnDyingSubjectToBattlefieldEffect):
-    def __init__(self,event,source=None):
-        super().__init__(source=source)
+    def __init__(self,event,source=None, **options):
+        super().__init__(source=source, **options)
         self.event=GameEvent(EventType.DIES,**dict(event.data))
 
     def apply(self,context,targets=None):
@@ -60,13 +60,20 @@ class _ReturnCapturedDyingSubjectEffect(ReturnDyingSubjectToBattlefieldEffect):
 
 class DelayReturnDyingSubjectEffect(GameEffect):
     """RULE 603.7: remember one death and return that graveyard incarnation."""
+    def __init__(self, source=None, step='end', scope='any',
+                 under_your_control=False, tapped=False, extra_counters=None):
+        super().__init__(source)
+        self.step, self.scope = step, scope
+        self.entry_options = dict(under_your_control=under_your_control,
+                                  tapped=tapped, extra_counters=extra_counters)
+
     def apply(self,context,targets=None):
         event=context.trigger_event
         controller=_controller_of(self.source,context)
-        if event is None or controller is None:
+        if event is None or event.type != EventType.DIES or controller is None:
             return
         context.state.delayed_triggers.append(DelayedTrigger(
-            controller_id=controller.id,step='end',scope='any',
-            effects=[_ReturnCapturedDyingSubjectEffect(event,self.source)],
+            controller_id=controller.id,step=self.step,scope=self.scope,
+            effects=[_ReturnCapturedDyingSubjectEffect(event,self.source, **self.entry_options)],
             description='Return dying permanent at next end step',
         ))

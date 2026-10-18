@@ -628,6 +628,7 @@ class CreateTurnTriggerEffect(GameEffect):
         previous_subject: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         bake_previous_objects: bool = False,
+        grant_zone: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.trigger = dict(trigger or {})
@@ -649,6 +650,7 @@ class CreateTurnTriggerEffect(GameEffect):
         #: object is baked into the body's `sacrifice_specific` at creation (the delayed-trigger
         #: ``previous_targets`` capture) together with its zone stay (RULE 400.7).
         self.bake_previous_objects = bool(bake_previous_objects)
+        self.grant_zone = grant_zone
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import bind_ability  # function-scoped: effects↔binder cycle
@@ -656,6 +658,11 @@ class CreateTurnTriggerEffect(GameEffect):
         from ...models.game.game_state import TurnScopedTrigger
 
         if not self.trigger.get("event") or not self.inner_specs:
+            return
+        if self.grant_zone is not None and (
+            self.source is None or self.source.zone != self.grant_zone
+            or self.source.is_token or self.target_spec is not None or self.previous_subject
+        ):
             return
         trigger = dict(self.trigger)
         if self.target_spec is not None or self.previous_subject:
@@ -691,20 +698,67 @@ class CreateTurnTriggerEffect(GameEffect):
             optional=self.optional,
             raw_text=self.description,
         )
-        ability = bind_ability(spec, source=self.source)
-        controller = _controller_of(self.source, context)
+        if self.grant_zone is not None:
+            # RULE 113.8: a card outside the battlefield has no controller;
+            # its granted ability belongs to its owner, even if stolen
+            # before exile. Binding captures "you" against that owner.
+            previous_controller = self.source.controller_id
+            self.source.controller_id = self.source.owner_id
+            try:
+                ability = bind_ability(spec, source=self.source)
+            finally:
+                self.source.controller_id = previous_controller
+            controller = context.state.player_by_id(self.source.owner_id)
+        else:
+            ability = bind_ability(spec, source=self.source)
+            controller = _controller_of(self.source, context)
         baked_objects = [t for t in context.previous_targets if t is not None] if self.bake_previous_objects else []
         if self.bake_previous_objects and not baked_objects:
             return  # RULE 608.2b: the earlier clause's target was illegal, so "that creature" names nothing
         for one in ability if isinstance(ability, list) else [ability]:
             if controller is not None:
                 one.controller_id = controller.id
+            if self.grant_zone is not None:
+                # RULE 603.4: a queued trigger must also find the same
+                # exiled object when it resolves, after responses.
+                from .composition import IfElseEffect
+                visit_condition = {
+                    'kind': 'zone_visit', 'zone': self.grant_zone, 'incarnation': source_stay,
+                }
+                guarded = IfElseEffect(condition=visit_condition, source=self.source)
+
+                def guard_choices(value):
+                    if isinstance(value, list):
+                        return [guard_choices(item) for item in value]
+                    if not isinstance(value, dict):
+                        return value
+                    result = {key: guard_choices(item) for key, item in value.items()}
+                    if result.get('type') == 'optional':
+                        # A pending choice can survive cloning or replay
+                        # edits. Recheck before starting its selected body,
+                        # without gating instructions after that body returns
+                        # the source and intentionally changes its visit.
+                        params = result['params']
+                        for branch in ('effects', 'else_effects'):
+                            if params.get(branch):
+                                params[branch] = [EffectSpec('if_else', {
+                                    'condition': visit_condition,
+                                    'then': params[branch], 'else': [],
+                                }).to_dict()]
+                    return result
+
+                guarded.then_specs = guard_choices([effect.to_dict() for effect in spec.effects])
+                one.effects = [guarded]
             for effect in getattr(one, "effects", []) if baked_objects else []:
                 if isinstance(effect, SacrificeSpecificEffect):
                     effect.objects = list(baked_objects)
                     effect.incarnations = {o.instance_id: o.zone_incarnation for o in baked_objects}
             context.state.turn_scoped_triggers.append(
-                TurnScopedTrigger(one, context.state.internal_turn.number, once=self.once)
+                TurnScopedTrigger(one, None if self.grant_zone else context.state.internal_turn.number,
+                    once=self.once,
+                    bound_object_id=self.source.instance_id if self.grant_zone else None,
+                    bound_incarnation=source_stay if self.grant_zone else None,
+                    bound_zone=self.grant_zone)
             )
 
 

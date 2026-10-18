@@ -23,6 +23,56 @@ def _store(eng, source, obj):
     assert obj.zone == Zone.EXILE
 
 
+@pytest.mark.parametrize('choice_kind', ['search', 'choose_objects'])
+def test_choice_keeps_original_source_visit_and_exact_exile_visit(choice_kind):
+    from mtg_analyzer.game.effects.exile_control import ReturnAllExiledWithEffect
+    eng = _engine()
+    source = _haven(eng)
+    incarnation = source.zone_incarnation
+    player = eng.state.player_by_id('p1')
+    chosen = player.library[-1]
+    if choice_kind == 'search':
+        eng.rules._request_search(player, destination='exile', optional=False,
+                                  source=source, track_exiled_with=True)
+    else:
+        eng.rules._request_choose_objects(player, [chosen], 'exile', count=1,
+            optional=True, source=source, track_exiled_with=True)
+    eng.rules.exile(source)
+    eng.rules.return_from_graveyard(source, 'battlefield')
+    eng.resolve_pending_choice(str(chosen.instance_id))
+    assert eng.state.linked_exile_visits[(source.instance_id, incarnation)] == [
+        (chosen.instance_id, chosen.zone_incarnation)]
+    ReturnAllExiledWithEffect(source=source).apply(eng.rules.context)
+    assert chosen.zone == Zone.EXILE  # the new source has no linked pool
+    eng.rules.context.resolving_source_incarnation = incarnation
+    ReturnAllExiledWithEffect(source=source).apply(eng.rules.context)
+    assert chosen.zone == Zone.BATTLEFIELD
+
+
+def test_id_only_pool_cannot_return_an_unrelated_exile_visit():
+    from mtg_analyzer.game.effects.exile_control import ReturnAllExiledWithEffect
+    eng = _engine()
+    source = _haven(eng)
+    obj = _bf(eng, _creature('Unlinked'))
+    eng.rules.exile(obj)
+    source.exiled_with_ids = [obj.instance_id]
+    ReturnAllExiledWithEffect(source=source).apply(eng.rules.context)
+    assert obj.zone == Zone.EXILE
+
+
+def test_exiled_token_counts_for_payoff_but_is_not_a_return_visit():
+    from mtg_analyzer.game.effects.exile_control import ExileEffect, ReturnAllExiledWithEffect
+    eng = _engine()
+    source = _haven(eng)
+    token = _bf(eng, _creature('Token'))
+    token.is_token = True
+    ExileEffect(source=source, track_exiled_with=True).apply(eng.rules.context, [token])
+    assert source.exiled_with_ids == [token.instance_id]
+    assert eng.state.linked_exile_visits[(source.instance_id, source.zone_incarnation)] == []
+    ReturnAllExiledWithEffect(source=source).apply(eng.rules.context)
+    assert token.zone == Zone.EXILE
+
+
 def _upkeep(eng, accept=True):
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step='upkeep', phase='beginning'))
     eng.resolve_until_stable()

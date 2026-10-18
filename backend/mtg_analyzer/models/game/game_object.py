@@ -711,6 +711,8 @@ class GameObject:
         #: _pay_activation_cost`'s `crew_power` branch, read live by
         #: `effect_binder._build_group_ok`'s ``crewed_by_self`` condition.
         self.crewed_by_ids: list[int] = []
+        self.crewed_by_incarnations: dict[int, int] = {}
+        self.crewed_turn: Optional[int] = None
         #: Blocking (RULE 509): ``blocking`` is the instance id of the
         #: attacker this creature is declared to block (None if not
         #: blocking); ``blocked_by`` lists the blocker instance ids assigned
@@ -1627,6 +1629,9 @@ class GameObject:
         self.linked_exile_ids = []
         self.saddled_by = (None, [])
         self.saddled_by_incarnations = {}
+        self.crewed_by_ids = []
+        self.crewed_by_incarnations = {}
+        self.crewed_turn = None
         self.haunting_instance_id = None
         self.haunting_incarnation = None
         self.exile_after_free_cast = False
@@ -2208,8 +2213,8 @@ class GameObject:
                 return False
         self.card = new_card
         self.transformed = not self.transformed
-        if new_card.is_planeswalker and new_card.loyalty and "loyalty" not in self.counters:
-            self.counters["loyalty"] = new_card.loyalty
+        # RULE 306.5b: starting loyalty is an entry replacement. Changing
+        # faces adds none; transformed returns use the shared entry path.
         return True
 
     def flip(self) -> bool:

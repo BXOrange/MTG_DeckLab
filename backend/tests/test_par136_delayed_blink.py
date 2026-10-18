@@ -85,12 +85,16 @@ def test_self_blink_and_mass_forms_parse():
     assert [s.type for s in mass] == ["exile", "create_delayed_trigger"]
 
 
-def test_a_dies_trigger_return_is_not_claimed():
-    # Resurrection Orb: "return it …" after a *death*, nothing is in exile — must stay unclaimed
+def test_a_dies_trigger_return_uses_a_captured_death_instead_of_exile():
+    # PAR-157 supplies the missing death-return operation. The old exile
+    # continuation must still never claim this graveyard subject.
     card = _card("Resurrection Orb", "Artifact — Equipment", oracle_text=(
         "Equipped creature has lifelink.\nWhenever equipped creature dies, return it to the battlefield "
         "under its owner's control at the beginning of the next end step.\nEquip {4}"))
-    assert parse_oracle(card).coverage == UNMODELED
+    parsed = parse_oracle(card)
+    assert parsed.modeled
+    triggered = next(spec for spec in parsed.specs if spec.ability_kind == 'triggered')
+    assert [effect.type for effect in triggered.effects] == ['delay_return_dying_subject']
 
 
 # --- execute ---------------------------------------------------------------

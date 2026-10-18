@@ -236,8 +236,12 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
     def __init__(
         self, effects: Optional[list[Any]] = None, event_key: Optional[str] = None,
         acting: Optional[str] = None, source: Optional[GameObject] = None,
+        referent: str = 'trigger_subject',
     ) -> None:
         super().__init__(effects, source)
+        if referent not in effect_conditions.EFFECT_SUBJECTS:
+            raise ValueError('Unknown body referent')
+        self.referent = referent
         self.event_key = event_key or "instance_id"
         #: ``"controller"`` runs the body *as* the firing object's controller ("its controller
         #: creates a token"): every "you" in it — who creates, draws, sacrifices, whose lands
@@ -247,6 +251,14 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
         #: ``"active_player"`` does the same for phase events (RULE 504), which
         #: identify the step rather than carrying a player_id.
         self.acting = acting if acting in ("controller", "event_player", "active_player") else None
+
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        # RULE 601.2c: a targeted body always runs once for its announced
+        # subject. Event-derived subjects continue to announce no targets.
+        if self.referent != 'target':
+            return []
+        return [spec for effect in _build(self.inner_specs, self.source) for spec in effect.target_specs]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.acting in ("event_player", "active_player"):
@@ -266,7 +278,10 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
             finally:
                 context.acting_player_id = outer
             return
-        if self.event_key == REMEMBERED_EVENT_KEY:
+        if self.referent != 'trigger_subject':
+            subject = effect_conditions.subject_of(self.referent, context, self.source, targets)
+            object_id = getattr(subject, 'instance_id', None)
+        elif self.event_key == REMEMBERED_EVENT_KEY:
             # A body that runs after the trigger's window closed (a payment's "if you do"): the
             # object `PayCostThenEffect(remember_trigger_subject)` stamped on the source.
             object_id = getattr(self.source, "remembered_instance_id", None)
@@ -707,6 +722,7 @@ EffectRegistry.register(
     "trigger_subject_referent",
     lambda p: TriggerSubjectReferentEffect(
         effects=p.get("effects"), event_key=p.get("event_key"), acting=p.get("acting"),
+        referent=p.get('referent', 'trigger_subject'),
     ),
 )
 EffectRegistry.register(

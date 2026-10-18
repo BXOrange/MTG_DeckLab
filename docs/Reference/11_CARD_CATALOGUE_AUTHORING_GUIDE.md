@@ -605,9 +605,14 @@ parser handler) can reach for it by name.
 First separate selection, measured inputs, timing, entry instructions and
 follow-up effects. Compose `bind`, `seq`, existing choices and `blink` before
 adding a fused runtime type. `blink` already supports intervening
-`exile_effects`, frozen `departing_copy` recipients, return timing/entry
+`exile_effects`, frozen `departing_copy` recipients, exact `event_visits`
+subjects (configured by `trigger_event_key` and `creature_filter`), return timing/entry
 options and successful-return bodies; see
 [Engine mechanic notes](ENGINE_MECHANICS_NOTES.md). Card-specific catalogue
 entries should configure these axes. A new card name alone is not a reason
 for a new runtime effect type. `exile_return_transformed` is a compatibility
 alias; new definitions use `blink` with `subject="source", transformed=True`.
+For pre-exile control branches, put `if_else` outside the blink. A
+`trigger_subject_referent` body can use `referent="target", acting="controller"`
+to retain the target’s controller while its body exiles it and continues through
+choices. Target requirements come from that body; event subjects remain untargeted.

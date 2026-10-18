@@ -2278,12 +2278,13 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 #: of the exiled cards is accepted — "exile the top 2 cards of your library[,] [then] choose 1 of
 #: them. You may play that card this turn" and "… you may play 1 of those cards this turn" — which
 #: keeps the play permission on the pick alone (`ImpulsiveDrawEffect.choose_one`).
-_EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step"
+_EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|for as long as (?:they|it) remain(?:s)? exiled"
 _EXILE_TOP_PLAY_RE = _c(
-    r"exile the top (?:(?P<n>\d+|x) cards?|card) of (?:your|(?P<each>each player'?s)) library(?:\.|, then) "
+    r"(?:exile the top (?:(?P<n>\d+|x) cards?|card) of (?:your|(?P<each>each player'?s)) library"
+    r"|(?P<damaged>that player) exiles that many cards from the top of their library)(?:\.|, then) "
     r"(?P<choose>choose 1(?: of (?:them|those cards))?\. )?"
     rf"(?:(?P<dur_pre>{_EXILE_TOP_WINDOW}), )?"
-    r"you may play (?P<what>them|it|that card|those cards|the exiled cards|cards exiled this way|1 of those cards)"
+    r"you may play (?P<what>(?P<lands>lands from among those cards)|them|it|that card|those cards|the exiled cards|cards exiled this way|1 of those cards)"
     rf"(?: (?P<dur_post>{_EXILE_TOP_WINDOW}))?"
     # PAR-163 (Lidless Gaze): RULE 605.1a spend permission on those spells, "any color" / "any type".
     r"(?P<wild>,? and (?:you may spend mana as though it were mana of any (?P<wild_what>color|type) to cast those spells"
@@ -2297,7 +2298,7 @@ def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     n = m.group("n")
     what = m.group("what")
     choose_one = bool(m.group("choose")) or what == "1 of those cards"
-    count = count_or_x_of(n) if n else 1
+    count = {'kind': 'trigger_event', 'field': 'amount'} if m.group('damaged') else count_or_x_of(n) if n else 1
     # "that card"/"it" names *the* card — one exiled card, or the pick; "them"/"those cards" every one.
     singular = what in ("it", "that card")
     if singular and not choose_one and count != 1:
@@ -2307,6 +2308,12 @@ def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("choose") and what != "that card":
         return None
     params: dict = {"count": count, "same_turn_only": same_turn_only}
+    if m.group('damaged'):
+        params['library_of'] = 'that_player'
+    if dur.startswith('for as long as '):
+        params['standing'] = True
+    if m.group('lands'):
+        params['card_filter'] = {'card_type': 'land'}
     if choose_one:
         params["choose_one"] = True
     if m.group("each"):
@@ -7269,6 +7276,18 @@ _GAIN_CONTROL_ALL_RE = _c(
     r"untap all creatures and gain control of them until end of turn\."
     r"\s*they gain haste until end of turn"
 )
+
+_GAIN_CONTROL_GROUP_RE = _c(
+    r'gain control of (?P<quant>all|each) (?P<group>.+?)(?P<duration> until end of turn)?'
+)
+
+
+def _gain_control_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _mass_group_params(m['group'], m['quant'])
+    if params is None:
+        return None
+    params.update(duration='end_of_turn' if m['duration'] else 'permanent', haste=False, untap=False)
+    return [EffectSpec('gain_control_until_eot', params)]
 
 
 def _gain_control_all(m: re.Match[str]) -> list[EffectSpec]:
@@ -18085,9 +18104,10 @@ HANDLERS: list[EffectHandler] = [
     # (`choose_objects` with the ``untap`` action), unlike "untap up to two **target** lands" (RULE 115).
     EffectHandler(
         "untap_up_to_lands",
-        _c(r"untap up to (?P<n>\d+) lands"),
+        _c(r"untap up to (?P<n>\d+) lands(?P<own> you control)?"),
         lambda m: [EffectSpec("choose_objects", {
             "action": "untap", "what": "land", "count": int(m.group("n")), "optional": True,
+            "pool_player_selector": "chooser" if m['own'] else "all",
             "prompt": "Wähle bis zu %d Länder zum Enttappen" % int(m.group("n")),
         })],
     ),
@@ -19313,6 +19333,7 @@ HANDLERS: list[EffectHandler] = [
         _GAIN_CONTROL_MASS_EOT_RE,
         _gain_control_mass_eot,
     ),
+    EffectHandler('gain_control_group', _GAIN_CONTROL_GROUP_RE, _gain_control_group),
     # "that player copies it and may choose new targets for the copy [until
     # end of turn]" (Bonus Round's own trigger body).
     EffectHandler(

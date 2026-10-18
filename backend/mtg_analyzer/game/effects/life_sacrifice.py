@@ -1238,7 +1238,7 @@ class ExileTriggeringDiscardMayPlayThisTurnEffect(GameEffect):
                 obj, holder, self.source.name if self.source is not None else None, self.same_turn_only, None,
             )
         if self.track_exiled_with and self.source is not None:
-            self.source.exiled_with_ids.append(obj.instance_id)
+            context.state.track_exiled_with(self.source, obj, context.resolving_source_incarnation)
 
 
 class CurrencyConverterCashOutEffect(GameEffect):

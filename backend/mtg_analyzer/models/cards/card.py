@@ -95,8 +95,10 @@ class Card:
         back_oracle_text: Rules text of the back face.
         back_mana_cost_string: Raw Scryfall mana cost of the back face
             (empty for a transform back, which is never cast for a cost).
-        back_power/back_toughness: Back face's power/toughness if it is a
-            creature, else None.
+        back_power/back_toughness: Printed back-face power/toughness for
+            creatures, Vehicles and Spacecraft, else None.
+        back_loyalty/back_defense: Printed back-face starting counters,
+            independent of the front face's loyalty/defense.
         back_image_uri_small/normal/large/png: Scryfall image URLs for the
             back face. Only populated for layouts that print two separate
             face images (transform, modal_dfc, double_faced_token); a
@@ -143,6 +145,8 @@ class Card:
         back_mana_cost_string: str = "",
         back_power: Optional[int] = None,
         back_toughness: Optional[int] = None,
+        back_loyalty: Optional[int] = None,
+        back_defense: Optional[int] = None,
         back_image_uri_small: str = "",
         back_image_uri_normal: str = "",
         back_image_uri_large: str = "",
@@ -231,6 +235,8 @@ class Card:
         self.back_mana_cost_string = back_mana_cost_string
         self.back_power = back_power
         self.back_toughness = back_toughness
+        self.back_loyalty = back_loyalty
+        self.back_defense = back_defense
         self.back_image_uri_small = back_image_uri_small
         self.back_image_uri_normal = back_image_uri_normal
         self.back_image_uri_large = back_image_uri_large
@@ -382,7 +388,14 @@ class Card:
             is_land="land" in btl.lower(),
             power=self.back_power if back_is_creature else None,
             toughness=self.back_toughness if back_is_creature else None,
+            vehicle_power=self.back_power if not back_is_creature and any(
+                kind in btl.lower() for kind in ('vehicle', 'spacecraft')) else None,
+            vehicle_toughness=self.back_toughness if not back_is_creature and any(
+                kind in btl.lower() for kind in ('vehicle', 'spacecraft')) else None,
+            loyalty=self.back_loyalty,
+            defense=self.back_defense,
             oracle_text=self.back_oracle_text,
+            keywords=list(self.back_keywords),
             is_legendary="legendary" in btl.lower(),
             layout=self.layout,
             image_uri_small=self.back_image_uri_small,
@@ -426,6 +439,12 @@ class Card:
             is_land="land" in btl.lower(),
             power=self.back_power if back_is_creature else None,
             toughness=self.back_toughness if back_is_creature else None,
+            vehicle_power=self.back_power if not back_is_creature and any(
+                kind in btl.lower() for kind in ('vehicle', 'spacecraft')) else None,
+            vehicle_toughness=self.back_toughness if not back_is_creature and any(
+                kind in btl.lower() for kind in ('vehicle', 'spacecraft')) else None,
+            loyalty=self.back_loyalty,
+            defense=self.back_defense,
             oracle_text=self.back_oracle_text,
             keywords=list(self.back_keywords),
             is_legendary="legendary" in btl.lower(),
@@ -661,6 +680,8 @@ class Card:
             back_mana_cost_string=self.back_mana_cost_string,
             back_power=self.back_power,
             back_toughness=self.back_toughness,
+            back_loyalty=self.back_loyalty,
+            back_defense=self.back_defense,
             back_image_uri_small=self.back_image_uri_small,
             back_image_uri_normal=self.back_image_uri_normal,
             back_image_uri_large=self.back_image_uri_large,
@@ -808,6 +829,8 @@ class Card:
             "back_mana_cost_string": self.back_mana_cost_string,
             "back_power": self.back_power,
             "back_toughness": self.back_toughness,
+            "back_loyalty": self.back_loyalty,
+            "back_defense": self.back_defense,
             "back_image_uri_small": self.back_image_uri_small,
             "back_image_uri_normal": self.back_image_uri_normal,
             "back_image_uri_large": self.back_image_uri_large,
@@ -856,6 +879,8 @@ class Card:
             back_mana_cost_string=data.get("back_mana_cost_string", ""),
             back_power=data.get("back_power"),
             back_toughness=data.get("back_toughness"),
+            back_loyalty=data.get("back_loyalty"),
+            back_defense=data.get("back_defense"),
             back_image_uri_small=data.get("back_image_uri_small", ""),
             back_image_uri_normal=data.get("back_image_uri_normal", ""),
             back_image_uri_large=data.get("back_image_uri_large", ""),

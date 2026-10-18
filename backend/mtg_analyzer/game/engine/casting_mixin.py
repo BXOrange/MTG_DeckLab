@@ -767,7 +767,7 @@ class CastingMixin:
             or obj in player.command
             or self._has_warp_permission(player, obj)
             or (obj in player.exile and self._castable_from_exile(obj))
-            or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
+            or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player, face=face))
             or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player))
             or self._can_cast_foretold(player, obj)
             or (obj in player.graveyard and blitz is None and self._castable_from_graveyard(obj))

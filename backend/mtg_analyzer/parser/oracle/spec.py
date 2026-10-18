@@ -199,6 +199,7 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "counter": str, "selector": (str, dict), "name": str, "keyword": str,
     "op": str, "step": str,  # ``during_step`` (Misleading Signpost)
     "min": int, "max": int, "amount": int, "min_power": int,
+    "zone": str, "incarnation": int,
     "colors": list, "types": list,
 }
 
@@ -1674,6 +1675,8 @@ class AbilitySpec:
             if isinstance(node_condition, dict) and node_condition:
                 AbilitySpec._validate_condition(node_condition)
         if _effect_type == "create_turn_trigger":
+            if params.get('grant_zone') is not None and params['grant_zone'] not in ('exile', 'graveyard', 'hand'):
+                raise SpecValidationError('invalid granted ability zone')
             # PAR-124: the trigger a spell creates for the turn — the same trigger dict
             # a triggered ability carries; its body clamps as nested effect specs below.
             trigger = params.get("trigger")

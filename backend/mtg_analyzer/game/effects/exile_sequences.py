@@ -83,11 +83,12 @@ class BlinkEffect(GameEffect):
                  transformed=False, face_down_kind=None, return_step=None,
                  return_scope='any', return_effects=None, tapped_if_types=None,
                  subject='targets', exile_effects=None, departing_copy=None,
-                 return_if_successful=False):
+                 return_if_successful=False, return_to_battlefield=True):
         super().__init__(source)
-        if subject not in {'targets', 'source', 'previous_targets'}:
+        if subject not in {'targets', 'source', 'previous_targets', 'event_visits'}:
             raise ValueError('Unknown blink subject')
         self.target, self.subject = target, subject
+        self.creature_filter = creature_filter
         self._trigger_subject_mode = target_kind == 'trigger_subject'
         self.trigger_event_key = trigger_event_key or 'instance_id'
         self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter,
@@ -105,6 +106,7 @@ class BlinkEffect(GameEffect):
         self.exile_effects = list(exile_effects or [])
         self.departing_copy = dict(departing_copy or {})
         self.return_if_successful = return_if_successful
+        self.return_to_battlefield = return_to_battlefield
         self.returned_objects = []
 
     @property
@@ -124,6 +126,16 @@ class BlinkEffect(GameEffect):
                 and (expected is None or self.source.zone_incarnation == expected)) else []
         elif self.subject == 'previous_targets':
             chosen = list(context.previous_targets)
+        elif self.subject == 'event_visits':
+            from ..combat import matches_object_filter
+            context.recompute()
+            chosen = []
+            for instance_id, incarnation in (context.trigger_event or {}).get(self.trigger_event_key, []):
+                obj = context.state.find_object(instance_id)
+                if (obj is not None and obj.zone_incarnation == incarnation
+                        and matches_object_filter(obj, self.creature_filter,
+                            reference=self.source, state=context.state)):
+                    chosen.append(obj)
         elif self._trigger_subject_mode:
             obj = context.state.find_object((context.trigger_event or {}).get(self.trigger_event_key))
             chosen = [obj] if obj is not None else []
@@ -145,6 +157,14 @@ class BlinkEffect(GameEffect):
         objects = [obj for iid, incarnation in visits
                    if (obj := context.state.find_object(iid)) is not None
                    and obj.zone == Zone.EXILE and obj.zone_incarnation == incarnation]
+        if not self.return_to_battlefield:
+            # RULE 400.7h: an exile-phase grant applies only to the cards
+            # actually moved by this instruction. Future return choices
+            # belong to that grant, not an unconditional blink return.
+            if objects:
+                _apply_effects_partitioned(intervening, context, objects, None,
+                                          source=self.source, previous_targets=objects)
+            return
         returned = ReturnSpecificToBattlefieldEffect(objects, source=self.source,
             under_your_control=self.under_your_control, **self.entry_options)
         if self.return_if_successful:

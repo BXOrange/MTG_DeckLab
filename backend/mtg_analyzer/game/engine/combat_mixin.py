@@ -807,6 +807,8 @@ class CombatMixin:
                     # RULE 400.7 / 603.7: retain the original saddle visits even
                     # if the Mount leaves before its attack ability resolves.
                     zone_incarnation=obj.zone_incarnation,
+                    crewed_by_visits=(list(obj.crewed_by_incarnations.items())
+                                      if obj.crewed_turn == self.state.internal_turn.number else []),
                     saddled_by_visits=(list(obj.saddled_by_incarnations.items())
                                        if obj.saddled_by[0] == self.state.internal_turn.number else []),
                     player_id=player.id,  # RULE 508.1a: the attacker's controller

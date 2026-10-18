@@ -227,9 +227,8 @@ class ExileEffect(GameEffect):
         expected = obj.zone_incarnation + 1
         context.exile(obj)
         if (source_visit is not None and obj.zone == Zone.EXILE
-                and obj.zone_incarnation == expected and not obj.is_token):
-            context.state.linked_exile_visits.setdefault(source_visit, []).append(
-                (obj.instance_id, obj.zone_incarnation))
+                and obj.zone_incarnation == expected):
+            context.state.track_exiled_with(self.source, obj, source_visit[1])
         if obj.zone == Zone.EXILE:
             for kind, n in self.exile_counters.items():
                 obj.add_counters(kind, n)
@@ -255,8 +254,6 @@ class ExileEffect(GameEffect):
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
             exiled_now = []
             for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
-                if self.track_exiled_with and self.source is not None:
-                    self.source.exiled_with_ids.append(obj.instance_id)
                 self._exile_object(context, obj)
                 exiled_now.append(obj)
             # RULE 608.2: "those cards"/"the exiled cards" in a following clause (a delayed return,
@@ -268,15 +265,6 @@ class ExileEffect(GameEffect):
             exiled_now = []
             for obj in _mass_selector_objects(context, self.selector, self.filter, source=self.source):
                 exiled_now.append(obj)
-                if self.track_exiled_with and self.source is not None:
-                    # "…exile all other permanents you control. When ~
-                    # leaves the battlefield, return the exiled cards…"
-                    # (MEC-43 round 4D, Worldgorger Dragon) — the mass
-                    # selector's own sibling of the targeted branch's
-                    # ``track_exiled_with`` handling just below, so an
-                    # untargeted board-wipe-shaped exile can still feed
-                    # `ReturnAllExiledWithEffect` later.
-                    self.source.exiled_with_ids.append(obj.instance_id)
                 self._exile_object(context, obj)
             context.previous_targets = exiled_now  # as in the group branch above
             self._remember_mass_exile(exiled_now)
@@ -314,10 +302,6 @@ class ExileEffect(GameEffect):
                     return  # RULE 400.7: "it" is only the captured graveyard incarnation.
             if target is not None:
                 self._exile_object(context, target)
-                if self.track_exiled_with and self.source is not None:
-                    # "…if three or more cards have been exiled with ~" (Colfenor's Urn) — the trigger-subject
-                    # sibling of the targeted branch's tracking below.
-                    self.source.exiled_with_ids.append(target.instance_id)
                 # RULE 608.2's "it"/"that card" referent — a following clause
                 # ("If you do, … create a token that's a copy of **that
                 # card**." — The Master, Gallifrey's End) names what this
@@ -352,8 +336,6 @@ class ExileEffect(GameEffect):
                 # ``remember`` until now).
                 if self.remember and self.source is not None:
                     self.source.linked_exile_id = target.instance_id
-                if self.track_exiled_with and self.source is not None:
-                    self.source.exiled_with_ids.append(target.instance_id)
             return
         # A `count_selector`-sized spec ("exile X target …" — Waterbender's
         # Restoration / Foggy Swamp Visions) took its real count at announce
@@ -371,14 +353,14 @@ class ExileEffect(GameEffect):
         for target in chosen:
             if self.remember and self.source is not None:
                 self.source.linked_exile_id = target.instance_id
-            if self.track_exiled_with and self.source is not None:
-                self.source.exiled_with_ids.append(target.instance_id)
             item = (
                 context.engine._stack_item_for(target)
                 if self.spell_or_permanent else None
             )
             if item is not None and item.obj is not None:
                 context.engine.move_spell_off_stack(item, "exile")
+                if self.track_exiled_with and self.source is not None:
+                    context.state.track_exiled_with(self.source, item.obj, context.resolving_source_incarnation)
             else:
                 self._exile_object(context, target)
             self._post_exile(context, target)
@@ -543,7 +525,7 @@ class ExileTopOfLibraryEffect(GameEffect):
                     # down if set beforehand.
                     top.face_down_in_exile = True
                 if self.track_exiled_with and self.source is not None:
-                    self.source.exiled_with_ids.append(top.instance_id)
+                    context.state.track_exiled_with(self.source, top, context.resolving_source_incarnation)
                 context.created_objects.append(top)
 
 
@@ -1391,9 +1373,13 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         count_max: Optional[int] = None,
         optional: bool = False,
         while_source: Optional[str] = None,
+        group: Optional[dict] = None,
+        group_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.group = dict(group) if group is not None else None
+        self.group_player = group_player
         #: PAR-150: RULE 611.2b "...for as long as you control ~" (``"controlled"``) / "...for as long as ~ remains
         #: on the battlefield" (``"on_battlefield"``) -- a no-duration control change that ends when the source
         #: stops qualifying (`RulesEngine._revert_source_bound_control`). Meaningful with ``duration="permanent"``.
@@ -1438,7 +1424,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         #: but the param is named/shaped like every other mass effect's for
         #: consistency.
         self.selector = selector
-        if self.selector is None and self.player_from_trigger_event is None:
+        if self.selector is None and self.group is None and self.player_from_trigger_event is None:
             #: "Gain control of target creature **with mana value 3 or
             #: less**" (Claim the Firstborn) — a target-offer-time cap, the
             #: same `TargetSpec.max_mana_value` `DestroyEffect`/`destroy_mv`
@@ -1509,6 +1495,12 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
         if controller is None:
+            return
+        if self.group is not None:
+            chosen = (targets or [None])[0]
+            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+                self._take(context, obj, controller)
+            context.recompute()
             return
         if self.selector is not None:
             for obj in _mass_selector_objects(context, self.selector, None, source=self.source):
@@ -2081,9 +2073,10 @@ class ReturnAllExiledWithEffect(GameEffect):
     """"When this leaves the battlefield, each player returns to the
     battlefield all cards they own exiled with it." (MEC-12, Parallax
     Wave/Abdel Adrian, Gorion's Ward-shaped) — the mass sibling of
-    `ReturnLinkedExileEffect`: reads `GameObject.exiled_with_ids` (MEC-21's
-    accumulating tracker, stamped by `ExileEffect(track_exiled_with=True)`)
-    instead of the single-slot `linked_exile_id`, since a repeatable
+    `ReturnLinkedExileEffect`: consumes `GameState.linked_exile_visits`,
+    keyed by the source visit. Every producer records successful exile visits
+    through `GameState.track_exiled_with`; IDs alone never authorize a return.
+    Unlike the single-slot `linked_exile_id`, a repeatable
     "remove a counter: exile target creature"-shaped ability can link
     arbitrarily many cards over the source's lifetime, potentially owned
     by several different players. Each returns under **its own owner's**
@@ -2099,10 +2092,14 @@ class ReturnAllExiledWithEffect(GameEffect):
         self, counter_if_creature: Optional[dict[str, Any]] = None, source: Optional["GameObject"] = None,
         tapped: bool = False,
         sacrifice_source: bool = False,
+        under_your_control: bool = False,
+        card_types: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.counter_if_creature = dict(counter_if_creature or {}) or None
         self.sacrifice_source = bool(sacrifice_source)
+        self.under_your_control = bool(under_your_control)
+        self.card_types = list(card_types or [])
         self.captured_visits = None
         #: "…return all cards exiled with this Vehicle except this card to the battlefield **tapped** under their owners'
         #: control." (Mechtitan Core)
@@ -2124,6 +2121,7 @@ class ReturnAllExiledWithEffect(GameEffect):
         if self.source is None:
             return
         from .battlefield_batches import start_exile_return_batch
+        controller_id = _controller_of(self.source, context).id if self.under_your_control else None
         incarnation = context.resolving_source_incarnation
         if incarnation is None:
             incarnation = self.source.zone_incarnation
@@ -2137,26 +2135,29 @@ class ReturnAllExiledWithEffect(GameEffect):
                     self.source.cant_be_sacrificed_this_turn):
                 return
         key = (self.source.instance_id, incarnation)
-        ids = list(getattr(self.source, "exiled_with_ids", None) or [])
         visits = self.captured_visits
         if visits is None:
-            visits = context.state.linked_exile_visits.get(key)
-        if visits is None and any(k[0] == self.source.instance_id for k in context.state.linked_exile_visits):
-            visits = []
-        if visits is None:
-            visits = [(obj.instance_id, obj.zone_incarnation) for instance_id in ids
-                      if (obj := context.state.find_object(instance_id)) is not None
-                      and obj.zone == Zone.EXILE]
+            visits = context.state.linked_exile_visits.get(key, [])
+        if self.card_types:
+            from ...models.cards import card_query
+            visits = [visit for visit in visits
+                if (obj := context.state.find_object(visit[0])) is not None
+                and card_query.matches(obj.card, {'all_types': self.card_types})]
         if self.captured_visits is None:
-            context.state.linked_exile_visits[key] = []
-        if self.captured_visits is None and (self.source.zone != Zone.BATTLEFIELD or self.source.zone_incarnation == incarnation):
-            self.source.exiled_with_ids = []
+            consumed = set(visits)
+            context.state.linked_exile_visits[key] = [visit for visit in
+                context.state.linked_exile_visits.get(key, []) if visit not in consumed]
+            if self.source.zone != Zone.BATTLEFIELD or self.source.zone_incarnation == incarnation:
+                consumed_ids = {instance_id for instance_id, _ in consumed}
+                self.source.exiled_with_ids = [instance_id for instance_id in self.source.exiled_with_ids
+                                               if self.card_types and instance_id not in consumed_ids]
         if self.sacrifice_source:
             context.put_into_graveyard(self.source)
         options = {'tapped': self.tapped}
         if self.counter_if_creature:
             options['typed_entry_counters'] = [dict(self.counter_if_creature, types=['creature'])]
-        start_exile_return_batch(context.engine, visits, entry_options=options, source=self.source)
+        start_exile_return_batch(context.engine, visits, controller_id,
+                                entry_options=options, source=self.source)
 
 
 class CreateTokenForLinkedExileEffect(GameEffect):
@@ -3301,9 +3302,13 @@ class TransferExiledWithToCreatedEffect(GameEffect):
         source = self.source
         if source is None:
             return
-        ids = list(getattr(source, "exiled_with_ids", None) or [])
+        incarnation = context.resolving_source_incarnation
+        if incarnation is None:
+            incarnation = source.zone_incarnation
+        visits = list(context.state.linked_exile_visits.get((source.instance_id, incarnation), []))
         for token in list(getattr(context, "created_objects", None) or []):
-            token.exiled_with_ids = list(ids)
+            context.state.linked_exile_visits[(token.instance_id, token.zone_incarnation)] = list(visits)
+            token.exiled_with_ids = [instance_id for instance_id, _ in visits]
 
 
 class ExileSelfWithCountersEffect(GameEffect):

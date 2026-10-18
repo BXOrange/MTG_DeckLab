@@ -4039,7 +4039,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "667"
+PARSER_VERSION = "672"
 
 
 def parser_source_hash() -> str:
@@ -5555,6 +5555,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     # That effect reads `GameObject.linked_exile_id`, which only an
     # ``ExileEffect(remember=True)`` populates — so, seeing both halves on
     # one card, stamp ``remember`` onto the companion ETB exile here.
+    _has_return_pool = any(
+        e.type == "return_all_exiled_with"
+        for spec in effect_specs for e in spec.effects
+    )
+    if _has_return_pool:
+        for spec in effect_specs:
+            for e in spec.effects:
+                if e.type in {"exile", "exile_top_of_library", "search"}:
+                    e.params["track_exiled_with"] = True
     _has_return_linked = any(
         e.type == "return_linked_exile"
         for spec in effect_specs

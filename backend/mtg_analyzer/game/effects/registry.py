@@ -27,7 +27,11 @@ EffectRegistry.register("gain_control_of_cast_targets", lambda p: GainControlOfC
 EffectRegistry.register("complete_turn_life_loss", lambda p: CompleteTurnLifeLossEffect(p.get('threshold', 0)))
 EffectRegistry.register('haunted_owner_damage', lambda p: HauntedCreatureEffect('damage_owner', p.get('amount', 0)))
 EffectRegistry.register('control_while_haunted', lambda p: HauntedCreatureEffect('control'))
-EffectRegistry.register("delay_return_dying_subject", lambda p: DelayReturnDyingSubjectEffect())
+EffectRegistry.register("delay_return_dying_subject", lambda p: DelayReturnDyingSubjectEffect(
+    step=p.get('step', 'end'), scope=p.get('scope', 'any'),
+    under_your_control=bool(p.get('under_your_control', False)),
+    tapped=bool(p.get('tapped', False)), extra_counters=p.get('extra_counters'),
+))
 EffectRegistry.register("recover_instead_of_losing", lambda p: RecoverInsteadOfLosingEffect())
 EffectRegistry.register("opponent_draw_step", lambda p: StaticAbility("opponent_draw_step", affects="controller"))
 EffectRegistry.register("sideboard_cast_permission", lambda p: StaticAbility("sideboard_cast_permission", affects="controller"))
@@ -1301,6 +1305,7 @@ EffectRegistry.register(
         player_from_trigger_event=p.get("player_from_trigger_event"),
         count=p.get("target_count", 1), count_max=p.get("target_count_max"),  # PAR-150: "up to 3 target creatures"
         optional=bool(p.get("optional", False)), while_source=p.get("while_source"),
+        group=p.get('group'), group_player=p.get('group_player'),
     ),
 )
 EffectRegistry.register(
@@ -1351,7 +1356,9 @@ EffectRegistry.register(
 EffectRegistry.register(
     "return_all_exiled_with",
     lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature"), tapped=bool(p.get("tapped", False)),
-                                      sacrifice_source=bool(p.get("sacrifice_source", False))),
+                                      sacrifice_source=bool(p.get("sacrifice_source", False)),
+                                      under_your_control=bool(p.get("under_your_control", False)),
+                                      card_types=p.get("card_types")),
 )
 EffectRegistry.register("transfer_exiled_with_to_created", lambda p: TransferExiledWithToCreatedEffect())  # Mechtitan Core
 EffectRegistry.register(  # "Exile ~ with three time counters on it." (Suspended Sentence)
@@ -1819,6 +1826,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         creature_filter=p.get("creature_filter"),
         bake_previous_objects=bool(p.get("bake_previous_objects", False)),
+        grant_zone=p.get("grant_zone"),
     ),
 )
 EffectRegistry.register(
@@ -2778,6 +2786,7 @@ EffectRegistry.register(
         return_step=p.get("return_step"), return_scope=p.get("return_scope", "any"),
         subject=p.get('subject', 'targets'), exile_effects=p.get('exile_effects'),
         departing_copy=p.get('departing_copy'), return_if_successful=bool(p.get('return_if_successful', False)),
+        return_to_battlefield=bool(p.get('return_to_battlefield', True)),
     ),
 )
 EffectRegistry.register(
@@ -3430,6 +3439,8 @@ EffectRegistry.register(
         library_of=p.get("library_of"),  # Grenzo, Havoc Raiser: "that player's library"
         rest_to_bottom=bool(p.get("rest_to_bottom", False)),  # Florian, Voldaren Scion
         only_spells=bool(p.get("only_spells", False)),
+        standing=bool(p.get("standing", False)),
+        card_filter=p.get("card_filter"),
     ),
 )
 EffectRegistry.register(

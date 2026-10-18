@@ -322,16 +322,21 @@ class TurnScopedTrigger:
     that is no longer the current turn. ``once`` is the "the next time" variant
     ("when you next cast an instant or sorcery spell this turn"): it fires once and is
     removed. ``install_turn=None`` retains an object-bound delayed trigger
-    across turns, as Earthbend requires. Deep-copies with `GameState.clone`.
+    across turns, as Earthbend requires. ``bound_zone`` additionally
+    supports recurring abilities granted during one off-battlefield visit;
+    the grant ends before a later visit can trigger it. Deep-copies with
+    `GameState.clone`.
     """
 
     def __init__(self, ability: Any, install_turn: Optional[int], once: bool = False,
-                 bound_object_id: Optional[int] = None, bound_incarnation: Optional[int] = None) -> None:
+                 bound_object_id: Optional[int] = None, bound_incarnation: Optional[int] = None,
+                 bound_zone: Optional[str] = None) -> None:
         self.ability = ability
         self.install_turn = install_turn
         self.once = once
         self.bound_object_id = bound_object_id
         self.bound_incarnation = bound_incarnation
+        self.bound_zone = bound_zone
 
     def __repr__(self) -> str:
         return f"TurnScopedTrigger(turn={self.install_turn}, once={self.once}, {self.ability.description!r})"
@@ -661,6 +666,10 @@ class GameState:
         #: just the caster's own) so the object is actually found. Pruned in
         #: lockstep with `temp_play_permissions` at cleanup.
         self.temp_play_permission_player: dict[int, str] = {}
+        # RULE 400.7 / 712: permission can restrict the face being played,
+        # and belongs to this zone visit rather than a future exile visit.
+        self.temp_play_permission_filters: dict[int, dict[str, Any]] = {}
+        self.temp_play_permission_visits: dict[int, int] = {}
 
         #: Which `temp_play_permissions` entries carry the *shorter*,
         #: flat "until end of turn" window (Ragavan, Nimble Pilferer/
@@ -1123,6 +1132,9 @@ class GameState:
         # RULE 607.2a: linked abilities belong to one source incarnation;
         # a card that leaves exile and returns is no longer in that pool.
         self.linked_exile_visits: dict[tuple[int, int], list[tuple[int, int]]] = {}
+        # RULE 608.2h: source counters survive as LKI for that departed
+        # visit, independently of the physical card's subsequent visits.
+        self.zone_visit_counters: dict[tuple[int, int], dict[str, int]] = {}
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
         self.copiable_stack_recipes: dict[int, StackItem] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []
@@ -1153,6 +1165,27 @@ class GameState:
             if player.id == player_id:
                 return player
         raise KeyError(f"no player with id {player_id!r}")
+
+    def track_exiled_with(self, source: GameObject, obj: GameObject,
+                          source_incarnation: Optional[int] = None) -> None:
+        """Link actual exile visits; an ID alone cannot survive a zone change.
+
+        RULE 400.7 / 607.2a: keep the source's original visit when its
+        ability resolves after paying an exile-self cost.
+        """
+        incarnation = source.zone_incarnation if source_incarnation is None else source_incarnation
+        visits = self.linked_exile_visits.setdefault((source.instance_id, incarnation), [])
+        if obj.zone != Zone.EXILE:
+            return
+        # Count a successfully exiled token for "for each permanent exiled
+        # this way", although it cannot return (RULE 111.8).
+        if obj.instance_id not in source.exiled_with_ids:
+            source.exiled_with_ids.append(obj.instance_id)
+        if obj.is_token:
+            return
+        visit = (obj.instance_id, obj.zone_incarnation)
+        if visit not in visits:
+            visits.append(visit)
 
     def find_object(self, instance_id: int) -> Optional[Any]:
         """Locate a game object by its instance id across every zone.
@@ -1623,6 +1656,8 @@ class GameState:
         if event.type == EventType.LEAVES_BATTLEFIELD:
             departed = self.find_object(event.get("instance_id"))
             if departed is not None:
+                self.zone_visit_counters[(departed.instance_id, departed.zone_incarnation)] = dict(
+                    event.get('counters', departed.counters))
                 host = self.find_object(departed.attached_to)
                 relationship = ((host.instance_id, host.zone_incarnation)
                                 if host is not None else None)

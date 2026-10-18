@@ -16,6 +16,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+from copy import copy
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -89,7 +90,7 @@ class LandsMixin:
                 obj.zone == Zone.EXILE
                 and obj.instance_id not in self.state.temp_play_spells_only
                 and (
-                    self._has_temp_play_permission(obj, player)
+                    self._has_temp_play_permission(obj, player, face=face)
                     or self._has_conditional_exile_permission(obj, player)
                 )
             )
@@ -218,7 +219,7 @@ class LandsMixin:
     def _mayhem_land_permission(self, obj: GameObject) -> bool:
         from ..mayhem import permits_land
         return permits_land(self.state, obj)
-    def _has_temp_play_permission(self, obj: GameObject, player: Player) -> bool:
+    def _has_temp_play_permission(self, obj: GameObject, player: Player, face: Optional[str] = None) -> bool:
         """RULE 601.3b analogue: a temporary "you may play this card"
         permission (Light Up the Stage-shaped impulsive draw,
         `RulesEngine.exile_with_play_permission`,
@@ -237,6 +238,19 @@ class LandsMixin:
         """
         if obj.instance_id not in self.state.temp_play_permissions:
             return False
+        visit = self.state.temp_play_permission_visits.get(obj.instance_id)
+        if visit is not None and obj.zone_incarnation != visit:
+            return False
+        filt = self.state.temp_play_permission_filters.get(obj.instance_id)
+        if filt and face is not None:
+            card = self._face_card(obj, face)
+            if card is None:
+                return False
+            selected = copy(obj)
+            selected.card = card
+            selected.reset_derived()
+            if not combat.matches_object_filter(selected, filt, state=self.state):
+                return False
         holder_id = self.state.temp_play_permission_player.get(obj.instance_id)
         return holder_id is None or holder_id == player.id
     def _has_conditional_exile_permission(self, obj: GameObject, player: Player) -> bool:

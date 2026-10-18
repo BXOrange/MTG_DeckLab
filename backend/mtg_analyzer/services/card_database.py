@@ -25,8 +25,23 @@ from typing import Iterable, Optional, Union
 from mtg_analyzer.config import CACHE_DIR, DB_PATH
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.schema_version import reconcile_schema
+from mtg_analyzer.services.raw_card_store import DEFAULT_RAW_STORE_PATH
 
 _log = logging.getLogger(__name__)
+
+# The last cache format before printed back loyalty/defense was retained.
+# Only this verified additive migration preserves rows; unknown drift still
+# invalidates the disposable cache as before.
+_BACK_CHARACTERISTICS_PREDECESSOR = "17737a498b7485491f6b7d5eef984a3dc04ffb513836797e2c25a2a8d0a0041d"
+_BACK_CHARACTERISTICS_PREDECESSORS = {
+    _BACK_CHARACTERISTICS_PREDECESSOR,
+    # Compatible loyalty/defense format before printed Vehicle P/T and
+    # per-face keyword recovery were added (PAR-157).
+    'bd0196a162c0c74e68d5da79e628a8413bb9afd7c5c2e4e037d5c883f9f1c3ac',
+    # Same stored fields before intrinsic keyword lines were separated
+    # from mentions inside granted-ability bodies.
+    '77000d5dd4b6c7be22da149bf02d75de3a60528717054f008b58817d07f63dac',
+}
 
 #: Face separator in a multi-faced card name — see lazy_card_loader.py.
 #: Tolerates single/double slash and spacing so cache lookups by a
@@ -69,7 +84,8 @@ SELECT flavor_name, name FROM cards WHERE flavor_name != '';
 #: Source files that define the *stored format* of a cached card row: the
 #: serialized model (`Card.to_dict`/`from_dict`) and this table's own
 #: storage. A change to either can make existing rows incompatible, so it
-#: invalidates the cache (see services/schema_version.py). Deliberately
+#: invalidates the cache unless a known compatible migration exists
+#: (see services/schema_version.py). Deliberately
 #: NOT including `scryfall_client.py`: how Scryfall data is *parsed* into a
 #: Card affects stored *values* (a freshness concern), not the blob format,
 #: and it changes often for unrelated reasons — hashing it would wipe the
@@ -99,6 +115,7 @@ class CardDatabase:
             self._connection.executescript(_SCHEMA)
             self._connection.commit()
         #: Whether opening this DB cleared the cache due to a schema change.
+        self.schema_migrated = False
         self.schema_reset = self._reconcile_schema()
 
     def _migrate_missing_columns(self) -> None:
@@ -123,14 +140,18 @@ class CardDatabase:
 
     def _reconcile_schema(self) -> bool:
         with self._lock:
-            return reconcile_schema(
+            changed = reconcile_schema(
                 self._connection, _SCHEMA_SOURCE_FILES, on_mismatch=self._clear_on_schema_change
             )
+            return changed and not self.schema_migrated
 
-    @staticmethod
     def _clear_on_schema_change(
-        conn: sqlite3.Connection, old: Optional[str], new: str
+        self, conn: sqlite3.Connection, old: Optional[str], new: str
     ) -> None:
+        if old in _BACK_CHARACTERISTICS_PREDECESSORS:
+            self._migrate_back_characteristics(conn)
+            self.schema_migrated = True
+            return
         # The card cache is disposable — always re-fetchable from Scryfall
         # (docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md) — so on any format drift,
         # drop cached rows and let them re-populate lazily in the current
@@ -138,6 +159,48 @@ class CardDatabase:
         conn.execute("DELETE FROM cards")
         if old is not None:
             _log.info("Card cache schema changed; cleared cached cards to re-fetch.")
+
+    @staticmethod
+    def _migrate_back_characteristics(conn: sqlite3.Connection) -> None:
+        """Add optional fields without replacing cached printings or aliases.
+
+        Missing printed values come only from the durable local raw store;
+        no network fetch and no guessed starting loyalty/defense.
+        """
+        raw = None
+        try:
+            if DEFAULT_RAW_STORE_PATH.is_file():
+                raw = sqlite3.connect(DEFAULT_RAW_STORE_PATH.resolve().as_uri() + '?mode=ro', uri=True)
+            updates = []
+            for instance_id, blob in conn.execute('SELECT id, data FROM cards').fetchall():
+                data = json.loads(blob)
+                values = {}
+                if raw is not None and data.get('back_name'):
+                    row = raw.execute('SELECT json FROM raw_cards WHERE name = ? COLLATE NOCASE',
+                                      (data['name'],)).fetchone()
+                    if row:
+                        from .scryfall_client import card_from_scryfall_data
+                        raw_data = json.loads(row[0])
+                        printed = card_from_scryfall_data(raw_data)
+                        if printed.back_name == data['back_name']:
+                            values = {'back_loyalty': printed.back_loyalty,
+                                      'back_defense': printed.back_defense}
+                            for field in ('back_power', 'back_toughness'):
+                                if data.get(field) is None:
+                                    data[field] = getattr(printed, field)
+                            reported = set(raw_data.get('keywords') or [])
+                            for field in ('keywords', 'back_keywords'):
+                                data[field] = list(dict.fromkeys([
+                                    *(kw for kw in data.get(field, []) if kw not in reported),
+                                    *getattr(printed, field)]))
+                for field in ('back_loyalty', 'back_defense'):
+                    if data.get(field) is None:
+                        data[field] = values.get(field)
+                updates.append((json.dumps(data), instance_id))
+            conn.executemany('UPDATE cards SET data = ? WHERE id = ?', updates)
+        finally:
+            if raw is not None:
+                raw.close()
 
     def close(self) -> None:
         self._connection.close()

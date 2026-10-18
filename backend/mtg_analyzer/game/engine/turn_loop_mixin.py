@@ -814,6 +814,8 @@ class TurnLoopMixin:
             # way — a new turn means no creature has crewed this permanent
             # yet.
             obj.crewed_by_ids = []
+            obj.crewed_by_incarnations = {}
+            obj.crewed_turn = None
         # PAR-28 / RULE 702.142a (Boast): "attacked this turn" resets for
         # every permanent, not just the active player's — attacks only ever
         # happen on the active player's turn (RULE 508), so by any untap step
@@ -1119,6 +1121,11 @@ class TurnLoopMixin:
         standing = self.state.temp_play_permission_standing
 
         def _permission_still_active(instance_id: int, granted_turn: int) -> bool:
+            visit = self.state.temp_play_permission_visits.get(instance_id)
+            if visit is not None:
+                obj = self.state.find_object(instance_id)
+                if obj is None or obj.zone_incarnation != visit:
+                    return False
             if instance_id in same_turn_only:
                 return False
             if instance_id in standing:
@@ -1135,6 +1142,12 @@ class TurnLoopMixin:
         self.state.temp_play_permission_standing &= set(self.state.temp_play_permissions)
         self.state.temp_play_adventure_only &= set(self.state.temp_play_permissions)
         self.state.temp_play_spells_only &= set(self.state.temp_play_permissions)
+        self.state.temp_play_permission_filters = {
+            iid: filt for iid, filt in self.state.temp_play_permission_filters.items()
+            if iid in self.state.temp_play_permissions}
+        self.state.temp_play_permission_visits = {
+            iid: visit for iid, visit in self.state.temp_play_permission_visits.items()
+            if iid in self.state.temp_play_permissions}
         self.state.temp_play_permission_source = {
             iid: name for iid, name in self.state.temp_play_permission_source.items()
             if iid in self.state.temp_play_permissions

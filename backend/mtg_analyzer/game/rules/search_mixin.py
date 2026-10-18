@@ -1569,6 +1569,7 @@ class SearchMixin:
                 then_specs=choice.get("then_specs"),
                 then_source_id=choice.get("then_source_id"),
                 track_exiled_with=choice.get("track_exiled_with", False),
+                track_source_incarnation=choice.get("track_source_incarnation"),
                 reveal=choice.get("reveal", False),
             ))
             return
@@ -1599,6 +1600,7 @@ class SearchMixin:
             chooser_id=chooser_id,
             track_exiled_with=choice.get("track_exiled_with", False),
             track_source_id=choice.get("then_source_id"),
+            track_source_incarnation=choice.get("track_source_incarnation"),
             untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
             reveal=choice.get("reveal", False),
         )
@@ -1658,9 +1660,16 @@ class SearchMixin:
         then_specs: Optional[list[dict]] = None,
         then_source_id: Optional[int] = None,
         track_exiled_with: bool = False,
+        track_source_incarnation: Optional[int] = None,
         reveal: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
+        if track_source_incarnation is None:
+            track_source_incarnation = self.context.resolving_source_incarnation
+            if track_source_incarnation is None and then_source_id is not None:
+                track_source = self.state.find_object(then_source_id)
+                if track_source is not None:
+                    track_source_incarnation = getattr(track_source, 'zone_incarnation', None)
         zones = list(zones) if zones else ["library"]
         remaining_budget = (
             None if total_mana_value_budget is None else total_mana_value_budget - spent_mana_value
@@ -1739,6 +1748,7 @@ class SearchMixin:
             # RULE 608.2 pending-choice suspension (the id list lives on the
             # permanent, not the resolution's `GameContext`).
             "track_exiled_with": bool(track_exiled_with),
+            "track_source_incarnation": track_source_incarnation,
         }
     def _finish_search(
         self,
@@ -1756,6 +1766,7 @@ class SearchMixin:
         chooser_id: Optional[str] = None,
         track_exiled_with: bool = False,
         track_source_id: Optional[int] = None,
+        track_source_incarnation: Optional[int] = None,
         untap_if_lands_at_least: Optional[int] = None,
         reveal: bool = False,
     ) -> None:
@@ -1911,7 +1922,7 @@ class SearchMixin:
             if track_source is not None:
                 for obj, dest in zip(chosen, effective_destinations):
                     if dest == "exile":
-                        track_source.exiled_with_ids.append(obj.instance_id)
+                        self.state.track_exiled_with(track_source, obj, track_source_incarnation)
 
         if exile_rest:
             # MEC-37 (Doomsday): when ``destination`` is itself one of the
@@ -2256,7 +2267,14 @@ class SearchMixin:
         why "until the end of **your** next turn" can't be a flat turn-
         number comparison the way "until end of turn" can).
         """
+        previous_visit = self.state.temp_play_permission_visits.get(obj.instance_id)
+        if previous_visit is not None and previous_visit != obj.zone_incarnation:
+            self.state.temp_play_permission_standing.discard(obj.instance_id)
+            self.state.temp_play_permission_same_turn_only.discard(obj.instance_id)
+            self.state.temp_play_spells_only.discard(obj.instance_id)
         self.state.temp_play_permissions[obj.instance_id] = self.state.internal_turn.number
+        self.state.temp_play_permission_visits[obj.instance_id] = obj.zone_incarnation
+        self.state.temp_play_permission_filters.pop(obj.instance_id, None)
         if same_turn_only:
             self.state.temp_play_permission_same_turn_only.add(obj.instance_id)
         self.state.temp_play_permission_player[obj.instance_id] = permission_player.id

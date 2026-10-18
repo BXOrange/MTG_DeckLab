@@ -143,6 +143,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "This spell costs {X} less to cast **this way**" (the Visions flashback cycle): the card is being cast from its
         # owner's graveyard, which for these cards is only ever its flashback.
         "source_in_graveyard",
+        "zone_visit",
         # -- The board.
         "control_count",  # + ``selector``/``min``/``max`` — Metalcraft-shaped
         # "as long as you control a permanent of each color" (Spirit of
@@ -650,6 +651,12 @@ def condition_holds(
     # Which object the subject-scoped rows below read: the source itself by
     # default, or an attached host / a floating static's affected permanent.
     subject = _subject(condition, state, source, affected)
+
+    if kind == "zone_visit":
+        # RULE 400.7: returning to the same zone is a different object.
+        return (subject is not None and getattr(subject, 'zone', None) == condition.get('zone')
+                and ('incarnation' not in condition
+                     or subject.zone_incarnation == condition['incarnation']))
 
     if kind == "action_unused_this_turn":
         performed = getattr(source, "action_turns", None) or {}

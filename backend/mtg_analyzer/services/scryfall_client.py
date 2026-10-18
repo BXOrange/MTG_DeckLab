@@ -197,16 +197,17 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     back = faces[1] if layout in _SECOND_FACE_LAYOUTS and len(faces) >= 2 else {}
     keywords = list(data.get("keywords") or [])
     back_keywords: list[str] = []
-    if layout == "flip" and back:
-        # RULE 710: one combined Scryfall array covers both halves, which are never in play together — split it
-        # by which half's rules text names the keyword, so the unflipped half doesn't have the flipped one's.
-        front_text = str(front.get("oracle_text", "")).lower()
-        back_text = str(back.get("oracle_text", "")).lower()
-        back_keywords = [k for k in keywords if k.lower() in back_text and k.lower() not in front_text]
-        keywords = [k for k in keywords if k not in back_keywords]
+    if layout in (_TWO_IMAGE_LAYOUTS | {'flip'}) and back:
+        # RULE 710 / 712: one Scryfall array covers both faces. A keyword
+        # printed on both belongs to both; a back-only keyword must not
+        # leak onto the front or disappear when the back is materialized.
+        front_keywords = _face_keywords(keywords, front.get('oracle_text', ''))
+        back_keywords = _face_keywords(keywords, back.get('oracle_text', ''))
+        keywords = [k for k in keywords if k in front_keywords or k not in back_keywords]
     back_image_uris = back.get("image_uris") or {}
     back_type_line = back.get("type_line", "")
     back_is_creature = "Creature" in back_type_line
+    back_has_printed_pt = back_is_creature or any(kind in back_type_line for kind in ('Vehicle', 'Spacecraft'))
 
     return Card(
         id=data["id"],
@@ -253,14 +254,36 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         back_type_line=back_type_line,
         back_oracle_text=back.get("oracle_text", ""),
         back_mana_cost_string=back.get("mana_cost", "") or "",
-        back_power=_parse_int(back.get("power")) if back_is_creature else None,
-        back_toughness=_parse_int(back.get("toughness")) if back_is_creature else None,
+        back_power=_parse_int(back.get("power")) if back_has_printed_pt else None,
+        back_toughness=_parse_int(back.get("toughness")) if back_has_printed_pt else None,
+        back_loyalty=_parse_int(back.get("loyalty")),
+        back_defense=_parse_int(back.get("defense")),
         back_image_uri_small=back_image_uris.get("small", ""),
         back_image_uri_normal=back_image_uris.get("normal", ""),
         back_image_uri_large=back_image_uris.get("large", ""),
         back_image_uri_png=back_image_uris.get("png", ""),
         back_keywords=back_keywords,
     )
+
+
+def _face_keywords(keywords: list[str], text: str) -> list[str]:
+    """Read intrinsic keyword lines, excluding keywords merely granted in a body."""
+    from mtg_analyzer.parser.oracle.catalogue.keywords import KeywordShape, keyword_slug, resolve_keyword
+
+    def matches(keyword, part):
+        definition = resolve_keyword(keyword_slug(keyword))
+        if definition is not None and definition.shape == KeywordShape.FLAG:
+            return part.strip(' .').casefold() == keyword.casefold()
+        return re.match(re.escape(keyword) + r'(?=\s|\d|[—–-]|$)', part, re.I) is not None
+
+    found = set()
+    for line in strip_reminder_text(text or '').splitlines():
+        for part in re.split(r'\s*[,;]\s*', line.strip()):
+            current = [kw for kw in keywords if matches(kw, part)]
+            if not current:
+                break  # a sentence granting flying/vigilance is not a keyword list
+            found.update(current)
+    return [kw for kw in keywords if kw in found]
 
 
 def _parse_int(value: Any) -> Optional[int]:

@@ -1115,6 +1115,18 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
                     return  # RULE 400.7: return only the card this event moved.
         if obj is None:
             return
+        if obj.zone == Zone.EXILE and not self.lose_all_abilities and not self.turn_face_up:
+            # RULE 614.12: a source return has the same entry-choice and
+            # replacement phases as every other exact-visit exile return.
+            from .choices_actions import ReturnSpecificToBattlefieldEffect
+            counters = dict(self.extra_counters or {})
+            if 'kind' in counters:
+                counters = {str(counters['kind']): counters.get('count', 1)}
+            ReturnSpecificToBattlefieldEffect([obj], source=self.source,
+                tapped=self.tapped, under_your_control=self.under_your_control,
+                entry_counters=counters, face_down_kind=self.face_down_kind).apply(context)
+            context.previous_targets = [obj]
+            return
         if self.face_down_kind is not None:
             # RULE 400.7 / 708.3: Yarus returns the particular permanent card
             # that died, entering without its face-up abilities.
@@ -1131,13 +1143,10 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
             obj, "battlefield_tapped" if self.tapped else "battlefield",
             controller_id=controller_id,
             face_down_kind=self.face_down_kind,
+            entry_counters=self.extra_counters,
         )
         if self.turn_face_up and obj.zone == Zone.BATTLEFIELD:
             context.engine.turn_face_up(obj)
-        if self.extra_counters:
-            kind = str(self.extra_counters.get("kind", "+1/+1"))
-            count = int(self.extra_counters.get("count", 1) or 1)
-            context.add_counters(obj, count, kind, source=self.source)
         if self.lose_all_abilities:
             # RULE 400.7: the returned object is new. Attach a persistent
             # layer-6 effect to *that* object after its zone change.

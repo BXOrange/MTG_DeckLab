@@ -509,7 +509,7 @@ def _offer_graveyard_spell_exiles(rules, frame):
                 continue
             rules.exile(obj)
             if can_link and obj.zone == Zone.EXILE:
-                source.exiled_with_ids.append(obj.instance_id)
+                rules.state.track_exiled_with(source, obj, frame.get("source_incarnation"))
 
 
 @continuations.choice("choose_graveyard_spell_exile", answer=continuations.ANSWER_INT, rule="608.2d")

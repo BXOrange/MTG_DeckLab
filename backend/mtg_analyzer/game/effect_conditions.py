@@ -528,6 +528,16 @@ def _context_holds(
     return None  # pragma: no cover - CONTEXT_CONDITION_KINDS is total above
 
 
+def source_counters(context: "GameContext", source: Any) -> dict[str, int]:
+    """RULE 608.2h: use live counters, or the resolving source visit's LKI."""
+    if source is None:
+        return {}
+    incarnation = getattr(context, 'resolving_source_incarnation', None)
+    if incarnation is not None and incarnation != getattr(source, 'zone_incarnation', None):
+        return getattr(context.state, 'zone_visit_counters', {}).get((source.instance_id, incarnation), {})
+    return getattr(source, 'counters', None) or {}
+
+
 def _evaluate(
     condition: Optional[dict[str, Any]],
     context: "GameContext",
@@ -579,6 +589,11 @@ def _evaluate(
 
     controller_id = _controller_id(source, context)
     of = condition.get("of") or "source"
+    if kind == 'source_counters' and of == 'source' and source is not None:
+        from copy import copy
+        snapshot = copy(source)
+        snapshot.counters = source_counters(context, source)
+        return static_conditions.condition_holds(condition, context.state, snapshot, controller_id)
     if of not in EFFECT_SUBJECTS:
         # ``source``/``attached``/``affected`` (or an unrecognized name):
         # `static_conditions` resolves those itself, exactly as it does for a

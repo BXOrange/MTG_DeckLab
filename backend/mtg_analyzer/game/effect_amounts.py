@@ -287,6 +287,12 @@ def _base(
             )
             controller_id = getattr(counted_for, "id", None) or controller_id
         reference = source
+        incarnation = getattr(context, 'resolving_source_incarnation', None)
+        if (reference is not None and incarnation is not None
+                and incarnation != getattr(source, 'zone_incarnation', None)):
+            from copy import copy
+            reference = copy(source)
+            reference.counters = effect_conditions.source_counters(context, source)
         if amount.get("reference"):
             # PAR-123: "for each creature blocking **it**" / "for each **other** attacking creature that
             # shares a creature type with **it**" — the counted-against object is the one a pronoun
@@ -421,6 +427,8 @@ def _base(
         if not counter or subject is None:
             return 0
         counters = getattr(subject, "counters", None) or {}
+        if (amount.get('of') or 'source') == 'source':
+            counters = effect_conditions.source_counters(context, source)
         # RULE 603.10a: a leaves-the-battlefield / dies trigger about ``subject``
         # itself counts the counters it had *then* — the object is already in
         # another zone by the time the ability resolves, with its counters gone.
@@ -433,7 +441,10 @@ def _base(
         return int(counters.get(counter, 0) or 0)
 
     if kind == "counter_kinds":
-        return sum(1 for v in (getattr(subject, "counters", None) or {}).values() if v and v > 0)
+        counters = (effect_conditions.source_counters(context, source)
+                    if (amount.get('of') or 'source') == 'source'
+                    else getattr(subject, 'counters', None) or {})
+        return sum(1 for v in counters.values() if v and v > 0)
 
     if kind == "counters_among_creatures":
         player_id = getattr(subject, "id", None)

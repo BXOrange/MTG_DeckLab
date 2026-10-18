@@ -53,9 +53,10 @@ def _flag_keyword(word: str) -> Optional[str]:
 
 
 _TYPE_RE = re.compile(
-    rf"{_SUBJECT} (?P<neg>isn'?t|wasn'?t|is not|was not|is|was) an? (?P<word>[a-z]+)"
-    r"(?: or (?P<word2>[a-z]+))?(?: card)?"
+    rf"{_SUBJECT} (?P<neg>isn'?t|wasn'?t|is not|was not|is|was) an? "
+    r"(?P<words>[a-z]+(?:, [a-z]+)*(?:,? or [a-z]+)?)(?: card)?"
 )
+TYPE_CONDITION_PATTERN = _TYPE_RE.pattern
 _KEYWORD_RE = re.compile(rf"{_SUBJECT} (?P<neg>doesn'?t have|didn'?t have|has|had) (?P<kw>[a-z ]+)")
 _COUNTER_RE = re.compile(
     rf"{_SUBJECT} (?P<neg>doesn'?t have|didn'?t have|has|had) "
@@ -153,21 +154,16 @@ def parse_referent_condition(text: str) -> Optional[dict[str, Any]]:
 
     m = _TYPE_RE.fullmatch(phrase)
     if m is not None:
-        word = m.group("word")
-        if m.group("word2") is not None:
-            # "an instant or sorcery card": either type.
-            if word not in _CARD_TYPES or m.group("word2") not in _CARD_TYPES:
+        conditions = []
+        for word in re.split(r',? or |, ', m['words']):
+            if word in _CARD_TYPES:
+                conditions.append({'kind': 'is_card_type', 'card_type': word})
+            elif word in SUBTYPES:
+                conditions.append({'kind': 'is_subtype', 'subtype': word})
+            else:
                 return None
-            either = {"kind": "any", "conditions": [
-                {"kind": "is_card_type", "card_type": word},
-                {"kind": "is_card_type", "card_type": m.group("word2")},
-            ]}
-            return _negated(either, m.group("neg"))
-        if word in _CARD_TYPES:
-            return _negated({"kind": "is_card_type", "card_type": word}, m.group("neg"))
-        if word in SUBTYPES:
-            return _negated({"kind": "is_subtype", "subtype": word}, m.group("neg"))
-        return None
+        condition = conditions[0] if len(conditions) == 1 else {'kind': 'any', 'conditions': conditions}
+        return _negated(condition, m['neg'])
 
     m = _KEYWORD_RE.fullmatch(phrase)
     if m is not None:

@@ -145,8 +145,8 @@ def become_copy(
     obj.parametric_keywords = {}
     bind_from_catalogue(obj)
 
-    if obj.card.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
-        obj.counters["loyalty"] = obj.card.loyalty
+    # RULE 306.5b / 707.2: copying characteristics adds no counters.
+    # As-entry copies receive starting loyalty through the entry pipeline.
 
 
 def expire_copies(state, window: str) -> bool:

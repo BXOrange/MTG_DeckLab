@@ -1,5 +1,7 @@
 """Real gameplay for the Shorikai Vehicles catalogue entries."""
 
+import pytest
+
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import combat, continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -488,7 +490,8 @@ def test_dermotaxi_imprints_a_graveyard_creature_and_copies_it_until_end_of_turn
     assert taxi.is_creature and (taxi.power, taxi.toughness) == (5, 5) and "vehicle" in taxi.card.type_line.lower()
 
 
-def test_mechtitan_core_exiles_five_makes_a_10_10_and_returns_the_others_tapped_when_it_leaves():
+@pytest.mark.parametrize('changed_visit', [None, 'exiled_card', 'source', 'source_before_resolution', 'clone'])
+def test_mechtitan_core_exiles_five_makes_a_10_10_and_returns_the_others_tapped_when_it_leaves(changed_visit):
     engine = _game()
     p1 = engine.state.player_by_id("p1")
     core = _vehicle(engine, "Mechtitan Core")
@@ -499,6 +502,9 @@ def test_mechtitan_core_exiles_five_makes_a_10_10_and_returns_the_others_tapped_
     index = next(i for i, a in enumerate(core.activated_abilities) if getattr(a.cost, "exile_others", None))
     engine.state.current_step = "main1"
     engine.activate_ability(p1, core, index, tap_choices=[o.instance_id for o in others] + [copter.instance_id])
+    if changed_visit == 'source_before_resolution':
+        engine.rules.return_from_graveyard(core, 'battlefield')
+        engine.rules.exile(core)
     engine.resolve_until_stable()
     engine.recompute_continuous_effects()
     titan = next(o for o in engine.state.battlefield if o.name == "Mechtitan")
@@ -506,7 +512,68 @@ def test_mechtitan_core_exiles_five_makes_a_10_10_and_returns_the_others_tapped_
     assert core.zone == Zone.EXILE and all(o.zone == Zone.EXILE for o in others + [copter]) and spare.zone == Zone.BATTLEFIELD
     assert combat.has(titan, "flying") and combat.has(titan, "lifelink") and len(titan.colors) == 5
 
+    if changed_visit == 'exiled_card':
+        engine.rules.return_to_hand(others[0])
+        engine.rules.exile(others[0])
+    elif changed_visit == 'source':
+        engine.rules.return_from_graveyard(core, 'battlefield')
+        engine.rules.exile(core)
+    elif changed_visit == 'clone':
+        original = engine
+        engine = GameEngine(engine.state.clone())
+        titan = engine.state.find_object(titan.instance_id)
+        core = engine.state.find_object(core.instance_id)
+        others = [engine.state.find_object(o.instance_id) for o in others]
+        copter = engine.state.find_object(copter.instance_id)
+
     engine.rules.destroy(titan)
     engine.resolve_until_stable()
     assert core.zone == Zone.EXILE  # "except this card"
-    assert all(o.zone == Zone.BATTLEFIELD and o.tapped for o in others + [copter])
+    returning = others + [copter]
+    if changed_visit == 'exiled_card':
+        assert others[0].zone == Zone.EXILE
+        returning = returning[1:]
+    assert all(o.zone == Zone.BATTLEFIELD and o.tapped for o in returning)
+    if changed_visit == 'clone':
+        assert all(original.state.find_object(o.instance_id).zone == Zone.EXILE for o in returning)
+
+
+@pytest.mark.parametrize('change', [None, 'crew_before_attack', 'crew_before_resolution', 'source', 'clone'])
+def test_golden_argosy_returns_only_original_crew_visits_tapped(change):
+    from mtg_analyzer.parser.oracle.gate import parse_oracle
+    engine = _game()
+    argosy = _vehicle(engine, 'Golden Argosy')
+    assert parse_oracle(argosy.card).modeled
+    first = _filler(engine, 'First crew', power=2, toughness=2)
+    second = _filler(engine, 'Second crew', power=2, toughness=2)
+    _crew(engine, argosy, tap_choices=[first.instance_id, second.instance_id])
+    if change == 'crew_before_attack':
+        engine.rules.exile(first)
+        engine.rules.return_from_graveyard(first, 'battlefield')
+    engine.state.current_phase, engine.state.current_step = 'combat', 'declare_attackers'
+    player = engine.state.player_by_id('p1')
+    engine.declare_attackers(player, [{'attacker': argosy, 'defender': engine.legal_defenders_for(player)[0]}])
+    engine._fire_player_attacked_events()
+    queue = list(engine.rules.pending_triggers)
+    engine.rules.pending_triggers.clear()
+    engine.rules._place_triggers(queue)
+    if change == 'crew_before_resolution':
+        engine.rules.exile(first)
+        engine.rules.return_from_graveyard(first, 'battlefield')
+    elif change == 'source':
+        engine.rules.exile(argosy)
+        engine.rules.return_from_graveyard(argosy, 'battlefield')
+    elif change == 'clone':
+        original = engine
+        engine = GameEngine(engine.state.clone())
+        first, second = [engine.state.find_object(obj.instance_id) for obj in (first, second)]
+    engine.resolve_until_stable()
+    assert second.zone == Zone.EXILE
+    assert first.zone == (Zone.BATTLEFIELD if change in {'crew_before_attack', 'crew_before_resolution'} else Zone.EXILE)
+    engine._fire_delayed_triggers('end')
+    engine.resolve_until_stable()
+    assert second.zone == Zone.BATTLEFIELD and second.tapped
+    if change not in {'crew_before_attack', 'crew_before_resolution'}:
+        assert first.zone == Zone.BATTLEFIELD and first.tapped
+    if change == 'clone':
+        assert original.state.find_object(second.instance_id).zone == Zone.BATTLEFIELD

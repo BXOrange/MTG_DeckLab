@@ -1604,7 +1604,7 @@ _COST_LOOKS_REAL = re.compile(
 #: way — so this is checked before the generic activated case whose cost
 #: sniff (`_COST_LOOKS_REAL`) wouldn't accept a bare "+1" anyway.
 _LOYALTY_LINE_RE = re.compile(
-    r"^\s*\[?\s*([+\-−]?)\s*(\d+)\s*\]?\s*:\s*(?P<effect>.+)$", re.S
+    r"^\s*\[?\s*([+\-−]?)\s*(\d+|x)\s*\]?\s*:\s*(?P<effect>.+)$", re.S
 )
 
 #: A mana ability's effect ("add {g}", "add 1 mana of any color"): the engine
@@ -4613,6 +4613,9 @@ def _bind_x_specs(
         if not holders and isinstance(params.get("then_effects"), list):
             # An X inside the effects that follow a pick ("return a creature card … with X counters on it").
             params["then_effects"], nested = _replace_x(params["then_effects"])
+        if isinstance(params.get('extra_counters'), dict):
+            params['extra_counters'], counter_x = _replace_x(params['extra_counters'])
+            nested = nested or counter_x
         if several and not (holders or nested):
             # "put a +1/+1 counter on ~, then create X tokens, where X is the number of
             # counters on ~" (Anim Pakal) measures *after* the first effect; a bind
@@ -5299,10 +5302,14 @@ def parse_effect_body(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
-    from .catalogue.flicker_sequences import flicker_sequence_specs
-    flicker_sequence = flicker_sequence_specs(body)
+    from .catalogue.flicker_sequences import flicker_sequence_specs, linked_pool_return_specs, source_return_specs
+    flicker_sequence = flicker_sequence_specs(body) or linked_pool_return_specs(body) or source_return_specs(body)
     if flicker_sequence is not None:
         return flicker_sequence
+    from .catalogue.zone_ability_sequences import exile_grant_specs
+    exile_grant = exile_grant_specs(body)
+    if exile_grant is not None:
+        return exile_grant
     from .catalogue.physical_properties import physical_fight_specs
     physical_fight = physical_fight_specs(body)
     if physical_fight is not None:
@@ -8957,8 +8964,15 @@ def _segment_line_unsplit(
     # cost sniff wouldn't accept a bare "[+1]").
     loy = _LOYALTY_LINE_RE.match(raw)
     if loy is not None:
-        magnitude = int(loy.group(2))
-        delta = -magnitude if loy.group(1) in ("-", "−") else magnitude
+        if loy.group(2) == "x":
+            # RULE 107.3a / 606.6: the shared cost model already supports
+            # announced negative X; positive/unsigned X is not represented.
+            if loy.group(1) not in ("-", "−"):
+                return Segment(raw=raw)
+            delta = "-x"
+        else:
+            magnitude = int(loy.group(2))
+            delta = -magnitude if loy.group(1) in ("-", "−") else magnitude
         body, optional = _peel_optional(loy.group("effect").strip())
         effects = parse_effect_body(body)
         if effects is None:
@@ -9107,8 +9121,8 @@ def _segment_line_unsplit(
             effect_text = effect_text[:activation_tail.start()].strip()
         if re.search(r"\b(?:exile|sacrifice) ~(?:,|$)", raw.split(":", 1)[0].strip(), re.I):
             # RULE 608.2h: with ~ paid as the cost, "it had N counters on it"
-            # is ~'s last-known count — `source_counters` reads what the
-            # departed object still carries (Lost Isle Calling).
+            # is ~'s last-known count, captured for its departed visit
+            # rather than retained on the exiled card (Lost Isle Calling).
             effect_text = _COST_PAID_SOURCE_HAD_RE.sub(r"if ~ has \g<n> or more \g<kind> counters on it,",
                                                        effect_text)
         body, optional = _peel_optional(effect_text)
@@ -9536,6 +9550,17 @@ def _segment_line_unsplit(
                 event, condition, head_trigger = head.event, head.condition, head.trigger
                 composed_head = True
         body, optional = _peel_optional(trig.group("body"))
+        if event == "DIES":
+            from .catalogue.flicker_sequences import delayed_dying_return_specs
+            delayed_return = delayed_dying_return_specs(body)
+            if delayed_return is not None:
+                return Segment(raw=raw, spec=AbilitySpec(
+                    "triggered", effects=delayed_return,
+                    trigger={"event": event, "condition": condition,
+                             **({"limit": True} if limit else {}),
+                             **head_trigger},
+                    optional=optional, raw_text=raw, parser=provenance,
+                ), claimed=True)
         # A group DAMAGE head aimed at a creature introduces two object
         # referents: the dealer and the recipient.  The delayed-sacrifice
         # body's bare "it"/"that creature" means the recipient on cards such

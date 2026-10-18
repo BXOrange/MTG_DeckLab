@@ -10,6 +10,9 @@ the card's implementation and tests; shipped narrative in
   identifies one zone stay (RULE 400.7). Remembered/linked references (exile until
   departure, delayed graveyard returns, cast-cost IDs, event snapshots) compare
   incarnations, so leaving and re-entering a zone breaks the link.
+  `zone_visit_counters` preserves counter LKI for departed source visits;
+  resolving amounts and conditions use it only after that source visit ends.
+  Live source identity remains unchanged for selectors such as "other".
 - Aura/Equipment trigger predicates resolve their source by instance ID from the
   *current* state. Snapshot callbacks retain Python closures, so a captured
   `GameObject` can hold pre-rollback data after an action error or take-back
@@ -18,23 +21,45 @@ the card's implementation and tests; shipped narrative in
   state-owned source/exile links; a battlefield removal emits a separate
   notification whose batch returns linked cards at once, without a leaves
   trigger. Ordinary two-ability linked exile stays on the separate-trigger path.
+- Linked pools record successful exile visits through `GameState.track_exiled_with`,
+  including activation costs, library searches and multi-pick choices. Token
+  transfers copy these exact visits; returns never reconstruct them from IDs.
+  Ability sources retain their pre-cost incarnation. Crew and saddle attack
+  events freeze participant visits; later zone changes break membership.
 - Timed copies use ordered `copy_mechanics` snapshot layers. Cleanup and
   next-end-step expiration remove only the matching layers, preserving newer
   permanent copies and independent durations. Zone changes discard the layers;
   cloning retains them. End-step durations expire before beginning-of-step
   trigger checks, independently of delayed returns on the stack.
 - Exile/return sequences compose through `effects/exile_sequences.py`'s
-  `blink`: source/target selection, frozen departing-copy recipients,
+  `blink`: source/target/event-visit selection, frozen departing-copy recipients,
   `exile_effects`, return timing and entry options, then `return_effects`.
   `bind` captures pre-exile measurements; a bind in the return body measures
   the new permanent after its entry choices. `return_if_successful` gates
   that body on actual return. All suspension uses the existing resolution
   and entry frames; phase bodies must not introduce unannounced targets.
+  Control branches use `if_else` before exile. A referent body with
+  `referent="target", acting="controller"` freezes that subject’s controller
+  before any body instruction; continuation frames retain it through choices.
+  Conditional returned-type riders inspect the new face after entry choices.
+  Printed card-type filters and return control are independent linked-pool axes.
+  `return_to_battlefield=False` runs only the successful exile phase;
+  its body can install a `create_turn_trigger` with `grant_zone="exile"`.
+  The shared persistent watcher binds the owner and exact zone visit,
+  rechecking that visit at resolution. Optional branches and `bind` express
+  measured return choices; source returns use the same entry batch as blink.
+  Standing exile-play permissions retain the exile visit and filter the
+  selected card face, including MDFC land faces.
 - Saga completion checks chapter abilities waiting for stack placement as
   well as those already on the stack (RULE 704.5s / 714.4). An unrelated
   trigger or a chapter from an older source visit does not protect a Saga.
 
 ## Resolution
+
+- Untargeted control changes reuse structured battlefield groups, independent
+  duration, untap and haste parameters. Group selection uses the resolving
+  ability controller even after its source changes controller. Untargeted
+  land choices distinguish unrestricted pools from lands you control.
 
 - Loss replacements use `PLAYER_WOULD_LOSE`; `PLAYER_LOST` announces only an
   actual loss. State-owned APNAP loss batches defer game-over checks until all

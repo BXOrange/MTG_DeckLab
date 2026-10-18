@@ -1391,10 +1391,16 @@ class ActivationMixin:
             # tapped to pay this cost — recorded on `source` (RULE
             # 702.122c's "crewed by") regardless of whether the ability
             # later resolves, since the tap already happened.
+            turn = self.state.internal_turn.number
+            if source.crewed_turn != turn:
+                source.crewed_by_ids = []
+                source.crewed_by_incarnations = {}
+            source.crewed_turn = turn
             for obj in self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []:
                 self.rules.set_tapped(obj, True)
                 if obj.instance_id not in source.crewed_by_ids:
                     source.crewed_by_ids.append(obj.instance_id)
+                source.crewed_by_incarnations[obj.instance_id] = obj.zone_incarnation
         if cost.saddle_power:
             # RULE 702.171a (Guardian Sunmare, MEC-40) — same pool/tap
             # mechanics as ``crew_power`` just above. The tapped creatures are remembered for the turn:
@@ -1473,7 +1479,7 @@ class ActivationMixin:
                 self.rules.exile(obj)
                 source.last_cost_exiled_ids.append(obj.instance_id)
                 source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
-                source.exiled_with_ids.append(obj.instance_id)  # RULE 607.2a: "exiled with this Vehicle"
+                self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
         if cost.exile_self:
             # RULE 602.2b: exiled as the cost is paid; the ability still
             # resolves, reading ~'s last-known information (RULE 608.2h).
@@ -1843,6 +1849,7 @@ class ActivationMixin:
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
+        source_incarnation = getattr(source, 'zone_incarnation', None)
         hideaway_event = None
         if getattr(source, "hideaway_exile_ids", None):
             linked = [self.state.find_object(iid) for iid in source.hideaway_exile_ids]
@@ -1906,6 +1913,9 @@ class ActivationMixin:
             # the ability, independently of a later source zone change.
             trigger_event=hideaway_event,
         )
+        # RULE 602.2b / 400.7: costs may move the source before the
+        # stack item is built; its ability still belongs to the old visit.
+        item.source_zone_incarnation = source_incarnation
         self.state.stack.append(item)
         self.rules._note_crime(item)
         self.state.fire_event(

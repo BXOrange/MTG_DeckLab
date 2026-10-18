@@ -402,6 +402,8 @@ class ImpulsiveDrawEffect(GameEffect):
         library_of: Optional[str] = None,
         rest_to_bottom: bool = False,
         only_spells: bool = False,
+        standing: bool = False,
+        card_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         #: "Look at the top X cards of your library. Exile one of those cards and put the rest on the bottom of your library
@@ -409,6 +411,8 @@ class ImpulsiveDrawEffect(GameEffect):
         #: cards not picked go back to the bottom at random instead of staying exiled.
         self.rest_to_bottom = bool(rest_to_bottom)
         self.only_spells = only_spells
+        self.standing = standing
+        self.card_filter = dict(card_filter or {})
         #: ``"that_player"``: exile from the library of the player the firing trigger names ("Exile the top
         #: card of **that player's** library", Grenzo, Havoc Raiser — the damaged player of a
         #: `DAMAGE`/`CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event, `targeting.trigger_player_antecedent`).
@@ -432,22 +436,10 @@ class ImpulsiveDrawEffect(GameEffect):
         self.same_turn_only = same_turn_only
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        # "you" is this ability's/spell's own controller, not whoever
-        # happens to be on the play right now (Virtue of Courage: a source
-        # its controller controls can deal damage on *any* turn, and
-        # `context.active_player` is only ever correct by coincidence for
-        # a resolution that happens to land on the controller's own turn —
-        # off-turn it silently exiled from, and gave play permission to,
-        # the wrong player). `self.source.controller_id` mirrors the
-        # already-correct pattern `TargetOrDelayedDrawEffect` uses just
-        # above, falling back to `context.active_player` only when no
-        # source is bound at all (a bare fixture-built effect) — the same
-        # "read the source's live controller, not the turn" pattern
-        # `CastExiledFaceDownEffect.apply` already uses above.
+        # RULE 113.8: "you" is the resolving ability's controller, even
+        # off-turn or after its source changes controller.
         player = self.player
-        controller = (
-            context.state.player_by_id(self.source.controller_id) if self.source is not None else None
-        )
+        controller = _controller_of(self.source, context)
         if player is None and self.library_of == "that_player":
             from ..targeting import trigger_player_antecedent  # function-scoped: targeting↔effects cycle
 
@@ -474,6 +466,11 @@ class ImpulsiveDrawEffect(GameEffect):
             ))
         if self.only_spells:
             context.state.temp_play_spells_only.update(o.instance_id for o in exiled)
+        for obj in exiled:
+            if self.standing:
+                context.state.temp_play_permission_standing.add(obj.instance_id)
+            if self.card_filter:
+                context.state.temp_play_permission_filters[obj.instance_id] = dict(self.card_filter)
         if self.choose_one and exiled:
             context.engine._request_choose_objects(
                 permission_player, exiled,
@@ -2321,7 +2318,7 @@ class ExileCastSpellIntoImprintPoolEffect(GameEffect):
         # this permanent tracks (MEC-21), the same accounting the ETB
         # imprint already used, so a later cast sees every card ever
         # exiled this way, not just the newest one.
-        self.source.exiled_with_ids.append(spell.instance_id)
+        context.state.track_exiled_with(self.source, spell, context.resolving_source_incarnation)
         candidates = [
             obj for obj in (
                 context.state.find_object(iid)
@@ -2888,7 +2885,7 @@ class ExileTopPlayUntilNextExileEffect(GameEffect):
         exiled = context.engine.exile_with_play_permission(player, 1, self.source.name)
         for obj in exiled:
             state.temp_play_permission_standing.add(obj.instance_id)
-            self.source.exiled_with_ids.append(obj.instance_id)
+            state.track_exiled_with(self.source, obj, context.resolving_source_incarnation)
 
 
 class _FightHitEffect(GameEffect):

@@ -53,6 +53,7 @@ def test_lost_isle_calling_counts_the_verses_it_had_when_exiled(verses, extra_tu
     player.mana_pool.add("C", 4)
     _activate_last(engine, player, isle)
     assert isle.zone == Zone.EXILE
+    assert not isle.counters
     assert len(player.hand) == verses
     assert (state.extra_turns == ["p1"]) is extra_turn
 
@@ -67,3 +68,18 @@ def test_culling_dais_draws_for_the_charge_counters_it_was_sacrificed_with():
     _activate_last(engine, player, dais)
     assert dais.zone == Zone.GRAVEYARD
     assert len(player.hand) == 3
+
+
+def test_cost_paid_counter_lki_survives_a_new_source_visit_and_clone():
+    engine, state, player, isle = _board(LOST_ISLE, 'verse', 7)
+    player.mana_pool.add('U', 2)
+    player.mana_pool.add('C', 4)
+    engine.activate_ability(player, isle, len(isle.activated_abilities) - 1)
+    assert isle.zone == Zone.EXILE and not isle.counters
+    engine.rules.return_from_graveyard(isle, 'battlefield')
+    isle.counters['verse'] = 1
+    clone = GameEngine(state.clone())
+    clone.rules.resolve_top_of_stack()
+    assert len(clone.state.player_by_id('p1').hand) == 7
+    assert clone.state.extra_turns == ['p1']
+    assert not player.hand and isle.counters['verse'] == 1

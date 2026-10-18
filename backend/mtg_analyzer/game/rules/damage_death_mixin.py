@@ -810,6 +810,10 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
+        if _from_zone != 'exile':
+            # RULE 122.2: counters cease to exist on a zone change; this
+            # is not a counter-removal event. Departing LKI is captured above.
+            obj.counters = {}
         owner.add_to_zone(obj, Zone.EXILE)
         if warped:
             # RULE 702.185b: observers of EXILE see this designation already.

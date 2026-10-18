@@ -4146,6 +4146,10 @@ class MiscSystemsMixin:
         minimum_card_types: int = 0,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
+        source = self._object_by_instance_id(source_id)
+        source_incarnation = self.context.resolving_source_incarnation
+        if source_incarnation is None:
+            source_incarnation = getattr(source, 'zone_incarnation', None)
         options = [
             {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
             for obj in pool
@@ -4165,6 +4169,7 @@ class MiscSystemsMixin:
         return {
             "kind": "choose_objects",
             "effect_controller_id": self.context.acting_player_id or self.context.resolving_controller_id,
+            "source_incarnation": source_incarnation,
             "player_id": player.id,
             "action": action,
             "source_id": source_id,
@@ -4277,6 +4282,7 @@ class MiscSystemsMixin:
                 connive=bool(choice.get("connive")),
                 control_recipient_id=choice.get("control_recipient_id"),
                 hideaway_incarnation=choice.get("hideaway_incarnation"),
+                source_incarnation=choice.get("source_incarnation"),
             )
         remaining_pool = [
             obj
@@ -4359,6 +4365,7 @@ class MiscSystemsMixin:
             minimum_card_types=int(choice.get("minimum_card_types", 0)),
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
+        next_choice["source_incarnation"] = choice.get("source_incarnation")
         next_choice["commander_taken"] = commander_taken
         next_choice["picked_measure"] = picked_measure
         next_choice["picked_card_types"] = [sorted(types) for types in picked_card_types]
@@ -4409,6 +4416,7 @@ class MiscSystemsMixin:
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
         control_recipient_id: Optional[str] = None,
+        source_incarnation: Optional[int] = None,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "select_only":
@@ -4628,7 +4636,8 @@ class MiscSystemsMixin:
                 # MEC-12: Abdel Adrian's own "exile any number of…" —
                 # `remember`'s accumulating sibling, same field
                 # `ExileEffect(track_exiled_with=True)` uses.
-                source.exiled_with_ids.append(obj.instance_id)
+                self.state.track_exiled_with(source, obj, source_incarnation if source_incarnation is not None
+                                             else self.context.resolving_source_incarnation)
         elif action in (
             "library_to_battlefield", "library_to_battlefield_tapped", "library_to_battlefield_attacking",
             "library_to_battlefield_spell_attacking",

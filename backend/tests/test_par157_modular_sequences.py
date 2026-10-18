@@ -11,6 +11,23 @@ from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from test_mec106_gift import _engine, _bf, _creature
 
 
+@pytest.mark.parametrize('action,key', [('crewed', 'crewed_by_visits'), ('saddled', 'saddled_by_visits')])
+@pytest.mark.parametrize('timing', ['', ' at the beginning of your next upkeep'])
+def test_event_group_composes_with_entry_and_timing(action, key, timing):
+    specs = parse_effect_body(f'exile each creature that {action} it this turn. '
+        f"return them to the battlefield under their owner's control with a dream counter on them{timing}.")
+    assert len(specs) == 1 and specs[0].type == 'blink'
+    assert specs[0].params['subject'] == 'event_visits'
+    assert specs[0].params['trigger_event_key'] == key
+    assert specs[0].params['entry_counters'] == {'dream': 1}
+    assert specs[0].params.get('return_step') == ('upkeep' if timing else None)
+
+
+def test_unknown_event_group_is_not_claimed():
+    assert flicker_sequence_specs('exile each creature that helped it this turn. '
+        "return them to the battlefield under their owner's control.") is None
+
+
 @pytest.mark.parametrize('subject,reference', [('~', 'her'), ('target creature you control', 'that card')])
 @pytest.mark.parametrize('timing', ['', ' at the beginning of your next upkeep'])
 @pytest.mark.parametrize('counter', ['stun', 'dream', '+2/+2', 'first strike'])

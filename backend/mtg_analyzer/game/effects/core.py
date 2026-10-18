@@ -985,7 +985,8 @@ def _group_objects(
     be found (the effect then does nothing)."""
     from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
-    controller_id = getattr(source, "controller_id", None)
+    controller = _controller_of(source, context)
+    controller_id = controller.id if controller is not None else None
     if group_player is not None:
         player = _group_scope_player(group_player, context, source, chosen)
         if player is None:

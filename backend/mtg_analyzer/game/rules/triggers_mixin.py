@@ -826,6 +826,13 @@ class TriggerCollectionMixin:
         for entry in entries:
             if entry.install_turn is not None and entry.install_turn != turn:
                 continue
+            if entry.bound_zone is not None:
+                # RULE 113.6 / 400.7: a granted off-battlefield ability
+                # functions only during the visit that received the grant.
+                bound = self.state.find_object(entry.bound_object_id)
+                if (bound is None or bound.zone != entry.bound_zone
+                        or bound.zone_incarnation != entry.bound_incarnation):
+                    continue
             controller_id = entry.ability.controller_id
             if controller_id is not None and not any(
                 p.id == controller_id and not p.has_lost for p in self.state.players
