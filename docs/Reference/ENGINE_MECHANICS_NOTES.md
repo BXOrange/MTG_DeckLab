@@ -56,6 +56,15 @@ the card's implementation and tests; shipped narrative in
 
 ## Resolution
 
+- Source-granted quoted abilities use the same duration and exact-object
+  grant statics as other grants. Nested quoted statics retain dynamic
+  controller-relative groups. Granted mana choices accept arbitrary printed
+  pip alternatives; searches share the rules-backed subtype vocabulary
+  and intersect it with any additional card-type restriction. Printed
+  Changeling and unconditional all-creature-type CDAs apply to searched
+  cards, using the shared model vocabulary; conditional or granted text
+  does not become a printed CDA.
+
 - Aggregate target limits share power and mana-value axes across casting,
   activation, trigger choices, copied targets and board metadata. Any-number
   trigger groups use their legal pool, with no fixed target cap. Partial

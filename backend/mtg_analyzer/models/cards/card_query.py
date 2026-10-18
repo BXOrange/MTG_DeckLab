@@ -76,6 +76,9 @@ import re
 from typing import Any, Union
 
 from .card import Card
+from .creature_types import CREATURE_SUBTYPES
+
+_ALL_CREATURE_TYPES_TEXT = ' '.join(sorted(CREATURE_SUBTYPES))
 
 #: What a search can be parameterized by — a string shorthand or a dict.
 Criteria = Union[str, dict[str, Any], None]
@@ -114,7 +117,7 @@ def normalize(criteria: Criteria) -> dict[str, Any]:
 def matches(card: Card, criteria: Criteria) -> bool:
     """Whether ``card`` satisfies ``criteria`` (all conditions AND-combined)."""
     crit = normalize(criteria)
-    type_line = (card.type_line or "").lower()
+    type_line = _card_type_line(card)
 
     if not _type_matches(type_line, crit.get("type")):
         return False
@@ -213,6 +216,26 @@ def describe(criteria: Criteria) -> str:
     suffix = f" with {' and '.join(bounds)}" if bounds else ""
     article = "an" if label[:1].lower() in "aeiou" else "a"
     return f"{article} {label} card{suffix}"
+
+
+def _card_type_line(card: Card) -> str:
+    """RULE 702.73a/604.3a: printed subtype CDAs apply in a searched zone."""
+    type_line = (card.type_line or '').lower()
+    changeling = any(str(word).lower() == 'changeling' for word in (card.keywords or []))
+    oracle = (card.oracle_text or '').lower()
+    if not changeling and ('changeling' in oracle or 'every creature type' in oracle):
+        names = {str(card.name or '').split('//')[0].strip().lower()}
+        names.update(name.split(',')[0] for name in list(names))
+        names.update({'this creature', 'this card', 'this permanent'})
+        subject = '|'.join(re.escape(name) for name in sorted(names) if name)
+        for line in oracle.splitlines():
+            line = re.sub(r'\([^()]*\)', '', line).strip(' .')
+            if line == 'changeling' or re.fullmatch(rf'(?:{subject}) is every creature type', line):
+                changeling = True
+                break
+    if changeling:
+        type_line += ' ' + _ALL_CREATURE_TYPES_TEXT
+    return type_line
 
 
 def _has_type_word(type_line: str, word: Any) -> bool:

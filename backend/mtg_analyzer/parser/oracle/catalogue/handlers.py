@@ -6515,23 +6515,17 @@ _SEARCH_MV_QUALIFIER = (
 #: PAR-70: "a **rebel**/**mercenary** permanent card" (Mercadian Masques'
 #: recruiter cycle — Ramosian Sergeant/Captain/Commander/Sky Marshal,
 #: Cateran Persuader/Brute/Kidnappers/Enforcer/Slaver/Overlord, Amrou Scout/
-#: Blightspeaker/Defiant Falcon, Bog Glider, Rathi Fiend/Intimidator). Unlike
-#: `_SEARCH_TYPE_WORD` (card *types*, OR-combined in a comma list),
-#: "permanent" here isn't itself a type-line word — no real card's type line
-#: ever literally reads "Permanent" — it's the block's own way of saying
-#: "any card type", so the pair is really one compound qualifier: "a card of
-#: subtype `<word>`, no card-type restriction beyond being a permanent".
-#: Rebel/Mercenary are exclusively creature subtypes in paper Magic, so
-#: `crit["type"] = "<word>"` alone (a type-line substring match) already
-#: narrows correctly without a separate "permanent" key. Kept as a small
-#: fixed enum rather than a full creature-subtype vocabulary — this
-#: codebase has no such list (`_SEARCH_COLOR_WORD` is the same shape) — and
-#: extending it to a new subtype is a one-word change if another "<subtype>
-#: permanent card" tutor cycle turns up.
-_SEARCH_SUBTYPE_WORD = r"rebel|mercenary"
+#: Blightspeaker/Defiant Falcon, Bog Glider, Rathi Fiend/Intimidator).
+#: Search subtypes share the generated, rules-backed vocabulary with other
+#: card filters; both "a Dinosaur card" and "a Rebel permanent card" use it.
+from .subtype_vocabulary import SUBTYPES as _SEARCH_SUBTYPES
+_SEARCH_SUBTYPE_WORD = '|'.join(
+    re.escape(word) for word in sorted(_SEARCH_SUBTYPES, key=lambda word: (-len(word), word))
+    if word != 'aura'  # Keep the existing Aura/enchant-quality branch below.
+)
 #: The noun phrase after "search your library for": a determiner ("a"/"an"/
 #: "up to N"), an optional "basic" qualifier (sets `basic`), an optional
-#: "<subtype> permanent" qualifier (sets `subtype` — see
+#: "<subtype> [permanent]" qualifier (sets `subtype` — see
 #: `_SEARCH_SUBTYPE_WORD` above), then either a `_SEARCH_TYPE_LIST` (sets
 #: `types` — "land" is itself one of that list's words, so bare "basic land"
 #: still resolves to ``{"basic": True}`` with no separate case) or neither
@@ -6561,7 +6555,7 @@ _SEARCH_CRITERIA = (
     r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
     rf"(?:(?P<color>(?:{_SEARCH_COLOR_WORD})(?: or (?:{_SEARCH_COLOR_WORD}))*)\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
-    rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+permanent\s+)?"
+    rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+(?:(?P<subtype_permanent>permanent)\s+)?)?"
     rf"(?:(?P<aura>aura)\s+)?"
     r"(?P<permanent>permanent )?"
     rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
@@ -6731,6 +6725,10 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     subtype = m.groupdict().get("subtype")
     if subtype:
         crit["type"] = subtype.strip().lower()
+        if m.groupdict().get('subtype_permanent'):
+            from .characteristic_phrase import PERMANENT_CARD_TYPES
+            # The subtype and permanent-card restriction are independent.
+            crit['or'] = [{'type': list(PERMANENT_CARD_TYPES)}]
     if m.groupdict().get("aura"):
         crit["type"] = "Aura"
     types = m.groupdict().get("types")
@@ -6743,6 +6741,8 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
         # Plains, or Island card" — the Panorama/Landscape/Monument tri-land
         # cycles, `_SEARCH_CRITERIA`'s combined basic+type-list shape).
         if not (basic and words == ["land"]):
+            if subtype:
+                crit['all_types'] = [subtype.strip().lower()]
             crit["type"] = words if len(words) > 1 else words[0]
     color = _search_color_from_match(m)
     if color:
@@ -12411,6 +12411,22 @@ _GRANT_DURATIONS: dict[str, str] = {
     "until the end of combat": "end_of_combat",
     "until the beginning of the next end step": "next_end_step",
 }
+
+
+def _source_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import _quoted_ability_grant_effects_list
+
+    grants = _quoted_ability_grant_effects_list(m['inner'])
+    if not grants:
+        return None
+    duration = 'rest_of_game' if not m['dur'] else ('end_of_turn' if m['dur'] == 'until end of turn'
+        else _GRANT_DURATIONS.get(m['dur']))
+    if duration is None:
+        return None
+    return [EffectSpec('grant_until', {
+        'self_subject': True, 'target_kind': None, 'duration': duration,
+        'static': {'type': grant.type, 'params': {**grant.params, 'affects': 'self'}},
+    }) for grant in grants]
 
 
 def _grant_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -20773,6 +20789,11 @@ HANDLERS: list[EffectHandler] = [
     # The same grant with any *other* duration (RULE 611) — "…until your next
     # turn", "…until end of combat". Ordered after the end-of-turn row above,
     # which it can't collide with (that duration isn't in `_GRANT_DURATIONS`).
+    EffectHandler('source_quoted_ability', _c(
+        r"(?:~|this saga) gains? (?P<quote>[\"'])(?P<inner>.+)(?P=quote)"
+        r"(?: (?P<dur>until end of turn|until your next turn|until the end of your next turn|"
+        r"until end of combat|until the end of combat|until the beginning of the next end step))?"
+    ), _source_quoted_ability),
     EffectHandler(
         "grant_until",
         _c(

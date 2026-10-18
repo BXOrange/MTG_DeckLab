@@ -64,6 +64,7 @@ Full task → file table: [CODE_MAP.md](docs/Reference/CODE_MAP.md). Subsystem n
 | Task | Start in |
 | --- | --- |
 | Combat / keywords | `game/combat.py` |
+| Printed card predicates and subtype vocabulary | `models/cards/card_query.py`, `models/cards/creature_types.py` |
 | Layers, P/T, anthems | `game/continuous.py` |
 | State predicates ("as long as…", intervening-if) | `game/static_conditions.py`, `game/effect_conditions.py` |
 | Effects, triggers, composition | `game/effects/` (`registry.py`, `composition.py`), `game/binding/core.py` |

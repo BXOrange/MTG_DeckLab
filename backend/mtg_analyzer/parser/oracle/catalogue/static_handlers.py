@@ -253,7 +253,7 @@ _GROUP_COUNTER_GRANT_RE = re.compile(
 _QUOTED_GRANT_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
-    r'have "(?P<inner>.+)"',
+    r'''have (?P<quote>["'])(?P<inner>.+)(?P=quote)''',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -2284,9 +2284,10 @@ _ALL_COLORS = ("W", "U", "B", "R", "G")
 #: (`game/effects/core.py`, layer 6/RULE 613.7f) is the existing engine primitive
 #: — only this front end was missing.
 #:
+_GRANTED_MANA_PIPS = r"(?:\{[wubrgc]\})+"
 _GRANTED_MANA_ABILITY_RE = re.compile(
     r"(?P<cost>\{t\}|sacrifice (?:this permanent|~)):\s*add\s+(?:"
-    r"(?P<syms>(?:\{[wubrgc]\})+)"
+    rf"(?P<syms>{_GRANTED_MANA_PIPS}(?:(?:,\s*{_GRANTED_MANA_PIPS})*,?\s+or\s+{_GRANTED_MANA_PIPS})?)"
     r"|(?P<n>\d+) mana of any (?:1 )?colou?r"
     r")\.?"
     # PAR-109 (Nexos, Resonating Lute): "Spend this mana only on costs that contain {X}" / "…only to cast instant
@@ -2320,10 +2321,13 @@ def _granted_mana_options(inner: str) -> Optional[tuple[list[dict[str, int]], st
     restriction = _GRANTED_MANA_RESTRICTIONS[m.group("restr").lower()] if m.group("restr") else None
     syms = m.group("syms")
     if syms:
-        option: dict[str, int] = {}
-        for sym in re.findall(r"\{([wubrgc])\}", syms, re.IGNORECASE):
-            option[sym.upper()] = option.get(sym.upper(), 0) + 1
-        return [option], m.group("cost"), restriction
+        options = []
+        for run in re.split(r",?\s+or\s+|,\s*", syms):
+            option: dict[str, int] = {}
+            for sym in re.findall(r"\{([wubrgc])\}", run, re.IGNORECASE):
+                option[sym.upper()] = option.get(sym.upper(), 0) + 1
+            options.append(option)
+        return options, m.group("cost"), restriction
     amount = int(m.group("n"))
     if amount < 1:
         return None
@@ -2357,6 +2361,13 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     # to the outer English list, not the granted ability, and would otherwise
     # make the recursive effect-body parse fail closed.
     inner = normalize(inner).rstrip(" ,.;")
+    nested = _QUOTED_GRANT_RE.fullmatch(inner)
+    if nested is not None and nested['quote'] == "'":
+        # A quotation inside a quoted grant uses single delimiters. Feed
+        # the ordinary segmenter its normal double-quoted form, preserving
+        # apostrophes within the granted ability itself.
+        start, end = nested.span('inner')
+        inner = inner[:start - 1] + '"' + inner[start:end] + '"' + inner[end + 1:]
     # RULE 114.2: a quotation nested inside a granted ability uses single
     # quotation marks; preserve apostrophes within that emblem's ability.
     inner = re.sub(r"(emblem with )'(.+)'$", r'\1"\2"', inner)

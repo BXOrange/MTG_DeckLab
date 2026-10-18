@@ -8,10 +8,8 @@ Falcon, Bog Glider, Rathi Fiend/Intimidator).
 Pure parser recognition — reuses the existing `"search"` `EffectSpec`
 (`game/effects/core.py`'s `SearchLibraryEffect`). "Permanent" isn't a
 type-line word (no real card's type line literally reads "Permanent"), so
-`_SEARCH_CRITERIA`'s new `subtype` group (`_SEARCH_SUBTYPE_WORD`) maps
-"a rebel/mercenary permanent card" straight onto `{"type": "rebel"}` /
-`{"type": "mercenary"}` alone — Rebel/Mercenary are exclusively creature
-subtypes in paper Magic, so no separate "permanent" key is needed.
+`_SEARCH_CRITERIA` combines the shared subtype vocabulary with the
+permanent-card restriction; neither qualifier is discarded.
 
 Reference: mtg_analyzer/parser/oracle/catalogue/handlers.py
 (`_SEARCH_CRITERIA`/`_search_criteria_from_match`).
@@ -24,6 +22,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+from mtg_analyzer.parser.oracle.catalogue.characteristic_phrase import PERMANENT_CARD_TYPES
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
 from tests.support.game import creature, make_engine
@@ -41,7 +40,7 @@ def test_rebel_permanent_search_is_recognized():
     )
     assert spec.type == "search"
     assert spec.params == {
-        "criteria": {"type": "rebel", "max_mana_value": 3},
+        "criteria": {"type": "rebel", "max_mana_value": 3, "or": [{"type": list(PERMANENT_CARD_TYPES)}]},
         "destination": "battlefield",
     }
 
@@ -53,7 +52,7 @@ def test_mercenary_permanent_search_is_recognized():
     )
     assert spec.type == "search"
     assert spec.params == {
-        "criteria": {"type": "mercenary", "max_mana_value": 2},
+        "criteria": {"type": "mercenary", "max_mana_value": 2, "or": [{"type": list(PERMANENT_CARD_TYPES)}]},
         "destination": "battlefield",
     }
 
@@ -66,17 +65,14 @@ def test_x_scaled_rebel_search_keeps_the_x_sentinel():
         "search your library for a rebel permanent card with mana value x or "
         "less, put it onto the battlefield, then shuffle"
     )
-    assert spec.params["criteria"] == {"type": "rebel", "max_mana_value": "x"}
+    assert spec.params["criteria"] == {"type": "rebel", "max_mana_value": "x", "or": [{"type": list(PERMANENT_CARD_TYPES)}]}
 
 
 def test_unsupported_subtype_permanent_search_is_not_claimed():
-    # A near-miss: "permanent" paired with a subtype word outside the fixed
-    # Rebel/Mercenary enum must stay unclaimed rather than silently matching
-    # nothing (fail-closed, not a guess) or falling through to a bare
-    # "card" (over-wide) search.
+    # The subtype vocabulary is shared; an unknown word still fails closed.
     assert (
         match_clause(
-            "search your library for a soldier permanent card with mana value "
+            "search your library for an imaginary permanent card with mana value "
             "3 or less, put it onto the battlefield, then shuffle"
         )
         is None
