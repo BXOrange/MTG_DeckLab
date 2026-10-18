@@ -56,6 +56,12 @@ the card's implementation and tests; shipped narrative in
 
 ## Resolution
 
+- Deferred source flicker delays the whole shared blink, independently of
+  its later return timing and entry data. Delayed self captures retain the
+  original resolving visit, including when the source left before arming.
+  Crew uses an incarnation-scoped self grant; its animation cannot survive
+  exile or animate the returned back face.
+
 - Saga flavor labels are normalized independently of chapter bodies. An
   omitted return recipient means the instructed player (RULE 110.2a);
   explicit owner/your-control clauses remain separate. Source-pronoun

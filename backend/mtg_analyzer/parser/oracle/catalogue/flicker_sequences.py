@@ -6,6 +6,16 @@ from .counters import COUNTER_KIND_PATTERN
 
 _REFERENCE = r'(?:~|her|him|it|them|that card|those cards|that creature|that permanent|each of them|the exiled cards?)'
 _SCHEDULE = re.compile(r'at the beginning of (?P<when>the next end step|your next end step|your next upkeep|the next combat)')
+_SCHEDULE_STEPS = {
+    'the next end step': ('end', 'any'),
+    'your next end step': ('end', 'controller'),
+    'your next upkeep': ('upkeep', 'controller'),
+    'the next combat': ('begin_combat', 'any'),
+}
+_DEFERRED_SOURCE_EXILE = re.compile(
+    r'exile (?P<subject>~|this saga|it|him|her) (?P<when>at [^,]+),? then (?P<return>return .+)'
+)
+
 _RETURN = re.compile(rf'return {_REFERENCE} to the battlefield(?P<transformed> transformed)?(?P<face_down> face down)?(?P<tapped> tapped)?(?: under (?P<who>your|(?:its|her|his) owner\'?s|their owners?\'s?) control)?(?P<tail>.*)')
 _COUNTER = re.compile(rf'(?:with |and )(?:an? |(?P<count>\d+) )(?P<kind>{COUNTER_KIND_PATTERN}) counters?(?: on (?:it|them))?')
 _RETURN_BODY_TYPES = frozenset({'draw', 'discard', 'gain_life', 'lose_life',
@@ -116,6 +126,25 @@ def flicker_sequence_specs(body, *, self_subject=False):
     """
     if not body.startswith('exile ') or 'return ' not in body:
         return None
+    deferred = _DEFERRED_SOURCE_EXILE.fullmatch(body)
+    if deferred is not None:
+        if deferred['subject'] not in {'~', 'this saga'} and not self_subject:
+            return None
+        timing = _SCHEDULE.fullmatch(deferred['when'])
+        if deferred['when'] == 'at end of combat':
+            step, scope = 'end_combat', 'any'
+        elif timing is not None:
+            step, scope = _SCHEDULE_STEPS[timing['when']]
+        else:
+            return None
+        # The delayed ability performs the whole sequence, not exile alone.
+        inner = flicker_sequence_specs('exile ~, then ' + deferred['return'])
+        if inner is None:
+            return None
+        return [EffectSpec('create_delayed_trigger', {
+            'step': step, 'scope': scope, 'capture': 'self',
+            'effects': [spec.to_dict() for spec in inner],
+        })]
     conditional = _pre_exile_control_branch(body)
     if conditional is not None:
         return conditional
@@ -159,12 +188,7 @@ def flicker_sequence_specs(body, *, self_subject=False):
         params['target_count_max'] = params.pop('count_max')
     if schedules:
         found = schedules[0]
-        params['return_step'], params['return_scope'] = {
-            'the next end step': ('end', 'any'),
-            'your next end step': ('end', 'controller'),
-            'your next upkeep': ('upkeep', 'controller'),
-            'the next combat': ('begin_combat', 'any'),
-        }[found['when']]
+        params['return_step'], params['return_scope'] = _SCHEDULE_STEPS[found['when']]
         text = (text[:found.start()] + text[found.end():]).strip(' ,.')
         if text.startswith('return '):
             pass

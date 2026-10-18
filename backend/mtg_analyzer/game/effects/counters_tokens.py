@@ -702,7 +702,11 @@ class GrantUntilEffect(GameEffect):
         chosen_ids: Optional[list[int]] = None
         if self.target_spec is not None or self.previous_subject or self.self_subject:
             if self.self_subject:
-                chosen = [self.source] if self.source is not None else []
+                # RULE 400.7: a resolving self grant cannot migrate to a
+                # later visit of the source that left before resolution.
+                expected = context.resolving_source_incarnation
+                chosen = [self.source] if (self.source is not None and
+                    (expected is None or self.source.zone_incarnation == expected)) else []
             elif self.previous_subject:
                 # The previous clause's pick — or, when it created rather than chose ("Create a token that's
                 # a copy of …. It gains haste."), what it made (`PumpEffect.previous_subject`'s fallback).

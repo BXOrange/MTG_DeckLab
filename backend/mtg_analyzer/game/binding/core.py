@@ -3795,6 +3795,7 @@ def _crew_activated_ability(
             static={"type": "type_change", "params": type_change_params},
             duration="end_of_turn",
             target_kind=None,
+            self_subject=True,
             source=obj,
         ),
         CrewedEventEffect(source=obj),  # RULE 702.122e: "becomes crewed" (Mobilizer Mech)

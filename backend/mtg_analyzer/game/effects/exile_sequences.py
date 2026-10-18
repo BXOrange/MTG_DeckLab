@@ -88,6 +88,8 @@ class BlinkEffect(GameEffect):
         if subject not in {'targets', 'source', 'previous_targets', 'event_visits'}:
             raise ValueError('Unknown blink subject')
         self.target, self.subject = target, subject
+        self._captured_target_incarnation = None
+        self._captured_target_zone = None
         self.creature_filter = creature_filter
         self._trigger_subject_mode = target_kind == 'trigger_subject'
         self.trigger_event_key = trigger_event_key or 'instance_id'
@@ -142,6 +144,13 @@ class BlinkEffect(GameEffect):
         else:
             chosen = list(targets or ([self.target] if self.target is not None else []))
         chosen = [obj for obj in chosen if obj.zone == Zone.BATTLEFIELD]
+        # RULE 603.7c: reuse delayed effects' captured target visit, including
+        # source captures; a later battlefield visit is a different object.
+        if self._captured_target_incarnation is not None:
+            chosen = [obj for obj in chosen if obj is self.target
+                and obj.zone_incarnation == self._captured_target_incarnation
+                and obj.zone == self._captured_target_zone]
+
         if not chosen:
             return
         # Capture before exile restores a copied/transformed physical card.

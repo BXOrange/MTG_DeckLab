@@ -489,7 +489,14 @@ class CreateDelayedTriggerEffect(GameEffect):
             if (hasattr(effect, "_captured_target_incarnation") and effect.target_spec is None
                     and self.capture in {"created_objects", "previous_or_self", "previous_targets",
                                          "trigger_related", "trigger_subject", "self"}):
-                effect._captured_target_incarnation = getattr(effect.target, "hideaway_incarnation", -1)
+                # RULE 603.7c: an explicit source still names the visit that
+                # created this ability if it left before the ability resolved.
+                source_visit = context.resolving_source_incarnation
+                effect._captured_target_incarnation = (
+                    source_visit if self.capture == "self" and effect.target is self.source
+                    and source_visit is not None
+                    else getattr(effect.target, "hideaway_incarnation", -1)
+                )
                 effect._captured_target_zone = getattr(effect.target, "zone", None)
             if getattr(effect, "attach_to_previous", False):
                 effect.attachment_incarnation = getattr(effect.target, "hideaway_incarnation", None)
