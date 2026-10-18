@@ -498,6 +498,11 @@ class RulesEngine(
                 f"refusing to open an unanswerable choice: no continuation "
                 f"registered for kind {kind!r} (see game/continuations.py)"
             )
+        self.state.pending_trigger_frame = (
+            {name: value for name, value in self.__dict__.items()
+             if name.startswith('_pending_trigger_')}
+            if str(kind).startswith('trigger_') else None
+        )
         self.state.pending_choice = choice
 
     def resolve_choice(self, answer: Any = None) -> None:
@@ -538,6 +543,11 @@ class RulesEngine(
             # answer it). `tests/test_continuations.py` now asserts the
             # registry covers every kind the engine can open.
             raise ValueError(f"no continuation registered for choice kind {kind!r}")
+        if str(kind).startswith('trigger_') and self.state.pending_trigger_frame is not None:
+            for name, value in self.state.pending_trigger_frame.items():
+                if name.startswith('_pending_trigger_'):
+                    setattr(self, name, value)
+        self.state.pending_trigger_frame = None
         self.state.pending_choice = None
         if choice.get("battlefield_batch") and not choice.get("entry_effect"):
             from .effects.battlefield_batches import restore_batch_runtime

@@ -583,6 +583,9 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # Target announcement is a serializable continuation, including its
+        # partial groups and firing event, so clone/undo can resume it.
+        self.pending_trigger_frame: Optional[dict[str, Any]] = None
         #: A proposed cast awaiting granted additional-cost choices; omitted from wire views.
         self.pending_cast_payment: Optional[dict[str, Any]] = None
         self.physical_property_facts: dict[tuple[str, str, str], int] = {}

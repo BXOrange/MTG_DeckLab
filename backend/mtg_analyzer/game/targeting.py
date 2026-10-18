@@ -680,6 +680,7 @@ class TargetSpec:
     count_max: Optional[int] = None
     any_number: bool = False
     total_power_max: Optional[int] = None
+    total_mana_value_max: Optional[int] = None
     #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
     #: (see `_cast_time_flag` just below) that, when true for this
     #: requirement's own spell/ability ``source``, drops every narrowing
@@ -2461,6 +2462,37 @@ def resolved_count(
     return max(0, int(getattr(source, "monstrosity_x", 0) or 0))
 
 
+def add_target_budget_metadata(state, spec, entry):
+    """The same target-count and aggregate axes for spell and ability UIs."""
+    if spec.any_number:
+        entry.update(any_number=True, count=0, count_max=len(entry['options']))
+    for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
+        if limit is None:
+            continue
+        entry[f'total_{field}_max'] = limit
+        for option in entry['options']:
+            target = state.find_object(option.get('instance_id'))
+            option[field] = getattr(target, field, 0) or 0
+
+
+def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
+    """RULE 601.2c: all picks for one occurrence of target share its limit."""
+    for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
+        if limit is not None and sum(
+            getattr(getattr(target, 'obj', target), field, 0) or 0 for target in targets
+        ) > limit:
+            return False
+    return True
+
+
+def budgeted_target_options(state, spec, options, picked=()):
+    """Keep choices that fit the remaining aggregate budget of this group."""
+    if spec.total_power_max is None and spec.total_mana_value_max is None:
+        return options
+    return [option for option in options if target_group_within_budget(spec,
+        [*picked, state.find_object(option.get('instance_id'))])]
+
+
 def expand_counts(
     specs: list[TargetSpec],
     state: Optional[GameState] = None,
@@ -2514,6 +2546,12 @@ def expand_counts(
             spans.append(0)
             continue
         n = spec.count_max if spec.count_max is not None else minimum
+        if spec.any_number and state is not None:
+            n = len(legal_targets(state, controller_id, spec, source=source))
+            spec = replace(spec, optional=True, count=1, any_number=False)
+            if n == 0:
+                spans.append(0)
+                continue
         if n <= 1:
             expanded.append(spec)
             spans.append(1)
@@ -2740,13 +2778,7 @@ def requirements_with_targets(
             "distinct_from_others": spec.distinct_from_others,
             "polarity": spec.polarity,
         }
-        if spec.any_number:
-            entry.update(any_number=True, count=0, count_max=len(entry["options"]))
-        if spec.total_power_max is not None:
-            entry["total_power_max"] = spec.total_power_max
-            for option in entry["options"]:
-                obj = state.find_object(option.get("instance_id"))
-                option["power"] = obj.power or 0 if obj is not None else 0
+        add_target_budget_metadata(state, spec, entry)
         if spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
             entry["count_from_x"] = 2 if spec.count_selector == "source_twice_x_paid" else 1
         if spec.count_max is not None:

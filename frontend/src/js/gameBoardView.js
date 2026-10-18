@@ -775,6 +775,7 @@ export function createGameBoardView(opts = {}) {
     castTargeting = {
       instanceId: action.instance_id,
       requirements: expanded.requirements,
+      owners: expanded.owners,
       reqIndex: 0,
       targets: [],
       groups: Array.from({ length: expanded.groupCount }, () => []),
@@ -786,9 +787,7 @@ export function createGameBoardView(opts = {}) {
     if (selectedOption) {
       const owner = requirementOwnerIndexForOption(action, selectedOption);
       castTargeting.targets.push(selectedOption);
-      if (expanded.groupCount > 1) {
-        castTargeting.groups[owner].push(selectedOption);
-      }
+      castTargeting.groups[owner].push(selectedOption);
       castTargeting.reqIndex = 1;
     }
     finishCastIfReady();
@@ -1937,11 +1936,12 @@ export function createGameBoardView(opts = {}) {
       const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
       options = options.filter((o) => !pickedControllers.has(o.controller_id));
     }
-    if (req.total_power_max != null) {
+    for (const [field, limit] of [['power', req.total_power_max], ['mana_value', req.total_mana_value_max]]) {
+      if (limit == null) continue;
       const owner = castTargeting.owners?.[castTargeting.reqIndex];
       const picked = castTargeting.groups?.[owner] || [];
-      const used = picked.reduce((sum, target) => sum + (req.options.find((o) => o.instance_id === target.instance_id)?.power || 0), 0);
-      options = options.filter((o) => used + (o.power || 0) <= req.total_power_max);
+      const used = picked.reduce((sum, target) => sum + (req.options.find((o) => o.instance_id === target.instance_id)?.[field] || 0), 0);
+      options = options.filter((o) => used + (o[field] || 0) <= limit);
     }
     return options;
   }

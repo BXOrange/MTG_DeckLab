@@ -77,7 +77,7 @@ from ..effects.core import (
     WardEffect,
     WinConditionEffect,
 )
-from ..targeting import TargetSpec, chooser_requirement_satisfiable, stamped_specs, collapse_groups, expand_counts, legal_targets
+from ..targeting import budgeted_target_options, TargetSpec, chooser_requirement_satisfiable, stamped_specs, collapse_groups, expand_counts, legal_targets
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
@@ -1616,6 +1616,7 @@ class TriggerCollectionMixin:
             spec = specs[0]
             controller_id = self._trigger_controller_id(ability, event)
             options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
+            options = budgeted_target_options(self.state, spec, options)
             if not options:
                 if spec.optional or spec.scoped_player_id is not None:
                     # RULE 115.1a: "up to one target" is satisfied by
@@ -1738,6 +1739,8 @@ class TriggerCollectionMixin:
         # into exclude each other's picks. Cross-*requirement* exclusion is a
         # different rule and stays `distinct_from_others`' job.
         picked = self._span_picks(groups, spans, idx)
+        picked_objects = [self.state.find_object(iid) for iid in picked]
+        options = budgeted_target_options(self.state, spec, options, picked_objects)
         if picked:
             options = [
                 o for o in options
@@ -2204,7 +2207,7 @@ class TriggerCollectionMixin:
         from ..targeting import ability_target_specs
 
         if target_groups is not None and (len(target_groups) > 1 or any(
-            spec.per_player for spec in ability_target_specs(ability)
+            spec.per_player or spec.any_number for spec in ability_target_specs(ability)
         )):
             from ..stack_copy_targets import make_frame
 

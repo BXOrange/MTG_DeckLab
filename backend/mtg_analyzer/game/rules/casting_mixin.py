@@ -2167,7 +2167,7 @@ class CastingResolutionMixin:
         `GameContext.trigger_event` window."""
         # RULE 608.2b: an untargeted rider (including Empower Jace) must
         # not run when every announced target of the whole item is illegal.
-        from ..targeting import effects_target_specs, partition_targets, spell_target_specs
+        from ..targeting import effects_target_specs, partition_targets, spell_target_specs, target_group_within_budget
         body = item.effects
         if len(body) == 1 and hasattr(body[0], "effects"):
             body = body[0].effects
@@ -2183,9 +2183,9 @@ class CastingResolutionMixin:
             # A graveyard-card Aura (RULE 303.4f) is skipped: its target is not a permanent.
             specs = spell_target_specs(item.obj)
         groups = item.target_groups or partition_targets(specs, item.targets)
-        checks = zip(specs, groups) if groups is not None else (
+        checks = list(zip(specs, groups)) if groups is not None else [
             (spec, item.targets or []) for spec in specs
-        )
+        ]
 
         resolution_targets, resolution_groups = item.targets, item.target_groups
         copy_legal = None
@@ -2255,6 +2255,11 @@ class CastingResolutionMixin:
             any_legal = any(copy_legal)
         else:
             verdicts = [[still_in_target_zone(spec, target) for target in group] for spec, group in checks]
+            # RULE 608.2b: aggregate restrictions still hold at resolution,
+            # for fixed counts and activated abilities as well as copies.
+            for (spec, group), valid in zip(checks, verdicts):
+                if not target_group_within_budget(spec, [obj for obj, ok in zip(group, valid) if ok]):
+                    valid[:] = [False] * len(valid)
             any_legal = any(v for group in verdicts for v in group)
             if any_legal and not fallback_creature:
                 # RULE 608.2b: a target that no longer meets its restriction is simply not affected while the

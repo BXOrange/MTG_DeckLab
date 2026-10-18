@@ -56,6 +56,13 @@ the card's implementation and tests; shipped narrative in
 
 ## Resolution
 
+- Aggregate target limits share power and mana-value axes across casting,
+  activation, trigger choices, copied targets and board metadata. Any-number
+  trigger groups use their legal pool, with no fixed target cap. Partial
+  trigger announcements live in GameState for clone/undo. Multiple targeted
+  graveyard returns reuse exact simultaneous entry batches; each entry
+  choice finishes before later instructions, including source flicker.
+
 - Deferred source flicker delays the whole shared blink, independently of
   its later return timing and entry data. Delayed self captures retain the
   original resolving visit, including when the source left before arming.

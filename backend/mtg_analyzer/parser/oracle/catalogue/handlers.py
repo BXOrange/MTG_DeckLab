@@ -5949,39 +5949,49 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: family) — the plural sibling of `_RETURN_FROM_GRAVEYARD_RE`. The type
 #: word itself doesn't inflect ("creature cards", not "creatures cards").
 _RETURN_FROM_GRAVEYARD_MULTI_RE = _c(
-    rf"return {_MULTI_TARGET_QUANTIFIER}{_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards "
-    rf"(?:each with mana value (?P<mv>\d+) or less )?from "
+    rf"return {_MULTI_TARGET_QUANTIFIER}{_GRAVEYARD_OTHER}target "
+    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) |(?P<subtype>[a-z-]+) creature )?cards "
+    rf"(?:each with mana value (?P<mv>\d+) or less |with total "
+    rf"(?P<measure>mana value|power) (?P<budget>\d+) or less )?from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyards? to "
     r"(?P<dest>the battlefield|your hand|their owners'? hands)"
 )
 
 
 def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    subtype = m.group('subtype')
+    if subtype:
+        from .subtype_vocabulary import SUBTYPES
+        if subtype not in SUBTYPES or subtype in _NONCREATURE_SUBTYPE_WORDS:
+            return None
+    kind = _graveyard_target_kind('creature' if subtype else m.group('type'), m.group('scope'))
     if kind is None:
         return None
-    dest = m.groupdict().get("dest")
-    destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
-    if m.groupdict().get("range_min") is not None:
-        # ENG-30: "return 1 or 2 target creature cards from your graveyard
-        # to your hand/the battlefield" (Infernal Rebirth/Leonardo's
-        # Technique-shaped) — a genuine RULE 601.2c range, not "up to N".
-        range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
-        if range_min < 1 or range_max <= range_min:
+    destination = 'battlefield' if m.group('dest') == 'the battlefield' else 'hand'
+    params: dict = {'target_kind': kind, 'destination': destination}
+    if destination == 'battlefield':
+        params['under_your_control'] = True
+    if m.group('any_number'):
+        params.update(count=0, any_number=True, optional=True)
+    elif m.group('range_min') is not None:
+        minimum, maximum = int(m.group('range_min')), int(m.group('range_max'))
+        if minimum < 1 or maximum <= minimum:
             return None
-        return [EffectSpec("return_from_graveyard", {
-            "target_kind": kind, "destination": destination,
-            "count": range_min, "count_max": range_max,
-        })]
-    count = int(m.group("count"))
-    if count < 2:
-        return None
-    params: dict = {"target_kind": kind, "destination": destination, "count": count}
-    if m.groupdict().get("up_to"):
-        params["optional"] = True
-    if m.groupdict().get("mv") is not None:
-        params["max_mana_value"] = int(m.group("mv"))
-    return [EffectSpec("return_from_graveyard", params)]
+        params.update(count=minimum, count_max=maximum)
+    else:
+        count = int(m.group('count'))
+        if count < 2:
+            return None
+        params['count'] = count
+        if m.group('up_to'):
+            params['optional'] = True
+    if m.group('mv') is not None:
+        params['max_mana_value'] = int(m.group('mv'))
+    if m.group('budget') is not None:
+        params['total_mana_value_max' if m.group('measure') == 'mana value' else 'total_power_max'] = int(m.group('budget'))
+    if subtype:
+        params['subtype'] = subtype.capitalize()
+    return [EffectSpec('return_from_graveyard', params)]
 
 
 #: "return [up to] X target `<type>` cards from [scope] graveyard to your

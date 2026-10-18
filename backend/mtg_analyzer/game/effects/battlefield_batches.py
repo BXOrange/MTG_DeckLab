@@ -15,19 +15,27 @@ def start_battlefield_batch(rules, objects, controller_id, *, tapped=False):
 
 def start_exile_return_batch(rules, visits, controller_id=None, *, entry_options=None,
                             after_effects=None, source=None):
-    """RULE 603.7c/614.12: prepare exact exile visits, then admit them together.
+    return start_zone_return_batch(rules, visits, 'exile', controller_id,
+        entry_options=entry_options, after_effects=after_effects, source=source)
+
+
+def start_zone_return_batch(rules, visits, zone, controller_id=None, *, entry_options=None,
+                            after_effects=None, source=None):
+    """RULE 603.7c/614.12: prepare exact zone visits, then admit them together.
 
     Entry choices and the successful-return continuation are state-owned so
     cloning/undo never depend on a Python callback from the original engine.
     """
+    if zone not in {'exile', 'graveyard'}:
+        raise ValueError('Unsupported return zone')
     options = dict(entry_options or {})
     cards = []
     for instance_id, incarnation in visits:
         obj = rules.state.find_object(instance_id)
-        if (obj is not None and not obj.is_token and obj.zone.value == 'exile'
+        if (obj is not None and not obj.is_token and obj.zone.value == zone
                 and obj.zone_incarnation == incarnation):
             cards.append({'id': instance_id, 'expected_incarnation': incarnation,
-                          'from_zone': 'exile', 'controller_id': controller_id or obj.owner_id,
+                          'from_zone': zone, 'controller_id': controller_id or obj.owner_id,
                           **options})
     frame = {'cards': cards, 'cursor': 0, 'stage': 'reset',
              'returned_visits': [], 'after_effects': list(after_effects or []),
@@ -248,6 +256,8 @@ def _commit_battlefield_batch(rules, frame):
                 rules._remove_from_current_zone(state.player_by_id(obj.owner_id), obj)
                 state.add_to_battlefield(obj, saga_lore_override=record.get('lore'))
                 frame.setdefault('returned_visits', []).append((obj.instance_id, obj.zone_incarnation))
+                if record['from_zone'] == 'graveyard':
+                    rules.context.created_objects.append(obj)
                 if record.get('attacking'):
                     rules.put_onto_battlefield_attacking(obj)
                 state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD,

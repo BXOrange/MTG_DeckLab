@@ -70,6 +70,7 @@ from ..targeting import (
     requirements_with_targets,
     resolved_count,
     spell_target_specs,
+    target_group_within_budget,
     with_chooser_slots,
 )
 from ..graveyard_cast import graveyard_cast_grant_for
@@ -2311,7 +2312,8 @@ class CastingMixin:
             if (getattr(self.state, "_physical_cast_validation", False)
                     or self.state.resolution_play_choice is not None
                     or (additional is not None and additional.sacrifice_count)
-                    or any(spec.any_number for spec in spell_target_specs(obj))):
+                    or any(spec.any_number or spec.total_power_max is not None
+                           or spec.total_mana_value_max is not None for spec in spell_target_specs(obj))):
                 # Announced choices use the ordinary modal target specs
                 # after the selected mode has been applied, not a targetless
                 # cast_without_paying shortcut (RULE 601.2c).
@@ -2329,8 +2331,9 @@ class CastingMixin:
                     options = legal_targets(self.state, player.id, spec, source=obj)
                     if spec.any_number:
                         maximum = len(options)
-                    if spec.total_power_max is not None and sum(pick.power or 0 for pick in picks) > spec.total_power_max:
-                        raise ValueError("target creatures exceed the total power limit")
+                    if not target_group_within_budget(spec, picks):
+                        raise ValueError("target creatures exceed the total power limit" if spec.total_power_max is not None
+                                         else "target cards exceed the total mana value limit")
                     legal_ids = {option.get("instance_id", option.get("player_id")) for option in options}
                     picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", None)) for pick in picks]
                     if not minimum <= len(picks) <= maximum or len(set(picked_ids)) != len(picked_ids) or any(pid not in legal_ids for pid in picked_ids):

@@ -135,7 +135,7 @@ def _constraints_ok(frame, keys, targets, considered):
         if not indices or not all(i in considered for i in indices) or not any(frame["changed"][i] for i in indices):
             continue
         for spec in frame["slots"][indices[0]]["specs"]:
-            if spec.total_power_max is not None and sum(getattr(targets[i], "power", 0) or 0 for i in indices) > spec.total_power_max:
+            if not targeting.target_group_within_budget(spec, [targets[i] for i in indices]):
                 return False
     return True
 
@@ -300,8 +300,8 @@ def resolution_targets(rules, item):
         indices = [i for i, slot in enumerate(frame["slots"]) if slot["group"] == group_index]
         specs = frame["slots"][indices[0]]["specs"] if indices else []
         for spec in specs:
-            if spec.total_power_max is not None and sum(
-                    getattr(item.targets[i], "power", 0) or 0 for i in indices if legal[i]) > spec.total_power_max:
+            if not targeting.target_group_within_budget(spec,
+                    [item.targets[i] for i in indices if legal[i]]):
                 for i in indices:
                     legal[i] = False
     targets = [target if valid else None for target, valid in zip(item.targets, legal)]

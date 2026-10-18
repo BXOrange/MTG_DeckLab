@@ -75,7 +75,9 @@ from ..targeting import (
     target_rounds,
     validate_that_player_groups,
     with_chooser_slots,
+    add_target_budget_metadata,
     resolved_count,
+    target_group_within_budget,
     spell_target_specs,
 )
 from ..graveyard_cast import graveyard_cast_grant_for
@@ -370,6 +372,7 @@ class ActivationMixin:
                 "distinct_from_others": spec.distinct_from_others,
                 "polarity": spec.polarity,
             }
+            add_target_budget_metadata(self.state, spec, entry)
             # ENG-30: "N or M target X" range — see `TargetSpec.count_max`.
             if spec.count_max is not None:
                 entry["count_max"] = spec.count_max
@@ -1823,6 +1826,10 @@ class ActivationMixin:
                 minimum = 0 if spec.optional else count
                 maximum = spec.count_max if spec.count_max is not None else count
                 options = legal_targets(self.state, player.id, spec, source=source)
+                if spec.any_number:
+                    maximum = len(options)
+                if not target_group_within_budget(spec, picks):
+                    raise ValueError("targets exceed the total power or mana value limit")
                 legal_ids = {o.get("instance_id", o.get("player_id", o.get("stack_id"))) for o in options}
                 picked_ids = [p.get("instance_id", p.get("player_id", p.get("stack_id")))
                               if isinstance(p, dict) else

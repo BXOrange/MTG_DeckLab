@@ -39,6 +39,7 @@ Oracle text → behaviour: `parser/oracle/` (`normalize` → `segmenter` → `ca
 - **`turn_number`** is rules-correct (every player's turn counts, RULE 500.1) and what the engine uses; **`round_number`** is display only. Do not merge them.
 - **Hidden information**: `view(perspective=...)` redacts zones server-side (RULE 400.2). **Bots** use only their own view and `legal_actions`, never `engine.state` ([BOTS.md](docs/Reference/BOTS.md)).
 - **Priority** (RULE 117) is opt-in per session, on for multiplayer; only the priority holder may act, enforced in `_dispatch` ([MULTIPLAYER.md](docs/Reference/MULTIPLAYER.md)).
+- **Resumable choices**: partial target announcements and simultaneous entry batches belong to `GameState`; clone/undo must retain their chosen groups and exact zone visits ([mechanics notes](docs/Reference/ENGINE_MECHANICS_NOTES.md)).
 - The RULE 702 keyword catalogue in the parser is *recognition only*, not proof of engine behaviour. **Stickers (RULE 123) are a permanent non-goal** (`NEVER_SUPPORTED`).
 - **Code style**: comment rules-relevant code with `RULE <n>` (text via `docs/Reference/rules_wiki/`); match surrounding comment density; **no magic numbers** (named constant with a why-comment, e.g. `INFINITE_MANA_THRESHOLD`); frontend views are `render*(container)` functions, escape card/user text with `escapeHtml`/`escapeAttr`, prefs in cookies (`cookies.js`).
 - **Commits** only when asked; branch first if on `main`; end with the attribution line from the session instructions.

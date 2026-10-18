@@ -648,6 +648,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         count_max: Optional[int] = None,
         any_number: bool = False,
         total_power_max: Optional[int] = None,
+        total_mana_value_max: Optional[int] = None,
         shuffle_after: bool = False,
         subtype: Optional[str] = None,
         haste: bool = False,
@@ -830,6 +831,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number, total_power_max=total_power_max,
+                total_mana_value_max=total_mana_value_max,
                 per_player=per_player,
                 subtype=subtype, max_mana_value=max_mana_value,
                 # "…creature card with mana value X…" (Isareth the Awakener, PAR-139): an exact match,
@@ -943,6 +945,44 @@ class ReturnFromGraveyardEffect(GameEffect):
             player = _controller_of(self.source, context)
             if player is not None:
                 context.lose_life(player, int(mv))
+
+    def _return_battlefield_batch(self, context, chosen):
+        from .. import continuous
+        from .battlefield_batches import start_zone_return_batch
+        from .library import ShuffleLibraryEffect
+
+        cards = []
+        for obj in chosen:
+            if obj is None or obj.zone != Zone.GRAVEYARD or obj.is_token:
+                continue
+            if continuous.graveyard_library_entry_prohibited(context.state, obj.card, zone='graveyard'):
+                continue
+            if continuous.uncast_creature_entry_exiled(context.state, obj.card):
+                context.exile(obj)
+                continue
+            cards.append(obj)
+        options = dict(tapped=self.tapped, attacking=self.attacking,
+            entry_counters=self.extra_counters, face_down_kind=self.face_down_as)
+        if self.attach_to_previous:
+            host = (context.previous_targets or [None])[0]
+            if host is None or host.zone != Zone.BATTLEFIELD:
+                return
+            cards = [obj for obj in cards if context.engine._attachment_legal(obj, host, check_control=False)]
+            options['attach_to'] = (host.instance_id, host.zone_incarnation)
+        after = []
+        if self.haste:
+            after.append(GrantUntilEffect(static={'type': 'grant_keyword', 'params': {'keywords': ['haste']}},
+                duration='end_of_turn', target_kind=None, previous_subject=True, source=self.source))
+        if self.shuffle_after:
+            after.extend(ShuffleLibraryEffect(player=context.state.player_by_id(owner), source=self.source)
+                         for owner in dict.fromkeys(obj.owner_id for obj in cards))
+        if self.lose_life_equal_mv:
+            after.append(LoseLifeEffect(amount=sum(obj.mana_value for obj in cards), source=self.source))
+        player = _controller_of(self.source, context)
+        start_zone_return_batch(context.engine,
+            [(obj.instance_id, obj.zone_incarnation) for obj in cards], 'graveyard',
+            player.id if self.under_your_control and player else None,
+            entry_options=options, after_effects=after, source=self.source)
 
     def _order_new_top_cards(self, context: GameContext, cards: list[Any]) -> None:
         """RULE 401.4: cards put on top of one library at the same time are arranged in any order by the library's
@@ -1189,6 +1229,9 @@ class ReturnFromGraveyardEffect(GameEffect):
                 else self.target_spec.effective_count
             )
             chosen = _chosen_targets(targets, cap, self.target)
+            if self.destination == 'battlefield':
+                self._return_battlefield_batch(context, chosen)
+                return
             with context.state.simultaneous():
                 for target in chosen:
                     self._apply_one(context, target)
