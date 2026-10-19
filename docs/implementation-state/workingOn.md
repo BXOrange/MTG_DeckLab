@@ -42,3 +42,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## BUG-9 · Cleanups in the keep/sacrifice-rest code (code review)
+
+- **Started / last update:** 2026-10-19 / 2026-10-19 (start)
+- **Goal of this run:** close BUG-9 (all four cleanups, behaviour-preserving).
+- **Done (built + tested):** —
+- **In progress:** delegated to ticket-worker.
+- **Next step:** apply the four cleanups listed in the backlog text (choices_actions.py ×3, handlers.py ×1).
+- **Decisions:** —
+- **Baselines / artefacts:** —
+- **Known failures:** —
+- **Residue:** —
