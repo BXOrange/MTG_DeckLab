@@ -42,3 +42,21 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## PAR-132 · Dependent target/body follow-up batch
+
+- **Started / last update:** 2026-10-19 / 2026-10-19
+- **Goal of this run:** re-size every calibrated PAR-132 row (`PARSER_LONG_TAIL.md`, "PAR-132 calibration") with `parser_probe.py` at the current PARSER_VERSION, then land the highest-yield shared shapes via existing primitives.
+- **Done (built + tested):** v688 (+8 / -0, 21,788 covered, authoritative 62.2%). (a) Row 2 slice: `for each [nontoken] <type(s)|permanent|card> destroyed/exiled this way, <body>` -> `for_each` over `{"this_way": verb, this_way_nontoken, this_way_type}` (`ForEachEffect._this_way_items`, new `GameContext.destroyed_objects`; `exiled_objects` existed); "its controller creates" -> new `create_token creators="iteration_item_controller"`; item-independent bodies ("you create a Treasure", Canoptek). Cards: Hour of Need, Descent of the Dragons, March of Souls, Rampage of the Clans, Blood Money, Canoptek Scarab Swarm. (b) Row 4/6 slice: "that spell or ability's controller" / "that player" loses life / takes damage under a BECOMES_TARGET head (marker `event_player_events`, `gate._event_player_antecedent_ok`): Ashenmoor Liege, Retromancer. Tests: `backend/tests/test_par132_this_way_loops.py` (6, parse + execute + refusals); `test_par107_114_misc_family.py` adjusted (nontoken form now claimed; multicolored stays unclaimed). Suite 14,303 passed (default) and 14,701 passed (`--full-cache`).
+- **In progress:** nothing.
+- **Next step:** pick the next row below; start with the `this way` tally axis (largest) or the BECOMES_TARGET body family.
+- **Decisions:** selected by the orchestrator (lowest ID among equal eligible PAR tickets; MEC-125 excluded by user). `run_tests.py` needs `--hard-timeout 1500` (suite now ~210s, default 120s kills it).
+- **Baselines / artefacts:** snapshot of v687 at /private/tmp/claude-501/par132_base.json (scratch).
+- **Known failures:** none.
+- **Residue (sized at v687, `parser_probe.py blocked`, unclaimed-clause counts, solo/also-blocked):**
+  1. `for each X, choose up to one target ... that player controls` announce+body: 4 solo (Decoy Gambit, Kitesail Larcenist, Mega Flare, Tolarian Contempt; Shellshock/Disorienting Choice use the `. ... each of those`/`chosen this way` follow-ups) - needs per-round chosen-set referent, not built.
+  2. `this way` family: 52 cards for `creature(s) affected/dealt damage/exiled/destroyed/tapped/chosen this way` (41 solo); 77 solo for the broader for-each/destroyed/exiled/sacrificed/tapped/discarded/returned this way regex. Remaining: tapped/sacrificed/discarded/returned tallies (no engine tally yet), `chosen this way`/`those creatures` (382 cards, 313 solo, diffuse), "its controller reveals/searches" per-object bodies (Chaos Mutation, Chaotic Transformation, Indomitable Creativity, From the Ashes), color-qualified counts (Culmination of Studies), "that player investigates for each ..." (Declaration in Stone).
+  3. prior-target group bodies (Alpha Brawl, Deputy of Detention, Legions to Ashes): not sized yet.
+  4. trigger heads: `beginning of combat on each opponent` 3 solo (Champions of Minas Tirith, Fight or Flight, Web of Inertia: body-blocked: pay-or-cannot-attack, piles); `becomes the target of a spell or ability` 25 cards (23 solo, now ~21) - heads already parse, bodies missing ("counter that spell or ability" + "for the first time each turn" Glyph Keeper cluster, "that spell or ability's controller sacrifices a land", quoted grants Kira/Nadu); `defending player` 156 cards (130 solo), mostly body-side; `from an instant or sorcery` 0.
+  5. atomic combat heads: `enters ... attacking` 4 solo; blockers/attached subjects not re-sized.
+  6. `that much` 125 (99 solo); `for as long as ~ remains on the battlefield` 16 (15 solo; control-duration cluster); Commando Raid quoted wrapper not sized.

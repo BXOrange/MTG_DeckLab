@@ -1742,6 +1742,9 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
     # event (`effects.DealDamageEffect`'s ``"event_player"`` selector), not
     # an untargeted group like the rows above.
     "that player": "event_player",
+    # PAR-132: "~ deals 3 damage to that spell or ability's controller" (Retromancer) — the BECOMES_TARGET event's
+    # ``player_id`` is the targeting spell/ability's controller (`_fire_becomes_target_events`).
+    "that spell or ability's controller": "event_player",
     # "…if it's not their turn, ~ deals 4 damage to them." (Scytheclaw
     # Raptor) — same firing-event player, just the pronoun object form
     # rather than "that player".
@@ -1777,8 +1780,11 @@ def _damage_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _SELECTOR_WORD_MAP[m.group("selector")]
     n = m.group("n").lower()
+    params: dict[str, Any] = {"amount": "x" if n == "x" else int(n), "selector": selector}
+    if m.group("selector") == _SPELL_CONTROLLER_PHRASE:
+        params[EVENT_PLAYER_EVENTS_KEY] = [BECOMES_TARGET_EVENT]
     # PAR-128: an X amount ("deals x damage to each creature and each player" — Crypt Rats).
-    return [EffectSpec("damage", {"amount": "x" if n == "x" else int(n), "selector": selector})]
+    return [EffectSpec("damage", params)]
 
 
 #: "~ deals N damage to any target and M damage to each creature" (Wildfire
@@ -3807,6 +3813,23 @@ def _lose_life_per_spell_cast_this_turn(m: re.Match[str]) -> list[EffectSpec]:
 _LOSE_LIFE_PER_LIFE_GAINED_RE = _c(
     r"that player loses (?P<n>\d+) life for each 1 life they gained"
 )
+
+
+#: PAR-132: "that spell or ability's controller" is only the firing event's ``player_id`` under a
+#: becomes-the-target head; `gate._event_player_antecedent_ok` checks the marker and strips it.
+_SPELL_CONTROLLER_PHRASE = "that spell or ability's controller"
+BECOMES_TARGET_EVENT = "BECOMES_TARGET"
+EVENT_PLAYER_EVENTS_KEY = "event_player_events"
+_LOSE_LIFE_THAT_CONTROLLER_RE = _c(
+    r"that (?:player|spell or ability's controller) loses (?P<n>\d+) life"
+)
+
+
+def _lose_life_that_controller(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount": int(m.group("n")), "selector": "event_player",
+        EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],
+    })]
 
 
 def _lose_life_per_life_gained(m: re.Match[str]) -> list[EffectSpec]:
@@ -10312,6 +10335,54 @@ def _previous_controller_creates(m: re.Match[str]) -> Optional[list[EffectSpec]]
     ):
         return None
     return [EffectSpec("create_token", {**effects[0].params, "creators": "previous_target_controller"})]
+
+
+#: PAR-132: "<destroy/exile …>. **For each [nontoken] creature destroyed/exiled this way, <body>**" (Hour of Need,
+#: Descent of the Dragons, Blood Money, Canoptek Scarab Swarm). RULE 608.2c: the loop runs over the objects an
+#: earlier instruction of *this resolution* actually destroyed or exiled (`GameContext.destroyed_objects` /
+#: `exiled_objects`), one pass per object. "Its controller creates …" is the loop item's last-known controller
+#: (RULE 608.2h, `CreateTokenEffect.creators="iteration_item_controller"`); any other body is an item-independent
+#: ordinary clause ("you create a Treasure token", "you draw a card") run once per object. A body that names a
+#: target or a pronoun (it/that/them) would read the wrong referent, so it is refused.
+_THIS_WAY_TYPE_WORDS = {
+    "creature": "Creature", "artifact": "Artifact", "land": "Land", "enchantment": "Enchantment",
+    "planeswalker": "Planeswalker",
+}
+_THIS_WAY_TYPE_ALT = "|".join(_THIS_WAY_TYPE_WORDS)
+_FOR_EACH_THIS_WAY_RE = _c(
+    rf"for each (?P<nontoken>nontoken )?(?P<types>(?:{_THIS_WAY_TYPE_ALT})(?: or (?:{_THIS_WAY_TYPE_ALT}))*|permanent|card)"
+    r"(?P<is_card> card)? (?P<verb>destroyed|exiled) this way, (?P<body>.+)"
+)
+_THIS_WAY_BODY_PRONOUN_RE = re.compile(r"\b(?:it|its|that|them|those|their|they)\b")
+
+
+def _for_each_this_way(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    body = m.group("body")
+    its_controller = body.startswith("its controller ")
+    if its_controller:
+        body = body[len("its controller "):]
+    elif _THIS_WAY_BODY_PRONOUN_RE.search(body):
+        return None
+    effects = _match_clause_once(body)
+    if not effects:
+        return None
+    if '"target_kind"' in json.dumps([e.to_dict() for e in effects], default=str):
+        return None
+    if its_controller:
+        if (
+            len(effects) != 1 or effects[0].type != "create_token"
+            or effects[0].params.get("creators") is not None
+            or effects[0].params.get("per_opponent") or effects[0].params.get("attacking")
+        ):
+            return None
+        effects = [EffectSpec("create_token", {**effects[0].params, "creators": "iteration_item_controller"})]
+    over: dict[str, Any] = {"this_way": m.group("verb")}
+    if m.group("nontoken"):
+        over["this_way_nontoken"] = True
+    types = m.group("types")
+    if types != "permanent" and types != "card":
+        over["this_way_type"] = [_THIS_WAY_TYPE_WORDS[w] for w in types.split(" or ")]
+    return [EffectSpec("for_each", {"over": over, "effects": [e.to_dict() for e in effects]})]
 
 
 #: PAR-104: "whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create a Mutagen
@@ -18004,7 +18075,7 @@ HANDLERS: list[EffectHandler] = [
             rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
             rf"|each creature your opponents control|each creature an opponent controls"
-            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|them|you)"
+            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|that spell or ability's controller|them|you)"
         ),
         _damage_selector,
     ),
@@ -18433,6 +18504,7 @@ HANDLERS: list[EffectHandler] = [
         _LOSE_LIFE_PER_SPELL_CAST_THIS_TURN_RE,
         _lose_life_per_spell_cast_this_turn,
     ),
+    EffectHandler("lose_life_that_controller", _LOSE_LIFE_THAT_CONTROLLER_RE, _lose_life_that_controller),
     # "that player loses N life for each 1 life they gained." (False Cure).
     EffectHandler(
         "lose_life_per_life_gained",
@@ -21955,6 +22027,7 @@ HANDLERS: list[EffectHandler] = [
         "previous_controller_creates", _PREVIOUS_CONTROLLER_CREATES_RE, _previous_controller_creates,
         previous_subject_only=True,
     ),
+    EffectHandler("for_each_this_way", _FOR_EACH_THIS_WAY_RE, _for_each_this_way),
     EffectHandler(
         "create_named_token_eq_its_self",
         _CREATE_NAMED_TOKEN_EQ_ITS_RE,

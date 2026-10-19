@@ -136,6 +136,10 @@ class GameContext:
         #: The objects `exile` moved into exile during this resolution — what "exiled this way" names for a following
         #: clause ("…you may cast the exiled card for {3}", Blue Mage's Cane); unlike `moved_objects` it is only exile.
         self.exiled_objects: list[Any] = []
+        #: The permanents `destroy` actually destroyed during this resolution — what "destroyed this way"
+        #: names for a per-object follow-up ("for each creature destroyed this way, its controller creates …").
+        #: Unlike `moved_objects` it is only destruction.
+        self.destroyed_objects: list[Any] = []
         #: MEC-28: the `continuous.group_selector_objects` name the last
         #: mass-*selector* effect of this same resolution acted on (RULE
         #: 601.2c, untargeted — "untap all attacking creatures. **They**
@@ -383,6 +387,7 @@ class GameContext:
             # "…a creature card put into a graveyard this way" (Necromantic Selection): what this resolution
             # destroyed is one of the "moved this way" pools a later clause may read.
             self.moved_objects.append(target)
+            self.destroyed_objects.append(target)
 
     def regenerate(self, target: "GameObject") -> None:
         self.engine.regenerate(target)

@@ -47,7 +47,7 @@ from .catalogue.opening_hand import (
     opening_hand_graveyard_permission_line,
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
-from .catalogue.handlers import ACTION_ONCE_PER_TURN_MARKER
+from .catalogue.handlers import ACTION_ONCE_PER_TURN_MARKER, EVENT_PLAYER_EVENTS_KEY
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .segmenter import (
@@ -4039,7 +4039,11 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "687"
+# 688: PAR-132 -- "for each <object> destroyed/exiled this way, <body>" loops (a `for_each` over the
+#      resolution's own destroyed/exiled objects; "its controller creates" reads the loop item), and
+#      "that player / that spell or ability's controller" under a becomes-the-target head (marker
+#      `event_player_events`, checked by `_event_player_antecedent_ok`). +8 / -0.
+PARSER_VERSION = "688"
 
 
 def parser_source_hash() -> str:
@@ -4802,6 +4806,30 @@ def _that_much_antecedent_ok(spec: AbilitySpec) -> bool:
     return _resolve_that_much_tree(
         [spec.effects, spec.modes, spec.target], _THAT_MUCH_TRIGGER_FIELDS.get(event)
     )
+
+
+def _resolve_event_player_tree(node: Any, event: str) -> bool:
+    """PAR-132: strip the private ``event_player_events`` marker, or reject its antecedent.
+
+    A handler that reads the firing event's player under a phrase only some heads can satisfy
+    ("that spell or ability's controller" under a becomes-the-target head) lists the events whose
+    ``player_id`` is that exact player; anywhere else the clause stays unclaimed.
+    """
+    if isinstance(node, EffectSpec):
+        return _resolve_event_player_tree(node.params, event)
+    if isinstance(node, (list, tuple)):
+        return all(_resolve_event_player_tree(item, event) for item in node)
+    if not isinstance(node, dict):
+        return True
+    allowed = node.pop(EVENT_PLAYER_EVENTS_KEY, None)
+    if allowed is not None and event not in allowed:
+        return False
+    return all(_resolve_event_player_tree(value, event) for value in node.values())
+
+
+def _event_player_antecedent_ok(spec: AbilitySpec) -> bool:
+    event = str((spec.trigger or {}).get("event") or "") if spec.ability_kind == "triggered" else ""
+    return _resolve_event_player_tree([spec.effects, spec.modes, spec.target], event)
 
 
 def _parse_oracle_uncached(card: Any) -> ParseResult:
@@ -5624,6 +5652,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _that_much_antecedent_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
+        if not _event_player_antecedent_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _opponents_batch_ok(spec):

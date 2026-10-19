@@ -3365,7 +3365,7 @@ class CreateTokenEffect(GameEffect):
     _CREATORS = frozenset(
         {
             "you", "each_player", "each_opponent", "previous_target_controller", "target",
-            "trigger_subject_controller", "trigger_attacking_player",
+            "trigger_subject_controller", "trigger_attacking_player", "iteration_item_controller",
         }
     )
 
@@ -3629,6 +3629,12 @@ class CreateTokenEffect(GameEffect):
 
             subject = effect_conditions.subject_of("entering", context, self.source, targets)
             owner = getattr(subject, "controller_id", None)
+            creator_ids = [owner] if owner is not None else []
+        elif self.creators == "iteration_item_controller":
+            # "For each creature exiled this way, **its controller** creates a 4/4 …" (Hour of Need, Descent of
+            # the Dragons) — the loop item is the just-removed object, so its last-known controller (RULE 608.2h)
+            # is the creator, once per item.
+            owner = getattr(getattr(context, "iteration_item", None), "controller_id", None)
             creator_ids = [owner] if owner is not None else []
         elif self.creators == "trigger_attacking_player":
             # "…each opponent attacking that player does the same." (Curse of Opulence) — the
