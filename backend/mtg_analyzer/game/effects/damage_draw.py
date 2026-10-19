@@ -106,6 +106,9 @@ class DealDamageEffect(GameEffect):
         #: ``"previous_target"`` — "**target enchantment** deals damage equal to its mana value to its controller"
         #: (Enchanter's Bane): the object an earlier clause targeted is the damage's source, not this ability's.
         self.dealer_subject = dealer_subject
+        #: Set only while `_apply_with_dealer` has swapped the source for an Aura's host (``dealer_subject=
+        #: "attached_permanent"``): the host's own ``attached_to`` is empty, so the recipient lookup reads it from here.
+        self._attached_host: Optional[Any] = None
         self._base_amount = amount
         #: "The damage can't be prevented." (Combust, RULE 615.6) — this one
         #: instance ignores prevention shields. Implemented by flipping the
@@ -432,6 +435,20 @@ class DealDamageEffect(GameEffect):
                 self._base_amount = operand
 
     def _apply_with_dealer(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.dealer_subject == "attached_permanent":
+            # RULE 303.4 / 120.3: "whenever enchanted creature is dealt damage, **it** deals that much damage to its
+            # controller" (Spiteful Shadows) -- the Aura's host is the damage's source, read live off `attached_to`.
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            if host is None:
+                return
+            original = self.source
+            self.source, self._attached_host = host, host  # the host is the dealer; it is also still the recipient's anchor
+            try:
+                self._apply_from(context, targets)
+            finally:
+                self.source, self._attached_host = original, None
+            return
         if self.dealer_subject == "previous_target":
             dealer = context.previous_targets[0] if context.previous_targets else None
             if dealer is None:
@@ -496,6 +513,14 @@ class DealDamageEffect(GameEffect):
             if recipient is not None:
                 context.deal_damage(recipient, self._amount_for(recipient, context), self.source)
             return
+        if self.recipient_subject == "attached_permanent_object":
+            # "~ deals that much damage to **that creature**" under an Aura's own trigger (Guilty Conscience): the
+            # host itself (RULE 303.4), damaged only while it is still a battlefield permanent.
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            if host is not None and getattr(host, "zone", None) == Zone.BATTLEFIELD:
+                context.deal_damage(host, self._amount_for(host, context), self.source)
+            return
         if self.recipient_subject == "previous_subject_object":
             # "~ deals N damage to **that creature**" (Spiked Pit Trap's results rows): the object an earlier
             # clause (or the header, RULE 601.2c) chose. Damage goes to it only while it is still on the
@@ -514,7 +539,7 @@ class DealDamageEffect(GameEffect):
                 # where "that player" is the enchanted creature's
                 # controller — read live off the Aura's own `attached_to`.
                 host_id = getattr(self.source, "attached_to", None)
-                obj = context.state.find_object(host_id) if host_id is not None else None
+                obj = self._attached_host or (context.state.find_object(host_id) if host_id is not None else None)
             elif who == "previous_subject":
                 prev = list(context.previous_targets)
                 obj = prev[0] if prev else None

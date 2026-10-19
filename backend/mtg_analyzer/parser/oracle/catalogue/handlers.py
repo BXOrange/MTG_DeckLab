@@ -516,6 +516,28 @@ _GROUP_DEALS_TO_DAMAGED_CONTROLLER_RE = _c(
 )
 
 
+#: PAR-132: an Aura's own damage-echo trigger. "whenever enchanted creature is dealt / deals damage, ~ deals that much
+#: damage to that creature['s controller]" (Binding Agony, Backfire, Guilty Conscience) and "... it deals that much
+#: damage to its controller" (Spiteful Shadows): "that creature" / "it" is the Aura's host (RULE 303.4), "that much" the
+#: firing event's own damage ``amount``. The Aura (or, for "it deals", the host) is the damage's source.
+_ATTACHED_DEALS_THAT_MUCH_RE = _c(
+    r"(?:~|this [a-z]+) deals that much damage to (?P<who>that creature'?s controller|that creature)"
+)
+_ATTACHED_IT_DEALS_THAT_MUCH_RE = _c(r"it deals that much damage to its controller")
+
+
+def _attached_deals_that_much(m: re.Match[str]) -> list[EffectSpec]:
+    recipient = "attached_permanent_object" if m.group("who") == "that creature" else "attached_permanent_controller"
+    return [EffectSpec("damage", {"recipient_subject": recipient, "amount_from_trigger_event": "amount"})]
+
+
+def _attached_it_deals_that_much(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "recipient_subject": "attached_permanent_controller", "dealer_subject": "attached_permanent",
+        "amount_from_trigger_event": "amount",
+    })]
+
+
 def _group_deals_to_damaged_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
         "recipient_subject": "damage_recipient_controller", "amount_from_trigger_event": "amount",
@@ -17873,6 +17895,10 @@ HANDLERS: list[EffectHandler] = [
         "damage_to_attacked_defender", _DAMAGE_TO_ATTACKED_RE, _damage_to_attacked,
         group_subject_only=True,
     ),
+    EffectHandler("attached_deals_that_much", _ATTACHED_DEALS_THAT_MUCH_RE, _attached_deals_that_much,
+                  attached_subject_only=True),
+    EffectHandler("attached_it_deals_that_much", _ATTACHED_IT_DEALS_THAT_MUCH_RE, _attached_it_deals_that_much,
+                  attached_subject_only=True),
     EffectHandler(
         "group_deals_to_damaged_controller", _GROUP_DEALS_TO_DAMAGED_CONTROLLER_RE,
         _group_deals_to_damaged_controller, group_subject_only=True,
@@ -18577,6 +18603,14 @@ HANDLERS: list[EffectHandler] = [
         "lose_life_from_trigger_amount",
         _c(rf"{TARGET} loses that much life"),
         _lose_life_from_trigger_amount,
+    ),
+    # PAR-132: "each opponent gains that much life" (Grollub) -- the gain sibling of the row above, reached through
+    # the player-scope slot's "target player" reading.
+    EffectHandler(
+        "gain_life_target_from_trigger_amount",
+        _c(rf"{TARGET} gains that much life"),
+        lambda m: ([EffectSpec("gain_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
+                   if resolve_target_kind(m.group("target")) == "player" else None),
     ),
     # "Whenever ~ deals damage, you gain that much life." (El-Hajjâj /
     # Exalted Angel-shaped, PAR-36) — before the plain `gain_life` row so

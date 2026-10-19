@@ -4227,30 +4227,10 @@ _DISCARD_HAND_LEAD_RE = re.compile(
 )
 
 
-def _any_number_this_way_specs(
-    body: str, *, self_subject: bool, group_subject: bool,
-) -> "Optional[list[EffectSpec]]":
-    whole_hand = _DISCARD_HAND_LEAD_RE.match(body)
-    if whole_hand is not None:
-        specs = _any_number_this_way_specs(
-            "discard any number of cards. " + body[whole_hand.end():], self_subject=self_subject,
-            group_subject=group_subject,
-        )
-        if specs is None:
-            return None
-        pick = EffectSpec("choose_objects", {**specs[0].params, "optional": False})
-        draw = whole_hand.group("draw")
-        return [pick] + ([EffectSpec("draw", {"count": int(draw)})] if draw else [])
-    m = _ANY_NUMBER_THIS_WAY_TRAILING_RE.match(body) or _ANY_NUMBER_THIS_WAY_LEADING_RE.match(body)
-    if m is None:
-        return None
-    verb = m.group("verb")
-    if m.group("past") != _THIS_WAY_PAST[verb]:
-        return None
-    what = m.group("what")
-    from_hand = verb == "discard"
+def _any_number_pick_pool(verb: str, what: str) -> "Optional[tuple[dict[str, Any], dict[str, Any]]]":
+    """The pick pool of "<verb> any number of `what`": ``(parsed count phrase, its filter)`` or ``None``."""
     # The pool is the controller's own permanents ("you control") or, for a discard, their hand ("cards").
-    if from_hand:
+    if verb == "discard":
         if not what.endswith(" cards") and what != "cards":
             return None
         pool_phrase = what
@@ -4263,16 +4243,103 @@ def _any_number_this_way_specs(
     untapped = pool_phrase.startswith("untapped ")
     if untapped != (verb == "tap"):
         return None
-    pool_phrase = pool_phrase.removeprefix("untapped ")
-    pool = parse_count_phrase(pool_phrase)
-    counted = parse_count_phrase(m.group("noun"))
-    if pool is None or counted is None:
+    pool = parse_count_phrase(pool_phrase.removeprefix("untapped "))
+    if pool is None:
         return None
     pool_filter = dict(pool.get("filter") or {})
+    if set(pool_filter) - _THIS_WAY_FILTER_KEYS:
+        return None
+    return pool, pool_filter
+
+
+def _any_number_pick_params(verb: str, pool_filter: dict[str, Any]) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "action": _THIS_WAY_PICK_ACTION[verb], "what": "permanent", "count": "all", "optional": True,
+    }
+    if pool_filter:
+        params["permanent_filter"] = pool_filter
+    if verb == "tap":
+        params["require_untapped"] = True
+    if verb == "discard":
+        params["pool_zones"] = ["hand"]
+    return params
+
+
+#: PAR-132: "<Sacrifice/Discard> any number of `<what>`. `<body naming that many/much>`" (Landslide, Last-Ditch Effort,
+#: Scapeshift, Rites of Spring, Angelic Aberration, Nantuko Cultivator). RULE 608.2c / 701.21: "that many" is how many
+#: the first instruction actually sacrificed / discarded, so the pick (a mandatory-free `choose_objects`) is bracketed by
+#: a `mark_event_log` and each body effect's one printed number is bound to the `sacrificed_this_way` /
+#: `discarded_this_way` count over that window. Unlike the `then_that_many` form the body stays a top-level effect,
+#: so a body target (Landslide's "target player or planeswalker") is announced on cast as usual (RULE 601.2c).
+_ANY_NUMBER_THAT_MANY_RE = re.compile(
+    rf"^{_ANY_NUMBER_LEAD}\.\s*(?:if you do, )?(?P<rest>[^.]*\bthat (?:many|much)\b[^.]*?)\.?$"
+)
+_THAT_MANY_TO_ONE_RE = re.compile(r"\bthat (?:many|much)\b")
+_THIS_WAY_PICK_VERB_PAST = {"sacrifice": "sacrificed", "discard": "discarded"}
+
+
+def _any_number_that_many_specs(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    m = _ANY_NUMBER_THAT_MANY_RE.match(body)
+    if m is None or m.group("verb") not in _THIS_WAY_PICK_VERB_PAST:
+        return None
+    verb = m.group("verb")
+    pick = _any_number_pick_pool(verb, m.group("what"))
+    if pick is None:
+        return None
+    _, pool_filter = pick
+    # The measured number replaces one printed "1": parse the body with the placeholder, then bind it.
+    inner = parse_effect_body(
+        _THAT_MANY_TO_ONE_RE.sub("1", m.group("rest").strip()), self_subject=self_subject,
+        group_subject=group_subject,
+    )
+    if not inner:
+        return None
+    amount = {"kind": f"{_THIS_WAY_PICK_VERB_PAST[verb]}_this_way"}
+    bound: list[EffectSpec] = []
+    for spec in inner:
+        one = _bind_magnitude(spec, amount)
+        if one is None or '"type": "sacrifice"' in json.dumps(one[0].to_dict(), default=str):
+            return None
+        bound += one
+    return [EffectSpec("mark_event_log", {}), EffectSpec("choose_objects", _any_number_pick_params(verb, pool_filter)), *bound]
+
+
+def _any_number_this_way_specs(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    whole_hand = _DISCARD_HAND_LEAD_RE.match(body)
+    if whole_hand is not None:
+        specs = _any_number_this_way_specs(
+            "discard any number of cards. " + body[whole_hand.end():], self_subject=self_subject,
+            group_subject=group_subject,
+        )
+        if specs is None:
+            return None
+        # The whole hand is the pick, so it is mandatory; the `mark_event_log` bracket of the "that many" form
+        # (index 0 there) is left in front of it.
+        at = next(i for i, spec in enumerate(specs) if spec.type == "choose_objects")
+        specs[at] = EffectSpec("choose_objects", {**specs[at].params, "optional": False})
+        draw = whole_hand.group("draw")
+        return specs + ([EffectSpec("draw", {"count": int(draw)})] if draw else [])
+    m = _ANY_NUMBER_THIS_WAY_TRAILING_RE.match(body) or _ANY_NUMBER_THIS_WAY_LEADING_RE.match(body)
+    if m is None:
+        return _any_number_that_many_specs(body, self_subject=self_subject, group_subject=group_subject)
+    verb = m.group("verb")
+    if m.group("past") != _THIS_WAY_PAST[verb]:
+        return None
+    pick = _any_number_pick_pool(verb, m.group("what"))
+    if pick is None:
+        return None
+    _, pool_filter = pick
+    counted = parse_count_phrase(m.group("noun"))
+    if counted is None:
+        return None
     # Every pick is in the pool, so a counted noun that is the pool's own or broader ("for each card discarded"
     # after "any number of creature cards") counts exactly the picks; a narrower one would not.
     counted_filter = dict(counted.get("filter") or {})
-    if set(pool_filter) - _THIS_WAY_FILTER_KEYS or (counted_filter and counted_filter != pool_filter):
+    if counted_filter and counted_filter != pool_filter:
         return None
     bound = _bound_for_each_amount(
         re.match(r"(?P<rest>.+)", m.group("rest").strip()), {"kind": "fixed", "amount": "x"},
@@ -4280,16 +4347,7 @@ def _any_number_this_way_specs(
     )
     if bound is None or len(bound) != 1 or '"target_kind"' in json.dumps(bound[0].to_dict(), default=str):
         return None
-    params: dict[str, Any] = {
-        "action": _THIS_WAY_PICK_ACTION[verb], "what": "permanent", "count": "all", "optional": True,
-        "then_that_many": {"effects": [bound[0].to_dict()]},
-    }
-    if pool_filter:
-        params["permanent_filter"] = pool_filter
-    if verb == "tap":
-        params["require_untapped"] = True
-    if from_hand:
-        params["pool_zones"] = ["hand"]
+    params = {**_any_number_pick_params(verb, pool_filter), "then_that_many": {"effects": [bound[0].to_dict()]}}
     return [EffectSpec("choose_objects", params)]
 
 

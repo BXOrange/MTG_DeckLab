@@ -4056,7 +4056,14 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      player's pending choice) read by the `this_way_pool` condition (pools ``discarded`` / ``sacrificed``) and the new
 #      `discarded_this_way` / `sacrificed_this_way` amounts (Lord Windgrace, Civilized Scholar, Psychic Miasma,
 #      Seasoned Pyromancer, Gerrard's Verdict, Visions of Ruin, Voracious Fell Beast). +7 / -0.
-PARSER_VERSION = "691"
+# 692: PAR-132 -- "<sacrifice/discard> any number of X. <body naming that many/much>" (the pick bracketed by a
+#      `mark_event_log`, each body effect's printed number bound to `sacrificed_this_way` / `discarded_this_way`, so a
+#      body target is still announced on cast: Landslide, Last-Ditch Effort, Scapeshift, Rites of Spring, Nantuko
+#      Cultivator, Book Devourer), and the damage-event "that much" bodies: an Aura's "~ deals that much damage to that
+#      creature['s controller]" / "it deals that much damage to its controller" (`DealDamageEffect`
+#      ``recipient_subject="attached_permanent_object"``, ``dealer_subject="attached_permanent"``: Binding Agony,
+#      Backfire, Guilty Conscience, Spiteful Shadows) and "each opponent gains that much life" (Grollub). +11 / -0.
+PARSER_VERSION = "692"
 
 
 def parser_source_hash() -> str:
