@@ -106,3 +106,27 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
+
+- **BUG-5 · "Destroy all other permanents" under each-opponent keep scope spares the caster.**
+  `ChoosePlayerObjectsEffect` (`game/effects/choices_actions.py`, `victim_filter` branch) collects the
+  rest only from `frame["players"]`, so "Each opponent chooses N lands they control. Destroy all other
+  permanents." leaves the controller's permanents standing while still `MODELED`. A `victim_filter`
+  wipe must reach every player's permanents (or the parser must refuse that who/victim pairing).
+- **BUG-6 · Treasure-per-opponent-creature row ignores its subject.**
+  `_NAMED_TOKEN_PER_OPPONENT_CREATURE_RE` (`parser/oracle/catalogue/handlers.py`) accepts third-person
+  "creates", but the builder always emits `creators="you"`; "that player creates a Treasure token for
+  each creature your opponents control" gives the Treasures to the controller. Anchor the row to
+  "you"/subject-less or carry the creator through.
+- **BUG-7 · Draw-per-opponent-with-more-cards row ignores its subject.**
+  `_DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE` accepts third-person "draws" and binds a bare controller
+  `draw`, so "each opponent / target player draws a card for each opponent who has more cards …"
+  draws for the wrong player. Same fix shape as BUG-6; also turn its inline lambda in `HANDLERS` into a
+  named builder like its sibling rows.
+- **BUG-8 · Planar Overlay prompt says "behalten" for the lands that get bounced.**
+  With `act_on_chosen` the per-type prompt in `ChoosePlayerObjectsEffect` still reads "<Type> behalten",
+  but the chosen land is returned to hand. Use an act-specific prompt (and i18n key) for that mode.
+- **BUG-9 · Cleanups in the keep/sacrifice-rest code (code review).** In `choices_actions.py`:
+  `cant_be_sacrificed_this_turn` is filtered both before `_sacrifice_simultaneously` and inside it
+  (keep one layer); `pin_source_reference(self.victim_filter, …)` is recomputed per player (hoist);
+  `KEEP_BASIC_LAND_TYPES` duplicates `continuous._BASIC_LAND_TYPES` (reuse it). In `handlers.py`, the
+  sacrifice-rest builder's `count < 2` ("up to one" refused) needs a named constant with a why-comment.
