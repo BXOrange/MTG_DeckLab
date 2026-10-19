@@ -637,6 +637,51 @@ PAR-130 residue:
 Each row must be re-sized before implementation; this list records shared shapes and examples, not
 a promise that every named card has no second blocker.
 
+### Face-audit follow-ups: PAR-166 / PAR-167
+
+These are ordinary Oracle-body grammar gaps, discovered while checking reachable faces.
+They use the same parser/effect pipeline on a front or a back; they are **not** missing
+parts of the exile/return mechanism and do not block PAR-157. Re-size every individual
+shape before implementation and reuse existing primitives before proposing a new mechanic.
+The examples identify clauses, not a requirement to finish each named card.
+At v685, discovery queries over both cached faces found 47 matching unmodeled card faces
+for the body/state patterns (40 front, 7 back) and 4 for the casting-window patterns
+(1 front, 3 back). These are sizing candidates, not promised unlocks or an exhaustive
+mechanic inventory; recheck each shared shape before implementation.
+
+**PAR-166 — shared body/state grammar batch.** Factor independent axes rather than complete
+one card at a time:
+
+- choosing player versus pool owner/zone, selected-object continuation and measured
+  characteristic; e.g. defending-player graveyard choices and the later mana-value bonus
+  (The Kami War; compare Drana, the Last Bloodchief);
+- count/amount and condition composition: turn life-gain totals, rounded half-library draws,
+  previous-card color gates, exclusions of both the selected object and the source;
+- standing color statements, entry loyalty counters measured from spells cast, finite cost
+  reductions, recurring attack-body grants and hand-size effects tied to source control;
+- a targeted player combined with the untargeted group of creatures they control
+  (Urabrask), preserving the distinction between the announced target and group recipients.
+
+The remaining examples include Sorin's damage/conditional lifelink, Tamiyo's attack grant,
+conditional mana and half-library draw, Ral's entry counters/cost reduction, and Jin-Gitaxias's
+hand-size duration. Their already-supported actions remain ordinary effects; extend the
+missing subject, reference, predicate, count or duration composition. Coordinate with
+PAR-132's existing dependent-body/duration scope instead of duplicating it. A new runtime
+mechanic, if actually missing after the primitive check, needs its own MEC ticket.
+
+**PAR-167 — casting-window compositions.** Independently combine origin zone, permitted card
+or spell types, normal/free cost, resolution-local versus standing permission, expiry and
+post-cast zone replacement. Known gaps are any-number free casts from hand during resolution
+(Jin-Gitaxias), free instant/sorcery casts from a just-exiled library slice for the turn (Ral),
+and normal-cost instant/sorcery casts from any graveyard with an exile-on-graveyard rider
+(Urabrask). Reuse the existing casting/permission machinery and distinguish one resolving
+instruction from a permission lasting through a turn. Preserve chosen visits, controller,
+clone/undo and expiry independently of the originating permanent returning on another face.
+
+For both tickets, require recombinations of known axes in tests, including the same body on
+either face, runtime execution, adversarial fail-closed cases, zero unintended probe regressions
+and the normal full-cache/coverage gates. No card-name-specific back-face handler is acceptable.
+
 Long-tail residue that no open ticket names — salvaged when the per-version
 changelog was removed, because most of it had been filed under `PAR-30`,
 `PAR-60`, `MEC-77` and the Clash/Airbend bullets, **all since closed**. None of
