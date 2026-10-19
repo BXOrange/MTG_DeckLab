@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from ..spec import EffectSpec
 from .counters import COUNTER_KIND_PATTERN
+from .clause_hooks import parse_effect_body
+from .clause_primitives import stamp_counters_on_referent
+from .referent_condition import parse_referent_condition, TYPE_CONDITION_PATTERN
 
 _REFERENCE = r'(?:~|her|him|it|them|that card|those cards|that creature|that permanent|each of them|the exiled cards?)'
 _SCHEDULE = re.compile(r'at the beginning of (?P<when>the next end step|your next end step|your next upkeep|the next combat)')
@@ -61,7 +64,6 @@ def delayed_dying_return_specs(body):
     schedule = _SCHEDULE.search(body)
     if schedule is None or body[schedule.end():].strip(' .'):
         return None
-    from ..segmenter import parse_effect_body
     returned = parse_effect_body(body[:schedule.start()].strip().rstrip('.'), self_subject=True)
     if not returned or len(returned) != 1 or returned[0].type != 'return_self_to_battlefield':
         return None
@@ -81,7 +83,6 @@ def _rider_specs(text, *, live_returned=True):
     These are continuations of one announced blink. Targeted instructions
     require their own announcement support and must remain unclaimed here.
     """
-    from ..segmenter import parse_effect_body, _stamp_counters_on_referent
     if live_returned:
         entered = re.fullmatch(r'if it entered under your control, (?P<then>.+?)'
                               r'(?:\. otherwise, (?P<else>.+))?', text)
@@ -98,12 +99,11 @@ def _rider_specs(text, *, live_returned=True):
     # antecedent even when the rider has no preceding target clause.
     text = re.sub(r'^(tap|untap) it$', r'\1 that permanent', text)
     specs = parse_effect_body(text, previous_subject=True)
-    specs = _stamp_counters_on_referent(text, specs) if specs else specs
+    specs = stamp_counters_on_referent(text, specs) if specs else specs
     if not specs and live_returned:
         # Here the previous subject is a freshly returned permanent,
         # after all entry choices. Ordinary destruction/exile tails must
         # keep rejecting live characteristic reads without LKI.
-        from .referent_condition import TYPE_CONDITION_PATTERN, parse_referent_condition
         matched = re.fullmatch(rf'if (?P<condition>{TYPE_CONDITION_PATTERN}), (?P<body>.+)', text)
         if matched is not None and not matched['neg'].startswith('was'):
             condition = parse_referent_condition(matched['condition'])
@@ -167,7 +167,6 @@ def flicker_sequence_specs(body, *, self_subject=False):
     split = re.fullmatch(r'exile (?P<subject>.+?)(?:\. |,? then )(?P<return>.+?)\.?', body)
     if split is None:
         return None
-    from ..segmenter import parse_effect_body
     subject = split['subject']
     if subject == 'this saga' or (self_subject and subject in {'it', 'him', 'her'}):
         subject = '~'
@@ -279,7 +278,6 @@ def _pre_exile_control_branch(body):
         r'(?P<return>return .+?)\. otherwise, its controller (?P<verb>creates|draws|gains|loses|discards) (?P<body>.+?)\.?', body)
     if matched is None:
         return None
-    from ..segmenter import parse_effect_body
     exiled = parse_effect_body('exile ' + matched['subject'])
     if not exiled or len(exiled) != 1 or exiled[0].type != 'exile' or not exiled[0].params.get('target_kind'):
         return None

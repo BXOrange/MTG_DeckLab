@@ -17,6 +17,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from .catalogue.keywords import KEYWORDS
+
 #: Reminder text is always fully parenthesised (RULE 207.2) and never nests, so
 #: repeatedly peeling the innermost parens removes it without a real grammar.
 _REMINDER = re.compile(r"\s*\([^()]*\)")
@@ -165,7 +167,6 @@ def _strip_ability_words(text: str) -> str:
 def _strip_unregistered_keyword_labels(text: str, keywords: Optional[list[str]]) -> str:
     if not keywords:
         return text
-    from .catalogue.keywords import KEYWORDS  # avoid importing the whole catalogue at module load
 
     for kw in keywords:
         kw = (kw or "").strip()
@@ -203,7 +204,6 @@ _SAGA_INSTRUCTION_HEADS = frozenset({
 
 
 def _strip_saga_flavor_labels(text: str) -> str:
-    from .catalogue.keywords import KEYWORDS
 
     def strip(match: re.Match[str]) -> str:
         label = match['label'].lower()

@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from ..spec import EffectSpec, ParserProvenance
+from .clause_hooks import parse_effect_body, segment_line
 
 
 def exile_grant_specs(body):
@@ -13,7 +14,6 @@ def exile_grant_specs(body):
     inner = re.fullmatch(r'(?P<head>.+?), if ~ is exiled, (?P<body>.+)', matched['inner'])
     if inner is None:
         return None
-    from ..segmenter import parse_effect_body, segment_line
 
     # Parse the event head separately: its entering object does not change
     # the explicit source referent established by "if ~ is exiled".

@@ -83,10 +83,10 @@ _NUMBER_WORDS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
     "nine": 9, "ten": 10,
 }
-_NUMBER = r"(?:\d+|" + "|".join(_NUMBER_WORDS) + r")"
+NUMBER_WORD_PATTERN = r"(?:\d+|" + "|".join(_NUMBER_WORDS) + r")"
 
 
-def _number(text: str) -> int:
+def number_value(text: str) -> int:
     return int(text) if text.isdigit() else _NUMBER_WORDS[text]
 
 
@@ -228,18 +228,18 @@ def _merge_filters(base: dict[str, Any], extra: dict[str, Any]) -> Optional[dict
 def _quantity(text: str) -> Optional[tuple[Optional[int], Optional[int], bool, str]]:
     """Leading quantity words → ``(min, max, another, rest)``, or ``None``."""
     patterns: list[tuple[str, Any]] = [
-        (rf"^(?P<n>{_NUMBER}) or more ", lambda n: (n, None)),
-        (rf"^at least (?P<n>{_NUMBER}) ", lambda n: (n, None)),
-        (rf"^(?P<n>{_NUMBER}) or (?:fewer|less) ", lambda n: (None, n)),
-        (rf"^at most (?P<n>{_NUMBER}) ", lambda n: (None, n)),
-        (rf"^exactly (?P<n>{_NUMBER}) ", lambda n: (n, n)),
-        (rf"^more than (?P<n>{_NUMBER}) ", lambda n: (n + 1, None)),
-        (rf"^fewer than (?P<n>{_NUMBER}) ", lambda n: (None, n - 1)),
+        (rf"^(?P<n>{NUMBER_WORD_PATTERN}) or more ", lambda n: (n, None)),
+        (rf"^at least (?P<n>{NUMBER_WORD_PATTERN}) ", lambda n: (n, None)),
+        (rf"^(?P<n>{NUMBER_WORD_PATTERN}) or (?:fewer|less) ", lambda n: (None, n)),
+        (rf"^at most (?P<n>{NUMBER_WORD_PATTERN}) ", lambda n: (None, n)),
+        (rf"^exactly (?P<n>{NUMBER_WORD_PATTERN}) ", lambda n: (n, n)),
+        (rf"^more than (?P<n>{NUMBER_WORD_PATTERN}) ", lambda n: (n + 1, None)),
+        (rf"^fewer than (?P<n>{NUMBER_WORD_PATTERN}) ", lambda n: (None, n - 1)),
     ]
     for pattern, bounds in patterns:
         m = re.match(pattern, text)
         if m is not None:
-            low, high = bounds(_number(m.group("n")))
+            low, high = bounds(number_value(m.group("n")))
             return low, high, False, text[m.end():]
     m = re.match(r"^(?:a|an) ", text)
     if m is not None:
@@ -363,7 +363,7 @@ _NAMED_TERMS: dict[str, str] = {
 SACRIFICED_TERM = r"the sacrificed (?:creature|permanent|artifact|land)'?s (?:power|toughness|mana value)"
 _SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land)'?s (?P<what>power|toughness|mana value)$")
 #: "`<N>` plus …" (Allosaurus Rider) and "twice …" (Territorial Maro).
-_PLUS_PREFIX = re.compile(rf"^(?P<n>{_NUMBER}) plus (?P<rest>.+)$")
+_PLUS_PREFIX = re.compile(rf"^(?P<n>{NUMBER_WORD_PATTERN}) plus (?P<rest>.+)$")
 _TWICE_PREFIX = "twice "
 #: Where one term ends and the next begins: "X plus the number of Y".
 _TERM_SPLIT = re.compile(r" plus (?=the |your )")
@@ -451,7 +451,7 @@ def parse_amount_phrase(text: str) -> "Optional[str | dict[str, Any]]":
     plus = 0
     m = _PLUS_PREFIX.match(text)
     if m is not None:
-        plus, text = _number(m.group("n")), m.group("rest")
+        plus, text = number_value(m.group("n")), m.group("rest")
     times = 1
     if text.startswith(_TWICE_PREFIX):
         times, text = 2, text[len(_TWICE_PREFIX):]

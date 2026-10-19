@@ -41,6 +41,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from ..spec import AbilitySpec, ParserProvenance
 from .subgrammars import COLOR_LETTERS
+from .cost_text import scan_cost_text
+from .levels import leveler_base_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; keeps the front-end pure
     from ....models.cards.card import Card
@@ -707,7 +709,6 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
     # Daybound above); a tier-only keyword is dropped here and re-granted,
     # correctly level-gated, by the level-block parser (`gate.py`) instead.
     if getattr(card, "is_leveler", False):
-        from .levels import leveler_base_text
 
         base_text = leveler_base_text(text)
 
@@ -745,7 +746,6 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         if kdef.slug == "equip" and (dash := EQUIP_DASH_COST_RE.search(text)) is not None:
             # A non-mana equip cost is carried as text (the Ward idiom, `costs.parse_activation_cost` reads it) only when the cost
             # grammar fully represents it; otherwise no cost is recorded and the line stays unclaimed (never a free equip).
-            from .cost_text import scan_cost_text
 
             param.pop("cost", None)
             if scan_cost_text(dash.group("cost").strip()).leftover is None:

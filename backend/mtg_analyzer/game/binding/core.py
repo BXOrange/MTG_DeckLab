@@ -24,7 +24,7 @@ from typing import Any, Callable, Optional, Union
 
 from ...models.game.events import EventType, GameEvent
 from ...models.mana.mana_cost import ManaCost
-from ...parser.oracle.catalogue.handlers import (
+from ...parser.oracle.catalogue.clause_primitives import (
     ACTION_ONCE_PER_TURN_MARKER,
     ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,

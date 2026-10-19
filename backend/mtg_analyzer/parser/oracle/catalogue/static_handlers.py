@@ -56,13 +56,13 @@ from typing import Any, Callable, NamedTuple, Optional
 
 from .library_permission import parse_graveyard_cast_permission, parse_top_library_permission
 from ..spec import EffectSpec, ParserProvenance
-from .handlers import (
+from .clause_primitives import (
     ONCE_PER_TURN_MARKER,
     SORCERY_SPEED_MARKER,
-    _split_keywords_with_parametric,
+    split_keywords_with_parametric,
 )
 from .replacements import replacement_clause_specs
-from .count_phrase import _NUMBER, _number
+from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .counters import ENTER_COUNTER_CHOICE_RE, parse_counter_choice_items
 from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
@@ -75,6 +75,13 @@ from .subgrammars import (
     devotion_selector,
     scope_adjective as _scope_adjective,
 )
+from .characteristic_phrase import KEYWORD_WORDS, parse_object_phrase
+from .clause_hooks import register_static_condition, segment_line, trigger_condition_dict
+from .count_phrase import parse_amount_phrase, parse_count_condition, parse_count_phrase
+from .history_phrase import parse_history_condition
+from .subtype_vocabulary import SUBTYPES
+from .trigger_doubler import parse_trigger_doubler
+from ..normalize import normalize
 
 #: Trigger events a granted triggered ability can be safely re-scoped to a
 #: *different* object each time it's granted (`continuous.
@@ -246,7 +253,7 @@ _GROUP_COUNTER_GRANT_RE = re.compile(
 # {B}.'"/"All Slivers have '{2}, Sacrifice this permanent: ...'") — the
 # non-attached sibling of `_ATTACHED_QUOTED_GRANT_RE`/`_ATTACHED_QUOTED_
 # ANTHEM_GRANT_RE` above: a group-scoped grant of a *full* ability
-# (recursively parsed via `_quoted_ability_grant_effects`, same as the
+# (recursively parsed via `quoted_ability_grant_effects`, same as the
 # attached family) rather than a bare keyword list (`_GRANT_RE` just
 # above). Shares `_scope`/`_scope_params` with `_GRANT_RE`/`_ANTHEM_RE` for
 # the `affects` (+ subtype/colour/tokens/chosen) params.
@@ -361,7 +368,6 @@ def _pt_cda_selector(what: str) -> "Optional[str | dict]":
     count_selector` argument (structured dict or named string), or
     ``None`` for an unwhitelisted quantity (fail-closed — RULE 604.3 must
     never silently define a creature as 0/0)."""
-    from .count_phrase import parse_amount_phrase
 
     structured = parse_amount_phrase(what)
     if structured is not None:
@@ -646,7 +652,6 @@ _SELF_COST_PER_PHRASES: dict[str, str] = {
 def _self_cost_per(phrase: str) -> "Optional[str | dict]":
     """`<X>` of "costs {N} less to cast for each `<X>`" → a `continuous.
     count_selector` argument, or ``None`` (fail-closed)."""
-    from .count_phrase import parse_count_phrase
 
     phrase = phrase.strip().lower()
     if phrase in _SELF_COST_PER_PHRASES:
@@ -1526,7 +1531,6 @@ def object_filter(text: str) -> Optional[dict]:
     # Share the validated subtype-negation vocabulary with other selectors.
     # RULE 509.1b: restrictions apply to either side of a proposed block.
     if text.startswith("non"):
-        from .characteristic_phrase import parse_object_phrase
         parsed = parse_object_phrase(text, plural=True)
         if parsed is None or parsed[1] is not None:
             return None
@@ -2037,9 +2041,8 @@ _ENTER_AS_COPY_POOLS: dict[str, str] = {
 }
 
 
-def _enter_as_copy_tail(tail: str) -> Optional[dict]:
+def enter_as_copy_tail(tail: str) -> Optional[dict]:
     """A copy's "except …" clause → `EnterAsCopyReplacement` params, or ``None`` (fail closed)."""
-    from .characteristic_phrase import KEYWORD_WORDS
 
     params: dict = {}
     pieces: list[str] = []
@@ -2088,7 +2091,7 @@ def enter_as_copy_specs(clause: str) -> Optional[list[EffectSpec]]:
         return None
     params: dict = {"target_kind": kind}
     if m.group("tail"):
-        extra = _enter_as_copy_tail(m.group("tail"))
+        extra = enter_as_copy_tail(m.group("tail"))
         if extra is None:
             return None
         params.update(extra)
@@ -2238,7 +2241,7 @@ _CONTROL_GRANT_RE = re.compile(
 # ability rather than a flag keyword. The quoted text is itself an ordinary
 # ability line, so it's parsed the same way any top-level card's own line
 # would be (`segmenter.segment_line`, imported lazily in
-# `_quoted_ability_grant_effects` below — `segmenter` imports *this* module,
+# `quoted_ability_grant_effects` below — `segmenter` imports *this* module,
 # so a module-level import would cycle) and wrapped as a
 # `grant_triggered_ability`/`grant_activated_ability` when that recursive
 # parse comes back a plain, unconditional shape: a self-scoped trigger on
@@ -2414,18 +2417,18 @@ def _granted_mana_options(inner: str) -> Optional[tuple[list[dict[str, int]], st
     return [{color: amount} for color in _ALL_COLORS], m.group("cost"), restriction
 
 
-def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
+def quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
     """Recursively parse a quoted granted-ability body into a single
     `grant_triggered_ability`/`grant_activated_ability`/`grant_mana_ability`
     `EffectSpec`, or ``None``. Thin wrapper over `_quoted_ability_grant_
     effects_list` for the callers that only ever expect one spec — returns
     ``None`` when the body would produce more than one (a compound-event
     trigger; those callers pass through the list-returning helper instead)."""
-    specs = _quoted_ability_grant_effects_list(inner)
+    specs = quoted_ability_grant_effects_list(inner)
     return specs[0] if specs and len(specs) == 1 else None
 
 
-def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
+def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
     """Recursively parse a quoted granted-ability body into one or more
     grant `EffectSpec`s, or ``None`` if it isn't a plain self-scoped trigger
     on a `_GRANTABLE_TRIGGER_EVENTS` event (incl. a compound "enters or
@@ -2433,8 +2436,6 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     a controller-scoped phase trigger, a plain `<cost>: <effect>` activated
     ability, or a bare `{T}: Add <mana>` mana ability (see the module
     comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
-    from ..normalize import normalize
-    from ..segmenter import segment_line  # lazy: segmenter imports this module
 
     # A quotation embedded before a following static clause is commonly
     # written as `has "…," and is …` (Black Mage's Rod).  That comma belongs
@@ -2941,7 +2942,6 @@ def type_addition_params(words: str) -> Optional[dict]:
     """"`<subtype> <type>`" words of an "…in addition to its other types" clause → the
     ``add_types``/``add_subtypes``/``legendary`` params of a layer-4 `type_change`, or ``None``
     for a word that is none of them (fail closed — never a guessed subtype)."""
-    from .subtype_vocabulary import SUBTYPES
 
     add_types: list[str] = []
     add_subtypes: list[str] = []
@@ -3004,7 +3004,7 @@ def _attached_type_addition(m: "re.Match[str]") -> Optional[list[EffectSpec]]:
     if type_params:
         specs.append(EffectSpec("type_change", {"affects": "attached_permanent", **type_params}))
     if m.group("inner"):
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         specs.extend(grants)
@@ -3646,8 +3646,8 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"you(?:'ve| have)? gained life this turn", re.I),
      lambda m: {"kind": "gained_life_this_turn"}),
     # "if you gained 7 or more life this turn" (Aerith, Last Ancient).
-    (re.compile(rf"you(?:'ve| have)? gained (?P<n>{_NUMBER}) or more life this turn", re.I),
-     lambda m: {"kind": "gained_life_this_turn", "amount": _number(m.group("n").lower())}),
+    (re.compile(rf"you(?:'ve| have)? gained (?P<n>{NUMBER_WORD_PATTERN}) or more life this turn", re.I),
+     lambda m: {"kind": "gained_life_this_turn", "amount": number_value(m.group("n").lower())}),
     # "if you descended this turn" (Lost Caverns of Ixalan) — a permanent card was put into
     # your graveyard from anywhere.
     (re.compile(r"you(?:'ve| have)? descended this turn", re.I),
@@ -3670,8 +3670,8 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "source_damage_received_this_turn", "min": int(m.group("n"))}),
     (re.compile(r"(?:a card|(?:one|1) or more cards) left your graveyard this turn", re.I),
      lambda m: {"kind": "card_left_graveyard_this_turn"}),
-    (re.compile(rf"an opponent has (?P<n>{_NUMBER}) or more poison counters", re.I),
-     lambda m: {"kind": "opponent_poison_at_least", "amount": _number(m.group("n").lower())}),
+    (re.compile(rf"an opponent has (?P<n>{NUMBER_WORD_PATTERN}) or more poison counters", re.I),
+     lambda m: {"kind": "opponent_poison_at_least", "amount": number_value(m.group("n").lower())}),
     (re.compile(r"mana from a treasure was spent to cast (?:it|this spell)", re.I),
      lambda m: {"kind": "treasure_mana_spent_to_cast"}),
     (re.compile(r"mana from a treasure was spent to activate this ability", re.I),
@@ -3908,11 +3908,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "as long as you've drawn two or more cards this turn" — read off
     # `GameState.cards_drawn_this_turn`, which already exists for the
     # draw-limit permission.
-    (re.compile(rf"you'?ve drawn (?P<n>{_NUMBER}) or more cards this turn", re.I),
-     lambda m: {"kind": "drawn_cards_at_least", "amount": _number(m.group("n").lower())}),
-    (re.compile(rf"an opponent has drawn (?P<n>{_NUMBER}) or more cards this turn", re.I),
+    (re.compile(rf"you'?ve drawn (?P<n>{NUMBER_WORD_PATTERN}) or more cards this turn", re.I),
+     lambda m: {"kind": "drawn_cards_at_least", "amount": number_value(m.group("n").lower())}),
+    (re.compile(rf"an opponent has drawn (?P<n>{NUMBER_WORD_PATTERN}) or more cards this turn", re.I),
      lambda m: {"kind": "drawn_cards_at_least", "scope": "opponents",
-                "amount": _number(m.group("n").lower())}),
+                "amount": number_value(m.group("n").lower())}),
     # "as long as an opponent has eight or more cards in their graveyard" —
     # `control_count`'s opponent-scoped sibling; "an opponent" means *any*
     # one of them satisfies it.
@@ -4124,7 +4124,6 @@ def _opponent_control_condition(what: str) -> Optional[dict]:
     default ``"of": "any"`` (every player, unscoped) — the two only differ
     once there's more than one opponent at the table.
     """
-    from .count_phrase import parse_count_phrase
 
     selector = parse_count_phrase(f"{what.strip()} you control")
     return None if selector is None else {
@@ -4167,14 +4166,12 @@ def static_condition(text: str) -> Optional[dict]:
     # three or more gates", "there are seven or more creature cards in your
     # graveyard", "an opponent controls more lands than you"), tried only after the
     # named rows above declined.
-    from .count_phrase import parse_count_condition
 
     counted = parse_count_condition(stripped)
     if counted is not None:
         return counted
     # ENG-47: "… this turn" — a trigger head in the past tense, asked over the
     # turn-stamped event log (`event_this_turn`) instead of a tracker per phrase.
-    from .history_phrase import parse_history_condition
 
     single = parse_history_condition(stripped)
     if single is not None:
@@ -4552,7 +4549,6 @@ def _for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | d
     selector = _SELF_ANTHEM_FOR_EACH_SELECTORS.get(what)
     if selector is not None:
         return selector
-    from .count_phrase import parse_count_phrase
 
     structured = parse_count_phrase(what)
     if structured is not None:
@@ -4576,7 +4572,7 @@ def _for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | d
 _SELF_GRANT_RE = re.compile(
     # ``0-9`` in the keyword capture is ENG-31's parametric self-grant ("~
     # has firebending 2 as long as there's a lesson card in your graveyard"
-    # — Fire Nation Cadets); `_split_keywords_with_parametric` splits a
+    # — Fire Nation Cadets); `split_keywords_with_parametric` splits a
     # "<name> N" entry off into ``parametric_keywords`` and fail-closes on
     # any other numbered keyword.
     r"~ has (?P<kw>[a-z][a-z, 0-9]*?)"
@@ -4701,8 +4697,6 @@ def _granted_trigger_doubler(inner: str) -> Optional[EffectSpec]:
     body = inner.strip().rstrip(".").strip()
     if not body.lower().startswith("if ") or "triggers an additional time" not in body.lower():
         return None
-    from ..segmenter import trigger_condition_dict  # lazy: segmenter imports this module
-    from .trigger_doubler import parse_trigger_doubler
 
     doubler = parse_trigger_doubler(body, trigger_condition_dict)
     if doubler is None:
@@ -4812,8 +4806,6 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 for spec in inner
             ]
     if text.lower().startswith("if ") and "triggers an additional time" in text.lower():
-        from ..segmenter import trigger_condition_dict  # lazy: segmenter imports this module
-        from .trigger_doubler import parse_trigger_doubler
 
         doubler = parse_trigger_doubler(text, trigger_condition_dict)
         if doubler is not None:
@@ -4881,7 +4873,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         r",? and has \"(?P<inner>.+)\"", text, re.IGNORECASE,
     )
     if quoted_tail is not None:
-        grants = _quoted_ability_grant_effects_list(quoted_tail.group("inner"))
+        grants = quoted_ability_grant_effects_list(quoted_tail.group("inner"))
         if grants:
             specs = [EffectSpec("anthem", {
                 "power": int(quoted_tail.group("p")),
@@ -4907,7 +4899,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     )
     if colored_keyword_quoted_tail is not None:
         keywords = _flag_keywords(colored_keyword_quoted_tail.group("keywords"))
-        grants = _quoted_ability_grant_effects_list(colored_keyword_quoted_tail.group("inner"))
+        grants = quoted_ability_grant_effects_list(colored_keyword_quoted_tail.group("inner"))
         if keywords and grants:
             specs = [
                 EffectSpec("anthem", {
@@ -4934,7 +4926,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         text, re.IGNORECASE,
     )
     if colored_quoted_self is not None:
-        grants = _quoted_ability_grant_effects_list(colored_quoted_self.group("inner"))
+        grants = quoted_ability_grant_effects_list(colored_quoted_self.group("inner"))
         if grants:
             specs = [EffectSpec("color_change", {
                 "colors": [colored_quoted_self.group("color")], "affects": "self",
@@ -4951,7 +4943,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # recipient is the source permanent.
     quoted_self = re.fullmatch(r'~ has "(?P<inner>.+)"', text, re.IGNORECASE)
     if quoted_self is not None:
-        grants = _quoted_ability_grant_effects_list(quoted_self.group("inner"))
+        grants = quoted_ability_grant_effects_list(quoted_self.group("inner"))
         if grants:
             specs = []
             for grant in grants:
@@ -5217,7 +5209,6 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SELF_COST_REDUCTION_WHERE_X_RE.fullmatch(text)
     if m is not None:
-        from .count_phrase import parse_amount_phrase
 
         selector = parse_amount_phrase(m.group("phrase"))
         if selector is not None:
@@ -5653,7 +5644,6 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # "for each …" scaling.
     m = _ATTACHED_ANTHEM_X_RE.fullmatch(text)
     if m is not None and "x" in (m.group("p"), m.group("t")):
-        from .count_phrase import parse_amount_phrase
 
         what = m.group("what").strip()
         # RULE 301.5a: "its" refers to the host, while ~ names the Equipment.
@@ -5674,7 +5664,6 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE.fullmatch(text)
     if m is not None:
-        from .count_phrase import parse_count_phrase
 
         selector = parse_count_phrase(f"{m.group('sub').lower()} cards in your graveyard")
         if selector is not None:
@@ -5745,7 +5734,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             # ENG-31: "~ has firebending N …" (Fire Nation Cadets) — only
             # reached when `_flag_keywords` fails, so the ordinary
             # landwalk/flag path is untouched.
-            split = _split_keywords_with_parametric(kw_text)
+            split = split_keywords_with_parametric(kw_text)
             if split is None:
                 return None
             keywords, parametric = split
@@ -5916,7 +5905,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SOULBOND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         for g in grants:
@@ -5949,7 +5938,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
     if m is not None:
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         return [
@@ -5960,7 +5949,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_AND_TYPE_RE.fullmatch(text)
     if m is not None:
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         return [
@@ -5976,7 +5965,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _ATTACHED_ANTHEM_KEYWORD_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         keywords = _flag_keywords(m.group("keywords"))
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if keywords is None or grants is None:
             return None
         return [
@@ -5989,7 +5978,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _ATTACHED_KEYWORD_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         keywords = _flag_keywords(m.group("keywords"))
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if keywords is None or grants is None:
             return None
         return [
@@ -5999,7 +5988,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_WARD_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         return [
@@ -6012,8 +6001,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_DOUBLE_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        first = _quoted_ability_grant_effects_list(m.group("first"))
-        second = _quoted_ability_grant_effects_list(m.group("second"))
+        first = quoted_ability_grant_effects_list(m.group("first"))
+        second = quoted_ability_grant_effects_list(m.group("second"))
         if (
             m.group("first").strip().lower()
             == "you may look at the top card of your library any time"
@@ -6031,7 +6020,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_LOOK_TOP_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         # The permission belongs to the Equipment's controller, while its
@@ -6047,7 +6036,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_QUOTED_GRANT_AND_TYPE_RE.fullmatch(text)
     if m is not None:
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         return [
@@ -6065,7 +6054,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         granted_doubler = _granted_trigger_doubler(m.group("inner"))
         if granted_doubler is not None:
             return [granted_doubler]
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         return grants
@@ -6138,7 +6127,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _COMMANDER_CREATURES_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         for g in grants:
@@ -6168,7 +6157,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             scope_params = _permanent_scope_params(word, m)
             if basic_only:
                 scope_params["object_filter"] = {**(scope_params.get("object_filter") or {}), "basic": True}
-        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
         for g in grants:
@@ -6241,3 +6230,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("grant_cycling_to_hand", params)]
 
     return None
+
+
+# `library_permission` (imported above) evaluates "as long as …" conditions through this hook; see `clause_hooks`.
+register_static_condition(static_condition)

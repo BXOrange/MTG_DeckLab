@@ -53,12 +53,14 @@ from .normalize import normalize
 from .segmenter import (
     FLASHBACK_DISCOUNT_LINE_RE,
     Segment,
-    _peel_optional,
-    _TRIGGER_RE,
+    peel_optional,
+    TRIGGER_RE,
     parse_effect_body,
     segment_line,
 )
 from .spec import AbilitySpec, EffectSpec, ParserProvenance, contains_marker, fold_action_limit
+from .catalogue.fight_sequences import reordered_fight_text
+from ...models.cards.support_policy import unsupported_reason
 
 MODELED = "MODELED"
 UNMODELED = "UNMODELED"
@@ -224,7 +226,7 @@ def _split_triggered_modal_block(
     lines actually printed — fail-closed, the caller falls back to ordinary
     per-line segmentation.
     """
-    trig = _TRIGGER_RE.match(lines[start].strip())
+    trig = TRIGGER_RE.match(lines[start].strip())
     if trig is None:
         return None
     modal_body = trig.group("body").strip()
@@ -403,7 +405,7 @@ def _split_reflexive_modal_block(
     trigger: Optional[dict[str, Any]] = None
     match = _REFLEXIVE_MODAL_RE.match(line)
     if match is None:
-        wrapper = _TRIGGER_RE.match(line)
+        wrapper = TRIGGER_RE.match(line)
         if wrapper is None:
             return None
         match = _REFLEXIVE_MODAL_RE.match(wrapper.group("body").strip())
@@ -608,8 +610,6 @@ def parse_oracle(card: Any) -> ParseResult:
     contract for the hand-authored registry) even though the parse itself
     now runs at most once per distinct input.
     """
-    from ...models.cards.support_policy import unsupported_reason
-
     reason = unsupported_reason(card)
     if reason:
         return ParseResult(coverage=NEVER_SUPPORTED, unsupported_reason=reason)
@@ -961,7 +961,6 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # creature"/"… instead" must see the paragraph before it.
         raw = _SPELL_RIDER_PARAGRAPH_RE.sub(r" \g<rider>", raw)
     normalized = normalize(raw, getattr(card, "name", None), getattr(card, "keywords", None))
-    from .catalogue.fight_sequences import reordered_fight_text
     normalized = reordered_fight_text(normalized)
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)
@@ -1525,7 +1524,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 all_claimed = False
                 unclaimed.append(line)
                 return
-            body, optional = _peel_optional(becomes.group("body"))
+            body, optional = peel_optional(becomes.group("body"))
             effects = parse_effect_body(body)
             if effects is None:
                 all_claimed = False

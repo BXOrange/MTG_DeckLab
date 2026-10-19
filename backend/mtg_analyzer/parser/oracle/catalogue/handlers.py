@@ -32,13 +32,12 @@ from .casting_window import (
     parse_dig_cast_free, parse_exile_cast_window, parse_exile_copy_cast, parse_free_cast_zone,
     parse_graveyard_play_window,
 )
-from .count_phrase import parse_amount_phrase
+from .count_phrase import parse_amount_phrase, parse_count_phrase
 from .dig import parse_dig, parse_reveal_top_branch
 from .dying_hosts import dying_host_return_specs
 from .fight_sequences import fight_sequence_specs, source_counter_fight_specs
 from .counters import KEYWORD_COUNTER_KINDS, counter_choice_list, parse_counter_choice_items
 from .referent_condition import PRONOUN_NOUN_ALT
-from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     THAT_PLAYER_TAIL,
     target_kind_allowed,
@@ -74,6 +73,34 @@ from .subgrammars import (
     resolve_target_kind,
     target_is_optional,
     target_macro,
+)
+from .characteristic_phrase import parse_object_phrase, PERMANENT_CARD_TYPES
+from .clause_hooks import parse_effect_body, segment_line
+from .clause_primitives import (
+    ACTION_ONCE_PER_TURN_MARKER,
+    ACTIVATION_CONDITION_MARKER,
+    ONCE_PER_TURN_MARKER,
+    ONLY_BEFORE_ATTACKERS_MARKER,
+    ONLY_DURING_YOUR_TURN_MARKER,
+    SORCERY_SPEED_MARKER,
+    TARGET_PARAM_KEYS,
+    TRIGGER_ONCE_PER_TURN_MARKER,
+    X_SPEND_COLOR_MARKER,
+    announces_creature_target,
+    grantable_flag_slug,
+    split_keywords_with_parametric,
+)
+from .subtype_vocabulary import SUBTYPES
+from .emblem_bodies import emblem_body_spec
+from .emblem_statics import emblem_static_effect_specs
+from .static_handlers import (
+    enter_as_copy_tail,
+    object_filter,
+    quoted_ability_grant_effects,
+    quoted_ability_grant_effects_list,
+    static_condition,
+    static_effect_specs,
+    type_addition_params,
 )
 
 #: Colour words → their WUBRG symbol (for a created token's colours).
@@ -698,7 +725,6 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
     if m:
         # The shared type-word reader (card types, "legendary", the subtype vocabulary; an unknown word or a
         # colour fails the piece closed), so "enchantment"/"land" are added types rather than bogus subtypes.
-        from .static_handlers import type_addition_params  # local: imports handlers
 
         parsed = type_addition_params(m.group("mid"))
         if parsed is None:
@@ -918,7 +944,6 @@ _COPY_NP_STATE_WORDS: dict[str, dict] = {
 
 def _copy_np_filter(adjs: str, noun: str) -> Optional[dict]:
     """The ``creature_filter`` of ``<adjectives> <noun>`` (``None`` = a word outside the vocabulary)."""
-    from .subtype_vocabulary import SUBTYPES
 
     fragment: dict = {}
     for word in adjs.split():
@@ -1846,7 +1871,6 @@ _DAMAGE_GROUP_PLAYER_TAILS: dict[str, str] = {
 
 
 def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_count_phrase
 
     text = m.group("group")
     and_players = None
@@ -2270,7 +2294,6 @@ _RECOVER_MILLED_RE = _c(
 
 
 def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .characteristic_phrase import parse_object_phrase
 
     parsed = parse_object_phrase(m.group("what"), plural=True)
     if parsed is None or parsed[1] is not None:
@@ -2320,8 +2343,6 @@ _CHOOSE_KEEP_TYPES_RE = _c(
 
 
 def _choose_keep_types(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .characteristic_phrase import PERMANENT_CARD_TYPES
-    from .count_phrase import parse_count_phrase
 
     kinds = [re.sub(r"^an? ", "", word) for word in re.split(r",? and |, ", m.group("choices"))]
     if len(set(kinds)) != len(kinds) or any(kind not in PERMANENT_CARD_TYPES for kind in kinds):
@@ -2353,7 +2374,6 @@ _KEEP_UP_TO_MIN_COUNT = 2
 
 
 def _choose_keep_count(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_count_phrase
 
     pool = parse_count_phrase(m.group("pool") + " you control")
     if pool is None or pool.get("zone") != "battlefield" or pool.get("of") != "you":
@@ -2655,7 +2675,6 @@ _DIG_CAST_FREE_RE = _c(r"(?:target opponent exiles|exile) cards from the top of 
 _EXILE_COPY_CAST_RE = _c(r"exile [^.]+?(?: and copy (?:it|that card)|\.\s+copy (?:it|that card))(?:\.\s+|, then )[^.]+")
 
 
-
 def _exile_graveyard_clause(text: str) -> Optional[list[EffectSpec]]:
     specs = match_clause(text)
     if specs:
@@ -2683,16 +2702,12 @@ def _exile_copy_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_exile_copy_cast(m.group(0), _exile_graveyard_clause)
 
 
-
 def _dig_cast_free(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_dig_cast_free(m.group(0))
 
 
-
 def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_graveyard_play_window(m.group(0))
-
-
 
 
 #: PAR-118: the shared clause "exile a card from your hand with a number of time counters on it equal to its mana
@@ -2792,7 +2807,6 @@ _PUT_FROM_HAND_MAIN_TYPES: frozenset[str] = frozenset(
 
 
 def _is_creature_subtype_word(word: str) -> bool:
-    from .subtype_vocabulary import SUBTYPES  # function-scoped: keeps the import cheap at module load
 
     return word in SUBTYPES and word not in _NONCREATURE_SUBTYPE_WORDS
 
@@ -2865,7 +2879,6 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["trigger_attacks"] = True
     elsebody = (m.groupdict().get("elsebody") or "").strip().rstrip(".")
     if elsebody:
-        from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
         else_specs = parse_effect_body(elsebody)
         if else_specs is None:
@@ -3152,13 +3165,13 @@ def _mana_value_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: (`GameObject.cycling_x_paid`), substituted through the same ``"x"``
 #: sentinel/`_substitute_x` idiom (`"cycling_x"`) every other X-scaled
 #: effect uses, just a different source field.
-_CYCLING_XX_TOKEN_RE = _c(
+CYCLING_XX_TOKEN_RE = _c(
     r"create an? x/x (?P<mid>[a-z ]*?)creature tokens?"
     r"(?: with (?P<kw>[a-z]+(?:, [a-z]+)*(?: and [a-z]+)?))?"
 )
 
 
-def _cycling_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def cycling_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
     if params is None:
         return None
@@ -3270,7 +3283,6 @@ _DISCARD_UNLESS_CARD_TYPES = frozenset({"artifact", "creature", "land", "enchant
 
 
 def _discard_unless(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .subgrammars import subtype_count_selector
 
     quality = m.group("quality").lower()
     if quality == "nonland":
@@ -3771,8 +3783,6 @@ def _its_controller_mills_eq_power(m: re.Match[str]) -> list[EffectSpec]:
 _ENTERING_CONTROLLER: dict = {"of": "entering", "as": "controller"}
 
 
-
-
 #: "whenever a Sliver deals damage, its controller gains that much life."
 #: (Essence Sliver) — "that much" is the firing DAMAGE event's own
 #: ``amount`` field, the ``group_subject_only`` sibling of `_ITS_CONTROLLER_
@@ -3781,10 +3791,6 @@ _ENTERING_CONTROLLER: dict = {"of": "entering", "as": "controller"}
 #: host; no cached card yet pairs a group subject with "loses" instead of
 #: "gains", so only this polarity is added here).
 _ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE = _c(r"its controller gains that much life")
-
-
-
-
 
 
 #: PAR-117 (attached-permanent-controller residue): "whenever enchanted
@@ -3809,11 +3815,6 @@ _ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE = _c(r"its controller gains that much li
 _ATTACHED_CONTROLLER: dict = {"of": "attached", "as": "controller"}
 
 
-
-
-
-
-
 #: "whenever enchanted creature is dealt damage / deals damage, its
 #: controller loses that much life." (Ragged Veins / Visions of Brutality)
 #: — "that much" is the firing DAMAGE event's own ``amount`` field, the same
@@ -3821,7 +3822,6 @@ _ATTACHED_CONTROLLER: dict = {"of": "attached", "as": "controller"}
 #: already use for a RULE 115 target/the ability's own controller; this is
 #: their attached-host-controller sibling.
 _ITS_CONTROLLER_LOSES_THAT_MUCH_LIFE_RE = _c(r"its controller loses that much life")
-
 
 
 #: PAR-117 (sacrifice-verb residue): "its controller sacrifices `<N>`
@@ -3859,8 +3859,6 @@ def _its_controller_sacrifices_params(m: re.Match[str]) -> Optional[dict]:
         what = "nontoken_creature"
     count_word = m.group("count")
     return {"what": what, "count": 1 if count_word in ("a", "an") else int(count_word)}
-
-
 
 
 #: PAR-121: "its controller `<verb>` …" — the verb × subject matrix. The same clause text reads as the controller
@@ -4919,7 +4917,6 @@ _MASS_GROUP_REFUSED_WORDS = (
 
 def _mass_group_params(text: str, quant: str) -> Optional[dict]:
     """``{"group", "group_player"?}`` for a mass verb's "all/each `<group>`" object, or ``None``."""
-    from .count_phrase import parse_count_phrase
 
     group_player = None
     for tail, who in _DAMAGE_GROUP_PLAYER_TAILS.items():
@@ -5081,7 +5078,6 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if reflexive:
         if not m.groupdict().get("cost"):
             return None
-        from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
         sub = parse_effect_body(reflexive)
         if not sub:
@@ -5095,7 +5091,7 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: *resolve-time* grant of a full quoted ability (activated/triggered/
 #: mana), unlike every other "gains `<keyword>` until end of turn" row
 #: above (a bare flag keyword, no quotes). Reuses `static_handlers.
-#: _quoted_ability_grant_effects` (the Aura/Equipment quoted-grant parser,
+#: quoted_ability_grant_effects` (the Aura/Equipment quoted-grant parser,
 #: already general over all three ability kinds) wrapped in `GrantUntil
 #: Effect`'s existing ``duration="end_of_turn"`` resolve-time shape
 #: instead of a standing layer-6 static.
@@ -5105,10 +5101,8 @@ _GRANT_QUOTED_ABILITY_UNTIL_EOT_RE = _c(
 
 
 def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import _quoted_ability_grant_effects  # local: avoid a module cycle
 
     if m.group("subject") != "target creature":
-        from .static_handlers import static_effect_specs
         grants = static_effect_specs(f'{m.group("subject")} have "{m.group("inner")}"')
         if not grants or any(s.type not in {"grant_triggered_ability", "grant_activated_ability",
                                            "grant_mana_ability"} for s in grants):
@@ -5117,7 +5111,7 @@ def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpe
             "static": grants[0].to_dict(), "extra_statics": [s.to_dict() for s in grants[1:]],
             "duration": "end_of_turn", "target_kind": None, "lock_group": True,
         })]
-    grant = _quoted_ability_grant_effects(m.group("inner"))
+    grant = quoted_ability_grant_effects(m.group("inner"))
     if grant is None:
         return None
     return [EffectSpec("grant_until", {
@@ -5133,9 +5127,8 @@ _IT_GAINS_QUOTED_ABILITY_RE = _c(r"it gains \"(?P<inner>(?:when|whenever)[^\"]+)
 
 
 def _it_gains_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import _quoted_ability_grant_effects  # local: avoid a module cycle
 
-    grant = _quoted_ability_grant_effects(m.group("inner"))
+    grant = quoted_ability_grant_effects(m.group("inner"))
     if grant is None:
         return None
     return [EffectSpec("grant_until", {
@@ -5403,7 +5396,6 @@ _TAP_ALL_PLAYER_SCOPES: dict[str, str] = {
 
 
 def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_count_phrase
 
     selector = parse_count_phrase(m.group("group"))
     if selector is None or selector.get("zone") != "battlefield" or selector.get("of") != "any":
@@ -5416,7 +5408,6 @@ def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_count_phrase
 
     group = m.group("group")
     if "target" in group or "that player" in group:
@@ -6205,7 +6196,6 @@ _RETURN_FROM_GRAVEYARD_MULTI_RE = _c(
 def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     subtype = m.group('subtype')
     if subtype:
-        from .subtype_vocabulary import SUBTYPES
         if subtype not in SUBTYPES or subtype in _NONCREATURE_SUBTYPE_WORDS:
             return None
     kind = _graveyard_target_kind('creature' if subtype else m.group('type'), m.group('scope'))
@@ -6315,7 +6305,6 @@ def _choose_graveyard_return(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     creature_filter: dict = {}
     if m.group("sub"):
-        from .subtype_vocabulary import SUBTYPES
 
         sub = m.group("sub").lower()
         if sub not in SUBTYPES or sub in _NONCREATURE_SUBTYPE_WORDS:
@@ -6624,7 +6613,6 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None  # a colour list we couldn't resolve — fail closed
     creature_filter: dict = {}
     if m.groupdict().get("sub"):
-        from .subtype_vocabulary import SUBTYPES
 
         sub = m.group("sub").lower()
         if sub not in SUBTYPES or sub in _NONCREATURE_SUBTYPE_WORDS or m.groupdict().get("type") != "creature":
@@ -6762,9 +6750,8 @@ _SEARCH_MV_QUALIFIER = (
 #: Blightspeaker/Defiant Falcon, Bog Glider, Rathi Fiend/Intimidator).
 #: Search subtypes share the generated, rules-backed vocabulary with other
 #: card filters; both "a Dinosaur card" and "a Rebel permanent card" use it.
-from .subtype_vocabulary import SUBTYPES as _SEARCH_SUBTYPES
 _SEARCH_SUBTYPE_WORD = '|'.join(
-    re.escape(word) for word in sorted(_SEARCH_SUBTYPES, key=lambda word: (-len(word), word))
+    re.escape(word) for word in sorted(SUBTYPES, key=lambda word: (-len(word), word))
     if word != 'aura'  # Keep the existing Aura/enchant-quality branch below.
 )
 #: The noun phrase after "search your library for": a determiner ("a"/"an"/
@@ -6961,7 +6948,6 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     crit: dict = {}
     if m.groupdict().get("permanent"):
         # RULE 110.4: permanent cards have at least one permanent card type.
-        from .characteristic_phrase import PERMANENT_CARD_TYPES
         crit["type"] = list(PERMANENT_CARD_TYPES)
     basic = bool(m.groupdict().get("basic"))
     if basic:
@@ -6970,7 +6956,6 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     if subtype:
         crit["type"] = subtype.strip().lower()
         if m.groupdict().get('subtype_permanent'):
-            from .characteristic_phrase import PERMANENT_CARD_TYPES
             # The subtype and permanent-card restriction are independent.
             crit['or'] = [{'type': list(PERMANENT_CARD_TYPES)}]
     if m.groupdict().get("aura"):
@@ -7567,7 +7552,7 @@ _GAIN_CONTROL_EOT_PER_OPPONENT_RE = _c(
 def _gain_control_eot_per_opponent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # PAR-150: the haste the effect itself grants may be listed with more keywords (Hideous Taskmaster's "trample,
     # haste, and annihilator 1"); the rest ride a `pump` over the creatures just taken (`previous_subject`).
-    split = _split_keywords_with_parametric(m.group("kw"))
+    split = split_keywords_with_parametric(m.group("kw"))
     if split is None or "haste" not in split[0]:
         return None
     flags, parametric = split
@@ -8770,7 +8755,6 @@ _PAY_ENERGY_THEN_RE = _c(
 
 
 def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     amount = m.group("pips").count("{e}")
     sub = parse_effect_body(m.group("effect").strip())
@@ -8827,7 +8811,7 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: (no legal permanent of the named type/no cards in hand), which is real
 #: and worth being interactive about for a *typed* sacrifice/discard/life
 #: payment. Self-sacrifice is handled by that separate antecedent path.
-_MAY_COST_THEN_CLAUSE = (
+MAY_COST_THEN_CLAUSE = (
     r"pay (?:\{[wubrgcx0-9/]+\})+"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
     r"|sacrifice an? \w+(?: or (?:an? )?\w+)?"
@@ -8853,7 +8837,7 @@ _MAY_COST_THEN_CLAUSE = (
     r"|remove (?:a|an|\d+) (?:[+\-]\d/[+\-]\d |[a-z]+(?: strike)? )?counters? from (?:~|it|this [a-z]+)"
 )
 _PAY_COST_THEN_GENERAL_RE = _c(
-    r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
+    r"you may (?P<cost>" + MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
 )
 #: RULE 603.5's *negative* antecedent: "you may `<cost>`. If you don't,
 #: `<effect>`." (Chaos Spewer, Gutsplitter Gang, Scuzzback Scrounger — the
@@ -8862,7 +8846,7 @@ _PAY_COST_THEN_GENERAL_RE = _c(
 #: ``else_effects`` branch (`game/effects/core.py`'s `PayCostThenEffect`), which
 #: fires only when the optional cost is *declined* or unpayable.
 _PAY_COST_THEN_OR_ELSE_RE = _c(
-    r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*if you don't,?\s*(?P<effect>.+)"
+    r"you may (?P<cost>" + MAY_COST_THEN_CLAUSE + r")\.\s*if you don't,?\s*(?P<effect>.+)"
 )
 
 
@@ -8916,7 +8900,6 @@ def _remembered_group_referent(specs: "list[EffectSpec]") -> Optional[list[Effec
 
 
 def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body, _announces_creature_target
 
     group = _GROUP_CLAUSE.get()
     if group and re.match(r"remove .* from it$", m.group("cost")):
@@ -8951,7 +8934,7 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"cost": m.group("cost"), "effects": [s.to_dict() for s in sub]}
     if len(parts) > 1:
         otherwise = parse_effect_body(
-            parts[1], self_subject=True, previous_subject=_announces_creature_target(sub),
+            parts[1], self_subject=True, previous_subject=announces_creature_target(sub),
         )
         if not otherwise or any(s.params.get("target_kind") for s in otherwise):
             return None
@@ -8990,7 +8973,6 @@ def _bind_that_many(value: Any) -> Any:
 
 
 def _sacrifice_chosen_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     effect = m.group("effect").strip()
     if "that many" not in effect or re.search(r"\d", effect):
@@ -9028,7 +9010,6 @@ def _draw_opponents_damaged_discard(m: re.Match[str]) -> Optional[list[EffectSpe
 def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """"you may `<cost>`. If you don't, `<effect>`." — the else-branch
     sibling of `_pay_cost_then_general` (PAR-29 Blight batch)."""
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
     if not sub:
@@ -9091,15 +9072,15 @@ def _tap_another_untapped_you_control(m: re.Match[str]) -> list[EffectSpec]:
 
 #: Exported so `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE` can protect these
 #: antecedent shapes from `_peel_optional` the same way it already
-#: protects `_MAY_COST_THEN_CLAUSE` (same "so this guard can never drift
+#: protects `MAY_COST_THEN_CLAUSE` (same "so this guard can never drift
 #: out of sync" reasoning that constant's own docstring gives). A plain
 #: (non-capturing) mirror of `_RETURN_ANOTHER_YOU_CONTROL_RE`/
 #: `_TAP_ANOTHER_UNTAPPED_YOU_CONTROL_RE` rather than their own
 #: ``.pattern`` — both use the same group names (``n``/``type``), and the
-#: guard embeds this alongside `_MAY_COST_THEN_CLAUSE` in one compiled
+#: guard embeds this alongside `MAY_COST_THEN_CLAUSE` in one compiled
 #: regex, where a repeated group name is a `re.error`, not just a style
 #: nit.
-_MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
+MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
     r"return (?:another|\d+ other) [a-z]+?s? you control to (?:its owner's|their owners') hand"
     r"|tap (?:another|\d+ other) untapped [a-z]+?s? you control"
     # PAR-124 (Magitek Scythe): "you may attach it to target creature you
@@ -9127,7 +9108,7 @@ _MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
 #: PAR-79 sixth increment: "You may `<effect>`. If you do, `<effect2>`."
 #: (Biblioplex Kraken/Gravelgill Scoundrel/Tidal Terror/Saprazzan Breaker-
 #: shaped) — `_PAY_COST_THEN_GENERAL_RE`'s antecedent is cost-shaped only
-#: (`_MAY_COST_THEN_CLAUSE`'s closed vocabulary); these cards' antecedent is
+#: (`MAY_COST_THEN_CLAUSE`'s closed vocabulary); these cards' antecedent is
 #: itself an ordinary *resolving effect* ("return another creature you
 #: control to its owner's hand", "tap another untapped creature you
 #: control", "mill a card"), not a cost payment at all — a genuinely
@@ -9168,7 +9149,6 @@ _MAY_ATTACH_IF_YOU_DO_RE = _c(
 
 
 def _may_attach_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     second = parse_effect_body(m.group("effect2").strip(), previous_subject=True)
     if not second:
@@ -9190,7 +9170,6 @@ _MAY_EXILE_TARGET_IF_YOU_DO_RE = _c(
 
 
 def _may_exile_target_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     first = parse_effect_body(f"exile {m.group('target')}")
     second = parse_effect_body(m.group("effect2").strip())
@@ -9250,7 +9229,6 @@ def _have_that_player_lose_life(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     first = parse_effect_body(m.group("effect1").strip(), self_subject=True)
     if not first:
@@ -9583,17 +9561,6 @@ def _win_if_empty_library(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("win_game", {"if_empty_library": True})]
 
 
-#: RULE 602.1-adjacent per-instance activation cap: "Activate only once each
-#: turn." (Quirion Ranger/Scryb Ranger-shaped) — a plain trailing sentence in
-#: an activated ability's own body (after the cost's colon), sitting
-#: alongside its real effect ("Untap target creature. Activate only once
-#: each turn." — two sentences `parse_effect_body`'s connector-splitting
-#: already tries independently). Not a real one-shot effect: this handler
-#: claims the clause but emits a *marker* `EffectSpec` `effect_binder.
-#: bind_ability`'s "activated" branch recognizes and strips before binding,
-#: turning it into `ActivatedAbility.once_per_turn` instead of a `GameEffect`
-#: (mirroring `TriggeredAbility.once_per_turn`'s own RULE 603.2 stamp).
-ONCE_PER_TURN_MARKER = "once_per_turn_marker"
 _ONCE_PER_TURN_RE = _c(r"activate (?:this ability )?only once each turn")
 
 
@@ -9601,19 +9568,6 @@ def _once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONCE_PER_TURN_MARKER, {})]
 
 
-#: RULE 603.2's own once-per-turn limiter, PAR-14 — "This ability triggers
-#: only once each turn." (Chance-Met Elves/Prudent Fateseer-shaped) — a
-#: trailing sentence in a *triggered* ability's own body, the exact same
-#: "claim the clause, emit a marker, let the binder fold it into a flag"
-#: shape `ONCE_PER_TURN_MARKER` above uses for an *activated* ability, but
-#: textually distinct ("this ability triggers", not "activate"), so its own
-#: row rather than widening that one. `segmenter.segment_line`'s "triggered"
-#: dispatch strips this marker from the parsed body and folds it into
-#: `AbilitySpec.trigger["limit"]`, consumed by `effect_binder.bind_ability`
-#: as `TriggeredAbility.once_per_turn` — a primitive that already existed
-#: (built for Dionus, Elvish Archdruid's *granted* ability) but no
-#: oracle-text recognizer had ever reached from an ordinary printed card.
-TRIGGER_ONCE_PER_TURN_MARKER = "trigger_once_per_turn_marker"
 _TRIGGER_ONCE_PER_TURN_RE = _c(r"this ability triggers only once each turn")
 
 
@@ -9621,12 +9575,6 @@ def _trigger_once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(TRIGGER_ONCE_PER_TURN_MARKER, {})]
 
 
-#: PAR-135: "…, you may draw a card. **Do this only once each turn.**" — the once-per-turn limit on the
-#: *action* a trigger offers, not on the trigger: it still triggers every time, the controller just can't
-#: perform the optional action a second time this turn, and declining the first doesn't use it up. So it is
-#: not `TRIGGER_ONCE_PER_TURN_MARKER` (Ondu Spiritdancer, Irreverent Gremlin). The binder strips the marker
-#: into `TriggeredAbility.action_once_per_turn`; `gate._action_limit_ok` refuses it anywhere else.
-ACTION_ONCE_PER_TURN_MARKER = "action_once_per_turn_marker"
 _ACTION_ONCE_PER_TURN_RE = _c(r"do this only once each turn")
 
 
@@ -9634,21 +9582,6 @@ def _action_once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ACTION_ONCE_PER_TURN_MARKER, {})]
 
 
-#: RULE 602.5d timing restriction: "Activate only as a sorcery." (older
-#: template) / "Activate this ability only any time you could cast a sorcery."
-#: (current) — like `ONCE_PER_TURN_MARKER`, a trailing sentence in the
-#: activated ability's own body, not a real one-shot effect. Claimed as a
-#: marker `EffectSpec` that `effect_binder.bind_ability`'s "activated" branch
-#: strips and folds into `ActivationCost.sorcery_speed_only` (already enforced
-#: by `game_engine.can_activate` via `_sorcery_speed_ok`), the same lever the
-#: engine already uses for level-up / Class-level sorcery-speed abilities.
-#: Only the two canonical *sorcery-speed* phrasings (RULE 605.3b / "any time
-#: you could cast a sorcery"). Deliberately not "only during your turn"
-#: (its own, wider `ONLY_DURING_YOUR_TURN_MARKER` below — folding it in
-#: here would be *wrong*, since a non-empty stack is still legal for that
-#: one) or "before attackers are declared" (still unclaimed, fail-closed,
-#: until modeled precisely).
-SORCERY_SPEED_MARKER = "sorcery_speed_marker"
 _SORCERY_SPEED_RE = _c(
     r"activate (?:this ability )?only "
     r"(?:as a sorcery|any time you could cast a sorcery)"
@@ -9659,10 +9592,6 @@ def _sorcery_speed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(SORCERY_SPEED_MARKER, {})]
 
 
-#: PAR-109, RULE 605.3a: "Spend only black mana on X." (Crypt Rats, Crimson Hellkite) — a trailing sentence of an
-#: activated ability's body, folded by `effect_binder.bind_ability` into `ActivationCost.x_spend_color` (the
-#: `SORCERY_SPEED_MARKER` shape).
-X_SPEND_COLOR_MARKER = "x_spend_color_marker"
 _X_SPEND_COLOR_RE = _c(r"spend only (?P<color>white|blue|black|red|green) mana on x")
 
 
@@ -9670,15 +9599,6 @@ def _x_spend_color(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(X_SPEND_COLOR_MARKER, {"color": _COLOR_WORDS[m.group("color").lower()]})]
 
 
-#: RULE 602.5d's *other* timing restriction: "Activate only during your
-#: turn." (Wishclaw Talisman-shaped) — deliberately left unclaimed above
-#: (see `SORCERY_SPEED_MARKER`'s own docstring) since it's a genuinely
-#: different, wider window than sorcery-speed (still legal at instant
-#: speed with a non-empty stack — just not outside the controller's own
-#: turn). Same marker-then-strip shape, folded by `effect_binder.
-#: bind_ability` into `ActivationCost.only_during_your_turn`
-#: (`GameEngine._only_during_your_turn_ok`) instead of `sorcery_speed_only`.
-ONLY_DURING_YOUR_TURN_MARKER = "only_during_your_turn_marker"
 _ONLY_DURING_YOUR_TURN_RE = _c(r"activate (?:this ability )?only during your turn")
 
 
@@ -9695,9 +9615,6 @@ def _only_during_your_turn_once(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {}), EffectSpec(ONCE_PER_TURN_MARKER, {})]
 
 
-#: PAR-165: "Activate only during your turn, before attackers are declared." -- the own-turn marker plus a step cut-off
-#: (`ActivationCost.only_before_attackers`, `GameEngine._before_attackers_declared_ok`).
-ONLY_BEFORE_ATTACKERS_MARKER = "only_before_attackers_marker"
 _ONLY_BEFORE_ATTACKERS_RE = _c(r"activate (?:this ability )?only during your turn, before attackers are declared")
 
 
@@ -9705,48 +9622,6 @@ def _only_before_attackers(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {}), EffectSpec(ONLY_BEFORE_ATTACKERS_MARKER, {})]
 
 
-# PAR-28: marker `EffectSpec`s synthesized by `segmenter._segment_keyword_
-# labeled_ability` for the "Keyword — [ability]" families (Boast/Exhaust/
-# Power-up/Forecast — RULE 702.142/702.177/702.57). They carry no oracle
-# text of their own (there is no regex row here — the keyword name *is* the
-# recognition), and `effect_binder.bind_ability`'s "activated" branch strips
-# and folds each into an `ActivatedAbility`/`ActivationCost` flag exactly
-# like `ONCE_PER_TURN_MARKER` above.
-#: RULE 702.177a / Power-up — "Activate only once." (per game, per ability).
-ACTIVATE_ONLY_ONCE_MARKER = "activate_only_once_marker"
-#: Power-up — "Reduce the cost by its mana cost if it entered this turn."
-POWERUP_COST_REDUCTION_MARKER = "powerup_cost_reduction_marker"
-#: RULE 702.57a — a forecast ability is activated from the card's hand.
-FROM_HAND_MARKER = "from_hand_marker"
-
-
-# PAR-10: "Activate only as a sorcery and only if `<condition>`." (Cabal
-# Inquisitor/Dread Wanderer/Hall of Oracles/Jin-Gitaxias // The Great
-# Synthesis) and its bare sibling "Activate only if `<condition>`."
-# (Potioner's Trove) — RULE 602.5d timing stacked with (or standing in for)
-# an activation-legality board condition, a second marker `effect_binder.
-# bind_ability`'s "activated" branch folds into `ActivationCost.
-# activation_condition`, checked by `GameEngine.can_activate` via
-# `game/static_conditions.condition_holds` — the same RULE 613.6 whitelist a
-# permanent's own "as long as `<condition>`" static already uses, so a
-# condition recognized for one is recognized (and evaluated identically) for
-# both.
-#
-# `game/static_conditions.py`'s full vocabulary lives behind
-# `catalogue.static_handlers.static_condition` — which this module can't
-# import (`static_handlers` already imports `SORCERY_SPEED_MARKER` from
-# *here*, so the reverse import would cycle). This is deliberately a small,
-# independent subset covering only the phrasings real cards actually pair
-# with an activation condition today: hand/graveyard card counts and "cast
-# an instant or sorcery spell this turn" (`cast_instant_or_sorcery_this_
-# turn` is new — see `static_conditions.py` and `static_handlers.py`'s own
-# `_STATIC_CONDITION_RES` row, which picks up the same phrase for free for
-# the "created" ~250-clause "as long as" family: Haunting Figment/Leapfrog/
-# Piston-Fist Cyclops). Every one of the ~150 *other* "Activate only if …"
-# phrasings in the cache (`you control a Plains`, `this creature is
-# attacking`, `a creature died this turn`, …) is real, standing PAR-12 tail
-# work, not part of this ticket — fail-closed here, same as everywhere else.
-ACTIVATION_CONDITION_MARKER = "activation_condition_marker"
 _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], dict]]] = [
     # PAR-98: the legendary-matters activation gate shared by Rivendell and
     # Haunt of the Dead Marshes.  It is a live board count, not a spell-cast
@@ -9824,7 +9699,6 @@ def _activation_condition_dict(text: str) -> Optional[dict[str, Any]]:
     # table already recognized — zero behaviour change for an already-
     # shipped card — and only a phrase genuinely new to *both* tables reaches
     # the shared vocabulary for the first time.
-    from .static_handlers import static_condition
 
     return static_condition(stripped)
 
@@ -9889,41 +9763,11 @@ def _token_keywords(text: str) -> Optional[list[str]]:
         part = part.strip()
         if not part:
             continue
-        slug = _grantable_flag_slug(part)
+        slug = grantable_flag_slug(part)
         if slug is None:
             return None
         slugs.append(slug)
     return slugs
-
-
-def _grantable_flag_slug(part: str) -> Optional[str]:
-    """A single keyword token → its grantable slug, or ``None`` if it isn't a
-    FLAG keyword, bare "hexproof", or a landwalk variant (PAR-74) — the three
-    shapes `_token_keywords`/`_split_keywords_with_parametric` can grant
-    without a separate quality param. Shared so the two callers (a token's
-    "with <keywords>" clause and a temporary "gains <keywords> until end of
-    turn" pump) stay in lockstep."""
-    slug = keyword_slug(part)
-    kdef = KEYWORDS.get(slug)
-    if kdef is not None and kdef.slug in UNGRANTABLE_FLAG_KEYWORDS:
-        return None
-    if kdef is not None and (kdef.shape is KeywordShape.FLAG or kdef.slug == "hexproof"):
-        return kdef.slug
-    resolved = resolve_keyword(slug)
-    if resolved is not None and resolved.slug == "landwalk" and slug != "landwalk":
-        return slug
-    return None
-
-
-#: ENG-31: the parametric keywords a *grant* ("gains firebending N until end
-#: of turn", "has firebending N as long as …", a token "with firebending N")
-#: can model — the ones whose RULE 702 text is a triggered ability
-#: `effect_binder._KEYWORD_TRIGGERED_BUILDERS` re-synthesizes off the granted
-#: N, plus toxic (PAR-102), which no builder needs: `combat.toxic_value` reads the granted N live at
-#: damage time. Every other NUMBER-shape keyword (renown, …) stays fail-closed for a grant.
-_GRANTABLE_PARAMETRIC_KEYWORDS: frozenset[str] = frozenset(
-    {"firebending", "annihilator", "afflict", "bushido", "toxic"}
-)
 
 
 #: PAR-98 (Riftmarked Knight): "…token with flanking, protection from white,
@@ -9949,31 +9793,6 @@ def _split_token_protection(text: str) -> tuple[str, str]:
         else:
             kept.append(part)
     return ", ".join(kept), "\n".join(protections)
-
-
-def _split_keywords_with_parametric(
-    text: str,
-) -> Optional[tuple[list[str], list[dict[str, object]]]]:
-    """A "<kw>[, <kw> and firebending N …]" list → ``(flag_slugs,
-    [{"name", "n"}, ...])``, or ``None`` if any entry is neither a FLAG
-    keyword nor a grantable parametric one (fail-closed, like
-    `_token_keywords`). ``"firebending 2"`` / ``"annihilator 1"`` entries go
-    to the parametric list; everything else must be a plain flag."""
-    flags: list[str] = []
-    parametric: list[dict[str, object]] = []
-    for part in re.split(r",|\band\b", text):
-        part = part.strip()
-        if not part:
-            continue
-        pm = re.fullmatch(r"([a-z]+)\s+(\d+)", part)
-        if pm and pm.group(1) in _GRANTABLE_PARAMETRIC_KEYWORDS:
-            parametric.append({"name": pm.group(1), "n": int(pm.group(2))})
-            continue
-        slug = _grantable_flag_slug(part)
-        if slug is None:
-            return None
-        flags.append(slug)
-    return flags, parametric
 
 
 #: "…token that's tapped and attacking" / "…tokens that are tapped and
@@ -10020,7 +9839,7 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     protection_text = ""
     if m.groupdict().get("kw"):
         kw_text, protection_text = _split_token_protection(m.group("kw"))
-        split = _split_keywords_with_parametric(kw_text)
+        split = split_keywords_with_parametric(kw_text)
         if split is None:
             return None  # unrecognised "with …" ability → fail-closed
         keywords, parametric_keywords = split
@@ -10047,7 +9866,6 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     if quoted_cda:
         # RULE 604.3: a token owns its quoted CDA. Validate the whole ability
         # before preserving it as the new card's oracle text.
-        from .static_handlers import static_effect_specs  # function-scoped: static_handlers imports this module
 
         normalized = re.sub(r"^(?:this token|this creature)'s", "~'s", quoted_cda, flags=re.I)
         parsed = static_effect_specs(normalized)
@@ -10099,7 +9917,6 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         params["token_name"] = tname.strip().title()
     token_ab = m.groupdict().get("token_ab")
     if token_ab:
-        from ..segmenter import segment_line
 
         # RULE 111.3: this is the token's own printed ability, not an
         # ability re-granted to another object. Validate its native scope.
@@ -10119,7 +9936,6 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _create_tokens_count_plus(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_count_phrase
     group = parse_count_phrase(m.group("group"))
     if group is None:
         return None
@@ -10145,7 +9961,6 @@ def _create_token_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # A */* token prints its P/T only in the quoted characteristic-defining
     # ability. Zero is a placeholder; the bound CDA defines both values in
     # layer 7a as soon as the token enters (RULE 604.3/613.7).
-    from .static_handlers import static_effect_specs  # function-scoped: static_handlers imports this module
 
     oracle = m.group("cda")
     normalized = re.sub(r"^(?:this token|this creature)'s", "~'s", oracle, flags=re.I)
@@ -10180,7 +9995,6 @@ _CREATE_NAMED_TOKEN_QUOTED_CDA_RE = _c(
 
 
 def _create_named_token_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import static_effect_specs  # function-scoped: static_handlers imports this module
 
     name, oracle = m.group("name").strip(), m.group("cda")
     normalized = re.sub(rf"^{re.escape(name)}'s", "~'s", oracle, flags=re.I)
@@ -11000,7 +10814,6 @@ _ADD_PT_COUNTER_GROUP_RE = _c(
 
 
 def _add_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_count_phrase
 
     phrase = m.group("group")
     group = parse_count_phrase(phrase)
@@ -11080,7 +10893,6 @@ _ADD_COUNTER_PICK_RE = _c(
 
 
 def _add_counter_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_count_phrase
 
     group = parse_count_phrase(("other " if m.group("other") else "") + m.group("group"))
     if group is None or group.get("zone") != "battlefield" or group.get("of") != "you":
@@ -11499,7 +11311,7 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     parametric: list[dict[str, object]] = []
     if m.groupdict().get("kw"):
         # PAR-102: "gains flying and toxic 1" — a grantable parametric keyword rides beside the flags.
-        split = _split_keywords_with_parametric(m.group("kw"))
+        split = split_keywords_with_parametric(m.group("kw"))
         if split is None:
             return None  # unmodeled granted ability → fail-closed
         keywords.extend(split[0])
@@ -11657,11 +11469,10 @@ def _pump_x_nonland_permanents(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _pump_and_quoted_grant(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import _quoted_ability_grant_effects  # local: avoid a module cycle
 
     if bool(m.group("dur_pre")) == bool(m.group("dur_post")):
         return None  # no duration (permanent) or two of them
-    inner = _quoted_ability_grant_effects(m.group("inner"))
+    inner = quoted_ability_grant_effects(m.group("inner"))
     if inner is None:
         return None
     return _pump_then_grant(m, {"type": inner.type, "params": dict(inner.params)})
@@ -11703,7 +11514,7 @@ def _pump_keyword_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None  # a missing duration is a permanent grant; two are a typo
     options: list[str] = []
     for part in re.split(r",\s*or\s+|\s+or\s+|,\s*", m.group("opts")):
-        slug = _grantable_flag_slug(part.strip())
+        slug = grantable_flag_slug(part.strip())
         if slug is None or slug in options:
             return None
         options.append(slug)
@@ -11732,7 +11543,7 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if subject is None:
         return None
     target_kind, selector = subject
-    split = _split_keywords_with_parametric(m.group("kw"))
+    split = split_keywords_with_parametric(m.group("kw"))
     if split is None:
         return None
     flags, parametric = split
@@ -12286,7 +12097,6 @@ def _pump_target_x_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if referent is not None:
         amount_spec = dict(referent)
     else:
-        from .count_phrase import parse_amount_phrase
 
         counted = parse_amount_phrase(phrase)
         if counted is None:
@@ -12777,9 +12587,8 @@ _GRANT_DURATIONS: dict[str, str] = {
 
 
 def _source_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import _quoted_ability_grant_effects_list
 
-    grants = _quoted_ability_grant_effects_list(m['inner'])
+    grants = quoted_ability_grant_effects_list(m['inner'])
     if not grants:
         return None
     duration = 'rest_of_game' if not m['dur'] else ('end_of_turn' if m['dur'] == 'until end of turn'
@@ -12868,7 +12677,6 @@ _UNTIL_NEXT_TURN_CONDITIONAL_GAINS_RE = _c(
 
 
 def _until_next_turn_conditional_gains(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     specs: list[EffectSpec] = []
     for kw, cond in ((m.group("kw1"), m.group("c1")), (m.group("kw2"), m.group("c2"))):
@@ -13365,7 +13173,6 @@ _REDUCE_COSTS_THIS_TURN_RE = _c(
 
 
 def _reduce_costs_this_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_amount_phrase  # function-scoped, as elsewhere here
 
     params: dict[str, Any] = {"next_only": bool(m.group("next"))}
     if m.group("direction") == "more":
@@ -13617,7 +13424,7 @@ def _discover(m: re.Match[str]) -> list[EffectSpec]:
 #: `context.trigger_event` is `None` for a plain resolving spell, so this
 #: row alone would silently discover 0; its own `previous_subject_only`
 #: sibling right below (offered only when `segmenter.
-#: _announces_creature_target` sees a preceding ``counter`` spec, widened
+#: announces_creature_target` sees a preceding ``counter`` spec, widened
 #: for exactly this shape) claims that case correctly instead.
 def _discover_spell_mv(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("discover", {"mana_value_from_trigger_event": "mana_value"})]
@@ -13946,7 +13753,6 @@ _COIN_REFLEXIVE_RE = _c(
 
 
 def _coin_reflexive(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     branches = {m.group("r1").lower(): m.group("b1")}
     if m.group("r2"):
@@ -13979,7 +13785,6 @@ _COIN_DELAYED_BODY_RE = _c(
 
 
 def _coin_delayed(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     won = {"kind": "coin_won"}
     gate = won if m.group("res").lower() == "win" else {"kind": "not", "condition": won}
@@ -14032,7 +13837,6 @@ _COIN_EACH_PLAYERS = {"opponent you have": "each_opponent", "opponent": "each_op
 
 def _coin_each_group(m: re.Match[str]) -> Optional[tuple[dict, str]]:
     """The loop's ``over`` and the kind (``player``/``creature``) its items are."""
-    from ..catalogue.count_phrase import parse_count_phrase
 
     group = (m.group("g1") or m.group("g2") or m.group("pl")).strip().lower()
     if group in _COIN_EACH_PLAYERS:
@@ -14051,7 +13855,6 @@ def _coin_each_group(m: re.Match[str]) -> Optional[tuple[dict, str]]:
 
 
 def _coin_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import _TARGET_PARAM_KEYS, parse_effect_body  # lazy: segmenter imports this module
 
     group = _coin_each_group(m)
     if group is None:
@@ -14082,7 +13885,7 @@ def _coin_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if not sub:
             return None
         for spec in sub:
-            named = [spec.params[k] for k in _TARGET_PARAM_KEYS if spec.params.get(k) is not None]
+            named = [spec.params[k] for k in TARGET_PARAM_KEYS if spec.params.get(k) is not None]
             if (named not in ([], [item_kind]) or spec.condition is not None
                     or spec.type in ("for_each", "bind", "if_else", "seq")):
                 return None
@@ -14123,7 +13926,6 @@ def _roll_die(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"sides": sides}
     if word == "x":
         if m.group("where"):
-            from .count_phrase import parse_amount_phrase
 
             counted = parse_amount_phrase(m.group("where"))
             if counted is None:
@@ -14135,7 +13937,6 @@ def _roll_die(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("where"):
         return None  # a "where x is" tail only defines a rolled-X count
     if m.group("mod"):
-        from .count_phrase import parse_amount_phrase
 
         if word != "a":  # a modifier on a multi-die roll is not a printed shape
             return None
@@ -14268,7 +14069,6 @@ def _split_vote_options(raw: str) -> list[str]:
 
 
 def _vote_majority(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     options = _split_vote_options(m.group("opts"))
     if len(options) != 2:
@@ -14318,7 +14118,6 @@ _VOTE_PER_VOTE_SEG_RE = re.compile(
 
 
 def _vote_per_vote(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     options = _split_vote_options(m.group("opts"))
     if len(options) != 2:
@@ -14567,7 +14366,6 @@ def _villainous_option_specs(body: str):
     a creature of their choice") maps straight to a player-less
     `sacrifice` spec.
     """
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     body = body.strip().rstrip(".")
     sac = _VILLAINOUS_SAC_RE.match(body)
@@ -14646,7 +14444,6 @@ def _bolster(m: re.Match[str]) -> list[EffectSpec]:
 # "Bolster X, where X is `<quantity>`." (PAR-29) — PAR-120: the quantity is
 # read by the shared amount vocabulary (`count_phrase.parse_amount_phrase`).
 def _bolster_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .count_phrase import parse_amount_phrase
 
     selector = parse_amount_phrase(m.group("selector"))
     if selector is None:
@@ -15123,7 +14920,7 @@ _PUMP_KEYWORD_MULTI_RE = _c(
 
 def _pump_keyword_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _multi_target_pump_params(m)
-    split = _split_keywords_with_parametric(m.group("kw"))
+    split = split_keywords_with_parametric(m.group("kw"))
     if params is None or split is None or not (split[0] or split[1]):
         return None
     flags, parametric = split
@@ -15222,7 +15019,6 @@ _EMBLEM_UNSUPPORTED_AFFECTS: frozenset[str] = frozenset(
 
 
 def _emblem_ability_spec(inner: str) -> Optional[dict]:
-    from ..segmenter import segment_line  # lazy: segmenter imports this module
 
     # RULE 114.4: "this emblem" is the ability's source. Inside an outer
     # quotation, Oracle uses single quotes for a granted ability.
@@ -15238,10 +15034,8 @@ def _emblem_ability_spec(inner: str) -> Optional[dict]:
     )
     spec = segment.spec
     if spec is None:
-        from .emblem_bodies import emblem_body_spec
         spec = emblem_body_spec(inner)
     if spec is None:
-        from .emblem_statics import emblem_static_effect_specs
         static_effects = emblem_static_effect_specs(inner)
         if static_effects:
             spec = AbilitySpec("static", effects=static_effects, raw_text=inner)
@@ -15385,7 +15179,6 @@ def _group_selector(phrase: str) -> "Optional[str | dict]":
     "other" is a real exclusion the grammar doesn't express (residual
     table, above).
     """
-    from .count_phrase import parse_count_phrase
 
     structured = parse_count_phrase(phrase)
     if structured is not None:
@@ -15805,7 +15598,7 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: appears with this explicit subject present (an unprefixed clause is
 #: always the imperative "sacrifice"/"exile"/"destroy"), so the two forms
 #: don't need disambiguating beyond the verb conjugation itself.
-_DELAYED_SAC_EXILE_TAIL_RE = _c(
+DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?:then )?(?:"
     # PAR-98: Goblin Sappers destroys the earlier target *and* itself at
     # end of combat.  These become two delayed triggers because each has a
@@ -15840,7 +15633,6 @@ _BECOME_COPY_RE = _c(
 
 
 def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import _enter_as_copy_tail  # local: imports handlers
 
     params: dict = {"target_kind": m.group("what").lower()}
     tail = m.group("tail")
@@ -15850,7 +15642,7 @@ def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             params["keep_own_abilities"] = True
             tail = (tail[: keep_own.start()] + tail[keep_own.end():]).strip(" ,.")
         if tail:
-            extra = _enter_as_copy_tail(tail)
+            extra = enter_as_copy_tail(tail)
             if extra is None or "extra_counters_from_x" in extra:
                 return None
             params.update(extra)
@@ -15938,7 +15730,7 @@ def _owner_shuffles_graveyard(m: re.Match[str]) -> list[EffectSpec]:
 
 #: PAR-136: "Return that card to the battlefield under its owner's control at the beginning of the next end
 #: step." — the delayed half of a flicker (Flickerwisp, Turn to Mist, Aetherling's self-blink, Ghostway).
-#: A separate, *gated* row rather than a verb of `_DELAYED_SAC_EXILE_TAIL_RE`: "it" must name a card an
+#: A separate, *gated* row rather than a verb of `DELAYED_SAC_EXILE_TAIL_RE`: "it" must name a card an
 #: earlier clause of the same ability just **exiled** (`previous_subject_only`, or the ability's own source
 #: for "exile ~. Return it …", `self_subject_only`). Ungated it also claimed a *dies* trigger's
 #: "return it to the battlefield …" (Resurrection Orb), where nothing is in exile and the effect would
@@ -15956,7 +15748,7 @@ def _delayed_return_battlefield(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
-#: The *when-first* sibling of `_DELAYED_SAC_EXILE_TAIL_RE` — "At the
+#: The *when-first* sibling of `DELAYED_SAC_EXILE_TAIL_RE` — "At the
 #: beginning of the next end step, sacrifice/exile/return `<it>`[ unless
 #: `<X>`][. If you do, `<effect>`.]" (Apprentice Necromancer, Momo's Heist,
 #: Skirk Alarmist, The Beamtown Bullies, Sauron the Necromancer — MEC-52;
@@ -16021,7 +15813,6 @@ _DELAYED_TAIL_TOKEN_SUBJECTS: frozenset[str] = frozenset(
 
 
 def _delayed_sac_exile_when_first(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
     verb = (m.groupdict().get("verb") or m.groupdict().get("verb_return") or "").lower()
     inner = _DELAYED_TAIL_INNER[verb]
@@ -16173,9 +15964,8 @@ _GAIN_CONTROL_RICH_PREV_GRANT_RE = _c(
 
 def _gain_control_rich_prev_grant(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("quoted"):
-        from .static_handlers import _quoted_ability_grant_effects  # local: module cycle
 
-        grant = _quoted_ability_grant_effects(m.group("quoted"))
+        grant = quoted_ability_grant_effects(m.group("quoted"))
         if grant is None:
             return None
         params = {k: v for k, v in grant.params.items() if k != "affects"}
@@ -16189,7 +15979,7 @@ def _gain_control_rich_prev_grant(m: re.Match[str]) -> Optional[list[EffectSpec]
                        "params": {"add_subtypes": [m.group("subtype").capitalize()]}},
             "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
         })]
-    split = _split_keywords_with_parametric(m.group("kw"))
+    split = split_keywords_with_parametric(m.group("kw"))
     if split is None:
         return None
     flags, parametric = split
@@ -16354,7 +16144,6 @@ def _except_by_restriction(text: str) -> Optional[dict]:
     min_blockers = _CANT_BE_BLOCKED_TURN_MIN_BLOCKERS_RE.fullmatch(text.strip())
     if min_blockers is not None:
         return {"kind": "min_blockers", "count": int(min_blockers.group("n"))}
-    from .static_handlers import object_filter
 
     filt = object_filter(text)
     if filt is None:
@@ -16603,7 +16392,7 @@ def _pump_keyword_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "creature", "permanent", "creature_you_control", "creature_you_dont_control",
     )):
         return None
-    split = _split_keywords_with_parametric(m.group("kw"))
+    split = split_keywords_with_parametric(m.group("kw"))
     if split is None:
         return None
     flags, parametric = split
@@ -16656,7 +16445,6 @@ _CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE = _c(
 
 
 def _cant_be_blocked_turn_object_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import object_filter
 
     filt = object_filter(m.group("filter"))
     if filt is None:
@@ -16789,7 +16577,6 @@ _CANT_BE_BLOCKED_BY_TURN_RE = _c(
 
 
 def _cant_be_blocked_by_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import object_filter
 
     filt = object_filter(m.group("filter"))
     if filt is None:
@@ -17479,7 +17266,6 @@ _BECOMES_IN_ADDITION_RE = _c(rf"(?:(?P<self>~)|{TARGET}) becomes{_BECOMES_IN_ADD
 
 
 def _becomes_in_addition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .static_handlers import type_addition_params  # local: imports handlers
 
     words = m.group("words").lower().split()
     scope = m.group("scope")
@@ -17549,7 +17335,6 @@ _ANIMATE_QUOTED_CDA_RE = _c(
 
 def _animate_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """Animate once, granting the quoted P/T definition to that object."""
-    from .static_handlers import static_effect_specs  # local: imports handlers
 
     parsed = static_effect_specs(m.group("cda"))
     if not parsed or len(parsed) != 1 or parsed[0].type != "pt_cda":
@@ -18420,7 +18205,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler("put_from_defending_hand", _PUT_FROM_DEFENDING_HAND_RE, _put_from_defending_hand),
     # "create an X/X blue Shark creature token with flying, where X is that
     # spell's mana value." (Shark Typhoon-shaped spell-cast payoff). Note
-    # `_cycling_xx_token`/`_CYCLING_XX_TOKEN_RE` (this row's sibling for
+    # `cycling_xx_token`/`CYCLING_XX_TOKEN_RE` (this row's sibling for
     # RULE 702.28c's Cycling-cost X) is deliberately NOT registered here —
     # a bare "create an X/X ... token." with no trailing explanation is
     # ambiguous outside a "when you cycle this card" wrapper (Wurmcalling/
@@ -20680,7 +20465,7 @@ HANDLERS: list[EffectHandler] = [
     # object → the source) at arm time and no-ops on an empty chain.
     EffectHandler(
         "delayed_sac_exile_tail",
-        _DELAYED_SAC_EXILE_TAIL_RE,
+        DELAYED_SAC_EXILE_TAIL_RE,
         _delayed_sac_exile_tail,
     ),
     # The when-first sibling — "At the beginning of the next end step,
@@ -22308,7 +22093,7 @@ _CONTROLLER_PRONOUN_RE = re.compile(
 _IRREGULAR_BASE_VERBS = {"has": "have", "does": "do"}
 
 
-def _base_verb(word: str) -> str:
+def base_verb(word: str) -> str:
     if word in _IRREGULAR_BASE_VERBS:
         return _IRREGULAR_BASE_VERBS[word]
     if word.endswith("ies"):
@@ -22346,7 +22131,7 @@ def _group_controller_as_you(clause: str) -> Optional[list[EffectSpec]]:
     elif verb == "may":
         replacement = "you may"
     elif verb:
-        replacement = f"you {_base_verb(verb)}"
+        replacement = f"you {base_verb(verb)}"
     else:
         replacement = "you"
     rewritten = clause[:hit.start()] + replacement + clause[hit.end():]
