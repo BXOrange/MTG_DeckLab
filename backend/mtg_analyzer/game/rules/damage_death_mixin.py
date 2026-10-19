@@ -657,7 +657,7 @@ class DamageDeathMixin:
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
         self._move_to_graveyard(obj, cause="sacrifice")
-    def sacrifice_simultaneously(self, objects: list[GameObject]) -> None:
+    def _sacrifice_simultaneously(self, objects: list[GameObject]) -> None:
         """Retain each departing permanent's trigger sources for the batch."""
         from copy import copy
 

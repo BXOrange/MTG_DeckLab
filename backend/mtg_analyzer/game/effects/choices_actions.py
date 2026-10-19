@@ -1891,7 +1891,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
             victims.extend(obj for obj in current_objects(pid)
                            if (obj.instance_id, obj.zone_incarnation) not in kept
                            and not obj.cant_be_sacrificed_this_turn)
-        context.engine.sacrifice_simultaneously(victims)
+        context.engine._sacrifice_simultaneously(victims)
 
 
 class ConniveEffect(GameEffect):
