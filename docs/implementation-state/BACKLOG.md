@@ -107,11 +107,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-7 · Draw-per-opponent-with-more-cards row ignores its subject.**
-  `_DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE` accepts third-person "draws" and binds a bare controller
-  `draw`, so "each opponent / target player draws a card for each opponent who has more cards …"
-  draws for the wrong player. Same fix shape as BUG-6; also turn its inline lambda in `HANDLERS` into a
-  named builder like its sibling rows.
 - **BUG-8 · Planar Overlay prompt says "behalten" for the lands that get bounced.**
   With `act_on_chosen` the per-type prompt in `ChoosePlayerObjectsEffect` still reads "<Type> behalten",
   but the chosen land is returned to hand. Use an act-specific prompt (and i18n key) for that mode.

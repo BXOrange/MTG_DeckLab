@@ -4116,7 +4116,9 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      draft/conspiracy, Contraptions) returns Unsupported with a reason before authored/parser coverage.
 # 704: BUG-6 -- the Treasure-per-opponent-creature tail is anchored to the controller; third-person "that player
 #      creates ..." stays UNMODELED instead of paying the controller. +0 / -0.
-PARSER_VERSION = "704"
+# 705: BUG-7 -- the draw-per-opponent-with-more-cards tail is anchored to the controller; third-person "each
+#      opponent / target player draws ..." stays UNMODELED instead of drawing for the controller. +0 / -0.
+PARSER_VERSION = "705"
 
 
 def parser_source_hash() -> str:

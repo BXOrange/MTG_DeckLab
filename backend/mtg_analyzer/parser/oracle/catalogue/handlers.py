@@ -10648,9 +10648,17 @@ def _players_cant_cast_types_until(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: Consuming Tide's tail: "then you draw a card for each opponent who has more cards in their hand than you."
+#: Anchored to the controller ("you"/subject-less, the singular verb): the builder emits a plain controller `draw`
+#: and "than you" in the count is relative to the controller, so a third-person "each opponent / target player /
+#: that player draws ..." stays UNMODELED rather than drawing for the wrong player (BUG-7).
 _DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE = _c(
-    r"(?:then )?(?:you )?draws? a card for each opponent who has more cards in their hand than you"
+    r"(?:then )?(?:you )?draw a card for each opponent who has more cards in their hand than you"
 )
+
+
+def _draw_per_opponent_with_more_cards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw", {"count": {
+        "kind": "count_selector", "selector": "opponents_with_more_cards_in_hand"}})]
 
 
 #: PAR-147: "<destroy/exile/choose> target <permanent>. **Its controller creates** a <token>." (Contraband Livestock's
@@ -18552,8 +18560,7 @@ HANDLERS: list[EffectHandler] = [
                   _named_token_per_opponent_creature),
     EffectHandler("players_cant_cast_types_until", _PLAYERS_CANT_CAST_TYPES_UNTIL_RE, _players_cant_cast_types_until),
     EffectHandler("draw_per_opponent_with_more_cards", _DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE,
-                  lambda m: [EffectSpec("draw", {"count": {
-                      "kind": "count_selector", "selector": "opponents_with_more_cards_in_hand"}})]),
+                  _draw_per_opponent_with_more_cards),
     EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
