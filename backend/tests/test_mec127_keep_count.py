@@ -341,3 +341,26 @@ def test_unsupported_keep_count_templates_stay_unclaimed(text):
 def test_every_real_card_of_the_family_is_modeled(name):
     from test_par157_back_selections import _cached
     assert parse_oracle(_cached(name)).modeled
+
+
+def test_each_opponent_keep_scope_destroy_all_other_permanents_reaches_the_casters_board():
+    # BUG-5: a victim_filter wipe covers every player's permanents, not just the choosing players'. No printed card
+    # pairs "each opponent" with "destroy all other", so the Sylex ability text is re-scoped.
+    eng = _engine()
+    mine = _put(eng, "mine", "Basic Land — Forest", is_land=True)
+    my_bear = _creat(eng, "bear")
+    theirs = [_put(eng, f"T{i}", "Basic Land — Forest", "p2", is_land=True) for i in range(3)]
+    their_bear = _creat(eng, "tbear", "p2")
+    text = SYLEX_ABILITY.replace("Each player chooses six", "Each opponent chooses two")
+    card = Card(id="Urza's Sylex", name="Urza's Sylex", type_line="Legendary Artifact", oracle_text=text,
+                mana_cost_string="{3}", converted_mana_cost=3)
+    assert parse_oracle(card).modeled
+    wipe = _bf(eng, card)
+    eng.state.player_by_id("p1").mana_pool.add_many({"W": 2, "C": 2})
+    eng.activate_ability(eng.state.player_by_id("p1"), wipe, 0)
+    eng.resolve_until_stable()
+    for land in theirs[:2]:
+        _pick(eng, land, "p2")
+    eng.resolve_until_stable()
+    assert _where(*theirs[:2]) == [Zone.BATTLEFIELD] * 2
+    assert mine.zone == my_bear.zone == theirs[2].zone == their_bear.zone == Zone.GRAVEYARD

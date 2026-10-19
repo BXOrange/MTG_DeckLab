@@ -1928,8 +1928,13 @@ class ChoosePlayerObjectsEffect(GameEffect):
         # on original visits outside the union of that player's keepers
         # (or, for Planar Overlay, on the keepers themselves).
         victims = []
-        for pid in frame["players"]:
-            kept = {tuple(visit) for visit in frame["kept"][pid]}
+        # RULE 701.8: "Destroy all other permanents" is not limited to the players who chose (each-opponent scope still
+        # destroys the controller's permanents); only the choosers have keepers, everyone else keeps nothing.
+        victim_pids = frame["players"]
+        if self.victim_filter is not None and not self.act_on_chosen:
+            victim_pids = [p.id for p in context.state.living_players_apnap()]
+        for pid in victim_pids:
+            kept = {tuple(visit) for visit in frame["kept"].get(pid, [])}
             if self.act_on_chosen:
                 victims.extend(obj for obj in current_objects(pid) if (obj.instance_id, obj.zone_incarnation) in kept)
                 continue

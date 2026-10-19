@@ -107,11 +107,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-5 · "Destroy all other permanents" under each-opponent keep scope spares the caster.**
-  `ChoosePlayerObjectsEffect` (`game/effects/choices_actions.py`, `victim_filter` branch) collects the
-  rest only from `frame["players"]`, so "Each opponent chooses N lands they control. Destroy all other
-  permanents." leaves the controller's permanents standing while still `MODELED`. A `victim_filter`
-  wipe must reach every player's permanents (or the parser must refuse that who/victim pairing).
 - **BUG-6 · Treasure-per-opponent-creature row ignores its subject.**
   `_NAMED_TOKEN_PER_OPPONENT_CREATURE_RE` (`parser/oracle/catalogue/handlers.py`) accepts third-person
   "creates", but the builder always emits `creators="you"`; "that player creates a Treasure token for
