@@ -152,7 +152,7 @@ def test_tallyman_gates_the_whole_override_on_its_first_condition():
     # RULE 603.4 (PAR-112): the leading "if" of a multi-sentence phase trigger is the
     # ability's own intervening-if, so it gates the override sentence too.
     assert ability.trigger["active_if"] == {"kind": "creatures_died_this_turn", "min": 1}
-    assert spec.condition is None
+    assert spec.condition == ability.trigger["active_if"]
     assert [e["type"] for e in spec.params["then"]] == ["draw", "lose_life"]
     assert [e["type"] for e in spec.params["else"]] == ["draw", "lose_life"]
 

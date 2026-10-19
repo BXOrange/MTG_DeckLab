@@ -85,19 +85,21 @@ def test_entered_this_turn_is_a_count_phrase_tail():
 def test_the_leading_if_of_a_multi_sentence_phase_trigger_gates_the_whole_ability():
     [spec] = [s for s in parse_oracle(_named("Ocelot Pride")).specs if s.ability_kind == "triggered"]
     assert spec.trigger["active_if"] == {"kind": "gained_life_this_turn"}
-    cat, each = spec.effects
-    assert cat.type == "create_token" and cat.condition is None
-    assert each.type == "for_each" and each.condition == {"kind": "has_city_blessing"}
-    assert each.params["effects"] == [
+    [body] = spec.effects
+    assert body.type == "seq" and body.condition == spec.trigger["active_if"]
+    cat, each = body.params["effects"]
+    assert cat["type"] == "create_token" and cat.get("condition") is None
+    assert each["type"] == "for_each" and each["condition"] == {"kind": "has_city_blessing"}
+    assert each["params"]["effects"] == [
         {"type": "copy_permanent", "params": {"target_kind": None, "referent": "iteration"}}
     ]
 
 
-def test_a_one_sentence_phase_body_keeps_its_per_effect_gate():
+def test_a_one_sentence_phase_body_gates_triggering_and_resolution():
     result = _parse(Card(id="X", name="X", type_line="Enchantment", oracle_text=(
         "At the beginning of your end step, if you gained life this turn, draw a card.")))
     [spec] = result.specs
-    assert "active_if" not in spec.trigger
+    assert spec.trigger["active_if"] == {"kind": "gained_life_this_turn"}
     assert spec.effects[0].condition == {"kind": "gained_life_this_turn"}
 
 

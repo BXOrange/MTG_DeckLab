@@ -3396,10 +3396,14 @@ class CreateTokenEffect(GameEffect):
         oracle_text: str = "",
         vehicle: bool = False,
         is_enchantment: bool = False,
+        then_trigger: Optional[list[dict[str, Any]]] = None,
+        then_trigger_condition: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         #: "…a 2/2 black Horror **enchantment creature** token" (Phenomenon Investigators).
         self.is_enchantment = bool(is_enchantment)
+        self.then_trigger_specs = list(then_trigger or [])
+        self.then_trigger_condition = then_trigger_condition
         #: "create an X/X colorless Vehicle artifact token" (Pia Nalaar, Chief Mechanic) — ``power``/``toughness``
         #: are the Vehicle's printed P/T (`synthesize_token_card` ``vehicle``); its Crew comes from ``oracle_text``.
         self.vehicle = bool(vehicle)
@@ -3538,6 +3542,12 @@ class CreateTokenEffect(GameEffect):
         return max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        before = len(context.created_objects)
+        self._create_tokens(context, targets)
+        if self.then_trigger_specs and len(context.created_objects) > before:
+            context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
+
+    def _create_tokens(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ...services.token_database import default_token_database, synthesize_token_card
 
         power, toughness = self.power, self.toughness

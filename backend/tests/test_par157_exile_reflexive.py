@@ -81,12 +81,12 @@ def test_reflexive_effect_conditions_survive_spec_serialization(dragon):
 
 @pytest.mark.parametrize('text', [
     'exile 2 target creature cards from graveyards. when you do, draw a card',
-    'exile target creature card from a graveyard. when you do, if you control a dragon, draw a card',
+    'exile target creature card from a graveyard. when you do, if the moon is purple, draw a card',
     'exile target creature card from a graveyard. when you do, fly to the moon',
     'exile a creature card from your graveyard. when you do, draw a card',
     'exile an instant or sorcery card from your graveyard. when you do, tap target creature',
 ])
-def test_unimplemented_batching_intervening_if_and_unknown_bodies_fail_closed(text):
+def test_unimplemented_batching_and_unknown_conditions_or_bodies_fail_closed(text):
     assert not parse_effect_body(text)
 
 

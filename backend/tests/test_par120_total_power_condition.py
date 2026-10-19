@@ -134,7 +134,7 @@ def test_owlbear_shepherd_draws_only_once_total_power_reaches_the_threshold():
     state.active_player_index = 0  # p1's own turn
     state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending"))
     placed = eng.rules.put_triggers_on_stack()
-    assert placed == 1
+    assert placed == 0  # A false intervening-if prevents the trigger itself.
     eng.rules.resolve_top_of_stack()
     assert len(p1.hand) == 0  # 3 power total — below the threshold of 8
 

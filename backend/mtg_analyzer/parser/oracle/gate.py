@@ -4039,7 +4039,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "681"
+PARSER_VERSION = "682"
 
 
 def parser_source_hash() -> str:
@@ -4492,6 +4492,24 @@ def _named_mode_gated(spec: AbilitySpec, label: str) -> Optional[AbilitySpec]:
             )
         return spec
     return None
+
+
+def _effect_nodes(value):
+    """Walk serialized and bound spec shapes without losing mutable params."""
+    if isinstance(value, AbilitySpec):
+        yield from _effect_nodes(value.effects)
+        yield from _effect_nodes(value.modes)
+    elif isinstance(value, EffectSpec):
+        yield value.type, value.params
+        yield from _effect_nodes(value.params)
+    elif isinstance(value, dict):
+        if isinstance(value.get("type"), str) and isinstance(value.get("params"), dict):
+            yield value["type"], value["params"]
+        for child in value.values():
+            yield from _effect_nodes(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _effect_nodes(child)
 
 
 def _restore_printed_token_names(specs: list[AbilitySpec], raw: str) -> None:
@@ -5584,40 +5602,22 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     # That effect reads `GameObject.linked_exile_id`, which only an
     # ``ExileEffect(remember=True)`` populates — so, seeing both halves on
     # one card, stamp ``remember`` onto the companion ETB exile here.
-    _has_return_pool = any(
-        e.type == "return_all_exiled_with"
-        for spec in effect_specs for e in spec.effects
-    )
-    if _has_return_pool:
-        for spec in effect_specs:
-            for e in spec.effects:
-                if e.type in {"exile", "exile_top_of_library", "search"}:
-                    e.params["track_exiled_with"] = True
-    _has_return_linked = any(
-        e.type == "return_linked_exile"
-        for spec in effect_specs
-        for e in spec.effects
-    )
-    if _has_return_linked:
-        # The return half is only ever printed to pair with this card's own
-        # exile (ETB for O-Ring, a Saga chapter for The Princess Takes
-        # Flight, …), so stamp ``remember`` on every plain targeted exile it
-        # has — never a mass ``selector`` exile (a board wipe won't be the
-        # one linked card) and never one that already carries ``remember``.
-        for spec in effect_specs:
-            for e in spec.effects:
-                if e.type == "exile" and not e.params.get("selector"):
-                    e.params["remember"] = True
+    nodes = list(_effect_nodes(effect_specs))
+    if any(kind == "return_all_exiled_with" for kind, _ in nodes):
+        for kind, params in nodes:
+            if kind in {"exile", "exile_top_of_library", "search"}:
+                params["track_exiled_with"] = True
+    if any(kind == "return_linked_exile" for kind, _ in nodes):
+        for kind, params in nodes:
+            if kind == "exile" and not params.get("selector"):
+                params["remember"] = True
 
-    # Pit of Offerings: "{T}: Add one mana of any of the exiled cards' colors." names the cards the
-    # ETB's "exile up to three target cards from graveyards" took. The mana line is the
-    # `mana_abilities` module's (`imprinted_card_colors`, read off `linked_exile_ids`), so — like the
-    # linked-return stamp above — the exile that feeds it must remember what it took.
+    # Linkage also survives a conditional/composite wrapper around either
+    # half (Promise of Tomorrow), rather than depending on a flat body.
     if _EXILED_CARDS_COLORS_MANA_RE.search(normalized):
-        for spec in effect_specs:
-            for e in spec.effects:
-                if e.type == "exile" and str(e.params.get("target_kind", "")).startswith("any_graveyard"):
-                    e.params["remember"] = True
+        for kind, params in nodes:
+            if kind == "exile" and str(params.get("target_kind", "")).startswith("any_graveyard"):
+                params["remember"] = True
 
     for spec in effect_specs:
         if not _that_player_antecedent_ok(spec):

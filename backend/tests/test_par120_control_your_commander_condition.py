@@ -102,7 +102,7 @@ def test_loyal_drake_draws_only_while_its_controller_controls_their_commander():
     # No commander on the battlefield yet — the draw is gated off.
     _fire_begin_combat()
     placed = eng.rules.put_triggers_on_stack()
-    assert placed == 1
+    assert placed == 0  # A false intervening-if prevents the trigger itself.
     eng.rules.resolve_top_of_stack()
     assert len(p1.hand) == 0
 

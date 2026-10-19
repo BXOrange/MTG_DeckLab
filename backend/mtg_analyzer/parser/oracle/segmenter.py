@@ -2529,9 +2529,9 @@ _DISCARD_THEN_IF_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# A targeted exile and its reflexive payoff have separate announcements.
-_EXILE_THEN_WHEN_YOU_DO_RE = re.compile(
-    r"^(?P<before>exile .+?)\.\s*when you do,\s*(?P<after>.+)$",
+# A completed action and its reflexive payoff have separate announcements.
+_ACTION_THEN_WHEN_YOU_DO_RE = re.compile(
+    r'^(?P<before>(?:exile|create) (?:"[^"]*"|[^."])+?)\.\s*when you do,\s*(?P<after>.+)$',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -5944,29 +5944,37 @@ def _parse_effect_body_inner(
             }),
         ]
 
-    exile_then = _EXILE_THEN_WHEN_YOU_DO_RE.match(body)
-    if exile_then is not None:
-        before_text = exile_then.group("before")
-        if not re.search(r"\btarget\b", before_text):
+    action_then = _ACTION_THEN_WHEN_YOU_DO_RE.match(body)
+    if action_then is not None:
+        before_text = action_then.group("before")
+        if before_text.startswith("exile ") and not re.search(r"\btarget\b", before_text):
             return None  # nontargeted exile choices must be made during resolution
         before_specs = parse_effect_body(
             before_text, self_subject=self_subject,
             previous_subject=previous_subject, group_subject=group_subject,
         )
-        after_text = exile_then.group("after")
+        after_text = action_then.group("after")
+        condition = None
         if after_text.lower().startswith("if "):
-            return None  # an intervening-if needs both trigger-time and resolution-time checks
+            gate = _GENERIC_IF_PREFIX_RE.match(after_text)
+            condition = static_condition(gate.group("cond")) if gate else None
+            if condition is None:
+                return None
+            after_text = gate.group("rest")
         after_specs = parse_effect_body(after_text)
-        if not before_specs or len(before_specs) != 1 or before_specs[0].type != "exile" or not after_specs:
+        if not before_specs or len(before_specs) != 1 or before_specs[0].type not in {"exile", "create_token"} or not after_specs:
             return None
         params = dict(before_specs[0].params)
-        # One announced exile action; multi-event/mass antecedents need
+        # One action; multi-event/mass antecedents need
         # explicit batching semantics before exposing a reflexive body.
         if (params.get("count", 1) != 1 or params.get("count_selector")
-                or params.get("selector") or params.get("group") or params.get("spell_or_permanent")):
+                or params.get("selector") or params.get("group") or params.get("spell_or_permanent")
+                or params.get("per_opponent") or params.get("creators", "you") not in {"you", "target"}):
             return None
         params["then_trigger"] = [spec.to_dict() for spec in after_specs]
-        return [EffectSpec("exile", params)]
+        if condition is not None:
+            params["then_trigger_condition"] = condition
+        return [EffectSpec(before_specs[0].type, params)]
 
     may_exile_self_then = _MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE.match(body)
     if may_exile_self_then is not None:
@@ -9237,6 +9245,7 @@ def _segment_line_unsplit(
         # MEC-46: peel a leading "if another <subtype> entered … this turn,"
         # RULE 603.4 intervening-if into the trigger's own `active_if`.
         phase_active_if: Optional[dict[str, Any]] = None
+        phase_self_subject = False
         entered_if = _ANOTHER_SUBTYPE_ENTERED_IF_RE.match(body)
         gy_if = _CREATURE_CARD_TO_GY_IF_RE.match(body)
         dmg_if = _YOU_DEALT_DAMAGE_IF_RE.match(body)
@@ -9286,18 +9295,14 @@ def _segment_line_unsplit(
             }
             body = that_player_hand_if.group("rest").strip()
         if phase_active_if is None:
-            # RULE 603.4: a leading "if `<state>`," gates the *whole* ability, not just its
-            # first sentence. Read as a per-effect gate (the path below), "if you gained
-            # life this turn, A. Then B." (Ocelot Pride) would still do B when the
-            # condition is false; so when the body runs on past its first sentence, the
-            # gate is the trigger's own `active_if`. A one-sentence body keeps its
-            # established per-effect reading (same outcome, no churn).
+            # RULE 603.4: every recognized leading condition gates both
+            # triggering and the complete resolving body, even one sentence.
             gate = _PHASE_INTERVENING_IF_RE.match(body)
-            if gate is not None and _NEXT_SENTENCE_RE.search(gate.group("rest")):
-                gated = static_condition(gate.group("cond"))
-                if gated is not None:
-                    phase_active_if = gated
-                    body = gate.group("rest").strip()
+            gated = static_condition(gate.group("cond")) if gate is not None else None
+            if gated is not None:
+                phase_active_if = gated
+                phase_self_subject = "~" in gate.group("cond")
+                body = gate.group("rest").strip()
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:
@@ -9305,9 +9310,9 @@ def _segment_line_unsplit(
                     "amount": int(them_damage.group("n")), "selector": "active_player",
                 })]
             else:
-                effects = _active_player_phase_body(body) or parse_effect_body(body)
+                effects = _active_player_phase_body(body) or parse_effect_body(body, self_subject=phase_self_subject)
         else:
-            effects = _active_player_phase_body(body) or parse_effect_body(body)
+            effects = _active_player_phase_body(body) or parse_effect_body(body, self_subject=phase_self_subject)
         if effects is None and phase_active_if is None:
             # RULE 603.4: any other leading "if `<state>`," of a phase trigger is an intervening
             # if too — read through the shared state-predicate vocabulary (`static_condition`)
@@ -9330,6 +9335,13 @@ def _segment_line_unsplit(
                 )
         if effects is None:
             return Segment(raw=raw)
+        if phase_active_if is not None:
+            if len(effects) == 1 and effects[0].condition is None:
+                # An atomic body already has a single resolution boundary.
+                effect = effects[0]
+                effects = [EffectSpec(effect.type, effect.params, condition=phase_active_if)]
+            else:
+                effects = [EffectSpec("seq", {"effects": [effect.to_dict() for effect in effects]}, condition=phase_active_if)]
         steps = _EACH_MAIN_PHASE_STEPS if both_mains else (step,)
         phase_specs: list[AbilitySpec] = []
         for one_step in steps:

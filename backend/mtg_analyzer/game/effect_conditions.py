@@ -654,6 +654,20 @@ def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optiona
     return None
 
 
+def pin_source_reference(value: Any, source: Any, incarnation: Optional[int] = None) -> Any:
+    """RULE 400.7: an effect's "other" refers to its original source visit."""
+    if isinstance(value, dict):
+        result = {key: pin_source_reference(child, source, incarnation) for key, child in value.items()}
+        if result.get("not_reference") and source is not None:
+            result.pop("not_reference")
+            result["without_object_visit"] = [source.instance_id,
+                source.zone_incarnation if incarnation is None else incarnation]
+        return result
+    if isinstance(value, list):
+        return [pin_source_reference(child, source, incarnation) for child in value]
+    return value
+
+
 def condition_holds(
     condition: Optional[dict[str, Any]],
     context: "GameContext",
@@ -665,7 +679,10 @@ def condition_holds(
     Accepts either spelling: a structured ``{"kind": …}`` dict, or the flat
     legacy keys every shipped spec still uses (`condition_from_legacy`).
     """
-    return _evaluate(condition_from_legacy(condition), context, source, targets) is True
+    condition = pin_source_reference(
+        condition_from_legacy(condition), source, getattr(context, "resolving_source_incarnation", None),
+    )
+    return _evaluate(condition, context, source, targets) is True
 
 
 # ---------------------------------------------------------------------------

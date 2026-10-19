@@ -626,6 +626,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # ``instance_id`` above, excluding one specific object (always the
         # filtering ability's own source) rather than requiring one.
         "without_instance_id",
+        "without_object_visit",
         # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) —
         # RULE 903.4's designation, not a subtype/colour word, so it needs
         # its own key rather than reusing ``subtype``.
@@ -1013,6 +1014,12 @@ def matches_object_filter(
     without_instance_id = filt.get("without_instance_id")
     if without_instance_id is not None and obj.instance_id == without_instance_id:
         return False
+    excluded_visit = filt.get("without_object_visit")
+    if excluded_visit is not None:
+        if not isinstance(excluded_visit, (list, tuple)) or len(excluded_visit) != 2:
+            return False
+        if [obj.instance_id, obj.zone_incarnation] == list(excluded_visit):
+            return False
     lt_selector = filt.get("power_lt_count_selector")
     if lt_selector is not None:
         if state is None or reference is None:

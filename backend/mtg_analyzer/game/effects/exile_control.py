@@ -90,6 +90,7 @@ class ExileEffect(GameEffect):
         group_player: Optional[str] = None,
         exile_counters: Optional[dict[str, int]] = None,
         then_trigger: Optional[list[dict[str, Any]]] = None,
+        then_trigger_condition: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -119,6 +120,7 @@ class ExileEffect(GameEffect):
         #: resolution that exiled at least one object, not once per object.
         self.bend_kind = bend_kind
         self.then_trigger_specs = list(then_trigger or [])
+        self.then_trigger_condition = then_trigger_condition
         #: "exile target `<c1>` or `<c2>` permanent" (Celestial Purge) —
         #: `TargetSpec.colors`' OR narrowing, offer-time (`_color_ok`).
         self.colors = tuple(colors) if colors else None
@@ -248,7 +250,7 @@ class ExileEffect(GameEffect):
         before = len(context.exiled_objects)
         self._apply_exile(context, targets)
         if self.then_trigger_specs and len(context.exiled_objects) > before:
-            context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source)
+            context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 
     def _apply_exile(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.until_source_leaves:

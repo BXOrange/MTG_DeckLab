@@ -119,6 +119,9 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if modified is not None:
         extra["modified"] = True
         text = (text[: modified.start()] + text[modified.end():]).strip()
+    if text.endswith(" other than ~"):
+        extra["not_reference"] = True
+        text = text[:-len(" other than ~")]
     if text.startswith("other "):
         # "the number of other Rats on the battlefield" (Pestilence Rats): the
         # counting object's own source is excluded (the `another` idiom).

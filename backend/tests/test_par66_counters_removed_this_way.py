@@ -159,19 +159,10 @@ def test_ventifact_bottle_trigger_produces_colorless_mana_equal_to_counters_remo
     state.add_to_battlefield(bottle)
     bottle.counters["charge"] = 3
 
-    from mtg_analyzer.game.effects.counters_tokens import RemoveCountersEffect
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
-    def _inner(effect):
-        # "if this artifact has a charge counter on it, tap it and remove all …" gates every
-        # effect of the sentence, so each arrives wrapped in its `ConditionalEffect`.
-        return getattr(effect, "inner", effect)
-
-    ability = next(
-        a for a in bottle.triggered_abilities
-        if any(isinstance(_inner(e), RemoveCountersEffect) for e in a.effects)
-    )
-    for effect in ability.effects:
-        effect.apply(engine.rules.context)
+    state.fire_event(GameEvent(EventType.STEP_BEGIN, step="main1", phase="main1"))
+    engine.resolve_until_stable()
     assert bottle.counters.get("charge", 0) == 0
     assert p1.mana_pool.pool["C"] == 3
 

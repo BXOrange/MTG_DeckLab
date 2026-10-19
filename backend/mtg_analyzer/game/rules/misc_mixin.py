@@ -666,6 +666,8 @@ class MiscSystemsMixin:
         event: Optional[GameEvent] = None,
         modes: Optional[dict[str, Any]] = None,
         controller_id: Optional[str] = None,
+        condition: Optional[dict[str, Any]] = None,
+        source_incarnation: Optional[int] = None,
     ) -> None:
         """RULE 603.12: "`<effect with its own condition>`. **When you
         do**, `<targeted payoff>`." fires the payoff as its *own* fresh
@@ -690,6 +692,20 @@ class MiscSystemsMixin:
         from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
 
+        controller_id = controller_id or getattr(source, "controller_id", None) or self.state.active_player.id
+        if condition is not None:
+            from ..static_conditions import condition_holds
+            self.context.recompute()
+
+            from ..effect_conditions import pin_source_reference
+
+            condition = pin_source_reference(condition, source, source_incarnation)
+            if not condition_holds(condition, self.state, source, controller_id):
+                return  # RULE 603.4 / 603.12: no trigger and no target announcement.
+            # Gate the complete body once at resolution, retaining its target
+            # specs through the existing ConditionalEffect/seq composition.
+            effect_specs = [{"type": "seq", "params": {"effects": effect_specs}, "condition": condition}]
+
         built = build_effects(
             [EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition")) for d in effect_specs],
             source,
@@ -708,7 +724,6 @@ class MiscSystemsMixin:
             descriptions = list(modal.get("descriptions") or [])
             for index, option in enumerate(modal_options):
                 option["description"] = descriptions[index] if index < len(descriptions) else f"Modus {index + 1}"
-        controller_id = controller_id or getattr(source, "controller_id", None) or self.state.active_player.id
         ability = TriggeredAbility(
             trigger_event=getattr(event, "type", None) or EventType.SPELL_RESOLVED,
             effects=built,

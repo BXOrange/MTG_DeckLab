@@ -873,6 +873,7 @@ class GameContext:
     def enqueue_reflexive_trigger(
         self, effect_specs: list[dict[str, Any]], source: Optional["GameObject"],
         event: Optional[GameEvent] = None,
+        condition: Optional[dict[str, Any]] = None,
     ) -> None:
         """RULE 603.12's "When you do, `<targeted payoff>`." — see
         `RulesEngine.enqueue_reflexive_trigger`."""
@@ -881,6 +882,7 @@ class GameContext:
         self.engine.enqueue_reflexive_trigger(
             effect_specs, source, event or self.trigger_event,
             controller_id=getattr(self, "resolving_controller_id", None),
+            condition=condition, source_incarnation=getattr(self, "resolving_source_incarnation", None),
         )
 
     def end_the_turn(self) -> None:

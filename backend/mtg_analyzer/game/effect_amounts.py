@@ -293,13 +293,15 @@ def _base(
             from copy import copy
             reference = copy(source)
             reference.counters = effect_conditions.source_counters(context, source)
-        if amount.get("reference"):
+        if amount.get("reference") and amount["reference"] != "self":
             # PAR-123: "for each creature blocking **it**" / "for each **other** attacking creature that
             # shares a creature type with **it**" — the counted-against object is the one a pronoun
             # names (the group trigger's firing object), not the ability's own source.
             reference = effect_conditions.subject_of(str(amount["reference"]), context, source, targets)
             if reference is None:
                 return 0
+            incarnation = getattr(reference, "zone_incarnation", None)
+        selector = effect_conditions.pin_source_reference(selector, reference, incarnation)
         return int(
             count_selector(
                 context.state, controller_id,

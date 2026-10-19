@@ -1142,6 +1142,7 @@ EffectRegistry.register(
         group=p.get("group"), group_player=p.get("group_player"),
         exile_counters=p.get("exile_counters"),
         then_trigger=p.get("then_trigger"),
+        then_trigger_condition=p.get("then_trigger_condition"),
     ),
 )
 EffectRegistry.register(
@@ -3324,6 +3325,8 @@ EffectRegistry.register(
         oracle_text=str(p.get("oracle_text", "")),
         vehicle=bool(p.get("vehicle", False)),
         is_enchantment=bool(p.get("is_enchantment", False)),
+        then_trigger=p.get("then_trigger"),
+        then_trigger_condition=p.get("then_trigger_condition"),
     ),
 )
 EffectRegistry.register(
