@@ -50,7 +50,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.player import Player
-from mtg_analyzer.parser.oracle.catalogue.handlers import _CONTROLLER_REFERENT
+from mtg_analyzer.parser.oracle.catalogue.effect_rows.life_loss import CONTROLLER_REFERENT as _CONTROLLER_REFERENT
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import _trigger_condition, parse_effect_body
 from mtg_analyzer.parser.oracle.spec import EffectSpec

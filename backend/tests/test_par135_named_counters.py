@@ -21,7 +21,8 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
-from mtg_analyzer.parser.oracle.catalogue.handlers import _RESERVED_COUNTER_KINDS, match_clause
+from mtg_analyzer.parser.oracle.catalogue.effect_rows.shared import RESERVED_COUNTER_KINDS as _RESERVED_COUNTER_KINDS
+from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
 

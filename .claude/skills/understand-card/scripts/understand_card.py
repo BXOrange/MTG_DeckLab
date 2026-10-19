@@ -531,7 +531,7 @@ def cmd_card(args) -> None:
             print("\n  (no rulings cached — add --rulings to fetch them once from Scryfall)")
 
         print("\n--- where this gets modeled ---")
-        print("  parser handler   backend/mtg_analyzer/parser/oracle/catalogue/handlers.py")
+        print("  parser handler   backend/mtg_analyzer/parser/oracle/catalogue/effect_rows/<family>.py (assembled in handlers.py)")
         print("                   (static clauses -> static_handlers.py, trigger conditions -> segmenter.py)")
         print("  hand-authored    backend/mtg_analyzer/game/card_catalogue/  (singletons / replacement effects)")
         print("  engine primitive backend/mtg_analyzer/game/effects/ + game/rules/*_mixin.py")

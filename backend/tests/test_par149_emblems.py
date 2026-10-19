@@ -3,7 +3,8 @@ import pytest
 
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import GameContext
-from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause, _emblem_ability_spec
+from mtg_analyzer.parser.oracle.catalogue.effect_rows.tokens_animate_misc import emblem_ability_spec as _emblem_ability_spec
+from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from tests.support.game import creature, make_engine, obj_on_battlefield
 
 

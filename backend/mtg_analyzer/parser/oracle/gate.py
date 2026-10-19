@@ -47,7 +47,8 @@ from .catalogue.opening_hand import (
     opening_hand_graveyard_permission_line,
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
-from .catalogue.handlers import ACTION_ONCE_PER_TURN_MARKER, EVENT_PLAYER_EVENTS_KEY
+from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
+from .catalogue.effect_rows.shared import EVENT_PLAYER_EVENTS_KEY
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .segmenter import (

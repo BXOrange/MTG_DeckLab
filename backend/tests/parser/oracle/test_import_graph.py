@@ -18,6 +18,8 @@ _PACKAGE = "mtg_analyzer.parser.oracle"
 #: The leaf modules: they may import the spec and the vocabulary modules, never the big three.
 _LEAVES = ("catalogue.clause_primitives", "catalogue.clause_hooks")
 _BIG_THREE = ("segmenter", "catalogue.handlers", "catalogue.static_handlers")
+#: The effect-row modules (PAR-172 M2) sit below `handlers` and the segmenter: they re-enter those only via `clause_hooks`.
+_ROW_FORBIDDEN = ("segmenter", "catalogue.handlers")
 
 #: A function-scoped or private import between parser modules needs a one-line justification here.
 #: Empty on purpose: the cycle is broken by `clause_hooks`, not by deferred imports.
@@ -82,6 +84,15 @@ def test_leaf_modules_import_none_of_the_big_three():
         (src, dst) for src, dst, _, _ in _import_edges() if src in _LEAVES and dst in _BIG_THREE
     ]
     assert not offenders, f"leaf modules must not import the cycle members: {offenders}"
+
+
+def test_effect_row_modules_do_not_import_handlers_or_the_segmenter():
+    offenders = [
+        (src, dst)
+        for src, dst, _, _ in _import_edges()
+        if src.startswith("catalogue.effect_rows.") and dst in _ROW_FORBIDDEN
+    ]
+    assert not offenders, f"effect rows must reach the table/segmenter through clause_hooks: {offenders}"
 
 
 def test_module_level_import_graph_is_acyclic():

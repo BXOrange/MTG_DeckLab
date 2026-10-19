@@ -27,6 +27,8 @@ _parse_effect_body: Optional[Callable[..., Optional[list[EffectSpec]]]] = None
 _segment_line: Optional[Callable[..., Any]] = None
 _trigger_condition_dict: Optional[Callable[[str], Optional[dict[str, Any]]]] = None
 _static_condition: Optional[Callable[[str], Optional[dict]]] = None
+_match_clause: Optional[Callable[..., Optional[list[EffectSpec]]]] = None
+_match_clause_once: Optional[Callable[..., Optional[list[EffectSpec]]]] = None
 
 
 def register_segmenter(
@@ -46,6 +48,45 @@ def register_static_condition(static_condition: Callable[[str], Optional[dict]])
     """Called once by `static_handlers`."""
     global _static_condition
     _static_condition = static_condition
+
+
+def register_clause_matcher(
+    *,
+    match_clause: Callable[..., Optional[list[EffectSpec]]],
+    match_clause_once: Callable[..., Optional[list[EffectSpec]]],
+) -> None:
+    """Called once by `handlers`: the effect-row builders in `effect_rows` sometimes re-enter the table."""
+    global _match_clause, _match_clause_once
+    _match_clause = match_clause
+    _match_clause_once = match_clause_once
+
+
+def match_clause(
+    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
+    group_subject: bool = False, previous_selector: bool = False,
+    attached_subject: bool = False,
+) -> Optional[list[EffectSpec]]:
+    """`handlers.match_clause`."""
+    assert _match_clause is not None, _UNREGISTERED.format(name="match_clause")
+    return _match_clause(
+        clause, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+        attached_subject=attached_subject,
+    )
+
+
+def match_clause_once(
+    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
+    group_subject: bool = False, previous_selector: bool = False,
+    attached_subject: bool = False,
+) -> Optional[list[EffectSpec]]:
+    """`handlers._match_clause_once` (one pass over the table, without the group-trigger re-readings)."""
+    assert _match_clause_once is not None, _UNREGISTERED.format(name="match_clause_once")
+    return _match_clause_once(
+        clause, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+        attached_subject=attached_subject,
+    )
 
 
 def parse_effect_body(

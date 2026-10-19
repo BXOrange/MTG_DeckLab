@@ -93,7 +93,7 @@ this table gets hard to reason about.
 Patterns, whitelists and the anti-over-match rules: **[reference/handler-recipe.md](reference/handler-recipe.md)**.
 Read it before editing — it lists the shared sub-grammar macros to reuse, the
 three registries a new effect type must be added to, and which file each kind
-of clause belongs in (`handlers.py` vs `static_handlers.py` vs `segmenter.py`).
+of clause belongs in (`effect_rows/<family>.py` vs `static_handlers.py` vs `segmenter.py`).
 
 ### 4. Prove it, including what you didn't intend
 

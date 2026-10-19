@@ -109,7 +109,10 @@ def test_plain_keyword_grant_still_works():
 def test_bare_self_unblockable_rejects_power_filter():
     # "with power N or less" needs a real RULE 115 target, not the bare
     # self-referential ("~ can't be blocked this turn") form — fail closed.
-    from mtg_analyzer.parser.oracle.catalogue.handlers import _cant_be_blocked_turn, _CANT_BE_BLOCKED_TURN_RE
+    from mtg_analyzer.parser.oracle.catalogue.effect_rows.counters_blocking import (
+        CANT_BE_BLOCKED_TURN_RE as _CANT_BE_BLOCKED_TURN_RE,
+        cant_be_blocked_turn as _cant_be_blocked_turn,
+    )
     m = _CANT_BE_BLOCKED_TURN_RE.fullmatch("~ can't be blocked this turn")
     assert m is not None and m.groupdict().get("selfref")
     assert _cant_be_blocked_turn(m) == [EffectSpec("unblockable", {"target_kind": None})]

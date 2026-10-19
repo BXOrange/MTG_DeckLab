@@ -50,15 +50,11 @@ from .catalogue.dying_hosts import dying_host_return_specs
 from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.target_groups import target_group_specs
 from .catalogue.zone_ability_sequences import exile_grant_specs
-from .catalogue.handlers import (
-    CYCLING_XX_TOKEN_RE,
-    DELAYED_SAC_EXILE_TAIL_RE,
-    MAY_COST_THEN_CLAUSE,
-    MAY_EFFECT_THEN_ANTECEDENT_PHRASES,
-    base_verb,
-    cycling_xx_token,
-    match_clause,
-)
+from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_EFFECT_THEN_ANTECEDENT_PHRASES
+from .catalogue.effect_rows.draw_discard_cast import CYCLING_XX_TOKEN_RE, cycling_xx_token
+from .catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
+from .catalogue.effect_rows.shared import base_verb
+from .catalogue.handlers import match_clause
 from .catalogue.keywords import ALIAS_DISPLAYS, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
 from .catalogue.replacements import replacement_clause_specs

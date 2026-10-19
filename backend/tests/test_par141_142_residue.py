@@ -250,7 +250,7 @@ def test_a_self_return_hands_the_returned_permanent_to_the_next_clause():
 
 
 def test_copy_tail_modifiers():
-    from mtg_analyzer.parser.oracle.catalogue.handlers import _parse_copy_except_tail as tail
+    from mtg_analyzer.parser.oracle.catalogue.effect_rows.damage_copy import parse_copy_except_tail as tail
 
     assert tail("it's an enchantment in addition to its other types") == {"add_types": ["Enchantment"]}
     assert tail("it's legendary") == {"legendary": True}

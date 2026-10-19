@@ -701,10 +701,10 @@ def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None
         r"activate (?:this ability )?only if ([^.]+)\.", effect_text, re.IGNORECASE,
     )
     if condition_match:
-        from ..parser.oracle.catalogue.handlers import _activation_condition_dict
+        from ..parser.oracle.catalogue.effect_rows.costs_mana_limits import activation_condition_dict
 
         condition_text = condition_match.group(1).lower()
-        cost.activation_condition = _activation_condition_dict(condition_text)
+        cost.activation_condition = activation_condition_dict(condition_text)
         if cost.activation_condition is None:
             # Never silently offer an unconditional version of a gated ability.
             cost.unrecognized = condition_match.group(0)

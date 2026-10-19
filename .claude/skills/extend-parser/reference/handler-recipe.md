@@ -7,7 +7,7 @@ to build. Paths are relative to `backend/mtg_analyzer/`.
 
 | The clause is… | File | Registered in |
 | --- | --- | --- |
-| a one-shot effect body ("destroy target …", "draw a card") | `parser/oracle/catalogue/handlers.py` | `HANDLERS` list |
+| a one-shot effect body ("destroy target …", "draw a card") | the family module in `parser/oracle/catalogue/effect_rows/` (damage, tokens, counters, …; helpers used by several families in `effect_rows/shared.py`) | that module's `ROWS`; `handlers.py` assembles them into `HANDLERS` in a fixed order pinned by `tests/parser/oracle/handler_row_order.txt` (order is semantics: update that file deliberately, and declare `fallback_for` when a row backs up another) |
 | a standing static ("creatures you control get +1/+1", a permission, a grant) | `parser/oracle/catalogue/static_handlers.py` | no single table — entry point `static_effect_specs(clause)`, built from `_FILTER_RES` / `_CONDITION_RES` / `_TAIL_RES` (plus `enter_choice_specs` for RULE 601.2b) |
 | a **trigger condition** ("whenever ~ becomes monstrous") | `parser/oracle/segmenter.py` | `_TRIGGER_VERBS` / `_PHASE_STEP_WORDS` / `_PLAYER_TRIGGER_CONDITIONS` |
 | an activated-ability **cost** | `parser/oracle/segmenter.py` (+ `game/costs.py` for the engine side) | — |
@@ -47,7 +47,7 @@ So: patterns are lowercase, use `~` for the source, and never need to handle
 | `COUNT_X` | `a\|an\|x\|\d+` | `count_or_x_of(...)` → int **or** the string `"x"` |
 | `SPELL_TARGET` | "target noncreature spell", … | `resolve_spell_filter(...)` |
 | `COLOR_WORD_ALT`, `IF_COLOR_SUFFIX` | colour words / "if it's red" | `resolve_color_word(...)` |
-| `_MULTI_TARGET_QUANTIFIER` + `_MULTI_TARGET_ALT` (in `handlers.py`) | RULE 115.1a N≥2, "up to two target creatures" | `_multi_target_params(m)` |
+| `MULTI_TARGET_QUANTIFIER` + `MULTI_TARGET_ALT` (in `effect_rows/shared.py`) | RULE 115.1a N≥2, "up to two target creatures" | `multi_target_params(m)` |
 
 Every builder returning `None` after a successful regex match is **correct and
 expected** for an unrecognised target phrase — that's the fail-closed path.
