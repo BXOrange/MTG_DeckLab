@@ -4558,6 +4558,16 @@ def _parse_cache_key(card: Any) -> tuple[Any, ...]:
         bool(getattr(card, "is_leveler", False)),
         bool(getattr(card, "is_class", False)),
         bool(getattr(card, "is_station", False)),
+        # Station's `type_change` P/T (vehicle_*) and the Room split-layout test read these;
+        # the back_* fields feed `back_face()`/`flip_face()`, which the Room/flip halves parse.
+        getattr(card, "layout", "") or "",
+        getattr(card, "vehicle_power", None),
+        getattr(card, "vehicle_toughness", None),
+        getattr(card, "back_name", "") or "",
+        getattr(card, "back_mana_cost_string", "") or "",
+        tuple(getattr(card, "back_keywords", None) or ()),
+        getattr(card, "back_power", None),
+        getattr(card, "back_toughness", None),
     )
 
 

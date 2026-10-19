@@ -151,8 +151,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-11 · Parse-cache key omits fields the parser reads.** `gate._parse_cache_key` is a hand-kept
-  field list without `vehicle_power`/`vehicle_toughness` (Station `type_change` P/T) and `layout`
-  (Room split), so two cards differing only there share one cached `ParseResult` (repro: Atmospheric
-  Greenhouse with `vehicle_power` 5 vs. 10 both parse to power 5). Add the fields and a guard test
-  that every card attribute the front-end reads is part of the key.

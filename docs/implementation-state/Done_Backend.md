@@ -5714,6 +5714,8 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 - **What:** Closed group-scoped quoted grants and Threshold's conditional self grants without card-name or tribe-specific behaviour.
 - **Files:** `parser/oracle/catalogue/{handlers,static_handlers}.py`, `parser/oracle/{segmenter,gate}.py` (PARSER_VERSION 363), `game/{binding/core,targeting}.py`, `game/effects/{choices_actions,exile_control,life_sacrifice,registry}.py`, `tests/test_par34_counter_lord_and_threshold.py`.
 
+- **BUG-11 (parse-cache key completeness).** `gate._parse_cache_key` now includes `layout`, `vehicle_power`, `vehicle_toughness` and the back-face fields `back_name`, `back_mana_cost_string`, `back_keywords`, `back_power`, `back_toughness`; before, cards differing only there shared one cached `ParseResult` (Station `type_change` P/T, Room split). `tests/test_parse_cache_key.py` includes a guard that every `getattr(card, ...)` in `gate.py` is keyed (does not cover reads in other parser modules). PARSER_VERSION stays 706 (key-only change, lock re-pinned).
+
 ## Deck/Cube Playability Batches
 
 ### Squirreled Away — Bloomburrow Commander (85/85 unique cards)
