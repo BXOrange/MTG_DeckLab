@@ -46,7 +46,7 @@ def _creature(state, name, pid, toughness=2):
 
 def test_each_creature_and_each_player_parses():
     assert parse_effect_body("~ deals 2 damage to each creature and each player") == [
-        EffectSpec("damage", {"amount": 2, "selector": "each_creature_and_player"})
+        EffectSpec("damage", {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "group_and_players": "each_player"})
     ]
 
 
@@ -58,13 +58,13 @@ def test_each_creature_and_each_planeswalker_parses():
 
 def test_it_subject_form_parses():
     assert parse_effect_body("it deals 6 damage to each creature and each player") == [
-        EffectSpec("damage", {"amount": 6, "selector": "each_creature_and_player"})
+        EffectSpec("damage", {"amount": 6, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "group_and_players": "each_player"})
     ]
 
 
 def test_bare_each_creature_still_plain():
     assert parse_effect_body("~ deals 2 damage to each creature") == [
-        EffectSpec("damage", {"amount": 2, "selector": "each_creature"})
+        EffectSpec("damage", {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})
     ]
 
 

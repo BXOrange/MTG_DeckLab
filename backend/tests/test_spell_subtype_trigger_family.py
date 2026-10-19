@@ -106,7 +106,7 @@ def test_pay_cost_then_draw_is_recognized_as_one_clause():
     (spec,) = parse_effect_body("you may pay {g}. if you do, draw a card")
     assert spec.type == "pay_cost_then"
     assert spec.params == {
-        "cost": "{g}",
+        "cost": "pay {g}",
         "effects": [{"type": "draw", "params": {"count": 1}}],
     }
 

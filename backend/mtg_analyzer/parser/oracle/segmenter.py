@@ -7159,6 +7159,24 @@ _CREATURE_MASS_COUNTER_SELECTORS: frozenset[str] = frozenset(
      "each_other_creature", "each_creature_opponents_control"}
 )
 _BARE_COUNTER_PARAMS: frozenset[str] = frozenset({"kind", "selector", "count"})
+_BARE_COUNTER_GROUP_PARAMS: frozenset[str] = frozenset({"kind", "group", "count", "group_other"})
+
+
+#: "each creature" / "each other creature": the filters that name a group by type and self-exclusion alone.
+_BARE_CREATURE_GROUP_FILTERS = ({"card_type": "creature"}, {"card_type": "creature", "not_reference": True})
+
+
+def _is_creature_only_group(group: object) -> bool:
+    """A structured battlefield group whose members are all creatures."""
+    return (
+        isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield"
+        and isinstance(group.get("filter"), dict) and group["filter"].get("card_type") == "creature"
+    )
+
+
+def _is_bare_creature_group(group: object) -> bool:
+    """An unnarrowed creature group: replaying it later names the same objects (no counter/state filter)."""
+    return _is_creature_only_group(group) and group["filter"] in _BARE_CREATURE_GROUP_FILTERS
 _BARE_TAP_PARAMS: frozenset[str] = frozenset({"selector", "untap", "selector_player"})
 _BARE_PUMP_PARAMS: frozenset[str] = frozenset({"selector", "power", "toughness", "keywords"})
 
@@ -7202,12 +7220,21 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
         return (
             last.params.get("selector") in _CREATURE_MASS_COUNTER_SELECTORS
             and set(last.params) <= _BARE_COUNTER_PARAMS
+        ) or (
+            # PAR-169: the structured form (`add_pt_counter_group`) of the same unnarrowed creature group.
+            _is_bare_creature_group(last.params.get("group"))
+            and set(last.params) <= _BARE_COUNTER_GROUP_PARAMS
         )
     if last.type == "damage":
         # PAR-128: "deals 1 damage to each creature with flying your opponents
         # control. Tap those creatures." — creature-only mass damage; the group
         # is the set the hit landed on (`GameContext.damaged_this_way`).
-        return last.params.get("selector") in _CREATURE_MASS_DAMAGE_SELECTORS
+        return last.params.get("selector") in _CREATURE_MASS_DAMAGE_SELECTORS or (
+            # PAR-169: the structured form (`damage_group`) — any creature-only group, since the
+            # replayed set is the one the hit landed on, not a re-run of the filter.
+            _is_creature_only_group(last.params.get("group"))
+            and "group_and_players" not in last.params and "group_player" not in last.params
+        )
     if last.type == "pump":
         selector = last.params.get("selector")
         return _is_group_selector_value(selector) or (

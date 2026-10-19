@@ -45,14 +45,19 @@ def test_all_other_creatures_phrasings():
                  "destroy all creatures other than ~",
                  "destroy all creatures except for ~",
                  "destroy all creatures except ~"):
-        assert match_clause(text) == [
-            EffectSpec("destroy", {"selector": "all_other_creatures"})
-        ], text
+        # PAR-169: "all other creatures" is the generalized group row's; the "other than ~"/"except ~" spellings
+        # (a self-exclusion the group grammar has no word for) keep the named selector.
+        expected = (
+            {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}}}
+            if text == "destroy all other creatures" else {"selector": "all_other_creatures"}
+        )
+        assert match_clause(text) == [EffectSpec("destroy", expected)], text
 
 
 def test_other_creatures_you_control_phrasing():
     assert match_clause("destroy all other creatures you control") == [
-        EffectSpec("destroy", {"selector": "other_creatures_you_control"})
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "you",
+                                         "filter": {"card_type": "creature", "not_reference": True}}})
     ]
 
 
@@ -65,7 +70,7 @@ def test_regen_tail_is_claimed():
 
 def test_plain_destroy_all_creatures_still_includes_the_source():
     assert match_clause("destroy all creatures") == [
-        EffectSpec("destroy", {"selector": "all_creatures"})
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})
     ]
 
 

@@ -749,7 +749,7 @@ def test_search_and_reanimate_count_words_parse():
     [pick] = parse_effect_body("return a creature card from your graveyard to the battlefield with 2 +1/+1 counters on it")
     assert pick.params["pick"] is True and pick.params["then_effects"][0]["params"]["count"] == 2
     [free] = parse_effect_body("you may cast an instant or sorcery spell with mana value 3 or less from your hand without paying its mana cost")
-    assert free.params["instant_sorcery_only"] and free.params["max_mana_value"] == 3
+    assert free.params["card_criteria"] == {"type": ["instant", "sorcery"]} and free.params["max_mana_value"] == 3
 
 
 # --- collateral: the search count may be an announced X or a fixed number --------------------------------

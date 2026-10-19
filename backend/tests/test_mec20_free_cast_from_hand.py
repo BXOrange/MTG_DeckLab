@@ -87,16 +87,20 @@ def basic_land():
 # ---------------------------------------------------------------------------
 
 
+#: PAR-169: the generalized `free_cast_zone` row (not the older named-vocabulary one) claims the plain forms.
+_HAND_WINDOW = {"zones": ["hand"], "during_resolution": True}
+
+
 def test_parses_a_literal_cap():
     specs = match_clause("cast a spell with mana value 3 or less from your hand without paying its mana cost")
-    assert specs == [EffectSpec("free_cast_from_hand", {"max_mana_value": 3})]
+    assert specs == [EffectSpec("free_cast_from_hand", {**_HAND_WINDOW, "max_mana_value": 3})]
 
 
 def test_parses_the_you_may_prefixed_form_too():
     specs = match_clause(
         "you may cast a spell with mana value 3 or less from your hand without paying its mana cost"
     )
-    assert specs == [EffectSpec("free_cast_from_hand", {"max_mana_value": 3})]
+    assert specs == [EffectSpec("free_cast_from_hand", {**_HAND_WINDOW, "max_mana_value": 3})]
 
 
 def test_parses_the_x_sentinel():
@@ -112,7 +116,10 @@ def test_parses_the_attacking_creatures_selector():
         "where x is the number of attacking creatures"
     )
     assert specs == [
-        EffectSpec("free_cast_from_hand", {"max_mana_value_selector": "attacking_creatures"})
+        EffectSpec("free_cast_from_hand", {**_HAND_WINDOW, "max_mana_value_amount": {
+            "kind": "count_selector",
+            "selector": {"zone": "battlefield", "of": "any", "filter": {"attacking": True, "card_type": "creature"}},
+        }})
     ]
 
 

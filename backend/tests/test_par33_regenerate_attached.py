@@ -989,7 +989,8 @@ def test_bear_umbra_quoted_attack_trigger_untaps_all_of_its_controllers_lands():
     )
     assert specs is not None
     assert specs[1].params["grant_effects"] == [{
-        "type": "tap", "params": {"selector": "lands_you_control", "untap": True},
+        "type": "tap", "params": {
+            "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}, "untap": True},
     }]
 
     engine, state, _ = _rules()

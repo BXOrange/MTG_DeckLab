@@ -82,7 +82,10 @@ def parse_exile_cast_window(
     # The PAR-163 window row already owns "[until the end of your next turn,] you may play/cast that card [...]" after
     # an exile clause; keep its spec rather than restating it here.
     earlier = match_clause(text.strip().split(".", 1)[1].strip().rstrip("."))
-    if not is_mill and earlier and len(earlier) == 1 and earlier[0].type == "grant_play_window_previous_exiled":
+    # PAR-169: only for an exile that leaves its cards as the previous clause's referent (`ExileEffect`); a library
+    # exile (`exile_top_of_library`) records exact zone visits instead, which `cast_window_exiled_pool` reads.
+    if (not is_mill and earlier and len(earlier) == 1 and earlier[0].type == "grant_play_window_previous_exiled"
+            and exile[0].type != "exile_top_of_library"):
         return [exile[0], earlier[0]]
     window = (m.group("pre") or "").strip(), (m.group("post") or "").strip()
     if window[0] and window[1]:

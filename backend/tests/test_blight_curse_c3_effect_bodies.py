@@ -57,7 +57,7 @@ def test_tapped_and_attacking_still_wins_over_plain_tapped():
 
 def test_damage_each_creature_opponents_control_parses():
     assert match_clause("~ deals 1 damage to each creature your opponents control") == [
-        EffectSpec("damage", {"amount": 1, "selector": "each_creature_opponents_control"})
+        EffectSpec("damage", {"amount": 1, "group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}})
     ]
 
 

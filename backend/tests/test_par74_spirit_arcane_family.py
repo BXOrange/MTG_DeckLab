@@ -369,8 +369,8 @@ def test_reveal_top_all_land_cards_to_hand():
         "your library in any order",
         self_subject=True,
     ) == [EffectSpec("inspect_top_choose", {
-        "count": 3, "action": "library_to_hand", "filter": {"is_land": True},
-        "max_picks": 3, "rest_destination": "library_bottom_random",
+        "count": 3, "action": "library_to_hand", "max_picks": "all", "optional": False,
+        "criteria": {"type": "land"}, "rest_destination": "library_bottom_random",
     })]
 
 

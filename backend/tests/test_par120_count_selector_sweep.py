@@ -152,7 +152,8 @@ def test_basilisk_gate_counts_gates_which_are_lands():
     source = _bf(state, card)
     _bf(state, _land("Gate2", "Gate"))
     bear = _bf(state, _creature("Bear"))
-    effect, _ = _effect(card, "pump")
+    # PAR-169: the generalized "where X is" row wraps the pump in a `bind` that measures X first.
+    effect, _ = _effect(card, "bind")
     effect.source = source
     effect.apply(engine.rules.context, targets=[bear])
     engine.recompute_continuous_effects()

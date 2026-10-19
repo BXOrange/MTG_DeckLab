@@ -154,6 +154,13 @@ class EffectHandler:
     #: `game/effect_operands.py` ``{"of": "attached", "as": "controller"}``
     #: referent.
     attached_subject_only: bool = False
+    #: PAR-169: names the rows this one is the *fallback* for. ``HANDLERS`` order is semantics (the first row to
+    #: claim a clause wins), and where a generalized grammar and an older, narrower-vocabulary row both claim a
+    #: clause with different IR, the older row is kept only for the clauses the primary declines. Declaring it
+    #: here makes that overlap explicit rather than accidental: the row must come *after* every row it names, and
+    #: `test_handler_table_shadowing` allows a same-clause/different-IR pair only through this field (or a
+    #: context-gated row preceding an ungated one).
+    fallback_for: tuple[str, ...] = ()
 
     def match(self, clause: str) -> Optional[list[EffectSpec]]:
         """Effects for ``clause`` if this handler claims it whole, else ``None``.
@@ -1705,25 +1712,6 @@ def _prevent_all_damage_self_pronoun(m: re.Match[str]) -> Optional[list[EffectSp
     return [EffectSpec("prevent_damage_shield", params)]
 
 
-#: PAR-78: the Aura self-host form — "Prevent all damage that would be
-#: dealt to enchanted creature[ **by** `<source filter>`]." (Inviolability).
-_PREVENT_ALL_DAMAGE_ENCHANTED_RE = _c(
-    r"prevent all damage that would be dealt to enchanted creature"
-    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
-)
-
-
-def _prevent_all_damage_enchanted(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"amount": "all", "attached_only": True}
-    filt = m.groupdict().get("filter")
-    if filt:
-        source_filter = _parse_prevent_source_filter(filt)
-        if source_filter is None:
-            return None
-        params["source_filter"] = source_filter
-    return [EffectSpec("prevent_damage_shield", params)]
-
-
 #: RULE 601.2c's mass/untargeted-selector vocabulary — shared by the
 #: damage/lose_life/player-counter "each creature/player/opponent" families
 #: below, not RULE 115 targeting (see `subgrammars._TARGET_ROWS`'s note on
@@ -1841,7 +1829,7 @@ def _damage_target_and_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: you control" / "…to each other creature without flying" (Barrage of Boulders, Cinder
 #: Giant, Fire Ants — PAR-128) — the general mass form: the group is whatever the shared
 #: noun-phrase grammar reads (`parse_count_phrase`, singular head pluralized), carried as
-#: `DealDamageEffect.group`. After `damage_selector`, so its named selectors keep winning.
+#: `DealDamageEffect.group`. Primary over `damage_selector`/`damage_each_creature_keyword` (PAR-169), which keep only what it declines.
 _DAMAGE_GROUP_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to each (?P<group>[a-z' -]+?)"
 )
@@ -2252,30 +2240,6 @@ def _draw(m: re.Match[str]) -> list[EffectSpec]:
     elif who in ("each player", "each opponent"):
         params["selector"] = who.replace(" ", "_")
     return [EffectSpec("draw", params)]
-
-
-#: RULE 118.3's "You may pay `<cost>`. If you do, draw a card." — the single
-#: most common tail on the `pay_cost_then` idiom (~21 real cards, mostly
-#: Spellbombs and card-draw payoffs). Matched as *one whole clause*,
-#: "you may" included, rather than through the generic "you may `<effect>`"
-#: peeling `_peel_optional` does elsewhere: that peeling's own
-#: `AbilitySpec.optional` flag means "you may decline this trigger's whole
-#: effect", a different, *outer* optionality than RULE 118.3's "the
-#: trigger always happens; paying the embedded cost is what's optional" —
-#: setting both would double-gate the same choice. `pay_cost_then`
-#: (`game/effects/core.py`'s `PayCostThenEffect`) already existed as an engine
-#: primitive (Mana Vault/Wandering Archaic, hand-authored); this is its
-#: first oracle-text recognizer.
-_PAY_COST_THEN_DRAW_RE = _c(
-    r"you may pay (?P<cost>\{[a-z0-9]+\})\. if you do, draw a card"
-)
-
-
-def _pay_cost_then_draw(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("pay_cost_then", {
-        "cost": m.group("cost"),
-        "effects": [{"type": "draw", "params": {"count": 1}}],
-    })]
 
 
 def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
@@ -3199,32 +3163,6 @@ def _cycling_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if params is None:
         return None
     return [EffectSpec("create_token", {**params, "power": "cycling_x", "toughness": "cycling_x"})]
-
-
-#: RULE 400.7's "blink" family — "exile target non-<subtype> creature you
-#: control, then return that card/it to the battlefield under
-#: your/its owner's control" (Restoration Angel/Icewind Stalwart-shaped).
-#: The pre-existing `BlinkEffect`/`RulesEngine.blink` primitive had no
-#: oracle-text recognizer at all (Ephemerate/Momentary Blink are both
-#: hand-authored in `card_catalogue`) — this is that recognizer, for
-#: the specific "non-<subtype> creature you control" + explicit controller
-#: shape those simpler cards don't need. ``subtype`` is a single word (every
-#: real card in this shape names exactly one creature type); a compound
-#: exclusion or any other target phrase stays unclaimed.
-_BLINK_NON_SUBTYPE_RE = _c(
-    r"exile target non-(?P<subtype>[a-z]+) creature you control, "
-    r"then return (?:that card|it) to the battlefield under (?P<who>your|its owner'?s) control"
-)
-
-
-def _blink_non_subtype(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {
-        "target_kind": "creature_you_control",
-        "creature_filter": {"without_subtype": m.group("subtype").capitalize()},
-    }
-    if m.group("who") == "your":
-        params["under_your_control"] = True
-    return [EffectSpec("blink", params)]
 
 
 #: The plainer sibling of `_BLINK_NON_SUBTYPE_RE`, with no subtype
@@ -4214,11 +4152,6 @@ _GAIN_LIFE_AND_DRAW_SAC_POWER_RE = _c(
     r"you gains? x life and draws? x cards?, "
     r"where x is the sacrificed creature'?s power"
 )
-_DRAW_AND_GAIN_LIFE_DEVOTION_RE = _c(
-    rf"you draws? x cards? and (?:you )?gains? x life, where x is {DEVOTION}"
-)
-
-
 def _draw_and_lose_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     dsel = devotion_selector(m)
     if not dsel:
@@ -4236,16 +4169,6 @@ def _gain_life_and_draw_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]
     return [
         EffectSpec("gain_life", {"count_selector": dsel}),
         EffectSpec("draw", {"amount_from_count_selector": dsel}),
-    ]
-
-
-def _draw_and_gain_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    dsel = devotion_selector(m)
-    if not dsel:
-        return None
-    return [
-        EffectSpec("draw", {"amount_from_count_selector": dsel}),
-        EffectSpec("gain_life", {"count_selector": dsel}),
     ]
 
 
@@ -4955,29 +4878,6 @@ def _destroy_all(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("destroy", params)]
 
 
-#: The "They can't be regenerated." tail (Wrath of God's own trailing
-#: sentence) as one combined whole-body match — `parse_effect_body` tries
-#: the *unsplit* body first, so this must span both sentences itself; the
-#: plain `_destroy_all` above only ever sees this body with the tail still
-#: attached (fullmatch fails) and so correctly declines it, falling through
-#: to this row instead.
-_DESTROY_ALL_NO_REGEN_RE = _c(
-    rf"destroy all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)}){_MASS_DESTROY_FILTER}"
-    rf"\. they can'?t be regenerated"
-)
-
-
-def _destroy_all_no_regen(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {
-        "selector": _MASS_DESTROY_NOUNS[m.group("noun")],
-        "can_be_regenerated": False,
-    }
-    filt = _mass_destroy_filter_dict(m)
-    if filt:
-        params["filter"] = filt
-    return [EffectSpec("destroy", params)]
-
-
 #: "Destroy all other creatures." / "…all creatures other than ~" / "…all
 #: creatures except [for] ~" — a self-excluding mass wipe (RULE 400's
 #: "other"), reaching the new `all_other_creatures` /
@@ -5003,17 +4903,10 @@ def _destroy_all_other(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("destroy", params)]
 
 
-_EXILE_ALL_RE = _c(rf"exile all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)})")
-
-
-def _exile_all(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("exile", {"selector": _MASS_DESTROY_NOUNS[m.group("noun")]})]
-
-
 #: "destroy/exile all `<group>`" / "…each `<group>`" (PAR-128) — the general mass form: the group
 #: is whatever the shared noun-phrase grammar reads (`parse_count_phrase`), carried as
-#: `DestroyEffect.group` / `ExileEffect.group`. After the named-selector rows above, so their
-#: closed vocabulary (and its numeric filters) keeps winning.
+#: `DestroyEffect.group` / `ExileEffect.group`. Primary over the named-selector rows (PAR-169), which
+#: stay as fallbacks for what this grammar declines (an X mana-value bound, "other than ~").
 _MASS_GROUP_RE = _c(
     r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?)"
     r"(?P<no_regen>\.? (?:they|those [a-z ]+) can'?t be regenerated)?"
@@ -8687,7 +8580,8 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     ),
     (
         "damage_equal_to_power_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
-        _damage_equal_to_power_selector(None), {"self_subject_only": True},
+        _damage_equal_to_power_selector(None),
+        {"self_subject_only": True, "fallback_for": ("subject_damage_each_opponent_power_self",)},
     ),
     # PAR-123: under a RULE 603.1 group trigger "it" is the firing creature, not the
     # source (Stalking Vengeance, Warstorm Surge) — the same `trigger_subject`
@@ -8698,7 +8592,8 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     ),
     (
         "damage_equal_to_power_group_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
-        _damage_equal_to_power_selector("trigger_subject"), {"group_subject_only": True},
+        _damage_equal_to_power_selector("trigger_subject"),
+        {"group_subject_only": True, "fallback_for": ("subject_damage_each_opponent_power_group",)},
     ),
     (
         "damage_equal_to_power_attached", _POWER_DAMAGE_ATTACHED_RE,
@@ -8768,7 +8663,7 @@ def _add_mana_that_much(m: re.Match[str]) -> list[EffectSpec]:
 #: instead of splitting it mana by mana.
 _ADD_MANA_ANY_COMBINATION_RE = _c(
     r"add (?:(?P<amount>x|that much|\d+) mana (?:in any combination of (?P<cols>colou?rs|"
-    r"\{[wubrg]\}(?:(?:, | and/or |, and/or )\{[wubrg]\})*)|of any (?:1|one) colou?r)"
+    r"\{[wubrg]\}(?:(?:, | and/or |, and/or )\{[wubrg]\})*)|(?P<one_color>of any (?:1|one) colou?r))"
     r"|(?P<first>\{[wubrg]\}) or (?P<second>\{[wubrg]\}))"
 )
 
@@ -8778,11 +8673,15 @@ def _add_mana_any_combination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return [EffectSpec("add_mana", {
             "colors": ["ANY"], "any_color_choices": [m.group("first").strip("{}").upper(), m.group("second").strip("{}").upper()],
         })]
+    amount = m.group("amount")
+    if m.group("one_color") and amount.isdigit():
+        # RULE 106.1: "N mana of any 1 color" is one colour pick covering all N (`add_mana_counted`'s ``any_amount``),
+        # not N independent picks; only the variable "that much mana of any 1 color" (Photon) is built here.
+        return None
     params: dict = {"colors": ["ANY"]}
     cols = m.group("cols")
     if cols and cols not in ("color", "colors", "colour", "colours"):
         params["any_color_choices"] = [c.upper() for c in re.findall(r"\{([wubrg])\}", cols)]
-    amount = m.group("amount")
     if amount == "that much":
         params["any_amount_from_trigger_event"] = "amount"
     elif amount == "x":
@@ -9461,28 +9360,6 @@ def _transform(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("transform", {})]
 
 
-#: "exile ~/this saga, then return it/him/her to the battlefield transformed
-#: under your/its/his/her owner's control" (RULE 400.7 + RULE 712.8 combined)
-#: — distinct from a plain in-place `transform`: this is a Batch 9 shape
-#: where the permanent actually leaves and re-enters the battlefield already
-#: on its back face (a transforming Saga's own final chapter, Fable of the
-#: Mirror-Breaker-shaped; or a transform-flip permanent's activated ability
-#: that phrases its own flip this way instead of a bare "transform ~",
-#: Ayara/Clive/Jin-Gitaxias-shaped). "this saga" is matched literally since
-#: `normalize._SELF_REFERENCE_RE` deliberately excludes it (Saga gets its own
-#: dedicated grammar, `catalogue/saga.py`); every other self-reference
-#: (including "this equipment") already folds to ``~`` before this runs.
-_EXILE_RETURN_TRANSFORMED_RE = _c(
-    rf"exile (?:{re.escape(SELF)}|this saga),? then return (?:it|him|her) to "
-    r"the battlefield transformed under (?:your control|(?:its|his|her) owner's control)"
-)
-
-
-def _exile_return_transformed(m: re.Match[str]) -> list[EffectSpec]:
-    from .flicker_sequences import flicker_sequence_specs
-    return flicker_sequence_specs(m.group())
-
-
 #: RULE 610.3: modern "exile <target> until ~ leaves" is one instruction.
 #: The engine returns the exiled incarnation immediately after departure;
 #: old two-ability wording retains an ordinary separate return trigger.
@@ -9690,15 +9567,6 @@ def _return_target_to_battlefield_self(m: re.Match[str]) -> list[EffectSpec]:
     if m.group("whose").lower() == "your":
         params["under_your_control"] = True
     return [EffectSpec("return_self_to_battlefield", params)]
-
-
-_RETURN_TRIGGER_CARD_TO_HAND_RE = _c(r"return that card to your hand")
-
-
-def _return_trigger_card_to_hand(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("return_from_graveyard", {
-        "destination": "hand", "trigger_subject_key": "remembered",
-    })]
 
 
 def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
@@ -11727,27 +11595,6 @@ def _grant_subtype_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
-#: "Target Sliver creature gets +X/+0 …, where X is the number of Slivers
-#: on the battlefield." (Magma Sliver) — an unscoped subtype count, distinct
-#: from the controller-relative tribal selectors.
-_PUMP_SUBTYPE_TARGET_GLOBAL_COUNT_RE = _c(
-    r"target (?P<subtype>[a-z]+) creature gets? \+x/\+0 until end of turn, "
-    r"where x is the number of (?P<count_subtype>[a-z]+)s on the battlefield"
-)
-
-
-def _pump_subtype_target_global_count(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    subtype = m.group("subtype").lower()
-    count_subtype = m.group("count_subtype").lower()
-    if subtype != count_subtype:
-        return None
-    return [EffectSpec("pump", {
-        "target_kind": "creature", "creature_filter": {"subtype": subtype.capitalize()},
-        "amount_from_count_selector": f"creatures_of_type_{count_subtype}",
-        "amount_from_count_selector_axis": "power",
-    })]
-
-
 def _pump_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """"<subject> gets +x/+x [and gains <kw>] until end of turn" — an
     {X}-cost spell/ability's own announced {X} scaling the pump (Tyvar's
@@ -11948,23 +11795,6 @@ def _temporary_keyword_change(
     state_filter = _pump_target_creature_filter(m)
     if state_filter:
         params["creature_filter"] = state_filter
-    return [EffectSpec("pump", params)]
-
-
-def _temporary_keyword_change_implicit(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    """Self-subject "it loses …"; other pronouns use their gated row."""
-    removed = _token_keywords(m.group("lost"))
-    if removed is None:
-        return None
-    params: dict = {"removed_keywords": removed}
-    if m.groupdict().get("p") is not None:
-        params["power"] = _signed_int(m.group("p"))
-        params["toughness"] = _signed_int(m.group("t"))
-    if m.groupdict().get("kw"):
-        keywords = _token_keywords(m.group("kw"))
-        if keywords is None:
-            return None
-        params["keywords"] = keywords
     return [EffectSpec("pump", params)]
 
 
@@ -13224,18 +13054,6 @@ _LOCKDOWN_CONDITIONS: list[tuple[re.Pattern[str], dict]] = [
     (re.compile(r"you control ~", re.I), {"kind": "source_on_battlefield"}),
     (re.compile(r"~ remains on the battlefield", re.I), {"kind": "source_on_battlefield"}),
 ]
-
-
-#: "It doesn't untap during its controller's untap step" with no duration of its own — the body of a
-#: "for as long as it has a `<counter>` counter on it" lock (`segmenter._for_as_long_as_counter_specs`
-#: re-times it). Offered only after a clause that chose the permanent (`previous_subject_only`).
-_LOCKDOWN_BARE_RE = _c(r"it doesn'?t untap during its controller'?s untap step")
-
-
-def _lockdown_bare(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("grant_until", {
-        "static": {"type": "no_untap", "params": {}}, "previous_subject": True, "target_kind": None,
-    })]
 
 
 def _lockdown(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -15356,12 +15174,6 @@ def _goad_created(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("goad", {"target_kind": None, "referent": "created", "permanent": True})]
 
 
-# "It's goaded for the rest of the game." (Jon Irenicus) — the same no-expiry
-# designation aimed at the previous clause's *target* instead.
-def _goad_previous_permanent(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("goad", {"target_kind": None, "permanent": True})]
-
-
 # "You become the monarch." / "Target player becomes the monarch." (RULE
 # 725.1) and "You take the initiative." / "Target player takes the
 # initiative." (RULE 726.1) — plain designation grants, the same untargeted-
@@ -17357,34 +17169,6 @@ def _look_top_put_three_party(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
-#: PAR-74: "Reveal the top N cards of your library. Put all land cards
-#: revealed this way into your hand and the rest on the bottom of your
-#: library in any order." (Elder Pine of Jukai). Not a real choice — RULE
-#: 601.2c's "all" leaves nothing to pick between — so it's `InspectTopChoose
-#: Effect` with ``max_picks`` set to the full inspected count: whenever
-#: every land-filtered candidate is within that cap (always true here, since
-#: candidates are a subset of the N inspected), `_request_choose_objects`
-#: auto-resolves with no prompt (see its own docstring), which *is* "put all
-#: of them" for a filter this narrow. ``rest_destination="library_bottom_
-#: random"`` is the existing "in any order" stand-in `_LOOK_TOP_PUT_THREE_
-#: PARTY_RE` above already uses. Only "land" is in this family's filter
-#: vocabulary — extend `_REVEAL_TOP_ALL_FILTER_RE` the day another type word
-#: needs it.
-_REVEAL_TOP_ALL_FILTER_RE = _c(
-    r"reveal the top (?P<n>\d+) cards of your library\. "
-    r"put all (?P<filter>land) cards revealed this way into your hand and "
-    r"the rest on the bottom of your library in any order"
-)
-
-
-def _reveal_top_all_filter(m: re.Match[str]) -> list[EffectSpec]:
-    n = int(m.group("n"))
-    return [EffectSpec("inspect_top_choose", {
-        "count": n, "action": "library_to_hand", "filter": {"is_land": True},
-        "max_picks": n, "rest_destination": "library_bottom_random",
-    })]
-
-
 #: PAR-144: the general dig — "Look at/Reveal the top N cards of your library. You may reveal a
 #: `<kind>` card from among them and put it into your hand/onto the battlefield. Put the rest on
 #: the bottom of your library / into your graveyard." (`dig.py` parses everything after the first
@@ -17928,9 +17712,18 @@ def _animate_target_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 # --- The table --------------------------------------------------------------
-# Order matters only for reporting; a clause is claimed by the first handler
-# whose full-clause regex matches. Every pattern is anchored to the whole
-# clause by `EffectHandler.match`'s `fullmatch`, so no partial claims.
+# ORDER IS SEMANTICS: a clause is claimed by the first eligible handler whose full-clause regex matches, and the
+# IR that handler builds is the clause's IR. Every pattern is anchored to the whole clause by
+# `EffectHandler.match`'s `fullmatch`, so no partial claims. Two rows may claim one clause with different IR only
+# in two declared ways (`tests/test_par169_handler_shadowing.py` re-measures every clause the full card cache
+# hands this table and fails on any other pair):
+#   * a context-gated row (``self_subject_only`` &c.) comes before the ungated row for the same words: the
+#     context's reading of a pronoun overrides the default one;
+#   * the older, narrower-vocabulary row is a declared ``fallback_for`` the generalized row (the shared group /
+#     count / window grammars): it comes after the primary and only keeps what the primary declines.
+# Put a new generalized row *before* the rows it generalizes and declare them fallbacks, or retire them.
+# Rows of a `_subject_handlers` table declare every subject reading of one verb at once (PAR-121), so a reading
+# no pool card prints yet is kept as part of that one declaration.
 
 #: PAR-121: the subject-scope slot of a verb. A clause whose subject is a bare pronoun ("it"/"that creature") means
 #: a different object under each kind of ability — the source (``self``), an earlier clause's pick (``previous``),
@@ -17963,6 +17756,7 @@ HANDLERS: list[EffectHandler] = [
     # RULE 701.47d's pre-errata bare "amass N" (no subtype) — see the
     # builder's own docstring; not expected to match any card in today's
     # already-errata'd cache.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_amass_family.py (the bare 'amass N' reminder form).
     EffectHandler("amass_untyped", _AMASS_UNTYPED_RE, _amass_untyped),
     # "~ deals 2 damage to any target. If this spell was kicked, it deals 4
     # damage instead." — the two-sentence override form, tried before the
@@ -18136,6 +17930,7 @@ HANDLERS: list[EffectHandler] = [
         _DAMAGE_X_SOURCE_COUNTERS_RE,
         _damage_x_source_counters,
     ),
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par33_regenerate_attached.py (quoted granted attack trigger).
     EffectHandler(
         "damage_x_defending_player_hand",
         _DAMAGE_X_DEFENDING_PLAYER_HAND_RE,
@@ -18159,16 +17954,6 @@ HANDLERS: list[EffectHandler] = [
             rf"mana value to {TARGET}"
         ),
         _damage_spell_mv,
-    ),
-    # "~ deals N damage to each creature blocking it" (Fire Juggler-shaped,
-    # 4 cards) — `DealDamageEffect`'s `each_creature_blocking_source`
-    # selector; "it" is the attacker (this ability's own source).
-    EffectHandler(
-        "damage_each_blocker",
-        _c(r"(?:~ )?deals? (?P<n>\d+) damage to each creature blocking (?:it|~)"),
-        lambda m: [EffectSpec("damage", {
-            "amount": int(m.group("n")), "selector": "each_creature_blocking_source",
-        })],
     ),
     # PAR-128: "each of those creatures deals damage equal to its power to ~." (Polukranos,
     # World Eater) — the earlier clause's targets are the dealers; the recipient is the source.
@@ -18319,11 +18104,6 @@ HANDLERS: list[EffectHandler] = [
         self_subject_only=True,
     ),
     EffectHandler(
-        "prevent_all_damage_enchanted",
-        _PREVENT_ALL_DAMAGE_ENCHANTED_RE,
-        _prevent_all_damage_enchanted,
-    ),
-    EffectHandler(
         "prevent_all_damage_creatures",
         _PREVENT_ALL_DAMAGE_CREATURES_RE,
         _prevent_all_damage_creatures,
@@ -18357,23 +18137,6 @@ HANDLERS: list[EffectHandler] = [
         "damage_each_opponent_and_creatures",
         _DAMAGE_EACH_OPPONENT_AND_CREATURES_RE,
         _damage_each_opponent_and_creatures,
-    ),
-    # "~ deals 2 damage to each creature" / "… to each player" / "… to each
-    # opponent" / "… to each creature and each player" / "… to each creature
-    # and each planeswalker" / "… to you" (RULE 109.5 self, the upkeep-bleed
-    # shape) — a mass/self effect (RULE 601.2c), not RULE 115 targeting. The
-    # two "and each …" unions come first in the alternation so the bare
-    # "each creature" branch can't consume a prefix and then fail the
-    # fullmatch on the trailing "and each …".
-    # "~ deals N damage to each creature without flying [and each player]"
-    # (Earthquake / Fault Line) / "…with/without horsemanship…" (MEC-87,
-    # Borrowing the East Wind / Rolling Earthquake) — before the plain
-    # `damage_selector` row, whose bare "each creature" alternative would
-    # otherwise consume the prefix and fail the fullmatch on the filter tail.
-    EffectHandler(
-        "damage_each_creature_keyword",
-        _DAMAGE_EACH_CREATURE_KEYWORD_RE,
-        _damage_each_creature_keyword,
     ),
     EffectHandler("damage_each_damaged_creature", _DAMAGE_EACH_DAMAGED_CREATURE_RE, _damage_each_damaged_creature),
     EffectHandler("damage_each_creature_kicked", _DAMAGE_EACH_CREATURE_KICKED_RE, _damage_each_creature_kicked),
@@ -18413,16 +18176,6 @@ HANDLERS: list[EffectHandler] = [
         _SKIP_YOUR_DRAW_STEP_THIS_TURN_RE,
         _skip_your_draw_step_this_turn,
     ),
-    EffectHandler(
-        "damage_selector",
-        _c(
-            rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
-            rf"(?P<selector>each creature and each player|each creature and each planeswalker"
-            rf"|each creature your opponents control|each creature an opponent controls"
-            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|that spell or ability's controller|them|you)"
-        ),
-        _damage_selector,
-    ),
     # "…to each other creature **that player** controls" after a clause that chose a
     # creature (Flames of the Raze-Boar): that clause's target's controller, offered only
     # once a previous clause supplied one; otherwise `damage_group` reads a trigger's player.
@@ -18434,6 +18187,35 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("damage_plus_additional", _DAMAGE_PLUS_ADDITIONAL_RE, _damage_plus_additional),
     EffectHandler("damage_group", _DAMAGE_GROUP_RE, _damage_group),
+    EffectHandler(
+        "damage_selector",
+        _c(
+            rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
+            rf"(?P<selector>each creature and each player|each creature and each planeswalker"
+            rf"|each creature your opponents control|each creature an opponent controls"
+            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|that spell or ability's controller|them|you)"
+        ),
+        _damage_selector,
+        fallback_for=("damage_group",),
+    ),
+    # "~ deals 2 damage to each creature" / "… to each player" / "… to each
+    # opponent" / "… to each creature and each player" / "… to each creature
+    # and each planeswalker" / "… to you" (RULE 109.5 self, the upkeep-bleed
+    # shape) — a mass/self effect (RULE 601.2c), not RULE 115 targeting. The
+    # two "and each …" unions come first in the alternation so the bare
+    # "each creature" branch can't consume a prefix and then fail the
+    # fullmatch on the trailing "and each …".
+    # "~ deals N damage to each creature without flying [and each player]"
+    # (Earthquake / Fault Line) / "…with/without horsemanship…" (MEC-87,
+    # Borrowing the East Wind / Rolling Earthquake) — before the plain
+    # `damage_selector` row, whose bare "each creature" alternative would
+    # otherwise consume the prefix and fail the fullmatch on the filter tail.
+    EffectHandler(
+        "damage_each_creature_keyword",
+        _DAMAGE_EACH_CREATURE_KEYWORD_RE,
+        _damage_each_creature_keyword,
+        fallback_for=("damage_group",),
+    ),
     EffectHandler("damage_target_player_and_group", _DAMAGE_TARGET_PLAYER_AND_GROUP_RE, _damage_target_player_and_group),
     # RULE 202.2f/700.6 "it deals damage to each opponent equal to your
     # devotion to <colour>." (Fanatic of Mogis) — tried before the plain
@@ -18444,7 +18226,9 @@ HANDLERS: list[EffectHandler] = [
     # never reached — always the ability's own controller, unlike the mass
     # "each player/opponent loses life" row below.
     EffectHandler("draw_devotion", _DRAW_DEVOTION_RE, _draw_devotion),
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_count_amount_resolver.py (devotion amount grammar).
     EffectHandler("gain_life_devotion", _GAIN_LIFE_DEVOTION_RE, _gain_life_devotion),
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_count_amount_resolver.py (devotion amount grammar).
     EffectHandler("lose_life_self_devotion", _LOSE_LIFE_SELF_DEVOTION_RE, _lose_life_self_devotion),
     EffectHandler(
         "draw_and_lose_life_devotion", _DRAW_AND_LOSE_LIFE_DEVOTION_RE, _draw_and_lose_life_devotion
@@ -18458,9 +18242,6 @@ HANDLERS: list[EffectHandler] = [
         _gain_life_and_draw_sac_power,
     ),
     EffectHandler(
-        "draw_and_gain_life_devotion", _DRAW_AND_GAIN_LIFE_DEVOTION_RE, _draw_and_gain_life_devotion
-    ),
-    EffectHandler(
         "lose_life_and_gain_life_devotion",
         _LOSE_LIFE_AND_GAIN_LIFE_DEVOTION_RE,
         _lose_life_and_gain_life_devotion,
@@ -18470,12 +18251,6 @@ HANDLERS: list[EffectHandler] = [
         "damage_each_creature_to_controller",
         _DAMAGE_EACH_CREATURE_TO_CONTROLLER_RE,
         _damage_each_creature_to_controller,
-    ),
-    # "You may pay <cost>. If you do, draw a card." (RULE 118.3).
-    EffectHandler(
-        "pay_cost_then_draw",
-        _PAY_COST_THEN_DRAW_RE,
-        _pay_cost_then_draw,
     ),
     # "draw that many cards" (Vilis, Broker of Blood-shaped "that many"
     # trigger-event payoff) — tried before the plain row below since it's a
@@ -18548,14 +18323,6 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler("draw_per_opponent_with_more_cards", _DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE,
                   _draw_per_opponent_with_more_cards),
     EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
-    # PAR-13: "exile the top N cards of your library. you may play them
-    # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
-    # draw (Runestone Caverns/Bonehoard Dracosaur/Painter's Studio-shaped).
-    EffectHandler(
-        "exile_top_play",
-        _EXILE_TOP_PLAY_RE,
-        _exile_top_play,
-    ),
     EffectHandler(
         "exile_discard_play_next_turn",
         _EXILE_DISCARD_PLAY_NEXT_TURN_RE,
@@ -18574,13 +18341,24 @@ HANDLERS: list[EffectHandler] = [
     ),
     # PAR-167: the exile clause plus a casting window over its pool (cast/play, filter, free or wild mana, window).
     EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
+    # PAR-13: "exile the top N cards of your library. you may play them
+    # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
+    # draw (Runestone Caverns/Bonehoard Dracosaur/Painter's Studio-shaped).
+    EffectHandler(
+        "exile_top_play",
+        _EXILE_TOP_PLAY_RE,
+        _exile_top_play,
+        fallback_for=("exile_cast_window",),
+    ),
     # PAR-13: "draw N cards and reveal them. you may cast one of them
     # without paying its mana cost." — Mad Wizard's Lair's own room.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par13_dungeons_and_variants.py (dungeon room text, not a pool card).
     EffectHandler(
         "draw_reveal_cast_free",
         _DRAW_REVEAL_CAST_FREE_RE,
         _draw_reveal_cast_free,
     ),
+    EffectHandler("free_cast_zone", _FREE_CAST_ZONE_RE, _free_cast_zone),
     # MEC-20: RULE 601.2f "Expertise" cycle — "you may cast a spell with
     # mana value N/X or less from your hand without paying its mana cost
     # [, where x is the number of attacking creatures]".
@@ -18588,8 +18366,8 @@ HANDLERS: list[EffectHandler] = [
         "free_cast_from_hand",
         _FREE_CAST_FROM_HAND_RE,
         _free_cast_from_hand,
+        fallback_for=("free_cast_zone",),
     ),
-    EffectHandler("free_cast_zone", _FREE_CAST_ZONE_RE, _free_cast_zone),
     EffectHandler("exile_copy_cast", _EXILE_COPY_CAST_RE, _exile_copy_cast),
     EffectHandler("dig_cast_free", _DIG_CAST_FREE_RE, _dig_cast_free),
     EffectHandler("graveyard_play_window", _GRAVEYARD_PLAY_WINDOW_ROW_RE, _graveyard_play_window),
@@ -18616,13 +18394,6 @@ HANDLERS: list[EffectHandler] = [
         _hand_disruption_discard,
     ),
     EffectHandler("hand_pick", _HAND_PICK_RE, _hand_pick),
-    # "exile target non-Angel creature you control, then return that card
-    # to the battlefield under your control." (Restoration Angel-shaped).
-    EffectHandler(
-        "blink_non_subtype",
-        _BLINK_NON_SUBTYPE_RE,
-        _blink_non_subtype,
-    ),
     # "exile [up to N] [another] target creature/[nonland] permanent you
     # control, then return that card/it to the battlefield under your/its
     # owner's control." (Felidar Guardian/Emiel the Blessed/Displacer
@@ -18770,6 +18541,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     # PAR-13: "discard a card and sacrifice a creature, an artifact, and a
     # land." — Oubliette's own compound mandatory punishment.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par13_dungeons_and_variants.py (dungeon room text, not a pool card).
     EffectHandler(
         "discard_and_sacrifice_triple",
         _DISCARD_AND_SACRIFICE_TRIPLE_RE,
@@ -18927,6 +18699,7 @@ HANDLERS: list[EffectHandler] = [
         _c(r"gains? life equal to that spell'?s mana value"),
         _gain_life_spell_mv,
     ),
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par71_that_spells_mana_value.py (trigger-event mana-value amount).
     EffectHandler(
         "lose_life_spell_mv_that_player",
         _c(r"that player loses life equal to that spell'?s mana value"),
@@ -18959,6 +18732,7 @@ HANDLERS: list[EffectHandler] = [
         _add_rad_counters_selector,
     ),
     # "target player loses all rad counters" (Survivor's Med Kit).
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_rad_counters.py (RULE 122 player-counter wipe clause).
     EffectHandler(
         "lose_all_player_counters",
         _c(r"target player loses all rad counters"),
@@ -18971,15 +18745,6 @@ HANDLERS: list[EffectHandler] = [
         "rad_counters_equal_dying_power",
         _c(r"each opponent gets a number of rad counters equal to its power"),
         _dies_rad_counters_equal_power,
-    ),
-    # "destroy target [color] creature/permanent/artifact/enchantment/land"
-    # (RULE 105 colour-hoser adjective, Red Elemental Blast-shaped) — tried
-    # before the plain `destroy` handler below (see `_DESTROY_COLOR_ADJ_RE`'s
-    # docstring for why it's safe to try first).
-    EffectHandler(
-        "destroy_color_adj",
-        _DESTROY_COLOR_ADJ_RE,
-        _destroy_color_adj,
     ),
     # "destroy target nonland permanent with mana value 3 or less"
     # (Abrupt Decay-shaped) — tried before the plain `destroy` handler
@@ -19010,6 +18775,14 @@ HANDLERS: list[EffectHandler] = [
         _ARTIFACT_ENCHANTMENT_OR_CREATURE_FILTER_RE,
         _artifact_enchantment_or_creature_filter,
     ),
+    # "destroy target creature" / "destroy target artifact" / "destroy
+    # target permanent if it's blue" (the trailing-clause old-templating
+    # colour variant, Pyroblast-shaped — see `IF_COLOR_SUFFIX`).
+    EffectHandler(
+        "destroy",
+        _c(rf"destroy {TARGET}" + IF_COLOR_SUFFIX),
+        _destroy,
+    ),
     # "destroy target nonblack creature[. It can't be regenerated.]"
     # (Doom Blade-shaped) — tried before the plain `destroy` handler for
     # the same "strict superset" reason as `destroy_mv`/
@@ -19018,14 +18791,17 @@ HANDLERS: list[EffectHandler] = [
         "destroy_non_creature",
         _DESTROY_NON_CREATURE_RE,
         _destroy_non_creature,
+        fallback_for=("destroy",),
     ),
-    # "destroy target creature" / "destroy target artifact" / "destroy
-    # target permanent if it's blue" (the trailing-clause old-templating
-    # colour variant, Pyroblast-shaped — see `IF_COLOR_SUFFIX`).
+    # "destroy target [color] creature/permanent/artifact/enchantment/land"
+    # (RULE 105 colour-hoser adjective, Red Elemental Blast-shaped) — tried
+    # before the plain `destroy` handler below (see `_DESTROY_COLOR_ADJ_RE`'s
+    # docstring for why it's safe to try first).
     EffectHandler(
-        "destroy",
-        _c(rf"destroy {TARGET}" + IF_COLOR_SUFFIX),
-        _destroy,
+        "destroy_color_adj",
+        _DESTROY_COLOR_ADJ_RE,
+        _destroy_color_adj,
+        fallback_for=("destroy",),
     ),
     # "destroy target Equipment attached to it" (Shackles of Treachery's
     # granted quoted trigger — "it" is the ability's own source).
@@ -19057,32 +18833,6 @@ HANDLERS: list[EffectHandler] = [
             rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
         ),
         _destroy_multi_target,
-    ),
-    # "destroy all creatures. they can't be regenerated." (Wrath of God-
-    # shaped) — tried before the plain `destroy_all` below since it's a
-    # strict superset (see `_DESTROY_ALL_NO_REGEN_RE`'s docstring).
-    EffectHandler(
-        "destroy_all_no_regen",
-        _DESTROY_ALL_NO_REGEN_RE,
-        _destroy_all_no_regen,
-    ),
-    # "destroy all other creatures[ you control]" / "…creatures other than
-    # ~" — the self-excluding wipe, before the plain `destroy_all` (whose
-    # ``all creatures`` noun row would otherwise consume the prefix and
-    # then fail the fullmatch on the trailing "other than ~").
-    EffectHandler(
-        "destroy_all_other",
-        _DESTROY_ALL_OTHER_RE,
-        _destroy_all_other,
-    ),
-    # "destroy all creatures[.]" / "destroy all artifacts with mana value 3
-    # or less." (RULE 601.2c untargeted mass board wipe — Damnation/Citywide
-    # Bust-shaped; Wrath of God itself is hand-authored in
-    # `card_catalogue`, this is the general oracle-text form).
-    EffectHandler(
-        "destroy_all",
-        _DESTROY_ALL_RE,
-        _destroy_all,
     ),
     # "Regenerate another target Elf." (Ezuri, Renegade Leader/Mad Auntie/
     # Baron Sengir-shaped) — tried before the plain `regenerate` row below
@@ -19265,16 +19015,29 @@ HANDLERS: list[EffectHandler] = [
         ),
         _exile_multi_target,
     ),
-    # "exile all creatures[.]" / "exile all lands." (RULE 601.2c untargeted
-    # mass form, Farewell-shaped) — the `exile` sibling of `destroy_all`.
-    EffectHandler(
-        "exile_all",
-        _EXILE_ALL_RE,
-        _exile_all,
-    ),
     # PAR-128: "destroy all white permanents" / "exile all artifacts and enchantments your
-    # opponents control" — after `destroy_all`/`exile_all`, whose named selectors keep winning.
+    # opponents control" — primary over `destroy_all`/`destroy_all_other` (PAR-169 fallbacks).
     EffectHandler("mass_group", _MASS_GROUP_RE, _mass_group),
+    # "destroy all other creatures[ you control]" / "…creatures other than
+    # ~" — the self-excluding wipe, before the plain `destroy_all` (whose
+    # ``all creatures`` noun row would otherwise consume the prefix and
+    # then fail the fullmatch on the trailing "other than ~").
+    EffectHandler(
+        "destroy_all_other",
+        _DESTROY_ALL_OTHER_RE,
+        _destroy_all_other,
+        fallback_for=("mass_group",),
+    ),
+    # "destroy all creatures[.]" / "destroy all artifacts with mana value 3
+    # or less." (RULE 601.2c untargeted mass board wipe — Damnation/Citywide
+    # Bust-shaped; Wrath of God itself is hand-authored in
+    # `card_catalogue`, this is the general oracle-text form).
+    EffectHandler(
+        "destroy_all",
+        _DESTROY_ALL_RE,
+        _destroy_all,
+        fallback_for=("mass_group",),
+    ),
     # "sacrifice/destroy/tap/exile ~ unless you pay <cost>" — one row over the
     # verb (PAR-121), registered *before* the plain `tap_self`/`exile_self`/
     # `sacrifice_self` handlers (whose regexes are a prefix of this one) so the
@@ -19397,6 +19160,27 @@ HANDLERS: list[EffectHandler] = [
         _TAP_MULTI_TARGET_KEYWORD_FILTER_RE,
         _tap_multi_target_keyword_filter,
     ),
+    # "tap all creatures your opponents control" / "tap all nonwhite creatures" /
+    # "tap all artifacts" (Bond of Discipline, Blinding Light, Metal Fatigue —
+    # PAR-128) — the general mass form: the group is whatever the shared noun-
+    # phrase grammar reads (`parse_count_phrase`), carried as a structured
+    # selector `TapEffect` resolves through `group_selector_objects`. Primary over the
+    # named tap rows (PAR-169), which keep only what it declines.
+    EffectHandler(
+        "tap_all_group",
+        _c(r"(?P<verb>tap|untap) all (?P<group>[a-z' -]+?)"),
+        _tap_all_group,
+    ),
+    EffectHandler("tap_all_player_group", _TAP_ALL_PLAYER_GROUP_RE, _tap_all_player_group, fallback_for=("tap_all_group",)),
+    # "untap all attacking creatures" / "untap each attacking creature"
+    # (Karlach, Fury of Avernus/Hexplate Wallbreaker) — tried above `tap_self`
+    # too, same "specific mass phrase before the bare pronoun row" ordering.
+    EffectHandler(
+        "tap_attacking_creatures",
+        _c(r"(?P<verb>tap|untap) (?:all attacking creatures|each attacking creature)"),
+        _tap_attacking_creatures,
+        fallback_for=("tap_all_group",),
+    ),
     # "untap all creatures you control" (Village Bell-Ringer) / "untap all
     # other creatures you control" (Ahn-Crop Champion/Combat Celebrant's
     # own exert rider) / "untap each other creature you control" (Copperhorn
@@ -19410,64 +19194,7 @@ HANDLERS: list[EffectHandler] = [
             r"|each (?P<other_each>other) creature you control)"
         ),
         _tap_selector,
-    ),
-    # "untap all Forests you control" (Woodland Guidance — RULE 205.3i land
-    # subtype), the land sibling of `tap_selector`. `continuous.group_
-    # selector_objects`' `lands_you_control_of_type_<x>` branch does the work.
-    EffectHandler(
-        "tap_lands_of_type",
-        _c(r"(?P<verb>tap|untap) all (?P<sub>forests|mountains|islands|swamps|plains) you control"),
-        lambda m: [EffectSpec("tap", {
-            "selector": "lands_you_control_of_type_" + {
-                "forests": "forest", "mountains": "mountain", "islands": "island",
-                "swamps": "swamp", "plains": "plains",
-            }[m.group("sub").lower()],
-            "untap": m.group("verb").lower() == "untap",
-        })],
-    ),
-    # "Untap all lands you control." (Bear Umbra) — the unqualified sibling
-    # of the basic-land subtype row above.  It is a non-targeting selector,
-    # so it also works when the ability was quoted and regranted to an Aura's
-    # enchanted creature.
-    EffectHandler(
-        "tap_lands_you_control",
-        _c(r"(?P<verb>tap|untap) all lands you control"),
-        lambda m: [EffectSpec("tap", {
-            "selector": "lands_you_control",
-            "untap": m.group("verb").lower() == "untap",
-        })],
-    ),
-    # "Untap all white creatures you control." (Battle Cry, PAR-124) — the
-    # colour-scoped sibling of `tap_selector`, mirroring `tap_lands_of_type`'s
-    # own "all `<qualifier>` you control" shape; `_ANIMATE_COLOR_WORDS`
-    # (already built for the animate-target family) supplies the WUBRG letter.
-    EffectHandler(
-        "tap_creatures_of_color",
-        _c(rf"(?P<verb>tap|untap) all (?P<color>white|blue|black|red|green) creatures you control"),
-        lambda m: [EffectSpec("tap", {
-            "selector": "creatures_you_control_of_color_" + _ANIMATE_COLOR_WORDS[m.group("color").lower()],
-            "untap": m.group("verb").lower() == "untap",
-        })],
-    ),
-    # "untap all attacking creatures" / "untap each attacking creature"
-    # (Karlach, Fury of Avernus/Hexplate Wallbreaker) — tried above `tap_self`
-    # too, same "specific mass phrase before the bare pronoun row" ordering.
-    EffectHandler(
-        "tap_attacking_creatures",
-        _c(r"(?P<verb>tap|untap) (?:all attacking creatures|each attacking creature)"),
-        _tap_attacking_creatures,
-    ),
-    EffectHandler("tap_all_player_group", _TAP_ALL_PLAYER_GROUP_RE, _tap_all_player_group),
-    # "tap all creatures your opponents control" / "tap all nonwhite creatures" /
-    # "tap all artifacts" (Bond of Discipline, Blinding Light, Metal Fatigue —
-    # PAR-128) — the general mass form: the group is whatever the shared noun-
-    # phrase grammar reads (`parse_count_phrase`), carried as a structured
-    # selector `TapEffect` resolves through `group_selector_objects`. After the
-    # dedicated rows above so their named selectors keep winning.
-    EffectHandler(
-        "tap_all_group",
-        _c(r"(?P<verb>tap|untap) all (?P<group>[a-z' -]+?)"),
-        _tap_all_group,
+        fallback_for=("tap_all_group",),
     ),
     # "Untap it and all Samurai you control." (Godo, Bandit Warlord) — tried
     # before `tap_self` since that row's bare `_SELF_SUBJECT` would consume
@@ -19579,15 +19306,16 @@ HANDLERS: list[EffectHandler] = [
         _GRAVEYARD_CARD_TO_LIBRARY_BOTTOM_RE,
         _graveyard_card_to_library_bottom,
     ),
+    # PAR-128: "return all creatures to their owners' hands" — after `return_all_nonland`.
+    EffectHandler("return_group", _RETURN_GROUP_RE, _return_group),
     # "return all nonland permanents with mana value X or less to their
     # owners' hands." (Displacement Wave).
     EffectHandler(
         "return_all_nonland",
         _RETURN_ALL_NONLAND_RE,
         _return_all_nonland,
+        fallback_for=("return_group",),
     ),
-    # PAR-128: "return all creatures to their owners' hands" — after `return_all_nonland`.
-    EffectHandler("return_group", _RETURN_GROUP_RE, _return_group),
     EffectHandler("put_group_on_bottom", _PUT_GROUP_ON_BOTTOM_RE, _put_group_on_bottom),
     # "return two target creatures to their owners' hands" (RULE 115.1a
     # generalized to N>=2) — the plural sibling of `return_to_hand`.
@@ -19761,6 +19489,7 @@ HANDLERS: list[EffectHandler] = [
         _SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE,
         _search_put_then_shuffle_share_type,
     ),
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par38_residue.py (a card-specific upkeep body kept for its residue test).
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
     EffectHandler(
@@ -20192,6 +19921,7 @@ HANDLERS: list[EffectHandler] = [
         "may_effect_then",
         _MAY_EFFECT_THEN_RE,
         _may_effect_then,
+        fallback_for=("pay_cost_then_general",),
     ),
     # MEC-19: "counter it unless that player pays <cost>" — the
     # un-keyworded-Ward-shaped `BECOMES_TARGET` trigger's own resolution.
@@ -20261,15 +19991,6 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:transform|convert) (?:{re.escape(SELF)}|it|this permanent|this creature)"),
         _transform,
     ),
-    # "exile ~/this saga, then return it/him/her to the battlefield
-    # transformed under your/its/his/her owner's control" (RULE 400.7 +
-    # RULE 712.8) — a transforming Saga's chapter III, or an activated
-    # ability's own flip phrased this way instead of a bare "transform ~".
-    EffectHandler(
-        "exile_return_transformed",
-        _EXILE_RETURN_TRANSFORMED_RE,
-        _exile_return_transformed,
-    ),
     # "exile <TARGET> [an opponent controls] until ~ leaves the
     # battlefield." (O-Ring / Banisher Priest / Fiend Hunter) — the
     # companion LEAVES_BATTLEFIELD return ability is synthesized by the
@@ -20319,11 +20040,6 @@ HANDLERS: list[EffectHandler] = [
         _RETURN_TARGET_TO_BATTLEFIELD_SELF_RE,
         _return_target_to_battlefield_self,
         self_subject_only=True,
-    ),
-    EffectHandler(
-        "return_trigger_card_to_hand",
-        _RETURN_TRIGGER_CARD_TO_HAND_RE,
-        _return_trigger_card_to_hand,
     ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
     # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
@@ -20596,6 +20312,17 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "distribute_counters_up_to", _DISTRIBUTE_COUNTERS_UP_TO_RE, _distribute_counters_up_to,
     ),
+    # Garruk's Wolf token carries this printed death-trigger body (RULE 111.3).
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/game/catalogue/cards/test_squirreled_away_deck.py (Garruk's Wolf, a hand-registered card whose text the parser still reads).
+    EffectHandler(
+        "add_loyalty_counter_garruk_group",
+        _c(r"put a loyalty counter on each garruk you control"),
+        lambda m: [EffectSpec("add_counters", {
+            "kind": "loyalty", "count": 1,
+            "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "planeswalker", "subtype": "Garruk"}},
+        })],
+    ),
+    EffectHandler("add_pt_counter_group", _ADD_PT_COUNTER_GROUP_RE, _add_counter_group),
     # "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
     # effect, Vastwood Surge-shaped).
     EffectHandler(
@@ -20607,17 +20334,8 @@ HANDLERS: list[EffectHandler] = [
             r"(?P<has_counter> that has a \+1/\+1 counter on it)?"
         ),
         _add_counters_selector,
+        fallback_for=("add_pt_counter_group",),
     ),
-    # Garruk's Wolf token carries this printed death-trigger body (RULE 111.3).
-    EffectHandler(
-        "add_loyalty_counter_garruk_group",
-        _c(r"put a loyalty counter on each garruk you control"),
-        lambda m: [EffectSpec("add_counters", {
-            "kind": "loyalty", "count": 1,
-            "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "planeswalker", "subtype": "Garruk"}},
-        })],
-    ),
-    EffectHandler("add_pt_counter_group", _ADD_PT_COUNTER_GROUP_RE, _add_counter_group),
     # "target creature gets +1/+0 until end of turn and can't be blocked
     # this turn" (You Come to a River-shaped) — tried before the plain
     # `pump` handler below since it's a strict superset of that shape (a
@@ -20637,11 +20355,6 @@ HANDLERS: list[EffectHandler] = [
         _CANT_BE_BLOCKED_TURN_MULTI_RE,
         _cant_be_blocked_turn_multi,
     ),
-    EffectHandler(
-        "cant_be_blocked_this_turn",
-        _CANT_BE_BLOCKED_TURN_RE,
-        _cant_be_blocked_turn,
-    ),
     # PAR-79: the untargeted mass form — "creatures [you control] can't be
     # blocked this turn."
     EffectHandler(
@@ -20659,6 +20372,11 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_KEYWORD_UNBLOCKABLE_RE,
         _pump_keyword_unblockable,
     ),
+    EffectHandler(
+        "cant_be_blocked_this_turn",
+        _CANT_BE_BLOCKED_TURN_RE,
+        _cant_be_blocked_turn,
+    ),
     # PAR-79: "[another ]target `<object-filter phrase>` can't be blocked
     # this turn" (Merfolk Sovereign's "target Merfolk creature", Corsairs of
     # Umbar's "target goblin, orc, or pirate", Bessie/Clammy Prowler's
@@ -20672,6 +20390,7 @@ HANDLERS: list[EffectHandler] = [
         "cant_be_blocked_this_turn_object_filter",
         _CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE,
         _cant_be_blocked_turn_object_filter,
+        fallback_for=("cant_be_blocked_this_turn",),
     ),
     # "Up to two target creatures can't block this turn" / "target creature
     # can't block this turn" / "creatures without flying can't block this
@@ -20785,11 +20504,6 @@ HANDLERS: list[EffectHandler] = [
         "pump_subtype_target",
         _PUMP_SUBTYPE_TARGET_RE,
         _pump_subtype_target,
-    ),
-    EffectHandler(
-        "pump_subtype_target_global_count",
-        _PUMP_SUBTYPE_TARGET_GLOBAL_COUNT_RE,
-        _pump_subtype_target_global_count,
     ),
     EffectHandler(
         "grant_subtype_target",
@@ -20986,11 +20700,6 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "delayed_return_battlefield_self", _DELAYED_RETURN_BATTLEFIELD_RE,
         _delayed_return_battlefield, self_subject_only=True,
-    ),
-    # "Exile each creature you control. Return those cards …" (Ghostway) — a mass selector's own referent.
-    EffectHandler(
-        "delayed_return_battlefield_selector", _DELAYED_RETURN_BATTLEFIELD_RE,
-        _delayed_return_battlefield, previous_selector_only=True,
     ),
     EffectHandler(
         "delayed_sac_exile_when_first",
@@ -21203,7 +20912,6 @@ HANDLERS: list[EffectHandler] = [
             "amount_from_count_selector_axis": "power",
         })],
     ),
-    EffectHandler("pump_devotion_target", _PUMP_DEVOTION_TARGET_RE, _pump_devotion_target),
     EffectHandler("pump_mana_value", _PUMP_MANA_VALUE_RE, _pump_mana_value),
     EffectHandler(
         "pump_target_source_power", _PUMP_TARGET_SOURCE_POWER_RE, _pump_target_source_power
@@ -21214,6 +20922,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "pump_target_x_amount", _PUMP_TARGET_X_AMOUNT_RE, _pump_target_x_amount
     ),
+    EffectHandler("pump_devotion_target", _PUMP_DEVOTION_TARGET_RE, _pump_devotion_target, fallback_for=("pump_target_x_amount",)),
     EffectHandler(
         "pump_target_x_random", _PUMP_TARGET_X_RANDOM_RE, _pump_target_x_random
     ),
@@ -21271,33 +20980,6 @@ HANDLERS: list[EffectHandler] = [
         self_subject_only=True,
     ),
     EffectHandler(
-        "gain_and_lose_self_subject_kw",
-        _c(
-            r"(?:it|this creature) gains? (?P<kw>[a-z, ]+?) and loses? "
-            r"(?P<lost>[a-z, ]+?) until end of turn"
-        ),
-        _temporary_keyword_change_implicit,
-        self_subject_only=True,
-    ),
-    EffectHandler(
-        "pump_and_lose_self_subject_kw",
-        _c(
-            rf"(?:it|this creature) gets? {_PT_DELTA} and loses? "
-            r"(?P<lost>[a-z, ]+?) until end of turn"
-        ),
-        _temporary_keyword_change_implicit,
-        self_subject_only=True,
-    ),
-    EffectHandler(
-        "lose_self_subject_kw",
-        _c(
-            r"(?:it|this creature) loses? (?P<lost>[a-z, ]+?)"
-            r"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
-        ),
-        _temporary_keyword_change_implicit,
-        self_subject_only=True,
-    ),
-    EffectHandler(
         "lose_previous_subject_kw",
         _c(
             rf"{_PREV_SUBJECT_SINGULAR}(?: also)? loses? (?P<lost>[a-z, ]+?)"
@@ -21331,6 +21013,7 @@ HANDLERS: list[EffectHandler] = [
         ),
         _grant_group_subject_kw,
         group_subject_only=True,
+        fallback_for=("pump_prev_singular_kw", "grant_self_subject_kw"),
     ),
     # "It doesn't untap during its controller's untap step for as long as ~
     # remains tapped." — the tap-then-lock family (PAR-11), whose subject is
@@ -21344,7 +21027,6 @@ HANDLERS: list[EffectHandler] = [
         _lockdown,
         previous_subject_only=True,
     ),
-    EffectHandler("lockdown_no_untap_bare", _LOCKDOWN_BARE_RE, _lockdown_bare, previous_subject_only=True),
     EffectHandler("base_pt_previous", _BASE_PT_PREVIOUS_RE, _base_pt_previous, previous_subject_only=True),
     # The same grant with any *other* duration (RULE 611) — "…until your next
     # turn", "…until end of combat". Ordered after the end-of-turn row above,
@@ -21402,6 +21084,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler("pump_grant_while_tapped", _PUMP_GRANT_WHILE_TAPPED_RE, _pump_grant_while_tapped),
     # PAR-13: "target creature can't attack/block until <duration>" — the
     # resolve-time-grant sibling of the permanent-static "~ can't attack."
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par13_dungeons_and_variants.py (dungeon room text, not a pool card).
     EffectHandler(
         "cant_attack_or_block_until",
         _CANT_ATTACK_OR_BLOCK_UNTIL_RE,
@@ -21421,6 +21104,7 @@ HANDLERS: list[EffectHandler] = [
         _fateseal,
     ),
     # "heal all damage from ~ / each creature you control" (RULE 701.69a).
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_mec78_heal.py (the heal clause form).
     EffectHandler(
         "heal",
         _HEAL_RE,
@@ -21521,6 +21205,7 @@ HANDLERS: list[EffectHandler] = [
         _learn,
     ),
     # "you may collect evidence N" (RULE 701.59a) — bare, no "if you do" rider.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par29_collect_evidence.py (clause form; the printed cards use the costed rows).
     EffectHandler(
         "collect_evidence_bare",
         _c(r"you may collect evidence (?P<n>\d+)"),
@@ -21533,6 +21218,7 @@ HANDLERS: list[EffectHandler] = [
         _collect_evidence,
     ),
     # "you may forage" (RULE 701.61a) — bare, no "if you do" rider.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par29_forage.py (clause form; the printed cards use the costed rows).
     EffectHandler(
         "forage_bare",
         _c(r"you may forage"),
@@ -21615,6 +21301,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "target creature you control endures N" (RULE 701.63a) — before the
     # bare/pronoun rows so its TARGET isn't stolen.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par29_endure.py (subject-shape coverage of the RULE 701.63 endure verb).
     EffectHandler(
         "endure_target",
         _c(rf"{TARGET} endures (?P<n>\d+)"),
@@ -21628,6 +21315,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "~ endures x" (PAR-29, Krumar Initiate) — X is this activated
     # ability's own announced {X}.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par29_endure.py (subject-shape coverage of the RULE 701.63 endure verb).
     EffectHandler(
         "endure_self_named_x",
         _c(r"~ endures x"),
@@ -21641,6 +21329,7 @@ HANDLERS: list[EffectHandler] = [
         self_subject_only=True,
     ),
     # "it endures N" / "that creature endures N" — a previous clause's pick.
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par29_endure.py (subject-shape coverage of the RULE 701.63 endure verb).
     EffectHandler(
         "endure_previous",
         _c(r"(?:it|that creature) endures (?P<n>\d+)"),
@@ -22021,13 +21710,6 @@ HANDLERS: list[EffectHandler] = [
         _c(r"the tokens? (?:is|are) goaded for the rest of the game"),
         _goad_created,
     ),
-    # "it's goaded for the rest of the game" — same duration, previous target.
-    EffectHandler(
-        "goad_previous_permanent",
-        _c(r"(?:it's|that creature is) goaded for the rest of the game"),
-        _goad_previous_permanent,
-        previous_subject_only=True,
-    ),
     # "goad it" / "goad that creature" — the previous clause's target.
     EffectHandler(
         "goad_previous",
@@ -22228,6 +21910,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     # RULE 603.2: use the cast event's payment snapshot, even after that
     # spell has left the stack (Chandra, Dressed to Kill).
+    # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par149_emblem_bodies.py (emblem body, parsed outside a card's own ability lines).
     EffectHandler(
         "damage_cast_mana_spent",
         _c(rf"{re.escape(SELF)} deals x damage to {TARGET}, where x is the amount of mana spent to cast that spell"),
@@ -22459,7 +22142,6 @@ HANDLERS: list[EffectHandler] = [
         _DAMAGE_ATTACKING_OR_BLOCKING_TWICE_PARTY_RE, _damage_attacking_or_blocking_twice_party,
     ),
     EffectHandler("look_top_put_three_party", _LOOK_TOP_PUT_THREE_PARTY_RE, _look_top_put_three_party),
-    EffectHandler("reveal_top_all_filter", _REVEAL_TOP_ALL_FILTER_RE, _reveal_top_all_filter),
     EffectHandler("dig_top_choose", _DIG_RE, _dig),
     # PAR-148: the one-card reveal whose hit is forced and whose miss is routed ("otherwise, put it into your hand").
     EffectHandler(

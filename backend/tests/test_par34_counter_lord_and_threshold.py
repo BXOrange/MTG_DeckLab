@@ -271,10 +271,12 @@ def test_sliver_quoted_bodies_reuse_subtype_regeneration_and_mill_a_card():
     ]
     assert parse_effect_body(
         "target sliver creature gets +x/+0 until end of turn, where x is the number of slivers on the battlefield"
-    ) == [EffectSpec("pump", {
-        "target_kind": "creature", "creature_filter": {"subtype": "Sliver"},
-        "amount_from_count_selector": "creatures_of_type_sliver",
-        "amount_from_count_selector_axis": "power",
+    ) == [EffectSpec("bind", {
+        "name": "px",
+        "amount": {"kind": "count_selector",
+                   "selector": {"zone": "battlefield", "of": "any", "filter": {"subtype": "sliver"}}},
+        "effects": [{"type": "pump", "params": {
+            "power": "$px", "toughness": 0, "target_kind": "creature", "creature_filter": {"subtype": "Sliver"}}}],
     })]
     for name, text in [
         ("Crypt Sliver", 'All Slivers have "{T}: Regenerate target Sliver."'),

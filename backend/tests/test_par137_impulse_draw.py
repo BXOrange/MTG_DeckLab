@@ -60,12 +60,24 @@ def _playable(eng, player):
 # --- parse -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("clause", "params"), [
-    ("exile the top 3 cards of your library. until end of turn, you may play those cards",
-     {"count": 3, "same_turn_only": True}),
+_EXILE_TOP = {"face_down": False, "player_selector": "controller", "position": "top"}
+
+
+@pytest.mark.parametrize(("clause", "count", "window"), [
+    ("exile the top 3 cards of your library. until end of turn, you may play those cards", 3, {"same_turn_only": True}),
     ("exile the top 5 cards of your library. you may play cards exiled this way until the end of your next turn",
-     {"count": 5, "same_turn_only": False}),
-    ("exile the top card of your library. you may play it this turn", {"count": 1, "same_turn_only": True}),
+     5, {}),
+    ("exile the top card of your library. you may play it this turn", 1, {"same_turn_only": True}),
+])
+def test_plain_impulse_variants_are_the_exile_plus_casting_window(clause, count, window):
+    """PAR-169: the generalized exile + casting-window row is primary; `impulsive_draw` keeps only the rest."""
+    specs = match_clause(clause)
+    assert [(s.type, s.params) for s in specs] == [
+        ("exile_top_of_library", {**_EXILE_TOP, "count": count}), ("cast_window_exiled_pool", window),
+    ]
+
+
+@pytest.mark.parametrize(("clause", "params"), [
     ("exile the top 2 cards of your library. choose 1 of them. until end of turn, you may play that card",
      {"count": 2, "same_turn_only": True, "choose_one": True}),
     ("exile the top 3 cards of your library, then choose 1 of them. you may play that card this turn",
@@ -93,8 +105,8 @@ def test_row_written_for_two_sentences_is_claimed_inside_a_longer_body():
         "target creature gets +3/+1 and gains haste until end of turn. exile the top 2 cards of your library. "
         "until the end of your next turn, you may play those cards."
     )
-    assert [s.type for s in specs] == ["pump", "impulsive_draw"]
-    assert specs[1].params == {"count": 2, "same_turn_only": False}
+    assert [s.type for s in specs] == ["pump", "exile_top_of_library", "cast_window_exiled_pool"]
+    assert specs[1].params == {**_EXILE_TOP, "count": 2} and specs[2].params == {}
 
 
 def test_where_x_defined_mid_body_binds_the_count():

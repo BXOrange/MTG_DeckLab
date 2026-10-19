@@ -53,14 +53,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-169 · Handler-table shadowing.** Row order in `catalogue/handlers.py` `HANDLERS` decides the
-  IR, contrary to its "order matters only for reporting" comment: 39 row pairs claim the same clause
-  with *different* specs (949 cached clauses), mostly legacy rows that shadow the generalized grammars
-  (`add_counters_selector`/`add_pt_counter_group`, `destroy_all`·`exile_all`/`mass_group`,
-  `damage_selector`·`damage_each_creature_keyword`/`damage_group`, `exile_top_play`/`exile_cast_window`,
-  `tap_selector`/`tap_all_group`). Add a full-cache guard (no two eligible rows claim one clause with
-  different IR, explicit allowlist), retire the shadowed row per family after a spec-fingerprint diff,
-  fix the comment, and delete or justify the 39 rows that match no cached card.
 - **PAR-172 · Break the segmenter ⇄ handlers ⇄ static_handlers cycle; split the monoliths.** ~45
   function-scoped imports and 22 cross-module private-name imports (`_peel_optional`, `_TRIGGER_RE`,
   `_base_verb`, `_quoted_ability_grant_effects`, …) paper over the cycle. Extract the shared clause

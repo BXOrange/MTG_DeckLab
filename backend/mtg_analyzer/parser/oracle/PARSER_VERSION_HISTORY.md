@@ -4053,4 +4053,11 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 706: BUG-10 -- a flag keyword printed several times on its own keyword line ("Cascade, cascade", "Prowess,
      prowess", "Myriad, myriad") carries ``instances`` on its keyword spec (RULE 113.2c); the binder keeps the count
      and printed Cascade now triggers (RULE 702.85a/c). +0 / -0.
+707: PAR-169 -- handler-table shadowing resolved: the generalized group / window / count rows (damage_group,
+     tap_all_group, mass_group, return_group, add_pt_counter_group, exile_cast_window, free_cast_zone, destroy,
+     pump_target_x_amount, pay_cost_then_general) are primary and the older named-vocabulary rows are declared
+     `fallback_for` them (`EffectHandler.fallback_for`, guarded by `test_handler_table_shadowing`); nine legacy rows
+     that no cached clause reached were retired, twelve dead rows deleted; previous-selector replay ("those
+     creatures") now reads group-form add_counters / damage; a leading-"if" casting window is claimed; the
+     target-adjective filter survives a "that player controls" tail; "N mana of any 1 color" is one pick again.
 ```

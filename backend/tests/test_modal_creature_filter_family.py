@@ -332,7 +332,7 @@ def test_destroy_target_nonblack_creature_is_recognized():
     assert spec.type == "destroy"
     assert spec.params == {
         "target_kind": "creature",
-        "creature_filter": {"without_color": "B"},
+        "creature_filter": {"without_color": ["B"]},
     }
 
 
@@ -361,7 +361,7 @@ def test_destroy_target_nonblack_creature_cant_be_regenerated_tail_is_recognized
     assert spec.type == "destroy"
     assert spec.params == {
         "target_kind": "creature",
-        "creature_filter": {"without_color": "B"},
+        "creature_filter": {"without_color": ["B"]},
         "can_be_regenerated": False,
     }
 

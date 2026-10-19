@@ -921,13 +921,13 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
 #: confirmed via `inspect-db` against the real cache — a live rules bug, not
 #: a coverage gap), just one layer up from where that fix landed.
 _TARGET_COMBAT_STATE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?: you control|" + NOT_YOU_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?: you control|" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
     re.IGNORECASE,
 )
 
 
 _TARGET_ADJECTIVE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
     re.IGNORECASE,
 )
 

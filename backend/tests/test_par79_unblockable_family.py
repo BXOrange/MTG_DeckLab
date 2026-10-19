@@ -684,7 +684,7 @@ def test_may_effect_then_does_not_preempt_the_cost_shaped_row():
     # cruder untargeted-optional wrap.
     specs = parse_effect_body("you may pay {1}. if you do, draw a card.")
     assert specs == [EffectSpec("pay_cost_then", {
-        "cost": "{1}", "effects": [{"type": "draw", "params": {"count": 1}}],
+        "cost": "pay {1}", "effects": [{"type": "draw", "params": {"count": 1}}],
     })]
 
 

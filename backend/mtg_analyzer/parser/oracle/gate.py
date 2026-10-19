@@ -75,7 +75,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "706"
+PARSER_VERSION = "707"
 
 
 def parser_source_hash() -> str:
@@ -801,6 +801,9 @@ def _tap_x_cost_ok(spec: AbilitySpec) -> bool:
     return not (cost and _TAP_X_COST_RE.search(str(cost.get("text", "")).lower()))
 
 
+_TRAILING_WINDOW_CONDITION_RE = re.compile(r"\byou may (?:play|cast)\b[^.]*\bif\b", re.IGNORECASE)
+
+
 def _cast_window_ok(spec: AbilitySpec) -> bool:
     """PAR-167: two ways a casting-window effect could be claimed with the wrong meaning.
 
@@ -813,7 +816,10 @@ def _cast_window_ok(spec: AbilitySpec) -> bool:
     """
     for effect in spec.effects:
         if effect.type == "cast_window_exiled_pool":
-            if effect.condition is not None:
+            # PAR-169: a *leading* "if <condition>, exile ... you may play it" gates the exile, so stamping it on
+            # the window too is harmless (nothing exiled, nothing to play); only a condition trailing the window
+            # sentence belongs to the window alone.
+            if effect.condition is not None and _TRAILING_WINDOW_CONDITION_RE.search(spec.raw_text or ""):
                 return False
             # RULE 107.3: a trigger has no announced X for this casting cap.
             if (spec.ability_kind == "triggered"

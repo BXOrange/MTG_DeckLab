@@ -378,17 +378,17 @@ def test_exile_top_play_bare_form_is_recognized():
 
 
 def test_exile_top_play_this_turn_variant():
-    (spec,) = match_clause(
+    exile, window = match_clause(
         "exile the top 2 cards of your library. you may play them this turn"
     )
-    assert spec.params["same_turn_only"] is True
+    assert window.type == "cast_window_exiled_pool" and window.params["same_turn_only"] is True
 
 
 def test_bonehoard_dracosaur_first_sentence_recognized():
-    (spec,) = match_clause(
+    exile, window = match_clause(
         "exile the top 2 cards of your library. you may play them this turn"
     )
-    assert spec.type == "impulsive_draw"
+    assert (exile.type, window.type) == ("exile_top_of_library", "cast_window_exiled_pool")
 
 
 def test_runestone_caverns_end_to_end_exiles_with_play_permission():
