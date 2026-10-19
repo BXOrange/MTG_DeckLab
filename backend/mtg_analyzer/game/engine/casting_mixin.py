@@ -73,7 +73,7 @@ from ..targeting import (
     target_group_within_budget,
     with_chooser_slots,
 )
-from ..graveyard_cast import has_targeted_graveyard_permission, graveyard_cast_grant_for
+from ..graveyard_cast import has_targeted_graveyard_permission, graveyard_cast_grant_for, temporary_graveyard_pool_grant
 from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
@@ -765,6 +765,7 @@ class CastingMixin:
             obj in player.hand
             or (obj in player.graveyard and blitz is not None and blitz_mechanic.graveyard_permission(obj))
             or self._has_resolution_play_permission(player, obj)
+            or temporary_graveyard_pool_grant(player, self.state, obj) is not None
             or obj in player.command
             or self._has_warp_permission(player, obj)
             or (obj in player.exile and self._castable_from_exile(obj))
@@ -1069,7 +1070,7 @@ class CastingMixin:
                 free_cast_condition is not None
                 and condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state)
             )
-            if (obj.instance_id not in self.state.free_cast_instance_ids and not condition_ok
+            if (not self.state.has_free_cast_permission(obj) and not condition_ok
                     and not continuous.has_standing_free_cast_permission(
                 self.state, player, card, obj
             )):
@@ -1087,7 +1088,7 @@ class CastingMixin:
                 return False
             if not self._can_pay_alt_cast_cost(player, obj, alt_cast_cost):
                 return False
-        elif (obj.instance_id in self.state.free_cast_instance_ids
+        elif (self.state.has_free_cast_permission(obj)
               and not self._has_resolution_play_permission(player, obj)):
             # RULE 702.88b Rebound's own free-cast window
             # (`RulesEngine.grant_free_cast_window_from_exile`) — already
@@ -1182,6 +1183,9 @@ class CastingMixin:
     def _standing_graveyard_grant(self, player, obj):
         from ..graveyard_cast import has_temporary_graveyard_play_permission
 
+        pool_grant = temporary_graveyard_pool_grant(player, self.state, obj)
+        if pool_grant is not None and not self._has_resolution_play_permission(player, obj):
+            return pool_grant
         if (obj not in player.graveyard or self._has_resolution_play_permission(player, obj)
                 or self._graveyard_cast_keyword(obj) is not None
                 or has_temporary_graveyard_play_permission(player, self.state)
@@ -2437,7 +2441,7 @@ class CastingMixin:
             blitz_payment = blitz_mechanic.costs_for(self.state, player, obj)[blitz].payment if blitz is not None else None
             obj.blitz_cost_paid = blitz is not None
             if free:
-                if getattr(obj, "free_cast_condition", None) is None and obj.instance_id not in self.state.free_cast_instance_ids:
+                if getattr(obj, "free_cast_condition", None) is None and not self.state.has_free_cast_permission(obj):
                     # A standing "once during each of your turns" free-cast grant is spent by this cast.
                     continuous.note_free_cast_permission_used(self.state, player, obj.card, obj)
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)

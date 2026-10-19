@@ -136,6 +136,9 @@ class GameContext:
         #: The objects `exile` moved into exile during this resolution — what "exiled this way" names for a following
         #: clause ("…you may cast the exiled card for {3}", Blue Mage's Cane); unlike `moved_objects` it is only exile.
         self.exiled_objects: list[Any] = []
+        # RULE 400.7: exact visits exiled by the latest paired exile instruction.
+        self.latest_exiled_visits: list[tuple[Any, int]] = []
+        self.latest_milled_visits: list[tuple[Any, int]] = []
         #: The permanents `destroy` actually destroyed during this resolution — what "destroyed this way"
         #: names for a per-object follow-up ("for each creature destroyed this way, its controller creates …").
         #: Unlike `moved_objects` it is only destruction.
@@ -1363,6 +1366,8 @@ def _apply_effects_partitioned(
     stack_item: Optional[Any] = None,
     die_state: Optional[dict[str, Any]] = None,
     created_sink: Optional[list[Any]] = None,
+    latest_exiled_visits: Optional[list[tuple[Any, int]]] = None,
+    latest_milled_visits: Optional[list[tuple[Any, int]]] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -1437,6 +1442,8 @@ def _apply_effects_partitioned(
     outer_milled = getattr(context, "milled_objects", None)
     outer_attachment_hosts = getattr(context, "attachment_hosts", {})
     outer_created = getattr(context, "created_objects", [])
+    outer_latest_exiled_visits = context.latest_exiled_visits
+    outer_latest_milled_visits = context.latest_milled_visits
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
     outer_excess_damage = getattr(context, "excess_damage_this_way", 0)
     outer_fight_results = context.fight_results
@@ -1460,6 +1467,8 @@ def _apply_effects_partitioned(
     context.milled_objects = None
     context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
+    context.latest_exiled_visits = list(latest_exiled_visits or [])
+    context.latest_milled_visits = list(latest_milled_visits or [])
     created_before_run = len(context.created_objects)
     context.life_lost_this_way = life_lost_this_way
     context.excess_damage_this_way = excess_damage_this_way
@@ -1589,6 +1598,8 @@ def _apply_effects_partitioned(
                         "source_incarnation": context.resolving_source_incarnation,
                         "previous_targets": list(context.previous_targets),
                         "created_objects": list(context.created_objects),
+                        "latest_exiled_visits": list(context.latest_exiled_visits),
+                        "latest_milled_visits": list(context.latest_milled_visits),
                         "life_lost_this_way": context.life_lost_this_way,
                         "excess_damage_this_way": context.excess_damage_this_way-accounted_fight_excess,
                         "fight_results": context.fight_results,
@@ -1621,6 +1632,8 @@ def _apply_effects_partitioned(
         context.milled_objects = outer_milled
         context.attachment_hosts = outer_attachment_hosts
         context.created_objects = outer_created
+        context.latest_exiled_visits = outer_latest_exiled_visits
+        context.latest_milled_visits = outer_latest_milled_visits
         context.life_lost_this_way = outer_life_lost
         context.excess_damage_this_way = outer_excess_damage
         context.fight_results = outer_fight_results

@@ -64,7 +64,7 @@ from ..targeting import (
     resolved_count,
     spell_target_specs,
 )
-from ..graveyard_cast import has_targeted_graveyard_permission, graveyard_cast_grant_for
+from ..graveyard_cast import has_targeted_graveyard_permission, graveyard_cast_grant_for, temporary_graveyard_pool_grant
 from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
@@ -1183,6 +1183,7 @@ class LegalActionsMixin:
                 self._castable_from_graveyard(obj)
                 or blitz_graveyard_permission(obj)
                 or self._graveyard_cast_permission(player, obj)
+                or temporary_graveyard_pool_grant(player, self.state, obj) is not None
             )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
@@ -1200,14 +1201,15 @@ class LegalActionsMixin:
             if self.can_play_land(player, obj):
                 actions.append(self._land_action(obj))
 
-        # A temporary single-spell grant may name a card in another player's
-        # public graveyard (Locke). Only that explicit holder gets an offer;
+        # A targeted grant or dynamic pool can cover another player's
+        # public graveyard. Only the permission holder gets an offer;
         # the normal can_cast/cost/target checks remain the authority.
         for other in self.state.players:
             if other is player:
                 continue
             for obj in list(other.graveyard):
-                if (has_targeted_graveyard_permission(player, self.state, obj)
+                if ((has_targeted_graveyard_permission(player, self.state, obj)
+                     or temporary_graveyard_pool_grant(player, self.state, obj) is not None)
                         and self._castable_now_or_via_potential(player, obj)):
                     self._offer_cast(actions, player, obj)
 

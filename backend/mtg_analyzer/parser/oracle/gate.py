@@ -4077,7 +4077,29 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      the `event_player_events` marker; an acting-player trigger body now measures that player's life, not the source
 #      controller's) and "where x is half the number of <phrase>, rounded up/down" (a halved count, one X for the whole
 #      sentence).
-PARSER_VERSION = "694"
+# 695: PAR-167 -- casting-window compositions over existing permission primitives. (1) The targeted graveyard cast
+#      ("cast target <type> card [with mana value N or less / ≤ ~'s power] from your / an opponent's / a graveyard
+#      [without paying its mana cost] [this turn / until end of turn]. If that spell would be put into <a> graveyard,
+#      exile it instead") is one row: colour, mana-value cap, free versus normal cost, one-resolution versus turn-long
+#      permission and the exile rider are independent axes of `grant_flashback_to_target`. (2) `casting_window.py`: an
+#      exile clause plus its casting window ("exile the top N cards ... until end of turn, you may cast <filter> spells
+#      from among them [without paying their mana costs]") as `cast_window_exiled_pool` over the latest exact exile visits
+#      (cast/play, type filter, free or any-colour mana, window / next turn / as long as exiled / one-resolution offer);
+#      the pronoun is bound by parsing the pair as one clause, and a trailing condition is refused by the gate. (3)
+#      "cast a / any number of <type> spell(s) from your hand or graveyard [with mana value <N | that damage | equal to
+#      <amount> | x or less, where x is <amount>>] without paying its mana cost" (`free_cast_from_hand` gains an amount
+#      cap, an exact-value flag and `card_query` criteria; "that damage" is gated to a DAMAGE trigger). (4) The turn-long
+#      "play lands and cast spells from your graveyard" window with its "would be put into your graveyard, exile it
+#      instead" replacement. (5) "exile cards from the top of your / target opponent's library until ... nonland card.
+#      [Until end of turn,] you may cast that card without paying its mana cost" as `dig_until` with a cast hit.
+#      (6) Dynamic filtered own/any-graveyard turn windows survive the source returning; (7) targeted exile followed
+#      by copying and casting composes with normal/free cost. Exact receipts exclude prior independent exiles.
+# 696: Fail closed on unquantified plural free-cast instructions; their cast count is not represented.
+# 697: Latest-mill selections compose with resolution-local free/normal filtered casting and X caps.
+# 698: Bare plural pool casts offer every eligible card, rather than a single cast.
+# 699: Target-opponent milling preserves the opponent restriction in the shared mill grammar.
+# 700: Permanent casting filters include Battle (RULE 110.4).
+PARSER_VERSION = "700"
 
 
 def parser_source_hash() -> str:
@@ -4774,6 +4796,32 @@ def _tap_x_cost_ok(spec: AbilitySpec) -> bool:
     tap whatever its X. Fails closed until X-sized tap costs exist."""
     cost = spec.cost if isinstance(spec.cost, dict) else None
     return not (cost and _TAP_X_COST_RE.search(str(cost.get("text", "")).lower()))
+
+
+def _cast_window_ok(spec: AbilitySpec) -> bool:
+    """PAR-167: two ways a casting-window effect could be claimed with the wrong meaning.
+
+    * A trailing "... if <condition>" is peeled off a multi-sentence body and stamped on *every* effect, so an
+      exile clause plus its casting window would be gated as a whole ("exile the top card ... you may play it if
+      you control a Kavu" exiling only while the Kavu stands). The condition belongs to the window alone, which
+      this spec shape cannot express: fail closed.
+    * "... with mana value less than or equal to that damage" reads the firing damage event's amount; under any
+      other ability kind "that damage" names nothing the cast could measure.
+    """
+    for effect in spec.effects:
+        if effect.type == "cast_window_exiled_pool":
+            if effect.condition is not None:
+                return False
+            # RULE 107.3: a trigger has no announced X for this casting cap.
+            if (spec.ability_kind == "triggered"
+                    and effect.params.get("card_filter", {}).get("max_mana_value") == "x"):
+                return False
+        amount = effect.params.get("max_mana_value_amount") if effect.type == "free_cast_from_hand" else None
+        if isinstance(amount, dict) and amount.get("kind") == "trigger_event" and not (
+            spec.ability_kind == "triggered" and (spec.trigger or {}).get("event") == "DAMAGE"
+        ):
+            return False
+    return True
 
 
 def _dig_x_ok(spec: AbilitySpec) -> bool:
@@ -5697,7 +5745,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if not _action_limit_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
-        if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec):
+        if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

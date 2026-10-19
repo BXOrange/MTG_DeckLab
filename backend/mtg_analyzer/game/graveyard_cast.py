@@ -38,6 +38,26 @@ def has_targeted_graveyard_permission(player: "Player", state: "GameState", obj)
     )
 
 
+def temporary_graveyard_pool_grant(player: "Player", state: "GameState", obj):
+    """RULE 611.2: this-turn pool permissions also cover later arrivals."""
+    if obj.zone != Zone.GRAVEYARD or obj.card.is_land:
+        return None
+    for record in state.temp_graveyard_pool_permissions:
+        if record["player_id"] != player.id or record["turn_number"] != state.internal_turn.number:
+            continue
+        if not record.get("any_graveyard") and obj.owner_id != player.id:
+            continue
+        criteria = record.get("spell_criteria")
+        if criteria and not card_query.matches(obj.characteristic_card(), criteria):
+            continue
+        return GraveyardCastPermissionEffect(
+            permanent_only=False, once_per_turn=False, spell_criteria=criteria,
+            expires_turn=record["turn_number"],
+            exile_if_would_be_put_into_graveyard=record.get("exile_if_would_be_put_into_graveyard", False),
+        )
+    return None
+
+
 def _is_permanent_card(card: "Card") -> bool:
     """Whether ``card`` is a permanent card (creature/artifact/enchantment/
     land/planeswalker) — Lurrus's own "a permanent spell" restriction.

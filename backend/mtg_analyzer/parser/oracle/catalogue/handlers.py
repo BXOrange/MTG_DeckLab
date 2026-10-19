@@ -28,6 +28,11 @@ from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, ParserProvenance
+from .casting_window import (
+    parse_dig_cast_free, parse_exile_cast_window, parse_exile_copy_cast, parse_free_cast_zone,
+    parse_graveyard_play_window,
+)
+from .count_phrase import parse_amount_phrase
 from .dig import parse_dig, parse_reveal_top_branch
 from .dying_hosts import dying_host_return_specs
 from .fight_sequences import fight_sequence_specs, source_counter_fight_specs
@@ -2494,6 +2499,16 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_play_window_previous_exiled", params)]
 
 
+#: PAR-167: an exile clause plus the casting window it opens ("Exile the top 4 cards of your library. Until end of turn,
+#: you may cast noncreature spells from among those cards without paying their mana costs."). The whole pair is one
+#: row so the pronoun can only name what the first sentence exiled; `casting_window.py` owns every axis of the window.
+_EXILE_CAST_WINDOW_RE = _c(r"(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
+
+
+def _exile_cast_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_exile_cast_window(m.group(0), match_clause)
+
+
 #: PAR-163 (Moonstone, Harsh Mistress): the discard trigger's "exile that card from your graveyard. If you do,
 #: until the end of your next turn, you may play that card." -- `ExileTriggeringDiscardMayPlayThisTurnEffect` with its
 #: RULE 611.2 next-turn window (its hand-authored "this turn" siblings, Containment Construct, keep the default).
@@ -2584,6 +2599,75 @@ def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
     elif cap is not None:
         params["max_mana_value"] = count_or_x_of(cap)
     return [EffectSpec("free_cast_from_hand", params)]
+
+#: PAR-167: "cast `<a / any number of>` `<type>` spell(s) from your hand/graveyard [with mana value `<cap>`] without
+#: paying its mana cost" over every cap and filter axis (`casting_window.py`); the original Expertise row above owns the
+#: plain hand wording and is tried first.
+_FREE_CAST_ZONE_RE = _c(r"(?:you may )?cast [^.]+? without paying (?:its|their) mana costs?(?:, where x is [^.]+)?\.?")
+
+
+def _free_cast_zone(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_free_cast_zone(m.group(0), parse_amount_phrase)
+
+#: PAR-167: the turn-long graveyard play window ("Until end of turn, you may play lands and cast spells from your
+#: graveyard.") and the turn-long exile replacement beside it (Gaea's Will, Magus of the Will).
+_GRAVEYARD_PLAY_WINDOW_ROW_RE = _c(
+    r"(?:until end of turn, )?(?:you may )?play lands and cast spells from your graveyard[^.]*"
+    r"(?:\.\s*if a card would be put into your graveyard from anywhere this turn, exile (?:that card|it) instead)?\.?"
+    r"|if a card would be put into your graveyard from anywhere this turn, exile (?:that card|it) instead\.?"
+    r"|(?:until end of turn, )?(?:you may )?cast [^.]+ spells from (?:your|any) graveyard[^.]*"
+    r"(?:\.\s*if a spell cast this way would be put into a graveyard, exile it instead)?\.?"
+)
+
+#: PAR-167: "[Target opponent] exile[s] cards from the top of [your/their] library until [you/they] exile a `<kind>` card.
+#: [Until end of turn,] you may cast that card without paying its mana cost." (Nico Minoru, Wanda's Vision, Stolen Goods).
+_DIG_CAST_FREE_RE = _c(r"(?:target opponent exiles|exile) cards from the top of (?:your|their) library until [^.]+\.\s+[^.]+")
+
+#: PAR-167: "Exile [up to one] target `<card>` from a graveyard [and copy it | . Copy it]. You may cast the copy [without
+#: paying its mana cost]." -- the exile clause is any one this table already reads, or the filtered graveyard form
+#: below ("with mana value N or less", a colour word, the "nonland" type), so the card filter and the origin graveyard
+#: are the same axes the targeted cast window uses.
+_EXILE_COPY_CAST_RE = _c(r"exile [^.]+?(?: and copy (?:it|that card)|\.\s+copy (?:it|that card))(?:\.\s+|, then )[^.]+")
+
+
+
+def _exile_graveyard_clause(text: str) -> Optional[list[EffectSpec]]:
+    specs = match_clause(text)
+    if specs:
+        return specs
+    m = _EXILE_GRAVEYARD_FILTERED_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    type_word = m.group("type")
+    kind = _graveyard_target_kind(None if type_word == "nonland" else type_word, m.group("scope"))
+    if kind is None:
+        return None
+    if type_word == "nonland":
+        kind = kind.removesuffix("_card") + "_nonland_card"
+    params: dict = {"target_kind": kind}
+    if m.group("upto"):
+        params["optional"] = True
+    if m.group("n"):
+        params["max_mana_value"] = int(m.group("n"))
+    if m.group("color"):
+        params["colors"] = [_CAST_WINDOW_COLORS[m.group("color").lower()]]
+    return [EffectSpec("exile", params)]
+
+
+def _exile_copy_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_exile_copy_cast(m.group(0), _exile_graveyard_clause)
+
+
+
+def _dig_cast_free(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_dig_cast_free(m.group(0))
+
+
+
+def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_graveyard_play_window(m.group(0))
+
+
 
 
 #: PAR-118: the shared clause "exile a card from your hand with a number of time counters on it equal to its mana
@@ -5201,7 +5285,7 @@ def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "x" is the announced {X} (RULE 107.3c) or a ``bind``-measured X ("…mills x cards, where x is the result").
     params: dict = {"count": "twice_x" if count_word == "twice x" else "x" if count_word == "x" else 1 if count_word == "a" else int(count_word)}
     if who in ("target player", "target opponent"):
-        params["target_kind"] = "player"
+        params["target_kind"] = "opponent" if who == "target opponent" else "player"
     return [EffectSpec("mill", params)]
 
 
@@ -7701,23 +7785,57 @@ def _grant_flashback_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_flashback_to_target", params)]
 
 
-# Normal-cost permission and its optional spell-zone replacement share the
-# targeted graveyard grant; neither changes the spell's alternative cost.
+#: PAR-167: the targeted graveyard casting window, one grammar over its independent axes -- origin graveyard
+#: (yours / an opponent's / any), the card filter (type words, a colour, a mana-value cap that is a literal or
+#: "the source's power"), normal versus "without paying its mana cost" (RULE 118.9), a one-resolution
+#: permission (RULE 608.2g, no window word) versus a turn-long one ("this turn" / a leading "until end of turn"),
+#: and the optional "if that spell would be put into <a> graveyard, exile it instead" rider (RULE 614.1).
+#: Every combination lands on `GrantFlashbackToTargetEffect`'s ``as_permission`` mode.
+_CAST_WINDOW_COLORS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+_EXILE_GRAVEYARD_FILTERED_RE = _c(
+    r"exile (?P<upto>up to (?:1|one) )?target (?:(?P<color>white|blue|black|red|green) )?"
+    r"(?:(?P<type>nonland|" + _GRAVEYARD_TYPE_WORD + r") )?card(?: with mana value (?P<n>\d+) or less)? "
+    rf"(?:from|in) (?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
+)
+
+_CAST_WINDOW_TYPE_WORD = rf"artifact, instant, or sorcery|{_GRAVEYARD_TYPE_WORD}"
+_CAST_WINDOW_SOURCE_POWER = r"less than or equal to (?:~'s|his|her|its) power"
 _TARGET_GRAVEYARD_CAST_RE = _c(
-    rf"(?:you may )?cast target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
-    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard this turn\.?"
-    r"(?:\s*if that spell would be put into your graveyard, exile it instead\.?)?"
+    r"(?P<until>until end of turn, )?(?:you may )?cast target "
+    rf"(?:(?P<color>{'|'.join(_CAST_WINDOW_COLORS)}) )?"
+    rf"(?:(?P<type>{_CAST_WINDOW_TYPE_WORD}) )?card"
+    rf"(?: with mana value (?P<cap>\d+ or less|{_CAST_WINDOW_SOURCE_POWER}))? from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
+    r"(?P<this_turn> this turn)?"
+    r"(?P<free> without paying its mana cost)?\.?"
+    r"(?:\s*if that spell would be put into (?:your|their|an opponent'?s|a) graveyard, exile it instead\.?)?"
 )
 
 
 def _target_graveyard_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    type_word = m.groupdict().get("type")
+    if type_word == "artifact, instant, or sorcery":
+        kind = _graveyard_target_kind(None, m.group("scope"))
+        kind = kind.removesuffix("_card") + "_instant_sorcery_or_artifact" if kind else None
+    else:
+        kind = _graveyard_target_kind(type_word, m.group("scope"))
     if kind is None:
         return None
-    return [EffectSpec("grant_flashback_to_target", {
+    turn_long = bool(m.group("until") or m.group("this_turn"))
+    params: dict = {
         "target_kind": kind, "as_permission": True,
         "exile_if_would_be_put_into_graveyard": "exile it instead" in m.group(0),
-    })]
+    }
+    if not turn_long:
+        params["during_resolution"] = True
+    if m.group("free"):
+        params["free"] = True
+    if m.group("color"):
+        params["colors"] = [_CAST_WINDOW_COLORS[m.group("color")]]
+    cap = m.group("cap")
+    if cap:
+        params["max_mana_value"] = "source_power" if "power" in cap else int(cap.split()[0])
+    return [EffectSpec("grant_flashback_to_target", params)]
 
 
 #: "The next [creature] spell you cast this turn can't be countered." (Mistrise Village,
@@ -18356,6 +18474,8 @@ HANDLERS: list[EffectHandler] = [
         _PLAY_WINDOW_PREVIOUS_RE,
         _play_window_previous,
     ),
+    # PAR-167: the exile clause plus a casting window over its pool (cast/play, filter, free or wild mana, window).
+    EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
     # PAR-13: "draw N cards and reveal them. you may cast one of them
     # without paying its mana cost." — Mad Wizard's Lair's own room.
     EffectHandler(
@@ -18371,6 +18491,10 @@ HANDLERS: list[EffectHandler] = [
         _FREE_CAST_FROM_HAND_RE,
         _free_cast_from_hand,
     ),
+    EffectHandler("free_cast_zone", _FREE_CAST_ZONE_RE, _free_cast_zone),
+    EffectHandler("exile_copy_cast", _EXILE_COPY_CAST_RE, _exile_copy_cast),
+    EffectHandler("dig_cast_free", _DIG_CAST_FREE_RE, _dig_cast_free),
+    EffectHandler("graveyard_play_window", _GRAVEYARD_PLAY_WINDOW_ROW_RE, _graveyard_play_window),
     EffectHandler(
         "cheat_creature_from_hand",
         _CHEAT_CREATURE_FROM_HAND_RE,

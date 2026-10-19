@@ -521,6 +521,86 @@ class GrantPlayWindowToPreviousExiledEffect(GameEffect):
                 context.state.temp_play_spells_only.add(obj.instance_id)
 
 
+class CastWindowFromExiledPoolEffect(GameEffect):
+    """PAR-167: "[Until end of turn,] you may cast `<spells>` from among the cards exiled this way [without paying
+    their mana costs]" -- the casting-window half after an exile clause, one grammar over its independent axes.
+
+    The pool is the exact zone visits exiled by the immediately preceding paired instruction
+    (`GameContext.latest_exiled_visits`), kept only while still in that exile visit.  Two permission shapes, never mixed:
+
+    * ``resolution_local`` (no window word, RULE 608.2g): the casting is offered now, during this resolution,
+      through `RulesEngine._request_resolution_play` -- once, or for any number of the cards (``any_number``).
+    * otherwise a window: every pooled card gets the `GameState.temp_play_permissions` entry the impulsive draw
+      uses (``same_turn_only`` is "this turn" / "until end of turn", else the end of the controller's next turn;
+      ``standing`` is "for as long as it remains exiled"), narrowed by ``card_filter`` and spells-only for "cast".
+
+    ``free`` is RULE 118.9 ("without paying its mana cost"): the window arms `GameState.free_cast_instance_ids`
+    (dropped at cleanup together with the permission), the resolution-local offer passes ``free`` through.
+    """
+
+    def __init__(
+        self, same_turn_only: bool = False, standing: bool = False, only_spells: bool = False,
+        mana_wildcard: Optional[str] = None, free: bool = False, card_filter: Optional[dict[str, Any]] = None,
+        resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile", source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.same_turn_only = bool(same_turn_only)
+        self.standing = bool(standing)
+        self.only_spells = bool(only_spells)
+        self.mana_wildcard = mana_wildcard
+        self.free = bool(free)
+        self.card_filter = dict(card_filter or {})
+        self.resolution_local = bool(resolution_local)
+        self.any_number = bool(any_number)
+        self.pool_zone = "graveyard" if pool_zone == "graveyard" else "exile"
+
+    def _pool(self, context: GameContext) -> list[Any]:
+        pool: list[Any] = []
+        visits = (context.latest_milled_visits
+                  if self.pool_zone == "graveyard" else context.latest_exiled_visits)
+        for obj, visit in visits:
+            if (obj is not None and obj.zone.value == self.pool_zone and obj.zone_incarnation == visit
+                    and not obj.face_down_in_exile
+                    and not any(obj is seen for seen in pool)):
+                pool.append(obj)
+        return pool
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        from .. import combat  # function-scoped: combat imports the effects package
+
+        card_filter = dict(self.card_filter)
+        if card_filter.get("max_mana_value") == "x":
+            card_filter["max_mana_value"] = int(getattr(self.source, "x_paid", 0) or 0)
+        pool = [
+            obj for obj in self._pool(context)
+            if not card_filter or combat.matches_object_filter(obj, card_filter, state=context.state)
+        ]
+        if self.only_spells:
+            pool = [obj for obj in pool if not obj.card.is_land]
+        if self.resolution_local:
+            context.engine._request_resolution_play(
+                player, pool, zone=self.pool_zone, free=self.free, only_spells=True, repeat=self.any_number,
+                mana_wildcard=self.mana_wildcard,
+            )
+            return
+        source_name = self.source.name if self.source is not None else None
+        for obj in pool:
+            context.engine._grant_temp_play_permission(
+                obj, player, source_name, self.same_turn_only, self.mana_wildcard,
+            )
+            if self.only_spells:
+                context.state.temp_play_spells_only.add(obj.instance_id)
+            if self.standing:
+                context.state.temp_play_permission_standing.add(obj.instance_id)
+            if self.card_filter:
+                context.state.temp_play_permission_filters[obj.instance_id] = dict(self.card_filter)
+            if self.free:
+                context.state.grant_free_cast_permission(obj)
+
+
 class DrawRevealCastOneFreeEffect(GameEffect):
     """"Draw N cards and reveal them. You may cast one of them without
     paying its mana cost." (RULE 121/601.3b combo — Dungeon of the Mad

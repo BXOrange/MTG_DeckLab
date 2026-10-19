@@ -55,7 +55,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 
 
-- **PAR-167 · Casting-window grammar compositions.** Compose origin zone, card/spell filter, normal/free cost, resolution-local versus standing permission, expiry and post-cast exile using existing permission primitives; size each shape across the full cache. Calibrated scope: `PARSER_LONG_TAIL.md`, “Face-audit follow-ups”; independent of PAR-157.
 
 
 ## MEC — Game mechanic

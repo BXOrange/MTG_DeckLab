@@ -1169,8 +1169,10 @@ class MillEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.latest_milled_visits = []
         if self.any_number_of_players:
             milled = []
+            visits = []
             with context.state.simultaneous():
                 for player in targets or []:
                     if player is None:
@@ -1178,6 +1180,8 @@ class MillEffect(GameEffect):
                     before = len(player.graveyard)
                     context.mill(player, self._measured(self.count, context, [player]))
                     milled.extend(player.graveyard[before:])
+                    visits.extend(context.latest_milled_visits)
+            context.latest_milled_visits = visits
             context.moved_objects.extend(milled)
             context.milled_objects = list(milled)
             if self.capture_milled:
@@ -1250,7 +1254,8 @@ class MillEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is None:
             return
-        count = self._measured(self.count, context, targets)
+        measure = {"kind": "x_paid", "of": "source"} if self.count == "x" else self.count
+        count = self._measured(measure, context, targets)
         if self.count_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
 

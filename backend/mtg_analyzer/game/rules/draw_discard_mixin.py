@@ -432,6 +432,8 @@ class DrawDiscardMixin:
             player.graveyard.append(obj)
             self._flag_commander_zone_choice(obj)  # RULE 903.9a (rare: a commander milled from the library)
             milled.append(obj)
+        # RULE 400.7 / 701.13: record these visits before mill triggers can move a card.
+        self.context.latest_milled_visits = [(obj, obj.zone_incarnation) for obj in milled]
         self.state.fire_event(GameEvent(EventType.MILL, player_id=player.id, count=count))
         if milled:
             # RULE 701.13 moves all cards from one mill instruction together.
