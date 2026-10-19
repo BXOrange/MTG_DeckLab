@@ -10613,9 +10613,12 @@ def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 #: Covetous Elegy's tail: "then you create a tapped Treasure token for each creature your opponents control" --
-#: the count is read live when the (already finished) edict has resolved.
+#: the count is read live when the (already finished) edict has resolved. Anchored to the controller ("you"/
+#: subject-less, the singular verb): the builder always emits the controller as creator, and "your opponents" in the
+#: count is relative to the controller, so a third-person "that player creates ..." / "each opponent creates ..."
+#: (whose Treasures would go to someone else) stays UNMODELED rather than paying the controller (BUG-6).
 _NAMED_TOKEN_PER_OPPONENT_CREATURE_RE = _c(
-    rf"(?:then )?(?:you )?creates? an? (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) token "
+    rf"(?:then )?(?:you )?create an? (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) token "
     r"for each creature your opponents control"
 )
 

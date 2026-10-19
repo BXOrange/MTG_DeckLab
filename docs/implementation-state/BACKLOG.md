@@ -107,11 +107,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-6 · Treasure-per-opponent-creature row ignores its subject.**
-  `_NAMED_TOKEN_PER_OPPONENT_CREATURE_RE` (`parser/oracle/catalogue/handlers.py`) accepts third-person
-  "creates", but the builder always emits `creators="you"`; "that player creates a Treasure token for
-  each creature your opponents control" gives the Treasures to the controller. Anchor the row to
-  "you"/subject-less or carry the creator through.
 - **BUG-7 · Draw-per-opponent-with-more-cards row ignores its subject.**
   `_DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE` accepts third-person "draws" and binds a bare controller
   `draw`, so "each opponent / target player draws a card for each opponent who has more cards …"

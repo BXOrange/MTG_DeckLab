@@ -4114,7 +4114,9 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      your next turn" (floating `cast_prohibition`). +8 / -0.
 # 703: PAR-168 -- one shared permanent-non-goal policy (cross-game, Alchemy/digital-only, Stickers, Attractions,
 #      draft/conspiracy, Contraptions) returns Unsupported with a reason before authored/parser coverage.
-PARSER_VERSION = "703"
+# 704: BUG-6 -- the Treasure-per-opponent-creature tail is anchored to the controller; third-person "that player
+#      creates ..." stays UNMODELED instead of paying the controller. +0 / -0.
+PARSER_VERSION = "704"
 
 
 def parser_source_hash() -> str:
