@@ -483,16 +483,6 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     # once a board-state threshold is crossed" shape Ascend (702.131) above
     # already has — see `game/rules/sba_mixin.py`'s `_sba_check_storied`.
     ("Storied", _F, "702.195"),
-    # Specialize (Alchemy Horizons: Baldur's Gate) is an Arena-only digital
-    # keyword with no paper CR entry — a COST-shape activated ability,
-    # "Specialize {cost}" = "{cost}, Discard a card: This permanent
-    # specializes (becomes its specialized version for a colour of the
-    # discarded card). Activate only as a sorcery." The five specialized
-    # faces live in Arena's own card data, which this repo's `oracle_cards`
-    # Scryfall seed doesn't carry, so the engine models the activation +
-    # the `SPECIALIZES` event only, not the characteristic swap (MEC-48,
-    # documented simplification).
-    ("Specialize", _C, "digital/Alchemy (no paper CR)"),
 ]
 
 
@@ -765,19 +755,6 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         elif kdef.slug == "equip" and EQUIP_ONCE_EACH_TURN_RE.search(text):
             # RULE 602.5b: "Equip {N}. Activate only once each turn." (Leather Armor) -- a per-turn activation cap on the equip ability.
             param["once_per_turn"] = True
-        if kdef.slug == "specialize":
-            rider = re.search(
-                r"specialize\s+\{[^}]+\}\.\s*this ability costs \{(?P<discount>\d+)\} "
-                r"less to activate if there are (?P<minimum>\d+) or more instant and/or sorcery "
-                r"cards in your graveyard", text, re.I,
-            )
-            if rider:
-                param["dynamic_reduction"] = {
-                    "generic_per": int(rider.group("discount")),
-                    "active_if": {"kind": "graveyard_card_type_count_at_least",
-                                  "types": ["instant", "sorcery"],
-                                  "amount": int(rider.group("minimum"))},
-                }
         if _slug(str(raw_name)) == "multikicker":
             # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
             # alias onto the same "kicker" slug/behaviour, but the "may pay

@@ -574,9 +574,6 @@ class GameContext:
         return self.engine.copy_self_spell(obj, controller_id, targets=targets,
                                            choose_new_targets=choose_new_targets)
 
-    def conjure_duplicate_into_hand(self, target: Any, controller_id: str) -> Optional["GameObject"]:
-        return self.engine.conjure_duplicate_into_hand(target, controller_id)
-
     def copy_ability(self, target: Any, controller_id: str, new_targets: Optional[list] = None,
                      *, choose_new_targets: bool = False, defer_choice: bool = False):
         return self.engine.copy_ability(target, controller_id, new_targets,

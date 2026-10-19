@@ -2209,12 +2209,6 @@ Losing control permanently ends the floating effect, even if control returns.
 The same predicate can gate sacrifice-dependent resolving sequences.
 
 
-### Perpetual P/T and keyword changes (MEC-98, Alchemy "perpetually")
-
-- **What:** "`<subject>` perpetually gets +N/+N [and gains `<kw>`]" / "… perpetually gains `<kw>`". `GameObject.perpetual_power`/`perpetual_toughness`/`perpetual_keywords` (+ display-only `perpetual_effects`) are never cleared: not at cleanup, not by `reset_derived`, and not by `reset_as_new_object`. That makes them the one exception to RULE 400.7's "effects are not retained". `continuous.recompute` folds them into layer 7d (beside the until-EOT pump) and layer 6, traced with `duration="permanent"`. The off-battlefield `power`/`toughness` fallback adds them too, so a card in hand shows its perpetual size. `copy_perpetual_from` carries them onto a copy (`copy_permanent` token copies, `conjure_duplicate_into_hand`). Engine entry: `PumpEffect.perpetual` writes to these fields instead of `temp_*`, keeping every pump addressing mode. `card_zones` + `card_type` + `subtypes` also reach the controller's cards in hand/library/graveyard, and are added to any `selector` group. Parser: `handlers._perpetual_pump_specs`, the `match_clause` fallback, rewrites the clause into its "… until end of turn" form, runs the ordinary pump table on it and flips the result to `perpetual`. It fails closed on anything but plain pumps (no "can't be blocked" rider, no parametric keyword). Its own zone-subject grammar covers "[creatures you control and] [each] creature card(s) in your hand/library/graveyard". PARSER_VERSION 497: +15 cards, 0 regressed. Stalwart Speartail's enrage is hand-authored on the same primitive (it had been dropped for lack of one).
-- **Files:** `models/game/game_object.py`, `game/continuous.py`, `game/effects/counters_tokens.py`, `game/effects/registry.py`, `game/rules/copies_mixin.py`, `parser/oracle/catalogue/handlers.py`, `game/card_catalogue/s/stalwart_speartail.py`, `tests/test_mec98_perpetual.py`
-- **Why:** Perpetual is an Arena/Alchemy duration and isn't in the paper CR, so there is no RULE number to cite (the ticket's "RULE 121.5" was a mis-citation). Riding on `PumpEffect` and on a text rewrite reuses the ~40 pump rows' subject/amount/keyword grammar rather than duplicating it. Separate fields rather than a `durations.py` window, because nothing ever ends a perpetual change.
-
 ### Layer-6 grant of a non-keyword ability (RULE 613.7f)
 
 - **What:** New `grant_mana_ability`/`grant_triggered_ability` `EffectSpec` types let a static grant something richer than a bare keyword slug (Tyvar Kell's "{T}: Add {B}."…
@@ -2721,7 +2715,7 @@ pending cast after an invalid answer. Regression coverage lives in
 ### MEC-109: Blitz (RULE 702.152, PARSER_VERSION 605)
 
 - **What:** Printed and granted Blitz costs are separate cast choices, including mana, life and discard payments, commander taxes, additional costs and Henzie's commander-cast discount. Henzie's mana-value threshold includes announced X. Sabin and Tenacious Underdog can use Blitz from the graveyard; Blitz itself does not exile them.
-- **Lifetime:** Paying Blitz grants haste and a dies/draw trigger to the resulting permanent, plus a respondable sacrifice trigger at the next end step. Zone changes clear the payment; the delayed sacrifice tracks that incarnation and cannot sacrifice an opponent's permanent. Spell copies retain the payment decision. Riveteers Provocateur uses the object chooser to grant perpetual Blitz.
+- **Lifetime:** Paying Blitz grants haste and a dies/draw trigger to the resulting permanent, plus a respondable sacrifice trigger at the next end step. Zone changes clear the payment; the delayed sacrifice tracks that incarnation and cannot sacrifice an opponent's permanent. Spell copies retain the payment decision.
 - **Integration:** Parser handlers, executable IR, legal actions and the session API carry the selected Blitz instance. The board exposes distinct Blitz actions and preserves the choice through X, target and discard selection. `game/blitz.py` owns the mechanic; `tests/test_blitz.py` covers payments, grants, copies, ability loss and zone transitions.
 
 
@@ -3792,11 +3786,6 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 - **What:** A third "striated text box" card structure alongside Leveler/Class — a Spacecraft (or Planet land) whose text splits into a fixed Station reminder line (the rea…
 - **Files:** `parser/oracle/catalogue/station.py` (new), `parser/oracle/gate.py`, `game/binding/core.py`, `game/engine/activation_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/costs.py`, `game/continuous.py`, `game/combat.py`, `models/card.py` (`is_station`), `models/game_object.py` (`station_tapped_power`), `services/scryfall_client.py`
 
-### MEC-48: Specialize (Alchemy Horizons: Baldur's Gate — digital keyword, PARSER_VERSION 223)
-
-- **What:** "Specialize {cost}" — an Arena-only keyword with **no paper CR entry**.
-- **Files:** `parser/oracle/catalogue/keywords.py`, `parser/oracle/segmenter.py`, `parser/oracle/gate.py`, `models/events.py`, `models/game_object.py`, `game/effects/core.py`, `game/binding/core.py`.
-
 ### Generic Flavor-/Ability-Word-Label Stripping (RULE 207.2c, PARSER_VERSION 99)
 
 - **What:** `_ABILITY_WORD_RE`'s fixed 7-word evergreen whitelist (landfall/constellation/battalion/enrage/delirium/veil of time/avoidance) is what let a "Word — `<effect>`…
@@ -4636,10 +4625,6 @@ focused phase/continuation/ISA/parser-lock tests also passed, including the twel
 ### PAR-94: Conditional cost gates — increment (PARSER_VERSION 443)
 
 - **What:** Added the legendary-creature and instant/sorcery-graveyard
-
-### PAR-94: Specialize conditional discount — increment (PARSER_VERSION 444)
-
-- **What:** Imoen's Specialize rider is parsed fail-closed into keyword
 
 ### PAR-95: Adamant per-mana-type riders (PARSER_VERSION 445)
 
@@ -5607,6 +5592,9 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 - **Files:** `models/cards/support_policy.py`, `models/cards/card.py`, `parser/oracle/gate.py`, `game/card_registry/core.py`, `api/cards.py`, `api/saved_decks.py`, `game/rooms.py`, `services/card_database.py`, `scripts/coverage_report.py`, `scripts/commander_tail_report.py`; `DEFERRED.md` records MEC-125, MEC-48 and MEC-98 as permanent non-goals.
 - **Why:** User decision: cross-game and Alchemy-only cards will never be implemented, so they must read "Unsupported" with a reason instead of an endless unmodeled gap. Raw-metadata audit (not printing flags alone) separates digital-only cards from digital printings of paper cards.
 - **Validation:** Policy intentionally removes 247 previously covered cards (176 digital-only Arena/rebalanced, 48 Alchemy, 15 Attractions, 7 conspiracy/draft, 1 Contraption); a 12-card spot check and the 1,305-card manifest confirm each is digital-only, Alchemy or silver-border/draft text, with no ordinary paper regression. Coverage: 21,660 / 35,046 (61.8%); Commander-legal 21,064 / 32,068 (65.7%). Full-cache green.
+- **Dead-path removal (PAR-170):** the Alchemy parser paths the policy made unreachable are gone: the `perpetually` pump fallback, the Riveteers Provocateur clause, `conjure a duplicate … into your hand`, the Specialize keyword/rider/trigger rows, and their engine consumers (`pump` `perpetual`/`card_zones`, `GameObject.perpetual_*`/`is_specialized`/`conjured_into_hand`, `SpecializeEffect`, `ConjureDuplicateIntoHandEffect`, `DiscardSpecificEffect`, `ChoosePerpetualBlitzEffect`, `EventType.SPECIALIZED`, hand-authored Stalwart Speartail) with their tests. No non-Alchemy card reached any of them; parse verdicts are unchanged (PARSER_VERSION stays 706).
+- **Version history moved (PAR-171):** the per-version changelog (~4,000 lines of comments) left `gate.py` for `parser/oracle/PARSER_VERSION_HISTORY.md`; `gate.py` keeps `PARSER_VERSION`, `parser_source_hash` and the lock. New bumps add their entry to the history file.
+
 
 ### Commander tail report taxonomy re-validation (PAR-146)
 

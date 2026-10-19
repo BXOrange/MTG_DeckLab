@@ -7947,19 +7947,6 @@ def _look_at_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("look_at_cards", {"target_kind": "player"})]
 
 
-#: PAR-124: "When you next cast an instant or sorcery spell this turn,
-#: **conjure a duplicate of that spell into your hand**." (Spellchain
-#: Scatter) — the hand-zone sibling of `_COPY_THAT_SPELL_RE` just below:
-#: "that spell" is the identical RULE 603.1 firing-event referent
-#: (`ConjureDuplicateIntoHandEffect.spell_from_trigger_event`), just landing
-#: in hand rather than being copied onto the stack.
-_CONJURE_DUPLICATE_INTO_HAND_RE = _c(r"conjure a duplicate of that spell into your hand")
-
-
-def _conjure_duplicate_into_hand(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("conjure_duplicate_into_hand", {"spell_from_trigger_event": "instance_id"})]
-
-
 #: "When you next cast an instant or sorcery spell this turn, **copy that spell**. You may
 #: choose new targets for the copy." (Doublecast, Galvanic Iteration, Teach by Example, Dual
 #: Strike) — the copier is the trigger's controller and "that spell" is the one that fired it
@@ -16014,8 +16001,8 @@ _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?P<verb_double>destroy) (?P<obj_double>it) and (?P<obj_double_self>~)"
     r"|"
     r"(?:its controller (?P<verb_ctrl>sacrifices|exiles|destroys)"
-    r"|(?P<verb>sacrifice|exile|destroy|discard)) "
-    r"(?:(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way|the duplicate)|(?P<obj_self>~))"
+    r"|(?P<verb>sacrifice|exile|destroy)) "
+    r"(?:(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)|(?P<obj_self>~))"
     # "Return that creature to its owner's hand" (Ilharg, Zara, Alora) — a
     # loan bounced end of turn; the object is the same `previous_or_self`
     # referent the sacrifice/exile forms use.
@@ -16065,7 +16052,6 @@ _DELAYED_TAIL_INNER = {
     "exile": "exile_specific",
     "destroy": "destroy_specific",  # Old Hob, Alleycat Blues
     "return": "return_specific_to_hand",  # Ilharg, Zara, Alora
-    "discard": "discard_specific",  # Spellchain Scatter
 }
 
 
@@ -16218,12 +16204,7 @@ _DELAYED_SAC_EXILE_WHEN_FIRST_RE = _c(
 #: objects` directly; "it"/"that creature"/"that permanent" stay on
 #: `previous_or_self` (target first, then created, then the source).
 _DELAYED_TAIL_TOKEN_SUBJECTS: frozenset[str] = frozenset(
-    {"that token", "those tokens", "the token", "the tokens", "all tokens created this way",
-     # PAR-124: "conjure a duplicate of that spell into your hand. …
-     # Discard the duplicate …" (Spellchain Scatter) — the same "this
-     # resolution's own created referent" idiom as the token subjects
-     # above, just not a permanent token.
-     "the duplicate"}
+    {"that token", "those tokens", "the token", "the tokens", "all tokens created this way"}
 )
 
 
@@ -21327,11 +21308,6 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("copy_that_spell", _COPY_THAT_SPELL_RE, _copy_that_spell),
     EffectHandler(
-        "conjure_duplicate_into_hand",
-        _CONJURE_DUPLICATE_INTO_HAND_RE,
-        _conjure_duplicate_into_hand,
-    ),
-    EffectHandler(
         "pump_group_subject",
         _c(
             rf"it gets? {_PT_DELTA}"
@@ -22569,12 +22545,6 @@ def _match_clause_reading(
     clause: str, *, self_subject: bool, previous_subject: bool, group_subject: bool,
     previous_selector: bool, attached_subject: bool,
 ) -> Optional[list[EffectSpec]]:
-    # MEC-109: the choice and its persistent grant are one instruction.
-    if clause.strip().rstrip(".") == (
-        "choose a creature card in your hand without blitz. it perpetually gains blitz. "
-        "the blitz cost is equal to its mana cost"
-    ):
-        return [EffectSpec("choose_perpetual_blitz", {})]
     other_than = _OTHER_THAN_THAT_RE.search(clause) if group_subject else None
     if other_than is not None:
         # "put a +1/+1 counter on target creature you control **other than that creature**": the
@@ -22772,7 +22742,7 @@ def _match_clause_once(
         group_subject=group_subject, previous_selector=previous_selector,
         attached_subject=attached_subject,
     )
-    return _perpetual_pump_specs(clause, **flags) or _per_player_target_specs(clause, **flags)
+    return _per_player_target_specs(clause, **flags)
 
 
 # -- PAR-130: "for each opponent/player, <verb> target <X> that player controls"
@@ -22833,86 +22803,3 @@ def _per_player_target_specs(clause: str, **flags: bool) -> Optional[list[Effect
     if not _stamp_per_player(specs, _PER_PLAYER_SCOPE[m.group("who")]):
         return None
     return specs
-
-
-# -- MEC-98: Alchemy "perpetually" P/T + keyword changes ---------------------
-#
-# "<subject> perpetually gets +N/+N [and gains <kw>]" / "… perpetually gains
-# <kw>" is an until-end-of-turn pump in every respect but its duration, so
-# rather than duplicating the ~40 pump rows' subject/amount/keyword grammar
-# this rewrites the clause into its "… until end of turn" form, runs the
-# ordinary table on that, and flips the resulting `pump` specs to
-# ``perpetual``. Fail-closed: only a result made purely of plain pumps is
-# accepted (an "and can't be blocked this turn" rider has no perpetual
-# meaning). The off-battlefield subjects ("creature cards in your hand,
-# library, and graveyard") no pump row knows get their own grammar below,
-# borrowing only the amount/keyword half from the same rewrite.
-
-_PERPETUAL_RE = re.compile(
-    r"(?P<subj>.+?) perpetually (?P<verb>gets?|gains?) (?P<rest>.+?)\.?"
-)
-#: A trailing "where x is …" has to stay *after* the inserted duration.
-_PERPETUAL_WHERE_RE = re.compile(r"(?P<head>.+?)(?P<tail>,? where x is .+)")
-#: Pump params that have no perpetual reading — a spec carrying one is refused.
-_PERPETUAL_REFUSED_PARAMS = (
-    "unblockable",
-    "parametric_keywords",
-    "removed_keywords",
-)
-#: "creatures you control and creature cards in your hand, library, and
-#: graveyard" / "creature cards in your hand" / "each creature card in your
-#: graveyard".
-_PERPETUAL_ZONE_SUBJECT_RE = re.compile(
-    r"(?:(?P<bf>creatures you control) and )?(?:each )?creature cards? in your "
-    r"(?P<zones>(?:hand|library|graveyard)(?:(?:,| and|, and) (?:hand|library|graveyard))*)"
-)
-_PERPETUAL_ZONE_WORDS = ("hand", "library", "graveyard")
-
-
-def _perpetual_pump_specs(clause: str, **flags: bool) -> Optional[list[EffectSpec]]:
-    m = _PERPETUAL_RE.fullmatch(clause.strip())
-    if m is None:
-        return None
-    verb = m.group("verb")
-    if not verb.endswith("s"):
-        verb += "s"  # plural subject ("… cards perpetually get") → singular pump row
-    rest = m.group("rest")
-    where = _PERPETUAL_WHERE_RE.fullmatch(rest)
-    if where is not None:
-        rest_eot = f"{where.group('head')} until end of turn{where.group('tail')}"
-    else:
-        rest_eot = f"{rest} until end of turn"
-
-    zone = _PERPETUAL_ZONE_SUBJECT_RE.fullmatch(m.group("subj"))
-    if zone is not None:
-        body = match_clause(f"target creature {verb} {rest_eot}")
-        base = _perpetual_flip(body)
-        if base is None or len(base) != 1 or where is not None:
-            return None
-        params = {
-            k: v for k, v in base[0].params.items()
-            if k in ("power", "toughness", "keywords", "perpetual")
-        }
-        params["card_zones"] = [
-            w for w in _PERPETUAL_ZONE_WORDS if w in zone.group("zones")
-        ]
-        params["card_type"] = "creature"
-        if zone.group("bf"):
-            params["selector"] = "creatures_you_control"
-        return [EffectSpec("pump", params)]
-
-    subj = m.group("subj")
-    plural_verb = m.group("verb") in ("get", "gain")
-    rewritten = f"{subj} {m.group('verb') if plural_verb else verb} {rest_eot}"
-    return _perpetual_flip(match_clause(rewritten, **flags))
-
-
-def _perpetual_flip(specs: Optional[list[EffectSpec]]) -> Optional[list[EffectSpec]]:
-    if not specs:
-        return None
-    out: list[EffectSpec] = []
-    for spec in specs:
-        if spec.type != "pump" or any(spec.params.get(k) for k in _PERPETUAL_REFUSED_PARAMS):
-            return None
-        out.append(EffectSpec("pump", {**spec.params, "perpetual": True}))
-    return out

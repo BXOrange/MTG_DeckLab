@@ -51,7 +51,6 @@ _VERBS: dict[str, str] = {
     "becomes untapped": "UNTAPPED",
     "mutates": "MUTATES",
     "becomes monstrous": "BECAME_MONSTROUS",
-    "specializes": "SPECIALIZED",
     # RULE 700.4's long spelling of "dies"; "your" scopes the owner (`_OWN_GRAVEYARD`).
     "is put into your graveyard from the battlefield": "DIES",
     # RULE 406.3 / 603.6c: a permanent exiled from the battlefield leaves it —
@@ -62,7 +61,7 @@ _OWN_GRAVEYARD = "is put into your graveyard from the battlefield"
 _TO_EXILE = "is put into exile from the battlefield"
 _VERB_ALT = (
     r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
-    r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|specializes|"
+    r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|"
     r"is put into your graveyard from the battlefield|is put into exile from the battlefield)"
 )
 _HEAD = re.compile(

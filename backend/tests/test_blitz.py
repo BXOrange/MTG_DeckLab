@@ -301,65 +301,7 @@ def test_henzie_blitz_total_includes_commander_tax_and_optional_kicker():
     assert engine.effective_cast_cost(player, obj, blitz=0, kicked=1).converted_mana_cost == 5
 
 
-def test_perpetual_blitz_choice_filters_hand_and_survives_zone_changes():
-    engine, state, player = game()
-    seed_library(player)
-    for name in ["First", "Second"]:
-        add(player, Card(id=name, name=name, type_line="Creature", is_creature=True,
-                        mana_cost_string="{R}", converted_mana_cost=1, power=2, toughness=2))
-    already = add(player, card())
-    source = add(player, card("Riveteers Provocateur", "{B}{R}", keywords=["Blitz", "Menace"], body=(
-        "Menace\nWhen this creature enters, choose a creature card in your hand without blitz. "
-        "It perpetually gains blitz. The blitz cost is equal to its mana cost."
-    )))
-    player.mana_pool.add_many({"R": 8, "B": 1})
-    # Retain the shared primitive regression; the Alchemy card itself is Unsupported.
-    assert parse_oracle(source.card).unsupported_reason == "alchemy"
-    attach_to_object(source, parse_keywords(source.card))
-    segment = segment_line(
-        "when ~ enters, choose a creature card in your hand without blitz. "
-        "it perpetually gains blitz. the blitz cost is equal to its mana cost",
-        allow_spell_effect=False, provenance=None)
-    assert segment.spec is not None
-    for spec in segment.spec.effects:
-        effect = EffectRegistry.create(spec.type, spec.params)
-        effect.source = source
-        effect.apply(GameContext(state, engine.rules))
-    choice = state.pending_choice
-    assert choice["kind"] == "choose_objects"
-    options = {int(option["id"]) for option in choice["options"]}
-    assert already.instance_id not in options
-    chosen = player.hand[0]
-    engine.rules.resolve_choice(str(chosen.instance_id))
-    engine.resolve_until_stable()
-    assert "blitz" in chosen.perpetual_keywords
-    engine.cast_spell(player, chosen, blitz=0)
-    engine.resolve_until_stable()
-    engine.rules.return_to_hand(chosen)
-    assert "blitz" in chosen.perpetual_keywords and engine.can_cast(player, chosen, blitz=0)
-    engine.cast_spell(player, chosen, blitz=0)
-    engine.resolve_until_stable()
-    end_step(engine)
-    assert chosen in player.graveyard
 
-
-@pytest.mark.full_cache
-@pytest.mark.parametrize("name", [
-    'Henzie "Toolbox" Torre', 'Tenacious Underdog',
-    'Sabin, Master Monk', 'Night Clubber', 'Workshop Warchief', 'Riveteers Requisitioner',
-])
-def test_real_cache_blitz_cards_bind_complete_text(name):
-    from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
-
-    printed = CardDatabase(DEFAULT_DB_PATH).get_card(name)
-    assert printed is not None
-    assert parse_oracle(printed).coverage == MODELED
-    engine, state, player = game()
-    obj = add(player, printed)
-    if name == 'Henzie "Toolbox" Torre':
-        assert {a.layer for a in obj.static_effects} >= {"grant_blitz", "blitz_cost_reduction"}
-    else:
-        assert obj.parametric_keywords["blitz"]["cost"]
 
 
 def test_blitz_can_auto_tap_lands_for_alternative_cost():

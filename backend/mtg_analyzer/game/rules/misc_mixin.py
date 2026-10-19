@@ -3720,7 +3720,6 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
-            "grant_perpetual_blitz",  # MEC-109: chosen hand card retains blitz.
             # Winter, Cynical Opportunist: a pure selection (the picked cards are acted on afterwards, together, by the
             # ``then`` effect — a set whose legality depends on *all* picks can't be applied pick by pick), and the
             # exile-zone pick that becomes a permanent with a finality counter (RULE 122.1h).
@@ -4621,9 +4620,6 @@ class MiscSystemsMixin:
                     obj, recipient, redirect_shield.get("amount", "all"),
                     only_to_player_id=redirect_shield.get("only_to_player_id"),
                 )
-        elif action == "grant_perpetual_blitz":
-            obj.perpetual_keywords.add("blitz")
-            obj.perpetual_effects.append({"source": source.name if source else "Blitz", "keywords": ["blitz"]})
         elif action == "select_referent":
             self.context.previous_targets = [obj]
         elif action == "remember_source_coinflip":

@@ -140,7 +140,8 @@ python -m pytest -q                       # whole suite, fast, keep it green
       is keyed on content-hash **+ version**; measuring twice in one batch
       without a bump silently reuses the first run's rows. If you add more
       handlers after already measuring, bump *again* (or delete that version's
-      rows). Hand-authoring alone needs no bump.
+      rows). Hand-authoring alone needs no bump. Add the version's changelog
+      entry to `parser/oracle/PARSER_VERSION_HISTORY.md`, not to `gate.py`.
 - [ ] **Authoritative measurement**: `python scripts/coverage_report.py --top 40`
       (ledger-backed — the probe is not a substitute for this).
 - [ ] **Sync the number in four places**, they drift:

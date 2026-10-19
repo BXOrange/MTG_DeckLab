@@ -843,14 +843,6 @@ EffectRegistry.register(
     lambda p: CopyTargetAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False))),
 )
 EffectRegistry.register(
-    # "Conjure a duplicate of that spell into your hand." (Spellchain
-    # Scatter, PAR-124) — the hand-zone sibling of ``"copy_spell"``.
-    "conjure_duplicate_into_hand",
-    lambda p: ConjureDuplicateIntoHandEffect(
-        spell_from_trigger_event=p.get("spell_from_trigger_event"),
-    ),
-)
-EffectRegistry.register(
     "copy_self_spell",
     lambda p: CopySelfSpellEffect(controller=p.get("controller"), choose_new_targets=bool(p.get("choose_new_targets", False))),
 )
@@ -2132,13 +2124,6 @@ EffectRegistry.register(
     lambda p: DestroySpecificEffect(objects=[]),
 )
 EffectRegistry.register(
-    # "Discard the duplicate at the beginning of your next end step."
-    # (Spellchain Scatter, PAR-124) — the hand-zone sibling of
-    # `destroy_specific`/`sacrifice_specific`, same empty-default idiom.
-    "discard_specific",
-    lambda p: DiscardSpecificEffect(objects=[]),
-)
-EffectRegistry.register(
     # "Return that creature to its owner's hand at the beginning of the next
     # end step." (Ilharg, Zara, Alora — a put-onto-battlefield/unblockable
     # loan that's bounced end of turn). Same "empty default, only ever
@@ -3201,9 +3186,6 @@ EffectRegistry.register(
         power_if_bargained=p.get("power_if_bargained"),
         toughness_if_bargained=p.get("toughness_if_bargained"),
         target_operand=p.get("target_operand"),
-        perpetual=bool(p.get("perpetual", False)),  # MEC-98
-        card_zones=p.get("card_zones"),
-        card_type=p.get("card_type"),
         keyword_options=p.get("keyword_options"),
     ),
 )
@@ -5606,12 +5588,6 @@ EffectRegistry.register(
     lambda p: HarnessEffect(),
 )
 EffectRegistry.register(
-    # MEC-48 "Specialize {cost}" — see `SpecializeEffect`. Digital keyword,
-    # designation + event only (no characteristic swap).
-    "specialize",
-    lambda p: SpecializeEffect(color=p.get("color")),
-)
-EffectRegistry.register(
     # RULE 701.15a "goad target creature" — ``target_kind=None`` is the
     # "goad it"/"goad that creature" pronoun form, ``selector`` the mass one.
     "goad",
@@ -5716,13 +5692,6 @@ for _blitz_static in ("grant_blitz", "blitz_cost_reduction", "blitz_graveyard_pe
     )
 
 
-def _choose_perpetual_blitz(params):
-    from ..blitz import ChoosePerpetualBlitzEffect
-
-    return ChoosePerpetualBlitzEffect()
-
-
-EffectRegistry.register("choose_perpetual_blitz", _choose_perpetual_blitz)
 
 
 # Compound flickers reuse ordinary exile/return and existing die continuations.

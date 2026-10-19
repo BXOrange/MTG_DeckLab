@@ -61,16 +61,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   `tap_selector`/`tap_all_group`). Add a full-cache guard (no two eligible rows claim one clause with
   different IR, explicit allowlist), retire the shadowed row per family after a spec-fingerprint diff,
   fix the comment, and delete or justify the 39 rows that match no cached card.
-- **PAR-170 · Dead Alchemy parser paths.** `support_policy` returns Unsupported for
-  perpetually/specialize/conjure/seek/spellbook before parsing (PAR-168), yet the parser still carries
-  them: the literal `choose_perpetual_blitz` clause and the `_perpetual_pump_specs` fallback (tried on
-  every unclaimed clause) in `handlers.py`, `conjure_duplicate_into_hand`, the Specialize branches in
-  `segmenter.py`/`keywords.py`. Remove them and their tests; check whether the engine-side consumers
-  (`choose_perpetual_blitz`, `GameObject.perpetual_*`) are still reachable from any non-Alchemy card.
-- **PAR-171 · Move the PARSER_VERSION changelog out of `gate.py`.** ~3,800 of its ~5,800 lines are
-  the per-version comment log, with live code (`_ATTACH_KEYWORDS`) interleaved. Move it to its own
-  version-history file (keep `PARSER_VERSION` + lock in `gate.py`), and refresh the stale
-  `catalogue/__init__.py` docstring.
 - **PAR-172 · Break the segmenter ⇄ handlers ⇄ static_handlers cycle; split the monoliths.** ~45
   function-scoped imports and 22 cross-module private-name imports (`_peel_optional`, `_TRIGGER_RE`,
   `_base_verb`, `_quoted_ability_grant_effects`, …) paper over the cycle. Extract the shared clause

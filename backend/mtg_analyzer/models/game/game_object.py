@@ -128,16 +128,6 @@ class GameObject:
         #: cleanup only for as long as that source stays on the battlefield
         #: with `prepared` still set. None on every other object.
         self.prepared_source_id: Optional[int] = None
-        #: RULE 707.9 (PAR-124, Spellchain Scatter's "conjure a duplicate of
-        #: that spell into your hand"): a token deliberately created *in
-        #: hand* rather than on the stack or battlefield, meant to persist
-        #: there like any other card until cast or discarded — unlike a
-        #: `copy_spell` stack copy (reaped the instant it leaves the stack,
-        #: RULE 704.5d), this one's whole point is to survive off the
-        #: battlefield, so `_remove_stranded_tokens` exempts it the same way
-        #: `prepared_source_id`/`GameState.free_cast_instance_ids` already
-        #: exempt their own off-battlefield tokens.
-        self.conjured_into_hand: bool = False
         #: RULE 709.5c: which doors of a Room permanent are unlocked — ``"left"`` (the front
         #: half) and/or ``"right"`` (the back half). A locked half has no rules text, so the
         #: abilities in `door_abilities` exist only for the doors listed here (`game/rooms.py`).
@@ -1150,17 +1140,6 @@ class GameObject:
         #: `reset_as_new_object` (RULE 400.7 — a Licid that leaves and
         #: returns is a fresh creature).
         self.is_licid_aura: bool = False
-        #: MEC-48: this permanent has resolved its "Specialize {cost}"
-        #: activated ability (an Arena-only digital keyword — see
-        #: `EventType.SPECIALIZED`). A designation like `is_monstrous`,
-        #: readable by a "when ~ specializes" trigger / "as long as ~ is
-        #: specialized" static; `specialized_color` is a colour of the
-        #: discarded card when one was determinable, else ``None``. The
-        #: five specialized faces aren't in this repo's card seed, so no
-        #: characteristic swap happens — this flag + the event are the whole
-        #: model. Cleared by `reset_as_new_object` (RULE 400.7).
-        self.is_specialized: bool = False
-        self.specialized_color: Optional[str] = None
         #: RULE 701.37c: the value of X as this permanent became monstrous,
         #: so another of its abilities that refers to that X (Death Kiss's
         #: "when ~ becomes monstrous, goad up to X target creatures") reads
@@ -1389,22 +1368,6 @@ class GameObject:
         #: `temp_keywords`/`temp_power`.
         self.temp_granted_activated_abilities: list[Any] = []
 
-        #: MEC-98: Alchemy "perpetually gets +N/+N / gains <keyword>" — a
-        #: digital-only duration (not in the paper CR; MTG Arena's Alchemy
-        #: rules) that, unlike every ``temp_*`` field above, is *never*
-        #: forgotten: not at cleanup (RULE 514.2), not on a zone change
-        #: (`reset_as_new_object` deliberately leaves these alone, the one
-        #: exception to RULE 400.7's "effects are not retained"), and not by
-        #: `reset_derived`. It reaches cards in hand/library/graveyard too, so
-        #: the off-battlefield `power`/`toughness` fallback folds it in as
-        #: well as `continuous.recompute`'s layer 7d/layer 6 passes. Carried
-        #: onto a copy of the card (`copy_perpetual_from`).
-        #: ``perpetual_effects`` is the display-only per-source breakdown,
-        #: `temp_effects`' shape.
-        self.perpetual_power: int = 0
-        self.perpetual_toughness: int = 0
-        self.perpetual_keywords: set[str] = set()
-        self.perpetual_effects: list[dict[str, Any]] = []
 
         #: "Another target creature" a layer-1 conditional-copy static
         #: ability (Vesuvan Shapeshifter) should copy — read fresh every
@@ -1509,8 +1472,6 @@ class GameObject:
         `_granted_*`/`_derived_*` fields already get via the next
         `continuous.recompute` pass rather than an explicit clear here.
         """
-        # MEC-98: `perpetual_*` is deliberately *not* reset here — a
-        # perpetual change survives every zone change.
         # RULE 708.9: a face-down permanent is revealed as it changes zones,
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).
@@ -1545,7 +1506,6 @@ class GameObject:
         self.adventure_castable = False
         self.prepared = False
         self.prepared_source_id = None
-        self.conjured_into_hand = False
         # RULE 400.7 / 709.5: a new Room object has neither door unlocked, and no abilities from one.
         from ...game.rooms import clear_designations  # function-scoped: models/ must not import game/ at load
 
@@ -1666,11 +1626,6 @@ class GameObject:
         #: MEC-47/400.7: a Licid that left the battlefield comes back a plain
         #: creature — the "became an Aura" effect ended with the object.
         self.is_licid_aura = False
-        #: MEC-48/400.7: a specialized permanent that left is a new object;
-        #: whether it re-enters as its base or specialized version is Arena
-        #: card data this repo doesn't model, so it simply re-enters base.
-        self.is_specialized = False
-        self.specialized_color = None
         #: RULE 701.60a/400.7: suspected ends when the creature leaves the
         #: battlefield — leaving *is* this transition, so the new object is
         #: no longer suspected.
@@ -2024,7 +1979,7 @@ class GameObject:
             return self._derived_power
         if self.card.power is None:
             return None
-        return self.card.power + self.plus_one_counters + self.perpetual_power
+        return self.card.power + self.plus_one_counters
 
     @property
     def toughness(self) -> Optional[int]:
@@ -2036,15 +1991,7 @@ class GameObject:
             return self._derived_toughness
         if self.card.toughness is None:
             return None
-        return self.card.toughness + self.plus_one_counters + self.perpetual_toughness
-
-    def copy_perpetual_from(self, other: "GameObject") -> None:
-        """MEC-98: a copy of a card carries that card's perpetual changes
-        (Alchemy — "conjure a duplicate" keeps a perpetual +1/+1)."""
-        self.perpetual_power = other.perpetual_power
-        self.perpetual_toughness = other.perpetual_toughness
-        self.perpetual_keywords = set(other.perpetual_keywords)
-        self.perpetual_effects = [dict(e) for e in other.perpetual_effects]
+        return self.card.toughness + self.plus_one_counters
 
     @property
     def granted_keywords(self) -> set[str]:

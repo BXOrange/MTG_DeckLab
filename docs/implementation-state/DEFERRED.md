@@ -38,9 +38,9 @@ it had lived in `BACKLOG.md`.
 
 Never to be built — not gaps.
 
-- **Alchemy-only cards and digital mechanics.** Permanently Unsupported, including
-  Specialize riders (MEC-48) and perpetual-effect residue (MEC-98); these are
-  not parked implementation work.
+- **Alchemy-only cards and digital mechanics.** Permanently Unsupported (Specialize,
+  perpetual effects, conjure/seek/spellbook); their parser and engine paths were
+  removed (PAR-170) and are not parked implementation work.
 - **Cross-game interactions (MEC-125).** DeckLab has no interactions between
   separate games. Cards carrying effects, permissions, participants or objects
   into or between games are permanently Unsupported; no cross-game persistence

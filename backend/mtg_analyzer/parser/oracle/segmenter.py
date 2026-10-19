@@ -70,9 +70,6 @@ from .spec import GROUP_SUBJECT_KEY_SENTINEL, TARGET_CHOOSER_OPPONENT, AbilitySp
 #: (the untap direction's own choke point, mirroring the already-per-
 #: permanent `TAPPED`) into every real untap route and gave it its own
 #: `EventType.UNTAPPED`, so the row now belongs below like any other.
-#: "specializes" joined the table in MEC-48 — `SpecializeEffect` fires
-#: `EventType.SPECIALIZED` per-permanent, even though the digital keyword's
-#: characteristic swap itself is a documented simplification (no face data).
 #: ("Becomes monstrous" is *not* absent — RULE 701.37a's own
 #: `BECAME_MONSTROUS` row sits below with the rest of this table; an earlier
 #: version of this comment listed it here by mistake.)
@@ -109,14 +106,6 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     # before the bare "becomes tapped"/"becomes blocked" rows can't be an
     # issue (different adjective), but it sits with them for readability.
     ("becomes monstrous", "BECAME_MONSTROUS"),
-    # MEC-48: "when ~ specializes" — the trigger half of the Specialize
-    # digital keyword. `SpecializeEffect` fires `SPECIALIZED` with the
-    # object's own `instance_id`, so this rides RULE 603.1 self-subject
-    # scoping exactly like "becomes monstrous". "specializes from your
-    # graveyard" / "specializes from any zone" carry a trailing zone phrase
-    # the verb match ignores (the engine fires the same event regardless of
-    # the from-zone), so the shorter "specializes" row claims them too.
-    ("specializes", "SPECIALIZED"),
     # RULE 605.1: "whenever enchanted land is tapped for mana" (Wild Growth) — `GameEngine.tap_for_mana` fires
     # `TAPPED_FOR_MANA` with the land's own ``instance_id``, so the self/attached subject scopes as for any verb.
     ("is tapped for mana", "TAPPED_FOR_MANA"),
@@ -3339,24 +3328,6 @@ _VARIABLE_N_LINE_RE = re.compile(
 #: Background — see `catalogue/keywords.py`), so the labelled restriction is
 #: claimed as an inert keyword line rather than left UNMODELED.
 _COMPANION_LABEL_LINE_RE = re.compile(r"^companion\s*[—-]\s*\S.*$", re.IGNORECASE)
-
-#: MEC-48: a "Specialize {cost}" line that carries a trailing rules rider on
-#: the *same* line — "Specialize {5}. This ability costs {3} less to
-#: activate if …", "Specialize {2}. Activate only if a player has 13 or less
-#: life.", "Specialize {6}. You may also activate this ability if ~ is in
-#: your graveyard." `_KEYWORD_TOKEN_RE`'s greedy `.*$` would claim the whole
-#: line as a bare keyword line and silently drop the rider, so `segment_line`
-#: matches this *before* `is_keyword_line` and returns the line UNMODELED
-#: (fail-closed) — the bare "Specialize {cost}" line still claims normally.
-#: The riders are their own follow-up (a cost-reduction / activation-
-#: condition / alternate-zone rider on an activated ability).
-_SPECIALIZE_WITH_RIDER_RE = re.compile(
-    r"^specialize\s+\{[^}]+\}(?:\s*\{[^}]+\})*\s*[.:]\s*\S.*$", re.IGNORECASE | re.DOTALL
-)
-_SPECIALIZE_GRAVEYARD_DISCOUNT_RE = re.compile(
-    r"^specialize\s+\{[^}]+\}\.\s*this ability costs \{\d+\} less to activate "
-    r"if there are \d+ or more instant and/or sorcery cards in your graveyard\.?$", re.IGNORECASE,
-)
 
 _COMPOUND_KEYWORD_LINE_RES: tuple[re.Pattern[str], ...] = (
     _COMPOUND_COST_LINE_RE,
@@ -8273,13 +8244,6 @@ def _segment_line_unsplit(
     )
     if kw_labeled is not None:
         return kw_labeled
-
-    # MEC-48: keep `_KEYWORD_TOKEN_RE`'s greedy `.*$` from swallowing a
-    # "Specialize {cost}. <rider>" line whole and dropping the rider.
-    if _SPECIALIZE_GRAVEYARD_DISCOUNT_RE.match(raw):
-        return Segment(raw=raw, claimed=True, keyword_line=True)
-    if _SPECIALIZE_WITH_RIDER_RE.match(raw):
-        return Segment(raw=raw, claimed=False)
 
     # BUG-1: "Equip—<non-mana cost>[. Activate only once each turn.]" is a keyword line only when the cost grammar fully represents
     # the cost (RULE 602.1, `costs.parse_activation_cost`); a choice cost ("Pay {3} or discard a card") stays unclaimed, never free.

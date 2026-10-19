@@ -3029,34 +3029,6 @@ class DestroySpecificEffect(GameEffect):
                 context.engine.destroy(obj)
 
 
-class DiscardSpecificEffect(GameEffect):
-    """Discard the exact hand cards baked into this effect (RULE 701.8).
-
-    The hand-zone sibling of `SacrificeSpecificEffect`/`DestroySpecificEffect`
-    — "conjure a duplicate of that spell into your hand. … Discard **the
-    duplicate** at the beginning of your next end step." (Spellchain Scatter,
-    PAR-124), whose referent is `GameContext.created_objects` (baked in by
-    `CreateDelayedTriggerEffect`'s ``capture="created_objects"`` branch, which
-    special-cases any inner effect exposing an ``.objects`` list). Silently
-    skips anything no longer in its owner's hand by the time this resolves
-    (RULE 111.7 — already discarded, cast, or otherwise moved some other way).
-    """
-
-    def __init__(
-        self,
-        objects: list["GameObject"],
-        source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        self.objects = objects
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        for obj in list(self.objects):
-            player = context.state.player_by_id(obj.owner_id)
-            if player is not None and obj in player.hand:
-                context.discard_specific(obj, cause=self.source)
-
-
 class ReturnSpecificToHandEffect(GameEffect):
     """Return the exact permanents baked into this effect to their owners'
     hands (RULE 608.2 / 400.7).

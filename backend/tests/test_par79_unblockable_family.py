@@ -1009,26 +1009,6 @@ def test_real_cards_now_modeled_eighth_increment():
         assert r.modeled, (c.name, r.unclaimed)
 
 
-def test_alora_cheerful_scout_stays_unmodeled():
-    # The tail's own "it perpetually gets +1/+1" names the just-returned
-    # creature again — `create_delayed_trigger`'s `previous_or_self`
-    # capture bakes its referent once, at arm time, onto every inner
-    # effect built from *this* clause's own recursive parse; a second,
-    # independent pronoun reference in the "if you do" follow-up isn't
-    # reachable through that (see `_delayed_sac_exile_when_first`'s own
-    # docstring) and must stay unclaimed rather than building a
-    # `PumpEffect` with no target baked in at all.
-    c = _card(
-        "Alora, Cheerful Scout", "Creature — Halfling Rogue",
-        "Whenever you attack, up to one target attacking creature can't be "
-        "blocked this turn. At the beginning of the next end step, return that "
-        "creature to its owner's hand. If you do, it perpetually gets +1/+1.",
-        power=1, toughness=1, mana_cost_string="{1}{G}",
-    )
-    r = parse_oracle(c)
-    assert not r.modeled
-
-
 def test_delayed_return_with_if_you_do_fires_both_effects():
     eng = _engine()
     p1 = eng.state.players[0]

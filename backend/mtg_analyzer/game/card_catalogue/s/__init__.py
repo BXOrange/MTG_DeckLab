@@ -110,7 +110,6 @@ from . import sram_senior_edificer  # noqa: F401
 from . import staff_of_compleation  # noqa: F401
 from . import staff_of_the_storyteller  # noqa: F401
 from . import staff_room  # noqa: F401
-from . import stalwart_speartail  # noqa: F401
 from . import stangg_echo_warrior  # noqa: F401
 from . import steal_enchantment  # noqa: F401
 from . import steel_hellkite  # noqa: F401
