@@ -14,13 +14,14 @@ def start_battlefield_batch(rules, objects, controller_id, *, tapped=False):
 
 
 def start_exile_return_batch(rules, visits, controller_id=None, *, entry_options=None,
-                            after_effects=None, source=None):
+                            after_effects=None, source=None, source_incarnation=None, source_return_visit=None):
     return start_zone_return_batch(rules, visits, 'exile', controller_id,
-        entry_options=entry_options, after_effects=after_effects, source=source)
+        entry_options=entry_options, after_effects=after_effects, source=source,
+        source_incarnation=source_incarnation, source_return_visit=source_return_visit)
 
 
 def start_zone_return_batch(rules, visits, zone, controller_id=None, *, entry_options=None,
-                            after_effects=None, source=None):
+                            after_effects=None, source=None, source_incarnation=None, source_return_visit=None):
     """RULE 603.7c/614.12: prepare exact zone visits, then admit them together.
 
     Entry choices and the successful-return continuation are state-owned so
@@ -40,6 +41,11 @@ def start_zone_return_batch(rules, visits, zone, controller_id=None, *, entry_op
     frame = {'cards': cards, 'cursor': 0, 'stage': 'reset',
              'returned_visits': [], 'after_effects': list(after_effects or []),
              'source_id': getattr(source, 'instance_id', None),
+             'source_return_visit': source_return_visit,
+             'source_incarnation': (source_incarnation if source_incarnation is not None
+                 else rules.context.resolving_source_incarnation
+                 if rules.context.resolving_source_incarnation is not None
+                 else getattr(source, 'zone_incarnation', None)),
              'effect_controller_id': _controller_of(source, rules.context).id}
     advance_battlefield_batch(rules, frame)
     return frame
@@ -256,6 +262,9 @@ def _commit_battlefield_batch(rules, frame):
                 rules._remove_from_current_zone(state.player_by_id(obj.owner_id), obj)
                 state.add_to_battlefield(obj, saga_lore_override=record.get('lore'))
                 frame.setdefault('returned_visits', []).append((obj.instance_id, obj.zone_incarnation))
+                if (frame.get('source_return_visit') is not None
+                        and frame['source_return_visit'] == (obj.instance_id, record['expected_incarnation'])):
+                    frame['returned_source_visit'] = (obj.instance_id, obj.zone_incarnation)
                 if record['from_zone'] == 'graveyard':
                     rules.context.created_objects.append(obj)
                 if record.get('attacking'):
@@ -279,12 +288,22 @@ def _commit_battlefield_batch(rules, frame):
                     and obj.zone.value == 'battlefield' and obj.zone_incarnation == inc]
         context = rules.context
         outer_controller = context.resolving_controller_id
+        outer_source_incarnation = context.resolving_source_incarnation
+        source = state.find_object(frame.get('source_id'))
+        # RULE 400.7j: only this operation's exact successful source return
+        # lets its continuation find the new object. Other source captures
+        # keep their original visit, including across entry choices/clone.
+        context.resolving_source_incarnation = (source.zone_incarnation
+            if source is not None and source in returned
+            and frame.get("returned_source_visit") == (source.instance_id, source.zone_incarnation)
+            else frame.get('source_incarnation'))
         context.resolving_controller_id = frame.get('effect_controller_id')
         try:
             _apply_effects_partitioned(frame['after_effects'], context, returned, None,
                 source=state.find_object(frame.get('source_id')), previous_targets=returned)
         finally:
             context.resolving_controller_id = outer_controller
+            context.resolving_source_incarnation = outer_source_incarnation
 
 
 class BattlefieldBatchEffect(GameEffect):

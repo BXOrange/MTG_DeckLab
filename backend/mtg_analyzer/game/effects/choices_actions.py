@@ -3127,6 +3127,8 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         face_down_kind: Optional[str] = None,
         return_effects: Optional[list[dict]] = None,
         tapped_if_types: Optional[list[str]] = None,
+        source_incarnation: Optional[int] = None,
+        source_return_visit=None,
     ) -> None:
         super().__init__(source)
         self.objects = objects
@@ -3144,6 +3146,9 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         self.return_effects = return_effects or []
         self.tapped_if_types = tapped_if_types or []
         self.returned_objects = []
+        self.source_return_visit = source_return_visit
+        self.source_incarnation = (source_incarnation if source_incarnation is not None
+                                   else getattr(source, "zone_incarnation", None))
 
     @property
     def objects(self):
@@ -3168,7 +3173,9 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
                 'transformed': self.transformed, 'face_down_kind': self.face_down_kind,
                 'tapped_if_types': self.tapped_if_types},
             after_effects=(self.after_effects if getattr(self, 'after_effects', None) is not None
-                           else build_effects(self.return_effects, self.source)), source=self.source)
+                           else build_effects(self.return_effects, self.source)), source=self.source,
+            source_incarnation=self.source_incarnation,
+            source_return_visit=self.source_return_visit)
         self.returned_objects = [context.state.find_object(iid) for iid, inc in frame['returned_visits']]
 
 

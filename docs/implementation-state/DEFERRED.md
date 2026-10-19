@@ -19,43 +19,6 @@ it had lived in `BACKLOG.md`.
 
 ## Parked tickets
 
-- **MEC-48 · Specialize riders (Alchemy — digital keyword).** The core
-  Specialize keyword shipped in MEC-48 (v223): parser recognition of a bare
-  "Specialize {cost}" line, `effect_binder._specialize_activated_ability`
-  (a real sorcery-speed "{cost}, Discard a card" activated ability →
-  `SpecializeEffect`, a `GameObject.is_specialized` designation +
-  `EventType.SPECIALIZED`; the per-colour face swap is a documented
-  simplification, no face data in the seed), and the "specializes" trigger
-  verb — see `Done_Backend.md`.
-
-  > **Low priority — no Commander-legal payoff.** Every Specialize card is
-  > from `hbg` (*Alchemy Horizons: Baldur's Gate*), a digital-only set:
-  > `legalities.commander == not_legal` for all of them (Arena-only —
-  > Historic / Timeless / Gladiator / Brawl). Specialize isn't in the paper
-  > CR and no paper set has printed it. So this ticket moves **0** cards in
-  > the Commander-legal coverage slice (the number that matters for
-  > Goldfisch / Deck-Analyzer) — its only benefit is correctness for a
-  > Brawl / Historic goldfish session that boards one of these ~5 cards
-  > directly. Don't schedule a batch here expecting coverage movement;
-  > pick it up only as incidental cleanup alongside nearby activated-
-  > ability-modifier work.
-
-  **Still open:** a handful of cards print
-  the keyword *with a rules rider on the same line*, held UNMODELED by
-  `segmenter._SPECIALIZE_WITH_RIDER_RE` rather than greedily over-claimed —
-  each is a small activated-ability-modifier follow-up:
-  - "Specialize {5}. This ability costs {3} less to activate if there are
-    2+ instant/sorcery cards in your graveyard." (Imoen) — a conditional
-    activation-cost reduction.
-  - "Specialize {2}. Activate only if a player has 13 or less life." /
-    "…if you control 6 or more lands." (Shadowheart, Lukamina) — an
-    `ACTIVATION_CONDITION_MARKER` gated on a `static_conditions` predicate
-    (needs a `player_life_at_most` kind).
-  - "Specialize {6}. You may also activate this ability if ~ is in your
-    graveyard." (Karlach) — an alternate activation zone on an activated
-    ability (`ActivationCost.graveyard_zone` as an *also*, not a
-    replacement).
-
 - **PLR-14 · Team variants (RULE 809/810/811).** Two-Headed Giant, Emperor
   and Grand Melee are the part of CR 8 that `models/game_format.py`
   deliberately doesn't model: unlike the RULE 9 variants (which add a card
@@ -67,13 +30,6 @@ it had lived in `BACKLOG.md`.
   reaching it from the UI follows the same already-shipped format-picker
   pattern the RULE 9 variants use (Done_Backend.md "PLR-13").
 
-- **MEC-98 · Perpetual effects: the residue past P/T + keywords.** (Alchemy; no CR rule.) Still
-  unclaimed: a perpetually granted quoted ability or parametric keyword ("ward {1}", "unearth
-  {5}", "this spell costs {1} less to cast"); perpetual type/base-P/T changes ("perpetually
-  becomes a `<type>`", "base power … perpetually becomes"); "choose a `<x>` card in your hand. it
-  perpetually …"; "this ability also triggers if ~ is in exile/your graveyard"; and the
-  random/topmost/seek/conjure/spellbook subjects. Extend `GameObject.perpetual_*` +
-  `handlers._perpetual_pump_specs`.
 
 
 ---
@@ -82,7 +38,13 @@ it had lived in `BACKLOG.md`.
 
 Never to be built — not gaps.
 
-- **Alchemy only cards and mechanics**
+- **Alchemy-only cards and digital mechanics.** Permanently Unsupported, including
+  Specialize riders (MEC-48) and perpetual-effect residue (MEC-98); these are
+  not parked implementation work.
+- **Cross-game interactions (MEC-125).** DeckLab has no interactions between
+  separate games. Cards carrying effects, permissions, participants or objects
+  into or between games are permanently Unsupported; no cross-game persistence
+  or participant/card-identity subsystem is scheduled.
 - **Stickers (RULE 123) and Attractions (RULE 717).** `gate.parse_oracle`
   classifies Sticker mentions and the type line "Stickers" as `NEVER_SUPPORTED`,
   keeping them out of the backlog ranking. PAR-145 (v586) also excludes Sticker

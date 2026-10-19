@@ -1076,8 +1076,10 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         target_kind: Optional[str] = None, trigger_event_key: Optional[str] = None,
         lose_all_abilities: bool = False,
         face_down_kind: Optional[str] = None, turn_face_up: bool = False,
+        return_effects: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
+        self.return_effects = list(return_effects or [])
         self.tapped = tapped
         #: "...under **your** control." (Ashcloud Phoenix-adjacent) — the
         #: rarer sibling of RULE 400.7's own default "under its owner's
@@ -1118,6 +1120,33 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
                 ):
                     return  # RULE 400.7: return only the card this event moved.
         if obj is None:
+            return
+        if self.return_effects:
+            from .battlefield_batches import start_zone_return_batch
+            from .composition import _build
+            event = context.trigger_event or {}
+            incarnation = obj.zone_incarnation
+            expected = event.get('graveyard_incarnation')
+            if expected is None and event.get('zone_incarnation') is not None:
+                expected = event['zone_incarnation'] + 1
+            # RULE 400.7j: a death's return can find that public-zone visit,
+            # but must not adopt a later independent visit of the same card.
+            valid = obj.zone in (Zone.GRAVEYARD, Zone.EXILE)
+            if event.get('instance_id') == obj.instance_id and expected is not None:
+                valid = valid and incarnation == expected
+            counters = dict(self.extra_counters or {})
+            if 'kind' in counters:
+                counters = {str(counters['kind']): counters.get('count', 1)}
+            player = _controller_of(self.source, context)
+            start_zone_return_batch(context.engine,
+                [(obj.instance_id, incarnation)] if valid else [],
+                obj.zone.value if obj.zone in (Zone.GRAVEYARD, Zone.EXILE) else 'graveyard',
+                player.id if self.under_your_control else None,
+                entry_options={'tapped': self.tapped, 'entry_counters': counters,
+                               'face_down_kind': self.face_down_kind},
+                after_effects=_build(self.return_effects, self.source), source=self.source,
+                source_return_visit=(obj.instance_id, incarnation)
+                    if valid and obj is self.source else None)
             return
         if obj.zone == Zone.EXILE and not self.lose_all_abilities and not self.turn_face_up:
             # RULE 614.12: a source return has the same entry-choice and

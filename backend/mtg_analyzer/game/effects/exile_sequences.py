@@ -129,6 +129,9 @@ class BlinkEffect(GameEffect):
         from .flicker_composites import _exile_batch
 
         player = _controller_of(self.source, context)
+        source_incarnation = (context.resolving_source_incarnation
+            if context.resolving_source_incarnation is not None
+            else getattr(self.source, "zone_incarnation", None))
         if self.subject == 'source':
             expected = context.resolving_source_incarnation
             chosen = [self.source] if (self.source is not None
@@ -180,6 +183,8 @@ class BlinkEffect(GameEffect):
         effects = _build(self.return_effects, self.source)
         for obj in chosen:
             context.engine._detach_attachments_from(obj)
+        source_was_chosen = (self.source in chosen
+            and self.source.zone_incarnation == source_incarnation)
         visits = _exile_batch(context, chosen)
         if self.departing_copy:
             _copy_departing(context, self.source, captured, owner_id, player.id, self.departing_copy, visits)
@@ -195,7 +200,10 @@ class BlinkEffect(GameEffect):
                                           source=self.source, previous_targets=objects)
             return
         returned = ReturnSpecificToBattlefieldEffect(objects, source=self.source,
-            under_your_control=self.under_your_control, **self.entry_options)
+            under_your_control=self.under_your_control, source_incarnation=source_incarnation,
+            source_return_visit=next((visit for visit in visits
+                if source_was_chosen and visit[0] == self.source.instance_id), None),
+            **self.entry_options)
         if self.return_if_successful:
             effects = [_SuccessfulReturnEffect(effects, self.source)]
         # Entry batches own the successful-return continuation. Keeping the

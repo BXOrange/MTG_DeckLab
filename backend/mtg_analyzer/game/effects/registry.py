@@ -893,6 +893,7 @@ EffectRegistry.register(
         trigger_event_key=p.get("trigger_event_key"),
         face_down_kind=p.get("face_down_kind"),
         turn_face_up=bool(p.get("turn_face_up", False)),
+        return_effects=p.get("return_effects"),
     ),
 )
 EffectRegistry.register(

@@ -4639,6 +4639,9 @@ def _bind_x_specs(
         if not holders and isinstance(params.get("then_effects"), list):
             # An X inside the effects that follow a pick ("return a creature card … with X counters on it").
             params["then_effects"], nested = _replace_x(params["then_effects"])
+        if isinstance(params.get('return_effects'), list):
+            params['return_effects'], return_x = _replace_x(params['return_effects'])
+            nested = nested or return_x
         if isinstance(params.get('extra_counters'), dict):
             params['extra_counters'], counter_x = _replace_x(params['extra_counters'])
             nested = nested or counter_x

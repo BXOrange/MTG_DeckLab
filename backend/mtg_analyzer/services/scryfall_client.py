@@ -210,6 +210,9 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     back_has_printed_pt = back_is_creature or any(kind in back_type_line for kind in ('Vehicle', 'Spacecraft'))
 
     return Card(
+        digital=data.get("digital"),
+        games=data.get("games"),
+        legalities=data.get("legalities"),
         id=data["id"],
         name=data["name"],
         type_line=type_line,

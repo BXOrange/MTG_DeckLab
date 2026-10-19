@@ -41,14 +41,13 @@ def source_return_specs(body):
         count = matched['count']
         params['extra_counters'] = {'kind': matched['counter'],
             'count': 'x' if count == 'x' else 1 if count in ('a', 'an') else int(count)}
-    specs = [EffectSpec('return_self_to_battlefield', params)]
     if matched['tail']:
         tail = re.sub(r'^(?: and |\. )', '', matched['tail']).rstrip('.')
         rider = _rider_specs(tail)
         if rider is None:
             return None
-        specs.extend(EffectSpec(**spec) for spec in rider)
-    return specs
+        params["return_effects"] = rider
+    return [EffectSpec("return_self_to_battlefield", params)]
 
 
 def delayed_dying_return_specs(body):

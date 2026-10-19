@@ -32,6 +32,8 @@ _log = logging.getLogger(__name__)
 # The last cache format before printed back loyalty/defense was retained.
 # Only this verified additive migration preserves rows; unknown drift still
 # invalidates the disposable cache as before.
+_SUPPORT_METADATA_PREDECESSOR = "2a66ef14c56ef3c15b806c9ea52f19194124b8b44886beafaafc707b18b65425"
+
 _BACK_CHARACTERISTICS_PREDECESSOR = "17737a498b7485491f6b7d5eef984a3dc04ffb513836797e2c25a2a8d0a0041d"
 _BACK_CHARACTERISTICS_PREDECESSORS = {
     _BACK_CHARACTERISTICS_PREDECESSOR,
@@ -148,8 +150,13 @@ class CardDatabase:
     def _clear_on_schema_change(
         self, conn: sqlite3.Connection, old: Optional[str], new: str
     ) -> None:
+        if old == _SUPPORT_METADATA_PREDECESSOR:
+            self._migrate_support_metadata(conn)
+            self.schema_migrated = True
+            return
         if old in _BACK_CHARACTERISTICS_PREDECESSORS:
             self._migrate_back_characteristics(conn)
+            self._migrate_support_metadata(conn)
             self.schema_migrated = True
             return
         # The card cache is disposable — always re-fetchable from Scryfall
@@ -159,6 +166,34 @@ class CardDatabase:
         conn.execute("DELETE FROM cards")
         if old is not None:
             _log.info("Card cache schema changed; cleared cached cards to re-fetch.")
+
+    @staticmethod
+    def _migrate_support_metadata(conn: sqlite3.Connection) -> None:
+        """Recover optional support evidence locally, retaining printings/aliases.
+
+        Missing raw records remain unknown; no set/name guesses or network access.
+        """
+        raw = None
+        try:
+            if DEFAULT_RAW_STORE_PATH.is_file():
+                raw = sqlite3.connect(DEFAULT_RAW_STORE_PATH.resolve().as_uri() + '?mode=ro', uri=True)
+            updates = []
+            for card_id, blob in conn.execute('SELECT id, data FROM cards').fetchall():
+                data = json.loads(blob)
+                evidence = {}
+                if raw is not None:
+                    row = raw.execute('SELECT json FROM raw_cards WHERE name = ? COLLATE NOCASE',
+                                      (data['name'],)).fetchone()
+                    if row:
+                        evidence = json.loads(row[0])
+                for field, default in (('digital', None), ('games', []), ('legalities', {})):
+                    if field not in data:
+                        data[field] = evidence.get(field, default)
+                updates.append((json.dumps(data), card_id))
+            conn.executemany('UPDATE cards SET data = ? WHERE id = ?', updates)
+        finally:
+            if raw is not None:
+                raw.close()
 
     @staticmethod
     def _migrate_back_characteristics(conn: sqlite3.Connection) -> None:
