@@ -2383,6 +2383,11 @@ _CHOOSE_KEEP_COUNT_RE = _c(
 )
 
 
+#: Smallest count the "up to N" keep form accepts. The only printed "up to" keeper is Covetous Elegy ("up to two"),
+#: so smaller optional counts stay unclaimed (fail closed) until a real card needs one and a test covers it.
+_KEEP_UP_TO_MIN_COUNT = 2
+
+
 def _choose_keep_count(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from .count_phrase import parse_count_phrase
 
@@ -2390,7 +2395,7 @@ def _choose_keep_count(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if pool is None or pool.get("zone") != "battlefield" or pool.get("of") != "you":
         return None
     count = 1 if m.group("n") in ("a", "an") else int(m.group("n"))
-    if count < 1 or (m.group("up") and count < 2):
+    if count < 1 or (m.group("up") and count < _KEEP_UP_TO_MIN_COUNT):
         return None
     params: dict = {
         "action": "sacrifice_rest", "keep_count": count, "permanent_filter": pool.get("filter", {}),

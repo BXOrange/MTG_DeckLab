@@ -106,9 +106,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
-
-- **BUG-9 · Cleanups in the keep/sacrifice-rest code (code review).** In `choices_actions.py`:
-  `cant_be_sacrificed_this_turn` is filtered both before `_sacrifice_simultaneously` and inside it
-  (keep one layer); `pin_source_reference(self.victim_filter, …)` is recomputed per player (hoist);
-  `KEEP_BASIC_LAND_TYPES` duplicates `continuous._BASIC_LAND_TYPES` (reuse it). In `handlers.py`, the
-  sacrifice-rest builder's `count < 2` ("up to one" refused) needs a named constant with a why-comment.

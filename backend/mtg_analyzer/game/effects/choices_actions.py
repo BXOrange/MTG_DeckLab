@@ -1832,8 +1832,6 @@ class ChoosePlayerObjectsEffect(GameEffect):
             apply_declined_effects()
 
 
-    #: RULE 305.6: land-type keeper categories (Planar Overlay's "a land of each basic land type"), matched by subtype.
-    KEEP_BASIC_LAND_TYPES = ("plains", "island", "swamp", "mountain", "forest")
     KEEP_REST_ACTIONS = ("sacrifice", "destroy", "return_to_hand")
 
     def _keep_params(self, keep_state):
@@ -1848,7 +1846,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
         from .. import combat, continuous, effect_conditions
 
         allowed = {"artifact", "battle", "creature", "enchantment", "land", "planeswalker",
-                   *self.KEEP_BASIC_LAND_TYPES}
+                   *continuous._BASIC_LAND_TYPES}  # RULE 305.6: land-type keepers match by subtype
         counted = self.keep_count is not None
         if (self.action != "sacrifice_rest" or self.rest_action not in self.KEEP_REST_ACTIONS
                 or counted == bool(self.keep_types)
@@ -1898,7 +1896,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
             kind = kinds[frame["type_index"]]
             if kind is None:
                 candidates = current_objects(pid)
-            elif kind in self.KEEP_BASIC_LAND_TYPES:
+            elif kind in continuous._BASIC_LAND_TYPES:
                 candidates = [obj for obj in current_objects(pid) if continuous.has_subtype(obj, kind)]
             else:
                 candidates = [obj for obj in current_objects(pid) if kind in continuous.card_types_of(obj)]
@@ -1931,7 +1929,11 @@ class ChoosePlayerObjectsEffect(GameEffect):
         # RULE 701.8: "Destroy all other permanents" is not limited to the players who chose (each-opponent scope still
         # destroys the controller's permanents); only the choosers have keepers, everyone else keeps nothing.
         victim_pids = frame["players"]
+        vfilt = None
         if self.victim_filter is not None and not self.act_on_chosen:
+            # Player-independent, so pinned once for every victim player.
+            vfilt = effect_conditions.pin_source_reference(
+                self.victim_filter, self.source, context.resolving_source_incarnation)
             victim_pids = [p.id for p in context.state.living_players_apnap()]
         for pid in victim_pids:
             kept = {tuple(visit) for visit in frame["kept"].get(pid, [])}
@@ -1943,13 +1945,11 @@ class ChoosePlayerObjectsEffect(GameEffect):
             else:
                 # The removal can reach beyond the pool one chose from (Urza's Sylex: choose lands, destroy all
                 # other permanents).
-                vfilt = effect_conditions.pin_source_reference(
-                    self.victim_filter, self.source, context.resolving_source_incarnation)
                 rest = [o for o in context.state.permanents_controlled_by(pid)
                         if combat.matches_object_filter(o, vfilt, reference=self.source, state=context.state)]
             victims.extend(obj for obj in rest if (obj.instance_id, obj.zone_incarnation) not in kept)
         if self.rest_action == "sacrifice":
-            context.engine._sacrifice_simultaneously([o for o in victims if not o.cant_be_sacrificed_this_turn])
+            context.engine._sacrifice_simultaneously(victims)  # filters "can't be sacrificed" itself
         elif self.rest_action == "destroy":
             # RULE 701.8 / 608.2e: one simultaneous destruction, so each dying permanent sees the others (603.10a).
             context.engine._remove_simultaneously(victims, context.destroy)
