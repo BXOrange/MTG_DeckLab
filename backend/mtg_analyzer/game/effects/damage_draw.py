@@ -249,7 +249,11 @@ class DealDamageEffect(GameEffect):
         #: "…to each other creature without flying **and each player**" (Themberchaud, Conductor
         #: of Cacophony) — the group's damage also goes to every player (``"each_player"``) or
         #: every opponent (``"each_opponent"``); players are never filtered by ``group``.
-        self.group_and_players = group_and_players if group_and_players in ("each_player", "each_opponent") else None
+        #: ``"scoped_player"`` -- "…to target player **and** each creature that player controls" (Chandra, Flame's Fury; the
+        #: announced RULE 115 player is hit as well as their group, unlike the distinct recipients of the other values).
+        self.group_and_players = (
+            group_and_players if group_and_players in ("each_player", "each_opponent", "scoped_player") else None
+        )
         #: "…to each creature **defending player controls**" / "…**that player** controls" /
         #: "…**target opponent** controls" (PAR-128) — whose creatures ``group`` (written
         #: ``of: "you"``) names: ``"defending"`` (RULE 506.4), ``"event_player"`` (the trigger's
@@ -672,7 +676,9 @@ class DealDamageEffect(GameEffect):
             # Snapshot first: an early death must not skip a still-owed hit.
             for obj in list(group_selector_objects(context.state, controller_id, self.group, src=self.source)):
                 context.deal_damage(obj, amount, self.source)
-            if self.group_and_players is not None:
+            if self.group_and_players == "scoped_player":
+                context.deal_damage(scoped, amount, self.source)
+            elif self.group_and_players is not None:
                 for player in list(context.state.living_players()):
                     if self.group_and_players == "each_opponent" and player.id == getattr(self.source, "controller_id", None):
                         continue

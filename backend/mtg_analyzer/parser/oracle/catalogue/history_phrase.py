@@ -141,7 +141,11 @@ def _player_event(text: str, negated: bool) -> Optional[dict[str, Any]]:
         return _condition(trigger, None if negated else 1, 0 if negated else None)
     m = re.match(r"^cast (?P<rest>.+)$", text)
     if m is not None:
-        quantity = _quantity(m.group("rest"))
+        # "another spell": a spell other than the one this condition belongs to ("this spell costs {2} less
+        # to cast if you've cast another spell this turn", "…, draw a card" on a resolving spell). The
+        # filter's own reference is that spell, so the cast being asked about never counts itself.
+        another = m.group("rest").startswith("another ")
+        quantity = _quantity(re.sub(r"^another ", "a ", m.group("rest")))
         if quantity is None:
             return None
         low, high, rest = quantity
@@ -149,6 +153,8 @@ def _player_event(text: str, negated: bool) -> Optional[dict[str, Any]]:
         keys = parse_spell_phrase(f"a {singular}") if re.search(r"\bspell\b", singular) else None
         if keys is None:
             return None
+        if another:
+            keys = {**keys, "spell_filter": {**keys.get("spell_filter", {}), "not_reference": True}}
         trigger = {"event": "SPELL_CAST", "condition": {"subject": "you"}, **keys}
         return _condition(trigger, None if negated else low, 0 if negated else high)
     m = re.match(r"^(?P<verb>discarded|sacrificed) (?P<rest>.+)$", text)

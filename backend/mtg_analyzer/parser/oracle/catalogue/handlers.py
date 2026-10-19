@@ -1900,6 +1900,24 @@ def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Opt
     return [EffectSpec("damage", params)]
 
 
+#: RULE 115 / 120.3: "~ deals N damage to target player and each creature that player controls." (Chandra, Flame's
+#: Fury) -- the announced player AND that player's creature group (Urabrask's shape). Read as the ordinary
+#: "each creature target player controls" mass hit plus the player themself as a scoped recipient.
+_DAMAGE_TARGET_PLAYER_AND_GROUP_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to (?P<who>target player|target opponent) "
+    r"and each (?P<group>[a-z' -]+?) (?:that player|they) controls?"
+)
+
+
+def _damage_target_player_and_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    inner = _match_clause_once(
+        f"~ deals {m.group('n')} damage to each {m.group('group')} {m.group('who')} controls"
+    )
+    if not inner or len(inner) != 1 or inner[0].type != "damage" or inner[0].params.get("group_player") not in ("player", "opponent"):
+        return None
+    return [EffectSpec("damage", {**inner[0].params, "group_and_players": "scoped_player"})]
+
+
 #: "~ deals 1 damage to each nonblack creature **and an additional 1 damage to each green creature**." (Kaervek's
 #: Hex) / "…to each creature with flying and 1 additional damage to each blue creature." (Tropical Storm) — two
 #: mass hits by the same source in one resolution, each read by the ordinary mass-damage rows.
@@ -2302,6 +2320,26 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "previous_subject": True, "destination": destination,
             "under_your_control": destination == "battlefield",
         }}],
+    })]
+
+
+#: RULE 701.8: "Target opponent chooses a creature they control. Destroy that creature." (Imperial Edict,
+#: Wei Assassins) — an edict whose removal is not a sacrifice (regeneration / indestructible still matter, no
+#: "sacrificed" triggers). The targeted player picks from their own permanents through the ordinary
+#: `choose_objects` selection, and the removal reads that pick back as its subject.
+_OPPONENT_CHOOSES_THEN_RE = _c(
+    r"(?P<who>target opponent|target player) chooses (?:a|an) (?P<what>creature|artifact|enchantment|land|planeswalker|permanent) "
+    r"they control\. destroy (?:that (?P=what)|it)"
+)
+
+
+def _opponent_chooses_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("choose_objects", {
+        "action": "select_referent", "what": m.group("what"), "count": 1,
+        "player_selector": "target",
+        # `resolve_target_kind` reads "target opponent" as the broader "player"; an edict must keep the restriction.
+        "target_kind": "opponent" if m.group("who") == "target opponent" else "player",
+        "then": [{"type": "destroy", "params": {"previous_subject": True}}],
     })]
 
 
@@ -10867,6 +10905,16 @@ def _add_named_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return _add_counter_group(m)
 
 
+_ADD_LOYALTY_COUNTER_RE = _c(
+    # only the named source: a bare "it" is a referent, and a target creature is not a planeswalker
+    rf"put {COUNT_X} loyalty counters? on ~"
+)
+
+
+def _add_loyalty_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("add_counters", {"count": count_or_x_of(m.group("n")), "kind": "loyalty"})]
+
+
 def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"count": count_or_x_of(m.group("n")), "kind": m.group("ckind")}
     return _add_counters_target_params(m, params)
@@ -18147,6 +18195,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("damage_plus_additional", _DAMAGE_PLUS_ADDITIONAL_RE, _damage_plus_additional),
     EffectHandler("damage_group", _DAMAGE_GROUP_RE, _damage_group),
+    EffectHandler("damage_target_player_and_group", _DAMAGE_TARGET_PLAYER_AND_GROUP_RE, _damage_target_player_and_group),
     # RULE 202.2f/700.6 "it deals damage to each opponent equal to your
     # devotion to <colour>." (Fanatic of Mogis) — tried before the plain
     # `damage_selector` row above since "equal to …" has no digit `NUMBER`
@@ -20207,6 +20256,11 @@ HANDLERS: list[EffectHandler] = [
         _ADD_NAMED_COUNTER_RE,
         _add_named_counter,
     ),
+    # RULE 306.5b / 122.1: "put a loyalty counter on ~" (Ral, Crackling Wit; Ajani Resolute; Lolth) — a planeswalker's own
+    # loyalty is a counter kind the engine keys off (`add_counters` kind ``loyalty``), so it is reserved from the
+    # open named-counter row above and read here for the one recipient that is unambiguous: the source itself.
+    EffectHandler("add_loyalty_counter", _ADD_LOYALTY_COUNTER_RE, _add_loyalty_counter),
+    EffectHandler("opponent_chooses_then", _OPPONENT_CHOOSES_THEN_RE, _opponent_chooses_then),
     EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
     EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),
     EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list),

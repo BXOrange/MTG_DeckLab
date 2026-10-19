@@ -4667,6 +4667,7 @@ _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_
 #: amount term rather than "the number of …": read by `count_phrase.parse_amount_phrase` like the aggregates.
 _WHERE_X_AMOUNT_RE = re.compile(
     rf"^(?P<rest>.+?),?\s+where x is (?P<phrase>(?:\d+ plus )?(?:{SACRIFICED_TERM}"
+    r"|the amount of life you (?:gained|lost) this turn"
     r"|the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) [^.]+?))$", re.IGNORECASE
 )
 #: "`<sentence>`, where x is `<phrase>`. `<more sentences>`" — the sentence defining X is not the last.

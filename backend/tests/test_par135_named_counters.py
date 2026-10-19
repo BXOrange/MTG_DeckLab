@@ -67,6 +67,12 @@ def test_count_and_controller_scope_ride_along():
 @pytest.mark.parametrize("kind", list(_RESERVED_COUNTER_KINDS))
 def test_reserved_kinds_stay_unclaimed(kind):
     assert match_clause(f"put a {kind} counter on target creature") is None
+    if kind == "loyalty":
+        # PAR-166: a planeswalker's own loyalty is the engine's `add_counters` kind "loyalty" (RULE 306.5b), so the one
+        # unambiguous recipient -- the named source -- has its own row; any other recipient stays unclaimed.
+        [spec] = match_clause("put a loyalty counter on ~")
+        assert spec.type == "add_counters" and spec.params == {"count": 1, "kind": "loyalty"}
+        return
     assert match_clause(f"put a {kind} counter on ~") is None
 
 

@@ -503,6 +503,7 @@ EffectRegistry.register(
         group=p.get("group"), group_player=p.get("group_player"),
         count_selector=p.get("count_selector"),
         source_only=bool(p.get("source_only", False)), source_incarnation=p.get("source_incarnation"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(

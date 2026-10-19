@@ -4063,7 +4063,15 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      creature['s controller]" / "it deals that much damage to its controller" (`DealDamageEffect`
 #      ``recipient_subject="attached_permanent_object"``, ``dealer_subject="attached_permanent"``: Binding Agony,
 #      Backfire, Guilty Conscience, Spiteful Shadows) and "each opponent gains that much life" (Grollub). +11 / -0.
-PARSER_VERSION = "692"
+# 693: PAR-166 -- shared body/state grammar: "where x is the amount of life you gained/lost this turn" as an X source
+#      (`_WHERE_X_AMOUNT_RE`); a standing "maximum hand size is reduced/increased by N" (`hand_size_modifier`); standing
+#      colour statements ("~ is all colors", "all creatures are black", "enchanted creature gets +3/+1 and is black")
+#      as layer-5 `color_change`; "you've cast another spell this turn" (history phrase, `not_reference` spell filter) for
+#      self cost reductions and resolution conditions; "put a loyalty counter on ~"; the opponent-recipient edict
+#      "target opponent chooses a <type> they control. Destroy that <type>" (`choose_objects` + `destroy`
+#      ``previous_subject``); and "~ deals N damage to target player and each creature that player controls"
+#      (`group_and_players="scoped_player"`). +31 / -0.
+PARSER_VERSION = "693"
 
 
 def parser_source_hash() -> str:
