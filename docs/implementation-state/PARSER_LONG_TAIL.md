@@ -659,6 +659,10 @@ one card at a time:
   previous-card color gates, exclusions of both the selected object and the source;
 - standing color statements, entry loyalty counters measured from spells cast, finite cost
   reductions, recurring attack-body grants and hand-size effects tied to source control;
+- ordinary exile subject qualifiers, untargeted subset choices and opponent-recipient choices;
+  compose these through existing selection effects rather than card-specific flicker handlers;
+- linked-event body wrappers and owner-player schedule references, coordinating with PAR-132;
+  entry-provenance filters must check existing `entered_via_ability_id` before adding state;
 - a targeted player combined with the untargeted group of creatures they control
   (Urabrask), preserving the distinction between the announced target and group recipients.
 
