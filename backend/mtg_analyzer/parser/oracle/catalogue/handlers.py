@@ -3892,6 +3892,36 @@ def _lose_life_that_controller(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-166: "<player> loses half their life, rounded up/down" / "... a third of their life, rounded up" -- the amount is a
+#: fraction of that player's *current* life (RULE 107.2/119.3), measured at resolution on the very player who loses it.
+_FRACTIONAL_LIFE_DIVISORS = {"half": 2, "a third of": 3}
+#: Events whose firing names the "that player" / "they" / "defending player" this clause means: a DAMAGE event's damaged
+#: player (RULE 120.3) -- singly or as one combat batch -- and an ATTACKS event's defending player (RULE 508.1b);
+#: read by the `trigger_player` referent.
+_TRIGGER_PLAYER_EVENTS = ["DAMAGE", "ATTACKS", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"]
+_DEFENDING_PLAYER_EVENTS = ["ATTACKS"]
+_LOSE_FRACTION_OF_LIFE_RE = _c(
+    r"(?P<who>you|target opponent|target player|that player|they|defending player) loses? "
+    r"(?P<fraction>half|a third of) (?:your|their) life, rounded (?P<round>up|down)"
+)
+
+
+def _lose_fraction_of_life(m: re.Match[str]) -> list[EffectSpec]:
+    who = m.group("who")
+    amount: dict = {"kind": "resource", "resource": "life", "divide": _FRACTIONAL_LIFE_DIVISORS[m.group("fraction")]}
+    if m.group("round") == "up":
+        amount["round_up"] = True
+    params: dict = {"amount": amount}
+    if who in ("target opponent", "target player"):
+        params["target_kind"] = "opponent" if who == "target opponent" else "player"
+        amount["of"] = "target"
+    elif who != "you":
+        amount["of"] = "trigger_player"
+        params["player"] = {"of": "trigger_player", "as": "self"}
+        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_EVENTS if who == "defending player" else _TRIGGER_PLAYER_EVENTS
+    return [EffectSpec("lose_life", params)]
+
+
 def _lose_life_per_life_gained(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("lose_life", {
         "amount": {"kind": "trigger_event", "field": "amount", "multiply": int(m.group("n"))},
@@ -18610,6 +18640,7 @@ HANDLERS: list[EffectHandler] = [
         _LOSE_LIFE_PER_SPELL_CAST_THIS_TURN_RE,
         _lose_life_per_spell_cast_this_turn,
     ),
+    EffectHandler("lose_fraction_of_life", _LOSE_FRACTION_OF_LIFE_RE, _lose_fraction_of_life),
     EffectHandler("lose_life_that_controller", _LOSE_LIFE_THAT_CONTROLLER_RE, _lose_life_that_controller),
     # "that player loses N life for each 1 life they gained." (False Cure).
     EffectHandler(

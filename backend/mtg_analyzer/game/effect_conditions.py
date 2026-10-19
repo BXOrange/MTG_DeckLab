@@ -116,7 +116,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
-     "attacked_player", "first_drawn_this_turn", "chosen_player",
+     "attacked_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
      "enchanted_player", "previous_entry_controller"}
 )
 
@@ -321,6 +321,17 @@ def subject_of(
             # pure fallback, never a second candidate to choose between.
             instance_id = event.get("source_id")
         return context.state.find_object(instance_id) if instance_id is not None else None
+    if of == "active_player":
+        # RULE 502.1: "At the beginning of each player's upkeep, that player loses half their life" -- whoever's turn it is.
+        return context.state.active_player
+    if of == "trigger_player":
+        # "that player" / "they" / "defending player" under a trigger whose event names one player as its
+        # recipient: the player a DAMAGE event hurt (RULE 120.3), else the defending player an ATTACKS event names
+        # (RULE 508.1b). The parser only emits it under those heads (gate `event_player_events`).
+        event = getattr(context, "trigger_event", None) or {}
+        if event.get("is_player"):
+            return _player_by_id(context, event.get("target_id"))
+        return _player_by_id(context, event.get("defending_player_id"))
     if of == "attacked_player":
         # PAR-120: "whenever a creature attacks 1 of your opponents, **that
         # player** loses 1 life." (Calculating Lich) — the group subject's

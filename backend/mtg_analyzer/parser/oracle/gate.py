@@ -4071,7 +4071,13 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      "target opponent chooses a <type> they control. Destroy that <type>" (`choose_objects` + `destroy`
 #      ``previous_subject``); and "~ deals N damage to target player and each creature that player controls"
 #      (`group_and_players="scoped_player"`). +31 / -0.
-PARSER_VERSION = "693"
+# 694: PAR-166 -- "<you / target opponent / target player / that player / they / defending player> loses half (or a
+#      third of) their life, rounded up/down" (`lose_life` with a `resource` amount halved in place; the new
+#      `trigger_player` referent reads the DAMAGE-recipient / combat-batch recipient / ATTACKS defending player, gated by
+#      the `event_player_events` marker; an acting-player trigger body now measures that player's life, not the source
+#      controller's) and "where x is half the number of <phrase>, rounded up/down" (a halved count, one X for the whole
+#      sentence).
+PARSER_VERSION = "694"
 
 
 def parser_source_hash() -> str:

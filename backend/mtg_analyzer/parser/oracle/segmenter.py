@@ -4670,6 +4670,11 @@ _WHERE_X_AMOUNT_RE = re.compile(
     r"|the amount of life you (?:gained|lost) this turn"
     r"|the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) [^.]+?))$", re.IGNORECASE
 )
+#: RULE 107.2: "where x is half the number of <phrase>, rounded up/down" -- the count of `_WHERE_X_RE` halved.
+_HALF_DIVISOR = 2
+_WHERE_X_HALF_COUNT_RE = re.compile(
+    r"^(?P<rest>.+?),?\s+where x is half the number of (?P<phrase>.+?), rounded (?P<round>up|down)$", re.IGNORECASE
+)
 #: "`<sentence>`, where x is `<phrase>`. `<more sentences>`" — the sentence defining X is not the last.
 _WHERE_X_MID_BODY_RE = re.compile(
     r"^(?P<head>[^.]*?),\s*where x is (?P<phrase>[^.]+?)\.\s+(?P<tail>.+)$",
@@ -4805,11 +4810,21 @@ def _die_x_rest(text: str) -> "Optional[tuple[str, dict[str, Any]]]":
 def _where_x_specs(
     body: str, *, self_subject: bool, previous_subject: bool,
     group_subject: bool, previous_selector: bool, several: bool = False,
+    divide_by: "Optional[tuple[int, bool]]" = None,
 ) -> "Optional[list[EffectSpec]]":
     """See `_WHERE_X_RE`; ``None`` unless the body parses to one effect holding the X — or,
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    halved = _WHERE_X_HALF_COUNT_RE.match(text)
+    if halved is not None and divide_by is None:
+        # RULE 107.2: "where x is half the number of <phrase>, rounded up/down" is the count with a rounded halving.
+        return _where_x_specs(
+            f"{halved.group('rest')}, where x is the number of {halved.group('phrase')}",
+            self_subject=self_subject, previous_subject=previous_subject, group_subject=group_subject,
+            previous_selector=previous_selector, several=several,
+            divide_by=(_HALF_DIVISOR, halved.group("round") == "up"),
+        )
     between = _WHERE_X_THEN_RE.match(text)
     if between is not None:
         kwargs = dict(
@@ -4893,6 +4908,8 @@ def _where_x_specs(
             amount = {**amount, "minus": int(minus.group("n")), "minimum": 0}
     if amount is None:
         return None
+    if divide_by is not None:
+        amount = {**amount, "divide": divide_by[0], **({"round_up": True} if divide_by[1] else {})}
     return _bind_x_specs(
         rest, amount, self_subject=self_subject, previous_subject=previous_subject,
         group_subject=group_subject, previous_selector=previous_selector, several=several,
@@ -6564,7 +6581,7 @@ def _parse_effect_body_inner(
     # the (unpaid) spell X (Tendrils of Corruption dealt 0 damage and gained the life).
     one_x_text = body.strip().rstrip(".").strip()
     one_x = (_WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
-             or _WHERE_X_DIE_RE.match(one_x_text))
+             or _WHERE_X_DIE_RE.match(one_x_text) or _WHERE_X_HALF_COUNT_RE.match(one_x_text))
     if one_x is not None and "." not in one_x.group("rest") and re.search(
         r"\s+and\s+", one_x.group("rest")
     ):

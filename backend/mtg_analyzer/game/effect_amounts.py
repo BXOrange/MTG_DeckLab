@@ -568,7 +568,9 @@ def _base(
             )
             values = [_resource_of(p, resource) for p in players]
             return int(reduce(values)) if values else 0
-        player = _as_player(context, subject, controller_id)
+        # No referent named means "you" -- the acting player of a `trigger_subject_referent` ("each player's upkeep, that
+        # player loses half their life") included -- not whoever controls the source.
+        player = _as_player(context, subject if amount.get("of") else None, controller_id)
         if player is None:
             return 0
         return _resource_of(player, resource)

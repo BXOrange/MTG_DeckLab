@@ -309,3 +309,171 @@ def test_life_gained_x_shrinks_a_targeted_creature_by_the_turn_total():
     _cast(eng, card, targets=[victim])
     eng.recompute_continuous_effects()
     assert victim.power == 2 and victim.toughness == 2
+
+
+# --- "<player> loses half their life, rounded up/down" (RULE 107.2 / 119.3) ------------------------------------------
+
+_HALF_LIFE_TEXT = {
+    "you": "You lose half your life, rounded up.",
+    "opp": "Target opponent loses half their life, rounded up.",
+}
+
+
+def test_fractional_life_loss_parses_each_who_but_not_a_stray_referent():
+    for text in (
+        "You lose half your life, rounded up.",
+        "Target opponent loses half their life, rounded down.",
+        "Target player loses half their life, rounded up.",
+    ):
+        assert parse_oracle(_card("T", "Sorcery", text)).coverage == MODELED, text
+    # "that player" under a dies trigger names no damaged / defending player: stays unclaimed
+    dies = _card("T", "Creature - Zombie", "When Test Thing dies, that player loses half their life, rounded up.")
+    assert parse_oracle(dies).coverage == UNMODELED
+    # "each player" with no divisor fragment we know is not claimed by this row
+    assert parse_oracle(_card("T", "Sorcery", "You lose half your life.")).coverage == UNMODELED
+
+
+def test_you_lose_half_your_life_rounds_as_printed():
+    for rounding, expected_life in (("up", 7), ("down", 8)):
+        eng = _engine()
+        eng.state.player_by_id("p1").life = 15
+        _cast(eng, _card("Bargain", "Sorcery", f"You lose half your life, rounded {rounding}."))
+        assert eng.state.player_by_id("p1").life == expected_life, rounding
+
+
+def test_target_opponent_loses_half_their_life_not_the_casters():
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p1.life, p2.life = 9, 15
+    _cast(eng, _card("Tribute", "Sorcery", _HALF_LIFE_TEXT["opp"]), targets=[p2])
+    assert (p1.life, p2.life) == (9, 7)
+
+
+def test_blood_tribute_gains_only_when_kicked_condition_holds():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    assert parse_oracle(CardDatabase(DB_PATH).get_card("Blood Tribute")).modeled
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p1.life, p2.life = 10, 20
+    _cast(eng, _card("Tribute", "Sorcery", "Target opponent loses half their life, rounded up. "
+                     "If this spell was kicked, you gain life equal to the life lost this way."), targets=[p2])
+    assert (p1.life, p2.life) == (10, 10)  # not kicked: no gain
+
+
+def test_each_player_loses_a_third_measures_every_players_own_life():
+    from tests.support.deck_batch import card as real_card
+
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p1.life, p2.life = 20, 9
+    obj = real_card(eng, "Dire Fleet Ravager", zone=Zone.HAND)
+    p1.hand[:] = [o for o in p1.hand if o is not obj]
+    obj.zone = Zone.BATTLEFIELD
+    eng.state.add_to_battlefield(obj)
+    eng.state.fire_event(__import__("mtg_analyzer.models.game.game_state", fromlist=["x"]).GameEvent(
+        __import__("mtg_analyzer.models.game.game_state", fromlist=["x"]).EventType.ENTERS_BATTLEFIELD,
+        controller_id="p1", instance_id=obj.instance_id, object=obj.name, object_types=sorted(obj.type_words)))
+    eng.resolve_until_stable()
+    # a third of 20 rounded up = 7 -> 13; a third of 9 = 3 -> 6
+    assert (p1.life, p2.life) == (13, 6)
+
+
+def test_combat_damage_trigger_halves_the_damaged_players_life_only():
+    from tests.support.deck_batch import card as real_card
+
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p1.life, p2.life = 20, 15
+    virtus = real_card(eng, "Virtus the Veiled")
+    eng.rules.deal_damage(p2, 2, source=virtus, combat=True)
+    eng.rules.put_triggers_on_stack()
+    eng.resolve_until_stable()
+    # 15 - 2 combat damage = 13; half rounded up = 7 lost
+    assert (p1.life, p2.life) == (20, 6)
+
+
+def test_equipment_trigger_halves_the_damaged_player_and_ignores_a_noncombat_hit():
+    from tests.support.deck_batch import card as real_card
+
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p2.life = 20
+    spike = real_card(eng, "Quietus Spike")
+    host = _bf(eng, _card("Host", "Creature - Human", ""))
+    spike.attached_to = host.instance_id
+    eng.recompute_continuous_effects()
+    eng.rules.deal_damage(p2, 1, source=host, combat=False)
+    eng.rules.put_triggers_on_stack()
+    eng.resolve_until_stable()
+    assert p2.life == 19
+    eng.rules.deal_damage(p2, 1, source=host, combat=True)
+    eng.rules.put_triggers_on_stack()
+    eng.resolve_until_stable()
+    assert p2.life == 9  # 18 - ceil(18 / 2)
+
+
+def test_each_players_upkeep_halves_the_active_players_life_not_the_controllers():
+    from tests.support.deck_batch import card as real_card, step
+
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p1.life, p2.life = 20, 15
+    real_card(eng, "Havoc Festival")
+    eng.state.active_player_index = 1  # p2's turn: the upkeep trigger's "that player" is the active player
+    step(eng, "upkeep", player="p2")
+    assert (p1.life, p2.life) == (20, 7)
+
+
+def test_attack_trigger_halves_the_defending_player_not_the_attacker():
+    from tests.support.deck_batch import attack
+
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p1.life, p2.life = 20, 11
+    raider = _bf(eng, _card("Raider", "Creature - Human",
+                            "Whenever Raider attacks, defending player loses half their life, rounded up."))
+    attack(eng, [raider])
+    eng.resolve_until_stable()
+    assert (p1.life, p2.life) == (20, 5)
+
+
+def test_batch_combat_damage_trigger_halves_the_player_the_batch_hit():
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    p1.life, p2.life = 20, 20
+    _bf(eng, _card("Watcher", "Creature - Snake",
+                   "Whenever one or more Snakes you control deal combat damage to a player, "
+                   "that player loses half their life, rounded up."))
+    snake = _bf(eng, _card("Snake", "Creature — Snake", "", power=2))
+    eng.recompute_continuous_effects()
+    eng._apply_combat_damage([(p2, snake.power, snake)])
+    eng.rules.put_triggers_on_stack()
+    eng.resolve_until_stable()
+    assert (p1.life, p2.life) == (20, 9)  # 20 - 2 = 18, half rounded up = 9 lost
+
+
+def test_where_x_half_the_count_rounds_as_printed_and_binds_every_x_of_the_sentence():
+    for rounding, tokens in (("up", 2), ("down", 1)):
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        for i in range(3):
+            dead = GameObject(_card(f"Dead{i}", "Creature — Bear", ""), owner_id="p1", zone=Zone.GRAVEYARD)
+            p1.graveyard.append(dead)
+        text = f"Create X 2/2 black Zombie creature tokens, where X is half the number of creature cards in your graveyard, rounded {rounding}."
+        _cast(eng, _card("Harvest", "Sorcery", text))
+        assert len([o for o in eng.state.battlefield if o.name == "Zombie"]) == tokens, rounding
+    # one X for the whole sentence: both halves read the same measurement
+    shared = _card("Pact", "Sorcery", "You draw x cards and you lose x life, where x is half the number of artifacts you control, rounded down.")
+    assert parse_oracle(shared).coverage == MODELED
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    for i in range(5):
+        _bf(eng, _card(f"Relic{i}", "Artifact", ""))
+    p1.life = 20
+    for i in range(4):
+        p1.library.append(GameObject(_card(f"Fodder{i}", "Sorcery", ""), owner_id="p1", zone=Zone.LIBRARY))
+    before = len(p1.hand)
+    _cast(eng, shared)
+    assert (p1.life, len(p1.hand) - before) == (18, 2)
