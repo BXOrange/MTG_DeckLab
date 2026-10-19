@@ -14,6 +14,7 @@ game/effects/choices_actions.py, game/effects/exile_control.py (mass exile seeds
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -79,7 +80,7 @@ def test_the_return_row_needs_an_earlier_clause_that_exiled_something():
 
 def test_self_blink_and_mass_forms_parse():
     assert parse_effect_body(f"exile ~. return it to the battlefield under its owner's control at the "
-                             f"beginning of the next end step", self_subject=True) is not None
+                             f"beginning of the next end step", reading=ClauseReading(self_subject=True)) is not None
     mass = parse_effect_body("exile each creature you control. return those cards to the battlefield under "
                              "their owner's control at the beginning of the next end step.")
     assert [s.type for s in mass] == ["blink"]

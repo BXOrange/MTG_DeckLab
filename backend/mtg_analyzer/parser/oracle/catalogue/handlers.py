@@ -26,7 +26,8 @@ from typing import Any, Optional
 from .dying_hosts import dying_host_return_specs
 from .fight_sequences import fight_sequence_specs, source_counter_fight_specs
 from ..spec import EffectSpec
-from .effect_rows.shared import EffectHandler, GROUP_CLAUSE, match_clause_reading
+from .clause_reading import STANDALONE, ClauseReading
+from .effect_rows.shared import EffectHandler, match_clause_reading
 from .clause_hooks import register_clause_matcher
 from .effect_rows import damage_copy
 from .effect_rows import draw_discard_cast
@@ -43,29 +44,20 @@ from .effect_rows import tokens_animate_misc
 from .effect_rows import party
 
 
-def match_clause(
-    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
-    group_subject: bool = False, previous_selector: bool = False,
-    attached_subject: bool = False,
-) -> Optional[list[EffectSpec]]:
+def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     """The `EffectSpec`s for one normalised effect ``clause``, or ``None``.
 
     Runs the handler table; the first handler to claim the whole clause wins.
     ``None`` means no handler modeled it — the clause is unclaimed and its card
     will fail the coverage gate (docs/09 fail-closed).
 
-    ``self_subject`` says the clause's bare "it" is the ability's own source;
-    ``previous_subject`` says it is the creature the *preceding* clause of
-    the same body chose; ``group_subject`` says it is whichever object
-    matched this ability's own RULE 603.1 group-subject trigger condition;
-    ``previous_selector`` says "they" is the group a mass selector in the
-    preceding clause acted on; ``attached_subject`` (PAR-117) says "its" is
-    RULE 303.4/301.5's attached host — this ability's own trigger condition
-    is ``{"subject": "attached_permanent"}``. Each unlocks its own gated rows
-    (see `EffectHandler.self_subject_only`/``previous_subject_only``/
-    ``group_subject_only``/``previous_selector_only``/``attached_subject_
-    only``); with none set — the default, and the only reading available to a
-    clause standing alone — a pronoun claims nothing at all.
+    ``reading`` (`ClauseReading`) says what the clause's bare pronouns mean: ``self_subject`` -- "it" is the
+    ability's own source; ``previous_subject`` -- the creature the *preceding* clause of the same body chose;
+    ``group_subject`` -- whichever object matched this ability's own RULE 603.1 group-subject trigger condition;
+    ``previous_selector`` -- "they" is the group a mass selector in the preceding clause acted on;
+    ``attached_subject`` (PAR-117) -- "its" is RULE 303.4/301.5's attached host. Each unlocks the rows that
+    declare it in `EffectHandler.requires`; with none set -- the default, and the only reading available to a
+    clause standing alone -- a pronoun claims nothing at all.
 
     PAR-123: a group-subject clause no row claims outright is tried once more as though
     its pronoun named an earlier clause's pick, and the firing object is then made that
@@ -75,49 +67,24 @@ def match_clause(
     `GameContext.previous_targets`. Rows written for the group subject itself win first, so
     nothing they claim changes reading.
     """
-    token = GROUP_CLAUSE.set(group_subject and not previous_subject and not self_subject)
-    try:
-        return match_clause_reading(
-            clause, self_subject=self_subject, previous_subject=previous_subject,
-            group_subject=group_subject, previous_selector=previous_selector,
-            attached_subject=attached_subject,
-        )
-    finally:
-        GROUP_CLAUSE.reset(token)
+    return match_clause_reading(clause, reading=reading.entered())
 
 
-def _match_clause_once(
-    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
-    group_subject: bool = False, previous_selector: bool = False,
-    attached_subject: bool = False,
-) -> Optional[list[EffectSpec]]:
+def _match_clause_once(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     fight_sequence = fight_sequence_specs(clause) or source_counter_fight_specs(clause)
     if fight_sequence is not None:
         return fight_sequence
-    if attached_subject:
+    if reading.attached_subject:
         host_return = dying_host_return_specs(clause)
         if host_return is not None:
             return host_return
     for handler in HANDLERS:
-        if handler.self_subject_only and not self_subject:
+        if not reading.satisfies(handler.requires):
             continue
-        if handler.previous_subject_only and not previous_subject:
-            continue
-        if handler.group_subject_only and not group_subject:
-            continue
-        if handler.previous_selector_only and not previous_selector:
-            continue
-        if handler.attached_subject_only and not attached_subject:
-            continue
-        effects = handler.match(clause)
+        effects = handler.match(clause, reading)
         if effects is not None:
             return effects
-    flags = dict(
-        self_subject=self_subject, previous_subject=previous_subject,
-        group_subject=group_subject, previous_selector=previous_selector,
-        attached_subject=attached_subject,
-    )
-    return _per_player_target_specs(clause, **flags)
+    return _per_player_target_specs(clause, reading)
 
 
 # -- PAR-130: "for each opponent/player, <verb> target <X> that player controls"
@@ -164,14 +131,14 @@ def _stamp_per_player(node: Any, scope: str) -> int:
     return stamped
 
 
-def _per_player_target_specs(clause: str, **flags: bool) -> Optional[list[EffectSpec]]:
+def _per_player_target_specs(clause: str, reading: ClauseReading) -> Optional[list[EffectSpec]]:
     m = _PER_PLAYER_RE.fullmatch(clause.strip())
     if m is None:
         return None
     body = m.group("body")
     if _PER_PLAYER_BODY_RIVAL_RE.search(body.split("that player", 1)[0]):
         return None
-    specs = match_clause(body, **flags)
+    specs = match_clause(body, reading=reading)
     if not specs:
         return None
     specs = copy.deepcopy(specs)

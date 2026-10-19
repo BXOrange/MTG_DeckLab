@@ -7,6 +7,7 @@ import re
 
 from typing import Any, Callable, Optional
 from ..clause_hooks import parse_effect_body
+from ..clause_reading import ClauseReading
 from ..clause_primitives import (
     ACTION_ONCE_PER_TURN_MARKER,
     ACTIVATION_CONDITION_MARKER,
@@ -40,7 +41,6 @@ from .shared import (
     ENTERING_CONTROLLER,
     EVENT_PLAYER_EVENTS_KEY,
     fight_kind,
-    GROUP_CLAUSE,
     MULTI_TARGET_ALT,
     MULTI_TARGET_DISTINCT_CONTROLLERS,
     multi_target_params,
@@ -375,12 +375,12 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "subject_damage_each_opponent_power_group",
         _SUBJECT_POWER_DAMAGE_EACH_OPPONENT_RE,
-        _subject_damages_each_opponent_equal_to_power, {"group_subject_only": True},
+        _subject_damages_each_opponent_equal_to_power, {"requires": ClauseReading(group_subject=True)},
     ),
     (
         "subject_damage_each_opponent_power_self",
         _SUBJECT_POWER_DAMAGE_EACH_OPPONENT_RE,
-        _subject_damages_each_opponent_equal_to_power, {"self_subject_only": True},
+        _subject_damages_each_opponent_equal_to_power, {"requires": ClauseReading(self_subject=True)},
     ),
     (
         "damage_equal_to_power_self", _POWER_DAMAGE_SELF_RE,
@@ -392,24 +392,24 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     ),
     (
         "damage_equal_to_power_pronoun", _POWER_DAMAGE_PRONOUN_RE,
-        _damage_equal_to_power_implicit(None), {"self_subject_only": True},
+        _damage_equal_to_power_implicit(None), {"requires": ClauseReading(self_subject=True)},
     ),
     (
         "damage_equal_to_power_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
         _damage_equal_to_power_selector(None),
-        {"self_subject_only": True, "fallback_for": ("subject_damage_each_opponent_power_self",)},
+        {"requires": ClauseReading(self_subject=True), "fallback_for": ("subject_damage_each_opponent_power_self",)},
     ),
     # PAR-123: under a RULE 603.1 group trigger "it" is the firing creature, not the
     # source (Stalking Vengeance, Warstorm Surge) — the same `trigger_subject`
     # dealer `fight` already reads (MEC-99).
     (
         "damage_equal_to_power_group_pronoun", _POWER_DAMAGE_PRONOUN_RE,
-        _damage_equal_to_power_implicit("trigger_subject"), {"group_subject_only": True},
+        _damage_equal_to_power_implicit("trigger_subject"), {"requires": ClauseReading(group_subject=True)},
     ),
     (
         "damage_equal_to_power_group_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
         _damage_equal_to_power_selector("trigger_subject"),
-        {"group_subject_only": True, "fallback_for": ("subject_damage_each_opponent_power_group",)},
+        {"requires": ClauseReading(group_subject=True), "fallback_for": ("subject_damage_each_opponent_power_group",)},
     ),
     (
         "damage_equal_to_power_attached", _POWER_DAMAGE_ATTACHED_RE,
@@ -417,7 +417,7 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     ),
     (
         "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
-        _damage_equal_to_power_implicit("previous_target"), {"previous_subject_only": True},
+        _damage_equal_to_power_implicit("previous_target"), {"requires": ClauseReading(previous_subject=True)},
     ),
     # "… deals damage to itself equal to its power." — dealer == recipient.
     (
@@ -730,9 +730,8 @@ def _remembered_group_referent(specs: "list[EffectSpec]") -> Optional[list[Effec
     return [EffectSpec(d["type"], d.get("params") or {}, condition=d.get("condition")) for d in rewritten]
 
 
-def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-
-    group = GROUP_CLAUSE.get()
+def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    group = reading.group_clause
     if group and re.match(r"remove .* from it$", m.group("cost")):
         return None  # under a group trigger "it" is the firing object, not the source that pays
     parts = re.split(r"\.\s*otherwise,?\s+", m.group("effect").strip(), maxsplit=1)
@@ -740,14 +739,14 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         # The branch runs once the payment is made, after the trigger's event window has closed, so
         # a pronoun in it names the object `remember_trigger_subject` stamped on the source: read as
         # the previous pick, behind a seed of that remembered object.
-        sub = parse_effect_body(parts[0], previous_subject=True)
+        sub = parse_effect_body(parts[0], reading=ClauseReading(previous_subject=True))
         if sub:
             sub = [EffectSpec("trigger_subject_referent", {"event_key": "remembered"}), *sub]
         else:
-            grouped = parse_effect_body(parts[0], group_subject=True)
+            grouped = parse_effect_body(parts[0], reading=ClauseReading(group_subject=True))
             sub = _remembered_group_referent(grouped) if grouped else None
     else:
-        sub = parse_effect_body(parts[0], self_subject=True)
+        sub = parse_effect_body(parts[0], reading=ClauseReading(self_subject=True))
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
     if m.group("link") == "when" and any(
@@ -765,7 +764,7 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"cost": m.group("cost"), "effects": [s.to_dict() for s in sub]}
     if len(parts) > 1:
         otherwise = parse_effect_body(
-            parts[1], self_subject=True, previous_subject=announces_creature_target(sub),
+            parts[1], reading=ClauseReading(self_subject=True, previous_subject=announces_creature_target(sub)),
         )
         if not otherwise or any(s.params.get("target_kind") for s in otherwise):
             return None
@@ -809,7 +808,7 @@ def _sacrifice_chosen_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if "that many" not in effect or re.search(r"\d", effect):
         return None  # only the "that many" payoff; any other number would be rewritten wrongly
     sub = parse_effect_body(
-        effect.replace("that many", str(_THAT_MANY_PLACEHOLDER)), self_subject=True,
+        effect.replace("that many", str(_THAT_MANY_PLACEHOLDER)), reading=ClauseReading(self_subject=True),
     )
     if not sub:
         return None
@@ -842,7 +841,7 @@ def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """"you may `<cost>`. If you don't, `<effect>`." — the else-branch
     sibling of `_pay_cost_then_general` (PAR-29 Blight batch)."""
 
-    sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
+    sub = parse_effect_body(m.group("effect").strip(), reading=ClauseReading(self_subject=True))
     if not sub:
         return None
     if any(s.params.get("target_kind") not in (None, "source") for s in sub):
@@ -981,7 +980,7 @@ _MAY_ATTACH_IF_YOU_DO_RE = compile_clause(
 
 def _may_attach_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
-    second = parse_effect_body(m.group("effect2").strip(), previous_subject=True)
+    second = parse_effect_body(m.group("effect2").strip(), reading=ClauseReading(previous_subject=True))
     if not second:
         return None
     if any(s.params.get("target_kind") for s in second):
@@ -1061,7 +1060,7 @@ def _have_that_player_lose_life(m: re.Match[str]) -> list[EffectSpec]:
 
 def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
-    first = parse_effect_body(m.group("effect1").strip(), self_subject=True)
+    first = parse_effect_body(m.group("effect1").strip(), reading=ClauseReading(self_subject=True))
     if not first:
         return None
     # A *targeted* (RULE 115) antecedent needs its own announced-target
@@ -1070,7 +1069,7 @@ def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # targeted follow-up) — fail closed rather than silently drop the target.
     if any(s.params.get("target_kind") for s in first):
         return None
-    second = parse_effect_body(m.group("effect2").strip(), self_subject=True)
+    second = parse_effect_body(m.group("effect2").strip(), reading=ClauseReading(self_subject=True))
     if not second:
         return None
     if any(s.params.get("target_kind") for s in second):
@@ -1583,6 +1582,7 @@ ROWS: list[EffectHandler] = [
         "pay_cost_then_general",
         _PAY_COST_THEN_GENERAL_RE,
         _pay_cost_then_general,
+        reading_aware=True,
     ),
     # MEC-103: "sacrifice up to N / any number of <type>. When you sacrifice
     # one or more this way, <payoff with "that many">."
@@ -1639,13 +1639,13 @@ ROWS: list[EffectHandler] = [
         "may_have_it_deal_damage_equal_to_power",
         _MAY_HAVE_IT_DEAL_DAMAGE_EQUAL_TO_POWER_RE,
         _may_have_it_deal_damage_equal_to_power,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     EffectHandler(
         "have_that_player_lose_life",
         _HAVE_THAT_PLAYER_LOSE_LIFE_RE,
         _have_that_player_lose_life,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     # PAR-79 sixth increment: "You may <effect>. If you do, <effect2>." with
     # a resolving-effect antecedent rather than a cost — tried after both
@@ -1714,7 +1714,7 @@ ROWS: list[EffectHandler] = [
         "add_mana_additional_its_controller",
         _ADD_MANA_ADDITIONAL_ITS_CONTROLLER_RE,
         _add_mana_additional_event_player,
-        attached_subject_only=True,
+        requires=ClauseReading(attached_subject=True),
     ),
     # "transform ~" / "transform it" / "transform this permanent"/"creature"
     # (RULE 712.8) — the self-transform shape a loyalty "[0]: Transform ~."
@@ -1765,7 +1765,7 @@ ROWS: list[EffectHandler] = [
         "dies_return_as_enchantment",
         _DIES_RETURN_AS_ENCHANTMENT_RE,
         lambda m: [EffectSpec("dies_return_as_enchantment", {})],
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "return that card to the battlefield under its owner's control"
     # (Graceful Reprieve) — the self-subject-bound-target spelling.
@@ -1773,7 +1773,7 @@ ROWS: list[EffectHandler] = [
         "return_target_to_battlefield_self",
         _RETURN_TARGET_TO_BATTLEFIELD_SELF_RE,
         _return_target_to_battlefield_self,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
     # "this creature becomes prepared" (RULE 722.3a) — a preparation card's

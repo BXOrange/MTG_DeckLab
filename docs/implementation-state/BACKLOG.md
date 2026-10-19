@@ -53,10 +53,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-173 · One clause-reading context.** Replace the five threaded subject flags (`self_subject`,
-  `previous_subject`, `group_subject`, `previous_selector`, `attached_subject`) and the
-  `_GROUP_CLAUSE` ContextVar with one immutable reading object passed through `match_clause`,
-  `parse_effect_body` and the builders that re-enter them. Natural base for PAR-175's referents.
 - **PAR-174 · Mechanic flags on `AbilitySpec`.** `rad_counters_on_combat_damage`,
   `rad_counters_on_attacked`, `mill_return_from_graveyard`, `enter_or_graveyard_discard_land`,
   `impulsive_draw_on_combat_damage` and `counter_death_return` are top-level IR fields, each with its

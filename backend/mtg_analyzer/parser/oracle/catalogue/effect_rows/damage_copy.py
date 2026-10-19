@@ -26,6 +26,7 @@ from ..subgrammars import (
 from ..subtype_vocabulary import SUBTYPES
 from ...spec import EffectSpec
 from ..clause_hooks import match_clause, match_clause_once
+from ..clause_reading import ClauseReading
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
     BECOMES_TARGET_EVENT,
@@ -1453,9 +1454,10 @@ _DAMAGE_TARGET_PLAYER_AND_GROUP_RE = compile_clause(
 )
 
 
-def _damage_target_player_and_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _damage_target_player_and_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     inner = match_clause_once(
-        f"~ deals {m.group('n')} damage to each {m.group('group')} {m.group('who')} controls"
+        f"~ deals {m.group('n')} damage to each {m.group('group')} {m.group('who')} controls",
+        reading=reading.only(),
     )
     if not inner or len(inner) != 1 or inner[0].type != "damage" or inner[0].params.get("group_player") not in ("player", "opponent"):
         return None
@@ -1471,10 +1473,10 @@ _DAMAGE_PLUS_ADDITIONAL_RE = compile_clause(
 )
 
 
-def _damage_plus_additional(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _damage_plus_additional(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     n2 = m.group("n2") or m.group("n3")
-    first = match_clause_once(f"~ deals {m.group('n')} damage to {m.group('first')}")
-    second = match_clause_once(f"~ deals {n2} damage to {m.group('second')}")
+    first = match_clause_once(f"~ deals {m.group('n')} damage to {m.group('first')}", reading=reading.only())
+    second = match_clause_once(f"~ deals {n2} damage to {m.group('second')}", reading=reading.only())
     if not first or not second or any(e.type != "damage" for e in (*first, *second)):
         return None
     return [*first, *second]
@@ -1843,7 +1845,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("copy_permanent_np", _COPY_NP_RE, _copy_permanent_np),
     EffectHandler("copy_exiled_card", _COPY_EXILED_CARD_RE, _copy_exiled_card),
     EffectHandler("choose_saddler_copy", _CHOOSE_SADDLER_COPY_RE, _choose_saddler_copy),
-    EffectHandler("copy_self_it", _COPY_SELF_IT_RE, _copy_self_it, self_subject_only=True),
+    EffectHandler("copy_self_it", _COPY_SELF_IT_RE, _copy_self_it, requires=ClauseReading(self_subject=True)),
 
     # PAR-18: "exile up to 1 target creature card from a graveyard. Create a
     # token that's a copy of it/that card[, except <modifier(s)>]." — the
@@ -1854,7 +1856,7 @@ ROWS: list[EffectHandler] = [
         "copy_permanent_previous",
         _COPY_PERMANENT_PREVIOUS_RE,
         _copy_permanent_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # PAR-124: "whenever a nontoken creature an opponent controls enters,
     # create a token that's a copy of that creature." (Theoretical
@@ -1863,7 +1865,7 @@ ROWS: list[EffectHandler] = [
         "copy_permanent_group",
         _COPY_PERMANENT_GROUP_RE,
         _copy_permanent_group,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     # "create a token that's a [tapped and attacking] copy of <named real
     # card>" (The Joiner of Cats' Lurrus else-branch) — after the target /
@@ -1984,7 +1986,7 @@ ROWS: list[EffectHandler] = [
         "damage_x_defending_player_hand",
         _DAMAGE_X_DEFENDING_PLAYER_HAND_RE,
         _damage_x_defending_player_hand,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "damage_x",
@@ -2010,38 +2012,38 @@ ROWS: list[EffectHandler] = [
         "damage_equal_to_power_previous_group_to_source",
         compile_clause(r"each of those creatures deals damage equal to its power to (?:~|this creature)"),
         lambda m: [EffectSpec("damage_equal_to_power", {"dealer_group": "previous_targets"})],
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "damage_to_attacked_defender", _DAMAGE_TO_ATTACKED_RE, _damage_to_attacked,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     EffectHandler("attached_deals_that_much", _ATTACHED_DEALS_THAT_MUCH_RE, _attached_deals_that_much,
-                  attached_subject_only=True),
+                  requires=ClauseReading(attached_subject=True)),
     EffectHandler("attached_it_deals_that_much", _ATTACHED_IT_DEALS_THAT_MUCH_RE, _attached_it_deals_that_much,
-                  attached_subject_only=True),
+                  requires=ClauseReading(attached_subject=True)),
     EffectHandler(
         "group_deals_to_damaged_controller", _GROUP_DEALS_TO_DAMAGED_CONTROLLER_RE,
-        _group_deals_to_damaged_controller, group_subject_only=True,
+        _group_deals_to_damaged_controller, requires=ClauseReading(group_subject=True),
     ),
     EffectHandler(
         "group_deals_to_its_controller", _GROUP_DEALS_TO_ITS_CONTROLLER_RE,
-        _group_deals_to_its_controller, group_subject_only=True,
+        _group_deals_to_its_controller, requires=ClauseReading(group_subject=True),
     ),
     # "~ [also] deals N damage to that creature's controller" (~22 SOLO —
     # Consign to the Pit / Battle Strain / Dingus Staff / …).
     EffectHandler(
         "damage_to_prev_subject_controller",
         _DAMAGE_TO_SUBJECT_CONTROLLER_RE, _damage_to_prev_subject_controller,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
-        "damage_to_prev_object", _DAMAGE_TO_PREV_OBJECT_RE, _damage_to_prev_object, previous_subject_only=True,
+        "damage_to_prev_object", _DAMAGE_TO_PREV_OBJECT_RE, _damage_to_prev_object, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "damage_to_trigger_subject_controller",
         _DAMAGE_TO_SUBJECT_CONTROLLER_RE, _damage_to_trigger_subject_controller,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     # "~ deals 6 damage to each of up to two target creatures and/or
     # planeswalkers" (RULE 115.1a generalized to N>=2) — the full amount
@@ -2144,13 +2146,13 @@ ROWS: list[EffectHandler] = [
         "prevent_all_damage_previous",
         _PREVENT_ALL_DAMAGE_PREVIOUS_RE,
         _prevent_all_damage_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "prevent_all_damage_self_pronoun",
         _PREVENT_ALL_DAMAGE_SELF_PRONOUN_RE,
         _prevent_all_damage_self_pronoun,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "prevent_all_damage_creatures",
@@ -2218,7 +2220,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("skip_their_next", _SKIP_THEIR_NEXT_RE, lambda m: None if m.group("who") == "that player" else _skip_their_next(m)),
     EffectHandler(
         "skip_their_next_event_player", _SKIP_THEIR_NEXT_RE,
-        lambda m: _skip_their_next(m) if m.group("who") == "that player" else None, self_subject_only=True,
+        lambda m: _skip_their_next(m) if m.group("who") == "that player" else None, requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "skip_your_draw_step_this_turn",
@@ -2232,9 +2234,11 @@ ROWS: list[EffectHandler] = [
         "damage_group_previous_controller", _DAMAGE_GROUP_RE,
         lambda m: _damage_group(m, that_player="previous_controller")
         if m.group("group").endswith(" that player controls") else None,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
-    EffectHandler("damage_plus_additional", _DAMAGE_PLUS_ADDITIONAL_RE, _damage_plus_additional),
+    EffectHandler(
+        "damage_plus_additional", _DAMAGE_PLUS_ADDITIONAL_RE, _damage_plus_additional, reading_aware=True,
+    ),
     EffectHandler("damage_group", _DAMAGE_GROUP_RE, _damage_group),
     EffectHandler(
         "damage_selector",
@@ -2265,7 +2269,10 @@ ROWS: list[EffectHandler] = [
         _damage_each_creature_keyword,
         fallback_for=("damage_group",),
     ),
-    EffectHandler("damage_target_player_and_group", _DAMAGE_TARGET_PLAYER_AND_GROUP_RE, _damage_target_player_and_group),
+    EffectHandler(
+        "damage_target_player_and_group", _DAMAGE_TARGET_PLAYER_AND_GROUP_RE, _damage_target_player_and_group,
+        reading_aware=True,
+    ),
     # RULE 202.2f/700.6 "it deals damage to each opponent equal to your
     # devotion to <colour>." (Fanatic of Mogis) — tried before the plain
     # `damage_selector` row above since "equal to …" has no digit `NUMBER`

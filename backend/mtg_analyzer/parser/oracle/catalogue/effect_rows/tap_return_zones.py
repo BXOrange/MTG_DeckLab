@@ -6,6 +6,7 @@ import re
 
 from typing import Optional
 from ..clause_hooks import parse_effect_body
+from ..clause_reading import ClauseReading
 from ..count_phrase import parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..static_handlers import quoted_ability_grant_effects
@@ -1360,7 +1361,7 @@ def _until_next_turn_conditional_gains(m: re.Match[str]) -> Optional[list[Effect
     for kw, cond in ((m.group("kw1"), m.group("c1")), (m.group("kw2"), m.group("c2"))):
         if kw is None:
             continue
-        part = parse_effect_body(f"it gains {kw} until your next turn {cond}", previous_subject=True)
+        part = parse_effect_body(f"it gains {kw} until your next turn {cond}", reading=ClauseReading(previous_subject=True))
         if not part or len(part) != 1 or part[0].type != "grant_until" or part[0].condition is None:
             return None
         specs.extend(part)
@@ -1395,14 +1396,14 @@ ROWS: list[EffectHandler] = [
         "add_counters_previous_selector",
         _ADD_COUNTERS_PREVIOUS_GROUP_RE,
         _add_counters_previous_selector,
-        previous_selector_only=True,
+        requires=ClauseReading(previous_selector=True),
     ),
     # "Put a stun counter on each of them." after a multi-target clause.
     EffectHandler(
         "add_counters_previous_group",
         _ADD_COUNTERS_PREVIOUS_GROUP_RE,
         _add_counters_previous_group,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "tap [up to one] target creature[ an opponent controls] and put a stun
     # counter on it." (Champions of the Shoal, Alchemax Slayer-Bots,
@@ -1435,7 +1436,7 @@ ROWS: list[EffectHandler] = [
         "exile_trigger_referent",
         _EXILE_TRIGGER_REFERENT_RE,
         _exile_trigger_referent,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "tap target creature" / "untap target permanent"
     EffectHandler(
@@ -1511,7 +1512,7 @@ ROWS: list[EffectHandler] = [
         "tap_group_subject",
         _TAP_GROUP_SUBJECT_RE,
         _tap_self,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     # "tap enchanted creature" / "untap enchanted creature" (Freed from the
     # Real/Pemmin's Aura-shaped Aura activated abilities).
@@ -1584,7 +1585,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("controller_puts_top_or_bottom", _CONTROLLER_PUTS_TOP_OR_BOTTOM_RE, _controller_puts_top_or_bottom),
     EffectHandler(
         "controller_may_put_self_top_or_bottom", _CONTROLLER_MAY_PUT_SELF_TOP_OR_BOTTOM_RE,
-        _controller_may_put_self_top_or_bottom, self_subject_only=True,
+        _controller_may_put_self_top_or_bottom, requires=ClauseReading(self_subject=True),
     ),
     # "put ~ / it … on the bottom of / third from the top of its owner's library" (self form).
     EffectHandler("return_self_to_library", _RETURN_SELF_TO_LIBRARY_RE, _return_self_to_library),
@@ -1592,7 +1593,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("return_attached_to_library", _RETURN_ATTACHED_TO_LIBRARY_RE, _return_attached_to_library),
     EffectHandler("exile_all_until_leaves", _EXILE_ALL_UNTIL_LEAVES_RE, _exile_all_until_leaves),
     EffectHandler(
-        "return_it_to_library", _RETURN_IT_TO_LIBRARY_RE, _return_self_to_library, self_subject_only=True,
+        "return_it_to_library", _RETURN_IT_TO_LIBRARY_RE, _return_self_to_library, requires=ClauseReading(self_subject=True),
     ),
     # "Put target card from a graveyard on the bottom of its owner's
     # library." (PAR-83 — Junktroller/Chrome Companion).  Its target is a
@@ -1628,7 +1629,7 @@ ROWS: list[EffectHandler] = [
     # previous_subject_only`, `_choose_targets_group`).
     EffectHandler(
         "return_previous_group", _RETURN_PREVIOUS_GROUP_RE, _return_previous_group,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "return target <c1> or <c2> creature card from [scope] graveyard to
     # [dest]" (Crypt Angel) — colour-list graveyard recursion; tried
@@ -1702,7 +1703,7 @@ ROWS: list[EffectHandler] = [
         _exile_return_at_declare_attackers,
     ),
     EffectHandler(
-        "it_gains_quoted_ability", _IT_GAINS_QUOTED_ABILITY_RE, _it_gains_quoted_ability, previous_subject_only=True,
+        "it_gains_quoted_ability", _IT_GAINS_QUOTED_ABILITY_RE, _it_gains_quoted_ability, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "until_next_turn_conditional_gains", _UNTIL_NEXT_TURN_CONDITIONAL_GAINS_RE,
@@ -1763,6 +1764,6 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "exile_trigger_controller_graveyard",
         _EXILE_TRIGGER_CONTROLLER_GRAVEYARD_RE, _exile_trigger_controller_graveyard,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
 ]

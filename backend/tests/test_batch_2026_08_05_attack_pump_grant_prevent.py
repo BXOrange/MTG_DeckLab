@@ -43,6 +43,7 @@ effect_binder}.py.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -260,7 +261,7 @@ def test_clan_crafter_full_card_is_modeled():
 
 
 def test_it_gets_pt_delta_parses_with_self_subject():
-    assert match_clause("it gets +2/+0 until end of turn", self_subject=True) == [
+    assert match_clause("it gets +2/+0 until end of turn", reading=ClauseReading(self_subject=True)) == [
         EffectSpec("pump", {"power": 2, "toughness": 0})
     ]
 

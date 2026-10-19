@@ -10,6 +10,7 @@ last-known info, since the creature is usually gone by then).
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -22,13 +23,13 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 def test_clause_forms():
     assert match_clause(
-        "you gain life equal to its power", self_subject=True
+        "you gain life equal to its power", reading=ClauseReading(self_subject=True)
     ) == [EffectSpec("gain_life", {"amount_from_subject": "self_power"})]
     assert match_clause(
-        "you gain life equal to its toughness", group_subject=True
+        "you gain life equal to its toughness", reading=ClauseReading(group_subject=True)
     ) == [EffectSpec("gain_life", {"amount_from_subject": "trigger_subject_toughness"})]
     assert match_clause(
-        "you gain life equal to that creature's toughness", previous_subject=True
+        "you gain life equal to that creature's toughness", reading=ClauseReading(previous_subject=True)
     ) == [EffectSpec("gain_life", {"amount_from_subject": "previous_subject_toughness"})]
     # ungated ("its" with no antecedent) — not claimed
     assert match_clause("you gain life equal to its power") is None

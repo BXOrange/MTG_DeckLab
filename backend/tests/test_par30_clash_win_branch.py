@@ -20,6 +20,7 @@ need ordinary effect grammar; this batch closes a cohesive first slice:
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
@@ -75,7 +76,7 @@ def test_clash_is_referent_transparent_in_connector_split():
 def test_pump_prev_singular_accepts_an_additional():
     got = match_clause(
         "that creature gets an additional +2/+2 and gains trample until end of turn",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     )
     assert got is not None and got[0].type == "pump"
     assert got[0].params["power"] == 2 and got[0].params["toughness"] == 2

@@ -117,9 +117,11 @@ def _monstrosity(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 `fullmatch`, so **do not anchor** with `^`/`$` yourself, and do not leave a
 trailing `.*` — that would claim clauses you haven't modeled.
 
-`self_subject_only=True` / `previous_subject_only=True` gate a row whose
-subject is a bare pronoun ("it fights …"). Use them; claiming a pronoun blind
-mis-models cards like Epic Confrontation into resolving to nothing.
+`requires=ClauseReading(self_subject=True)` / `requires=ClauseReading(previous_subject=True)` (or `group_subject`,
+`previous_selector`, `attached_subject`) gate a row whose subject is a bare pronoun ("it fights …"): the row is
+offered only under that reading (`catalogue/clause_reading.py`). Use them; claiming a pronoun blind mis-models
+cards like Epic Confrontation into resolving to nothing. A builder that must re-enter the table or branch on
+`reading.group_clause` takes `(m, reading)` and the row sets `reading_aware=True`.
 
 ## Trailing sentence that retroactively modifies the previous clause
 
@@ -160,7 +162,8 @@ _MY_TAIL_RE = re.compile(
 my_tail = _MY_TAIL_RE.match(body)
 if my_tail is not None:
     before_specs = parse_effect_body(
-        my_tail.group("before"), self_subject=self_subject, previous_subject=previous_subject
+        my_tail.group("before"),
+        reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject),
     )
     if before_specs is None or not any(spec.type == "<expected type>" for spec in before_specs):
         return None  # fail closed — the tail only makes sense after that clause
@@ -169,7 +172,9 @@ if my_tail is not None:
     after_text = (my_tail.group("after") or "").strip()
     if not after_text:
         return before_specs
-    after_specs = parse_effect_body(after_text, previous_subject=announces_creature_target(before_specs))
+    after_specs = parse_effect_body(
+        after_text, reading=ClauseReading(previous_subject=announces_creature_target(before_specs))
+    )
     if after_specs is None:
         return None
     return before_specs + after_specs

@@ -12,6 +12,7 @@ trigger is collected).
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game import continuous  # noqa: F401  (kept for parity with sibling tests)
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -198,7 +199,7 @@ def test_step_begin_phase_grant_still_claimed_after_the_refactor():
 def test_it_gains_kw_until_eot_self_body():
     from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
     assert parse_effect_body(
-        "it gains double strike until end of turn", self_subject=True
+        "it gains double strike until end of turn", reading=ClauseReading(self_subject=True)
     ) == [__import__("mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]).EffectSpec(
         "pump", {"keywords": ["double_strike"]}
     )]

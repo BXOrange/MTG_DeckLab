@@ -21,6 +21,7 @@ Measured across all 34,811 cached cards: +138 covered, **0 regressed**
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.continuous import group_selector_objects
@@ -355,13 +356,13 @@ class TestForEachQuantity:
         # clause's announced target, the source under a self-subject trigger, and
         # otherwise nothing says — refused rather than measured against an empty referent.
         text = "you gain 1 life for each +1/+1 counter on it"
-        specs = parse_effect_body(text, previous_subject=True)
+        specs = parse_effect_body(text, reading=ClauseReading(previous_subject=True))
         assert specs is not None
         assert [s.type for s in specs] == ["bind"]
         assert specs[0].params["amount"] == {
             "kind": "counters", "counter": "+1/+1", "of": "previous_target",
         }
-        specs = parse_effect_body(text, self_subject=True)
+        specs = parse_effect_body(text, reading=ClauseReading(self_subject=True))
         assert specs is not None and specs[0].params["amount"]["of"] == "source"
         assert parse_effect_body(text) is None
 

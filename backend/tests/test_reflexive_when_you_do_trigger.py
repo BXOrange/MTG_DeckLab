@@ -17,6 +17,7 @@ ordinary placement path gathers its target and puts it on the stack.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -56,7 +57,7 @@ def test_targeted_when_you_do_emits_then_trigger():
     specs = match_clause(
         "you may collect evidence 3. when you do, put a +1/+1 counter on target "
         "creature you control",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     )
     assert specs is not None and specs[0].type == "pay_cost_then"
     p = specs[0].params
@@ -70,7 +71,7 @@ def test_targeted_when_you_do_emits_then_trigger():
 
     # an *untargeted* follow-up still uses the plain off-stack `effects`
     plain = match_clause(
-        "you may collect evidence 3. when you do, you draw a card", self_subject=True
+        "you may collect evidence 3. when you do, you draw a card", reading=ClauseReading(self_subject=True)
     )
     assert plain is not None and "effects" in plain[0].params
     assert "then_trigger" not in plain[0].params

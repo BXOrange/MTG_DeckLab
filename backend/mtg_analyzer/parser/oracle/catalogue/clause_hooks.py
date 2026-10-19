@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from ..spec import EffectSpec, ParserProvenance
+from .clause_reading import STANDALONE, ClauseReading
 
 _UNREGISTERED = "clause hook {name!r} called before its defining module was imported"
 
@@ -61,46 +62,22 @@ def register_clause_matcher(
     _match_clause_once = match_clause_once
 
 
-def match_clause(
-    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
-    group_subject: bool = False, previous_selector: bool = False,
-    attached_subject: bool = False,
-) -> Optional[list[EffectSpec]]:
+def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     """`handlers.match_clause`."""
     assert _match_clause is not None, _UNREGISTERED.format(name="match_clause")
-    return _match_clause(
-        clause, self_subject=self_subject, previous_subject=previous_subject,
-        group_subject=group_subject, previous_selector=previous_selector,
-        attached_subject=attached_subject,
-    )
+    return _match_clause(clause, reading=reading)
 
 
-def match_clause_once(
-    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
-    group_subject: bool = False, previous_selector: bool = False,
-    attached_subject: bool = False,
-) -> Optional[list[EffectSpec]]:
+def match_clause_once(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     """`handlers._match_clause_once` (one pass over the table, without the group-trigger re-readings)."""
     assert _match_clause_once is not None, _UNREGISTERED.format(name="match_clause_once")
-    return _match_clause_once(
-        clause, self_subject=self_subject, previous_subject=previous_subject,
-        group_subject=group_subject, previous_selector=previous_selector,
-        attached_subject=attached_subject,
-    )
+    return _match_clause_once(clause, reading=reading)
 
 
-def parse_effect_body(
-    body: str, *, self_subject: bool = False, previous_subject: bool = False,
-    group_subject: bool = False, previous_selector: bool = False,
-    attached_subject: bool = False,
-) -> Optional[list[EffectSpec]]:
+def parse_effect_body(body: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     """`segmenter.parse_effect_body`."""
     assert _parse_effect_body is not None, _UNREGISTERED.format(name="parse_effect_body")
-    return _parse_effect_body(
-        body, self_subject=self_subject, previous_subject=previous_subject,
-        group_subject=group_subject, previous_selector=previous_selector,
-        attached_subject=attached_subject,
-    )
+    return _parse_effect_body(body, reading=reading)
 
 
 def segment_line(

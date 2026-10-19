@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
@@ -54,7 +55,7 @@ def test_treasure_scaled_damage_uses_the_live_treasure_count():
         treasure.controller_id = "p1"
         state.add_to_battlefield(treasure)
     effect = build_effects(parse_effect_body(
-        "this creature deals 2 damage to you for each Treasure you control", self_subject=True
+        "this creature deals 2 damage to you for each Treasure you control", reading=ClauseReading(self_subject=True)
     ), source)[0]
     effect.apply(GameContext(state, engine.rules))
     assert state.player_by_id("p1").life == 14
@@ -65,7 +66,7 @@ def test_unless_pay_damage_is_only_applied_when_payment_is_declined():
     engine, state = _engine()
     source = _source(state)
     effect = build_effects(parse_effect_body(
-        "this creature deals 8 damage to you unless you pay {G}{G}{G}{G}", self_subject=True
+        "this creature deals 8 damage to you unless you pay {G}{G}{G}{G}", reading=ClauseReading(self_subject=True)
     ), source)[0]
     effect.apply(GameContext(state, engine.rules))
     # No mana means no choice prompt; the ordinary "unless" consequence is

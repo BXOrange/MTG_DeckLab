@@ -18,14 +18,8 @@ from mtg_analyzer.parser.oracle.catalogue import handlers as H
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.models.cards.card import Card
 
-#: `match_clause` keyword flag -> the `EffectHandler` gate it unlocks.
-_GATES = {
-    "self_subject": "self_subject_only",
-    "previous_subject": "previous_subject_only",
-    "group_subject": "group_subject_only",
-    "previous_selector": "previous_selector_only",
-    "attached_subject": "attached_subject_only",
-}
+#: The `ClauseReading` facts an `EffectHandler.requires` can ask for.
+_FACTS = ("self_subject", "previous_subject", "group_subject", "previous_selector", "attached_subject")
 
 #: Same-clause/different-IR pairs that are order-dependent by design *beyond* the two declared mechanisms.
 #: Empty on purpose: add an entry only with a why-comment, and prefer `fallback_for`.
@@ -33,7 +27,7 @@ ALLOWED_CONFLICTS: dict[tuple[str, str], str] = {}
 
 
 def _gates(handler) -> set[str]:
-    return {g for g in _GATES.values() if getattr(handler, g)}
+    return {f for f in _FACTS if getattr(handler.requires, f)}
 
 
 def _ir(specs) -> str:
@@ -58,9 +52,9 @@ def test_no_two_eligible_rows_claim_one_clause_with_different_ir():
     seen: set[tuple[str, frozenset[str]]] = set()
     original = H._match_clause_once
 
-    def record(clause, **flags):
-        seen.add((clause, frozenset(_GATES[k] for k, v in flags.items() if v)))
-        return original(clause, **flags)
+    def record(clause, *, reading):
+        seen.add((clause, frozenset(f for f in _FACTS if getattr(reading, f))))
+        return original(clause, reading=reading)
 
     saved = dict(gate._PARSE_CACHE)
     gate._PARSE_CACHE.clear()  # a warm parse cache would never reach the handler table

@@ -6,6 +6,7 @@ import re
 
 from typing import Any, Optional
 from ..clause_hooks import parse_effect_body
+from ..clause_reading import ClauseReading
 from ..clause_primitives import TARGET_PARAM_KEYS
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..static_handlers import enter_as_copy_tail
@@ -1784,7 +1785,7 @@ ROWS: list[EffectHandler] = [
         "connive_self_pronoun",
         compile_clause(rf"(?:it|he|she) connives?{_CONNIVE_AMOUNT}"),
         _connive,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "that creature connives" — the previous-clause pronoun ("target
     # creature you control gains menace. That creature connives.").
@@ -1792,7 +1793,7 @@ ROWS: list[EffectHandler] = [
         "connive_previous",
         compile_clause(rf"(?:it|that creature) connives?{_CONNIVE_AMOUNT}"),
         _connive_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "each of x target creatures you control connive" (Change of Plans).
     EffectHandler(
@@ -1858,7 +1859,7 @@ ROWS: list[EffectHandler] = [
         "discover_spell_mv_previous_target",
         compile_clause(r"discover x, where x is that spell'?s mana value"),
         _discover_spell_mv_previous_target,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "discover_spell_mv",
@@ -1869,19 +1870,19 @@ ROWS: list[EffectHandler] = [
         "draw_spell_mv_previous_target",
         compile_clause(r"draws? cards? equal to that spell'?s mana value"),
         _draw_spell_mv_previous_target,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "create_token_xx_spell_mv_previous_target",
         _CREATE_TOKEN_XX_SPELL_MV_PREVIOUS_TARGET_RE,
         _create_token_xx_spell_mv_previous_target,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "create_named_token_xx_spell_mv_previous_target",
         _CREATE_NAMED_TOKEN_XX_SPELL_MV_PREVIOUS_TARGET_RE,
         _create_named_token_xx_spell_mv_previous_target,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "target creature [you control] explores" (RULE 701.44) — before the
     # bare/pronoun rows so its TARGET isn't stolen by a looser match.
@@ -1903,7 +1904,7 @@ ROWS: list[EffectHandler] = [
         "explore_self_pronoun",
         compile_clause(r"(?:it|he|she) explores"),
         _explore_self,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "that creature explores" — a creature an earlier clause of this same
     # resolution chose ("return target creature card … that creature
@@ -1912,7 +1913,7 @@ ROWS: list[EffectHandler] = [
         "explore_previous",
         compile_clause(r"(?:it|that creature) explores"),
         _explore_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "target creature you control endures N" (RULE 701.63a) — before the
     # bare/pronoun rows so its TARGET isn't stolen.
@@ -1941,7 +1942,7 @@ ROWS: list[EffectHandler] = [
         "endure_self_pronoun",
         compile_clause(r"(?:it|he|she) endures (?P<n>\d+)"),
         _endure_self,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "it endures N" / "that creature endures N" — a previous clause's pick.
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par29_endure.py (subject-shape coverage of the RULE 701.63 endure verb).
@@ -1949,7 +1950,7 @@ ROWS: list[EffectHandler] = [
         "endure_previous",
         compile_clause(r"(?:it|that creature) endures (?P<n>\d+)"),
         _endure_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "populate" (RULE 701.36a) — copy a creature token you control.
     EffectHandler(

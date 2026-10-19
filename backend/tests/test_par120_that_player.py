@@ -41,6 +41,7 @@ slice in `test_par120_referent_state.py`): +22, 0 regressed.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import re
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
@@ -106,7 +107,7 @@ def test_that_player_is_a_third_spelling_of_the_controller_referent():
 
 def test_that_player_loses_life_under_previous_subject():
     assert parse_effect_body(
-        "that player loses 1 life", previous_subject=True,
+        "that player loses 1 life", reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("lose_life", {"amount": 1, "player": _PREVIOUS_TARGET_CONTROLLER})]
 
 
@@ -115,7 +116,7 @@ def test_that_player_gains_life_under_group_subject_reads_the_entering_controlle
     # subject mode (`_group_its_controller_gains_life`), always naming
     # ``entering``'s controller rather than `previous_target`'s.
     assert parse_effect_body(
-        "that player gains 2 life", group_subject=True,
+        "that player gains 2 life", reading=ClauseReading(group_subject=True),
     ) == [EffectSpec("gain_life", {
         "amount": 2, "player": {"of": "entering", "as": "controller"},
     })]

@@ -12,6 +12,7 @@ the real ``RulesEngine.roll_die`` (events included) with a scripted ``random_int
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -103,14 +104,14 @@ def test_result_amount_sentences_bind_the_die_result():
         "scry a number of cards equal to the result": "scry",
     }
     for text, effect in cases.items():
-        [spec] = parse_effect_body(text, self_subject=True)
+        [spec] = parse_effect_body(text, reading=ClauseReading(self_subject=True))
         assert spec.type == "bind", text
         assert spec.params["amount"] == {"kind": "die_result"}, text
         assert spec.params["effects"][0]["type"] == effect, text
 
 
 def test_result_minus_one_floors_at_zero():
-    [spec] = parse_effect_body("~ gets +x/+0 until end of turn, where x is the result minus 1", self_subject=True)
+    [spec] = parse_effect_body("~ gets +x/+0 until end of turn, where x is the result minus 1", reading=ClauseReading(self_subject=True))
     assert spec.params["amount"] == {"kind": "die_result", "minus": 1, "minimum": 0}
 
 
@@ -125,7 +126,7 @@ def test_that_result_is_not_read_as_the_sum():
 
 
 def _gate(text):
-    [spec] = parse_effect_body(text, self_subject=True)
+    [spec] = parse_effect_body(text, reading=ClauseReading(self_subject=True))
     return spec.condition
 
 
@@ -912,6 +913,6 @@ def test_spiked_pit_trap_damages_the_announced_creature_and_pays_out_a_treasure(
 
 
 def test_damage_to_that_creature_needs_an_earlier_target():
-    [spec] = parse_effect_body("~ deals 5 damage to that creature", previous_subject=True)
+    [spec] = parse_effect_body("~ deals 5 damage to that creature", reading=ClauseReading(previous_subject=True))
     assert spec.params["recipient_subject"] == "previous_subject_object"
     assert parse_effect_body("~ deals 5 damage to that creature") is None  # no earlier target to name

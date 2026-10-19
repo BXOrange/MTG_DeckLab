@@ -440,12 +440,12 @@ def test_pump_multi_target_without_keyword_is_recognized():
 
 def test_untap_previous_group_requires_a_preceding_multi_target_clause():
     # Not offered in isolation — only reachable after a real multi-target
-    # announcement (`EffectHandler.previous_subject_only`), same gate
+    # announcement (`EffectHandler.requires.previous_subject`), same gate
     # `_return_previous_group` uses.
     from mtg_analyzer.parser.oracle.catalogue.handlers import HANDLERS
 
     handler = next(h for h in HANDLERS if h.name == "untap_previous_group")
-    assert handler.previous_subject_only is True
+    assert handler.requires.previous_subject is True
 
 
 def test_aerial_formation_is_fully_modeled():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ..clause_reading import ClauseReading
 from typing import Optional
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
@@ -30,7 +31,6 @@ from .shared import (
     creature_quality_filter,
     EffectHandler,
     except_by_restriction,
-    GROUP_CLAUSE,
     MULTI_TARGET_ALT,
     multi_target_params,
     MULTI_TARGET_QUANTIFIER,
@@ -89,7 +89,7 @@ def _counter_kind_and_multiplier(token: str) -> tuple[str, int]:
 
 
 def _add_counters_target_params(
-    m: re.Match[str], params: dict, include_optional: bool = True
+    m: re.Match[str], params: dict, reading: ClauseReading, include_optional: bool = True
 ) -> Optional[list[EffectSpec]]:
     """The shared selfref-or-target tail every ``add_counters`` builder below
     shares: "on ~" buffs the source untargeted; otherwise the target phrase
@@ -100,7 +100,7 @@ def _add_counters_target_params(
     (`_add_counters_from_trigger_amount`) whose regex has no "up to" group to
     read."""
     if m.groupdict().get("selfref"):
-        if GROUP_CLAUSE.get() and m.group("selfref").lower() == "it":
+        if reading.group_clause and m.group("selfref").lower() == "it":
             # Under a group trigger a bare "it" is the firing object, not the ability's source
             # (PAR-123) — the group readings own it; the source is only ever named ("~").
             return None
@@ -147,7 +147,7 @@ def _add_counters_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
-def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _add_counters(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
     count = count_or_x_of(m.group("n"))
     if count == "x":
@@ -156,7 +156,7 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params: dict = {"count": "x", "kind": kind}
     else:
         params = {"count": count * mag, "kind": kind}
-    return _add_counters_target_params(m, params)
+    return _add_counters_target_params(m, params, reading)
 
 
 _TRANSFER_EVENT_COUNTERS_RE = compile_clause(
@@ -280,12 +280,12 @@ _ADD_COUNTERS_DEVOTION_RE = compile_clause(
 )
 
 
-def _add_counters_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _add_counters_devotion(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     dsel = devotion_selector(m)
     if not dsel:
         return None
     params: dict = {"amount_from_count_selector": dsel, "kind": counter_sign(m.group("ckind"))}
-    return _add_counters_target_params(m, params, include_optional=False)
+    return _add_counters_target_params(m, params, reading, include_optional=False)
 #: `COUNT_X` (not the plain `COUNT`) so an {X}-costed activated ability's
 #: own "put X charge counters on ~" (Blast Zone, Ventifact Bottle — PAR-47)
 #: is recognized too: the "x" token becomes `EffectSpec`'s literal ``"x"``
@@ -344,9 +344,9 @@ def _add_loyalty_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("add_counters", {"count": count_or_x_of(m.group("n")), "kind": "loyalty"})]
 
 
-def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _add_named_counter(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     params: dict = {"count": count_or_x_of(m.group("n")), "kind": m.group("ckind")}
-    return _add_counters_target_params(m, params)
+    return _add_counters_target_params(m, params, reading)
 
 
 #: MEC-108: "put a +1/+1 counter and a lifelink counter on target creature" /
@@ -364,7 +364,7 @@ _ADD_COUNTER_LIST_RE = compile_clause(
 )
 
 
-def _add_counter_list(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _add_counter_list(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     parts = list(_COUNTER_LIST_PART_RE.finditer(m.group("items")))
     if len(parts) < 2:
         return None
@@ -374,7 +374,7 @@ def _add_counter_list(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         kind, mag = _counter_kind_and_multiplier(token) if token[0] in "+-−" else (token, 1)
         params: dict = {"count": count_or_x_of(part.group("n")) * mag, "kind": kind}
         if index == 0:
-            built = _add_counters_target_params(m, params)
+            built = _add_counters_target_params(m, params, reading)
             if built is None:
                 return None
             specs.extend(built)
@@ -418,11 +418,11 @@ _ADD_COUNTER_CHOICE_RE = compile_clause(
 )
 
 
-def _add_counter_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _add_counter_choice(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     options = parse_counter_choice_items(m.group("items"))
     if options is None:
         return None
-    return _add_counters_target_params(m, {"kind_options": options})
+    return _add_counters_target_params(m, {"kind_options": options}, reading)
 
 
 #: MEC-108: "remove a menace counter from ~" / "remove 2 charge counters from
@@ -435,8 +435,8 @@ _REMOVE_NAMED_COUNTER_SELF_RE = compile_clause(
 )
 
 
-def _remove_named_counter_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    if GROUP_CLAUSE.get() and m.group("selfref").lower() == "it":
+def _remove_named_counter_self(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_clause and m.group("selfref").lower() == "it":
         return None  # under a group trigger a bare "it" is the firing object, not the source
     ckind = m.group("ckind")
     kind = "+1/+1" if ckind[0] == "+" else ("-1/-1" if ckind[0] in "-−" else ckind)
@@ -445,9 +445,9 @@ def _remove_named_counter_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
-def _add_counters_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _add_counters_from_trigger_amount(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     params: dict = {"kind": counter_sign(m.group("ckind")), "amount_from_trigger_event": "amount"}
-    return _add_counters_target_params(m, params, include_optional=False)
+    return _add_counters_target_params(m, params, reading, include_optional=False)
 
 
 #: "~ gets +X/+X until end of turn, where X is the amount of life you
@@ -1113,7 +1113,7 @@ ROWS: list[EffectHandler] = [
     # number of Elves you control." — tried before the plain `add_counters`
     # row below since "x" never matches that row's `{COUNT}` (digit/"a"/"an"
     # only).
-    EffectHandler("add_counters_devotion", _ADD_COUNTERS_DEVOTION_RE, _add_counters_devotion),
+    EffectHandler("add_counters_devotion", _ADD_COUNTERS_DEVOTION_RE, _add_counters_devotion, reading_aware=True),
     # "put a +1/+1 counter on target suspected creature you control" (PAR-29)
     # — tried before the plain `add_counters` row below, whose `TARGET`
     # alternation has no "suspected" adjective row.
@@ -1147,7 +1147,7 @@ ROWS: list[EffectHandler] = [
         "add_counters_group_subject_it",
         _ADD_COUNTERS_GROUP_SUBJECT_IT_RE,
         _add_counters_group_subject_it,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     # Longstalk Brawl: a preceding "choose target creature you control and
     # target creature you don't control" already announced the pair.  "The
@@ -1163,7 +1163,7 @@ ROWS: list[EffectHandler] = [
             "kind": _counter_kind_and_multiplier(m.group("ckind"))[0],
             "previous_subject": True,
         })],
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "Manifest dread, then put three +1/+1 counters on **that creature**." (Weight Room, Slimy Aquarium) — the object a
     # preceding create/manifest clause left (`created_objects`), named "that creature" rather than "it".
@@ -1178,7 +1178,7 @@ ROWS: list[EffectHandler] = [
             "kind": _counter_kind_and_multiplier(m.group("ckind"))[0],
             "previous_subject": True,
         })],
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
     # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter
@@ -1195,6 +1195,7 @@ ROWS: list[EffectHandler] = [
             rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT}))"
         ),
         _add_counters,
+        reading_aware=True,
     ),
     EffectHandler("transfer_event_counters", _TRANSFER_EVENT_COUNTERS_RE,
                   _transfer_event_counters),
@@ -1205,6 +1206,7 @@ ROWS: list[EffectHandler] = [
         "add_named_counter",
         _ADD_NAMED_COUNTER_RE,
         _add_named_counter,
+        reading_aware=True,
     ),
     # RULE 306.5b / 122.1: "put a loyalty counter on ~" (Ral, Crackling Wit; Ajani Resolute; Lolth) — a planeswalker's own
     # loyalty is a counter kind the engine keys off (`add_counters` kind ``loyalty``), so it is reserved from the
@@ -1213,9 +1215,11 @@ ROWS: list[EffectHandler] = [
     EffectHandler("opponent_chooses_then", _OPPONENT_CHOOSES_THEN_RE, _opponent_chooses_then),
     EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
     EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),
-    EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list),
-    EffectHandler("add_counter_choice", _ADD_COUNTER_CHOICE_RE, _add_counter_choice),
-    EffectHandler("remove_named_counter_self", _REMOVE_NAMED_COUNTER_SELF_RE, _remove_named_counter_self),
+    EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list, reading_aware=True),
+    EffectHandler("add_counter_choice", _ADD_COUNTER_CHOICE_RE, _add_counter_choice, reading_aware=True),
+    EffectHandler(
+        "remove_named_counter_self", _REMOVE_NAMED_COUNTER_SELF_RE, _remove_named_counter_self, reading_aware=True,
+    ),
     # "whenever you gain life, put that many +1/+1 counters on ~/target
     # creature" (Ageless Entity/Karlov-adjacent lifegain payoffs) — tried
     # before the plain `add_counters` row above so its "that many" wins
@@ -1235,7 +1239,8 @@ ROWS: list[EffectHandler] = [
             rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT}))"
         ),
         _add_counters_from_trigger_amount,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
+        reading_aware=True,
     ),
     EffectHandler(
         "add_counters_spell_mv", _ADD_COUNTERS_SPELL_MV_RE, _add_counters_spell_mv,
@@ -1247,7 +1252,7 @@ ROWS: list[EffectHandler] = [
         "pump_self_from_life_gained",
         _PUMP_SELF_FROM_LIFE_GAINED_RE,
         _pump_self_from_life_gained,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # ENG-32: "~ / creatures you control ha[s|ve] base power and toughness
     # N/M until end of turn" (Flexible Waterbender / Katara, Water Tribe's
@@ -1380,12 +1385,12 @@ ROWS: list[EffectHandler] = [
     EffectHandler("cant_be_regenerated_target", _CANT_BE_REGENERATED_TARGET_RE, _cant_be_regenerated_target),
     EffectHandler(
         "cant_be_regenerated_prev", _CANT_BE_REGENERATED_PREV_RE, _cant_be_regenerated_prev,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler("cant_be_regenerated_hit", _CANT_BE_REGENERATED_HIT_RE, _cant_be_regenerated_hit),
     EffectHandler(
         "cant_be_regenerated_related", _CANT_BE_REGENERATED_RELATED_RE, _cant_be_regenerated_related,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "cant_block_this_turn_multi",

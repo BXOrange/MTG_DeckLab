@@ -13,6 +13,7 @@ of them at all (only `EnterAsCopyReplacement` did).
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import CopyPermanentEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
@@ -213,7 +214,7 @@ def test_copy_permanent_previous_clause_parses_with_referent_previous():
     from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 
     effects = match_clause(
-        "create a token that's a copy of that card", previous_subject=True
+        "create a token that's a copy of that card", reading=ClauseReading(previous_subject=True)
     )
     assert effects is not None
     assert effects[0].type == "copy_permanent"
@@ -236,7 +237,7 @@ def test_copy_permanent_previous_clause_with_compound_except_tail():
     effects = match_clause(
         "create a token that's a copy of it, except it's not legendary and "
         "it's an artifact in addition to its other types",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     )
     assert effects is not None
     params = effects[0].params

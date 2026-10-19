@@ -63,6 +63,7 @@ Front-End" PAR-74 entry.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -202,7 +203,7 @@ def test_typed_cast_trigger_self_subject_reference_now_reaches_self_only_rows():
     # choice" grant) is only offered when the caller passes self_subject.
     assert parse_effect_body(
         "~ gains protection from the color of your choice until end of turn",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("grant_protection", {"target_kind": None})]
 
 
@@ -226,7 +227,7 @@ def test_typed_cast_trigger_subtype_color_branches_still_work():
 
 
 def test_forestwalk_grant_until_end_of_turn():
-    assert parse_effect_body("~ gains forestwalk until end of turn", self_subject=True) == [
+    assert parse_effect_body("~ gains forestwalk until end of turn", reading=ClauseReading(self_subject=True)) == [
         EffectSpec("pump", {"keywords": ["forestwalk"]})
     ]
 
@@ -234,7 +235,7 @@ def test_forestwalk_grant_until_end_of_turn():
 def test_bare_landwalk_still_fails_closed():
     # RULE 702.14's own bare "landwalk" (no land type) stays unclaimed —
     # same discipline `static_handlers._flag_keywords` already applies.
-    assert parse_effect_body("~ gains landwalk until end of turn", self_subject=True) is None
+    assert parse_effect_body("~ gains landwalk until end of turn", reading=ClauseReading(self_subject=True)) is None
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +246,7 @@ def test_bare_landwalk_still_fails_closed():
 def test_each_other_creature_you_control_pump_group():
     assert parse_effect_body(
         "each other creature you control gets +1/+1 and gains trample until end of turn",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("pump", {
         "power": 1, "toughness": 1, "keywords": ["trample"],
         "selector": "other_creatures_you_control",
@@ -259,7 +260,7 @@ def test_each_other_creature_you_control_pump_group():
 
 def test_animate_self_with_subtype_and_type_qualifiers():
     assert parse_effect_body(
-        "~ becomes a 4/4 spirit artifact creature until end of turn", self_subject=True,
+        "~ becomes a 4/4 spirit artifact creature until end of turn", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("grant_until", {
         "duration": "end_of_turn", "target_kind": None,
         "static": {
@@ -353,7 +354,7 @@ def test_search_aura_card_with_enchant_creature():
     assert parse_effect_body(
         "search your library for an aura card with enchant creature, "
         "reveal it, put it into your hand, then shuffle",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("search", {"criteria": {"type": "Aura"}, "destination": "hand"})]
 
 
@@ -367,7 +368,7 @@ def test_reveal_top_all_land_cards_to_hand():
         "reveal the top 3 cards of your library. put all land cards "
         "revealed this way into your hand and the rest on the bottom of "
         "your library in any order",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("inspect_top_choose", {
         "count": 3, "action": "library_to_hand", "max_picks": "all", "optional": False,
         "criteria": {"type": "land"}, "rest_destination": "library_bottom_random",
@@ -409,7 +410,7 @@ def test_reveal_top_all_land_cards_executes_and_takes_every_land():
 
 def test_destroy_all_with_that_spells_mana_value_parses():
     assert parse_effect_body(
-        "destroy all permanents with that spell's mana value", self_subject=True,
+        "destroy all permanents with that spell's mana value", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("destroy", {
         "selector": "all_permanents", "filter": {"mana_value_from_trigger_event": True},
     })]
@@ -440,7 +441,7 @@ def test_destroy_all_with_that_spells_mana_value_executes():
 def test_discard_all_with_that_spells_mana_value_parses():
     assert parse_effect_body(
         "target player reveals their hand and discards all cards with "
-        "that spell's mana value", self_subject=True,
+        "that spell's mana value", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("discard", {
         "target_kind": "player", "filter": {"mana_value_from_trigger_event": True},
     })]
@@ -530,7 +531,7 @@ def test_counter_subtype_any_only_targets_matching_spells():
 
 
 def test_sacrifice_self_if_you_do_draw_collapses_to_a_plain_sequence():
-    assert parse_effect_body("sacrifice ~. if you do, draw a card.", self_subject=True) == [
+    assert parse_effect_body("sacrifice ~. if you do, draw a card.", reading=ClauseReading(self_subject=True)) == [
         EffectSpec("sacrifice_self", {}), EffectSpec("draw", {"count": 1}),
     ]
 
@@ -562,7 +563,7 @@ def test_exile_self_if_you_do_delayed_return_parses():
     assert parse_effect_body(
         "exile ~. if you do, return it to the battlefield under its "
         "owner's control at the beginning of the next end step",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     ) == [
         EffectSpec("blink", {"subject": "source", "return_step": "end", "return_scope": "any"}),
     ]

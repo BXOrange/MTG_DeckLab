@@ -34,6 +34,7 @@ one `{DEVOTION}` amount across two effects in printed order.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import re
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -183,7 +184,7 @@ def test_target_pump_with_count_phrase_is_modeled():
 def test_self_subject_count_phrase_pump_parses():
     effects = parse_effect_body(
         "it gets +x/+x until end of turn, where x is the number of creatures you control",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     )
     assert effects is not None
     assert len(effects) == 1

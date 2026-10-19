@@ -11,6 +11,7 @@ rather than the spell itself.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import FightEffect
 from mtg_analyzer.game.game_engine import GameEngine
@@ -241,7 +242,7 @@ def test_a_pronoun_fight_is_only_claimed_when_it_means_the_source():
     creature in a spell's chained sentences."""
     clause = "it fights target creature you don't control"
     assert match_clause(clause) is None
-    assert match_clause(clause, self_subject=True) is not None
+    assert match_clause(clause, reading=ClauseReading(self_subject=True)) is not None
 
 
 def test_epic_confrontations_pronoun_binds_to_the_previous_clauses_target():

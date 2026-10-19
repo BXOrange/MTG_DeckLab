@@ -13,6 +13,7 @@ kinds so "tap target creature **an opponent controls**" parses at all.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -27,10 +28,10 @@ def test_clause_forms():
         "target creature doesn't untap during its controller's next untap step"
     ) == [EffectSpec("skip_next_untap", {"target_kind": "creature"})]
     assert match_clause(
-        "it doesn't untap during its controller's next untap step", previous_subject=True
+        "it doesn't untap during its controller's next untap step", reading=ClauseReading(previous_subject=True)
     ) == [EffectSpec("skip_next_untap", {"previous_subject": True})]
     assert match_clause(
-        "~ doesn't untap during your next untap step", self_subject=True
+        "~ doesn't untap during your next untap step", reading=ClauseReading(self_subject=True)
     ) == [EffectSpec("skip_next_untap", {"target_kind": None})]
 
 

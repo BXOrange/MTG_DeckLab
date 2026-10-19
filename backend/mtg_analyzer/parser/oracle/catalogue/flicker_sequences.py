@@ -1,6 +1,7 @@
 """Factor exile target × return timing × entry instruction for bounded flickers."""
 from __future__ import annotations
 import re
+from .clause_reading import STANDALONE, ClauseReading
 from ..spec import EffectSpec
 from .counters import COUNTER_KIND_PATTERN
 from .clause_hooks import parse_effect_body
@@ -64,7 +65,7 @@ def delayed_dying_return_specs(body):
     schedule = _SCHEDULE.search(body)
     if schedule is None or body[schedule.end():].strip(' .'):
         return None
-    returned = parse_effect_body(body[:schedule.start()].strip().rstrip('.'), self_subject=True)
+    returned = parse_effect_body(body[:schedule.start()].strip().rstrip('.'), reading=ClauseReading(self_subject=True))
     if not returned or len(returned) != 1 or returned[0].type != 'return_self_to_battlefield':
         return None
     params = dict(returned[0].params)
@@ -98,7 +99,7 @@ def _rider_specs(text, *, live_returned=True):
     # Reuse the ordinary previous-subject grammar; a return receipt is the
     # antecedent even when the rider has no preceding target clause.
     text = re.sub(r'^(tap|untap) it$', r'\1 that permanent', text)
-    specs = parse_effect_body(text, previous_subject=True)
+    specs = parse_effect_body(text, reading=ClauseReading(previous_subject=True))
     specs = stamp_counters_on_referent(text, specs) if specs else specs
     if not specs and live_returned:
         # Here the previous subject is a freshly returned permanent,
@@ -107,7 +108,7 @@ def _rider_specs(text, *, live_returned=True):
         matched = re.fullmatch(rf'if (?P<condition>{TYPE_CONDITION_PATTERN}), (?P<body>.+)', text)
         if matched is not None and not matched['neg'].startswith('was'):
             condition = parse_referent_condition(matched['condition'])
-            inner = parse_effect_body(matched['body'], previous_subject=True)
+            inner = parse_effect_body(matched['body'], reading=ClauseReading(previous_subject=True))
             def returned_subject(value):
                 if value['kind'] in {'all', 'any'}:
                     return {**value, 'conditions': [returned_subject(v) for v in value['conditions']]}
@@ -134,7 +135,7 @@ def _rider_specs(text, *, live_returned=True):
     return [s.to_dict() for s in specs] if all(safe(s.to_dict()) for s in specs) else None
 
 
-def flicker_sequence_specs(body, *, self_subject=False):
+def flicker_sequence_specs(body, *, reading: ClauseReading = STANDALONE):
     """Only claim a complete exile/return instruction with understood riders.
 
     The target grammar is the existing exile builder; a future combination
@@ -144,7 +145,7 @@ def flicker_sequence_specs(body, *, self_subject=False):
         return None
     deferred = _DEFERRED_SOURCE_EXILE.fullmatch(body)
     if deferred is not None:
-        if deferred['subject'] not in {'~', 'this saga'} and not self_subject:
+        if deferred['subject'] not in {'~', 'this saga'} and not reading.self_subject:
             return None
         timing = _SCHEDULE.fullmatch(deferred['when'])
         if deferred['when'] == 'at end of combat':
@@ -168,7 +169,7 @@ def flicker_sequence_specs(body, *, self_subject=False):
     if split is None:
         return None
     subject = split['subject']
-    if subject == 'this saga' or (self_subject and subject in {'it', 'him', 'her'}):
+    if subject == 'this saga' or (reading.self_subject and subject in {'it', 'him', 'her'}):
         subject = '~'
     event_group = re.fullmatch(r'each creature that (?P<action>crewed|saddled) (?:it|~) this turn', subject)
     if event_group:

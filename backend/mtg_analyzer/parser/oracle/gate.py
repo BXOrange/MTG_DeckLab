@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import re
+from .catalogue.clause_reading import ClauseReading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -1461,8 +1462,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         for index, (lo, hi, body) in enumerate(_expand_of_those_tokens(stripped_rows)):
             # "it" in a row is whatever the header established: a chosen target, else the ability's own source.
             body_specs = parse_effect_body(body) or (
-                parse_effect_body(body, previous_subject=True) if referent
-                else parse_effect_body(body, self_subject=True) if self_referent else None
+                parse_effect_body(body, reading=ClauseReading(previous_subject=True)) if referent
+                else parse_effect_body(body, reading=ClauseReading(self_subject=True)) if self_referent else None
             )
             if body_specs is None or any(_announces_target(s) for s in body_specs):
                 _fail()

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import contextvars
 import re
 
+from ..clause_reading import STANDALONE, ClauseReading
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
@@ -48,69 +48,30 @@ class EffectHandler:
 
     name: str
     regex: re.Pattern[str]
-    build: Callable[[re.Match[str]], Optional[list[EffectSpec]]]
-    #: A row whose clause says "**it**" about the ability's own source ("when
-    #: ~ enters, it fights …"). English writes that pronoun the same way when
-    #: it means something else entirely — a *previously targeted* creature
-    #: ("target creature you control gets +1/+2 until end of turn. it fights
-    #: target creature you don't control.", Epic Confrontation) — and a clause
-    #: alone can't tell the two apart. So such a row is only offered when the
-    #: caller states that the implicit subject really is the source
-    #: (`match_clause`'s ``self_subject``, set by `segmenter.segment_line` for
-    #: an unsplit self-subject trigger body). Claiming it blind would model
-    #: Epic Confrontation as "the *sorcery* fights", which resolves to
-    #: nothing at all — exactly the half-modeling the coverage gate exists to
-    #: prevent.
-    self_subject_only: bool = False
-    #: The mirror image: a row whose clause says "it"/"that creature" about
-    #: the creature an **earlier clause of the same ability** chose ("target
-    #: creature you control gets +1/+2 until end of turn. **It** fights target
-    #: creature you don't control."). Offered only when `segmenter.
-    #: parse_effect_body` has actually parsed such a clause immediately before
-    #: this one *and* it announced a creature target, so the referent really
-    #: exists at resolution (`GameContext.previous_targets`). Never on at the
-    #: same time as ``self_subject_only``: an unsplit trigger body has no
-    #: earlier clause to point at, and a later part of a split body has no
-    #: guarantee the pronoun still means the source.
-    previous_subject_only: bool = False
-    #: MEC-28: a row whose clause says "it"/"that creature" about *whichever
-    #: object matched* a RULE 603.1 group-subject trigger condition
-    #: ("whenever a creature you control attacks alone, … untap **that
-    #: creature**.", Finest Hour-shaped) — a third, genuinely different
-    #: pronoun referent from both flags above: not the ability's own source
-    #: (`self_subject_only`), and not a creature an *earlier clause of this
-    #: same body* picked (`previous_subject_only`), but the specific object
-    #: that satisfied the trigger, which varies every firing. Offered only
-    #: when the caller states the trigger really has a ``{"subject":
-    #: "group"}`` condition; `effect_binder._retarget_implicit_subject_
-    #: effects` is what turns the resulting ``target_kind: None`` into a
-    #: live per-firing read at bind time.
-    group_subject_only: bool = False
-    #: MEC-28: a row whose clause says "they" about the *group a mass
-    #: selector in the immediately preceding clause of this same body just
-    #: acted on* ("untap all attacking creatures. **They** gain first
-    #: strike until end of turn.", Karlach, Fury of Avernus-shaped) —
-    #: distinct from `previous_subject_only`, which reads `GameContext.
-    #: previous_targets` (a RULE 115 targeted group); a mass selector
-    #: ("all attacking creatures") is untargeted (RULE 601.2c) and never
-    #: populates that list. Offered only when the preceding split clause's
-    #: own spec actually used a recognised group selector (`segmenter.
-    #: _announces_group_selector`).
-    previous_selector_only: bool = False
-    #: PAR-117 (attached-permanent-controller residue): a row whose clause
-    #: says "its controller `<verb>`" about RULE 303.4/301.5's *attached
-    #: host* ("whenever enchanted creature attacks or blocks, its controller
-    #: loses N life.", Contaminated Bond-shaped) — a fourth, genuinely
-    #: different pronoun referent from all three above: not the ability's own
-    #: source, not an earlier clause's chosen target, and not a RULE 603.1
-    #: group-trigger's firing object, but the permanent this Aura/Equipment
-    #: is attached to, a fact about the trigger's own subject the same way
-    #: ``group_subject_only`` is. Offered only when the caller states the
-    #: trigger really has a ``{"subject": "attached_permanent"}`` condition;
-    #: reads through `effect_conditions.subject_of("attached", ...)`, the
-    #: `game/effect_operands.py` ``{"of": "attached", "as": "controller"}``
-    #: referent.
-    attached_subject_only: bool = False
+    build: Callable[..., Optional[list[EffectSpec]]]
+    #: The reading facts this row needs (`ClauseReading.satisfies`); a row is offered only when the clause is being
+    #: read under all of them. Bare pronouns mean different objects under different readings, and a clause alone
+    #: cannot tell them apart, so a pronoun row declares the reading it serves rather than claiming blind:
+    #:   * ``self_subject``: "**it**" is the ability's own source ("when ~ enters, it fights …"). English writes
+    #:     that pronoun the same way for a *previously targeted* creature ("target creature you control gets
+    #:     +1/+2 until end of turn. it fights …", Epic Confrontation), so the row is offered only when the caller
+    #:     states the implicit subject really is the source (`segment_line`, an unsplit self-subject trigger
+    #:     body). Claiming it blind would model Epic Confrontation as "the *sorcery* fights".
+    #:   * ``previous_subject``: "it"/"that creature" is what an **earlier clause of the same ability** chose
+    #:     (`GameContext.previous_targets`); offered only when `parse_effect_body` has just parsed such a clause
+    #:     and it announced a creature target. Never together with ``self_subject``.
+    #:   * ``group_subject`` (MEC-28): "it"/"that creature" is whichever object matched a RULE 603.1 group-subject
+    #:     trigger condition, varying every firing (`effect_binder._retarget_implicit_subject_effects` turns the
+    #:     resulting ``target_kind: None`` into a live per-firing read).
+    #:   * ``previous_selector`` (MEC-28): "they" is the group a mass selector in the preceding clause acted on
+    #:     (untargeted, so never in `previous_targets`; `segmenter._announces_group_selector`).
+    #:   * ``attached_subject`` (PAR-117): "its" is RULE 303.4/301.5's attached host (the trigger condition is
+    #:     ``{"subject": "attached_permanent"}``); read through `effect_conditions.subject_of("attached", ...)`.
+    requires: ClauseReading = STANDALONE
+    #: A builder that must see the reading it runs under takes it as a second argument (``build(m, reading)``) --
+    #: for the few that re-enter the table (`match_clause_once`) or branch on ``reading.group_clause`` -- instead of
+    #: reading a global. Every other builder takes the match alone.
+    reading_aware: bool = False
     #: PAR-169: names the rows this one is the *fallback* for. ``HANDLERS`` order is semantics (the first row to
     #: claim a clause wins), and where a generalized grammar and an older, narrower-vocabulary row both claim a
     #: clause with different IR, the older row is kept only for the clauses the primary declines. Declaring it
@@ -119,7 +80,7 @@ class EffectHandler:
     #: context-gated row preceding an ungated one).
     fallback_for: tuple[str, ...] = ()
 
-    def match(self, clause: str) -> Optional[list[EffectSpec]]:
+    def match(self, clause: str, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
         """Effects for ``clause`` if this handler claims it whole, else ``None``.
 
         A builder may still return ``None`` after a regex match (e.g. an
@@ -129,7 +90,7 @@ class EffectHandler:
         m = self.regex.fullmatch(clause.strip())
         if m is None:
             return None
-        specs = self.build(m)
+        specs = self.build(m, reading) if self.reading_aware else self.build(m)
         if specs is not None and not _target_qualities_kept(m, specs):
             return None
         return specs
@@ -1071,7 +1032,7 @@ def pump_(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def temporary_keyword_change(
-    m: re.Match[str], *, previous_subject: bool = False,
+    m: re.Match[str], *, previous_referent: bool = False,
 ) -> Optional[list[EffectSpec]]:
     """Layer-6 keyword gains/removals that last until cleanup (MEC-105).
 
@@ -1093,7 +1054,7 @@ def temporary_keyword_change(
     if removed is None:
         return None
     params["removed_keywords"] = removed
-    if previous_subject:
+    if previous_referent:
         params["previous_subject"] = True
         return [EffectSpec("pump", params)]
     subject = pump_target(m)
@@ -1306,21 +1267,21 @@ BIA_KEYWORD_LIST = rf"(?:{BIA_KEYWORD})(?:(?:, and |, | and )(?:{BIA_KEYWORD}))*
 #: PAR-121: the subject-scope slot of a verb. A clause whose subject is a bare pronoun ("it"/"that creature") means
 #: a different object under each kind of ability — the source (``self``), an earlier clause's pick (``previous``),
 #: the creature a group trigger fired for (``group``), an Aura/Equipment's host (``attached``) — and
-#: `EffectHandler` gates each reading with its own flag. A verb used to register one near-identical row per
+#: `EffectHandler` gates each reading with its own `requires`. A verb used to register one near-identical row per
 #: reading; `_subject_handlers` declares it once: ``(row name, subject, regex, builder)`` per reading.
-_SUBJECT_FLAGS: dict[str, dict[str, bool]] = {
-    "any": {},
-    "self": {"self_subject_only": True},
-    "previous": {"previous_subject_only": True},
-    "group": {"group_subject_only": True},
-    "attached": {"attached_subject_only": True},
+_SUBJECT_REQUIRES: dict[str, ClauseReading] = {
+    "any": STANDALONE,
+    "self": ClauseReading(self_subject=True),
+    "previous": ClauseReading(previous_subject=True),
+    "group": ClauseReading(group_subject=True),
+    "attached": ClauseReading(attached_subject=True),
 }
 
 
 def subject_handlers(
     rows: "list[tuple[str, str, re.Pattern[str], Callable[[re.Match[str]], Optional[list[EffectSpec]]]]]",
 ) -> list[EffectHandler]:
-    return [EffectHandler(name, regex, build, **_SUBJECT_FLAGS[subject]) for name, subject, regex, build in rows]
+    return [EffectHandler(name, regex, build, requires=_SUBJECT_REQUIRES[subject]) for name, subject, regex, build in rows]
 
 
 #: "that creature's controller" / "that land's power" — under a group trigger the same possessive
@@ -1340,24 +1301,15 @@ _OTHER_THAN_THAT_RE = re.compile(rf"\s+other than (?:it|that {PRONOUN_NOUN_ALT})
 _PLURAL_PRONOUN_RE = re.compile(r"\b(?:those|them|they|these|each of)\b")
 
 
-#: Whether the clause `match_clause` is reading right now sits under a group trigger — for the
-#: builders (`_pay_cost_then_general`) that parse a sub-clause of their own and must give it the
-#: same reading, and are handed only a regex match.
-GROUP_CLAUSE: contextvars.ContextVar[bool] = contextvars.ContextVar("par123_group_clause", default=False)
-
-
 def match_clause_reading(
-    clause: str, *, self_subject: bool, previous_subject: bool, group_subject: bool,
-    previous_selector: bool, attached_subject: bool,
+    clause: str, *, reading: ClauseReading,
 ) -> Optional[list[EffectSpec]]:
-    other_than = _OTHER_THAN_THAT_RE.search(clause) if group_subject else None
+    other_than = _OTHER_THAN_THAT_RE.search(clause) if reading.group_subject else None
     if other_than is not None:
         # "put a +1/+1 counter on target creature you control **other than that creature**": the
         # firing object is excluded from the choice, whatever verb the clause has.
         effects = match_clause_reading(
-            clause[:other_than.start()], self_subject=self_subject, previous_subject=previous_subject,
-            group_subject=group_subject, previous_selector=previous_selector,
-            attached_subject=attached_subject,
+            clause[:other_than.start()], reading=reading,
         )
         if effects is None or not any(e.params.get("target_kind") for e in effects):
             return None
@@ -1366,24 +1318,20 @@ def match_clause_reading(
             if e.params.get("target_kind") else e
             for e in effects
         ]
-    if group_subject and _THAT_CREATURE_RE.search(clause) is None:
+    if reading.group_subject and _THAT_CREATURE_RE.search(clause) is None:
         # "that hero"/"that sliver" under a group trigger for that subtype is "that creature" —
         # unless the clause also says "that creature", which would then be a *second* object
         # ("that archer deals that much damage to that creature's controller").
         clause = _THAT_SUBTYPE_RE.sub("that creature", clause)
-    effects = match_clause_once(
-        clause, self_subject=self_subject, previous_subject=previous_subject,
-        group_subject=group_subject, previous_selector=previous_selector,
-        attached_subject=attached_subject,
-    )
-    if effects is None and group_subject and _THAT_OBJECTS_POSSESSIVE_RE.search(clause):
+    effects = match_clause_once(clause, reading=reading)
+    if effects is None and reading.group_subject and _THAT_OBJECTS_POSSESSIVE_RE.search(clause):
         clause = _THAT_OBJECTS_POSSESSIVE_RE.sub("its", clause)
-        effects = match_clause_once(clause, group_subject=True)
-    if effects is None and group_subject and not previous_subject and _PLURAL_PRONOUN_RE.search(clause) is None:
-        effects = match_clause_once(clause, previous_subject=True)
+        effects = match_clause_once(clause, reading=reading.only(group_subject=True))
+    if effects is None and reading.group_subject and not reading.previous_subject and _PLURAL_PRONOUN_RE.search(clause) is None:
+        effects = match_clause_once(clause, reading=reading.only(previous_subject=True))
         if effects is not None:
             return [EffectSpec("trigger_subject_referent", {"event_key": GROUP_SUBJECT_KEY_SENTINEL}), *effects]
-        return group_pronoun_as_target(clause) or _group_controller_as_you(clause)
+        return group_pronoun_as_target(clause, reading) or _group_controller_as_you(clause, reading)
     return effects
 
 
@@ -1450,7 +1398,7 @@ _ACTING_AS_CONTROLLER_TYPES: frozenset[str] = frozenset({
 })
 
 
-def _group_controller_as_you(clause: str) -> Optional[list[EffectSpec]]:
+def _group_controller_as_you(clause: str, reading: ClauseReading) -> Optional[list[EffectSpec]]:
     """PAR-123: "its controller creates a 1/1 Snake token" is "you create a 1/1 Snake token"
     done by the firing object's controller (RULE 109.5). The clause is read as its second-person
     form and run acting as that player (`trigger_subject_referent` ``acting``), so every effect
@@ -1475,7 +1423,7 @@ def _group_controller_as_you(clause: str) -> Optional[list[EffectSpec]]:
     rewritten = clause[:hit.start()] + replacement + clause[hit.end():]
     rewritten = re.sub(r"\bof their choice\b", "of your choice", rewritten)
     rewritten = re.sub(r"\btheir\b", "your", rewritten)
-    effects = match_clause_once(rewritten)
+    effects = match_clause_once(rewritten, reading=reading.only())
     if (
         effects is None or not all(_runs_against_targets(e.to_dict()) for e in effects)
         or not all(e.type in _ACTING_AS_CONTROLLER_TYPES for e in effects)
@@ -1487,7 +1435,7 @@ def _group_controller_as_you(clause: str) -> Optional[list[EffectSpec]]:
     })]
 
 
-def group_pronoun_as_target(clause: str) -> Optional[list[EffectSpec]]:
+def group_pronoun_as_target(clause: str, reading: ClauseReading) -> Optional[list[EffectSpec]]:
     """PAR-123: a group trigger's bare "it"/"that creature" read through the *targeted* form of
     the same clause. "destroy it" is "destroy target permanent" whose one target the trigger
     already fixed, so any effect that has a targeted row gains the firing-object reading with no
@@ -1507,7 +1455,7 @@ def group_pronoun_as_target(clause: str) -> Optional[list[EffectSpec]]:
         ((noun.group(1) if noun else "creature"), "creature", "permanent", "card from a graveyard")
     ):
         rewritten = _OBJECT_PRONOUN_RE.sub(f"target {kind}", clause)
-        effects = match_clause_once(rewritten)
+        effects = match_clause_once(rewritten, reading=reading.only())
         if effects is not None and all(_runs_against_targets(e.to_dict()) for e in effects):
             return [EffectSpec("trigger_subject_referent", {
                 "event_key": GROUP_SUBJECT_KEY_SENTINEL,

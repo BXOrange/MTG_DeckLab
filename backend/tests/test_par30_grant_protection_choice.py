@@ -10,6 +10,7 @@ only the parser recognition of this exact phrasing (~27 SOLO) was missing.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -26,11 +27,11 @@ def test_clause_forms():
     ) == [EffectSpec("grant_protection", {"target_kind": "creature_you_control"})]
     assert match_clause(
         "~ gains protection from the color of your choice until end of turn",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("grant_protection", {"target_kind": None})]
     assert match_clause(
         "it gains protection from the color of your choice until end of turn",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("grant_protection", {"previous_subject": True})]
 
 

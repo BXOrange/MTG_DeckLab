@@ -61,8 +61,10 @@ def test_the_pronoun_reads_the_firing_object(oracle):
 def test_a_second_possible_target_is_never_hidden_behind_the_wrapper():
     from mtg_analyzer.parser.oracle.catalogue.effect_rows.shared import group_pronoun_as_target as _group_pronoun_as_target
 
-    assert _group_pronoun_as_target("destroy it") is not None
-    assert _group_pronoun_as_target("destroy it and target creature") is None
+    from mtg_analyzer.parser.oracle.catalogue.clause_reading import STANDALONE
+
+    assert _group_pronoun_as_target("destroy it", STANDALONE) is not None
+    assert _group_pronoun_as_target("destroy it and target creature", STANDALONE) is None
 
 
 def test_it_fights_a_chosen_creature_as_the_firing_object():

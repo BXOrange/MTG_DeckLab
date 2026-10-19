@@ -23,6 +23,7 @@ Reference: mtg_analyzer/parser/oracle/catalogue/handlers.py.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -41,9 +42,9 @@ def test_pronoun_connive_parses_only_with_self_subject():
     # `self_subject_only` — the "it" is the source only inside a self-subject
     # trigger body; a plain match must not claim it.
     assert match_clause("it connives") is None
-    assert match_clause("it connives", self_subject=True) == [EffectSpec("connive", {})]
-    assert match_clause("he connives", self_subject=True) == [EffectSpec("connive", {})]
-    assert match_clause("she connives", self_subject=True) == [EffectSpec("connive", {})]
+    assert match_clause("it connives", reading=ClauseReading(self_subject=True)) == [EffectSpec("connive", {})]
+    assert match_clause("he connives", reading=ClauseReading(self_subject=True)) == [EffectSpec("connive", {})]
+    assert match_clause("she connives", reading=ClauseReading(self_subject=True)) == [EffectSpec("connive", {})]
 
 
 def test_targeted_connive_parses():
@@ -61,7 +62,7 @@ def test_connive_bare_n_stays_unclaimed():
     # where the number comes from (RULE 701.50d), so this stays fail-closed
     # rather than guessing what "2" or "x" alone means.
     assert match_clause("~ connives x") is None
-    assert match_clause("it connives 2", self_subject=True) is None
+    assert match_clause("it connives 2", reading=ClauseReading(self_subject=True)) is None
 
 
 def test_connive_dynamic_x_parses():
@@ -78,7 +79,7 @@ def test_connive_dynamic_x_parses():
     })]
     assert match_clause(
         "it connives x, where x is the amount of damage it dealt to that player",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("connive", {"times_from_trigger_event": "amount"})]
 
 

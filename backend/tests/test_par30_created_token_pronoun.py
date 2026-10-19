@@ -16,6 +16,7 @@ Three small pieces close this cluster:
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -58,7 +59,7 @@ def test_connector_seed_carries_previous_subject_into_first_subpart():
     specs = parse_effect_body(
         "create a token that's a copy of that card, except it's a 4/4 black "
         "zombie. it gains haste until end of turn.",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     )
     assert specs is not None
     assert [s.type for s in specs] == ["copy_permanent", "pump"]

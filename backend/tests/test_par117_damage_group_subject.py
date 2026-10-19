@@ -51,6 +51,7 @@ cache while this file's own family closed.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -100,14 +101,14 @@ def _creature(name, power=2, toughness=2, type_line="Creature — Bear"):
 
 
 def test_its_controller_draws_gated_on_group_subject():
-    assert match_clause("its controller draws a card", group_subject=True) == [
+    assert match_clause("its controller draws a card", reading=ClauseReading(group_subject=True)) == [
         EffectSpec("draw", {"count": 1, "player": _ENTERING_CONTROLLER})
     ]
 
 
 def test_its_controller_gains_that_much_life_gated_on_group_subject():
     assert match_clause(
-        "its controller gains that much life", group_subject=True,
+        "its controller gains that much life", reading=ClauseReading(group_subject=True),
     ) == [
         EffectSpec("gain_life", {
             "amount_from_trigger_event": "amount", "player": _ENTERING_CONTROLLER,
@@ -126,7 +127,7 @@ def test_its_controller_may_draw_composes_optional_with_the_referent():
     # RULE 603.1's "its controller" both asks *and* draws, so the body must
     # not fall back to Edric's own controller once the pause is answered
     # (`_rewrite_optional_referent_actor`).
-    assert parse_effect_body("its controller may draw a card.", group_subject=True) == [
+    assert parse_effect_body("its controller may draw a card.", reading=ClauseReading(group_subject=True)) == [
         EffectSpec("optional", {
             "effects": [{
                 "type": "draw", "params": {"count": 1, "player": _ENTERING_CONTROLLER},
@@ -141,7 +142,7 @@ def test_its_controller_may_draw_composes_optional_with_the_referent():
 def test_its_controller_may_create_token_composes_optional():
     specs = parse_effect_body(
         "its controller may create a 1/1 colorless sliver creature token.",
-        group_subject=True,
+        reading=ClauseReading(group_subject=True),
     )
     assert specs is not None
     assert specs[0].type == "optional"
@@ -160,7 +161,7 @@ def test_add_counters_on_it_is_gated_and_uses_the_sentinel():
     assert match_clause("put a +1/+1 counter on it") == [
         EffectSpec("add_counters", {"count": 1, "kind": "+1/+1"})
     ]
-    assert match_clause("put a +1/+1 counter on it", group_subject=True) == [
+    assert match_clause("put a +1/+1 counter on it", reading=ClauseReading(group_subject=True)) == [
         EffectSpec("add_counters", {
             "count": 1, "kind": "+1/+1", "trigger_subject_key": "__group_subject__",
         })
@@ -172,7 +173,7 @@ def test_add_counters_on_explicit_self_name_is_unaffected_by_group_subject():
     # generic self-buff row even when a group condition is in scope
     # (Malakir Cullblade: "…dies, put a +1/+1 counter on Malakir
     # Cullblade.", folded to "~" by normalize()).
-    assert match_clause("put a +1/+1 counter on ~", group_subject=True) == [
+    assert match_clause("put a +1/+1 counter on ~", reading=ClauseReading(group_subject=True)) == [
         EffectSpec("add_counters", {"count": 1, "kind": "+1/+1"})
     ]
 

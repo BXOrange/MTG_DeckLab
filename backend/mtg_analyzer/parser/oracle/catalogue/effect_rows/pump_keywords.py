@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ..clause_reading import ClauseReading
 from typing import Any, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase
@@ -1417,7 +1418,7 @@ ROWS: list[EffectHandler] = [
         "pump_self_subject_devotion",
         _PUMP_SELF_SUBJECT_DEVOTION_RE,
         _pump_self_subject_devotion,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "Whenever ~ attacks, it gets +1/+0 until end of turn." (Akroan Hoplite-
     # adjacent self-buff-on-attack, `it` bound to the ability's own source —
@@ -1430,7 +1431,7 @@ ROWS: list[EffectHandler] = [
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump_self_subject,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "Whenever ~ attacks, it gains double strike until end of turn."
     # (Flaming Fist) — the keyword-only sibling of `pump_self_subject`
@@ -1439,7 +1440,7 @@ ROWS: list[EffectHandler] = [
         "grant_self_subject_kw",
         compile_clause(r"it gains? (?P<kw>[a-z, ]+?) until end of turn"),
         _grant_self_subject_kw,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "lose_previous_subject_kw",
@@ -1447,8 +1448,8 @@ ROWS: list[EffectHandler] = [
             rf"{PREV_SUBJECT_SINGULAR}(?: also)? loses? (?P<lost>[a-z, ]+?)"
             r"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
-        lambda m: temporary_keyword_change(m, previous_subject=True),
-        previous_subject_only=True,
+        lambda m: temporary_keyword_change(m, previous_referent=True),
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler("copy_that_spell", _COPY_THAT_SPELL_RE, _copy_that_spell),
     EffectHandler(
@@ -1458,7 +1459,7 @@ ROWS: list[EffectHandler] = [
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump_group_subject,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     *subject_handlers([
         ("pump_group_subject_x", "group", _PUMP_IT_X_RE, lambda m: _pump_it_x(m, subject="group")),
@@ -1474,7 +1475,7 @@ ROWS: list[EffectHandler] = [
             r"(?P<must_blocked> and must be blocked this turn if able)?"
         ),
         _grant_group_subject_kw,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
         fallback_for=("pump_prev_singular_kw", "grant_self_subject_kw"),
     ),
     # "It doesn't untap during its controller's untap step for as long as ~
@@ -1487,9 +1488,9 @@ ROWS: list[EffectHandler] = [
             r"during its controller'?s untap step for as long as (?P<cond>.+)"
         ),
         _lockdown,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
-    EffectHandler("base_pt_previous", _BASE_PT_PREVIOUS_RE, _base_pt_previous, previous_subject_only=True),
+    EffectHandler("base_pt_previous", _BASE_PT_PREVIOUS_RE, _base_pt_previous, requires=ClauseReading(previous_subject=True)),
     # The same grant with any *other* duration (RULE 611) — "…until your next
     # turn", "…until end of combat". Ordered after the end-of-turn row above,
     # which it can't collide with (that duration isn't in `_GRANT_DURATIONS`).
@@ -1522,7 +1523,7 @@ ROWS: list[EffectHandler] = [
         "grant_until_previous",
         _GRANT_UNTIL_PREVIOUS_RE,
         _grant_until_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # PAR-13: the P/T sibling of the row above — "target creature gets
     # -4/-0 until your next turn"/"creatures your opponents control get

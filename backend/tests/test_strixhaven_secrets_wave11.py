@@ -8,6 +8,7 @@ Charm's third modal mode.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.effects.core import EffectRegistry
@@ -37,7 +38,7 @@ def test_base_pt_target_clause(clause, tk):
 
 
 def test_self_base_pt_clause_still_untargeted():
-    specs = match_clause("~ has base power and toughness 3/3 until end of turn", self_subject=True)
+    specs = match_clause("~ has base power and toughness 3/3 until end of turn", reading=ClauseReading(self_subject=True))
     assert specs[0].params["target_kind"] is None
 
 

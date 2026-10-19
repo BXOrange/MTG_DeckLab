@@ -7,6 +7,7 @@ import re
 
 from typing import Any, Optional
 from ..clause_hooks import segment_line
+from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..emblem_bodies import emblem_body_spec
@@ -555,8 +556,8 @@ def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _PREVIOUS_CONTROLLER_CREATES_RE = compile_clause(r"its controller (?P<rest>creates? .+)")
 
 
-def _previous_controller_creates(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    effects = match_clause_once(m.group("rest"))
+def _previous_controller_creates(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    effects = match_clause_once(m.group("rest"), reading=reading.only())
     if (
         effects is None or len(effects) != 1 or effects[0].type != "create_token"
         or effects[0].params.get("creators") is not None or effects[0].params.get("target_kind") is not None
@@ -585,14 +586,14 @@ _FOR_EACH_THIS_WAY_RE = compile_clause(
 _THIS_WAY_BODY_PRONOUN_RE = re.compile(r"\b(?:it|its|that|them|those|their|they)\b")
 
 
-def _for_each_this_way(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _for_each_this_way(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     body = m.group("body")
     its_controller = body.startswith("its controller ")
     if its_controller:
         body = body[len("its controller "):]
     elif _THIS_WAY_BODY_PRONOUN_RE.search(body):
         return None
-    effects = match_clause_once(body)
+    effects = match_clause_once(body, reading=reading.only())
     if not effects:
         return None
     if '"target_kind"' in json.dumps([e.to_dict() for e in effects], default=str):
@@ -1737,11 +1738,11 @@ ROWS: list[EffectHandler] = [
     # so the row is only offered when that clause announced one (`previous_subject_only`).
     EffectHandler(
         "becomes_in_addition_previous", _BECOMES_IN_ADDITION_PREVIOUS_RE, _becomes_in_addition,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "becomes_in_addition_self_pronoun", _BECOMES_IN_ADDITION_SELF_PRONOUN_RE, _becomes_in_addition,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler("becomes_in_addition", _BECOMES_IN_ADDITION_RE, _becomes_in_addition),
     EffectHandler(
@@ -1761,7 +1762,7 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         "animate_previous", _ANIMATE_PREVIOUS_RE, _animate_target,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "animate_target",
@@ -1802,7 +1803,7 @@ ROWS: list[EffectHandler] = [
         "goad_previous",
         compile_clause(r"goad (?:it|that creature|them|those creatures)"),  # PAR-150: the plural pronoun (Coronation of Chaos)
         _goad_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "all suspected creatures are no longer suspected" (RULE 701.60a's
     # reverse) — before the `suspect {TARGET}` row, which can't match it
@@ -1816,7 +1817,7 @@ ROWS: list[EffectHandler] = [
         "suspected_self_counter_or_suspect",
         compile_clause(r"if ~ is suspected, put a \+1/\+1 counter on it\. otherwise, suspect it"),
         _suspected_self_counter_or_suspect,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "you may have it become no longer suspected" (RULE 701.60a's reverse,
     # PAR-30 — Deadly Complication) — "it" = the previous clause's target.
@@ -1824,13 +1825,13 @@ ROWS: list[EffectHandler] = [
         "remove_suspected_may_previous",
         compile_clause(r"you may have it become no longer suspected"),
         _remove_suspected_may_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "remove_suspected_previous_selector",
         compile_clause(r"if any of them are suspected, (?:they'?re|they are) no longer suspected"),
         _remove_suspected_previous_selector,
-        previous_selector_only=True,
+        requires=ClauseReading(previous_selector=True),
     ),
     # "suspect enchanted creature" (RULE 701.60a) — an Aura's host.
     EffectHandler(
@@ -1856,7 +1857,7 @@ ROWS: list[EffectHandler] = [
         "suspect_self",
         compile_clause(r"suspect (?:it|~)"),
         _suspect_self,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "suspect it" / "suspect that creature" — the previous clause's target
     # ("gain control of target creature … suspect it", Caught Red-Handed).
@@ -1864,7 +1865,7 @@ ROWS: list[EffectHandler] = [
         "suspect_previous",
         compile_clause(r"suspect (?:it|that creature)"),
         _suspect_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "detain up to two target creatures your opponents control" (RULE
     # 701.35a) — before the singular row, which its `TARGET` can't match
@@ -2131,7 +2132,7 @@ ROWS: list[EffectHandler] = [
         "create_named_token_per_counter_on_it",
         _CREATE_NAMED_TOKEN_PER_COUNTER_ON_IT_RE,
         _create_named_token_per_counter_on_it,
-        group_subject_only=True,
+        requires=ClauseReading(group_subject=True),
     ),
     # "create X Treasure tokens" — X the announced {X}, or a ``bind``-measured one ("…a number of Treasure tokens
     # equal to the result", PAR-147).
@@ -2164,14 +2165,15 @@ ROWS: list[EffectHandler] = [
     # can't match "a number of … equal to …").
     EffectHandler(
         "previous_controller_creates", _PREVIOUS_CONTROLLER_CREATES_RE, _previous_controller_creates,
-        previous_subject_only=True,
+        reading_aware=True,
+        requires=ClauseReading(previous_subject=True),
     ),
-    EffectHandler("for_each_this_way", _FOR_EACH_THIS_WAY_RE, _for_each_this_way),
+    EffectHandler("for_each_this_way", _FOR_EACH_THIS_WAY_RE, _for_each_this_way, reading_aware=True),
     EffectHandler(
         "create_named_token_eq_its_self",
         _CREATE_NAMED_TOKEN_EQ_ITS_RE,
         _create_named_token_eq_its_self,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "Investigate." / "Investigate twice." / "Investigate 3 times." (RULE
     # 701.19a) — a Clue-token-creation alias.

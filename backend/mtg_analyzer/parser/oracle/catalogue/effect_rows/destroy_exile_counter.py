@@ -6,6 +6,7 @@ import re
 
 from typing import Optional
 from ..clause_hooks import parse_effect_body
+from ..clause_reading import ClauseReading
 from ..static_handlers import quoted_ability_grant_effects, static_effect_specs
 from ..subgrammars import (
     all_permanent_type_selector,
@@ -1138,7 +1139,7 @@ ROWS: list[EffectHandler] = [
         "if_prev_power_self_counter",
         _IF_PREV_POWER_SELF_COUNTER_RE,
         _if_prev_power_self_counter,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "exile two target creatures" / "exile up to two target artifacts" /
     # "exile any number of target spells" (Mindbreak Trap — the one row

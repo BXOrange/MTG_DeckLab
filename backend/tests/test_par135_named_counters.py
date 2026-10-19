@@ -10,6 +10,7 @@ card that parses and does nothing. Asymmetric P/T counters ("+0/+1") used to be 
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import re
 from pathlib import Path
 
@@ -285,14 +286,14 @@ def test_shackle_slinger_stuns_a_tapped_target_and_taps_an_untapped_one():
 
 def test_isnt_a_subtype_tail_narrows_any_target():
     [spec] = match_clause("it deals that much damage to any target that isn't a dinosaur", ) or parse_effect_body(
-        "it deals that much damage to any target that isn't a dinosaur", group_subject=True)
+        "it deals that much damage to any target that isn't a dinosaur", reading=ClauseReading(group_subject=True))
     assert spec.params["target_kind"] == "any"
     assert spec.params["creature_filter"] == {"without_subtype": "Dinosaur"}
 
 
 def test_isnt_a_commander_and_an_unknown_word():
     [spec] = parse_effect_body("~ deals damage equal to that spell's mana value to any target that isn't a commander",
-                               self_subject=True)
+                               reading=ClauseReading(self_subject=True))
     assert spec.params["creature_filter"] == {"is_commander": False}
     assert match_clause("~ deals 3 damage to any target that isn't a zzyzx") is None
     # a pool the filter can't narrow stays unclaimed rather than losing the filter
@@ -309,7 +310,7 @@ def test_any_target_isnt_a_dinosaur_leaves_players_and_other_creatures_legal():
     dino = _bf(state, Card(id="d", name="Dino", type_line="Creature — Dinosaur", is_creature=True,
                            power=2, toughness=2), "p2")
     bear = _bear(state, "bear", "p2")
-    specs = parse_effect_body("it deals that much damage to any target that isn't a dinosaur", group_subject=True)
+    specs = parse_effect_body("it deals that much damage to any target that isn't a dinosaur", reading=ClauseReading(group_subject=True))
     [effect] = build_effects(specs, src)
     [spec] = effect.target_specs
     offered = targeting.legal_targets(state, "p1", spec, source=src)
@@ -327,7 +328,7 @@ def test_lozhan_style_commander_exclusion():
     cmdr, plain = _bear(state, "cmdr", "p2"), _bear(state, "plain", "p2")
     cmdr.is_commander = True
     specs = parse_effect_body("~ deals damage equal to that spell's mana value to any target that isn't a commander",
-                              self_subject=True)
+                              reading=ClauseReading(self_subject=True))
     [effect] = build_effects(specs, src)
     names = {o.get("name") for o in targeting.legal_targets(state, "p1", effect.target_specs[0], source=src)}
     assert "cmdr" not in names and "plain" in names
@@ -524,7 +525,7 @@ def test_death_kiss_doubles_the_attacking_creature_not_the_source():
         "Whenever a creature an opponent controls attacks one of your opponents, double its power "
         "until end of turn.")), "p1")
     bind_from_catalogue(kiss)
-    specs = parse_effect_body("double its power until end of turn", group_subject=True)
+    specs = parse_effect_body("double its power until end of turn", reading=ClauseReading(group_subject=True))
     assert specs[0].params["trigger_subject"] is True and specs[0].params["self_multiplier_stat"] == "power"
 
 
@@ -568,7 +569,7 @@ def test_colour_only_addition():
 def test_copy_exception_adds_the_colour_to_the_copied_ones():
     [spec] = parse_effect_body(
         "create a token that's a copy of that creature, except it's not legendary and it's a 2/2 black zombie "
-        "in addition to its other colors and types", group_subject=True)
+        "in addition to its other colors and types", reading=ClauseReading(group_subject=True))
     assert spec.params["add_colors"] == ["B"] and "set_colors" not in spec.params
     engine, state = _engine()
     white = _bf(state, Card(id="w", name="Lady", type_line="Legendary Creature — Human", is_creature=True,
@@ -686,7 +687,7 @@ def test_kitnaps_stun_counters_go_on_the_enchanted_creature_not_the_aura():
     aura = _bf(state, Card(id="k", name="Kitnap", type_line="Enchantment — Aura"), "p1")
     aura.attached_to = host.instance_id
     specs = parse_effect_body("tap enchanted creature. if the gift wasn't promised, put 3 stun counters on it",
-                              self_subject=True)
+                              reading=ClauseReading(self_subject=True))
     assert specs[1].params["previous_subject"] is True
     _apply_effects_partitioned(build_effects(specs, aura), engine.rules.context, None, None, source=aura)
     assert host.tapped and host.counters.get("stun") == 3
@@ -695,11 +696,11 @@ def test_kitnaps_stun_counters_go_on_the_enchanted_creature_not_the_aura():
 
 def test_or_fewer_counters_is_an_upper_bound_not_a_counter_called_or_fewer():
     [spec] = parse_effect_body("if ~ has 2 or fewer judgment counters on it, put a judgment counter on ~",
-                               self_subject=True)
+                               reading=ClauseReading(self_subject=True))
     assert spec.condition == {"kind": "source_counters", "counter": "judgment", "max": 2}
     # the lower-bound spellings are unchanged
     [spec] = parse_effect_body("if ~ has 3 or more judgment counters on it, put a judgment counter on ~",
-                               self_subject=True)
+                               reading=ClauseReading(self_subject=True))
     assert spec.condition["min"] == 3 and spec.condition["counter"] == "judgment"
 
 

@@ -7,6 +7,7 @@ nowhere to put the measured number. Each nonzero printed half of the pump now ta
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.effects.core import EffectRegistry
@@ -32,7 +33,7 @@ def _creature(state, name, owner="p1", subtype="Bear", power=2, toughness=2, att
 
 
 def _run(engine, clause, source, **flags):
-    [spec] = parse_effect_body(clause, **flags)
+    [spec] = parse_effect_body(clause, reading=ClauseReading(**flags))
     effect = EffectRegistry.create(spec.type, spec.params)
     effect.source = source
     effect.apply(engine.rules.context)
@@ -82,10 +83,10 @@ def test_a_multiplied_pump_scales_both_halves():
 def test_other_under_a_group_trigger_counts_against_the_firing_creature():
     """"other" excludes the creature that fired the trigger, not the ability's source (PAR-123)."""
     [bound] = parse_effect_body(
-        "it gets +1/+1 until end of turn for each other creature you control", group_subject=True)
+        "it gets +1/+1 until end of turn for each other creature you control", reading=ClauseReading(group_subject=True))
     assert bound.params["amount"]["reference"] == "trigger_subject"
     assert parse_effect_body(
-        "it gets +1/+1 until end of turn for each creature you control", group_subject=True) is not None
+        "it gets +1/+1 until end of turn for each creature you control", reading=ClauseReading(group_subject=True)) is not None
 
 
 @pytest.mark.parametrize("name, oracle", [

@@ -46,6 +46,7 @@ the resolving spell's own cast by requiring two casts at resolution.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -121,7 +122,7 @@ def _run(eng, src, specs, targets=None):
 
 def test_legendary_predicate_gated_on_previous_subject():
     assert parse_effect_body(
-        "if that creature is legendary, its controller loses 3 life", previous_subject=True,
+        "if that creature is legendary, its controller loses 3 life", reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("lose_life", {
         "amount": 3, "player": _PREVIOUS_TARGET_CONTROLLER,
     }, condition={"kind": "is_legendary", "of": "previous_target"})]
@@ -132,7 +133,7 @@ def test_legendary_predicate_gated_on_previous_subject():
 def test_color_or_predicate_via_any_combinator():
     assert parse_effect_body(
         "if that creature was green or white, its controller discards a card",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("discard", {
         "count": 1, "player": _PREVIOUS_TARGET_CONTROLLER,
     }, condition={
@@ -147,7 +148,7 @@ def test_color_or_predicate_via_any_combinator():
 def test_not_dealt_damage_predicate():
     assert parse_effect_body(
         "if that creature wasn't dealt damage this turn, its controller draws 2 cards",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("draw", {
         "count": 2, "player": _PREVIOUS_TARGET_CONTROLLER,
     }, condition={
@@ -159,7 +160,7 @@ def test_not_dealt_damage_predicate():
 def test_destroyed_this_way_predicate():
     assert parse_effect_body(
         "if an artifact is destroyed this way, its controller draws a card",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("draw", {
         "count": 1, "player": _PREVIOUS_TARGET_CONTROLLER,
     }, condition={

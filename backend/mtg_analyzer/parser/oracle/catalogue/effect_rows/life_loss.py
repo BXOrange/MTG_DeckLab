@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ..clause_reading import ClauseReading
 from typing import Optional
 from ..subgrammars import (
     COUNT,
@@ -755,10 +756,10 @@ ROWS: list[EffectHandler] = [
     # life and " prefix isn't left dangling by the bare draw row.
     EffectHandler(
         "gain_life_and_draw_eq_its_self", _GAIN_LIFE_AND_DRAW_EQ_ITS_RE,
-        _gain_life_and_draw_eq_its_self, self_subject_only=True,
+        _gain_life_and_draw_eq_its_self, requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
-        "draw_eq_its_self", _DRAW_EQ_ITS_RE, _draw_eq_its_self, self_subject_only=True,
+        "draw_eq_its_self", _DRAW_EQ_ITS_RE, _draw_eq_its_self, requires=ClauseReading(self_subject=True),
     ),
     # PAR-115: "destroy/exile/counter/return/tap `<X>`. its controller
     # `<verb>` …" — the previous clause's own controller, gated on
@@ -767,35 +768,35 @@ ROWS: list[EffectHandler] = [
         "its_controller_loses_life_unless_sac_or_discard",
         _ITS_CONTROLLER_LOSES_LIFE_UNLESS_SAC_OR_DISCARD_RE,
         _its_controller_loses_life_unless_sac_or_discard,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "its_controller_loses_life", _ITS_CONTROLLER_LOSES_LIFE_RE,
-        _its_controller_loses_life, previous_subject_only=True,
+        _its_controller_loses_life, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "its_controller_gains_life", _ITS_CONTROLLER_GAINS_LIFE_RE,
-        _its_controller_gains_life, previous_subject_only=True,
+        _its_controller_gains_life, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "its_controller_gains_life_eq_mv", _ITS_CONTROLLER_GAINS_LIFE_EQ_MV_RE,
-        _its_controller_gains_life_eq_mv, previous_subject_only=True,
+        _its_controller_gains_life_eq_mv, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "its_controller_draws", _ITS_CONTROLLER_DRAWS_RE,
-        _its_controller_draws, previous_subject_only=True,
+        _its_controller_draws, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "its_controller_discards", _ITS_CONTROLLER_DISCARDS_RE,
-        _its_controller_discards, previous_subject_only=True,
+        _its_controller_discards, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
-        _its_controller_mills, previous_subject_only=True,
+        _its_controller_mills, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "its_controller_mills_eq_power", _ITS_CONTROLLER_MILLS_EQ_POWER_RE,
-        _its_controller_mills_eq_power, previous_subject_only=True,
+        _its_controller_mills_eq_power, requires=ClauseReading(previous_subject=True),
     ),
     # PAR-117: the same four clauses, reusing the same regexes, gated on
     # `group_subject_only` instead — "its" is a RULE 603.1 group-subject

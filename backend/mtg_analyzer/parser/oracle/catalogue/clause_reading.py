@@ -1,0 +1,68 @@
+"""The one immutable "reading" a clause is parsed under (PAR-173).
+
+English reuses the same words ("it", "that creature", "they") for different referents depending on what the
+surrounding ability has already established. The parser used to thread five booleans (`self_subject`,
+`previous_subject`, `group_subject`, `previous_selector`, `attached_subject`) through `match_clause`,
+`parse_effect_body` and every helper between them, plus a ContextVar (`_GROUP_CLAUSE`) that a few deep builders
+read. `ClauseReading` is that state as one frozen value: derive variants with `but(...)`, hand it to whatever
+re-enters the parser, and gate rows on it with `EffectHandler.requires`.
+
+PAR-175 (referents) adds its environment here, as one more field on `ClauseReading` (the groups and objects
+earlier clauses of the same body produced) -- do not thread a new flag instead.
+
+A leaf module: it imports nothing from the parser.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Any
+
+
+@dataclass(frozen=True)
+class ClauseReading:
+    #: "it" is the ability's own source (an unsplit self-subject trigger body, `segment_line`).
+    self_subject: bool = False
+    #: "it"/"that creature" is the creature the *preceding clause of the same body* chose (`GameContext.previous_targets`).
+    previous_subject: bool = False
+    #: "it"/"that creature" is the object this ability's own RULE 603.1 group-subject trigger condition matched.
+    group_subject: bool = False
+    #: "they" is the group a mass selector in the preceding clause acted on.
+    previous_selector: bool = False
+    #: "its" is RULE 303.4/301.5's attached host (the trigger condition is ``{"subject": "attached_permanent"}``).
+    attached_subject: bool = False
+    #: Whether the clause being read sits under a group trigger *as such* (a group subject with no self/previous
+    #: reading). Computed once by `match_clause` (`entered`) and carried unchanged by `but`, so a re-entering builder
+    #: sees the reading of the clause that invoked it -- what the removed `_GROUP_CLAUSE` ContextVar carried.
+    group_clause: bool = False
+
+    def but(self, **facts: Any) -> "ClauseReading":
+        """This reading with some facts changed (``reading.but(previous_subject=True)``); `group_clause` is kept."""
+        return replace(self, **facts)
+
+    def only(self, **facts: Any) -> "ClauseReading":
+        """A reading carrying exactly these facts (every other fact off), keeping `group_clause` -- for a builder that
+        re-enters the table (`match_clause_once`) under its own fixed reading."""
+        return ClauseReading(group_clause=self.group_clause, **facts)
+
+    def unattached(self) -> "ClauseReading":
+        """This reading without the attached-host fact (helpers that never read an Aura/Equipment host)."""
+        return self.but(attached_subject=False)
+
+    def entered(self) -> "ClauseReading":
+        """The reading `match_clause` works under: `group_clause` recomputed from the five facts."""
+        return replace(self, group_clause=self.group_subject and not self.previous_subject and not self.self_subject)
+
+    def satisfies(self, required: "ClauseReading") -> bool:
+        """Whether every fact `required` asks for holds here (`EffectHandler.requires`); `group_clause` is not a fact."""
+        return (
+            (self.self_subject or not required.self_subject)
+            and (self.previous_subject or not required.previous_subject)
+            and (self.group_subject or not required.group_subject)
+            and (self.previous_selector or not required.previous_selector)
+            and (self.attached_subject or not required.attached_subject)
+        )
+
+
+#: No special reading: the only one available to a clause standing alone (a bare pronoun claims nothing).
+STANDALONE = ClauseReading()

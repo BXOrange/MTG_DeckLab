@@ -31,6 +31,7 @@ mtg_analyzer/parser/oracle/{segmenter,catalogue/{handlers,static_handlers}}.py.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -71,12 +72,12 @@ def _etb(obj):
 
 
 def test_lose_life_that_much_parses_with_self_subject():
-    specs = match_clause("target opponent loses that much life", self_subject=True)
+    specs = match_clause("target opponent loses that much life", reading=ClauseReading(self_subject=True))
     assert specs == [EffectSpec("lose_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
 
 
 def test_add_counters_that_many_self_parses_with_self_subject():
-    specs = match_clause("put that many +1/+1 counters on ~", self_subject=True)
+    specs = match_clause("put that many +1/+1 counters on ~", reading=ClauseReading(self_subject=True))
     assert specs == [EffectSpec("add_counters", {"kind": "+1/+1", "amount_from_trigger_event": "amount"})]
 
 
@@ -91,7 +92,7 @@ def test_group_subject_it_clause_is_unclaimed_not_mismodeled():
     # damage, not this ability's own source — the segmenter never offers
     # self_subject=True for this trigger shape, so the clause must stay
     # unclaimed rather than silently buffing the wrong object.
-    assert match_clause("put that many +1/+1 counters on it", self_subject=False) is None
+    assert match_clause("put that many +1/+1 counters on it", reading=ClauseReading(self_subject=False)) is None
 
 
 def test_necropolis_regent_is_modeled_now():  # PAR-123: "that many" after a damage head, on "it"

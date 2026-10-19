@@ -10,6 +10,7 @@ recipient player; no RULE 115 target of its own.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -22,13 +23,13 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 def test_clause_forms():
     assert match_clause(
-        "~ deals 2 damage to that creature's controller", previous_subject=True
+        "~ deals 2 damage to that creature's controller", reading=ClauseReading(previous_subject=True)
     ) == [EffectSpec("damage", {"amount": 2, "recipient_subject": "previous_subject_controller"})]
     assert match_clause(
-        "~ deals 1 damage to that creature's controller", group_subject=True
+        "~ deals 1 damage to that creature's controller", reading=ClauseReading(group_subject=True)
     ) == [EffectSpec("damage", {"amount": 1, "recipient_subject": "trigger_subject_controller"})]
     assert match_clause(
-        "~ also deals 3 damage to that creature's controller", previous_subject=True
+        "~ also deals 3 damage to that creature's controller", reading=ClauseReading(previous_subject=True)
     )[0].params["amount"] == 3
     # ungated — not claimed
     assert match_clause("~ deals 2 damage to that creature's controller") is None

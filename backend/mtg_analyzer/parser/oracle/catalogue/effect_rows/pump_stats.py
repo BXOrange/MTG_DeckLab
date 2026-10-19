@@ -6,6 +6,7 @@ import re
 
 from typing import Optional
 from ..clause_hooks import parse_effect_body
+from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..static_handlers import quoted_ability_grant_effects
 from ..subgrammars import (
@@ -1224,21 +1225,21 @@ ROWS: list[EffectHandler] = [
         "untap_previous_group",
         _UNTAP_PREVIOUS_GROUP_RE,
         _untap_previous_group,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "Those creatures don't untap …" after a mass selector (Clinging Mists).
     EffectHandler(
         "skip_untap_previous_selector",
         _SKIP_UNTAP_PREV_SELECTOR_RE,
         _skip_untap_prev_selector,
-        previous_selector_only=True,
+        requires=ClauseReading(previous_selector=True),
     ),
     # "Untap those creatures." after a mass selector (War Flare, PAR-128).
     EffectHandler(
         "tap_previous_selector",
         _TAP_PREVIOUS_SELECTOR_RE,
         _tap_previous_selector,
-        previous_selector_only=True,
+        requires=ClauseReading(previous_selector=True),
     ),
     # "…, then untap that land." (Avatar Kyoshi, following "earthbend N") —
     # the singular previous-subject sibling of the row just above.
@@ -1246,14 +1247,14 @@ ROWS: list[EffectHandler] = [
         "tap_previous_subject",
         _TAP_PREVIOUS_SUBJECT_RE,
         _tap_previous_subject,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "target/that/~ <permanent> doesn't untap during … next untap step"
     # (Barl's Cage + the ~95-card "Tap X. It doesn't untap …" family).
     EffectHandler("skip_next_untap_target", _SKIP_UNTAP_TARGET_RE, _skip_untap_target),
     EffectHandler(
         "skip_next_untap_prev", _SKIP_UNTAP_PREV_RE, _skip_untap_prev,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # With no earlier clause to refer back to, "that land" is the object the firing
     # event names (Vorinclex's "whenever an opponent taps a land for mana, that land
@@ -1265,7 +1266,7 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         "skip_next_untap_self", _SKIP_UNTAP_SELF_RE, _skip_untap_self,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     # "Whenever ~ deals combat damage to a creature, tap that creature and
     # it doesn't untap …" (PAR-84 — Kashi-Tribe Reaver/Warriors).  The
@@ -1275,7 +1276,7 @@ ROWS: list[EffectHandler] = [
         "tap_damage_recipient_and_skip_untap",
         _TAP_DAMAGE_RECIPIENT_AND_SKIP_UNTAP_RE,
         _tap_damage_recipient_and_skip_untap,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "redirect_damage_to_self",
@@ -1290,11 +1291,11 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         "grant_prot_choice_self", _GRANT_PROT_CHOICE_SELF_RE, _grant_prot_choice_self,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "grant_prot_choice_prev", _GRANT_PROT_CHOICE_PREV_RE, _grant_prot_choice_prev,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "group_fixed_protection", _GROUP_FIXED_PROTECTION_RE, _group_fixed_protection,
@@ -1334,19 +1335,19 @@ ROWS: list[EffectHandler] = [
     # sacrifice/exile <it>[ unless ~ is your Ring-bearer]." (MEC-52).
     EffectHandler(
         "exile_instead_of_leaving", _EXILE_INSTEAD_OF_LEAVING_RE, _exile_instead_of_leaving,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "owner_shuffles_graveyard", _OWNER_SHUFFLES_GRAVEYARD_RE, _owner_shuffles_graveyard,
-        self_subject_only=True,
+        requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "delayed_return_battlefield_previous", _DELAYED_RETURN_BATTLEFIELD_RE,
-        _delayed_return_battlefield, previous_subject_only=True,
+        _delayed_return_battlefield, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "delayed_return_battlefield_self", _DELAYED_RETURN_BATTLEFIELD_RE,
-        _delayed_return_battlefield, self_subject_only=True,
+        _delayed_return_battlefield, requires=ClauseReading(self_subject=True),
     ),
     EffectHandler(
         "delayed_sac_exile_when_first",
@@ -1360,7 +1361,7 @@ ROWS: list[EffectHandler] = [
         "pump_previous_targets_pt",
         _PUMP_PREVIOUS_TARGETS_PT_RE,
         _pump_previous_targets_pt,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # ENG-30: "They [each] gain <kw> until end of turn." — the keyword-only
     # sibling of the row above (tried after it since a P/T delta present
@@ -1369,7 +1370,7 @@ ROWS: list[EffectHandler] = [
         "pump_previous_targets_kw",
         _PUMP_PREVIOUS_TARGETS_KW_RE,
         _pump_previous_targets_kw,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # PAR-30 "Threaten … tails residue" — the *rich* leading-"until end of
     # turn, it …" restatement (quoted ability / becomes-subtype / base P/T),
@@ -1378,7 +1379,7 @@ ROWS: list[EffectHandler] = [
         "gain_control_rich_prev_grant",
         _GAIN_CONTROL_RICH_PREV_GRANT_RE,
         _gain_control_rich_prev_grant,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # PAR-30 "Threaten … tails residue" — card-specific conditional
     # after-tails gated on the just-controlled creature (Goatnap "if that
@@ -1387,13 +1388,13 @@ ROWS: list[EffectHandler] = [
         "if_prev_subtype_pump",
         _IF_PREV_SUBTYPE_PUMP_RE,
         _if_prev_subtype_pump,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "if_prev_equipped_destroy",
         _IF_PREV_EQUIPPED_DESTROY_RE,
         _if_prev_equipped_destroy,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # PAR-30: the singular-pronoun siblings — "it [also] gets +N/+N …" /
     # "it [also] gains <kw> until end of turn" (threaten restatement tails,
@@ -1403,16 +1404,16 @@ ROWS: list[EffectHandler] = [
         "pump_prev_singular_pt",
         _PUMP_PREV_SINGULAR_PT_RE,
         _pump_previous_targets_pt,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "pump_prev_singular_kw",
         _PUMP_PREV_SINGULAR_KW_RE,
         _pump_previous_targets_kw,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
-        "pump_prev_haste_bare", _PUMP_PREV_HASTE_BARE_RE, _pump_prev_haste_bare, previous_subject_only=True,
+        "pump_prev_haste_bare", _PUMP_PREV_HASTE_BARE_RE, _pump_prev_haste_bare, requires=ClauseReading(previous_subject=True),
     ),
     # "They gain first strike until end of turn." (Karlach, Fury of
     # Avernus, MEC-28) — the mass-selector sibling: only offered when the
@@ -1421,7 +1422,7 @@ ROWS: list[EffectHandler] = [
         "pump_previous_selector",
         _PUMP_PREVIOUS_SELECTOR_RE,
         _pump_previous_selector,
-        previous_selector_only=True,
+        requires=ClauseReading(previous_selector=True),
     ),
     # "Target attacking Elf you control gains deathtouch until end of
     # turn." (Gnarlroot Trapper-shaped) — tried before the plain

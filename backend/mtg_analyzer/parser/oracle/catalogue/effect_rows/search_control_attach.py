@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ..clause_reading import ClauseReading
 from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
 from ..clause_primitives import split_keywords_with_parametric
@@ -31,7 +32,6 @@ from .shared import (
     GRAVEYARD_SCOPE_WORD,
     graveyard_target_kind,
     GRAVEYARD_TYPE_WORD,
-    GROUP_CLAUSE,
     mass_group_params,
     MULTI_TARGET_ALT,
     multi_target_params,
@@ -1351,7 +1351,7 @@ def _fight_implicit(fighter_kind: Optional[str]):
     clause's target (``"previous_target"``). Only the *other* creature is a
     RULE 115 requirement, so the whole clause is one target wide."""
 
-    def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    def build(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
         other = fight_kind(m.group("target"))
         if other is None:
             return None
@@ -1359,7 +1359,7 @@ def _fight_implicit(fighter_kind: Optional[str]):
         if m.groupdict().get("same_mv"):
             # "…with the same mana value" as the group trigger's firing object (Boxing Ring): a
             # target filter read off the trigger's event, so only under a group trigger.
-            if not GROUP_CLAUSE.get():
+            if not reading.group_clause:
                 return None
             params["other_exact_mana_value"] = "trigger_subject_mana_value"
         if fighter_kind is not None:
@@ -1439,16 +1439,17 @@ _FIGHT_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
         {},
     ),
     ("fight", _FIGHT_TWO_TARGETS_RE, _fight, {}),
-    ("fight_self", _FIGHT_SELF_RE, _fight_implicit(None), {}),
-    ("fight_pronoun", _FIGHT_PRONOUN_RE, _fight_implicit(None), {"self_subject_only": True}),
-    ("fight_attached", _FIGHT_ATTACHED_RE, _fight_implicit("attached_permanent"), {}),
+    ("fight_self", _FIGHT_SELF_RE, _fight_implicit(None), {"reading_aware": True}),
+    ("fight_pronoun", _FIGHT_PRONOUN_RE, _fight_implicit(None),
+     {"requires": ClauseReading(self_subject=True), "reading_aware": True}),
+    ("fight_attached", _FIGHT_ATTACHED_RE, _fight_implicit("attached_permanent"), {"reading_aware": True}),
     (
         "fight_previous", _FIGHT_PREVIOUS_RE, _fight_implicit("previous_target"),
-        {"previous_subject_only": True},
+        {"requires": ClauseReading(previous_subject=True), "reading_aware": True},
     ),
     (
         "fight_chosen_vs_previous", _FIGHT_CHOSEN_OTHER_PREVIOUS_RE, _fight_chosen_vs_previous,
-        {"previous_subject_only": True},
+        {"requires": ClauseReading(previous_subject=True)},
     ),
 ]
 
@@ -1888,32 +1889,32 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         "fight_previous_pair", _FIGHT_PREVIOUS_PAIR_RE, _fight_previous_pair,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "Put a +1/+1 counter on target creature. It phases out." (Slip Out
     # the Back) — the same previous-clause pronoun idiom as the fight
     # family just above, for a phase-out instead.
     EffectHandler(
         "phase_out_previous", _PHASE_OUT_PREVIOUS_RE, _phase_out_previous,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     # PAR-79 sixth increment: "…target creature… **that creature** can't be
     # blocked this turn." (Stealth Mission/Trygon Prime-shaped).
     EffectHandler(
         "cant_block_previous_plural", _CANT_BLOCK_PREVIOUS_PLURAL_RE, _cant_block_previous_plural,
-        previous_subject_only=True,
+        requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "cant_be_blocked_turn_previous", _CANT_BE_BLOCKED_TURN_PREVIOUS_RE,
-        _cant_be_blocked_turn_previous, previous_subject_only=True,
+        _cant_be_blocked_turn_previous, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "must_be_blocked_turn_previous", _MUST_BE_BLOCKED_TURN_PREVIOUS_RE,
-        _must_be_blocked_turn_previous, previous_subject_only=True,
+        _must_be_blocked_turn_previous, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "cant_be_blocked_except_previous", _CANT_BE_BLOCKED_EXCEPT_PREVIOUS_RE,
-        _cant_be_blocked_except_previous, previous_subject_only=True,
+        _cant_be_blocked_except_previous, requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
         "kw_grant_unblockable_except_x", _KW_GRANT_UNBLOCKABLE_EXCEPT_X_RE,
