@@ -268,3 +268,22 @@ Each gap checked with `parser_probe.py blocked` over its own clause: SOLO on 1.
 | --- | --- | --- |
 | Crooked Scales | `… unless you pay {3}. if you do, repeat this process.` | Targets must be kept across the repeat, with a payment mid-loop; `RepeatProcessEffect` runs without targets. |
 | Wirefly Hive | `destroy all permanents named wirefly.` | `combat.matches_object_filter` has no `name` filter; the flip half is modeled. |
+
+## Batch 7 — 2026-10-19 PAR-132 close-out (PARSER_VERSION 692)
+
+Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phrase but not a body, so none forms a cluster. Re-run the check before hand-authoring.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Decoy Gambit, Kitesail Larcenist, Mega Flare, Tolarian Contempt | `for each opponent, choose up to one target … that player controls` + chosen-set body | Per-round chosen-set referent; four different bodies. |
+| Alpha Brawl, Deputy of Detention, Legions to Ashes | prior-target group bodies | Three distinct shapes. |
+| Portal Mage, Windshaper Planetar, Portal Manipulator, Arni Metalbrow, Nick Fury, Shark Shredder, Summoner's Grimoire, Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
+| Nahiri's Lithoforming, Gluttonous Hellkite, Empty the Laboratory, Lonis | `sacrifice x <noun>` count form + this-way tally | Builds on the `sacrificed_this_way` window. |
+| Boneyard Desecrator, Thallid Omnivore, Dargo, Explosive Singularity, Burn at the Stake, Devouring Greed, Devouring Rage | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
+| Warren Weirding, Reign of the Pit, Shadowgrange Archfiend, Ill-Timed Explosion, Reckless Handling | subtype condition / power or mana-value measured over the this-way pool | Reckless Handling also needs a search-clause body. |
+| Shredder's Technique | `if an enchantment was destroyed this way` | Destroyed pool exists; blocked because "destroy target creature or enchantment" parses to the broad `permanent` kind. |
+| Unsettled Mariner, Parnesse, Rayne, Surrak | `you or a permanent you control becomes the target` heads | Distinct bodies. |
+| Kira, Great Glass-Spinner; Nadu, Winged Wisdom | quoted grant of a becomes-the-target trigger | |
+| Borborygmos and Fblthp, Miasma Demon, Neheb | reflexive `when you discard one or more cards this way` | |
+| Cytoplast Manipulator, Scarwood Bandits, Charisma, Opportunistic Dragon | control `for as long as ~ remains on the battlefield` | Blocked on target filters, not the duration. |
+

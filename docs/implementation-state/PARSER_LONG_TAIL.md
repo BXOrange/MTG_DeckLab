@@ -604,6 +604,8 @@ Taxonomy re-validated and corrected via `scripts/commander_tail_report.py` and `
 
 ### PAR-132 calibration: dependent bodies around an already-complete target scope
 
+> **Closed at PARSER_VERSION 692 (2026-10-19).** Shipped shapes: `Done_Backend.md` "PAR-132"; remaining cards are queued in `singletons.md` Batch 7. The list below is kept as calibration history.
+
 PAR-130 completed the `that player controls` scope itself: event, per-player and prior-target
 antecedents now reach trigger, spell and activated-ability targeting. The cards still blocked in
 that search are separate body/referent families, bundled as PAR-132 rather than left as false

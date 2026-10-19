@@ -53,10 +53,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-132 · Dependent target/body follow-up batch.** Distinct effect-body, trigger-head and
-  duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
-> PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
-> re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
 
 - **PAR-166 · Shared body/state grammar residue batch.** Factor the remaining chooser/pool, reference/amount, condition, static-color, counter and finite-duration shapes through ordinary parser/effect capabilities; size each shape across the full cache, for fronts and backs alike. Calibrated scope: `PARSER_LONG_TAIL.md`, “Face-audit follow-ups”; independent of PAR-157.
