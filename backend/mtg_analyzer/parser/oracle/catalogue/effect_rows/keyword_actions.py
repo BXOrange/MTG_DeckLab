@@ -124,7 +124,7 @@ def _return_creatures_die_result(m: re.Match[str]) -> list[EffectSpec]:
 # Effect` (registered `fateseal`) auto-picks the opponent (first living one,
 # a documented simplification like Clash's). The optional leading "you " is
 # the redundant subject a trigger body spells out; "you may fateseal N"
-# (Mesmeric Sliver's quoted grant) reaches this after `_peel_optional`
+# (Mesmeric Sliver's quoted grant) reaches this after `peel_optional`
 # strips the "you may", the ability itself carrying `optional=True`.
 def _fateseal(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("fateseal", {"count": int(m.group("n"))})]
@@ -1529,7 +1529,7 @@ def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `ExileEffect`'s `target_kind="trigger_subject"` (MEC-38), which reads
 #: the firing event's own `instance_id`; the airbend permission params ride
 #: along unchanged. The "you may" is peeled by the BECOMES_TARGET dispatch
-#: (`_peel_optional`), so this only claims the bare verb.
+#: (`peel_optional`), so this only claims the bare verb.
 _AIRBEND_TRIGGER_SUBJECT_RE = compile_clause(
     r"airbend (?:that creature|that permanent|it)"
 )
@@ -1676,9 +1676,9 @@ def _goad_up_to_x(m: re.Match[str]) -> list[EffectSpec]:
         )
     ]
 #: "~ becomes a copy of [another] target `<creature|permanent>`[ until end of turn][, except `<tail>`]" (Cursed
-#: Mirror, Shameless Charlatan, Cryptoplasm — "…you may have ~ become…" after `_peel_optional`). PAR-142 added the
+#: Mirror, Shameless Charlatan, Cryptoplasm — "…you may have ~ become…" after `peel_optional`). PAR-142 added the
 #: copy's own "except …" clause: "it has this ability" keeps the object's own abilities; the rest is the same
-#: type/keyword/legendary vocabulary an enter-as-copy replacement reads (`static_handlers._enter_as_copy_tail`).
+#: type/keyword/legendary vocabulary an enter-as-copy replacement reads (`static_handlers.enter_as_copy_tail`).
 _BECOME_COPY_RE = compile_clause(
     r"(?:(?:you may )?have )?~ becomes? a copy of (?:another )?target (?P<what>creature|permanent)"
     r"(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"

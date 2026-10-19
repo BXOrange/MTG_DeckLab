@@ -863,7 +863,7 @@ def _remove_counters_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # ability ("…on each of your turns"); this shape only ever appears as a
 # clause in a spell/ability's effect body, never a permanent's standing text.
 # "You may " is optional here: when this is the *only* clause in the body,
-# `segmenter.segment_line`'s `_peel_optional` already stripped a leading
+# `segmenter.segment_line`'s `peel_optional` already stripped a leading
 # "you may " before this ever runs (Summer Bloom-shaped); when it trails an
 # earlier clause ("Draw a card. You may play …", Explore/Urban Evolution-
 # shaped) it's still there in the text this handler sees.
@@ -1139,7 +1139,7 @@ def _take_initiative(m: re.Match[str]) -> list[EffectSpec]:
 
 # "[You/Target player] get[s] an emblem with '<ability>'." (RULE 114.2) —
 # the quoted ability is itself an ordinary ability line, recursively parsed
-# the same way `static_handlers._quoted_ability_grant_effects` parses an
+# the same way `static_handlers.quoted_ability_grant_effects` parses an
 # Aura/Equipment's quoted grant (`segmenter.segment_line`, imported lazily in
 # `_emblem_ability_spec` below — `segmenter` imports *this* module, so a
 # module-level import would cycle). Unlike that grant (which flattens to a
@@ -2189,7 +2189,7 @@ ROWS: list[EffectHandler] = [
     # "[You may c]ast [sorcery/creature ]spells this turn as though they had
     # flash." (Emergence Zone-shaped, MEC-12; Complete the Circuit's own
     # "sorcery spells" narrowing, PAR-124 — the leading "you may" is already
-    # peeled off by `segmenter._peel_optional` before a clause ever reaches
+    # peeled off by `segmenter.peel_optional` before a clause ever reaches
     # this table) — `effects.GrantFlashUntilEndOfTurnEffect.card_types` now
     # carries the optional type-word filter through to `GameState.temp_
     # flash_until_turn_types`.

@@ -178,7 +178,7 @@ def _mentions_stickers(raw: str) -> bool:
 #: build a second raw-text-reading subsystem for one template: "when this
 #: Equipment enters, create a 2/2 red Rebel creature token, then attach
 #: this to it." then flows through `normalize`/`segment_line` exactly like
-#: any other printed ETB trigger (`handlers._CREATE_TOKEN_AND_ATTACH_RE`
+#: any other printed ETB trigger (`effect_rows.tokens_animate_misc._CREATE_TOKEN_AND_ATTACH_RE`
 #: already covers the create-and-attach body once it's real text again).
 _FOR_MIRRODIN_RE = re.compile(
     r"For Mirrodin! \((?P<reminder>[^()]*)\)", re.IGNORECASE,

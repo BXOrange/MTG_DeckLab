@@ -52,7 +52,8 @@ Pure regex + data — **no `game/` imports** (front-end security boundary).
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, NamedTuple, Optional
+from dataclasses import dataclass, replace
+from typing import Any, Callable, NamedTuple, Optional, Union
 
 from .library_permission import parse_graveyard_cast_permission, parse_top_library_permission
 from ..spec import EffectSpec, ParserProvenance
@@ -841,7 +842,7 @@ _SKIP_UNTAP_STEPS_RE = re.compile(r"players skip their untap steps", re.IGNORECA
 # (Erebos, God of the Dead) / "If a player would gain life, that player
 # gains no life instead." (Sulfuric Vortex — a replacement-phrased
 # equivalent) — a standing, board-wide RULE 119.3-adjacent rule
-# modification, distinct from `handlers._CANT_GAIN_LIFE_RE`'s turn-scoped
+# modification, distinct from `effect_rows.destroy_exile_counter._CANT_GAIN_LIFE_RE`'s turn-scoped
 # rider. Consulted live by `RulesEngine.gain_life` via
 # `continuous.life_gain_prohibited_for`.
 _PLAYERS_CANT_GAIN_LIFE_RE = re.compile(
@@ -4746,19 +4747,50 @@ _PIP_LIFE_OPTION_RE = re.compile(
 )
 
 
-def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
-    """`EffectSpec`s for a static anthem/keyword-grant ``clause``, or ``None``.
+class _Decline:
+    """Type of `DECLINE`: a matcher recognised the clause but refuses to model it."""
 
-    Full-matches the clause (like the one-shot handler table) so a partial or
-    "until end of turn" phrasing isn't claimed. A compound "get +N/+N and have
-    <keywords>" emits both an ``anthem`` and a ``grant_keyword`` spec. The specs
-    carry ``affects`` + optional ``subtype``/``tokens`` for the layer engine.
-    Also claims the attached-permanent shape ("equipped/enchanted creature
-    gets +N/+N [and has <keywords>]", "equipped/enchanted creature has
-    <keywords>") with ``affects="attached_permanent"`` — see
-    `_ATTACHED_SUBJECTS` above.
-    """
-    text = clause.strip().rstrip(".").strip()
+
+#: Returned by a `StaticMatcher` that matched and then declined: `static_effect_specs` stops and returns ``None``
+#: (the original branch ended in ``return None``). A plain ``None`` instead means "not mine, try the next row".
+DECLINE = _Decline()
+
+StaticResult = Union[list[EffectSpec], None, _Decline]
+
+
+def _claim(result: Optional[list[EffectSpec]]) -> StaticResult:
+    """A matched branch's helper result: ``None`` from the helper ends the search (`DECLINE`), it does not fall through."""
+    return DECLINE if result is None else result
+
+
+@dataclass(frozen=True)
+class StaticContext:
+    """What every `STATIC_MATCHERS` row sees: the raw clause and its normalised ``text`` (period-stripped and, after
+    the ``fold_additional`` rewrite, with "gets an additional" folded to "gets")."""
+
+    clause: str
+    text: str
+
+
+@dataclass(frozen=True)
+class StaticMatcher:
+    """One ordered row: returns the specs to claim the clause, ``DECLINE`` to stop with ``None``, or ``None`` to fall
+    through to the next row. ORDER IS SEMANTICS (first row to answer wins)."""
+
+    name: str
+    match: Callable[[StaticContext], StaticResult]
+
+
+@dataclass(frozen=True)
+class StaticRewrite:
+    """An in-table step that rewrites ``text`` for every later row (a matcher cannot, its context is frozen)."""
+
+    name: str
+    rewrite: Callable[[str], str]
+
+
+def _static_fixed_base(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     fixed_base = re.fullmatch(
         r"creatures(?P<scope> you control| your opponents control)? have base power and toughness "
         r"(?P<p>\d+)/(?P<t>\d+)", text, re.IGNORECASE,
@@ -4771,19 +4803,44 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("pt_set", {"affects": affects,
                                       "power": int(fixed_base.group("p")),
                                       "toughness": int(fixed_base.group("t"))})]
-    # RULE 702.152: a grant, a cost adjustment, and a restricted zone permission.
+    return None
+
+
+# RULE 702.152: a grant, a cost adjustment, and a restricted zone permission.
+def _static_match(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     match = re.fullmatch(r"each creature spell you cast with mana value (\d+) or greater has blitz\. the blitz cost is equal to its mana cost", text)
     if match:
         return [EffectSpec("grant_blitz", {"min_mana_value": int(match.group(1))})]
+    return None
+
+
+def _static_blitz_cost_reduction(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if text == "blitz costs you pay cost {1} less for each time you've cast your commander from the command zone this game":
         return [EffectSpec("blitz_cost_reduction", {"amount": 1})]
+    return None
+
+
+def _static_blitz_graveyard_permission(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if text in {"you may cast ~ from your graveyard using its blitz ability",
                 "you may cast this card from your graveyard using its blitz ability"}:
         return [EffectSpec("blitz_graveyard_permission", {})]
+    return None
+
+
+def _static_match_2(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     match = re.fullmatch(r"creature spells you cast from your hand have blitz ((?:\{[^}]+\})+)", text)
     if match:
         return [EffectSpec("grant_blitz", {"from_hand": True, "cost": match.group(1)})]
-    # The Defilers (RULE 601.2b/118.8): one coloured pip of a coloured permanent spell may be paid with 2 life instead.
+    return None
+
+
+# The Defilers (RULE 601.2b/118.8): one coloured pip of a coloured permanent spell may be paid with 2 life instead.
+def _static_pip_life_option(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     defiler = _PIP_LIFE_OPTION_RE.fullmatch(text)
     if defiler is not None and defiler.group("c") == defiler.group("c2"):
         letter = _COLOR_LETTERS[defiler.group("c")]
@@ -4791,12 +4848,22 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             return [EffectSpec("pip_life_option", {
                 "color": letter, "pips": 1, "spell_color": letter, "spell_type": list(_PERMANENT_SPELL_TYPES),
             })]
+    return None
+
+
+def _static_storm_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if text == "instant and sorcery spells you cast have storm":
         return [EffectSpec("grant_keyword", {
             "affects": "instant_sorcery_spells_you_cast", "keywords": ["storm"],
         })]
-    # "During turns other than yours, spells you cast cost {1} less to cast." (Geyser Drake, Naiad of Hidden Coves) — a
-    # cost discount gated by RULE 613.6's `not_your_turn`, the same `active_if` a condition-gated static carries.
+    return None
+
+
+# "During turns other than yours, spells you cast cost {1} less to cast." (Geyser Drake, Naiad of Hidden Coves) — a
+# cost discount gated by RULE 613.6's `not_your_turn`, the same `active_if` a condition-gated static carries.
+def _static_during_other_turns_cost(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     other_turns = _DURING_OTHER_TURNS_COST_RE.fullmatch(text)
     if other_turns is not None:
         inner = static_effect_specs(other_turns.group("rest"))
@@ -4805,30 +4872,57 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 EffectSpec(spec.type, {**spec.params, "active_if": {"kind": "not_your_turn"}}, condition=spec.condition)
                 for spec in inner
             ]
+    return None
+
+
+def _static_trigger_doubler(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if text.lower().startswith("if ") and "triggers an additional time" in text.lower():
 
         doubler = parse_trigger_doubler(text, trigger_condition_dict)
         if doubler is not None:
             return [doubler]
+    return None
+
+
+def _static_extra_etb_counter_specs(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     extra_counter = _extra_etb_counter_specs(text)
     if extra_counter is not None:
-        return extra_counter
+        return _claim(extra_counter)
+    return None
+
+
+def _static_self_graveyard_shuffle(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _SELF_GRAVEYARD_SHUFFLE_RE.fullmatch(text):
         return [EffectSpec("grant_graveyard_to_library_replacement", {"affects": "self"})]
+    return None
+
+
+def _static_commander_damage_triple(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if re.fullmatch(
         r"if an opponent would be dealt commander damage, they receive triple that amount of commander damage instead",
         text, re.IGNORECASE,
     ):
         return [EffectSpec("commander_damage_multiplier", {"multiplier": 3})]
-    # ``additional`` is semantic emphasis for an additive P/T modifier, not
-    # a different layer operation: "White creatures get an additional
-    # +1/+1" is simply another ordinary anthem.
-    text = re.sub(r"\b(gets?) an additional\s+", r"\1 ", text, flags=re.IGNORECASE)
+    return None
 
-    # PAR-50 / RULE 510.1c: combat-damage *assignment* replacements are not
-    # characteristics, so they ride the existing combat-restriction metadata
-    # bucket.  The engine consumes these two kinds at the assignment point,
-    # where blockers and the defending player are actually known.
+
+# ``additional`` is semantic emphasis for an additive P/T modifier, not
+# a different layer operation: "White creatures get an additional
+# +1/+1" is simply another ordinary anthem.
+def _static_fold_additional(text: str) -> str:
+    return re.sub(r"\b(gets?) an additional\s+", r"\1 ", text, flags=re.IGNORECASE)
+
+
+# PAR-50 / RULE 510.1c: combat-damage *assignment* replacements are not
+# characteristics, so they ride the existing combat-restriction metadata
+# bucket.  The engine consumes these two kinds at the assignment point,
+# where blockers and the defending player are actually known.
+def _static_damage_as_unblocked(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if re.fullmatch(
         r"you may have ~ assign its combat damage as though it weren'?t blocked",
         text, re.IGNORECASE,
@@ -4836,6 +4930,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("combat_restriction", {
             "kind": "damage_as_unblocked", "affects": "self",
         })]
+    return None
+
+
+def _static_toughness_damage(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     toughness_damage = re.fullmatch(
         r"(?P<scope>each creature you control|each creature) assigns combat damage equal to its toughness rather than its power",
         text, re.IGNORECASE,
@@ -4845,12 +4944,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "kind": "damage_uses_toughness",
             "affects": "creatures_you_control" if toughness_damage.group("scope").lower() == "each creature you control" else "creatures",
         })]
+    return None
 
-    # A compositional self-lord: reuse the normal parser for the tail rather
-    # than maintaining an ever-growing list of ``+N/+N and <thing>``
-    # combinations.  Besides keywords this admits independently modelled
-    # self statics such as protection or combat restrictions, and the outer
-    # conditional wrapper below applies one live gate to every emitted spec.
+
+# A compositional self-lord: reuse the normal parser for the tail rather
+# than maintaining an ever-growing list of ``+N/+N and <thing>``
+# combinations.  Besides keywords this admits independently modelled
+# self statics such as protection or combat restrictions, and the outer
+# conditional wrapper below applies one live gate to every emitted spec.
+def _static_compound_self(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     compound_self = re.fullmatch(
         r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) and (?P<tail>.+)", text, re.IGNORECASE
     )
@@ -4862,12 +4965,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 "toughness": int(compound_self.group("t")),
                 "affects": "self",
             }), *tail_specs]
+    return None
 
-    # The quoted-ability sibling of the preceding composition.  The nested
-    # helper already validates and builds triggers/activated abilities; only
-    # its temporary attachment-relative scope changes to the receiving
-    # permanent's self scope here.  An optional colour clause is the same
-    # ordinary layer-5 static, not a threshold- or tribe-specific effect.
+
+# The quoted-ability sibling of the preceding composition.  The nested
+# helper already validates and builds triggers/activated abilities; only
+# its temporary attachment-relative scope changes to the receiving
+# permanent's self scope here.  An optional colour clause is the same
+# ordinary layer-5 static, not a threshold- or tribe-specific effect.
+def _static_quoted_tail(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     quoted_tail = re.fullmatch(
         r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+)(?:, is (?P<color>white|blue|black|red|green))?"
         r",? and has \"(?P<inner>.+)\"", text, re.IGNORECASE,
@@ -4887,12 +4994,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 params = dict(grant.params)
                 params["affects"] = "self"
                 specs.append(EffectSpec(grant.type, params, condition=grant.condition))
-            return specs
+            return _claim(specs)
+    return None
 
-    # The same layer composition with a keyword between the colour and quote
-    # is common in ordinary continuous effects too.  Each component remains a
-    # normal generic EffectSpec, so condition wrappers and group scopes keep
-    # working without a bespoke combined ability.
+
+# The same layer composition with a keyword between the colour and quote
+# is common in ordinary continuous effects too.  Each component remains a
+# normal generic EffectSpec, so condition wrappers and group scopes keep
+# working without a bespoke combined ability.
+def _static_flag_keywords(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     colored_keyword_quoted_tail = re.fullmatch(
         r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+), is (?P<color>white|blue|black|red|green), "
         r"has (?P<keywords>.+?), and has \"(?P<inner>.+)\"", text, re.IGNORECASE,
@@ -4915,12 +5026,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 params = dict(grant.params)
                 params["affects"] = "self"
                 specs.append(EffectSpec(grant.type, params, condition=grant.condition))
-            return specs
+            return _claim(specs)
+    return None
 
-    # Colour-setting and an acquired quoted ability are independent layer-5
-    # and layer-6 operations.  Keep this compositional for any permanent,
-    # rather than baking a card's particular threshold wording into the
-    # catalogue.
+
+# Colour-setting and an acquired quoted ability are independent layer-5
+# and layer-6 operations.  Keep this compositional for any permanent,
+# rather than baking a card's particular threshold wording into the
+# catalogue.
+def _static_colored_quoted_self(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     colored_quoted_self = re.fullmatch(
         r'~ is (?P<color>white|blue|black|red|green),? and has "(?P<inner>.+)"',
         text, re.IGNORECASE,
@@ -4935,12 +5050,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 params = dict(grant.params)
                 params["affects"] = "self"
                 specs.append(EffectSpec(grant.type, params, condition=grant.condition))
-            return specs
+            return _claim(specs)
+    return None
 
-    # The no-P/T sibling: a conditional/static source may itself acquire one
-    # quoted trigger or activation.  This uses precisely the same recursive
-    # quoted-ability catalog as group grants; the sole difference is that the
-    # recipient is the source permanent.
+
+# The no-P/T sibling: a conditional/static source may itself acquire one
+# quoted trigger or activation.  This uses precisely the same recursive
+# quoted-ability catalog as group grants; the sole difference is that the
+# recipient is the source permanent.
+def _static_quoted_self(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     quoted_self = re.fullmatch(r'~ has "(?P<inner>.+)"', text, re.IGNORECASE)
     if quoted_self is not None:
         grants = quoted_ability_grant_effects_list(quoted_self.group("inner"))
@@ -4950,17 +5069,26 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 params = dict(grant.params)
                 params["affects"] = "self"
                 specs.append(EffectSpec(grant.type, params, condition=grant.condition))
-            return specs
+            return _claim(specs)
+    return None
 
-    # RULE 604.3 + 613.6: a CDA split by whose turn it is (Angry Mob) — two
-    # sentences, each a self P/T definition gated on the opposite turn.
+
+# RULE 604.3 + 613.6: a CDA split by whose turn it is (Angry Mob) — two
+# sentences, each a self P/T definition gated on the opposite turn.
+def _static_turn_split_pt(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     turn_halves = _TURN_SPLIT_PT_RE.fullmatch(text)
     if turn_halves is not None:
         first = static_effect_specs(turn_halves.group("first"))
         second = static_effect_specs(turn_halves.group("second"))
         if first and second and first[0].type == "pt_cda" and second[0].type == "pt_set":
-            return first + second
-        return None
+            return _claim(first + second)
+        return DECLINE
+    return None
+
+
+def _static_turn_split_fixed_pt(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     turn_split = _TURN_SPLIT_FIXED_PT_RE.fullmatch(text)
     if turn_split is not None:
         n = int(turn_split.group("n"))
@@ -4968,82 +5096,122 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "affects": "self", "power": n, "toughness": n,
             "active_if": {"kind": "not_your_turn"},
         })]
+    return None
 
-    # RULE 613.6: "as long as <condition>, <static>" (either printed order) —
-    # parse the gate, then re-enter with the bare static and hand every spec
-    # it returns the same ``active_if``. Done *first*, so no unconditional
-    # row can claim a conditional clause by matching a prefix of it, and
-    # recursion-guarded: the inner clause is strictly shorter, and a second
-    # "as long as" inside it fails the whole line closed (see
-    # `_AS_LONG_AS_TRAILING_RE`).
+
+# RULE 613.6: "as long as <condition>, <static>" (either printed order) —
+# parse the gate, then re-enter with the bare static and hand every spec
+# it returns the same ``active_if``. Done *first*, so no unconditional
+# row can claim a conditional clause by matching a prefix of it, and
+# recursion-guarded: the inner clause is strictly shorter, and a second
+# "as long as" inside it fails the whole line closed (see
+# `_AS_LONG_AS_TRAILING_RE`).
+def _static_conditional_static_specs(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     conditional = _conditional_static_specs(text)
     if conditional is not None:
-        return conditional
+        return _claim(conditional)
+    return None
 
-    # RULE 604.3 characteristic-defining P/T — "~'s power and toughness are
-    # each equal to the number of <X>."  (see `_PT_CDA_RE`).
+
+# RULE 604.3 characteristic-defining P/T — "~'s power and toughness are
+# each equal to the number of <X>."  (see `_PT_CDA_RE`).
+def _static_pt_cda(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _PT_CDA_RE.fullmatch(text)
     if m is not None:
         selector = _pt_cda_selector(m.group("what").strip().rstrip("."))
         if selector is None:
-            return None  # fail-closed — an unwhitelisted quantity phrase
+            return DECLINE  # fail-closed — an unwhitelisted quantity phrase
         return [EffectSpec("pt_cda", {
             "affects": "self",
             "power_count": selector,
             "toughness_count": selector,
         })]
+    return None
 
-    # Lhurgoyf and its relatives reuse the power's count for toughness with
-    # an offset. Both values remain characteristic-defining (RULE 604.3).
+
+# Lhurgoyf and its relatives reuse the power's count for toughness with
+# an offset. Both values remain characteristic-defining (RULE 604.3).
+def _static_pt_cda_that_number(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _PT_CDA_THAT_NUMBER_RE.fullmatch(text)
     if m is not None:
         selector = _pt_cda_selector(m.group("what").strip())
         if selector is None:
-            return None
+            return DECLINE
         return [EffectSpec("pt_cda", {
             "affects": "self", "power_count": selector,
             "toughness_count": {"terms": [selector], "plus": int(m.group("plus"))},
         })]
+    return None
 
+
+def _static_pt_cda_single(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _PT_CDA_SINGLE_RE.fullmatch(text)
     if m is not None:
         selector = _pt_cda_selector(m.group("what").strip().rstrip("."))
         if selector is None:
-            return None  # fail-closed
+            return DECLINE  # fail-closed
         key = "power_count" if m.group("char").lower() == "power" else "toughness_count"
         return [EffectSpec("pt_cda", {"affects": "self", key: selector})]
+    return None
 
-    # "This spell can't be countered." (RULE 118-area) — printed on a
-    # permanent as a standing line even though it only matters while the
-    # object is still a spell on the stack; `catalogue.handlers` claims the
-    # identical phrase for the instant/sorcery spell_effect path, see
-    # `CANT_BE_COUNTERED_RE`'s docstring for why both need it.
+
+# "This spell can't be countered." (RULE 118-area) — printed on a
+# permanent as a standing line even though it only matters while the
+# object is still a spell on the stack; `catalogue.handlers` claims the
+# identical phrase for the instant/sorcery spell_effect path, see
+# `CANT_BE_COUNTERED_RE`'s docstring for why both need it.
+def _static_cant_be_countered_self(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if CANT_BE_COUNTERED_RE.fullmatch(text):
         return [EffectSpec("cant_be_countered", {})]
+    return None
 
-    # "Spells you control can't be countered." / "Creature spells you
-    # control can't be countered." (Hexing Squelcher/Rionya-shaped) — a
-    # standing grant, not the spell's own bare flag `CANT_BE_COUNTERED_RE`
-    # claims above.
+
+# "Spells you control can't be countered." / "Creature spells you
+# control can't be countered." (Hexing Squelcher/Rionya-shaped) — a
+# standing grant, not the spell's own bare flag `CANT_BE_COUNTERED_RE`
+# claims above.
+def _static_grant_cant_be_countered(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GRANT_CANT_BE_COUNTERED_RE.fullmatch(text)
     if m is not None:
         scope = "creature_spells_you_control" if m.group("creature") else "you"
         return [EffectSpec("grant_cant_be_countered", {"scope": scope})]
+    return None
 
-    # RULE 701.19a: "Your opponents can't search libraries." (Stranglehold)
+
+# RULE 701.19a: "Your opponents can't search libraries." (Stranglehold)
+def _static_grant_search_prohibited(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _GRANT_SEARCH_PROHIBITED_RE.fullmatch(text):
         return [EffectSpec("grant_search_prohibited", {})]
+    return None
 
-    # RULE 500.7/700.4: "If an opponent would begin an extra turn, that
-    # player skips that turn instead." (Stranglehold's own second clause)
+
+# RULE 500.7/700.4: "If an opponent would begin an extra turn, that
+# player skips that turn instead." (Stranglehold's own second clause)
+def _static_grant_skip_extra_turns(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _GRANT_SKIP_EXTRA_TURNS_RE.fullmatch(text):
         return [EffectSpec("grant_skip_extra_turns", {})]
+    return None
 
+
+def _static_lands_every_basic_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _LANDS_EVERY_BASIC_TYPE_RE.fullmatch(text):
         return [EffectSpec("type_change", {
             "affects": "lands_you_control", "add_subtypes": list(_BASIC_LAND_TYPE_LIST),
         })]
+    return None
 
+
+def _static_flash_permission(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _FLASH_PERMISSION_RE.fullmatch(text)
     if m is not None:
         scope = (m.group("scope") or "").strip()
@@ -5053,30 +5221,46 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         elif scope == "creature":
             params["creature_only"] = True
         return [EffectSpec("flash_permission", params)]
+    return None
 
+
+def _static_activation_prohibition_opponents(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ACTIVATION_PROHIBITION_OPPONENTS_RE.fullmatch(text)
     if m is not None:
         card_type = _singularize(m.group("word"))
         if card_type not in _CARD_TYPE_WORDS:
-            return None  # fail-closed — an unrecognised type-scope
+            return DECLINE  # fail-closed — an unrecognised type-scope
         return [
             EffectSpec(
                 "activation_prohibition",
                 {"affects": "opponents_permanents", "card_type": card_type},
             )
         ]
+    return None
 
+
+def _static_cant_cast_opponents_your_turn(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _CANT_CAST_OPPONENTS_YOUR_TURN_RE.fullmatch(text):
         return [EffectSpec("cast_prohibition", {"scope": "opponents", "active_if": {"kind": "your_turn"}})]
+    return None
 
+
+def _static_cant_cast_opponents_hand_only(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _CANT_CAST_OPPONENTS_HAND_ONLY_RE.fullmatch(text):
         return [EffectSpec("cast_prohibition", {"scope": "opponents", "hand_only": True})]
+    return None
 
+
+def _static_cant_cast_or_activate_opponents(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CANT_CAST_OR_ACTIVATE_OPPONENTS_RE.fullmatch(text)
     if m is not None:
         card_types = _type_word_list(m.group("types"))
         if card_types is None:
-            return None  # fail-closed — an unrecognised type in the list
+            return DECLINE  # fail-closed — an unrecognised type in the list
         return [
             EffectSpec("cast_prohibition", {"scope": "opponents"}),
             EffectSpec(
@@ -5084,14 +5268,22 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 {"affects": "opponents_permanents", "card_type": card_types},
             ),
         ]
+    return None
 
+
+def _static_activation_prohibition(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ACTIVATION_PROHIBITION_RE.fullmatch(text)
     if m is not None:
         card_type = _singularize(m.group("word"))
         if card_type not in _CARD_TYPE_WORDS:
-            return None  # fail-closed — an unrecognised type-scope
+            return DECLINE  # fail-closed — an unrecognised type-scope
         return [EffectSpec("activation_prohibition", {"card_type": card_type})]
+    return None
 
+
+def _static_spell_cost_tax(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SPELL_COST_TAX_RE.fullmatch(text)
     if m is not None:
         word = (m.group("word") or "").lower()
@@ -5100,7 +5292,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         # type filter" in `continuous.cost_reduction_for`. A typed variant
         # must name a recognised card type (fail-closed).
         if word and word not in _SPELL_TYPE_WORDS:
-            return None
+            return DECLINE
         params: dict = {
             "affects": "all_spells",
             "generic": int(m.group("n")),
@@ -5109,7 +5301,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if word:
             params["spell_type"] = word
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_spell_cost_tax_color(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SPELL_COST_TAX_COLOR_RE.fullmatch(text)
     if m is not None:
         params = {
@@ -5118,7 +5314,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "spell_color": _COLOR_WORDS[m.group("color").lower()],
         }
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_spell_cost_tax_that_target(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SPELL_COST_TAX_THAT_TARGET_RE.fullmatch(text)
     if m is not None:
         params = {}
@@ -5133,10 +5333,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         else:
             alternatives = _tax_target_alternatives(m.group("target"))
             if alternatives is None:
-                return None
+                return DECLINE
             params["if_targets"] = alternatives
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_spell_cost_tax_opponents(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SPELL_COST_TAX_OPPONENTS_RE.fullmatch(text)
     if m is not None:
         params = {
@@ -5145,7 +5349,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "increase": m.group("dir") == "more",
         }
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_spell_cost_tax_you_cast(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SPELL_COST_TAX_YOU_CAST_RE.fullmatch(text)
     if m is not None:
         words = [w.lower() for w in (m.group("word1"), m.group("word2")) if w]
@@ -5162,13 +5370,17 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params["spell_subtype"] = words[0]
             return [EffectSpec("cost_reduction", params)]
         if any(w not in _SPELL_TYPE_WORDS for w in words):
-            return None  # fail-closed — colour/subtype-scoped, not a main type
+            return DECLINE  # fail-closed — colour/subtype-scoped, not a main type
         if len(words) == 1:
             params["spell_type"] = words[0]
         elif len(words) == 2:
             params["spell_type"] = words
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_equip_activation_discount(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _EQUIP_ACTIVATION_DISCOUNT_RE.fullmatch(text)
     if m is not None:
         params = {
@@ -5180,7 +5392,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         elif slot:
             params["targets_source"] = True
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_equip_self_discount(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _EQUIP_SELF_DISCOUNT_RE.fullmatch(text)
     if m is not None:
         params = {
@@ -5192,12 +5408,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         else:
             params["per_target_plus_one_counter"] = True
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_activation_cost_reduction_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ACTIVATION_COST_REDUCTION_TYPE_RE.fullmatch(text)
     if m is not None:
         card_type = _singularize(m.group("word").lower())
         if card_type not in _CARD_TYPE_WORDS:
-            return None  # fail-closed — an unrecognised type-scope
+            return DECLINE  # fail-closed — an unrecognised type-scope
         params = {
             "scope": "activation",
             "card_type": card_type,
@@ -5206,7 +5426,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if m.group("floor"):
             params["min_total"] = int(m.group("floor"))
         return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_self_cost_reduction_where_x(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_COST_REDUCTION_WHERE_X_RE.fullmatch(text)
     if m is not None:
 
@@ -5217,7 +5441,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 # "…to cast this way" (the Visions flashback cycle): only when cast from the graveyard.
                 params["active_if"] = {"kind": "source_in_graveyard"}
             return [EffectSpec("cost_reduction", params)]
+    return None
 
+
+def _static_self_cost_reduction_for_each(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_COST_REDUCTION_FOR_EACH_RE.fullmatch(text)
     if m is not None:
         selector = _self_cost_per(m.group("phrase"))
@@ -5225,28 +5453,40 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             return [EffectSpec("cost_reduction", {
                 "affects": "self", "generic": int(m.group("n")), "per": selector,
             })]
+    return None
 
+
+def _static_second_spell_cost_reduction(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SECOND_SPELL_COST_REDUCTION_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("cost_reduction", {
             "affects": "your_spells", "generic": int(m.group("n")),
             "active_if": {"kind": "spells_cast_this_turn", "min": 1, "max": 1},
         })]
+    return None
 
+
+def _static_self_cost_reduction_colored(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_COST_REDUCTION_COLORED_RE.fullmatch(text)
     if m is not None:
         condition = static_condition(m.group("cond"))
         if condition is None:
-            return None
+            return DECLINE
         symbols = re.findall(r"\{([WUBRG])\}", m.group("symbols"), re.I)
         colors = {symbol.upper() for symbol in symbols}
         if len(colors) != 1:
-            return None
+            return DECLINE
         return [EffectSpec("cost_reduction", {
             "affects": "self", "generic": 0,
             "colored": {colors.pop(): len(symbols)}, "active_if": condition,
         })]
+    return None
 
+
+def _static_self_cost_reduction_if(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_COST_REDUCTION_IF_RE.fullmatch(text)
     if m is not None:
         cond_text = m.group("cond")
@@ -5261,66 +5501,114 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             ]
         condition = static_condition(cond_text)
         if condition is None:
-            return None  # fail-closed — an unrecognised condition clause
+            return DECLINE  # fail-closed — an unrecognised condition clause
         return [
             EffectSpec(
                 "cost_reduction",
                 {"affects": "self", "generic": int(m.group("n")), "active_if": condition},
             )
         ]
+    return None
 
+
+def _static_cast_limit_noncreature(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CAST_LIMIT_NONCREATURE_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("cast_limit", {"max_per_turn": int(m.group("n")), "noncreature": True})]
+    return None
 
+
+def _static_cast_limit(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CAST_LIMIT_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("cast_limit", {"max_per_turn": int(m.group("n"))})]
+    return None
 
+
+def _static_extra_land_drop(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _EXTRA_LAND_DROP_RE.fullmatch(text)
     if m is not None:
         affects = "each_player" if m.group("subject").lower() == "each player" else "you"
         return [EffectSpec("extra_land_drop", {"affects": affects, "count": count_of(m.group("n"))})]
+    return None
 
+
+def _static_no_max_hand_size(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _NO_MAX_HAND_SIZE_RE.fullmatch(text)
     if m is not None:
         affects = "each_player" if m.group("subject").lower() == "players have" else "you"
         return [EffectSpec("no_max_hand_size", {"affects": affects})]
+    return None
 
+
+def _static_color_statement_specs(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     color_specs = _color_statement_specs(text)
     if color_specs is not None:
-        return color_specs
+        return _claim(color_specs)
+    return None
 
+
+def _static_hand_size_modifier(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _HAND_SIZE_MODIFIER_RE.fullmatch(text)
     if m is not None:
         params = {"affects": _HAND_SIZE_SUBJECT_AFFECTS[m.group("subject").lower()], "amount": int(m.group("n"))}
         if m.group("direction").lower() == "increased":
             params["increase"] = True
         return [EffectSpec("hand_size_modifier", params)]
+    return None
 
+
+def _static_skip_untap_steps(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
         return [EffectSpec("skip_untap_step", {})]
+    return None
 
+
+def _static_players_cant_draw(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if re.fullmatch(r"players can't draw cards(?: or gain life)?", text):
         effects = [EffectSpec("draw_limit", {"max_per_turn": 0})]
         if text.endswith(" or gain life"):
             effects.append(EffectSpec("prevent_all_life_gain", {}))
-        return effects
+        return _claim(effects)
+    return None
 
+
+def _static_players_cant_gain_life(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _PLAYERS_CANT_GAIN_LIFE_RE.fullmatch(text)
     if m is not None:
         params = {"scope": "opponents"} if (m.group("scope") or "").lower() == "your opponents" else {}
         return [EffectSpec("prevent_all_life_gain", params)]
+    return None
 
+
+def _static_skip_your_step(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SKIP_YOUR_STEP_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("skip_step", {"step": m.group("step").lower()})]
+    return None
 
+
+def _static_graveyard_library_cast_prohibition(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE.fullmatch(text)
     if m is not None:
         params: dict = {} if m.group("libraries") else {"zones": ["graveyard"]}
         return [EffectSpec("graveyard_library_cast_prohibition", params)]
+    return None
 
+
+def _static_graveyard_library_entry_prohibition(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE.fullmatch(text)
     if m is not None:
         word = m.group("type").lower()
@@ -5329,10 +5617,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if not m.group("libraries"):
             params["zones"] = ["graveyard"]
         return [EffectSpec("graveyard_library_entry_prohibition", params)]
+    return None
 
+
+def _static_radiation_life_gain(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _RADIATION_LIFE_GAIN_RE.fullmatch(text):
         return [EffectSpec("radiation_life_gain", {})]
+    return None
 
+
+def _static_top_library_permission(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _TOP_LIBRARY_PERMISSION_RE.fullmatch(text)
     if m is not None:
         params: dict = {"look": True, **_TOP_LIBRARY_VERB_PARAMS[m.group("verb").lower()]}
@@ -5342,66 +5638,123 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if tail is not None:
             params[_TOP_LIBRARY_TAILS[tail.lower()]] = True
         return [EffectSpec("top_library_permission", params)]
+    return None
 
-    # PAR-105: the general "you may [play `<lands>` and] cast `<spells>` from the top of your library" grammar —
-    # after the closed-vocabulary row above, which keeps its five phrasings byte-for-byte.
+
+# PAR-105: the general "you may [play `<lands>` and] cast `<spells>` from the top of your library" grammar —
+# after the closed-vocabulary row above, which keeps its five phrasings byte-for-byte.
+def _static_top_library(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     top_library = parse_top_library_permission(text)
     if top_library is not None:
-        return top_library
+        return _claim(top_library)
+    return None
+
+
+def _static_graveyard_cast(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     graveyard_cast = parse_graveyard_cast_permission(text)
     if graveyard_cast is not None:
-        return graveyard_cast
+        return _claim(graveyard_cast)
+    return None
 
+
+def _static_graveyard_land_play_permission(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _GRAVEYARD_LAND_PLAY_PERMISSION_RE.fullmatch(text):
         return [EffectSpec("graveyard_cast_permission", {"lands_only": True})]
+    return None
 
+
+def _static_look_at_top_any_time(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _LOOK_AT_TOP_ANY_TIME_RE.fullmatch(text):
         return [EffectSpec("top_library_permission", {"look": True})]
+    return None
 
+
+def _static_not_a_creature(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _NOT_A_CREATURE_RE.fullmatch(text):
         return [EffectSpec("type_change", {"remove_types": ["creature"]})]
+    return None
 
+
+def _static_activate_as_though_haste(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if re.fullmatch(
         r"you may activate abilities of creatures you control as though those creatures had haste",
         text, re.IGNORECASE,
     ):
         return [EffectSpec("activate_as_though_haste", {"affects": "creatures_you_control"})]  # PAR-109
+    return None
 
+
+def _static_untap_each_untap_step(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if re.fullmatch(r"untap (?:~|this [a-z]+) during each other player'?s untap step", text, re.IGNORECASE):
         return [EffectSpec("untap_each_untap_step", {"affects": "self"})]  # PAR-109
+    return None
 
+
+def _static_no_untap_optional(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _NO_UNTAP_OPTIONAL_RE.fullmatch(text):
         return [EffectSpec("no_untap_optional", {})]
+    return None
 
+
+def _static_no_untap(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _NO_UNTAP_RE.fullmatch(text):
         return [EffectSpec("no_untap", {"affects": "self"})]
+    return None
 
+
+def _static_no_untap_attached(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _NO_UNTAP_ATTACHED_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("no_untap", {"affects": "attached_permanent"})]
+    return None
 
+
+def _static_no_untap_group_power(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _NO_UNTAP_GROUP_POWER_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("no_untap", {"affects": "all_creatures", "min_power": int(m.group("n"))})]
+    return None
 
+
+def _static_no_untap_nonbasic_lands(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _NO_UNTAP_NONBASIC_LANDS_RE.fullmatch(text):
         return [EffectSpec("no_untap", {"affects": "all_lands", "nonbasic": True})]
+    return None
 
+
+def _static_untap_cap(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _UNTAP_CAP_RE.fullmatch(text)
     if m is not None:
         card_type = _singularize(m.group("word").lower())
         if card_type not in _CARD_TYPE_WORDS:
-            return None  # fail-closed — an unrecognised type-scope
+            return DECLINE  # fail-closed — an unrecognised type-scope
         params: dict = {"count": int(m.group("n")), "card_type": card_type}
         if m.group("nonbasic"):
             params["nonbasic"] = True
         return [EffectSpec("untap_cap", params)]
+    return None
 
+
+def _static_trigger_prohibition(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _TRIGGER_PROHIBITION_RE.fullmatch(text)
     if m is not None:
         subject_type = _singularize(m.group("word"))
         if subject_type not in _CARD_TYPE_WORDS:
-            return None
+            return DECLINE
         specs = [
             EffectSpec(
                 "trigger_prohibition",
@@ -5412,8 +5765,12 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             specs.append(
                 EffectSpec("trigger_prohibition", {"event": "DIES", "subject_type": subject_type})
             )
-        return specs
+        return _claim(specs)
+    return None
 
+
+def _static_opponents_enter_tapped(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _OPPONENTS_ENTER_TAPPED_RE.fullmatch(text)
     if m is not None:
         specs = []
@@ -5422,54 +5779,70 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             word = part[len("nonbasic "):] if nonbasic else part
             card_type = _singularize(word)
             if card_type not in _CARD_TYPE_WORDS:
-                return None
+                return DECLINE
             params: dict = {"affects": "opponents_permanents", "card_type": card_type}
             if nonbasic:
                 params["nonbasic"] = True
             specs.append(EffectSpec("enters_tapped_static", params))
-        return specs
+        return _claim(specs)
+    return None
 
+
+def _static_all_enter_tapped(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ALL_ENTER_TAPPED_RE.fullmatch(text)
     if m is not None:
         card_types = [_singularize(w) for w in m.group("words").split(" and ")]
         if any(t not in _CARD_TYPE_WORDS for t in card_types):
-            return None
+            return DECLINE
         specs = []
         for card_type in card_types:
             params = {"affects": "all_permanents", "card_type": card_type}
             if m.group("nonbasic"):
                 params["nonbasic"] = True
             specs.append(EffectSpec("enters_tapped_static", params))
-        return specs
+        return _claim(specs)
+    return None
 
+
+def _static_type_overwrite(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _TYPE_OVERWRITE_RE.fullmatch(text)
     if m is not None:
         basic_type = _BASIC_LAND_WORDS.get(m.group("word").lower())
         if basic_type is None:
-            return None  # fail-closed — an unrecognised "are <X>" overwrite
+            return DECLINE  # fail-closed — an unrecognised "are <X>" overwrite
         return [
             EffectSpec("type_change", {
                 "affects": "all_lands", "nonbasic": True, "set_subtypes": [basic_type],
             }),
         ]
+    return None
 
+
+def _static_land_is_basic_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _LAND_IS_BASIC_TYPE_RE.fullmatch(text)
     if m is not None:
         basic_type = _BASIC_LAND_WORDS.get(m.group("word").lower())
         if basic_type is None:
-            return None  # fail-closed — an unrecognised "is a <X>" grant
+            return DECLINE  # fail-closed — an unrecognised "is a <X>" grant
         return [EffectSpec("type_change", {"affects": "all_lands", "add_subtypes": [basic_type]})]
+    return None
 
-    # RULE 702.16 standing protection grants — before every anthem/
-    # keyword-grant family below, whose `_flag_keywords` would reject
-    # "protection from <quality>" (not a flag keyword) and fail the clause
-    # closed. Compound "+N/+N and protection" first, since the bare forms
-    # are prefixes of it.
+
+# RULE 702.16 standing protection grants — before every anthem/
+# keyword-grant family below, whose `_flag_keywords` would reject
+# "protection from <quality>" (not a flag keyword) and fail the clause
+# closed. Compound "+N/+N and protection" first, since the bare forms
+# are prefixes of it.
+def _static_attached_anthem_protection(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_ANTHEM_PROTECTION_RE.fullmatch(text)
     if m is not None:
         params = _protection_params(m.group("quality"))
         if params is None:
-            return None
+            return DECLINE
         if m.group("exempt"):
             params["exempt_own_attachment"] = True
         return [
@@ -5478,54 +5851,74 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             EffectSpec("grant_protection_static",
                        {"affects": "attached_permanent", **params}),
         ]
+    return None
 
+
+def _static_group_anthem_protection(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GROUP_ANTHEM_PROTECTION_RE.fullmatch(text)
     if m is not None:
         scope = _scope(m.group("body"))
         if scope is None:
-            return None
+            return DECLINE
         params = _protection_params(m.group("quality"))
         if params is None:
-            return None
+            return DECLINE
         scoped = _scope_params(scope, m)
         return [
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    **scoped}),
             EffectSpec("grant_protection_static", {**scoped, **params}),
         ]
+    return None
 
+
+def _static_self_protection(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_PROTECTION_RE.fullmatch(text)
     if m is not None:
         params = _protection_params(m.group("quality"))
         if params is None:
-            return None
+            return DECLINE
         return [EffectSpec("grant_protection_static", {"affects": "self", **params})]
+    return None
 
+
+def _static_attached_protection(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_PROTECTION_RE.fullmatch(text)
     if m is not None:
         params = _protection_params(m.group("quality"))
         if params is None:
-            return None
+            return DECLINE
         if m.group("exempt"):
             params["exempt_own_attachment"] = True
         return [EffectSpec("grant_protection_static", {"affects": "attached_permanent", **params})]
+    return None
 
+
+def _static_group_protection(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GROUP_PROTECTION_RE.fullmatch(text)
     if m is not None:
         scope = _scope(m.group("body"))
         if scope is None:
-            return None
+            return DECLINE
         params = _protection_params(m.group("quality"))
         if params is None:
-            return None
+            return DECLINE
         return [EffectSpec("grant_protection_static", {**_scope_params(scope, m), **params})]
+    return None
 
-    # PAR-43: "equipped/enchanted <subject> gets +N/+N for each <X> [and has
-    # <keywords>]" — the attached-permanent sibling of the self-scoped
-    # `_SELF_ANTHEM_FOR_EACH_RE` row below, tried first for the same reason
-    # that row precedes `_SELF_ANTHEM_RE`: `_ATTACHED_ANTHEM_RE`'s
-    # fixed-digit pattern would otherwise claim the "+1/+1" prefix and drop
-    # the "for each …" scaling.
+
+# PAR-43: "equipped/enchanted <subject> gets +N/+N for each <X> [and has
+# <keywords>]" — the attached-permanent sibling of the self-scoped
+# `_SELF_ANTHEM_FOR_EACH_RE` row below, tried first for the same reason
+# that row precedes `_SELF_ANTHEM_RE`: `_ATTACHED_ANTHEM_RE`'s
+# fixed-digit pattern would otherwise claim the "+1/+1" prefix and drop
+# the "for each …" scaling.
+def _static_attached_anthem_for_each(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_ANTHEM_FOR_EACH_RE.fullmatch(text)
     if m is not None:
         what = m.group("what").strip().lower()
@@ -5539,20 +5932,25 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             if m.group("kw"):  # "… and has <keywords>" tail
                 keywords = _flag_keywords(m.group("kw"))
                 if keywords is None:
-                    return None  # fail-closed, whole clause
+                    return DECLINE  # fail-closed, whole clause
                 specs.append(EffectSpec("grant_keyword", {"keywords": keywords,
                                                             "affects": "attached_permanent"}))
-            return specs
-        # A "for each …" quantity with no wired selector — fail closed, same
-        # as the self-scoped row (never silently apply +0).
+            return _claim(specs)
+    return None
 
-    # Attached-permanent keyword removal ("equipped creature gets +3/+3 and
-    # loses flying" / "enchanted creature loses flying").
+
+    # A "for each …" quantity with no wired selector — fail closed, same
+    # as the self-scoped row (never silently apply +0).
+
+# Attached-permanent keyword removal ("equipped creature gets +3/+3 and
+# loses flying" / "enchanted creature loses flying").
+def _static_attached_remove_keyword(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_REMOVE_KEYWORD_RE.fullmatch(text)
     if m is not None:
         keywords = _flag_keywords(m.group("kw"))
         if keywords is None:
-            return None
+            return DECLINE
         specs: list[EffectSpec] = []
         if m.group("p") is not None:
             specs.append(EffectSpec("anthem", {
@@ -5562,26 +5960,39 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         specs.append(EffectSpec("remove_keyword", {
             "keywords": keywords, "affects": "attached_permanent",
         }))
-        return specs
+        return _claim(specs)
+    return None
 
+
+def _static_attached_type_addition(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_TYPE_ADDITION_RE.fullmatch(text)
     if m is not None:
-        return _attached_type_addition(m)
-    # PAR-142: a second sentence that only adds a type to the host — "Enchanted creature gets +1/+1 and has
-    # flying, haste, and "{1}: ~ gets +1/+0 until end of turn." **It's a Dragon in addition to its other
-    # types.**" (Draconic Destiny). The first sentence is an ordinary attached grant; "it" is the host.
+        return _claim(_attached_type_addition(m))
+    return None
+
+
+# PAR-142: a second sentence that only adds a type to the host — "Enchanted creature gets +1/+1 and has
+# flying, haste, and "{1}: ~ gets +1/+0 until end of turn." **It's a Dragon in addition to its other
+# types.**" (Draconic Destiny). The first sentence is an ordinary attached grant; "it" is the host.
+def _static_attached_trailing_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     trailing = _ATTACHED_TRAILING_TYPE_RE.fullmatch(text)
     if trailing is not None:
         head = static_effect_specs(trailing.group("main"))
         added = type_addition_params(trailing.group("words"))
         if head and added is not None and not added.get("legendary"):
             return [*head, EffectSpec("type_change", {"affects": "attached_permanent", **added})]
+    return None
 
-    # Attached-permanent shape first ("equipped creature gets +2/+2 [and has
-    # <keywords>]") — a closed subject list, so this never competes with the
-    # "you control" scopes below (singular "gets"/"has" vs. their plural
-    # "get"/"have"). `affects="attached_permanent"` is honoured by both
-    # `anthem` (layer 7c) and `grant_keyword` (layer 6) in `game/continuous.py`.
+
+# Attached-permanent shape first ("equipped creature gets +2/+2 [and has
+# <keywords>]") — a closed subject list, so this never competes with the
+# "you control" scopes below (singular "gets"/"has" vs. their plural
+# "get"/"have"). `affects="attached_permanent"` is honoured by both
+# `anthem` (layer 7c) and `grant_keyword` (layer 6) in `game/continuous.py`.
+def _static_attached_anthem(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_ANTHEM_RE.fullmatch(text)
     if m is not None:
         specs = [
@@ -5591,7 +6002,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if m.group("kw"):  # "… and has <keywords>" tail
             resolved = _flag_keywords_and_ward(m.group("kw"))
             if resolved is None:
-                return None  # e.g. a granted landwalk — fail-closed, whole clause
+                return DECLINE  # e.g. a granted landwalk — fail-closed, whole clause
             keywords, ward_cost = resolved
             params: dict = {"affects": "attached_permanent"}
             if keywords:
@@ -5605,15 +6016,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             specs.append(EffectSpec("type_change", {
                 "affects": "attached_permanent", "add_subtypes": ["Changeling"],
             }))
-        return specs
+        return _claim(specs)
+    return None
 
-    # Attached-permanent keyword-only grant ("equipped creature has trample",
-    # "enchanted creature has indestructible and is goaded", "… has ward {2}").
+
+# Attached-permanent keyword-only grant ("equipped creature has trample",
+# "enchanted creature has indestructible and is goaded", "… has ward {2}").
+def _static_attached_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_GRANT_RE.fullmatch(text)
     if m is not None:
         resolved = _flag_keywords_and_ward(m.group("kw"))
         if resolved is None:
-            return None
+            return DECLINE
         keywords, ward_cost = resolved
         if m.group("must_be_blocked"):
             keywords = [*keywords, "must_be_blocked"]
@@ -5625,23 +6040,31 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         specs = [EffectSpec("grant_keyword", params)]
         if m.group("goaded"):
             specs.append(EffectSpec("goaded", {"affects": "attached_permanent"}))
-        return specs
+        return _claim(specs)
+    return None
 
-    # The bare "enchanted creature is goaded." (RULE 701.15b) — no other
-    # grant on the Aura at all.
+
+# The bare "enchanted creature is goaded." (RULE 701.15b) — no other
+# grant on the Aura at all.
+def _static_attached_goaded(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_GOADED_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("goaded", {"affects": "attached_permanent"})]
+    return None
 
-    # "~ gets +X/+X, where X is your devotion to <colour(s)/wedge/hybrid>."
-    # (RULE 202.2f/700.6, Blended Twistling-shaped) — a standing, self-
-    # scoped anthem whose amount is `continuous.count_selector`'s
-    # `devotion_to_<key>` vocabulary, tried before `_SELF_ANTHEM_RE`
-    # (fixed-digit only) since "x" would never match that row's ``\d+``.
-    # PAR-30: "~ gets +P/+T for each `<subtype>` card in your graveyard"
-    # (Katara, Seeking Revenge). Tried before `_SELF_ANTHEM_RE` since that
-    # row's `[+-]\d+/[+-]\d+` would claim the "+1/+1" prefix and drop the
-    # "for each …" scaling.
+
+# "~ gets +X/+X, where X is your devotion to <colour(s)/wedge/hybrid>."
+# (RULE 202.2f/700.6, Blended Twistling-shaped) — a standing, self-
+# scoped anthem whose amount is `continuous.count_selector`'s
+# `devotion_to_<key>` vocabulary, tried before `_SELF_ANTHEM_RE`
+# (fixed-digit only) since "x" would never match that row's ``\d+``.
+# PAR-30: "~ gets +P/+T for each `<subtype>` card in your graveyard"
+# (Katara, Seeking Revenge). Tried before `_SELF_ANTHEM_RE` since that
+# row's `[+-]\d+/[+-]\d+` would claim the "+1/+1" prefix and drop the
+# "for each …" scaling.
+def _static_attached_anthem_x(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_ANTHEM_X_RE.fullmatch(text)
     if m is not None and "x" in (m.group("p"), m.group("t")):
 
@@ -5649,9 +6072,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         # RULE 301.5a: "its" refers to the host, while ~ names the Equipment.
         selector = "affected_mana_value" if what == "its mana value" else parse_amount_phrase(what)
         if selector is None:
-            return None
+            return DECLINE
         if isinstance(selector, dict) and "terms" in selector and " on it" in what:
-            return None  # Compound pronouns require per-term referent tracking.
+            return DECLINE  # Compound pronouns require per-term referent tracking.
         if isinstance(selector, dict) and selector.get("counters_on") == "source" and what.endswith(" on it"):
             selector = {**selector, "counters_on": "affected"}
         params = {"affects": "attached_permanent"}
@@ -5661,7 +6084,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             if value == "x":
                 params[axis + "_count"] = selector
         return [EffectSpec("anthem", params)]
+    return None
 
+
+def _static_self_anthem_for_each_gy_subtype(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE.fullmatch(text)
     if m is not None:
 
@@ -5672,9 +6099,13 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 "power": int(m.group("p")), "toughness": int(m.group("t")),
                 "power_count": selector, "toughness_count": selector,
             })]
+    return None
 
-    # PAR-43: "~ gets +P/+T for each <X>" — general standing self-anthem
-    # whose per-unit +P/+T scales by a `continuous.count_selector` value.
+
+# PAR-43: "~ gets +P/+T for each <X>" — general standing self-anthem
+# whose per-unit +P/+T scales by a `continuous.count_selector` value.
+def _static_self_anthem_for_each(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_ANTHEM_FOR_EACH_RE.fullmatch(text)
     if m is not None:
         what = m.group("what").strip().lower()
@@ -5685,9 +6116,13 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 "power": int(m.group("p")), "toughness": int(m.group("t")),
                 "power_count": selector, "toughness_count": selector,
             })]
-        # A "for each …" quantity with no wired selector — fail closed
-        # (an anthem reading an unmodeled count would silently apply +0).
+    return None
 
+
+    # A "for each …" quantity with no wired selector — fail closed
+    # (an anthem reading an unmodeled count would silently apply +0).
+def _static_anthem_devotion_self(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ANTHEM_DEVOTION_SELF_RE.fullmatch(text)
     if m is not None:
         selector = devotion_selector(m)
@@ -5699,10 +6134,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 "affects": "self", "power": 1, "toughness": 1,
                 "power_count": selector, "toughness_count": selector,
             })]
+    return None
 
-    # Self-scoped anthem/grant ("~ gets +2/+2 and has flying", "~ has
-    # trample [and can attack as though it didn't have defender]") — the
-    # inner half of nearly every RULE 613.6 conditional.
+
+# Self-scoped anthem/grant ("~ gets +2/+2 and has flying", "~ has
+# trample [and can attack as though it didn't have defender]") — the
+# inner half of nearly every RULE 613.6 conditional.
+def _static_self_anthem(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_ANTHEM_RE.fullmatch(text)
     if m is not None:
         specs = [
@@ -5713,18 +6152,22 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if m.group("kw"):
             keywords = _flag_keywords(m.group("kw"))
             if keywords is None:
-                return None
+                return DECLINE
         if m.group("attacks_if_able"):
             keywords = (keywords or []) + ["attacks_if_able"]
         if keywords:
             specs.append(EffectSpec("grant_keyword", {"keywords": keywords, "affects": "self"}))
         tail = _self_permission_spec(m)
         if tail is False:
-            return None
+            return DECLINE
         if tail is not None:
             specs.append(tail)
-        return specs
+        return _claim(specs)
+    return None
 
+
+def _static_self_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_GRANT_RE.fullmatch(text)
     if m is not None:
         kw_text = m.group("kw")
@@ -5736,10 +6179,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             # landwalk/flag path is untouched.
             split = split_keywords_with_parametric(kw_text)
             if split is None:
-                return None
+                return DECLINE
             keywords, parametric = split
         if not keywords and not parametric:
-            return None
+            return DECLINE
         params: dict[str, Any] = {"affects": "self"}
         if keywords:
             params["keywords"] = keywords
@@ -5748,34 +6191,46 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         specs = [EffectSpec("grant_keyword", params)]
         tail = _self_permission_spec(m)
         if tail is False:
-            return None
+            return DECLINE
         if tail is not None:
             specs.append(tail)
-        return specs
+        return _claim(specs)
+    return None
 
-    # RULE 508.1a's standalone attack permission ("~ can attack as though it
-    # didn't have defender.") and the counted multi-block one.
+
+# RULE 508.1a's standalone attack permission ("~ can attack as though it
+# didn't have defender.") and the counted multi-block one.
+def _static_attack_as_though_no_defender(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACK_AS_THOUGH_NO_DEFENDER_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("combat_restriction", {
             "kind": "attacks_as_though_no_defender",
             "affects": _combat_restriction_affects(m.group("subject")),
         })]
+    return None
 
+
+def _static_block_additional_n(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _BLOCK_ADDITIONAL_N_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("combat_restriction", {
             "kind": "extra_blocks", "count": int(m.group("n")),
             "affects": _combat_restriction_affects(m.group("subject")),
         })]
+    return None
 
-    # Combat-restriction family ("~ can't attack.", "enchanted creature can't
-    # be blocked.", "~ attacks each combat if able.", …) — see
-    # `_combat_restriction_specs` above. Ordered most-specific-first so a
-    # combined clause matches its own row rather than a shorter prefix; since
-    # every branch uses `fullmatch`, a shorter regex simply fails on any
-    # unconsumed trailing text (fail-closed), so the ordering is for clarity
-    # rather than correctness.
+
+# Combat-restriction family ("~ can't attack.", "enchanted creature can't
+# be blocked.", "~ attacks each combat if able.", …) — see
+# `_combat_restriction_specs` above. Ordered most-specific-first so a
+# combined clause matches its own row rather than a shorter prefix; since
+# every branch uses `fullmatch`, a shorter regex simply fails on any
+# unconsumed trailing text (fail-closed), so the ordering is for clarity
+# rather than correctness.
+def _static_attack_tax(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACK_TAX_RE.fullmatch(text)
     if m is not None:
         params: dict[str, object] = {
@@ -5788,91 +6243,159 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         else:
             params["amount_count_selector"] = "basic_land_types_among_lands_you_control"
         return [EffectSpec("attack_tax", params)]
+    return None
 
+
+def _static_cant_attack_or_block_lock(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CANT_ATTACK_OR_BLOCK_LOCK_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(
+        return _claim(_combat_restriction_specs(
             m.group("subject"), ["cant_attack", "cant_block"], lock=True,
             mana_exception=bool(m.group("mana_exception")),
-        )
+        ))
+    return None
 
+
+def _static_cant_attack_or_block(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CANT_ATTACK_OR_BLOCK_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["cant_attack", "cant_block"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["cant_attack", "cant_block"]))
+    return None
 
+
+def _static_cant_block_and_cant_be_blocked(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CANT_BLOCK_AND_CANT_BE_BLOCKED_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["cant_block", "cant_be_blocked"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["cant_block", "cant_be_blocked"]))
+    return None
 
+
+def _static_cant_attack(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CANT_ATTACK_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["cant_attack"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["cant_attack"]))
+    return None
 
+
+def _static_cant_block(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CANT_BLOCK_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["cant_block"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["cant_block"]))
+    return None
 
+
+def _static_cant_be_blocked(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _CANT_BE_BLOCKED_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["cant_be_blocked"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["cant_be_blocked"]))
+    return None
 
+
+def _static_attacks_if_able(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACKS_IF_ABLE_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["attacks_if_able"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["attacks_if_able"]))
+    return None
 
-    # RULE 509.1c/d combat requirements — "~ must be blocked if able."/"All
-    # creatures able to block ~ do so." (Lure-shaped).
+
+# RULE 509.1c/d combat requirements — "~ must be blocked if able."/"All
+# creatures able to block ~ do so." (Lure-shaped).
+def _static_must_be_blocked(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _MUST_BE_BLOCKED_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["must_be_blocked"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["must_be_blocked"]))
+    return None
 
+
+def _static_must_be_blocked_by_one(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _MUST_BE_BLOCKED_BY_ONE_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["must_be_blocked_by_exactly_one"])
+        return _claim(_combat_restriction_specs(m.group("subject"), ["must_be_blocked_by_exactly_one"]))
+    return None
 
+
+def _static_all_must_block(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ALL_MUST_BLOCK_RE.fullmatch(text)
     if m is not None:
         subject = m.group("subject")
         affects = "self" if subject in ("~", "it") else "attached_permanent"
         return [EffectSpec("grant_keyword", {"keywords": ["all_must_block"], "affects": affects})]
+    return None
 
-    # RULE 509.1b multi-block permissions — "~ can block an additional
-    # creature each combat."/"~ can block any number of creatures."
+
+# RULE 509.1b multi-block permissions — "~ can block an additional
+# creature each combat."/"~ can block any number of creatures."
+def _static_block_additional(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _BLOCK_ADDITIONAL_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("combat_restriction", {
             "kind": "extra_blocks", "count": 1,
             "affects": _combat_restriction_affects(m.group("subject")),
         })]
+    return None
 
+
+def _static_block_any_number(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _BLOCK_ANY_NUMBER_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("combat_restriction", {
             "kind": "unlimited_blocks",
             "affects": _combat_restriction_affects(m.group("subject")),
         })]
+    return None
 
-    # …and their *qualified* siblings ("can't be blocked by creatures with
-    # power 2 or less", "can't attack unless defending player controls an
-    # Island", "can't attack alone") — tried after the plain flags above,
-    # which are `fullmatch`ed and so can never swallow a qualifier.
+
+# …and their *qualified* siblings ("can't be blocked by creatures with
+# power 2 or less", "can't attack unless defending player controls an
+# Island", "can't attack alone") — tried after the plain flags above,
+# which are `fullmatch`ed and so can never swallow a qualifier.
+def _static_qualified_combat_restriction_specs(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     qualified = _qualified_combat_restriction_specs(text)
     if qualified is not None:
-        return qualified
+        return _claim(qualified)
+    return None
 
+
+def _static_control_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _CONTROL_GRANT_RE.fullmatch(text):
         return [EffectSpec("control_change", {})]
+    return None
 
+
+def _static_is_chosen_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _IS_CHOSEN_TYPE_RE.fullmatch(text):
         return [EffectSpec("type_change", {"affects": "self", "add_subtypes_from_source": True})]
+    return None
 
+
+def _static_graveyard_chosen_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     if _GRAVEYARD_CHOSEN_TYPE_RE.fullmatch(text):
         return [EffectSpec("type_change", {
             "affects": "off_battlefield_only",  # no battlefield half at all
             "add_subtypes_from_source": True,
             "off_battlefield": "your_graveyard",
         })]
+    return None
 
+
+def _static_group_type_addition(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GROUP_TYPE_ADDITION_RE.fullmatch(text)
     if m is not None and "chosen" not in text.lower():
         # PAR-142: "creature tokens you control are Squirrels in addition to their other creature types"
@@ -5881,19 +6404,27 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         params = _chosen_type_group_affects(m.group("body"))
         added = _type_addition_plural_words(m.group("words"))
         if params is None or added is None:
-            return None
+            return DECLINE
         return [EffectSpec("type_change", {**params, **added})]
+    return None
 
+
+def _static_group_chosen_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GROUP_CHOSEN_TYPE_RE.fullmatch(text)
     if m is not None:
         params = _chosen_type_group_affects(m.group("body"))
         if params is None:
-            return None
+            return DECLINE
         params["add_subtypes_from_source"] = True
         if m.group("off"):
             params["off_battlefield"] = "cards_you_own"
         return [EffectSpec("type_change", params)]
+    return None
 
+
+def _static_group_goaded(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GROUP_GOADED_RE.fullmatch(text)
     if m is not None:
         params: dict = {"affects": "creatures_opponents_control"}
@@ -5902,16 +6433,24 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 "source_power"
             )
         return [EffectSpec("goaded", params)]
+    return None
 
+
+def _static_soulbond_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SOULBOND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         for g in grants:
             g.params["affects"] = "soulbond_pair"
-        return grants
+        return _claim(grants)
+    return None
 
+
+def _static_soulbond_anthem(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SOULBOND_ANTHEM_RE.fullmatch(text)
     if m is not None:
         specs = [EffectSpec("anthem", {"power": int(m.group("p")),
@@ -5920,38 +6459,54 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if m.group("kw"):
             keywords = _flag_keywords(m.group("kw"))
             if keywords is None:
-                return None
+                return DECLINE
             specs.append(EffectSpec("grant_keyword",
                                     {"keywords": keywords, "affects": "soulbond_pair"}))
-        return specs
+        return _claim(specs)
+    return None
 
+
+def _static_soulbond_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SOULBOND_GRANT_RE.fullmatch(text)
     if m is not None:
         keywords = _flag_keywords(m.group("kw"))
         if keywords is None:
-            return None
+            return DECLINE
         return [EffectSpec("grant_keyword", {"keywords": keywords, "affects": "soulbond_pair"})]
+    return None
 
+
+def _static_attached_untap_other_players(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_UNTAP_OTHER_PLAYERS_RE.fullmatch(text)
     if m is not None:
-        return _attached_untap_other_players(m)
+        return _claim(_attached_untap_other_players(m))
+    return None
 
+
+def _static_attached_quoted_anthem_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
     if m is not None:
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         return [
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    "affects": "attached_permanent"}),
             *grants,
         ]
+    return None
 
+
+def _static_attached_quoted_anthem_grant_and_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_AND_TYPE_RE.fullmatch(text)
     if m is not None:
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         return [
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    "affects": "attached_permanent"}),
@@ -5961,36 +6516,48 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             }),
             *grants,
         ]
+    return None
 
+
+def _static_attached_anthem_keyword_and_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_ANTHEM_KEYWORD_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         keywords = _flag_keywords(m.group("keywords"))
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if keywords is None or grants is None:
-            return None
+            return DECLINE
         return [
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    "affects": "attached_permanent"}),
             EffectSpec("grant_keyword", {"keywords": keywords, "affects": "attached_permanent"}),
             *grants,
         ]
+    return None
 
+
+def _static_attached_keyword_and_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_KEYWORD_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         keywords = _flag_keywords(m.group("keywords"))
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if keywords is None or grants is None:
-            return None
+            return DECLINE
         return [
             EffectSpec("grant_keyword", {"keywords": keywords, "affects": "attached_permanent"}),
             *grants,
         ]
+    return None
 
+
+def _static_attached_ward_and_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_WARD_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         return [
             EffectSpec("grant_keyword", {
                 "ward_cost": m.group("cost").strip(),
@@ -5998,7 +6565,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             }),
             *grants,
         ]
+    return None
 
+
+def _static_attached_double_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_DOUBLE_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         first = quoted_ability_grant_effects_list(m.group("first"))
@@ -6015,14 +6586,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 *second,
             ]
         if first is None or second is None:
-            return None
+            return DECLINE
         return [*first, *second]
+    return None
 
+
+def _static_attached_look_top_and_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_LOOK_TOP_AND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         # The permission belongs to the Equipment's controller, while its
         # quote grants an ability to the host.  requires_attached keeps the
         # former active only while the Equipment is attached (RULE 301.5),
@@ -6033,12 +6608,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             }),
             *grants,
         ]
+    return None
 
+
+def _static_attached_quoted_grant_and_type(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_QUOTED_GRANT_AND_TYPE_RE.fullmatch(text)
     if m is not None:
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         return [
             EffectSpec("type_change", {
                 "affects": "attached_permanent",
@@ -6046,7 +6625,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             }),
             *grants,
         ]
+    return None
 
+
+def _static_attached_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ATTACHED_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         # PAR-122: "equipped creature has \"if … triggers an additional time\"" (The Masamune)
@@ -6056,31 +6639,43 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             return [granted_doubler]
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
-        return grants
+            return DECLINE
+        return _claim(grants)
+    return None
 
-    # PAR-72: "~ is also a Cleric, Rogue, Warrior, and Wizard." (Burakos,
-    # Party Leader) — RULE 205.1b's "in addition to its other types"
-    # self-grant, reusing the existing `type_change`/``add_subtypes``
-    # primitive (`_ATTACHED_QUOTED_GRANT_AND_TYPE_RE` just above already
-    # establishes ``add_subtypes`` as a real, engine-checked grant — this
-    # is its self-scoped, fixed four-type form). A SOLO-1 fixed phrase
-    # rather than a general "is also a/an `<list>`" grammar: no other
-    # cached card prints this exact self-referential party-type-grant
-    # shape.
+
+# PAR-72: "~ is also a Cleric, Rogue, Warrior, and Wizard." (Burakos,
+# Party Leader) — RULE 205.1b's "in addition to its other types"
+# self-grant, reusing the existing `type_change`/``add_subtypes``
+# primitive (`_ATTACHED_QUOTED_GRANT_AND_TYPE_RE` just above already
+# establishes ``add_subtypes`` as a real, engine-checked grant — this
+# is its self-scoped, fixed four-type form). A SOLO-1 fixed phrase
+# rather than a general "is also a/an `<list>`" grammar: no other
+# cached card prints this exact self-referential party-type-grant
+# shape.
+def _static_burakos_self_types(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _BURAKOS_SELF_TYPES_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("type_change", {
             "affects": "self", "add_subtypes": ["Cleric", "Rogue", "Warrior", "Wizard"],
         })]
+    return None
 
+
+def _static_opponent_creature_anthem(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _OPPONENT_CREATURE_ANTHEM_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("anthem", {
             "power": int(m.group("p")), "toughness": int(m.group("t")),
             "affects": "creatures_opponents_control",
         })]
+    return None
 
+
+def _static_self_anthem_per_opponent_color_permanent(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE.fullmatch(text)
     if m is not None:
         selector = "permanents_opponents_control_of_color_" + COLOR_LETTERS[m.group("color").lower()]
@@ -6089,11 +6684,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "power_count": selector, "toughness_count": selector,
             "affects": "self",
         })]
+    return None
 
+
+def _static_anthem(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:
         if not _qualifier_ok(m):
-            return None
+            return DECLINE
         scope = _scope(m.group("body"))
         if scope is not None:
             params = _scope_params(scope, m)
@@ -6107,7 +6706,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             # Vehicle it's printed to buff.
             params = _vehicle_scope_params(m)
         else:
-            return None
+            return DECLINE
         specs = [
             EffectSpec("anthem",
                        {"power": int(m.group("p")), "toughness": int(m.group("t")), **params})
@@ -6115,7 +6714,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if m.group("kw"):  # "… and have <keywords>" tail
             resolved = _flag_keywords_and_ward(m.group("kw"))
             if resolved is None:
-                return None  # e.g. a granted landwalk — fail-closed, whole clause
+                return DECLINE  # e.g. a granted landwalk — fail-closed, whole clause
             keywords, ward_cost = resolved
             grant_params = dict(params)
             if keywords:
@@ -6123,21 +6722,29 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             if ward_cost:
                 grant_params["ward_cost"] = ward_cost
             specs.append(EffectSpec("grant_keyword", grant_params))
-        return specs
+        return _claim(specs)
+    return None
 
+
+def _static_commander_creatures_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _COMMANDER_CREATURES_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         for g in grants:
             g.params["affects"] = "commander_creatures_you_own"
-        return grants
+        return _claim(grants)
+    return None
 
+
+def _static_quoted_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         if not _qualifier_ok(m):
-            return None
+            return DECLINE
         scope = _scope(m.group("body"))
         if scope is not None:
             scope_params = _scope_params(scope, m)
@@ -6153,40 +6760,52 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             if word is None and re.fullmatch(r"(?:all |each )?basic lands?", m.group("body"), re.IGNORECASE):
                 word, basic_only = "land", True  # PAR-109: "Basic lands you control have '{T}: Add …'"
             if word is None:
-                return None
+                return DECLINE
             scope_params = _permanent_scope_params(word, m)
             if basic_only:
                 scope_params["object_filter"] = {**(scope_params.get("object_filter") or {}), "basic": True}
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
-            return None
+            return DECLINE
         for g in grants:
             g.params.update(scope_params)
-        return grants
+        return _claim(grants)
+    return None
 
+
+def _static_group_counter_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GROUP_COUNTER_GRANT_RE.fullmatch(text)
     if m is not None:
         keywords = _flag_keywords(m.group("kw"))
         if keywords is None:
-            return None
+            return DECLINE
         return [EffectSpec("grant_keyword", {
             "keywords": keywords,
             "affects": "creatures_you_control",
             "has_counter_kind": "+1/+1",
         })]
+    return None
 
+
+def _static_graveyard_retrace_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GRAVEYARD_RETRACE_GRANT_RE.fullmatch(text)
     if m is not None:
-        return _graveyard_retrace_grant_specs(m.group("filter"))
+        return _claim(_graveyard_retrace_grant_specs(m.group("filter")))
+    return None
 
+
+def _static_multi_permanent_type_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _MULTI_PERMANENT_TYPE_GRANT_RE.fullmatch(text)
     if m is not None:
         card_types = _multi_permanent_type_list(m.group("body"))
         if card_types is None:
-            return None
+            return DECLINE
         resolved = _flag_keywords_and_ward(m.group("kw"))
         if resolved is None:
-            return None
+            return DECLINE
         keywords, ward_cost = resolved
         params: dict = {"affects": "permanents_you_control", "card_type": card_types}
         if keywords:
@@ -6194,11 +6813,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if ward_cost:
             params["ward_cost"] = ward_cost
         return [EffectSpec("grant_keyword", params)]
+    return None
 
+
+def _static_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _GRANT_RE.fullmatch(text)
     if m is not None:
         if not _qualifier_ok(m):
-            return None
+            return DECLINE
         scope = _scope(m.group("body"))
         if scope is not None:
             scope_params = _scope_params(scope, m)
@@ -6209,11 +6832,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             # you control have hexproof." (Leonin Abunas-shaped).
             word = _permanent_type_scope(m.group("body"))
             if word is None:
-                return None
+                return DECLINE
             scope_params = _permanent_scope_params(word, m)
         resolved = _flag_keywords_and_ward(m.group("kw"))
         if resolved is None:
-            return None
+            return DECLINE
         keywords, ward_cost = resolved
         grant_params = dict(scope_params)
         if keywords:
@@ -6221,14 +6844,192 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if ward_cost:
             grant_params["ward_cost"] = ward_cost
         return [EffectSpec("grant_keyword", grant_params)]
+    return None
 
+
+def _static_hand_cycling_grant(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
     m = _HAND_CYCLING_GRANT_RE.fullmatch(text)
     if m is not None:
         params: dict[str, Any] = {"cost": m.group("cost")}
         if m.group("filter"):
             params["card_type"] = m.group("filter").lower()
         return [EffectSpec("grant_cycling_to_hand", params)]
+    return None
 
+
+STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
+    StaticMatcher("fixed_base", _static_fixed_base),
+    StaticMatcher("match", _static_match),
+    StaticMatcher("blitz_cost_reduction", _static_blitz_cost_reduction),
+    StaticMatcher("blitz_graveyard_permission", _static_blitz_graveyard_permission),
+    StaticMatcher("match_2", _static_match_2),
+    StaticMatcher("pip_life_option", _static_pip_life_option),
+    StaticMatcher("storm_grant", _static_storm_grant),
+    StaticMatcher("during_other_turns_cost", _static_during_other_turns_cost),
+    StaticMatcher("trigger_doubler", _static_trigger_doubler),
+    StaticMatcher("extra_etb_counter_specs", _static_extra_etb_counter_specs),
+    StaticMatcher("self_graveyard_shuffle", _static_self_graveyard_shuffle),
+    StaticMatcher("commander_damage_triple", _static_commander_damage_triple),
+    StaticRewrite("fold_additional", _static_fold_additional),
+    StaticMatcher("damage_as_unblocked", _static_damage_as_unblocked),
+    StaticMatcher("toughness_damage", _static_toughness_damage),
+    StaticMatcher("compound_self", _static_compound_self),
+    StaticMatcher("quoted_tail", _static_quoted_tail),
+    StaticMatcher("flag_keywords", _static_flag_keywords),
+    StaticMatcher("colored_quoted_self", _static_colored_quoted_self),
+    StaticMatcher("quoted_self", _static_quoted_self),
+    StaticMatcher("turn_split_pt", _static_turn_split_pt),
+    StaticMatcher("turn_split_fixed_pt", _static_turn_split_fixed_pt),
+    StaticMatcher("conditional_static_specs", _static_conditional_static_specs),
+    StaticMatcher("pt_cda", _static_pt_cda),
+    StaticMatcher("pt_cda_that_number", _static_pt_cda_that_number),
+    StaticMatcher("pt_cda_single", _static_pt_cda_single),
+    StaticMatcher("cant_be_countered_self", _static_cant_be_countered_self),
+    StaticMatcher("grant_cant_be_countered", _static_grant_cant_be_countered),
+    StaticMatcher("grant_search_prohibited", _static_grant_search_prohibited),
+    StaticMatcher("grant_skip_extra_turns", _static_grant_skip_extra_turns),
+    StaticMatcher("lands_every_basic_type", _static_lands_every_basic_type),
+    StaticMatcher("flash_permission", _static_flash_permission),
+    StaticMatcher("activation_prohibition_opponents", _static_activation_prohibition_opponents),
+    StaticMatcher("cant_cast_opponents_your_turn", _static_cant_cast_opponents_your_turn),
+    StaticMatcher("cant_cast_opponents_hand_only", _static_cant_cast_opponents_hand_only),
+    StaticMatcher("cant_cast_or_activate_opponents", _static_cant_cast_or_activate_opponents),
+    StaticMatcher("activation_prohibition", _static_activation_prohibition),
+    StaticMatcher("spell_cost_tax", _static_spell_cost_tax),
+    StaticMatcher("spell_cost_tax_color", _static_spell_cost_tax_color),
+    StaticMatcher("spell_cost_tax_that_target", _static_spell_cost_tax_that_target),
+    StaticMatcher("spell_cost_tax_opponents", _static_spell_cost_tax_opponents),
+    StaticMatcher("spell_cost_tax_you_cast", _static_spell_cost_tax_you_cast),
+    StaticMatcher("equip_activation_discount", _static_equip_activation_discount),
+    StaticMatcher("equip_self_discount", _static_equip_self_discount),
+    StaticMatcher("activation_cost_reduction_type", _static_activation_cost_reduction_type),
+    StaticMatcher("self_cost_reduction_where_x", _static_self_cost_reduction_where_x),
+    StaticMatcher("self_cost_reduction_for_each", _static_self_cost_reduction_for_each),
+    StaticMatcher("second_spell_cost_reduction", _static_second_spell_cost_reduction),
+    StaticMatcher("self_cost_reduction_colored", _static_self_cost_reduction_colored),
+    StaticMatcher("self_cost_reduction_if", _static_self_cost_reduction_if),
+    StaticMatcher("cast_limit_noncreature", _static_cast_limit_noncreature),
+    StaticMatcher("cast_limit", _static_cast_limit),
+    StaticMatcher("extra_land_drop", _static_extra_land_drop),
+    StaticMatcher("no_max_hand_size", _static_no_max_hand_size),
+    StaticMatcher("color_statement_specs", _static_color_statement_specs),
+    StaticMatcher("hand_size_modifier", _static_hand_size_modifier),
+    StaticMatcher("skip_untap_steps", _static_skip_untap_steps),
+    StaticMatcher("players_cant_draw", _static_players_cant_draw),
+    StaticMatcher("players_cant_gain_life", _static_players_cant_gain_life),
+    StaticMatcher("skip_your_step", _static_skip_your_step),
+    StaticMatcher("graveyard_library_cast_prohibition", _static_graveyard_library_cast_prohibition),
+    StaticMatcher("graveyard_library_entry_prohibition", _static_graveyard_library_entry_prohibition),
+    StaticMatcher("radiation_life_gain", _static_radiation_life_gain),
+    StaticMatcher("top_library_permission", _static_top_library_permission),
+    StaticMatcher("top_library", _static_top_library),
+    StaticMatcher("graveyard_cast", _static_graveyard_cast),
+    StaticMatcher("graveyard_land_play_permission", _static_graveyard_land_play_permission),
+    StaticMatcher("look_at_top_any_time", _static_look_at_top_any_time),
+    StaticMatcher("not_a_creature", _static_not_a_creature),
+    StaticMatcher("activate_as_though_haste", _static_activate_as_though_haste),
+    StaticMatcher("untap_each_untap_step", _static_untap_each_untap_step),
+    StaticMatcher("no_untap_optional", _static_no_untap_optional),
+    StaticMatcher("no_untap", _static_no_untap),
+    StaticMatcher("no_untap_attached", _static_no_untap_attached),
+    StaticMatcher("no_untap_group_power", _static_no_untap_group_power),
+    StaticMatcher("no_untap_nonbasic_lands", _static_no_untap_nonbasic_lands),
+    StaticMatcher("untap_cap", _static_untap_cap),
+    StaticMatcher("trigger_prohibition", _static_trigger_prohibition),
+    StaticMatcher("opponents_enter_tapped", _static_opponents_enter_tapped),
+    StaticMatcher("all_enter_tapped", _static_all_enter_tapped),
+    StaticMatcher("type_overwrite", _static_type_overwrite),
+    StaticMatcher("land_is_basic_type", _static_land_is_basic_type),
+    StaticMatcher("attached_anthem_protection", _static_attached_anthem_protection),
+    StaticMatcher("group_anthem_protection", _static_group_anthem_protection),
+    StaticMatcher("self_protection", _static_self_protection),
+    StaticMatcher("attached_protection", _static_attached_protection),
+    StaticMatcher("group_protection", _static_group_protection),
+    StaticMatcher("attached_anthem_for_each", _static_attached_anthem_for_each),
+    StaticMatcher("attached_remove_keyword", _static_attached_remove_keyword),
+    StaticMatcher("attached_type_addition", _static_attached_type_addition),
+    StaticMatcher("attached_trailing_type", _static_attached_trailing_type),
+    StaticMatcher("attached_anthem", _static_attached_anthem),
+    StaticMatcher("attached_grant", _static_attached_grant),
+    StaticMatcher("attached_goaded", _static_attached_goaded),
+    StaticMatcher("attached_anthem_x", _static_attached_anthem_x),
+    StaticMatcher("self_anthem_for_each_gy_subtype", _static_self_anthem_for_each_gy_subtype),
+    StaticMatcher("self_anthem_for_each", _static_self_anthem_for_each),
+    StaticMatcher("anthem_devotion_self", _static_anthem_devotion_self),
+    StaticMatcher("self_anthem", _static_self_anthem),
+    StaticMatcher("self_grant", _static_self_grant),
+    StaticMatcher("attack_as_though_no_defender", _static_attack_as_though_no_defender),
+    StaticMatcher("block_additional_n", _static_block_additional_n),
+    StaticMatcher("attack_tax", _static_attack_tax),
+    StaticMatcher("cant_attack_or_block_lock", _static_cant_attack_or_block_lock),
+    StaticMatcher("cant_attack_or_block", _static_cant_attack_or_block),
+    StaticMatcher("cant_block_and_cant_be_blocked", _static_cant_block_and_cant_be_blocked),
+    StaticMatcher("cant_attack", _static_cant_attack),
+    StaticMatcher("cant_block", _static_cant_block),
+    StaticMatcher("cant_be_blocked", _static_cant_be_blocked),
+    StaticMatcher("attacks_if_able", _static_attacks_if_able),
+    StaticMatcher("must_be_blocked", _static_must_be_blocked),
+    StaticMatcher("must_be_blocked_by_one", _static_must_be_blocked_by_one),
+    StaticMatcher("all_must_block", _static_all_must_block),
+    StaticMatcher("block_additional", _static_block_additional),
+    StaticMatcher("block_any_number", _static_block_any_number),
+    StaticMatcher("qualified_combat_restriction_specs", _static_qualified_combat_restriction_specs),
+    StaticMatcher("control_grant", _static_control_grant),
+    StaticMatcher("is_chosen_type", _static_is_chosen_type),
+    StaticMatcher("graveyard_chosen_type", _static_graveyard_chosen_type),
+    StaticMatcher("group_type_addition", _static_group_type_addition),
+    StaticMatcher("group_chosen_type", _static_group_chosen_type),
+    StaticMatcher("group_goaded", _static_group_goaded),
+    StaticMatcher("soulbond_quoted_grant", _static_soulbond_quoted_grant),
+    StaticMatcher("soulbond_anthem", _static_soulbond_anthem),
+    StaticMatcher("soulbond_grant", _static_soulbond_grant),
+    StaticMatcher("attached_untap_other_players", _static_attached_untap_other_players),
+    StaticMatcher("attached_quoted_anthem_grant", _static_attached_quoted_anthem_grant),
+    StaticMatcher("attached_quoted_anthem_grant_and_type", _static_attached_quoted_anthem_grant_and_type),
+    StaticMatcher("attached_anthem_keyword_and_quoted_grant", _static_attached_anthem_keyword_and_quoted_grant),
+    StaticMatcher("attached_keyword_and_quoted_grant", _static_attached_keyword_and_quoted_grant),
+    StaticMatcher("attached_ward_and_quoted_grant", _static_attached_ward_and_quoted_grant),
+    StaticMatcher("attached_double_quoted_grant", _static_attached_double_quoted_grant),
+    StaticMatcher("attached_look_top_and_quoted_grant", _static_attached_look_top_and_quoted_grant),
+    StaticMatcher("attached_quoted_grant_and_type", _static_attached_quoted_grant_and_type),
+    StaticMatcher("attached_quoted_grant", _static_attached_quoted_grant),
+    StaticMatcher("burakos_self_types", _static_burakos_self_types),
+    StaticMatcher("opponent_creature_anthem", _static_opponent_creature_anthem),
+    StaticMatcher("self_anthem_per_opponent_color_permanent", _static_self_anthem_per_opponent_color_permanent),
+    StaticMatcher("anthem", _static_anthem),
+    StaticMatcher("commander_creatures_quoted_grant", _static_commander_creatures_quoted_grant),
+    StaticMatcher("quoted_grant", _static_quoted_grant),
+    StaticMatcher("group_counter_grant", _static_group_counter_grant),
+    StaticMatcher("graveyard_retrace_grant", _static_graveyard_retrace_grant),
+    StaticMatcher("multi_permanent_type_grant", _static_multi_permanent_type_grant),
+    StaticMatcher("grant", _static_grant),
+    StaticMatcher("hand_cycling_grant", _static_hand_cycling_grant),
+)
+
+
+def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
+    """`EffectSpec`s for a static anthem/keyword-grant ``clause``, or ``None``.
+
+    Full-matches the clause (like the one-shot handler table) so a partial or
+    "until end of turn" phrasing isn't claimed. A compound "get +N/+N and have
+    <keywords>" emits both an ``anthem`` and a ``grant_keyword`` spec. The specs
+    carry ``affects`` + optional ``subtype``/``tokens`` for the layer engine.
+    Also claims the attached-permanent shape ("equipped/enchanted creature
+    gets +N/+N [and has <keywords>]", "equipped/enchanted creature has
+    <keywords>") with ``affects="attached_permanent"`` — see
+    `_ATTACHED_SUBJECTS` above.
+    """
+    text = clause.strip().rstrip(".").strip()
+    ctx = StaticContext(clause=clause, text=text)
+    for step in STATIC_MATCHERS:
+        if isinstance(step, StaticRewrite):
+            ctx = replace(ctx, text=step.rewrite(ctx.text))
+            continue
+        result = step.match(ctx)
+        if result is None:
+            continue
+        return None if result is DECLINE else result
     return None
 
 

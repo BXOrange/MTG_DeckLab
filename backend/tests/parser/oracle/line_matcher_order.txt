@@ -22,7 +22,6 @@ draw_trig_plain
 reveal_first
 draw_trig_nth
 tap_mana_trig
-two_color_cast_repeat
 doctor_or_companion_trig
 composed_cast
 cycle_trig

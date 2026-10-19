@@ -256,7 +256,7 @@ def announces_creature_target(specs: list[EffectSpec]) -> bool:
     than an enumerated set: this module has no `game/` import (the front-end
     security boundary), so it can't pull `game/targeting.py`'s
     `_GRAVEYARD_TARGET_KINDS` frozenset directly, and the prefix is the same
-    one `catalogue.handlers._graveyard_target_kind` builds every such kind
+    one `catalogue.effect_rows.shared.graveyard_target_kind` builds every such kind
     from.
     """
     if not specs:
@@ -336,7 +336,7 @@ ADD_COUNTERS_PLACEMENT_KEYS = (
 
 def stamp_counters_on_referent(part: str, specs: list[EffectSpec]) -> list[EffectSpec]:
     """PAR-120: "Create a 0/0 Fractal creature token. Put three +1/+1
-    counters on **it**." — `handlers._add_counters` reads a bare "it" as the
+    counters on **it**." — `effect_rows.counters_blocking._add_counters` reads a bare "it" as the
     ability's own source (its `_SELF_SUBJECT` alternation), which put the
     counters on Additive Evolution itself and let the 0/0 token die. When the
     previous clause chose or created an object, "it" is that object (RULE

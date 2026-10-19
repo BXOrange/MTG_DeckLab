@@ -894,7 +894,7 @@ def _caused_discard_effects(body: str, is_self: bool) -> Optional[list[EffectSpe
 #: subject trigger like `_PLAYER_TRIGGER_CONDITIONS`'s bare event-name
 #: table, but that table has no way to carry a type filter, and RULE 122.1a
 #: "sacrifice a `<type>`" always means *some* type. Scoped to the same
-#: closed named-token vocabulary `catalogue.handlers._NAMED_TOKEN_WORDS`
+#: closed named-token vocabulary `catalogue.effect_rows.shared.NAMED_TOKEN_WORDS`
 #: already trusts (Treasure/Clue/Food) rather than any noun — a fail-closed
 #: choice, not a card-count one: `EventType.SACRIFICE`'s own `object_types`
 #: payload (`RulesEngine.put_into_graveyard`) is the *card's printed type
@@ -1947,7 +1947,7 @@ _RING_BEARER_AND_TEMPTED_CONDITION_RE = re.compile(
 #: same "wrap the rest, tag the condition" idiom as `_LIFE_GAINED_THIS_
 #: TURN_CONDITION_RE`, onto `ConditionalEffect`'s new
 #: ``"controls_none_of_type"`` key. Scoped to the same closed named-token
-#: vocabulary `catalogue.handlers._NAMED_TOKEN_WORDS`/`segmenter._
+#: vocabulary `catalogue.effect_rows.shared.NAMED_TOKEN_WORDS`/`segmenter._
 #: SACRIFICE_TYPE_TRIGGER_RE` already trust (Treasure/Clue/Food) rather
 #: than an arbitrary noun — a fail-closed choice, not a card-count one.
 _CONTROLS_NONE_OF_TYPE_CONDITION_RE = re.compile(
@@ -2434,7 +2434,7 @@ _LOOK_TOP_HIT_GRANT_KEYWORDS: dict[str, str] = {
 #: hand-authored Zealous Conscripts) already untaps and grants haste as
 #: *part of* the control change itself, so a bare "it gains haste until end
 #: of turn." restatement is reprinting what the single `gain_control_until_
-#: eot` effect (`catalogue.handlers._gain_control_eot`) already does — it's
+#: eot` effect (`catalogue.effect_rows.search_control_attach._gain_control_eot`) already does — it's
 #: absorbed here rather than re-modeled.
 #:
 #: The ``grant`` group generalises that tail to the *richer* restatements
@@ -2580,7 +2580,7 @@ _CERTAIN_ANTECEDENT_ROWS: tuple[tuple["re.Pattern[str]", str], ...] = (
 )
 
 #: PAR-79 eighth increment: a *preceding* sentence in front of
-#: `catalogue.handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE`'s own "at the
+#: `catalogue.effect_rows.pump_stats._DELAYED_SAC_EXILE_WHEN_FIRST_RE`'s own "at the
 #: beginning of the next end step, sacrifice/exile/return `<it>`[. if you
 #: do, `<effect>`]." shape (the Alora, Cheerful `<X>` cycle's own
 #: unblockable-target sentence ahead of the delayed return). Deliberately
@@ -5745,21 +5745,21 @@ def _parse_effect_body_inner(
 
     ``self_subject`` says a bare "it" in ``body`` means the ability's own
     source — true of a trigger whose *subject* is the source ("when ~ enters,
-    it fights …"), which is what unlocks `handlers.EffectHandler.
+    it fights …"), which is what unlocks `effect_rows.shared.EffectHandler.
     self_subject_only` rows. It is deliberately **not** passed down into the
     connector-split parse below: once a body chains clauses, an earlier one
     may have introduced a new referent ("put a +1/+1 counter on target
     creature you control, then it fights …") — that reading is
     ``previous_subject``'s job instead, handed to each split part whose
     predecessor actually chose a creature (`announces_creature_target`), and
-    unlocking `handlers.EffectHandler.previous_subject_only` rows. The two
+    unlocking `effect_rows.shared.EffectHandler.previous_subject_only` rows. The two
     flags are therefore never both set: a pronoun means the source or the
     last pick, never either-or.
 
     ``group_subject`` (MEC-28) says "it"/"that creature" means whichever
     object matched this ability's own RULE 603.1 group-subject trigger
     condition ("whenever a creature you control attacks alone, … untap
-    **that creature**.") — unlocking `handlers.EffectHandler.
+    **that creature**.") — unlocking `effect_rows.shared.EffectHandler.
     group_subject_only` rows. Unlike ``self_subject``, it *is* carried into
     every recursive call, including the connector-split parse below: the
     trigger's own subject scope is a fact about the whole ability, not a
@@ -6299,7 +6299,7 @@ def _parse_effect_body_inner(
         return [EffectSpec("roll_die", params)]
 
     # PAR-79 eighth increment: a delayed sacrifice/exile/return clause
-    # (`handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE`) preceded by an unrelated
+    # (`effect_rows.pump_stats._DELAYED_SAC_EXILE_WHEN_FIRST_RE`) preceded by an unrelated
     # earlier sentence of the *same* ability — the Alora, Cheerful `<X>`
     # cycle's own "whenever you attack, up to 1 target attacking creature
     # can't be blocked this turn. at the beginning of the next end step,
@@ -6699,7 +6699,7 @@ def _parse_effect_body_inner(
                 prev_referent, prev_referent_selector = referent, referent_selector
                 # RULE 601.2c: what the clause just parsed *chose* is what
                 # the next one's "it"/"that creature"/"those creatures" can
-                # point at (`handlers.EffectHandler.previous_subject_only`,
+                # point at (`effect_rows.shared.EffectHandler.previous_subject_only`,
                 # `effects.GameContext.previous_targets`). A clause that
                 # chose no creature leaves the pronoun unbound — and so
                 # unclaimed — rather than letting it drift onto some earlier
@@ -6957,7 +6957,7 @@ def _puts_counter_on_source(spec: EffectSpec) -> bool:
     )
 
 
-#: MEC-28: recognised mass-selector values `handlers.EffectHandler.
+#: MEC-28: recognised mass-selector values `effect_rows.shared.EffectHandler.
 #: previous_selector_only` rows may read back as "they" (`effects.
 #: GameContext.previous_selector`, `game/binding/core.py`'s narrow
 #: ``TapEffect``-only tracking whitelist) — deliberately just the one real
@@ -6967,7 +6967,7 @@ def _puts_counter_on_source(spec: EffectSpec) -> bool:
 #:
 #: PAR-120 (PARSER_VERSION 474): "attacking creatures"/"creatures your
 #: opponents control" now reach `group_selector_objects` as a *structured*
-#: selector (`catalogue.handlers._group_selector`) rather than always the
+#: selector (`catalogue.effect_rows.shared._group_selector`) rather than always the
 #: named string here — a plain ``in`` check against this frozenset would
 #: both crash (a dict isn't hashable) and, even fixed to avoid that, still
 #: miss the structured spelling. `_is_group_selector_value` recognizes
@@ -8631,28 +8631,6 @@ def _line_tap_mana_trig(ctx: LineContext) -> Optional[Segment]:
             raw_text=raw,
             parser=provenance,
         )
-        return Segment(raw=raw, spec=spec, claimed=True)
-    return None
-
-
-def _line_two_color_cast_repeat(ctx: LineContext) -> Optional[Segment]:
-    raw = ctx.raw
-    provenance = ctx.provenance
-    two_color_cast = _CAST_TWO_COLOR_SPELL_TRIGGER_RE.match(raw)
-    if two_color_cast is not None:
-        body, optional = peel_optional(two_color_cast.group("body"))
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        colors = [
-            _CAST_SPELL_COLOR_WORDS[two_color_cast.group("c1").lower()],
-            _CAST_SPELL_COLOR_WORDS[two_color_cast.group("c2").lower()],
-        ]
-        spec = AbilitySpec("triggered", effects=effects, trigger={
-            "event": "SPELL_CAST",
-            "condition": _cast_spell_trigger_condition(two_color_cast.group("subj")),
-            "cast_of_all_colors": colors,
-        }, optional=optional, raw_text=raw, parser=provenance)
         return Segment(raw=raw, spec=spec, claimed=True)
     return None
 
@@ -10561,7 +10539,6 @@ LINE_MATCHERS: tuple[LineMatcher, ...] = (
     LineMatcher("reveal_first", _line_reveal_first),
     LineMatcher("draw_trig_nth", _line_draw_trig_nth),
     LineMatcher("tap_mana_trig", _line_tap_mana_trig),
-    LineMatcher("two_color_cast_repeat", _line_two_color_cast_repeat),
     LineMatcher("doctor_or_companion_trig", _line_doctor_or_companion_trig),
     LineMatcher("composed_cast", _line_composed_cast),
     LineMatcher("cycle_trig", _line_cycle_trig),
@@ -10645,8 +10622,8 @@ def _segment_line_unsplit(
 #: `pay_cost_then` idiom, Spellbomb-cycle-shaped) / MEC-18's wider "you may
 #: sacrifice/discard/pay life `<X>`. When you do, `<effect>`." family / PAR-79
 #: seventh increment's "you may return/tap another `<permanent>` you
-#: control. If you do, `<effect>`." (`handlers._may_effect_then`, via
-#: `handlers._MAY_EFFECT_THEN_ANTECEDENT_PHRASES`) — every one of these is a
+#: control. If you do, `<effect>`." (`effect_rows.costs_mana_limits._may_effect_then`, via
+#: `effect_rows.costs_mana_limits.MAY_EFFECT_THEN_ANTECEDENT_PHRASES`) — every one of these is a
 #: *conditioned-on-success* choice `pay_energy_then`/`pay_cost_then`/
 #: `optional`(`_may_effect_then`) model with their own interactive
 #: machinery, not a whole-ability "you may". Left un-peeled so the full

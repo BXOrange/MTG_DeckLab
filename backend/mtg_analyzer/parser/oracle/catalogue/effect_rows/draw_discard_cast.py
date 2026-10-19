@@ -500,11 +500,11 @@ def _draw_reveal_cast_free(m: re.Match[str]) -> list[EffectSpec]:
 #: `FreeCastFromHandEffect` (`game/effects/core.py`) is a resolve-time *choice*
 #: among the controller's own hand, not a target — none of these print
 #: "target". The leading "you may " is optional here (not required) since
-#: `segmenter._peel_optional` already strips it before `parse_effect_body`
+#: `segmenter.peel_optional` already strips it before `parse_effect_body`
 #: ever reaches a handler, for both the bare spell-effect and the
 #: triggered-ability wrapper paths — MEC-18's own "the generic 'you may '
 #: stripper eats the clause first" lesson, guarded against directly rather
-#: than by exempting `_peel_optional` (nothing else about this clause is
+#: than by exempting `peel_optional` (nothing else about this clause is
 #: sensitive to the optional marker: `spec.optional` is read only by the
 #: ``triggered`` binder branch, never ``spell_effect``, and this effect's
 #: own `_request_choose_objects(optional=True)` already models the "may").

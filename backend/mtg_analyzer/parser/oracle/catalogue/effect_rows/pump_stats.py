@@ -995,7 +995,7 @@ def _pump_prev_haste_bare(m: re.Match[str]) -> list[EffectSpec]:
 #: beyond a bare keyword grant (`segmenter._GAIN_CONTROL_HASTE_TAIL_RE`
 #: recurses this whole sentence here with ``previous_subject`` on):
 #:   * "…it gains haste and '<quoted ability>'" (Furnace Reins, Shackles of
-#:     Treachery) — reuses `static_handlers._quoted_ability_grant_effects`
+#:     Treachery) — reuses `static_handlers.quoted_ability_grant_effects`
 #:     wrapped in `grant_until(previous_subject=True)`;
 #:   * "…it becomes a <subtype> in addition to its other types and gains
 #:     haste" (Loki's Scepter) — a layer-4 `type_change` add-subtype grant;

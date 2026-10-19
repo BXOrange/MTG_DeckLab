@@ -77,7 +77,7 @@ def _copy_that_spell(m: re.Match[str]) -> list[EffectSpec]:
 #: ability>"[ until end of turn]." (Abnormal Endurance, Hunter's Prowess, Supernatural Stamina, Unnatural
 #: Moonrise …) — a pump that also hands out a whole quoted triggered/activated ability. Two specs share
 #: one choice of recipient: the `pump` (P/T + any flag keywords) picks it, and the quoted grant — a
-#: `grant_until` over the same `static_handlers._quoted_ability_grant_effects` the Aura/Equipment and
+#: `grant_until` over the same `static_handlers.quoted_ability_grant_effects` the Aura/Equipment and
 #: "gains "…" until end of turn" rows use — replays it (`previous_subject`; a group subject re-states its
 #: selector as the static's ``affects``, a self subject its own source). The duration must be written
 #: (prefix or suffix) — without one the grant would be permanent, a different card.
@@ -980,7 +980,7 @@ def _grant_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: standing version of the same removal) rather than the standing
 #: layer-6 grant family — collapses to plain Banding removal, the same
 #: "bands with other `<quality>` == banding" simplification the grant
-#: side (`static_handlers._quoted_ability_grant_effects_list`) already
+#: side (`static_handlers.quoted_ability_grant_effects_list`) already
 #: uses.
 _LOSE_BANDING_RE = compile_clause(
     r'target creature loses (?:banding and )?all "bands with other" abilities until end of turn'

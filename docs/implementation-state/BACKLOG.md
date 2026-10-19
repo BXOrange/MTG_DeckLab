@@ -53,13 +53,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-172 · Break the segmenter ⇄ handlers ⇄ static_handlers cycle; split the monoliths.** ~45
-  function-scoped imports and 22 cross-module private-name imports (`_peel_optional`, `_TRIGGER_RE`,
-  `_base_verb`, `_quoted_ability_grant_effects`, …) paper over the cycle. Extract the shared clause
-  primitives into a leaf module; split `handlers.py` (22.9k lines) by effect family into modules that
-  each export their rows, assembling `HANDLERS` in a fixed order; turn `_segment_line_unsplit`
-  (2.1k lines, 74 branches) and `static_effect_specs` (1.5k lines) into ordered matcher tables like
-  `HANDLERS`. Prove each step with a full-cache spec fingerprint. After PAR-169/170.
 - **PAR-173 · One clause-reading context.** Replace the five threaded subject flags (`self_subject`,
   `previous_subject`, `group_subject`, `previous_selector`, `attached_subject`) and the
   `_GROUP_CLAUSE` ContextVar with one immutable reading object passed through `match_clause`,

@@ -44,3 +44,25 @@ def test_line_matcher_order_is_pinned():
 
     assert [m.name for m in LINE_MATCHERS] == _MATCHERS_PINNED.read_text(encoding="utf-8").split()
     assert len({m.name for m in LINE_MATCHERS}) == len(LINE_MATCHERS)
+
+
+_STATIC_PINNED = Path(__file__).with_name("static_matcher_order.txt")
+
+
+def test_static_matcher_order_is_pinned():
+    """`static_handlers.STATIC_MATCHERS` (PAR-172 M4): first row to answer wins, so order is semantics.
+    Update `static_matcher_order.txt` in the same change when a row is added, removed or moved on purpose."""
+    from mtg_analyzer.parser.oracle.catalogue.static_handlers import STATIC_MATCHERS
+
+    names = [m.name for m in STATIC_MATCHERS]
+    assert names == _STATIC_PINNED.read_text(encoding="utf-8").split()
+    assert len(set(names)) == len(names)
+
+
+def test_static_effect_specs_decline_stops_the_search():
+    from mtg_analyzer.parser.oracle.catalogue import static_handlers as sh
+
+    ctx = sh.StaticContext(clause="x", text="x")
+    assert sh.DECLINE is not None and sh._claim(None) is sh.DECLINE
+    assert sh._claim([]) == []
+    assert ctx.text == "x"

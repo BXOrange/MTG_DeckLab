@@ -221,7 +221,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target werewolf creature", "werewolf_creature"),
     # PAR-141: "target `<adjective>` creature [you control]" — the adjective is read back as a filter
     # fragment by `target_adjective_filter` (`resolve_target_creature_state_filter`), never dropped:
-    # `handlers.EffectHandler.match` refuses a builder that loses it.
+    # `effect_rows.shared.EffectHandler.match` refuses a builder that loses it.
     (rf"target (?:{TARGET_ADJECTIVE}) creature you control", "creature_you_control"),
     (rf"target (?:{TARGET_ADJECTIVE}) creature", "creature"),
     # An ATTACKS trigger's defending player is carried on the event; this is
@@ -452,7 +452,7 @@ OTHER_PREFIX = r"(?:another|other) "
 #: scope above, not a row per phrase. The same vocabulary as `characteristic_phrase`'s "without …"
 #: tail (keyword words, counter kinds). `target_quality_filter` reads it back as a
 #: `combat.matches_object_filter` fragment and `resolve_target_kind` drops it; a handler that
-#: matched one without merging that fragment is refused by `handlers.EffectHandler.match`.
+#: matched one without merging that fragment is refused by `effect_rows.shared.EffectHandler.match`.
 _QUALITY_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
 #: PAR-135: "any target **that isn't a Dinosaur**" / "target creature that isn't a commander" — the
 #: negated *identity* of a target (a subtype, a card type or the commander designation), the sibling of

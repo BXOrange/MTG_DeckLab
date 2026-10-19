@@ -881,7 +881,7 @@ def fight_kind(phrase: str) -> Optional[str]:
     return kind if target_kind_allowed(kind, _FIGHT_TARGET_KINDS) else None
 
 
-#: "you may **have** it fight …" — `_peel_optional` strips the "you may",
+#: "you may **have** it fight …" — `peel_optional` strips the "you may",
 #: leaving the causative "have <subject> fight" (uninflected verb), so both
 #: inflections are accepted in one row. A leading "then " survives the
 #: segmenter's split on ". " (its own "then" connector only strips the

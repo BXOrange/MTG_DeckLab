@@ -9,6 +9,8 @@ to build. Paths are relative to `backend/mtg_analyzer/`.
 | --- | --- | --- |
 | a one-shot effect body ("destroy target …", "draw a card") | the family module in `parser/oracle/catalogue/effect_rows/` (damage, tokens, counters, …; helpers used by several families in `effect_rows/shared.py`) | that module's `ROWS`; `handlers.py` assembles them into `HANDLERS` in a fixed order pinned by `tests/parser/oracle/handler_row_order.txt` (order is semantics: update that file deliberately, and declare `fallback_for` when a row backs up another) |
 | a standing static ("creatures you control get +1/+1", a permission, a grant) | `parser/oracle/catalogue/static_handlers.py` | no single table — entry point `static_effect_specs(clause)`, built from `_FILTER_RES` / `_CONDITION_RES` / `_TAIL_RES` (plus `enter_choice_specs` for RULE 601.2b) |
+
+Ordered tables (first answer wins; order is pinned in `tests/parser/oracle/*_order.txt`, update the file when you add/move a row on purpose): `handlers.HANDLERS` (effect rows, `handler_row_order.txt`), `segmenter.LINE_MATCHERS` (whole-line shapes, `line_matcher_order.txt`), `static_handlers.STATIC_MATCHERS` (statics, `static_matcher_order.txt`; a matcher returns `DECLINE` to stop the search with `None`, plain `None` to fall through).
 | a **trigger condition** ("whenever ~ becomes monstrous") | `parser/oracle/segmenter.py` | `_TRIGGER_VERBS` / `_PHASE_STEP_WORDS` / `_PLAYER_TRIGGER_CONDITIONS` |
 | an activated-ability **cost** | `parser/oracle/segmenter.py` (+ `game/costs.py` for the engine side) | — |
 | a RULE 702 keyword | `parser/oracle/catalogue/keywords.py` | `KEYWORDS` |
@@ -167,7 +169,7 @@ if my_tail is not None:
     after_text = (my_tail.group("after") or "").strip()
     if not after_text:
         return before_specs
-    after_specs = parse_effect_body(after_text, previous_subject=_announces_creature_target(before_specs))
+    after_specs = parse_effect_body(after_text, previous_subject=announces_creature_target(before_specs))
     if after_specs is None:
         return None
     return before_specs + after_specs

@@ -125,7 +125,7 @@ def _gain_life_and_draw_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
 #: previous clause's own **controller**, not the previous clause's chosen
 #: object itself (`gain_life_eq_that_prev`/`draw_eq_its_self` just above).
 #: `EffectHandler.previous_subject_only` already gates on exactly the right
-#: antecedent (`segmenter._announces_creature_target`: a destroyed/exiled/
+#: antecedent (`segmenter.announces_creature_target`: a destroyed/exiled/
 #: countered/bounced/tapped permanent or a countered spell), so these rows
 #: reuse that gate rather than adding a new one, and read the referent
 #: through `game/effect_operands.py`'s ``{"of": "previous_target", "as":

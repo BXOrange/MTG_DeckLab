@@ -902,7 +902,7 @@ def _tap_another_untapped_you_control(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: Exported so `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE` can protect these
-#: antecedent shapes from `_peel_optional` the same way it already
+#: antecedent shapes from `peel_optional` the same way it already
 #: protects `MAY_COST_THEN_CLAUSE` (same "so this guard can never drift
 #: out of sync" reasoning that constant's own docstring gives). A plain
 #: (non-capturing) mirror of `_RETURN_ANOTHER_YOU_CONTROL_RE`/
@@ -1049,7 +1049,7 @@ def _may_have_it_deal_damage_equal_to_power(m: re.Match[str]) -> Optional[list[E
 
 #: PAR-111: "whenever a creature an opponent controls enters, you may **have that player lose N life**."
 #: (Blood Seeker, Suture Priest) — the controller of the firing object loses the life, while the ability's own
-#: controller is the one asked: `segmenter._peel_optional` has already taken the "you may" off the body (the
+#: controller is the one asked: `segmenter.peel_optional` has already taken the "you may" off the body (the
 #: trigger is optional), so this is the group-subject `lose_life` row with the entering creature's controller
 #: (`_ENTERING_CONTROLLER`) as the player.
 _HAVE_THAT_PLAYER_LOSE_LIFE_RE = compile_clause(rf"have that player lose {NUMBER} life")
