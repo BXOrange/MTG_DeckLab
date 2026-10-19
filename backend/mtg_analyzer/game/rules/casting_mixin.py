@@ -895,7 +895,7 @@ class CastingResolutionMixin:
         # RULE 702.88b's own free-cast window (`ReboundFreeCastWindowEffect`)
         # — consumed the instant it's used, same "check, then discard" shape
         # `mana_wildcard_permission`'s per-card grant already uses.
-        free_cast = (obj.instance_id in self.state.free_cast_instance_ids
+        free_cast = (self.state.has_free_cast_permission(obj)
                      and self.state.resolution_play_choice is None)
         source_mana_spent = {}
         mana_payment_riders = []
@@ -981,6 +981,7 @@ class CastingResolutionMixin:
         continuous.consume_next_spell_cost_reductions(self.state, player.id, obj)
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)
+            self.state.free_cast_permission_visits.pop(obj.instance_id, None)
             if obj.instance_id in self.state.free_cast_owner_loses_life_ids:
                 # "…each player who owns a spell you cast this way loses life equal to its mana value." (Kefka)
                 self.state.free_cast_owner_loses_life_ids.discard(obj.instance_id)
@@ -1256,6 +1257,9 @@ class CastingResolutionMixin:
         # inherit the promise of an earlier cast of the same card).
         obj.gift_promised = False
         obj.gift_recipient_id = None
+        # RULE 400.7: a used free-cast window cannot follow the spell to a later visit.
+        self.state.free_cast_instance_ids.discard(obj.instance_id)
+        self.state.free_cast_permission_visits.pop(obj.instance_id, None)
         self._remove_from_current_zone(player, obj)
         obj.zone = Zone.STACK
         self._consume_free_cast_type_slot(obj)
@@ -2112,6 +2116,8 @@ class CastingResolutionMixin:
                 fight_results=resumed.get("fight_results"),
                 permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
                 objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
+                latest_exiled_visits=resumed.get("latest_exiled_visits"),
+                latest_milled_visits=resumed.get("latest_milled_visits"),
                 counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
                 damaged_this_way=resumed.get("damaged_this_way"),
                 previous_selector=resumed.get("previous_selector"),

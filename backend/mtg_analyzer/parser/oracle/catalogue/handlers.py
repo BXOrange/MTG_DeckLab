@@ -28,6 +28,11 @@ from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, ParserProvenance
+from .casting_window import (
+    parse_dig_cast_free, parse_exile_cast_window, parse_exile_copy_cast, parse_free_cast_zone,
+    parse_graveyard_play_window,
+)
+from .count_phrase import parse_amount_phrase
 from .dig import parse_dig, parse_reveal_top_branch
 from .dying_hosts import dying_host_return_specs
 from .fight_sequences import fight_sequence_specs, source_counter_fight_specs
@@ -514,6 +519,28 @@ _GROUP_DEALS_TO_ITS_CONTROLLER_RE = _c(
 _GROUP_DEALS_TO_DAMAGED_CONTROLLER_RE = _c(
     rf"that (?!creature\b){PRONOUN_NOUN_ALT} deals? that much damage to that creature'?s controller"
 )
+
+
+#: PAR-132: an Aura's own damage-echo trigger. "whenever enchanted creature is dealt / deals damage, ~ deals that much
+#: damage to that creature['s controller]" (Binding Agony, Backfire, Guilty Conscience) and "... it deals that much
+#: damage to its controller" (Spiteful Shadows): "that creature" / "it" is the Aura's host (RULE 303.4), "that much" the
+#: firing event's own damage ``amount``. The Aura (or, for "it deals", the host) is the damage's source.
+_ATTACHED_DEALS_THAT_MUCH_RE = _c(
+    r"(?:~|this [a-z]+) deals that much damage to (?P<who>that creature'?s controller|that creature)"
+)
+_ATTACHED_IT_DEALS_THAT_MUCH_RE = _c(r"it deals that much damage to its controller")
+
+
+def _attached_deals_that_much(m: re.Match[str]) -> list[EffectSpec]:
+    recipient = "attached_permanent_object" if m.group("who") == "that creature" else "attached_permanent_controller"
+    return [EffectSpec("damage", {"recipient_subject": recipient, "amount_from_trigger_event": "amount"})]
+
+
+def _attached_it_deals_that_much(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "recipient_subject": "attached_permanent_controller", "dealer_subject": "attached_permanent",
+        "amount_from_trigger_event": "amount",
+    })]
 
 
 def _group_deals_to_damaged_controller(m: re.Match[str]) -> list[EffectSpec]:
@@ -1742,6 +1769,9 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
     # event (`effects.DealDamageEffect`'s ``"event_player"`` selector), not
     # an untargeted group like the rows above.
     "that player": "event_player",
+    # PAR-132: "~ deals 3 damage to that spell or ability's controller" (Retromancer) — the BECOMES_TARGET event's
+    # ``player_id`` is the targeting spell/ability's controller (`_fire_becomes_target_events`).
+    "that spell or ability's controller": "event_player",
     # "…if it's not their turn, ~ deals 4 damage to them." (Scytheclaw
     # Raptor) — same firing-event player, just the pronoun object form
     # rather than "that player".
@@ -1777,8 +1807,11 @@ def _damage_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _SELECTOR_WORD_MAP[m.group("selector")]
     n = m.group("n").lower()
+    params: dict[str, Any] = {"amount": "x" if n == "x" else int(n), "selector": selector}
+    if m.group("selector") == _SPELL_CONTROLLER_PHRASE:
+        params[EVENT_PLAYER_EVENTS_KEY] = [BECOMES_TARGET_EVENT]
     # PAR-128: an X amount ("deals x damage to each creature and each player" — Crypt Rats).
-    return [EffectSpec("damage", {"amount": "x" if n == "x" else int(n), "selector": selector})]
+    return [EffectSpec("damage", params)]
 
 
 #: "~ deals N damage to any target and M damage to each creature" (Wildfire
@@ -1870,6 +1903,24 @@ def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Opt
     n = m.group("n").lower()
     params["amount"] = "x" if n == "x" else int(n)
     return [EffectSpec("damage", params)]
+
+
+#: RULE 115 / 120.3: "~ deals N damage to target player and each creature that player controls." (Chandra, Flame's
+#: Fury) -- the announced player AND that player's creature group (Urabrask's shape). Read as the ordinary
+#: "each creature target player controls" mass hit plus the player themself as a scoped recipient.
+_DAMAGE_TARGET_PLAYER_AND_GROUP_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to (?P<who>target player|target opponent) "
+    r"and each (?P<group>[a-z' -]+?) (?:that player|they) controls?"
+)
+
+
+def _damage_target_player_and_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    inner = _match_clause_once(
+        f"~ deals {m.group('n')} damage to each {m.group('group')} {m.group('who')} controls"
+    )
+    if not inner or len(inner) != 1 or inner[0].type != "damage" or inner[0].params.get("group_player") not in ("player", "opponent"):
+        return None
+    return [EffectSpec("damage", {**inner[0].params, "group_and_players": "scoped_player"})]
 
 
 #: "~ deals 1 damage to each nonblack creature **and an additional 1 damage to each green creature**." (Kaervek's
@@ -2277,6 +2328,26 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: RULE 701.8: "Target opponent chooses a creature they control. Destroy that creature." (Imperial Edict,
+#: Wei Assassins) — an edict whose removal is not a sacrifice (regeneration / indestructible still matter, no
+#: "sacrificed" triggers). The targeted player picks from their own permanents through the ordinary
+#: `choose_objects` selection, and the removal reads that pick back as its subject.
+_OPPONENT_CHOOSES_THEN_RE = _c(
+    r"(?P<who>target opponent|target player) chooses (?:a|an) (?P<what>creature|artifact|enchantment|land|planeswalker|permanent) "
+    r"they control\. destroy (?:that (?P=what)|it)"
+)
+
+
+def _opponent_chooses_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("choose_objects", {
+        "action": "select_referent", "what": m.group("what"), "count": 1,
+        "player_selector": "target",
+        # `resolve_target_kind` reads "target opponent" as the broader "player"; an edict must keep the restriction.
+        "target_kind": "opponent" if m.group("who") == "target opponent" else "player",
+        "then": [{"type": "destroy", "params": {"previous_subject": True}}],
+    })]
+
+
 # Per-type keeper choices share one pool and sacrifice its complement.
 _CHOOSE_KEEP_TYPES_RE = _c(
     r"(?P<who>each player|each opponent) chooses (?P<choices>an? [a-z]+(?:(?:, |,? and )an? [a-z]+)*) "
@@ -2428,6 +2499,16 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_play_window_previous_exiled", params)]
 
 
+#: PAR-167: an exile clause plus the casting window it opens ("Exile the top 4 cards of your library. Until end of turn,
+#: you may cast noncreature spells from among those cards without paying their mana costs."). The whole pair is one
+#: row so the pronoun can only name what the first sentence exiled; `casting_window.py` owns every axis of the window.
+_EXILE_CAST_WINDOW_RE = _c(r"(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
+
+
+def _exile_cast_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_exile_cast_window(m.group(0), match_clause)
+
+
 #: PAR-163 (Moonstone, Harsh Mistress): the discard trigger's "exile that card from your graveyard. If you do,
 #: until the end of your next turn, you may play that card." -- `ExileTriggeringDiscardMayPlayThisTurnEffect` with its
 #: RULE 611.2 next-turn window (its hand-authored "this turn" siblings, Containment Construct, keep the default).
@@ -2518,6 +2599,75 @@ def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
     elif cap is not None:
         params["max_mana_value"] = count_or_x_of(cap)
     return [EffectSpec("free_cast_from_hand", params)]
+
+#: PAR-167: "cast `<a / any number of>` `<type>` spell(s) from your hand/graveyard [with mana value `<cap>`] without
+#: paying its mana cost" over every cap and filter axis (`casting_window.py`); the original Expertise row above owns the
+#: plain hand wording and is tried first.
+_FREE_CAST_ZONE_RE = _c(r"(?:you may )?cast [^.]+? without paying (?:its|their) mana costs?(?:, where x is [^.]+)?\.?")
+
+
+def _free_cast_zone(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_free_cast_zone(m.group(0), parse_amount_phrase)
+
+#: PAR-167: the turn-long graveyard play window ("Until end of turn, you may play lands and cast spells from your
+#: graveyard.") and the turn-long exile replacement beside it (Gaea's Will, Magus of the Will).
+_GRAVEYARD_PLAY_WINDOW_ROW_RE = _c(
+    r"(?:until end of turn, )?(?:you may )?play lands and cast spells from your graveyard[^.]*"
+    r"(?:\.\s*if a card would be put into your graveyard from anywhere this turn, exile (?:that card|it) instead)?\.?"
+    r"|if a card would be put into your graveyard from anywhere this turn, exile (?:that card|it) instead\.?"
+    r"|(?:until end of turn, )?(?:you may )?cast [^.]+ spells from (?:your|any) graveyard[^.]*"
+    r"(?:\.\s*if a spell cast this way would be put into a graveyard, exile it instead)?\.?"
+)
+
+#: PAR-167: "[Target opponent] exile[s] cards from the top of [your/their] library until [you/they] exile a `<kind>` card.
+#: [Until end of turn,] you may cast that card without paying its mana cost." (Nico Minoru, Wanda's Vision, Stolen Goods).
+_DIG_CAST_FREE_RE = _c(r"(?:target opponent exiles|exile) cards from the top of (?:your|their) library until [^.]+\.\s+[^.]+")
+
+#: PAR-167: "Exile [up to one] target `<card>` from a graveyard [and copy it | . Copy it]. You may cast the copy [without
+#: paying its mana cost]." -- the exile clause is any one this table already reads, or the filtered graveyard form
+#: below ("with mana value N or less", a colour word, the "nonland" type), so the card filter and the origin graveyard
+#: are the same axes the targeted cast window uses.
+_EXILE_COPY_CAST_RE = _c(r"exile [^.]+?(?: and copy (?:it|that card)|\.\s+copy (?:it|that card))(?:\.\s+|, then )[^.]+")
+
+
+
+def _exile_graveyard_clause(text: str) -> Optional[list[EffectSpec]]:
+    specs = match_clause(text)
+    if specs:
+        return specs
+    m = _EXILE_GRAVEYARD_FILTERED_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    type_word = m.group("type")
+    kind = _graveyard_target_kind(None if type_word == "nonland" else type_word, m.group("scope"))
+    if kind is None:
+        return None
+    if type_word == "nonland":
+        kind = kind.removesuffix("_card") + "_nonland_card"
+    params: dict = {"target_kind": kind}
+    if m.group("upto"):
+        params["optional"] = True
+    if m.group("n"):
+        params["max_mana_value"] = int(m.group("n"))
+    if m.group("color"):
+        params["colors"] = [_CAST_WINDOW_COLORS[m.group("color").lower()]]
+    return [EffectSpec("exile", params)]
+
+
+def _exile_copy_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_exile_copy_cast(m.group(0), _exile_graveyard_clause)
+
+
+
+def _dig_cast_free(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_dig_cast_free(m.group(0))
+
+
+
+def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_graveyard_play_window(m.group(0))
+
+
 
 
 #: PAR-118: the shared clause "exile a card from your hand with a number of time counters on it equal to its mana
@@ -3809,6 +3959,53 @@ _LOSE_LIFE_PER_LIFE_GAINED_RE = _c(
 )
 
 
+#: PAR-132: "that spell or ability's controller" is only the firing event's ``player_id`` under a
+#: becomes-the-target head; `gate._event_player_antecedent_ok` checks the marker and strips it.
+_SPELL_CONTROLLER_PHRASE = "that spell or ability's controller"
+BECOMES_TARGET_EVENT = "BECOMES_TARGET"
+EVENT_PLAYER_EVENTS_KEY = "event_player_events"
+_LOSE_LIFE_THAT_CONTROLLER_RE = _c(
+    r"that (?:player|spell or ability's controller) loses (?P<n>\d+) life"
+)
+
+
+def _lose_life_that_controller(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount": int(m.group("n")), "selector": "event_player",
+        EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],
+    })]
+
+
+#: PAR-166: "<player> loses half their life, rounded up/down" / "... a third of their life, rounded up" -- the amount is a
+#: fraction of that player's *current* life (RULE 107.2/119.3), measured at resolution on the very player who loses it.
+_FRACTIONAL_LIFE_DIVISORS = {"half": 2, "a third of": 3}
+#: Events whose firing names the "that player" / "they" / "defending player" this clause means: a DAMAGE event's damaged
+#: player (RULE 120.3) -- singly or as one combat batch -- and an ATTACKS event's defending player (RULE 508.1b);
+#: read by the `trigger_player` referent.
+_TRIGGER_PLAYER_EVENTS = ["DAMAGE", "ATTACKS", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"]
+_DEFENDING_PLAYER_EVENTS = ["ATTACKS"]
+_LOSE_FRACTION_OF_LIFE_RE = _c(
+    r"(?P<who>you|target opponent|target player|that player|they|defending player) loses? "
+    r"(?P<fraction>half|a third of) (?:your|their) life, rounded (?P<round>up|down)"
+)
+
+
+def _lose_fraction_of_life(m: re.Match[str]) -> list[EffectSpec]:
+    who = m.group("who")
+    amount: dict = {"kind": "resource", "resource": "life", "divide": _FRACTIONAL_LIFE_DIVISORS[m.group("fraction")]}
+    if m.group("round") == "up":
+        amount["round_up"] = True
+    params: dict = {"amount": amount}
+    if who in ("target opponent", "target player"):
+        params["target_kind"] = "opponent" if who == "target opponent" else "player"
+        amount["of"] = "target"
+    elif who != "you":
+        amount["of"] = "trigger_player"
+        params["player"] = {"of": "trigger_player", "as": "self"}
+        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_EVENTS if who == "defending player" else _TRIGGER_PLAYER_EVENTS
+    return [EffectSpec("lose_life", params)]
+
+
 def _lose_life_per_life_gained(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("lose_life", {
         "amount": {"kind": "trigger_event", "field": "amount", "multiply": int(m.group("n"))},
@@ -5088,7 +5285,7 @@ def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "x" is the announced {X} (RULE 107.3c) or a ``bind``-measured X ("…mills x cards, where x is the result").
     params: dict = {"count": "twice_x" if count_word == "twice x" else "x" if count_word == "x" else 1 if count_word == "a" else int(count_word)}
     if who in ("target player", "target opponent"):
-        params["target_kind"] = "player"
+        params["target_kind"] = "opponent" if who == "target opponent" else "player"
     return [EffectSpec("mill", params)]
 
 
@@ -7588,23 +7785,57 @@ def _grant_flashback_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_flashback_to_target", params)]
 
 
-# Normal-cost permission and its optional spell-zone replacement share the
-# targeted graveyard grant; neither changes the spell's alternative cost.
+#: PAR-167: the targeted graveyard casting window, one grammar over its independent axes -- origin graveyard
+#: (yours / an opponent's / any), the card filter (type words, a colour, a mana-value cap that is a literal or
+#: "the source's power"), normal versus "without paying its mana cost" (RULE 118.9), a one-resolution
+#: permission (RULE 608.2g, no window word) versus a turn-long one ("this turn" / a leading "until end of turn"),
+#: and the optional "if that spell would be put into <a> graveyard, exile it instead" rider (RULE 614.1).
+#: Every combination lands on `GrantFlashbackToTargetEffect`'s ``as_permission`` mode.
+_CAST_WINDOW_COLORS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+_EXILE_GRAVEYARD_FILTERED_RE = _c(
+    r"exile (?P<upto>up to (?:1|one) )?target (?:(?P<color>white|blue|black|red|green) )?"
+    r"(?:(?P<type>nonland|" + _GRAVEYARD_TYPE_WORD + r") )?card(?: with mana value (?P<n>\d+) or less)? "
+    rf"(?:from|in) (?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
+)
+
+_CAST_WINDOW_TYPE_WORD = rf"artifact, instant, or sorcery|{_GRAVEYARD_TYPE_WORD}"
+_CAST_WINDOW_SOURCE_POWER = r"less than or equal to (?:~'s|his|her|its) power"
 _TARGET_GRAVEYARD_CAST_RE = _c(
-    rf"(?:you may )?cast target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
-    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard this turn\.?"
-    r"(?:\s*if that spell would be put into your graveyard, exile it instead\.?)?"
+    r"(?P<until>until end of turn, )?(?:you may )?cast target "
+    rf"(?:(?P<color>{'|'.join(_CAST_WINDOW_COLORS)}) )?"
+    rf"(?:(?P<type>{_CAST_WINDOW_TYPE_WORD}) )?card"
+    rf"(?: with mana value (?P<cap>\d+ or less|{_CAST_WINDOW_SOURCE_POWER}))? from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
+    r"(?P<this_turn> this turn)?"
+    r"(?P<free> without paying its mana cost)?\.?"
+    r"(?:\s*if that spell would be put into (?:your|their|an opponent'?s|a) graveyard, exile it instead\.?)?"
 )
 
 
 def _target_graveyard_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    type_word = m.groupdict().get("type")
+    if type_word == "artifact, instant, or sorcery":
+        kind = _graveyard_target_kind(None, m.group("scope"))
+        kind = kind.removesuffix("_card") + "_instant_sorcery_or_artifact" if kind else None
+    else:
+        kind = _graveyard_target_kind(type_word, m.group("scope"))
     if kind is None:
         return None
-    return [EffectSpec("grant_flashback_to_target", {
+    turn_long = bool(m.group("until") or m.group("this_turn"))
+    params: dict = {
         "target_kind": kind, "as_permission": True,
         "exile_if_would_be_put_into_graveyard": "exile it instead" in m.group(0),
-    })]
+    }
+    if not turn_long:
+        params["during_resolution"] = True
+    if m.group("free"):
+        params["free"] = True
+    if m.group("color"):
+        params["colors"] = [_CAST_WINDOW_COLORS[m.group("color")]]
+    cap = m.group("cap")
+    if cap:
+        params["max_mana_value"] = "source_power" if "power" in cap else int(cap.split()[0])
+    return [EffectSpec("grant_flashback_to_target", params)]
 
 
 #: "The next [creature] spell you cast this turn can't be countered." (Mistrise Village,
@@ -9109,6 +9340,37 @@ _COUNTER_UNLESS_PAY_RE = _c(
 )
 
 
+#: PAR-132: "counter that spell or ability." under a becomes-the-target head (Glyph Keeper, the Glasskites): the stack
+#: item that targeted is the firing BECOMES_TARGET event's ``stack_id`` (`CounterSpellEffect`). Any other head has no
+#: such antecedent, so the marker `gate._event_player_antecedent_ok` checks keeps the clause unclaimed there.
+_COUNTER_THAT_SPELL_OR_ABILITY_RE = _c(r"counter that spell or ability")
+
+
+def _counter_that_spell_or_ability(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("counter", {
+        "target_from_trigger_event": "stack_id", EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],
+    })]
+
+
+#: "~ becomes the target of a spell or ability, **that spell or ability's controller** sacrifices a land of their
+#: choice." (Lava Runner): the targeting object's controller is the event's ``player_id``.
+_SPELL_CONTROLLER_SACRIFICES_RE = _c(
+    rf"that spell or ability's controller sacrifices (?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
+    rf"(?P<what>{'|'.join(_SACRIFICE_EDICT_WHAT_WORDS)})s? of their choice"
+)
+
+
+def _spell_controller_sacrifices(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("nontoken"):
+        return None
+    what = _SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
+    count = 1 if m.group("count") in ("a", "an") else int(m.group("count"))
+    return [EffectSpec("sacrifice", {
+        "what": what, "count": count, "player": {"of": "event_player"},
+        EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],
+    })]
+
+
 def _counter_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
     verb = "pay" if m.group("verb") == "pays" else "discard"
     return [EffectSpec("counter_unless_pay", {"cost": f"{verb} {m.group('amount')}"})]
@@ -10314,6 +10576,54 @@ def _previous_controller_creates(m: re.Match[str]) -> Optional[list[EffectSpec]]
     return [EffectSpec("create_token", {**effects[0].params, "creators": "previous_target_controller"})]
 
 
+#: PAR-132: "<destroy/exile …>. **For each [nontoken] creature destroyed/exiled this way, <body>**" (Hour of Need,
+#: Descent of the Dragons, Blood Money, Canoptek Scarab Swarm). RULE 608.2c: the loop runs over the objects an
+#: earlier instruction of *this resolution* actually destroyed or exiled (`GameContext.destroyed_objects` /
+#: `exiled_objects`), one pass per object. "Its controller creates …" is the loop item's last-known controller
+#: (RULE 608.2h, `CreateTokenEffect.creators="iteration_item_controller"`); any other body is an item-independent
+#: ordinary clause ("you create a Treasure token", "you draw a card") run once per object. A body that names a
+#: target or a pronoun (it/that/them) would read the wrong referent, so it is refused.
+_THIS_WAY_TYPE_WORDS = {
+    "creature": "Creature", "artifact": "Artifact", "land": "Land", "enchantment": "Enchantment",
+    "planeswalker": "Planeswalker",
+}
+_THIS_WAY_TYPE_ALT = "|".join(_THIS_WAY_TYPE_WORDS)
+_FOR_EACH_THIS_WAY_RE = _c(
+    rf"for each (?P<nontoken>nontoken )?(?P<types>(?:{_THIS_WAY_TYPE_ALT})(?: or (?:{_THIS_WAY_TYPE_ALT}))*|permanent|card)"
+    r"(?P<is_card> card)? (?P<verb>destroyed|exiled) this way, (?P<body>.+)"
+)
+_THIS_WAY_BODY_PRONOUN_RE = re.compile(r"\b(?:it|its|that|them|those|their|they)\b")
+
+
+def _for_each_this_way(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    body = m.group("body")
+    its_controller = body.startswith("its controller ")
+    if its_controller:
+        body = body[len("its controller "):]
+    elif _THIS_WAY_BODY_PRONOUN_RE.search(body):
+        return None
+    effects = _match_clause_once(body)
+    if not effects:
+        return None
+    if '"target_kind"' in json.dumps([e.to_dict() for e in effects], default=str):
+        return None
+    if its_controller:
+        if (
+            len(effects) != 1 or effects[0].type != "create_token"
+            or effects[0].params.get("creators") is not None
+            or effects[0].params.get("per_opponent") or effects[0].params.get("attacking")
+        ):
+            return None
+        effects = [EffectSpec("create_token", {**effects[0].params, "creators": "iteration_item_controller"})]
+    over: dict[str, Any] = {"this_way": m.group("verb")}
+    if m.group("nontoken"):
+        over["this_way_nontoken"] = True
+    types = m.group("types")
+    if types != "permanent" and types != "card":
+        over["this_way_type"] = [_THIS_WAY_TYPE_WORDS[w] for w in types.split(" or ")]
+    return [EffectSpec("for_each", {"over": over, "effects": [e.to_dict() for e in effects]})]
+
+
 #: PAR-104: "whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create a Mutagen
 #: token for each +1/+1 counter on it." (The Ooze) — under a group trigger "it" is the firing creature, and the
 #: `counters` amount reads its counters live, or from the leave event's RULE 603.10a snapshot once it is gone.
@@ -10741,6 +11051,16 @@ def _add_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _add_named_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return _add_counter_group(m)
+
+
+_ADD_LOYALTY_COUNTER_RE = _c(
+    # only the named source: a bare "it" is a referent, and a target creature is not a planeswalker
+    rf"put {COUNT_X} loyalty counters? on ~"
+)
+
+
+def _add_loyalty_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("add_counters", {"count": count_or_x_of(m.group("n")), "kind": "loyalty"})]
 
 
 def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -17771,6 +18091,10 @@ HANDLERS: list[EffectHandler] = [
         "damage_to_attacked_defender", _DAMAGE_TO_ATTACKED_RE, _damage_to_attacked,
         group_subject_only=True,
     ),
+    EffectHandler("attached_deals_that_much", _ATTACHED_DEALS_THAT_MUCH_RE, _attached_deals_that_much,
+                  attached_subject_only=True),
+    EffectHandler("attached_it_deals_that_much", _ATTACHED_IT_DEALS_THAT_MUCH_RE, _attached_it_deals_that_much,
+                  attached_subject_only=True),
     EffectHandler(
         "group_deals_to_damaged_controller", _GROUP_DEALS_TO_DAMAGED_CONTROLLER_RE,
         _group_deals_to_damaged_controller, group_subject_only=True,
@@ -18004,7 +18328,7 @@ HANDLERS: list[EffectHandler] = [
             rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
             rf"|each creature your opponents control|each creature an opponent controls"
-            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|them|you)"
+            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|that spell or ability's controller|them|you)"
         ),
         _damage_selector,
     ),
@@ -18019,6 +18343,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("damage_plus_additional", _DAMAGE_PLUS_ADDITIONAL_RE, _damage_plus_additional),
     EffectHandler("damage_group", _DAMAGE_GROUP_RE, _damage_group),
+    EffectHandler("damage_target_player_and_group", _DAMAGE_TARGET_PLAYER_AND_GROUP_RE, _damage_target_player_and_group),
     # RULE 202.2f/700.6 "it deals damage to each opponent equal to your
     # devotion to <colour>." (Fanatic of Mogis) — tried before the plain
     # `damage_selector` row above since "equal to …" has no digit `NUMBER`
@@ -18149,6 +18474,8 @@ HANDLERS: list[EffectHandler] = [
         _PLAY_WINDOW_PREVIOUS_RE,
         _play_window_previous,
     ),
+    # PAR-167: the exile clause plus a casting window over its pool (cast/play, filter, free or wild mana, window).
+    EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
     # PAR-13: "draw N cards and reveal them. you may cast one of them
     # without paying its mana cost." — Mad Wizard's Lair's own room.
     EffectHandler(
@@ -18164,6 +18491,10 @@ HANDLERS: list[EffectHandler] = [
         _FREE_CAST_FROM_HAND_RE,
         _free_cast_from_hand,
     ),
+    EffectHandler("free_cast_zone", _FREE_CAST_ZONE_RE, _free_cast_zone),
+    EffectHandler("exile_copy_cast", _EXILE_COPY_CAST_RE, _exile_copy_cast),
+    EffectHandler("dig_cast_free", _DIG_CAST_FREE_RE, _dig_cast_free),
+    EffectHandler("graveyard_play_window", _GRAVEYARD_PLAY_WINDOW_ROW_RE, _graveyard_play_window),
     EffectHandler(
         "cheat_creature_from_hand",
         _CHEAT_CREATURE_FROM_HAND_RE,
@@ -18433,6 +18764,8 @@ HANDLERS: list[EffectHandler] = [
         _LOSE_LIFE_PER_SPELL_CAST_THIS_TURN_RE,
         _lose_life_per_spell_cast_this_turn,
     ),
+    EffectHandler("lose_fraction_of_life", _LOSE_FRACTION_OF_LIFE_RE, _lose_fraction_of_life),
+    EffectHandler("lose_life_that_controller", _LOSE_LIFE_THAT_CONTROLLER_RE, _lose_life_that_controller),
     # "that player loses N life for each 1 life they gained." (False Cure).
     EffectHandler(
         "lose_life_per_life_gained",
@@ -18474,6 +18807,14 @@ HANDLERS: list[EffectHandler] = [
         "lose_life_from_trigger_amount",
         _c(rf"{TARGET} loses that much life"),
         _lose_life_from_trigger_amount,
+    ),
+    # PAR-132: "each opponent gains that much life" (Grollub) -- the gain sibling of the row above, reached through
+    # the player-scope slot's "target player" reading.
+    EffectHandler(
+        "gain_life_target_from_trigger_amount",
+        _c(rf"{TARGET} gains that much life"),
+        lambda m: ([EffectSpec("gain_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
+                   if resolve_target_kind(m.group("target")) == "player" else None),
     ),
     # "Whenever ~ deals damage, you gain that much life." (El-Hajjâj /
     # Exalted Angel-shaped, PAR-36) — before the plain `gain_life` row so
@@ -19761,6 +20102,8 @@ HANDLERS: list[EffectHandler] = [
         _COUNTER_UNLESS_PAY_RE,
         _counter_unless_pay,
     ),
+    EffectHandler("counter_that_spell_or_ability", _COUNTER_THAT_SPELL_OR_ABILITY_RE, _counter_that_spell_or_ability),
+    EffectHandler("spell_controller_sacrifices", _SPELL_CONTROLLER_SACRIFICES_RE, _spell_controller_sacrifices),
     EffectHandler(
         "counter_target_spell_unless_discard_hand",
         _COUNTER_TARGET_SPELL_UNLESS_DISCARD_HAND_RE,
@@ -20068,6 +20411,11 @@ HANDLERS: list[EffectHandler] = [
         _ADD_NAMED_COUNTER_RE,
         _add_named_counter,
     ),
+    # RULE 306.5b / 122.1: "put a loyalty counter on ~" (Ral, Crackling Wit; Ajani Resolute; Lolth) — a planeswalker's own
+    # loyalty is a counter kind the engine keys off (`add_counters` kind ``loyalty``), so it is reserved from the
+    # open named-counter row above and read here for the one recipient that is unambiguous: the source itself.
+    EffectHandler("add_loyalty_counter", _ADD_LOYALTY_COUNTER_RE, _add_loyalty_counter),
+    EffectHandler("opponent_chooses_then", _OPPONENT_CHOOSES_THEN_RE, _opponent_chooses_then),
     EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
     EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),
     EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list),
@@ -21955,6 +22303,7 @@ HANDLERS: list[EffectHandler] = [
         "previous_controller_creates", _PREVIOUS_CONTROLLER_CREATES_RE, _previous_controller_creates,
         previous_subject_only=True,
     ),
+    EffectHandler("for_each_this_way", _FOR_EACH_THIS_WAY_RE, _for_each_this_way),
     EffectHandler(
         "create_named_token_eq_its_self",
         _CREATE_NAMED_TOKEN_EQ_ITS_RE,

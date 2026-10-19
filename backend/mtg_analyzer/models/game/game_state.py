@@ -762,6 +762,8 @@ class GameState:
         #: lockstep with `temp_play_permissions` at cleanup otherwise
         #: (`GameEngine._step_cleanup`).
         self.free_cast_instance_ids: set[int] = set()
+        #: RULE 400.7: newly granted free casts apply to one exact zone visit.
+        self.free_cast_permission_visits: dict[int, int] = {}
         #: Kefka, Dancing Mad: free-cast cards whose owner loses life equal to their mana value once cast this way.
         self.free_cast_owner_loses_life_ids: set[int] = set()
 
@@ -802,6 +804,8 @@ class GameState:
         self.temp_flashback_grants: dict[int, str] = {}
         #: Single-card normal-cost graveyard permissions, cleared on casting and cleanup.
         self.temp_graveyard_cast_permissions: dict[int, str] = {}
+        #: RULE 611.2: resolving effects can grant a dynamic graveyard pool for this turn.
+        self.temp_graveyard_pool_permissions: list[dict[str, Any]] = []
         #: Targeted permission: exact graveyard visit and graveyard-exile replacement.
         self.temp_graveyard_cast_permission_visits: dict[int, tuple[int, bool]] = {}
         self.temp_graveyard_cast_permission_groups: dict[int, frozenset[int]] = {}
@@ -1511,6 +1515,20 @@ class GameState:
         """Register a callback fired for every event (e.g. trigger collection)."""
         self._subscribers.append(callback)
 
+    def grant_free_cast_permission(self, obj: GameObject) -> None:
+        """Arm a free cast for this zone visit (RULE 400.7)."""
+        self.free_cast_instance_ids.add(obj.instance_id)
+        self.free_cast_permission_visits[obj.instance_id] = obj.zone_incarnation
+
+    def has_free_cast_permission(self, obj: GameObject) -> bool:
+        """Check the original visit before waiving a spell's mana cost."""
+        if obj.instance_id not in self.free_cast_instance_ids:
+            return False
+        visit = self.free_cast_permission_visits.get(obj.instance_id)
+        if visit is not None and visit != obj.zone_incarnation:
+            return False
+        return True
+
     def clone(self) -> "GameState":
         """A deep, self-contained copy of the game — for undo/restart.
 
@@ -1949,6 +1967,8 @@ class GameState:
             "temp_play_permission_player": dict(self.temp_play_permission_player),
             "mana_wildcard_permission": dict(self.mana_wildcard_permission),
             "free_cast_instance_ids": sorted(self.free_cast_instance_ids),
+            "free_cast_permission_visits": dict(self.free_cast_permission_visits),
+            "temp_graveyard_pool_permissions": list(self.temp_graveyard_pool_permissions),
             "players": [p.to_dict() for p in self.players],
             "battlefield": [obj.to_dict() for obj in self.battlefield],
             "stack": [item.to_dict() for item in self.stack],

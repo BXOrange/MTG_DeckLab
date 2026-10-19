@@ -4198,6 +4198,289 @@ def _bound_pump_for_each(spec: EffectSpec, amount: dict[str, Any]) -> "Optional[
     })]
 
 
+#: PAR-132: "<Tap/Sacrifice/Return/Discard> any number of `<what>`. `<body>` for each `<what>` `<verb>ed` this way."
+#: (Harmony of Nature, Minas Tirith Garrison, Charge Across the Araba, Mind Maggots, ...). RULE 608.2c: "this way"
+#: names the objects the first instruction actually acted on, so the pick and its payoff are one `choose_objects`
+#: whose ``then_that_many`` body is bound to how many were picked (the "x" sentinel, `_substitute_x_specs`) --
+#: the body is the ordinary "for each" bind over that count. The pool noun must be the counted noun, so "for each
+#: *other* thing" never aliases the pick.
+_THIS_WAY_PAST = {"tap": "tapped", "sacrifice": "sacrificed", "return": "returned", "discard": "discarded"}
+_THIS_WAY_PICK_ACTION = {"tap": "tap", "sacrifice": "sacrifice", "return": "return_to_hand", "discard": "discard"}
+_ANY_NUMBER_LEAD = (
+    r"(?:you may )?(?P<verb>tap|sacrifice|return|discard) any number of (?P<what>[a-z ]+?)"
+    r"(?: to (?:its owner's|their owner's|their owners') hands?)?"
+)
+_ANY_NUMBER_THIS_WAY_TRAILING_RE = re.compile(
+    rf"^{_ANY_NUMBER_LEAD}\.\s*(?P<rest>[^.]+?),? for each (?P<noun>[a-z ]+?) (?P<past>[a-z]+) this way\.?$"
+)
+_ANY_NUMBER_THIS_WAY_LEADING_RE = re.compile(
+    rf"^{_ANY_NUMBER_LEAD}\.\s*for each (?P<noun>[a-z ]+?) (?P<past>[a-z]+) this way, (?P<rest>[^.]+?)\.?$"
+)
+#: The pick-pool characteristics a `choose_objects` ``permanent_filter`` can carry for this family.
+_THIS_WAY_FILTER_KEYS = frozenset({"card_type", "subtype"})
+
+
+#: "Discard your hand[, then draw N cards]." (Pyretic Charge, Malfegor): the whole hand is the pick, so it is the
+#: any-number pick made mandatory and complete; the redraw runs after the discard and its tally.
+_DISCARD_HAND_LEAD_RE = re.compile(
+    r"^discard (?:your hand|all the cards in your hand)(?:, then draw (?P<draw>\d+) cards)?\.\s*"
+)
+
+
+def _any_number_pick_pool(verb: str, what: str) -> "Optional[tuple[dict[str, Any], dict[str, Any]]]":
+    """The pick pool of "<verb> any number of `what`": ``(parsed count phrase, its filter)`` or ``None``."""
+    # The pool is the controller's own permanents ("you control") or, for a discard, their hand ("cards").
+    if verb == "discard":
+        if not what.endswith(" cards") and what != "cards":
+            return None
+        pool_phrase = what
+    elif what.endswith(" you control"):
+        pool_phrase = what[: -len(" you control")]
+    elif verb == "sacrifice":
+        pool_phrase = what  # "sacrifice any number of creatures": always the controller's own
+    else:
+        return None
+    untapped = pool_phrase.startswith("untapped ")
+    if untapped != (verb == "tap"):
+        return None
+    pool = parse_count_phrase(pool_phrase.removeprefix("untapped "))
+    if pool is None:
+        return None
+    pool_filter = dict(pool.get("filter") or {})
+    if set(pool_filter) - _THIS_WAY_FILTER_KEYS:
+        return None
+    return pool, pool_filter
+
+
+def _any_number_pick_params(verb: str, pool_filter: dict[str, Any]) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "action": _THIS_WAY_PICK_ACTION[verb], "what": "permanent", "count": "all", "optional": True,
+    }
+    if pool_filter:
+        params["permanent_filter"] = pool_filter
+    if verb == "tap":
+        params["require_untapped"] = True
+    if verb == "discard":
+        params["pool_zones"] = ["hand"]
+    return params
+
+
+#: PAR-132: "<Sacrifice/Discard> any number of `<what>`. `<body naming that many/much>`" (Landslide, Last-Ditch Effort,
+#: Scapeshift, Rites of Spring, Angelic Aberration, Nantuko Cultivator). RULE 608.2c / 701.21: "that many" is how many
+#: the first instruction actually sacrificed / discarded, so the pick (a mandatory-free `choose_objects`) is bracketed by
+#: a `mark_event_log` and each body effect's one printed number is bound to the `sacrificed_this_way` /
+#: `discarded_this_way` count over that window. Unlike the `then_that_many` form the body stays a top-level effect,
+#: so a body target (Landslide's "target player or planeswalker") is announced on cast as usual (RULE 601.2c).
+_ANY_NUMBER_THAT_MANY_RE = re.compile(
+    rf"^{_ANY_NUMBER_LEAD}\.\s*(?:if you do, )?(?P<rest>[^.]*\bthat (?:many|much)\b[^.]*?)\.?$"
+)
+_THAT_MANY_TO_ONE_RE = re.compile(r"\bthat (?:many|much)\b")
+_THIS_WAY_PICK_VERB_PAST = {"sacrifice": "sacrificed", "discard": "discarded"}
+
+
+def _any_number_that_many_specs(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    m = _ANY_NUMBER_THAT_MANY_RE.match(body)
+    if m is None or m.group("verb") not in _THIS_WAY_PICK_VERB_PAST:
+        return None
+    verb = m.group("verb")
+    pick = _any_number_pick_pool(verb, m.group("what"))
+    if pick is None:
+        return None
+    _, pool_filter = pick
+    # The measured number replaces one printed "1": parse the body with the placeholder, then bind it.
+    inner = parse_effect_body(
+        _THAT_MANY_TO_ONE_RE.sub("1", m.group("rest").strip()), self_subject=self_subject,
+        group_subject=group_subject,
+    )
+    if not inner:
+        return None
+    amount = {"kind": f"{_THIS_WAY_PICK_VERB_PAST[verb]}_this_way"}
+    bound: list[EffectSpec] = []
+    for spec in inner:
+        one = _bind_magnitude(spec, amount)
+        if one is None or '"type": "sacrifice"' in json.dumps(one[0].to_dict(), default=str):
+            return None
+        bound += one
+    return [EffectSpec("mark_event_log", {}), EffectSpec("choose_objects", _any_number_pick_params(verb, pool_filter)), *bound]
+
+
+def _any_number_this_way_specs(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    whole_hand = _DISCARD_HAND_LEAD_RE.match(body)
+    if whole_hand is not None:
+        specs = _any_number_this_way_specs(
+            "discard any number of cards. " + body[whole_hand.end():], self_subject=self_subject,
+            group_subject=group_subject,
+        )
+        if specs is None:
+            return None
+        # The whole hand is the pick, so it is mandatory; the `mark_event_log` bracket of the "that many" form
+        # (index 0 there) is left in front of it.
+        at = next(i for i, spec in enumerate(specs) if spec.type == "choose_objects")
+        specs[at] = EffectSpec("choose_objects", {**specs[at].params, "optional": False})
+        draw = whole_hand.group("draw")
+        return specs + ([EffectSpec("draw", {"count": int(draw)})] if draw else [])
+    m = _ANY_NUMBER_THIS_WAY_TRAILING_RE.match(body) or _ANY_NUMBER_THIS_WAY_LEADING_RE.match(body)
+    if m is None:
+        return _any_number_that_many_specs(body, self_subject=self_subject, group_subject=group_subject)
+    verb = m.group("verb")
+    if m.group("past") != _THIS_WAY_PAST[verb]:
+        return None
+    pick = _any_number_pick_pool(verb, m.group("what"))
+    if pick is None:
+        return None
+    _, pool_filter = pick
+    counted = parse_count_phrase(m.group("noun"))
+    if counted is None:
+        return None
+    # Every pick is in the pool, so a counted noun that is the pool's own or broader ("for each card discarded"
+    # after "any number of creature cards") counts exactly the picks; a narrower one would not.
+    counted_filter = dict(counted.get("filter") or {})
+    if counted_filter and counted_filter != pool_filter:
+        return None
+    bound = _bound_for_each_amount(
+        re.match(r"(?P<rest>.+)", m.group("rest").strip()), {"kind": "fixed", "amount": "x"},
+        self_subject=self_subject, previous_subject=False, group_subject=group_subject, previous_selector=False,
+    )
+    if bound is None or len(bound) != 1 or '"target_kind"' in json.dumps(bound[0].to_dict(), default=str):
+        return None
+    params = {**_any_number_pick_params(verb, pool_filter), "then_that_many": {"effects": [bound[0].to_dict()]}}
+    return [EffectSpec("choose_objects", params)]
+
+
+
+#: PAR-132: "<exile ...>. If a [non]creature card was exiled this way, <body>." (Diregraf Scavenger, Mastermind Plum,
+#: Raven Eagle, Deathgorge Scavenger's pair). RULE 608.2c: "this way" is what the first instruction actually exiled
+#: (`GameContext.exiled_objects`), so each conditional sentence rides the new ``this_way_pool`` condition; an exile
+#: that finds nothing (an empty graveyard, a declined "you may") leaves the pool empty and the body unrun.
+_EXILED_THIS_WAY_SENTENCE_RE = re.compile(
+    r"^if an? (?P<non>non)?(?P<type>creature|artifact|land|enchantment|planeswalker)? ?card "
+    r"(?:was|is) exiled this way, (?P<then>.+?)\.?$"
+)
+_EXILED_THIS_WAY_SPLIT_RE = re.compile(r"\.\s+(?=if an? [a-z]+ card (?:was|is) exiled this way, )")
+
+
+def _exiled_this_way_conditionals(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    if " exiled this way, " not in body:
+        return None
+    parts = _EXILED_THIS_WAY_SPLIT_RE.split(body)
+    if len(parts) < 2:
+        return None
+    before = parse_effect_body(parts[0].strip().rstrip(".") , group_subject=group_subject)
+    if not before or not any(
+        spec.type == "exile" or (spec.type == "optional" and any(
+            inner.get("type") == "exile" for inner in spec.params.get("effects") or []))
+        for spec in before
+    ):
+        return None
+    specs = list(before)
+    for sentence in parts[1:]:
+        m = _EXILED_THIS_WAY_SENTENCE_RE.match(sentence.strip())
+        if m is None or (m.group("non") and not m.group("type")):
+            return None
+        then = parse_effect_body(m.group("then"), self_subject=self_subject, group_subject=group_subject)
+        if not then or any(spec.condition for spec in then) or '"target_kind"' in json.dumps(
+                [spec.to_dict() for spec in then], default=str):
+            return None
+        condition: dict[str, Any] = {"kind": "this_way_pool", "pool": "exiled"}
+        if m.group("type"):
+            condition["card_type"] = m.group("type")
+            if m.group("non"):
+                condition["negate"] = True
+        specs += [EffectSpec(spec.type, dict(spec.params), condition=condition) for spec in then]
+    return specs
+
+
+#: PAR-132: "<discard/sacrifice ...>. If a [non]land card is discarded this way, <body>." (Lord Windgrace, Civilized Scholar,
+#: Psychic Miasma) and "<discard/sacrifice ...>. <effect> for each [non]land card discarded / permanent sacrificed this way."
+#: (Seasoned Pyromancer, Gerrard's Verdict, Nahiri's Lithoforming, Visions of Ruin). RULE 608.2c: "this way" is exactly what
+#: the first instruction discarded / sacrificed. That is the affected player's later answer, so the window is a
+#: `mark_event_log` position on the source (not a per-resolution list that a `pending_choice` resume would lose); the
+#: `this_way_pool` condition and the `discarded_this_way` / `sacrificed_this_way` amounts read the `DISCARD_CARD` /
+#: `SACRIFICE` events logged after it.
+_THIS_WAY_TYPES = r"(?P<non>non)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)?"
+_THIS_WAY_VERBS = {"discarded": "discard", "sacrificed": "sacrifice"}
+_THIS_WAY_IF_RE = re.compile(
+    rf"^if an? {_THIS_WAY_TYPES} ?(?:card )?(?:was|is) (?P<verb>discarded|sacrificed) this way, (?P<then>.+?)\.?$"
+)
+_THIS_WAY_EACH_RE = re.compile(
+    rf"^(?:then )?(?P<rest>.+?) for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>discarded|sacrificed) this way\.?$"
+)
+_THIS_WAY_EACH_LEAD_RE = re.compile(
+    rf"^for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>discarded|sacrificed) this way, (?P<rest>.+?)\.?$"
+)
+_THIS_WAY_SPLIT_RE = re.compile(
+    r"\.\s+(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:discarded|sacrificed) this way, "
+    r"|for each [a-z ]*(?:discarded|sacrificed) this way, "
+    r"|.+ for each [a-z ]*(?:discarded|sacrificed) this way))"
+)
+
+
+def _announces_real_target(specs: "list[EffectSpec]") -> bool:
+    """Whether any (nested) spec names a RULE 115 target; ``target_kind`` null/"source" is the untargeted self form."""
+    return re.search(
+        r'"target_kind": "(?!source")', json.dumps([spec.to_dict() for spec in specs], default=str),
+    ) is not None
+
+
+def _discarded_this_way_specs(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    if " discarded this way" not in body and " sacrificed this way" not in body:
+        return None
+    parts = _THIS_WAY_SPLIT_RE.split(body)
+    if len(parts) < 2:
+        return None
+    before = parse_effect_body(parts[0].strip().rstrip("."), group_subject=group_subject)
+    if not before:
+        return None
+    before_json = json.dumps([s.to_dict() for s in before], default=str)
+    specs = [EffectSpec("mark_event_log", {}), *before]
+    for sentence in parts[1:]:
+        sentence = sentence.strip()
+        m = _THIS_WAY_IF_RE.match(sentence)
+        each = None
+        if m is None:
+            each = m = _THIS_WAY_EACH_RE.match(sentence) or _THIS_WAY_EACH_LEAD_RE.match(sentence)
+        if m is None or (m.group("non") and not m.group("type")):
+            return None
+        verb = m.group("verb")
+        # The measured verb must be the one the first clause performs ("sacrificed this way" after a discard is not).
+        if f'"type": "{_THIS_WAY_VERBS[verb]}"' not in before_json:
+            return None
+        if each is None:
+            then = parse_effect_body(m.group("then"), self_subject=self_subject, group_subject=group_subject)
+            if not then or any(spec.condition for spec in then) or _announces_real_target(then):
+                return None
+            condition: dict[str, Any] = {"kind": "this_way_pool", "pool": verb}
+            if m.group("type"):
+                condition["card_type"] = m.group("type")
+                if m.group("non"):
+                    condition["negate"] = True
+            specs += [EffectSpec(spec.type, dict(spec.params), condition=condition) for spec in then]
+            continue
+        amount: dict[str, Any] = {"kind": f"{verb}_this_way"}
+        if m.group("type"):
+            amount["card_type"] = m.group("type")
+            if m.group("non"):
+                amount["negate"] = True
+        bound = _bound_for_each_amount(
+            m, amount, self_subject=self_subject, previous_subject=False,
+            group_subject=group_subject, previous_selector=False,
+        )
+        # A `bind` only scales effects whose factory reads a ``$n`` count (a `sacrifice` count is a plain int).
+        if bound is None or _announces_real_target(bound) or '"type": "sacrifice"' in json.dumps(
+                [s.to_dict() for s in bound], default=str):
+            return None
+        specs += bound
+    return specs
+
+
 def _bound_for_each_amount(
     match: "re.Match[str]", amount: dict[str, Any], *, self_subject: bool,
     previous_subject: bool, group_subject: bool, previous_selector: bool,
@@ -4384,7 +4667,13 @@ _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_
 #: amount term rather than "the number of …": read by `count_phrase.parse_amount_phrase` like the aggregates.
 _WHERE_X_AMOUNT_RE = re.compile(
     rf"^(?P<rest>.+?),?\s+where x is (?P<phrase>(?:\d+ plus )?(?:{SACRIFICED_TERM}"
+    r"|the amount of life you (?:gained|lost) this turn"
     r"|the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) [^.]+?))$", re.IGNORECASE
+)
+#: RULE 107.2: "where x is half the number of <phrase>, rounded up/down" -- the count of `_WHERE_X_RE` halved.
+_HALF_DIVISOR = 2
+_WHERE_X_HALF_COUNT_RE = re.compile(
+    r"^(?P<rest>.+?),?\s+where x is half the number of (?P<phrase>.+?), rounded (?P<round>up|down)$", re.IGNORECASE
 )
 #: "`<sentence>`, where x is `<phrase>`. `<more sentences>`" — the sentence defining X is not the last.
 _WHERE_X_MID_BODY_RE = re.compile(
@@ -4521,11 +4810,21 @@ def _die_x_rest(text: str) -> "Optional[tuple[str, dict[str, Any]]]":
 def _where_x_specs(
     body: str, *, self_subject: bool, previous_subject: bool,
     group_subject: bool, previous_selector: bool, several: bool = False,
+    divide_by: "Optional[tuple[int, bool]]" = None,
 ) -> "Optional[list[EffectSpec]]":
     """See `_WHERE_X_RE`; ``None`` unless the body parses to one effect holding the X — or,
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    halved = _WHERE_X_HALF_COUNT_RE.match(text)
+    if halved is not None and divide_by is None:
+        # RULE 107.2: "where x is half the number of <phrase>, rounded up/down" is the count with a rounded halving.
+        return _where_x_specs(
+            f"{halved.group('rest')}, where x is the number of {halved.group('phrase')}",
+            self_subject=self_subject, previous_subject=previous_subject, group_subject=group_subject,
+            previous_selector=previous_selector, several=several,
+            divide_by=(_HALF_DIVISOR, halved.group("round") == "up"),
+        )
     between = _WHERE_X_THEN_RE.match(text)
     if between is not None:
         kwargs = dict(
@@ -4609,6 +4908,8 @@ def _where_x_specs(
             amount = {**amount, "minus": int(minus.group("n")), "minimum": 0}
     if amount is None:
         return None
+    if divide_by is not None:
+        amount = {**amount, "divide": divide_by[0], **({"round_up": True} if divide_by[1] else {})}
     return _bind_x_specs(
         rest, amount, self_subject=self_subject, previous_subject=previous_subject,
         group_subject=group_subject, previous_selector=previous_selector, several=several,
@@ -6149,6 +6450,18 @@ def _parse_effect_body_inner(
             return None
         return before_specs + after_specs
 
+    exiled_this_way = _exiled_this_way_conditionals(body, self_subject=self_subject, group_subject=group_subject)
+    if exiled_this_way is not None:
+        return exiled_this_way
+
+    any_number_this_way = _any_number_this_way_specs(body, self_subject=self_subject, group_subject=group_subject)
+    if any_number_this_way is not None:
+        return any_number_this_way
+
+    discarded_this_way = _discarded_this_way_specs(body, self_subject=self_subject, group_subject=group_subject)
+    if discarded_this_way is not None:
+        return discarded_this_way
+
     exile_x_for_each = _EXILE_X_GY_FOR_EACH_CREATE_RE.match(body)
     if exile_x_for_each is not None:
         create_specs = parse_effect_body(
@@ -6271,7 +6584,7 @@ def _parse_effect_body_inner(
     # the (unpaid) spell X (Tendrils of Corruption dealt 0 damage and gained the life).
     one_x_text = body.strip().rstrip(".").strip()
     one_x = (_WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
-             or _WHERE_X_DIE_RE.match(one_x_text))
+             or _WHERE_X_DIE_RE.match(one_x_text) or _WHERE_X_HALF_COUNT_RE.match(one_x_text))
     if one_x is not None and "." not in one_x.group("rest") and re.search(
         r"\s+and\s+", one_x.group("rest")
     ):

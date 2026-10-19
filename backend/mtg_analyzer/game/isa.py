@@ -612,6 +612,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # RULE 611 continuous effect in the instruction stream.
     "impulsive_draw": "exile",
     "grant_play_window_previous_exiled": "exile",  # the play-window half of an exile-and-may-play (same stamp as above)
+    "cast_window_exiled_pool": "cast",  # PAR-167: the casting window after an exile clause
     "exile_triggering_discard_may_play_this_turn": "exile",
     "exile_until_duplicate_name": "exile",
     "free_cast_from_hand": "cast",
@@ -659,6 +660,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_until": "create_continuous_effect",
     "haunt": "haunt",
     "graveyard_play_permission_this_turn": "create_continuous_effect",
+    "graveyard_cast_pool_this_turn": "create_continuous_effect",
     "graveyard_to_library_bottom_random": "move_object",
     "haunt_linked_death": "create_delayed_trigger",
     # RULE 603.12: a reflexive "When you do, …" trigger is created during

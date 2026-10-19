@@ -201,6 +201,7 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "min": int, "max": int, "amount": int, "min_power": int,
     "zone": str, "incarnation": int,
     "colors": list, "types": list,
+    "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
 
 #: The literal placeholders for a spell's announced {X} (RULE 107.3) that may sit in
@@ -252,6 +253,7 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
+    "negate": bool,  # PAR-132 `discarded_this_way`: count the cards that do NOT have ``card_type``
     "won": bool,  # RULE 705: the `coin_flips` amount counts won (True) or lost (False) flips
     # RULE 706: the `die_results` amount counts the kept dice of the last roll by ``which`` (even / odd / different /
     # equal ``value`` / all).

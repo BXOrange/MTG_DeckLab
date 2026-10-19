@@ -814,6 +814,15 @@ _NO_MAX_HAND_SIZE_RE = re.compile(
     r"(?P<subject>you have|players have) no maximum hand size", re.IGNORECASE
 )
 
+# "Your maximum hand size is reduced by 3." (Thought Eater) / "Each opponent's maximum hand size is
+# reduced by 1." (Gnat Miser) / "Your maximum hand size is increased by 1." (Minamo Scrollkeeper) — the
+# numeric RULE 402.2 sibling of `_NO_MAX_HAND_SIZE_RE`, read by `continuous.hand_size_modifier_for`.
+_HAND_SIZE_MODIFIER_RE = re.compile(
+    r"(?P<subject>your|each opponent's|each player's) maximum hand size is "
+    r"(?P<direction>reduced|increased) by (?P<n>\d+)", re.IGNORECASE
+)
+_HAND_SIZE_SUBJECT_AFFECTS = {"your": "you", "each opponent's": "opponents", "each player's": "each_player"}
+
 # "Players skip their untap steps." (RULE 502.3-adjacent, Stasis) — the last
 # open member of the "players can't `<verb>`" family
 # (`docs/implementation-state/BACKLOG.md`'s MEC-12 entry). Unconditional and
@@ -1145,6 +1154,63 @@ _ATTACHED_SUBJECTS = (
     "enchanted planeswalker",
 )
 _ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
+
+# RULE 613.4b / RULE 105.2: a standing colour statement — "~ is all colors." (Sphinx of the Guildpact),
+# "All creatures are black." (Darkest Hour), "All Slivers are colorless." (Ghostflame Sliver), "Enchanted creature
+# gets +3/+1 and is black." (Sinister Strength). One layer-5 `color_change` over whichever scope (self / attached /
+# group) the subject names, with the printed colour set REPLACING the object's colours. "colorless" is the empty set.
+_COLOR_SET = r"colorless|all colors|(?:white|blue|black|red|green)(?: and (?:white|blue|black|red|green))*"
+_COLOR_STATEMENT_RE = re.compile(
+    rf"(?P<subject>~|(?P<attached>{_ATTACHED_SUBJECT_PATTERN})|(?P<quantified>all |each )?(?P<scope>other )?"
+    rf"(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?) (?:is|are) (?P<colors>{_COLOR_SET})",
+    re.IGNORECASE,
+)
+_ATTACHED_PUMP_COLOR_RE = re.compile(
+    rf"(?P<attached>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and is (?P<colors>{_COLOR_SET})",
+    re.IGNORECASE,
+)
+_ALL_COLORS = ["W", "U", "B", "R", "G"]
+
+
+def _color_statement_letters(phrase: str) -> list[str]:
+    """The WUBRG letters a `_COLOR_SET` phrase names: "colorless" is the empty set, "all colors" every colour."""
+    phrase = phrase.lower()
+    if phrase == "colorless":
+        return []
+    if phrase == "all colors":
+        return list(_ALL_COLORS)
+    return [COLOR_LETTERS[word] for word in phrase.split(" and ")]
+
+
+def _color_statement_specs(text: str) -> Optional[list[EffectSpec]]:
+    pump = _ATTACHED_PUMP_COLOR_RE.fullmatch(text)
+    if pump is not None:
+        return [
+            EffectSpec("anthem", {"power": int(pump.group("p")), "toughness": int(pump.group("t")),
+                                  "affects": "attached_permanent"}),
+            EffectSpec("color_change", {"colors": _color_statement_letters(pump.group("colors")),
+                                        "affects": "attached_permanent"}),
+        ]
+    m = _COLOR_STATEMENT_RE.fullmatch(text)
+    if m is None:
+        return None
+    if m.group("subject") == "~":
+        params: Optional[dict] = {"affects": "self"}
+    elif m.group("attached"):
+        params = {"affects": "attached_permanent"}
+    else:
+        if not (m.group("quantified") or m.group("yours")):
+            return None  # a bare noun ("it", "that creature") is a referent, not a standing group
+        body = m.group("body").strip()
+        scope = _scope(body)
+        if scope is not None and not scope.colors:
+            params = _scope_params(scope, m)
+        else:
+            word = _permanent_type_scope(body)
+            params = None if word is None else _permanent_scope_params(word, m)
+    if params is None:
+        return None
+    return [EffectSpec("color_change", {"colors": _color_statement_letters(m.group("colors")), **params})]
 
 # "Enchanted/equipped <subject> doesn't untap during its controller's untap
 # step."  (RULE 502.3-adjacent, attached-permanent form — e.g. Paralyzing
@@ -5229,6 +5295,17 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     if m is not None:
         affects = "each_player" if m.group("subject").lower() == "players have" else "you"
         return [EffectSpec("no_max_hand_size", {"affects": affects})]
+
+    color_specs = _color_statement_specs(text)
+    if color_specs is not None:
+        return color_specs
+
+    m = _HAND_SIZE_MODIFIER_RE.fullmatch(text)
+    if m is not None:
+        params = {"affects": _HAND_SIZE_SUBJECT_AFFECTS[m.group("subject").lower()], "amount": int(m.group("n"))}
+        if m.group("direction").lower() == "increased":
+            params["increase"] = True
+        return [EffectSpec("hand_size_modifier", params)]
 
     if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
         return [EffectSpec("skip_untap_step", {})]

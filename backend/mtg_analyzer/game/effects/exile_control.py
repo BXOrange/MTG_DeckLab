@@ -249,6 +249,7 @@ class ExileEffect(GameEffect):
         # exiled its object. Earlier exiles in the resolution do not count.
         before = len(context.exiled_objects)
         self._apply_exile(context, targets)
+        context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
         if self.then_trigger_specs and len(context.exiled_objects) > before:
             context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 
@@ -503,6 +504,7 @@ class ExileTopOfLibraryEffect(GameEffect):
         self.track_exiled_with = track_exiled_with
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        before = len(context.exiled_objects)
         if self.player_selector == "target":
             players = [targets[0]] if targets and hasattr(targets[0], "library") else []
         elif self.player_selector == "active_player":
@@ -539,6 +541,8 @@ class ExileTopOfLibraryEffect(GameEffect):
                 if self.track_exiled_with and self.source is not None:
                     context.state.track_exiled_with(self.source, top, context.resolving_source_incarnation)
                 context.created_objects.append(top)
+
+        context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
 
 
 class ExileTopThenDamageByMvEffect(GameEffect):
@@ -776,8 +780,11 @@ class CopyImprintedCardEffect(GameEffect):
     copy, which stays real (an offered, not forced, action).
     """
 
-    def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None):
+    def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None, free=True):
         super().__init__(source)
+        #: ``from_previous`` only: "you may cast the copy" at its normal cost (Nashi, Jacob Frye) when ``False``;
+        #: "…without paying its mana cost" (Psionic Ritual, Shiko) by default.
+        self.free = bool(free)
         self.from_previous = from_previous
         self.from_self = from_self
         self.cast_cost = cast_cost
@@ -815,7 +822,9 @@ class CopyImprintedCardEffect(GameEffect):
             player.add_to_zone(copy_obj, Zone.EXILE)
             if self.cast_cost:
                 context.state.exile_cast_cost_override[copy_obj.instance_id] = self.cast_cost
-            context.engine._request_resolution_play(player, [copy_obj], free=not bool(self.cast_cost), only_spells=True)
+            context.engine._request_resolution_play(
+                player, [copy_obj], free=self.free and not bool(self.cast_cost), only_spells=True,
+            )
             return
         exiled_id = getattr(source, "linked_exile_id", None)
         if exiled_id is None:
@@ -950,8 +959,18 @@ class FreeCastFromHandEffect(GameEffect):
         instant_sorcery_only: bool = False,
         zones: Optional[list[str]] = None,
         legendary_only: bool = False,
+        max_mana_value_amount: Optional[dict[str, Any]] = None,
+        exact_mana_value: bool = False,
+        card_criteria: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-167: the mana-value cap as an `effect_amounts` operand measured at resolution ("…with mana value less
+        #: than or equal to that damage", "…equal to the number of charge counters on ~", "…where X is twice the
+        #: number of legendary Wizards you control"); ``exact_mana_value`` makes "equal to" exact rather than a cap.
+        self.max_mana_value_amount = dict(max_mana_value_amount) if max_mana_value_amount else None
+        self.exact_mana_value = bool(exact_mana_value)
+        #: A `card_query` filter on the offered cards ("a sorcery spell", "a red instant or sorcery card").
+        self.card_criteria = dict(card_criteria or {})
         self.zones = list(zones or ['hand'])
         self.legendary_only = bool(legendary_only)
         #: "…cast **an instant or sorcery spell** …" (Arcane Endeavor) — only instant and sorcery cards are offered.
@@ -991,6 +1010,7 @@ class FreeCastFromHandEffect(GameEffect):
         if player is None:
             return
         from .. import continuous  # function-scoped: avoid the continuous<->effects import cycle
+        from ...models.cards import card_query
 
         max_mv: Any = None
         if self.max_mana_value_selector:
@@ -1000,6 +1020,8 @@ class FreeCastFromHandEffect(GameEffect):
         elif self.mana_value_from_trigger:
             raw = (getattr(context, "trigger_event", None) or {}).get("mana_value")
             max_mv = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) else None
+        elif self.max_mana_value_amount is not None:
+            max_mv = self._measured(self.max_mana_value_amount, context, targets)
         elif self.criteria.get("max_mana_value") is not None:
             max_mv = self.criteria.get("max_mana_value")
         # A cap was *asked for* (selector / literal) but didn't resolve to an
@@ -1007,7 +1029,7 @@ class FreeCastFromHandEffect(GameEffect):
         # uncapped effect (neither given) skips the check entirely.
         capped = (
             self.max_mana_value_selector is not None or self.mana_value_from_trigger
-            or self.criteria.get("max_mana_value") is not None
+            or self.max_mana_value_amount is not None or self.criteria.get("max_mana_value") is not None
         )
         if capped and not isinstance(max_mv, int):
             return
@@ -1027,6 +1049,8 @@ class FreeCastFromHandEffect(GameEffect):
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
             and (not self.instant_sorcery_only or (obj.card.is_instant or obj.card.is_sorcery))
             and (not isinstance(max_mv, int) or (obj.mana_value or 0) <= max_mv)
+            and (not (self.exact_mana_value and isinstance(max_mv, int)) or (obj.mana_value or 0) == max_mv)
+            and (not self.card_criteria or card_query.matches(obj.card, self.card_criteria))
             and (shared_types is None or bool(continuous.card_types_of(obj) & shared_types))
         ]
         if self.during_resolution:

@@ -812,6 +812,26 @@ class SelfGraveyardOrExileCastPermissionEffect(GameEffect):
         return None
 
 
+class GraveyardCastPoolThisTurnEffect(GameEffect):
+    """RULE 611.2a: a resolving instruction's filtered graveyard pool survives its source."""
+
+    def __init__(self, spell_criteria=None, any_graveyard=False,
+                 exile_if_would_be_put_into_graveyard=False, source=None):
+        super().__init__(source)
+        self.spell_criteria = dict(spell_criteria or {})
+        self.any_graveyard = bool(any_graveyard)
+        self.exile_rider = bool(exile_if_would_be_put_into_graveyard)
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.state.temp_graveyard_pool_permissions.append({
+                "player_id": player.id, "turn_number": context.state.internal_turn.number,
+                "any_graveyard": self.any_graveyard, "spell_criteria": dict(self.spell_criteria),
+                "exile_if_would_be_put_into_graveyard": self.exile_rider,
+            })
+
+
 class GrantGraveyardCastPermissionThisTurnEffect(GameEffect):
     """"Each instant and sorcery card in your graveyard gains flashback
     until end of turn. The flashback cost is equal to its mana cost."
@@ -896,16 +916,27 @@ class GrantFlashbackToTargetEffect(GameEffect):
         during_resolution: bool = False,
         exile_if_would_be_put_into_graveyard: bool = False,
         source: Optional["GameObject"] = None,
+        free: bool = False,
+        max_mana_value: Optional[Any] = None,
+        colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.cost = cost
+        #: "…without paying its mana cost" (RULE 118.9): with ``as_permission`` the window is the free-cast kind
+        #: (`GameState.free_cast_instance_ids`, dropped with the graveyard permission at cleanup).
+        self.free = bool(free)
         self.as_permission = as_permission
         self.exile_if_would_be_put_into_graveyard = bool(exile_if_would_be_put_into_graveyard)
         #: With ``as_permission``: casting the chosen card also bars its caster from casting any further spells this
         #: turn ("If you do, you can't cast additional spells this turn." — Conduit of Worlds).
         self.lock_casting = bool(lock_casting)
         self.during_resolution = bool(during_resolution)
-        self.target_spec = TargetSpec(kind=target_kind, count=1)
+        #: "…with mana value N or less" / "…less than or equal to ~'s power" and a colour narrowing of the
+        #: targeted card ("target red instant or sorcery card"), both read by `targeting.legal_targets`.
+        self.target_spec = TargetSpec(
+            kind=target_kind, count=1, max_mana_value=max_mana_value,
+            colors=tuple(colors) if colors else None,
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = targets[0] if targets else None
@@ -913,11 +944,16 @@ class GrantFlashbackToTargetEffect(GameEffect):
             return
         if self.during_resolution:
             context.engine._request_resolution_play(
-                _controller_of(self.source, context), [target], zone="graveyard", free=False,
-                only_spells=True, exile_after_cast=not self.as_permission, lock_casting=self.lock_casting,
+                _controller_of(self.source, context), [target], zone="graveyard", free=self.free,
+                only_spells=True,
+                # RULE 614.1: the "would be put into a graveyard, exile it instead" rider also rides a permission cast.
+                exile_after_cast=(not self.as_permission) or self.exile_if_would_be_put_into_graveyard,
+                lock_casting=self.lock_casting,
             )
             return
         if self.as_permission:
+            if self.free:
+                context.state.grant_free_cast_permission(target)
             context.state.temp_graveyard_cast_permissions[target.instance_id] = _controller_of(self.source, context).id
             previous = context.state.temp_graveyard_cast_permission_visits.get(target.instance_id)
             exile = self.exile_if_would_be_put_into_graveyard or bool(
@@ -1773,7 +1809,7 @@ class AminatousAuguryEffect(GameEffect):
         spells = [o for o in exiled if not o.card.is_land]
         for obj in spells:
             context.engine._grant_temp_play_permission(obj, player, self.source.name, True, None)
-            context.state.free_cast_instance_ids.add(obj.instance_id)
+            context.state.grant_free_cast_permission(obj)
         if spells:
             context.state.free_cast_type_pools.append({
                 "ids": {o.instance_id for o in spells},

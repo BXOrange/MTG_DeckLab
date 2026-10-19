@@ -18,6 +18,16 @@ Usage:
                          app from other computers on the network — this app
                          has NO authentication, see --help.
 
+LAN example:
+  macOS/Linux: ./start.sh --host 0.0.0.0
+  Windows:     start.bat --host 0.0.0.0
+  On another device in the same LAN, open http://<server LAN IP>:8000.
+  Use --backend-port PORT to change that port (not --port). Allow the backend
+  port through the server firewall if needed; the frontend stays internal
+  behind the backend proxy. Only enable access on trusted networks: anyone
+  who can reach the app can access decks, uploads and games without a login.
+  See docs/Reference/OPERATIONS.md.
+
 Worker/concurrency knobs (each also has a matching MTG_* env var and a
 key in backend/mtg_analyzer/config.json; the flag wins over both):
   --server-threads N          how many games may be mid-step at once in the

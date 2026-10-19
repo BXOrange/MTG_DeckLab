@@ -503,6 +503,7 @@ EffectRegistry.register(
         group=p.get("group"), group_player=p.get("group_player"),
         count_selector=p.get("count_selector"),
         source_only=bool(p.get("source_only", False)), source_incarnation=p.get("source_incarnation"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -1206,7 +1207,10 @@ EffectRegistry.register(
     # without paying its mana cost." (Isochron Scepter) — see
     # `CopyImprintedCardEffect`.
     "copy_imprinted_card",
-    lambda p: CopyImprintedCardEffect(from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost"), from_self=bool(p.get("from_self", False))),
+    lambda p: CopyImprintedCardEffect(
+        from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost"),
+        from_self=bool(p.get("from_self", False)), free=bool(p.get("free", True)),
+    ),
 )
 EffectRegistry.register(
     # RULE 601.2b-adjacent "as ~ enters, you may choose a nonland
@@ -1240,6 +1244,9 @@ EffectRegistry.register(
         instant_sorcery_only=bool(p.get("instant_sorcery_only", False)),
         zones=p.get("zones"),
         legendary_only=bool(p.get("legendary_only", False)),
+        max_mana_value_amount=p.get("max_mana_value_amount"),
+        exact_mana_value=bool(p.get("exact_mana_value", False)),
+        card_criteria=p.get("card_criteria"),
     ),
 )
 EffectRegistry.register(
@@ -1444,6 +1451,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "graveyard_cast_pool_this_turn",
+    lambda p: GraveyardCastPoolThisTurnEffect(
+        spell_criteria=p.get("spell_criteria"), any_graveyard=p.get("any_graveyard", False),
+        exile_if_would_be_put_into_graveyard=p.get("exile_if_would_be_put_into_graveyard", False),
+    ),
+)
+EffectRegistry.register(
     "grant_graveyard_cast_permission_this_turn",  # Backdraft Hellkite, Kethis
     lambda p: GrantGraveyardCastPermissionThisTurnEffect(
         spell_criteria=p.get("spell_criteria"),
@@ -1464,6 +1478,8 @@ EffectRegistry.register(
         lock_casting=bool(p.get("lock_casting", False)),
         during_resolution=bool(p.get("during_resolution", False)),
         exile_if_would_be_put_into_graveyard=bool(p.get("exile_if_would_be_put_into_graveyard", False)),
+        free=bool(p.get("free", False)),
+        max_mana_value=p.get("max_mana_value"), colors=p.get("colors"),
     ),
 )
 EffectRegistry.register(
@@ -3460,6 +3476,17 @@ EffectRegistry.register(
         same_turn_only=bool(p.get("same_turn_only", False)),
         only_spells=bool(p.get("only_spells", False)),
         mana_wildcard=p.get("mana_wildcard"),
+    ),
+)
+EffectRegistry.register(
+    # PAR-167: the casting window after an exile clause -- pool, filter, free/normal, window/standing/resolution-local.
+    "cast_window_exiled_pool",
+    lambda p: CastWindowFromExiledPoolEffect(
+        same_turn_only=bool(p.get("same_turn_only", False)), standing=bool(p.get("standing", False)),
+        only_spells=bool(p.get("only_spells", False)), mana_wildcard=p.get("mana_wildcard"),
+        free=bool(p.get("free", False)), card_filter=p.get("card_filter"),
+        pool_zone=p.get("pool_zone", "exile"),
+        resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
     ),
 )
 EffectRegistry.register(

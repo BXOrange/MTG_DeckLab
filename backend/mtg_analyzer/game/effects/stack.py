@@ -132,6 +132,15 @@ class CounterSpellEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         on_pay = self.on_pay_effect_specs or None
         unless_pays = self._unless_pays_cost(context)
+        if self.target_from_trigger_event == "stack_id":
+            # RULE 701.5 / 115.9: "counter that spell or ability" under a becomes-the-target head names the stack
+            # item that targeted -- a spell or an ability, found by the event's ``stack_id`` (an ability has no
+            # `GameObject` to look up). Gone from the stack already: nothing to counter.
+            event = context.trigger_event or {}
+            item = next((i for i in context.state.stack if i.stack_id == event.get("stack_id")), None)
+            if item is not None:
+                self._counter_one(context, item, unless_pays, on_pay)
+            return
         if self.target_from_trigger_event:
             event = context.trigger_event or {}
             instance_id = event.get(self.target_from_trigger_event)
@@ -1160,8 +1169,10 @@ class MillEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.latest_milled_visits = []
         if self.any_number_of_players:
             milled = []
+            visits = []
             with context.state.simultaneous():
                 for player in targets or []:
                     if player is None:
@@ -1169,6 +1180,8 @@ class MillEffect(GameEffect):
                     before = len(player.graveyard)
                     context.mill(player, self._measured(self.count, context, [player]))
                     milled.extend(player.graveyard[before:])
+                    visits.extend(context.latest_milled_visits)
+            context.latest_milled_visits = visits
             context.moved_objects.extend(milled)
             context.milled_objects = list(milled)
             if self.capture_milled:
@@ -1241,7 +1254,8 @@ class MillEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is None:
             return
-        count = self._measured(self.count, context, targets)
+        measure = {"kind": "x_paid", "of": "source"} if self.count == "x" else self.count
+        count = self._measured(measure, context, targets)
         if self.count_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
 

@@ -47,7 +47,7 @@ from .catalogue.opening_hand import (
     opening_hand_graveyard_permission_line,
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
-from .catalogue.handlers import ACTION_ONCE_PER_TURN_MARKER
+from .catalogue.handlers import ACTION_ONCE_PER_TURN_MARKER, EVENT_PLAYER_EVENTS_KEY
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .segmenter import (
@@ -4039,7 +4039,67 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "688"
+# 688: PAR-132 -- "for each <object> destroyed/exiled this way, <body>" loops (a `for_each` over the
+#      resolution's own destroyed/exiled objects; "its controller creates" reads the loop item), and
+#      "that player / that spell or ability's controller" under a becomes-the-target head (marker
+#      `event_player_events`, checked by `_event_player_antecedent_ok`). +8 / -0.
+# 689: PAR-132 -- "<tap/sacrifice/return/discard> any number of X. <body> for each X <verb>ed this way" (one
+#      `choose_objects` pick whose `then_that_many` body is the for-each bind over how many were picked), and
+#      "<exile ...>. If a [non]creature card was exiled this way, <body>" (new `this_way_pool` condition over
+#      `GameContext.exiled_objects`).
+# 690: PAR-132 -- "discard your hand[, then draw N]. ... for each card discarded this way" on the same pick, and the
+#      becomes-the-target bodies "counter that spell or ability" (`CounterSpellEffect` ``target_from_trigger_event=
+#      "stack_id"``) / "that spell or ability's controller sacrifices a land of their choice" (marker
+#      `event_player_events`, same antecedent check as v688).
+# 691: PAR-132 -- "<discard/sacrifice ...>. If a [non]land card is discarded this way, <body>" and "<...>. <effect> for each
+#      [non]<type> discarded / sacrificed this way": a `mark_event_log` window on the source (survives the affected
+#      player's pending choice) read by the `this_way_pool` condition (pools ``discarded`` / ``sacrificed``) and the new
+#      `discarded_this_way` / `sacrificed_this_way` amounts (Lord Windgrace, Civilized Scholar, Psychic Miasma,
+#      Seasoned Pyromancer, Gerrard's Verdict, Visions of Ruin, Voracious Fell Beast). +7 / -0.
+# 692: PAR-132 -- "<sacrifice/discard> any number of X. <body naming that many/much>" (the pick bracketed by a
+#      `mark_event_log`, each body effect's printed number bound to `sacrificed_this_way` / `discarded_this_way`, so a
+#      body target is still announced on cast: Landslide, Last-Ditch Effort, Scapeshift, Rites of Spring, Nantuko
+#      Cultivator, Book Devourer), and the damage-event "that much" bodies: an Aura's "~ deals that much damage to that
+#      creature['s controller]" / "it deals that much damage to its controller" (`DealDamageEffect`
+#      ``recipient_subject="attached_permanent_object"``, ``dealer_subject="attached_permanent"``: Binding Agony,
+#      Backfire, Guilty Conscience, Spiteful Shadows) and "each opponent gains that much life" (Grollub). +11 / -0.
+# 693: PAR-166 -- shared body/state grammar: "where x is the amount of life you gained/lost this turn" as an X source
+#      (`_WHERE_X_AMOUNT_RE`); a standing "maximum hand size is reduced/increased by N" (`hand_size_modifier`); standing
+#      colour statements ("~ is all colors", "all creatures are black", "enchanted creature gets +3/+1 and is black")
+#      as layer-5 `color_change`; "you've cast another spell this turn" (history phrase, `not_reference` spell filter) for
+#      self cost reductions and resolution conditions; "put a loyalty counter on ~"; the opponent-recipient edict
+#      "target opponent chooses a <type> they control. Destroy that <type>" (`choose_objects` + `destroy`
+#      ``previous_subject``); and "~ deals N damage to target player and each creature that player controls"
+#      (`group_and_players="scoped_player"`). +31 / -0.
+# 694: PAR-166 -- "<you / target opponent / target player / that player / they / defending player> loses half (or a
+#      third of) their life, rounded up/down" (`lose_life` with a `resource` amount halved in place; the new
+#      `trigger_player` referent reads the DAMAGE-recipient / combat-batch recipient / ATTACKS defending player, gated by
+#      the `event_player_events` marker; an acting-player trigger body now measures that player's life, not the source
+#      controller's) and "where x is half the number of <phrase>, rounded up/down" (a halved count, one X for the whole
+#      sentence).
+# 695: PAR-167 -- casting-window compositions over existing permission primitives. (1) The targeted graveyard cast
+#      ("cast target <type> card [with mana value N or less / ≤ ~'s power] from your / an opponent's / a graveyard
+#      [without paying its mana cost] [this turn / until end of turn]. If that spell would be put into <a> graveyard,
+#      exile it instead") is one row: colour, mana-value cap, free versus normal cost, one-resolution versus turn-long
+#      permission and the exile rider are independent axes of `grant_flashback_to_target`. (2) `casting_window.py`: an
+#      exile clause plus its casting window ("exile the top N cards ... until end of turn, you may cast <filter> spells
+#      from among them [without paying their mana costs]") as `cast_window_exiled_pool` over the latest exact exile visits
+#      (cast/play, type filter, free or any-colour mana, window / next turn / as long as exiled / one-resolution offer);
+#      the pronoun is bound by parsing the pair as one clause, and a trailing condition is refused by the gate. (3)
+#      "cast a / any number of <type> spell(s) from your hand or graveyard [with mana value <N | that damage | equal to
+#      <amount> | x or less, where x is <amount>>] without paying its mana cost" (`free_cast_from_hand` gains an amount
+#      cap, an exact-value flag and `card_query` criteria; "that damage" is gated to a DAMAGE trigger). (4) The turn-long
+#      "play lands and cast spells from your graveyard" window with its "would be put into your graveyard, exile it
+#      instead" replacement. (5) "exile cards from the top of your / target opponent's library until ... nonland card.
+#      [Until end of turn,] you may cast that card without paying its mana cost" as `dig_until` with a cast hit.
+#      (6) Dynamic filtered own/any-graveyard turn windows survive the source returning; (7) targeted exile followed
+#      by copying and casting composes with normal/free cost. Exact receipts exclude prior independent exiles.
+# 696: Fail closed on unquantified plural free-cast instructions; their cast count is not represented.
+# 697: Latest-mill selections compose with resolution-local free/normal filtered casting and X caps.
+# 698: Bare plural pool casts offer every eligible card, rather than a single cast.
+# 699: Target-opponent milling preserves the opponent restriction in the shared mill grammar.
+# 700: Permanent casting filters include Battle (RULE 110.4).
+PARSER_VERSION = "701"
 
 
 def parser_source_hash() -> str:
@@ -4738,6 +4798,32 @@ def _tap_x_cost_ok(spec: AbilitySpec) -> bool:
     return not (cost and _TAP_X_COST_RE.search(str(cost.get("text", "")).lower()))
 
 
+def _cast_window_ok(spec: AbilitySpec) -> bool:
+    """PAR-167: two ways a casting-window effect could be claimed with the wrong meaning.
+
+    * A trailing "... if <condition>" is peeled off a multi-sentence body and stamped on *every* effect, so an
+      exile clause plus its casting window would be gated as a whole ("exile the top card ... you may play it if
+      you control a Kavu" exiling only while the Kavu stands). The condition belongs to the window alone, which
+      this spec shape cannot express: fail closed.
+    * "... with mana value less than or equal to that damage" reads the firing damage event's amount; under any
+      other ability kind "that damage" names nothing the cast could measure.
+    """
+    for effect in spec.effects:
+        if effect.type == "cast_window_exiled_pool":
+            if effect.condition is not None:
+                return False
+            # RULE 107.3: a trigger has no announced X for this casting cap.
+            if (spec.ability_kind == "triggered"
+                    and effect.params.get("card_filter", {}).get("max_mana_value") == "x"):
+                return False
+        amount = effect.params.get("max_mana_value_amount") if effect.type == "free_cast_from_hand" else None
+        if isinstance(amount, dict) and amount.get("kind") == "trigger_event" and not (
+            spec.ability_kind == "triggered" and (spec.trigger or {}).get("event") == "DAMAGE"
+        ):
+            return False
+    return True
+
+
 def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
@@ -4802,6 +4888,30 @@ def _that_much_antecedent_ok(spec: AbilitySpec) -> bool:
     return _resolve_that_much_tree(
         [spec.effects, spec.modes, spec.target], _THAT_MUCH_TRIGGER_FIELDS.get(event)
     )
+
+
+def _resolve_event_player_tree(node: Any, event: str) -> bool:
+    """PAR-132: strip the private ``event_player_events`` marker, or reject its antecedent.
+
+    A handler that reads the firing event's player under a phrase only some heads can satisfy
+    ("that spell or ability's controller" under a becomes-the-target head) lists the events whose
+    ``player_id`` is that exact player; anywhere else the clause stays unclaimed.
+    """
+    if isinstance(node, EffectSpec):
+        return _resolve_event_player_tree(node.params, event)
+    if isinstance(node, (list, tuple)):
+        return all(_resolve_event_player_tree(item, event) for item in node)
+    if not isinstance(node, dict):
+        return True
+    allowed = node.pop(EVENT_PLAYER_EVENTS_KEY, None)
+    if allowed is not None and event not in allowed:
+        return False
+    return all(_resolve_event_player_tree(value, event) for value in node.values())
+
+
+def _event_player_antecedent_ok(spec: AbilitySpec) -> bool:
+    event = str((spec.trigger or {}).get("event") or "") if spec.ability_kind == "triggered" else ""
+    return _resolve_event_player_tree([spec.effects, spec.modes, spec.target], event)
 
 
 def _parse_oracle_uncached(card: Any) -> ParseResult:
@@ -5626,13 +5736,16 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if not _that_much_antecedent_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
+        if not _event_player_antecedent_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
         if not _opponents_batch_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _action_limit_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
-        if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec):
+        if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

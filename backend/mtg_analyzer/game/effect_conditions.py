@@ -116,7 +116,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
-     "attacked_player", "first_drawn_this_turn", "chosen_player",
+     "attacked_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
      "enchanted_player", "previous_entry_controller"}
 )
 
@@ -150,6 +150,10 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
         "milled_land_this_way",
+        # PAR-132 -- "if a creature card was exiled this way" / "if a noncreature card is exiled this way": a card
+        # this resolution's `exile` / `destroy` moved (`GameContext.exiled_objects` / `destroyed_objects`) has
+        # (or, with ``negate``, lacks) the card type ``card_type``; no ``card_type`` accepts any moved object.
+        "this_way_pool",
         # Grab the Prize — the card discarded as this spell's additional cost had the card type ``card_type``.
         "discarded_cost_card_is",
         # Demonic Covenant — two of the cards this resolution's mill moved have exactly the same set of card types.
@@ -317,6 +321,17 @@ def subject_of(
             # pure fallback, never a second candidate to choose between.
             instance_id = event.get("source_id")
         return context.state.find_object(instance_id) if instance_id is not None else None
+    if of == "active_player":
+        # RULE 502.1: "At the beginning of each player's upkeep, that player loses half their life" -- whoever's turn it is.
+        return context.state.active_player
+    if of == "trigger_player":
+        # "that player" / "they" / "defending player" under a trigger whose event names one player as its
+        # recipient: the player a DAMAGE event hurt (RULE 120.3), else the defending player an ATTACKS event names
+        # (RULE 508.1b). The parser only emits it under those heads (gate `event_player_events`).
+        event = getattr(context, "trigger_event", None) or {}
+        if event.get("is_player"):
+            return _player_by_id(context, event.get("target_id"))
+        return _player_by_id(context, event.get("defending_player_id"))
     if of == "attacked_player":
         # PAR-120: "whenever a creature attacks 1 of your opponents, **that
         # player** loses 1 life." (Calculating Lich) — the group subject's
@@ -412,6 +427,26 @@ def _context_holds(
         if source is None:
             return None
         return str(condition.get("card_type", "")).lower() in (getattr(source, "discarded_cost_card_types", None) or [])
+
+    if kind == "this_way_pool":
+        from .continuous import card_types_of  # function-scoped: continuous imports this package
+
+        if condition.get("pool") in ("discarded", "sacrificed"):
+            # RULE 608.2c: the cards the `mark_event_log`-opened window saw discarded (survives a pending choice).
+            from .effect_amounts import discarded_this_way  # function-scoped: effect_amounts imports this module
+
+            return bool(discarded_this_way(
+                context, source, condition.get("card_type"), bool(condition.get("negate")),
+                str(condition["pool"])))
+        pool = {"exiled": "exiled_objects", "destroyed": "destroyed_objects"}.get(str(condition.get("pool")))
+        if pool is None:
+            return None
+        card_type = str(condition.get("card_type") or "").lower()
+        negate = bool(condition.get("negate"))
+        return any(
+            not card_type or ((card_type in card_types_of(obj)) != negate)
+            for obj in getattr(context, pool, None) or []
+        )
 
     if kind == "milled_land_this_way":
         milled = getattr(context, "milled_objects", None)

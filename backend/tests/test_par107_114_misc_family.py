@@ -382,8 +382,9 @@ def test_fumigate_gains_one_life_per_creature_destroyed():
 
 
 def test_a_narrower_this_way_noun_stays_unclaimed():
-    assert not _parse("Destroy all creatures. For each nontoken creature destroyed this way, you create a tapped "
-                      "Treasure token.")
+    # PAR-132 reads "nontoken" and plain type words as a per-object loop; any other qualifier stays unclaimed.
+    assert not _parse("Destroy all creatures. For each multicolored creature destroyed this way, you create a "
+                      "tapped Treasure token.")
 
 
 # --- mill half ----------------------------------------------------------------------------------------------

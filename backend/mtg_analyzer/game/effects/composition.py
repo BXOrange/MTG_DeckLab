@@ -45,6 +45,7 @@ from ...models.game.player import Player
 
 from typing import Any, Optional
 
+from ...models.cards import card_query
 from ...models.game.game_object import GameObject
 from .. import effect_amounts, effect_conditions
 from ..targeting import TargetSpec
@@ -582,6 +583,9 @@ class ForEachEffect(_CompositeEffect):
             event = getattr(context, "trigger_event", None) or {}
             found = (context.state.find_object(i) for i in event.get("matching_ids") or [])
             return [obj for obj in found if obj is not None]
+        this_way = self.over.get("this_way")
+        if this_way is not None:
+            return self._this_way_items(context, str(this_way))
         scope = self.over.get("players")
         if scope is not None:
             if scope not in PLAYER_SCOPES:
@@ -615,6 +619,24 @@ class ForEachEffect(_CompositeEffect):
                 selector, {}, src=self.source,
             ))
         return []
+
+    def _this_way_items(self, context: GameContext, verb: str) -> list[Any]:
+        """RULE 608.2c: the objects an earlier instruction of this resolution destroyed / exiled — "for each
+        creature exiled this way". ``this_way_type`` / ``this_way_nontoken`` narrow it ("each nontoken creature")."""
+        pool = {"destroyed": "destroyed_objects", "exiled": "exiled_objects"}.get(verb)
+        if pool is None:
+            return []  # fail closed on an unlisted verb
+        wanted = self.over.get("this_way_type")
+        if isinstance(wanted, str):
+            wanted = [wanted]
+        items = []
+        for obj in getattr(context, pool, []) or []:
+            if self.over.get("this_way_nontoken") and getattr(obj, "is_token", False):
+                continue
+            if wanted and not card_query.matches(obj.card, {"type": [str(w) for w in wanted]}):
+                continue
+            items.append(obj)
+        return items
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         items = self._items(context, targets)

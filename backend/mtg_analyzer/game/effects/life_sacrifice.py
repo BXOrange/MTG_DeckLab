@@ -105,9 +105,14 @@ class DestroyEffect(GameEffect):
         count_selector: Optional[str] = None,
         source_only: bool = False,
         source_incarnation: Optional[int] = None,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Target opponent chooses a creature they control. Destroy **that creature**." (Imperial Edict) -- RULE 608.2c's
+        #: referent: the object a preceding choose-step stamped as `GameContext.previous_targets`, with no RULE 115
+        #: target of its own.
+        self.previous_subject = bool(previous_subject)
         #: "…When that creature dies this turn, destroy **~**." (Sandals of Abdallah, PAR-154) — the ability's own
         #: source, no RULE 115 target. ``source_incarnation`` (stamped by `CreateTurnTriggerEffect` when it binds the
         #: delayed body) is the zone stay the ability came from: a source that left and came back is a new object
@@ -150,7 +155,8 @@ class DestroyEffect(GameEffect):
         if self.group is not None:
             if self.group_player in ("player", "opponent"):
                 self.target_spec = TargetSpec(kind=self.group_player)
-        elif self.selector is None and target_from_trigger_event is None and not self.source_only:
+        elif (self.selector is None and target_from_trigger_event is None and not self.source_only
+              and not self.previous_subject):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, color=color,
                 colors=self.colors,
@@ -162,6 +168,11 @@ class DestroyEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            for referent in list(context.previous_targets):
+                if referent.zone == Zone.BATTLEFIELD:
+                    context.destroy(referent, can_be_regenerated=self.can_be_regenerated)
+            return
         if self.source_only:
             src = self.source
             if (

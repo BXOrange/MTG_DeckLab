@@ -1178,6 +1178,11 @@ class TurnLoopMixin:
             self.state.temp_flashback_grants = {}
         # A free-cast flag granted alongside a graveyard permission (The Ur-Sphinx) expires with it.
         self.state.free_cast_instance_ids.difference_update(self.state.temp_graveyard_cast_permissions)
+        self.state.free_cast_permission_visits = {
+            iid: visit for iid, visit in self.state.free_cast_permission_visits.items()
+            if iid in self.state.free_cast_instance_ids
+        }
+        self.state.temp_graveyard_pool_permissions.clear()
         self.state.temp_graveyard_cast_permissions.clear()
         self.state.temp_graveyard_cast_permission_visits.clear()
         self.state.temp_graveyard_cast_permission_groups.clear()

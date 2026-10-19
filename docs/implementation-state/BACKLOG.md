@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-169`**; next free `MEC`: **`MEC-126`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-169`**; next free `MEC`: **`MEC-128`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -53,23 +53,20 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-132 · Dependent target/body follow-up batch.** Distinct effect-body, trigger-head and
-  duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
-> PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
-> re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
+
+
 
 
 - **PAR-157 · Flicker with riders.** Preserve explicit source references across successful self-return riders using exact return visits and the ordinary parser/binder.
 
-- **PAR-166 · Shared body/state grammar residue batch.** Factor the remaining chooser/pool, reference/amount, condition, static-color, counter and finite-duration shapes through ordinary parser/effect capabilities; size each shape across the full cache, for fronts and backs alike. Calibrated scope: `PARSER_LONG_TAIL.md`, “Face-audit follow-ups”; independent of PAR-157.
-
-- **PAR-167 · Casting-window grammar compositions.** Compose origin zone, card/spell filter, normal/free cost, resolution-local versus standing permission, expiry and post-cast exile using existing permission primitives; size each shape across the full cache. Calibrated scope: `PARSER_LONG_TAIL.md`, “Face-audit follow-ups”; independent of PAR-157.
-
-
-- **PAR-168 · Permanent non-goal support classification.** Classify cross-game interactions and the permanent Deferred mechanics (including Alchemy-only cards) as Unsupported through one shared policy before authored/parser coverage; preserve metadata, expose the verdict consistently in APIs/UI, and keep merely parked work distinct.
+- **PAR-168 · Permanent non-goal support classification.** Classify cross-game interactions and permanent Deferred mechanics (including Alchemy-only cards) as Unsupported through one shared policy before authored/parser coverage; preserve metadata, expose the verdict consistently in APIs/UI, and keep merely parked work distinct.
 
 ## MEC — Game mechanic
 
+
+- **MEC-126 · Target-seeded shared-characteristic groups.** "Target X and each other Y that shares a color with it": announce one target, then apply the body to it and every other object sharing a color with it at resolution; needs a target-seeded group (`group_selector_objects` never sees `previous_targets`) and a shares-color-with-reference predicate. ~10 cards (Cleansing Beam, Wojek Embermage/Apothecary/Siren, Brightflame, Rally the Righteous, Surge of Zeal, Incite Hysteria, Leave No Trace, Bathe in Light); the predicate alone also serves "shares a creature type with it" filters (Heirloom Blade, Tajuru Paragon, Titan of Littjara). Includes the parser rows.
+
+- **MEC-127 · Keep-N-then-sacrifice edicts.** "Each player chooses N <permanents> they control, then sacrifices/destroys the rest": add a keep-count to `ChoosePlayerObjectsEffect` (today only per-type `keep_types`), APNAP choices, simultaneous removal. ~8 cards (Razia's Purification, Divine Reckoning, Covetous Elegy, Single Combat, Fall of the First Civilization, Urza's Sylex, Planar Overlay, Consuming Tide). Includes the parser rows.
 
 
 
