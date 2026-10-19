@@ -2764,6 +2764,7 @@ EffectRegistry.register(
         target_kind=p["target_kind"] if "target_kind" in p else "creature_you_control",
         allow_colorless=bool(p.get("allow_colorless", False)),
         previous_subject=bool(p.get("previous_subject", False)),
+        group=p.get("group") if isinstance(p.get("group"), dict) else None,
     ),
 )
 EffectRegistry.register(

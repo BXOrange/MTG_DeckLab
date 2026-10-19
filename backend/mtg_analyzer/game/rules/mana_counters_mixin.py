@@ -250,7 +250,8 @@ class ManaCountersMixin:
             restriction=choice.get("restriction"),
         )
     def grant_protection_choice(
-        self, target: GameObject, player: Player, allow_colorless: bool = False
+        self, target: GameObject, player: Player, allow_colorless: bool = False,
+        also: Optional[list[GameObject]] = None,
     ) -> None:
         """Open the interactive "protection from the colour of your choice"
         pick (RULE 702.16, Mother/Giver of Runes) for ``target``.
@@ -267,6 +268,9 @@ class ManaCountersMixin:
             "kind": "grant_protection_color",
             "player_id": player.id,
             "target_id": target.instance_id,
+            # One pick, several recipients ("target creature and each other creature that shares a color
+            # with it", MEC-126) — `target_id` stays the first so a single-target reader is unchanged.
+            "target_ids": [target.instance_id, *(o.instance_id for o in (also or []))],
             "prompt": "Farbe für den Schutz wählen",
             "options": options,
         })
@@ -279,11 +283,12 @@ class ManaCountersMixin:
         """Answer a pending `grant_protection_color` choice — a mandatory pick
         (an unrecognized/missing answer defaults to the first colour "W",
         the same treatment `_resume_add_mana_any_color` gives)."""
-        target = self.state.find_object(choice["target_id"])
-        if target is None:
-            return  # RULE 608.2b: target left — the grant simply does nothing
         quality = answer if answer in self._ANY_COLOR_LABELS or answer == "colorless" else "W"
-        target.temp_protections.add(quality)
+        for instance_id in choice.get("target_ids") or [choice["target_id"]]:
+            target = self.state.find_object(instance_id)
+            if target is None:
+                continue  # RULE 608.2b: target left — the grant simply does nothing
+            target.temp_protections.add(quality)
     def random_int(self, n: int) -> int:
         """A uniform random integer in ``[0, n)`` (RULE 706 randomization —
         "choose … at random", coin flips), reproducible from the game state.

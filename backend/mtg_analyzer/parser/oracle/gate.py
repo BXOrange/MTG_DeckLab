@@ -4099,7 +4099,12 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 698: Bare plural pool casts offer every eligible card, rather than a single cast.
 # 699: Target-opponent milling preserves the opponent restriction in the shared mill grammar.
 # 700: Permanent casting filters include Battle (RULE 110.4).
-PARSER_VERSION = "700"
+# 701: MEC-126 -- "<effect> target X and each other X that shares a color with it" (Radiance): the clause is read in
+#      its one-target form and wrapped in the new `target_group` node (target plus every other X sharing a colour
+#      with it, resolved on resolution; `shares_color_with_reference` filter key), with a trailing "you gain life
+#      equal to the damage dealt this way" as the node's `then_effects`, and "those creatures get ..." as the
+#      per-member previous subject. +9 / -0 (Bathe in Light is hand-authored: one colour pick for the group).
+PARSER_VERSION = "701"
 
 
 def parser_source_hash() -> str:
