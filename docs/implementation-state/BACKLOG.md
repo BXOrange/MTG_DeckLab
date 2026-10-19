@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-168`**; next free `MEC`: **`MEC-126`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-168`**; next free `MEC`: **`MEC-128`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -61,6 +61,10 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 ## MEC — Game mechanic
 
 - **MEC-125 · Cross-game delayed returns.** Model explicit paper-card instructions that carry exiled cards into a later game: persist captured cards and participants, select the qualifying next game and schedule the return by that player's turn index. Size the printed family first (Time Machine); reuse ordinary return/entry effects within the destination game. Current GameState/delayed triggers are game-local; no cross-game return primitive was found. Independent of PAR-157.
+
+- **MEC-126 · Target-seeded shared-characteristic groups.** "Target X and each other Y that shares a color with it": announce one target, then apply the body to it and every other object sharing a color with it at resolution; needs a target-seeded group (`group_selector_objects` never sees `previous_targets`) and a shares-color-with-reference predicate. ~10 cards (Cleansing Beam, Wojek Embermage/Apothecary/Siren, Brightflame, Rally the Righteous, Surge of Zeal, Incite Hysteria, Leave No Trace, Bathe in Light); the predicate alone also serves "shares a creature type with it" filters (Heirloom Blade, Tajuru Paragon, Titan of Littjara). Includes the parser rows.
+
+- **MEC-127 · Keep-N-then-sacrifice edicts.** "Each player chooses N <permanents> they control, then sacrifices/destroys the rest": add a keep-count to `ChoosePlayerObjectsEffect` (today only per-type `keep_types`), APNAP choices, simultaneous removal. ~8 cards (Razia's Purification, Divine Reckoning, Covetous Elegy, Single Combat, Fall of the First Civilization, Urza's Sylex, Planar Overlay, Consuming Tide). Includes the parser rows.
 
 
 
