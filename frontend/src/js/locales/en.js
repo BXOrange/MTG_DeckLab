@@ -76,7 +76,7 @@ export default {
   'cache.scopeAll': 'All cards',
   'cache.refresh': 'Refresh',
   'cache.coverageLegend':
-    'Engine coverage per card (see the "Engine status" tab for details): 📖 catalogued · ✅ modeled by the oracle parser · ✖ not modeled (only keywords work, the rest of the text is not playable yet).',
+    'Engine coverage per card (see the "Engine status" tab for details): 📖 catalogued · ✅ modeled by the oracle parser · ✖ not modeled (only keywords work, the rest of the text is not playable yet) · Unsupported (permanently excluded; reason shown on the card).',
   'cache.filter.type': 'Card type',
   'cache.filter.coverage': 'Engine coverage',
   'cache.filter.color': 'Color',
@@ -92,6 +92,14 @@ export default {
   'cache.emptyAll': 'No cards in the cache yet — import a decklist to load some.',
   'cache.coverage.catalogue': '📖 Catalogued',
   'cache.coverage.oracle': '✅ Modeled',
+  'cache.coverage.unsupported': 'Unsupported',
+  'cardTile.unsupported.cross_game': 'Interactions between games',
+  'cardTile.unsupported.stickers': 'Stickers',
+  'cardTile.unsupported.attractions': 'Attractions',
+  'cardTile.unsupported.contraptions': 'Contraptions',
+  'cardTile.unsupported.alchemy': 'Alchemy mechanic',
+  'cardTile.unsupported.digital_only': 'Digital-only card',
+  'cardTile.unsupported.draft_matters': 'Draft mechanic',
   'cache.coverage.unmodeled': '✖ Not modeled',
 
   // --- static shell: header + nav (frontend/index.html) ----------------
@@ -289,6 +297,7 @@ export default {
   'savedDecks.legalityLegal': '✅ legal',
   'savedDecks.legalityIllegal': '🛑 not legal',
   'savedDecks.legalityIllegalDefault': 'Deck is not legal.',
+  'savedDecks.unsupportedBadge': { one: '{count} Unsupported card', other: '{count} Unsupported cards' },
   'savedDecks.coverageBadge': { one: '⚠️ {count} card not modeled', other: '⚠️ {count} cards not modeled' },
   'savedDecks.savedAt': 'Saved: {date}',
   'savedDecks.cubeNoLegality': '🧊 Collection – no legality check',

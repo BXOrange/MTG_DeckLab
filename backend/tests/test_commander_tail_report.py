@@ -87,18 +87,21 @@ def test_report_sticker_type_overrides_modeled_or_authored_name(monkeypatch):
     assert payload['totals']['never_supported'] == 1
 
 
-def test_non_goals_do_not_change_raw_coverage_accounting():
+def test_permanent_non_goals_have_separate_unsupported_accounting():
     cards = [card('Draft audit', 'Draft this card face up.'),
              card('Attraction audit', 'Open an Attraction.'),
              card('Insert audit', type_line='Stickers'),
              card('Normal draw audit', 'Draw a card.', 'Sorcery')]
     payload = report.build_report(cards)
     assert payload['totals'] == {
-        'commander_legal': 4, 'covered': 1, 'unmodeled': 2,
-        'never_supported': 1, 'report_only_non_goals': 2, 'fraction': .25,
+        'commander_legal': 4, 'covered': 1, 'unmodeled': 0,
+        'never_supported': 3, 'report_only_non_goals': 0, 'fraction': .25,
     }
     assert payload['buckets']['F'] == ['Attraction audit', 'Draft audit', 'Insert audit']
-    assert len(payload['excluded_reasons']) == 3
+    assert payload['excluded_reasons'] == [{
+        'reason': 'permanent product exclusion',
+        'cards': ['Attraction audit', 'Draft audit', 'Insert audit'],
+    }]
 
 
 def test_recurring_templates_still_precede_e_diagnostics_and_deduplicate_per_card():

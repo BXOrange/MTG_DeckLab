@@ -121,7 +121,7 @@ def main() -> None:
     scope = "Commander-legal coverage" if args.commander_legal_only else "Coverage"
     print(f"\n{scope}: {covered}/{total} = {fraction:.1%} covered "
           f"(reused {reused} from ledger, parsed {parsed}, "
-          f"{never_supported} never-supported [Stickers, RULE 123])")
+          f"{never_supported} permanently unsupported)")
     print(f"PARSER_VERSION={cov.PARSER_VERSION}  card_db={args.card_db}")
     print(f"\nTop {args.top} backlog templates (cards blocked → template):")
     for template, n in ranked[: args.top]:

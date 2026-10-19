@@ -43,26 +43,14 @@ Block template (do not change this, copy below the line, fill in there):
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
 
-## PAR-157 · Flicker with riders
+## MEC-126 · Target-seeded shared-characteristic groups
 
 - **Started / last update:** 2026-10-19 / 2026-10-19
-- **Goal of this run:** Resolve the independent audit's explicit-source return-rider defect; verify the previously closed mechanism.
-- **Done (built + tested):** Native activation/death-trigger regressions reproduce named-source keyword/counter failure. Shared return batches now carry original source capture and exact operation-owned source return visit; return continuations rebind only that successful visit and restore the outer capture. Source-return tails use the same continuation; measured X traverses its nested return body. Twenty-four regressions cover failed/stale returns, separate sources, group returns, entry-choice clones and ordinary hand/library entry batches.
-- **In progress:** Final full-cache suite on parser 688; focused PAR-157 gate passed 527 tests before two additional ordinary-entry regressions.
-- **Next step:** Wait for final full-cache result, then hand over for independent review and reclosure.
-- **Decisions:** Rebind only the exact successfully returned source for that continuation. Never globally refresh an old source capture or substitute an unrelated returned target. Missing ordinary back-face actions remain outside PAR-157.
-- **Baselines / artefacts:** Commit e793dbe5; parser 687 snapshot /tmp/par157-source-base687.json. Parser 688 final probe +0/-0; fresh authoritative overall 21780/35046 (62.1%), Commander 20952/32068 (65.3%). Full-cache log /tmp/par157-source-full688-final.log; isolated cache /tmp/par157-cache and data /tmp/par157-grinder-data.
-- **Known failures:** None in focused gate; original named-source and measured-return regressions pass. Full-cache result pending.
-- **Residue:** Shared fix, regression matrix, full-cache gate, scope review and reclosure. Cross-game behavior is permanently Unsupported per user decision; PAR-168 follows after acceptance.
-
-## PAR-168 · Permanent non-goal support classification
-
-- **Started / last update:** 2026-10-19 / 2026-10-19
-- **Goal of this run:** Apply the user's Unsupported decision consistently to cross-game interactions and permanent Deferred mechanics, including Alchemy-only cards.
-- **Done (built + tested):** Raw metadata audit distinguishes digital printings of paper cards from digital-only cards; permanent versus parked Deferred scope verified. MEC-125, MEC-48 and MEC-98 are permanent non-goals, not implementation backlog.
-- **In progress:** Disjoint metadata/pure-policy stage only; no parser/runtime hookup until PAR-157 acceptance.
-- **Next step:** Worker: preserve support metadata through Card/conversion/cache and test a shared pure policy. Then connect policy ahead of authored overrides, expose Unsupported in APIs/UI and remeasure coverage with intentional policy changes separated from regressions.
-- **Decisions:** A digital printing alone is not Alchemy-only; preserve ordinary paper cards and supported Vanguard base modifiers. PLR-14 is merely parked. No cross-game subsystem will be implemented.
-- **Baselines / artefacts:** Worktree /tmp/mtg-par157-mec-audit; isolated cache /tmp/par157-cache, deck fixtures /tmp/par157-grinder-data.
-- **Known failures:** Permanent non-goals other than stickers currently lack a uniform Unsupported verdict/badge; authored coverage can override parser exclusions.
-- **Residue:** Metadata/policy, parser/registry/API/UI integration, full/targeted tests, measured coverage, documentation and independent verification.
+- **Goal of this run:** Compose one announced target with an untargeted group sharing a reference characteristic, through ordinary effect bodies.
+- **Done (built + tested):** Read-only sizing confirms ten unmodeled Radiance cards; existing creature-type-sharing predicate and generic choices/continuations identified.
+- **In progress:** Disjoint engine-only primitive stage; parser/registry hookup waits for PAR-168 acceptance.
+- **Next step:** Worker: implement the shared color-sharing predicate and target-seeded group composition with runtime regression tests, without editing files owned by the active support-policy worker. Then wire ordinary grammar and registry and run full acceptance.
+- **Decisions:** Seed target and ability source are separate references. Multicolor intersection is not transitive; colorless seeds keep only themselves. Group members are not separately targeted. Reuse ordinary body/choice capabilities; no per-card adapters.
+- **Baselines / artefacts:** Worktree /tmp/mtg-par157-mec-audit, isolated cache/data as PAR-168.
+- **Known failures:** Existing selectors cannot seed from an announced target. Existing per-recipient choose-color protection would prompt multiple times for a group.
+- **Residue:** Shared primitive, single group color-choice composition, grammar/binder, real-card runtime matrix, coverage and independent verification.

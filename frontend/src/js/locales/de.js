@@ -69,7 +69,7 @@ export default {
   'cache.scopeAll': 'Alle Karten',
   'cache.refresh': 'Aktualisieren',
   'cache.coverageLegend':
-    'Engine-Abdeckung je Karte (siehe „Engine-Status"-Tab für Details): 📖 katalogisiert · ✅ vom Oracle-Parser modelliert · ✖ nicht modelliert (nur Keywords wirken, restlicher Text ist noch nicht spielbar).',
+    'Engine-Abdeckung je Karte (siehe „Engine-Status"-Tab für Details): 📖 katalogisiert · ✅ vom Oracle-Parser modelliert · ✖ nicht modelliert (nur Keywords wirken, restlicher Text ist noch nicht spielbar) · Unsupported (dauerhaft nicht unterstützt; Grund auf der Karte).',
   'cache.filter.type': 'Kartentyp',
   'cache.filter.coverage': 'Engine-Abdeckung',
   'cache.filter.color': 'Farbe',
@@ -85,6 +85,14 @@ export default {
   'cache.emptyAll': 'Noch keine Karten im Cache – importiere eine Deckliste, um welche zu laden.',
   'cache.coverage.catalogue': '📖 Katalogisiert',
   'cache.coverage.oracle': '✅ Modelliert',
+  'cache.coverage.unsupported': 'Unsupported',
+  'cardTile.unsupported.cross_game': 'Interaktionen zwischen Partien',
+  'cardTile.unsupported.stickers': 'Sticker',
+  'cardTile.unsupported.attractions': 'Attractions',
+  'cardTile.unsupported.contraptions': 'Contraptions',
+  'cardTile.unsupported.alchemy': 'Alchemy-Mechanik',
+  'cardTile.unsupported.digital_only': 'Nur digital verfügbar',
+  'cardTile.unsupported.draft_matters': 'Draft-Mechanik',
   'cache.coverage.unmodeled': '✖ Nicht modelliert',
 
   // --- static shell: header + nav (frontend/index.html) ----------------
@@ -282,6 +290,7 @@ export default {
   'savedDecks.legalityLegal': '✅ legal',
   'savedDecks.legalityIllegal': '🛑 nicht legal',
   'savedDecks.legalityIllegalDefault': 'Deck ist nicht legal.',
+  'savedDecks.unsupportedBadge': { one: '{count} Karte Unsupported', other: '{count} Karten Unsupported' },
   'savedDecks.coverageBadge': { one: '⚠️ {count} Karte nicht modelliert', other: '⚠️ {count} Karten nicht modelliert' },
   'savedDecks.savedAt': 'Gespeichert: {date}',
   'savedDecks.cubeNoLegality': '🧊 Collection – keine Legalitätsprüfung',

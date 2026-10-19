@@ -196,7 +196,7 @@ def classify(real_templates: list[str], real_raw: list[str], is_a: bool,
              type_line: str = "") -> tuple[str, str]:
     """Return (bucket_letter, detail) from a card's `analyse_card` breakdown."""
     if coverage == NEVER_SUPPORTED or type_line.strip().casefold() == "stickers":
-        return "F", "never-supported (RULE 123)"
+        return "F", "permanent product exclusion"
     non_goal = _match_signature(real_raw, _REPORT_NON_GOAL_SIGNATURES)
     if non_goal:
         return "F", non_goal

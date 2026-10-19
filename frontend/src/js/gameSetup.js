@@ -93,7 +93,7 @@ export async function loadUnmodeledDeckIds(savedDecks) {
   const results = await Promise.all(
     decks.map((d) =>
       getDeckCoverage(d.id)
-        .then((cov) => (cov && cov.unmodeledCount ? d.id : null))
+        .then((cov) => (cov && (cov.unmodeledCount || cov.unsupportedCount) ? d.id : null))
         .catch(() => null),
     ),
   );

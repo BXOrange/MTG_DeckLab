@@ -81,7 +81,13 @@ def test_real_cards_are_modeled(name):
 
 @pytest.mark.parametrize("name", ["Lulu, Curious Hollyphant", "Amazing Alliance", "Arthur, Marigold Knight"])
 def test_attack_count_bodies_are_modeled(name):
-    assert parse_oracle(_named(name)).modeled
+    result = parse_oracle(_named(name))
+    if name == 'Lulu, Curious Hollyphant':
+        assert result.never_supported
+        assert result.unsupported_reason == "digital_only"
+        assert not result.specs
+    else:
+        assert result.modeled
 
 
 # ---------------------------------------------------------------------------

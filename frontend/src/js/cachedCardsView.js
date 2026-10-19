@@ -34,10 +34,12 @@ const COVERAGE_OPTIONS = [
   { key: 'catalogue', label: t('cache.coverage.catalogue') },
   { key: 'oracle', label: t('cache.coverage.oracle') },
   { key: 'unmodeled', label: t('cache.coverage.unmodeled') },
+  { key: 'unsupported', label: t('cache.coverage.unsupported') },
 ];
 
 function coverageKey(coverage) {
   if (!coverage) return 'unmodeled';
+  if (coverage.unsupported) return 'unsupported';
   if (coverage.source === 'catalogue') return 'catalogue';
   return coverage.modeled ? 'oracle' : 'unmodeled';
 }

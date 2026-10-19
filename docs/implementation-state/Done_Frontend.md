@@ -139,6 +139,10 @@ repointed there.
 
 ## Card Display & Art
 
+### Unsupported cards shown with a reason (PAR-168)
+
+- **What:** Cards with the permanent Unsupported verdict show "Unsupported · <reason>" on tiles (`cardTile.js`), get an "Unsupported" filter in the cache browser (`cachedCardsView.js`) and the saved-deck badge (`savedDecksView.js`), and trigger the setup warning in `gameSetup.js` alongside unmodeled cards. DE/EN strings in `locales/{de,en}.js`. Browser-checked in both languages during the ticket.
+
 ### Card art, cache browser, and detail tiles
 
 - **What:** Card art loads via the backend cache (`POST /api/cards/resolve` + `GET /api/cards/{id}/image`), never directly from Scryfall. "Karten-Cache" tab browses every cached card; a "Detailansicht" toggle switches deck-import lists to an image/mana-cost/oracle-text tile grid.

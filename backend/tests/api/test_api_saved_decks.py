@@ -576,6 +576,23 @@ class TestDeckCoverage:
         app.dependency_overrides.pop(get_deck_database, None)
         app.dependency_overrides.pop(get_lazy_card_loader, None)
 
+    def test_unsupported_is_separate_from_incomplete_parser_coverage(self):
+        _override_database()
+        _override_loader({
+            "Time Machine": Card(id="time", name="Time Machine", type_line="Artifact",
+                                 oracle_text="Return them in the next game you play."),
+            "Weird Card": Card(id="gap", name="Weird Card", type_line="Artifact",
+                               oracle_text="Unknown ordinary action."),
+        })
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Unsupported",
+            "mainboardText": "2 Time Machine\n3 Weird Card\n"}).json()
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+        assert response.status_code == 200
+        assert response.json() == {"unmodeledCount": 3, "unmodeledCardNames": ["Weird Card"],
+                                   "unsupportedCount": 2, "unsupportedCardNames": ["Time Machine"]}
+        assert client.get(f"/api/decks/{created['id']}/coverage").json() == response.json()
+
     def test_fully_modeled_deck_reports_zero_unmodeled(self):
         _override_database()
         _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
@@ -695,7 +712,8 @@ class TestDeckCoverage:
         from mtg_analyzer.api.saved_decks import _coverage_cache_key
 
         assert response.status_code == 200
-        assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": []}
+        assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": [],
+                                   "unsupportedCount": 0, "unsupportedCardNames": []}
         assert database.get_deck(created["id"]).unmodeled_coverage_version == _coverage_cache_key()
         assert database.get_deck(created["id"]).unmodeled_coverage_version.startswith("next-version+cat")
 
@@ -718,7 +736,8 @@ class TestDeckCoverage:
         response = client.get(f"/api/decks/{created['id']}/coverage")
 
         assert response.status_code == 200
-        assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": []}
+        assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": [],
+                                   "unsupportedCount": 0, "unsupportedCardNames": []}
         assert "catdeadbeefcafe" in database.get_deck(created["id"]).unmodeled_coverage_version
 
     def test_editing_decklist_text_invalidates_cached_coverage(self):

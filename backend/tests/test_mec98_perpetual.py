@@ -94,12 +94,13 @@ def test_parse_refuses_pronoun_without_referent():
     assert match_clause("it perpetually gets +1/+1") is None
 
 
-def test_begin_anew_is_modeled():
+def test_begin_anew_is_unsupported_despite_retained_primitive():
     card = Card(
         id="Begin Anew", name="Begin Anew", type_line="Sorcery", is_sorcery=True,
         oracle_text="Destroy all creatures. Creature cards in your hand perpetually get +1/+1.",
     )
-    assert parse_oracle(card).modeled is True
+    assert parse_oracle(card).unsupported_reason == "alchemy"
+    assert not parse_oracle(card).specs
 
 
 # -- execute ------------------------------------------------------------------

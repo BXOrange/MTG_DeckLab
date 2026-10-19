@@ -85,6 +85,10 @@ def door_card(card: Card, door: str) -> Optional[Card]:
         return card.back_face()
     cost = card.mana_cost_string
     return Card(
+        unsupported_reason=card.unsupported_reason,
+        digital=card.digital,
+        games=list(card.games),
+        legalities=dict(card.legalities),
         id=card.id,
         name=front_name(card),
         type_line=card.type_line,

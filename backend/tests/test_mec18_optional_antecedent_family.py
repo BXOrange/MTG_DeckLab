@@ -27,6 +27,8 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
+from mtg_analyzer.parser.oracle.segmenter import segment_line
+from mtg_analyzer.parser.oracle.normalize import normalize
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 pytestmark = pytest.mark.skipif(
@@ -105,9 +107,13 @@ def test_dokuchi_silencer_targeted_followup_is_a_reflexive_trigger():
     is the payoff riding the off-stack ``effects`` branch, which has no
     target-gathering step.
     """
-    result = parse_oracle(_card("A-Dokuchi Silencer"))
-    assert result.coverage == "MODELED"
-    (pay,) = [e for s in result.specs for e in s.effects if e.type == "pay_cost_then"]
+    card = _card("A-Dokuchi Silencer")
+    assert parse_oracle(card).unsupported_reason == "digital_only"
+    trigger = next(line for line in normalize(card.oracle_text, card.name).splitlines()
+                   if line.startswith("whenever"))
+    segment = segment_line(trigger, allow_spell_effect=False, provenance=None)
+    assert segment.spec is not None
+    (pay,) = [e for e in segment.spec.effects if e.type == "pay_cost_then"]
     assert not pay.params.get("effects")
     assert pay.params["then_trigger"] == [{
         "type": "destroy",

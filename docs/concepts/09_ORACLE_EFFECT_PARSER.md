@@ -409,8 +409,12 @@ what it says produces silently wrong game states, which is worse than one
 that is honestly not implemented yet.
 
 A third verdict, `NEVER_SUPPORTED`, exists alongside `MODELED`/`UNMODELED`
-for text the project has declared a permanent non-goal (RULE 123 Stickers is
-the one case today, `gate._mentions_stickers`) — classified separately so it
+for text or metadata the project has declared a permanent non-goal.
+`models/cards/support_policy.py` classifies cross-game interactions, stickers,
+Attractions, Contraptions, draft mechanics and Alchemy/digital-only cards
+before parser or authored behavior. A digital printing of an ordinary paper
+card is not an exclusion. The API exposes `unsupported` and
+`unsupported_reason`, displayed separately from incomplete modeling — classified separately so it
 never surfaces in the `UNMODELED` processing-list backlog, where it would sit
 forever since no handler will ever claim it. See `gate.py`'s own
 `NEVER_SUPPORTED` docstring and `DEFERRED.md`'s non-goal guardrails.

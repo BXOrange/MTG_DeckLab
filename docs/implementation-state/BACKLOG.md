@@ -57,10 +57,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 
 
-- **PAR-157 · Flicker with riders.** Preserve explicit source references across successful self-return riders using exact return visits and the ordinary parser/binder.
-
-- **PAR-168 · Permanent non-goal support classification.** Classify cross-game interactions and permanent Deferred mechanics (including Alchemy-only cards) as Unsupported through one shared policy before authored/parser coverage; preserve metadata, expose the verdict consistently in APIs/UI, and keep merely parked work distinct.
-
 ## MEC — Game mechanic
 
 

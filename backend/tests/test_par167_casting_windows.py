@@ -286,7 +286,13 @@ def test_cast_window_refuses_what_it_cannot_express(text):
     "Korvold and the Noble Thief", "Oracle's Vault", "Stolen Strategy",
 ])
 def test_real_window_cards_are_modeled(name):
-    assert parse_oracle(_cached(name)).modeled
+    result = parse_oracle(_cached(name))
+    if name == 'Eager Flameguide':
+        assert result.never_supported
+        assert result.unsupported_reason == "digital_only"
+        assert not result.specs
+    else:
+        assert result.modeled
 
 
 @pytest.mark.full_cache

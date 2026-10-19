@@ -10,12 +10,15 @@ simplification).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
+from mtg_analyzer.parser.oracle.catalogue.keywords import parse_keywords
+from mtg_analyzer.parser.oracle.segmenter import segment_line
+from mtg_analyzer.parser.oracle.normalize import normalize
 
 
 def _engine():
@@ -46,19 +49,21 @@ def _specializer(st, pid="p1", extra_text=""):
         oracle_text=txt, keywords=["Specialize"],
     ), pid)
     o.summoning_sick = False
-    bind_from_catalogue(o)
+    # Exercise the retained primitive directly; Alchemy cards have no live binder.
+    attach_to_object(o, parse_keywords(o.card))
     return o
 
 
 # --- parser recognition ---------------------------------------------------
 
 
-def test_bare_specialize_line_is_modeled():
+def test_bare_specialize_is_recognized_but_card_is_unsupported():
     card = Card(id="x", name="Rasaad, Monk of Selûne",
                 type_line="Legendary Creature — Human Monk", is_creature=True,
                 power=2, toughness=3, oracle_text="Specialize {5}",
                 keywords=["Specialize"])
-    assert parse_oracle(card).modeled is True
+    assert parse_oracle(card).unsupported_reason == "alchemy"
+    assert any(s.keyword.get("name") == "specialize" for s in parse_keywords(card))
 
 
 def test_specialize_line_with_a_trailing_rider_stays_unmodeled():
@@ -79,8 +84,11 @@ def test_specializes_is_a_recognized_trigger_verb():
                 power=2, toughness=2,
                 oracle_text="When this creature specializes, create two 2/2 black Zombie creature tokens.")
     res = parse_oracle(card)
-    assert res.modeled is True
-    kinds = [e.type for a in res.specs for e in a.effects]
+    assert res.unsupported_reason == "alchemy"
+    segment = segment_line(normalize(card.oracle_text, card.name),
+                           allow_spell_effect=False, provenance=None)
+    assert segment.spec is not None
+    kinds = [e.type for e in segment.spec.effects]
     assert "create_token" in kinds
 
 

@@ -99,6 +99,9 @@ def is_authored_card(card: Any) -> bool:
     them registered. A whole-name lookup (`is_registered`) says nothing about the half the front-face fallback skips."""
     from .. import rooms  # function-scoped: rooms imports the parser, this module is imported by the binder
 
+    from ...models.cards.support_policy import unsupported_reason
+    if unsupported_reason(card):
+        return False
     if rooms.has_doors(card):
         halves = [rooms.door_card(card, door) for door in rooms.DOORS]
         return (
@@ -144,6 +147,9 @@ def specs_for(card: Any) -> list[AbilitySpec]:
 
     Any keyword the registry already authored wins, so it isn't duplicated.
     """
+    from ...models.cards.support_policy import unsupported_reason
+    if unsupported_reason(card):
+        return []
     name = (getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
     if getattr(card, "is_split", False) and getattr(card, "back_name", "") and "//" in name:

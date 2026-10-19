@@ -127,7 +127,13 @@ def test_as_long_as_wrapper_gates_the_whole_doubler():
     ],
 )
 def test_real_cards_are_modeled(name):
-    assert parse_oracle(_named(name)).modeled is True
+    result = parse_oracle(_named(name))
+    if name == 'Valiant Emberkin':
+        assert result.never_supported
+        assert result.unsupported_reason == "alchemy"
+        assert not result.specs
+    else:
+        assert result.modeled
 
 
 # ---------------------------------------------------------------------------

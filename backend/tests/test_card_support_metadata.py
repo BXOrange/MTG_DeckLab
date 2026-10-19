@@ -54,8 +54,11 @@ def test_legacy_serialization_remains_unknown():
     assert unsupported_reason(card) is None
 
 
+@pytest.mark.parametrize('defaults_present', [False, True])
 @pytest.mark.parametrize('raw_available', [True, False])
-def test_verified_previous_cache_migrates_locally_without_replacing_printings(tmp_path, monkeypatch,raw_available):
+@pytest.mark.parametrize('predecessor', [card_database._SUPPORT_METADATA_PREDECESSOR,
+    '9689054c477b2c30672c3ac9f8c5e3fb6e760ccefdbebc3d3b651b70ab109fc0'])
+def test_verified_previous_cache_migrates_locally_without_replacing_printings(tmp_path, monkeypatch,raw_available,predecessor,defaults_present):
     raw_path = tmp_path / 'raw.db'
     monkeypatch.setattr(card_database,'DEFAULT_RAW_STORE_PATH',raw_path)
     printed = raw(digital=True,games=['arena'],legalities=dict.fromkeys(
@@ -71,13 +74,18 @@ def test_verified_previous_cache_migrates_locally_without_replacing_printings(tm
         db.save_card(card)
         db.save_alias('Local alias',card.name)
     data = card.to_dict()
+    data.pop('unsupported_reason', None)
+    data.pop('unsupported', None)
     for key in ('digital','games','legalities'):
-        data.pop(key)
+        if defaults_present:
+            data[key] = {'digital': None, 'games': [], 'legalities': {}}[key]
+        else:
+            data.pop(key)
     data['future_opaque_field'] = 'preserve'
     with sqlite3.connect(path) as conn:
         conn.execute('UPDATE cards SET data=?',(json.dumps(data),))
         conn.execute("UPDATE schema_meta SET value=? WHERE key='schema_hash'",
-                     (card_database._SUPPORT_METADATA_PREDECESSOR,))
+                     (predecessor,))
     with CardDatabase(path) as db:
         assert db.schema_migrated and not db.schema_reset
         loaded = db.get_card('Local alias')
@@ -85,7 +93,7 @@ def test_verified_previous_cache_migrates_locally_without_replacing_printings(tm
         assert unsupported_reason(loaded) == ('digital_only' if raw_available else None)
     with sqlite3.connect(path) as conn:
         stored = json.loads(conn.execute('SELECT data FROM cards').fetchone()[0])
-        assert all(stored[k] == v for k,v in data.items())
+        assert all(stored[k] == v for k,v in data.items() if k not in ('digital','games','legalities'))
     with CardDatabase(path) as db:
         assert not db.schema_migrated and not db.schema_reset
         assert db.get_card('Local alias') is not None

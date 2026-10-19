@@ -149,6 +149,10 @@ const ILLEGAL_REASON_LABELS = {
  */
 function renderCoverageBadge(coverage) {
   if (!coverage) return '';
+  if (coverage.unsupported) {
+    const title = t(`cardTile.unsupported.${coverage.unsupported_reason}`);
+    return `<span class="card-tile-coverage card-tile-coverage-unmodeled" title="${escapeAttr(title)}">Unsupported · ${escapeHtml(title)}</span>`;
+  }
   if (coverage.modeled) {
     const catalogue = coverage.source === 'catalogue';
     const title = catalogue
@@ -239,7 +243,7 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
         ${card.oracle_text ? `<p class="card-tile-text">${renderOracleText(card.oracle_text)}</p>` : ''}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
-        ${renderTileFooter(renderCoverageBadge(card.coverage), scryfallUrl(card.name), t('cardTile.viewOnScryfall'))}
+        ${renderTileFooter(renderCoverageBadge(card.unsupported ? card : card.coverage), scryfallUrl(card.name), t('cardTile.viewOnScryfall'))}
       </div>
     </div>
   `;

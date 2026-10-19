@@ -152,6 +152,7 @@ class Card:
         back_image_uri_large: str = "",
         back_image_uri_png: str = "",
         back_keywords: Optional[list[str]] = None,
+        unsupported_reason: Optional[str] = None,
         digital: Optional[bool] = None,
         games: Optional[list[str]] = None,
         legalities: Optional[dict[str, str]] = None,
@@ -178,6 +179,8 @@ class Card:
                 f"invalid color_identity symbols: {sorted(invalid_colors)}"
             )
 
+        from .support_policy import SUPPORT_REASONS
+        self._unsupported_reason = unsupported_reason if isinstance(unsupported_reason, str) and unsupported_reason in SUPPORT_REASONS else None
         self.id = id
         # Printing metadata is evidence, not an oracle-wide paper exclusion.
         self.digital = digital
@@ -383,6 +386,7 @@ class Card:
         # for no mana when it should have cost {0}.
         back_cmc = ManaCost.parse(self.back_mana_cost_string).converted_mana_cost
         return Card(
+            unsupported_reason=self.unsupported_reason,
             digital=self.digital,
             games=list(self.games),
             legalities=dict(self.legalities),
@@ -436,6 +440,7 @@ class Card:
         btl = self.back_type_line
         back_is_creature = "creature" in btl.lower()
         return Card(
+            unsupported_reason=self.unsupported_reason,
             digital=self.digital,
             games=list(self.games),
             legalities=dict(self.legalities),
@@ -505,6 +510,7 @@ class Card:
         front_text = _fold_bare_name(self.oracle_text, front_name)
         back_text = _fold_bare_name(self.back_oracle_text, self.back_name)
         return Card(
+            unsupported_reason=self.unsupported_reason,
             digital=self.digital,
             games=list(self.games),
             legalities=dict(self.legalities),
@@ -663,6 +669,7 @@ class Card:
             if new_lines:
                 oracle_text = f"{oracle_text}\n" + "\n".join(new_lines) if oracle_text else "\n".join(new_lines)
         return Card(
+            unsupported_reason=self.unsupported_reason,
             digital=self.digital,
             games=list(self.games),
             legalities=dict(self.legalities),
@@ -807,9 +814,19 @@ class Card:
         """
         return bool(self.mana_cost_string) or self.is_land
 
+    @property
+    def unsupported_reason(self) -> Optional[str]:
+        """Whole-card exclusions survive selecting or copying a printed face."""
+        from .support_policy import unsupported_reason
+        return unsupported_reason(self)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize this card to a JSON-compatible dict."""
+        from .support_policy import card_support_policy
+        support = card_support_policy(self)
         return {
+            "unsupported": support.unsupported,
+            "unsupported_reason": support.reason,
             "id": self.id,
             "digital": self.digital,
             "games": list(self.games),
@@ -864,6 +881,7 @@ class Card:
     def from_dict(cls, data: dict[str, Any]) -> "Card":
         """Deserialize a Card from a dict produced by to_dict()."""
         return cls(
+            unsupported_reason=data.get("unsupported_reason"),
             digital=data.get("digital"),
             games=data.get("games"),
             legalities=data.get("legalities"),

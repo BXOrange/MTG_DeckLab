@@ -303,9 +303,12 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   // (or a still-loading/unreachable coverage check) shows nothing here.
   function updateCoverageBadge(deckId, coverage) {
     const el = resultEl.querySelector(`.saved-deck-coverage[data-deck-id="${cssEscape(deckId)}"]`);
-    if (!el || !coverage || !coverage.unmodeledCount) return;
-    el.textContent = tPlural('savedDecks.coverageBadge', coverage.unmodeledCount);
-    el.title = (coverage.unmodeledCardNames || []).join('\n');
+    if (!el || !coverage) return;
+    const badges = [];
+    if (coverage.unmodeledCount) badges.push(tPlural('savedDecks.coverageBadge', coverage.unmodeledCount));
+    if (coverage.unsupportedCount) badges.push(tPlural('savedDecks.unsupportedBadge', coverage.unsupportedCount));
+    el.textContent = badges.join(' · ');
+    el.title = [...(coverage.unmodeledCardNames || []), ...(coverage.unsupportedCardNames || [])].join('\n');
   }
 
   refreshBtn.addEventListener('click', load);

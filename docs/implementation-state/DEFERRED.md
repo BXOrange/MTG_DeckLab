@@ -45,44 +45,14 @@ Never to be built — not gaps.
   separate games. Cards carrying effects, permissions, participants or objects
   into or between games are permanently Unsupported; no cross-game persistence
   or participant/card-identity subsystem is scheduled.
-- **Stickers (RULE 123) and Attractions (RULE 717).** `gate.parse_oracle`
-  classifies Sticker mentions and the type line "Stickers" as `NEVER_SUPPORTED`,
-  keeping them out of the backlog ranking. PAR-145 (v586) also excludes Sticker
-  Sheet inserts from the coverage denominator (RULE 123.2): 48 Commander-legal
-  Unfinity sheets (`sunf`) plus the empty-text Secret Lair "Sticker sheet" (`sld`).
-  PAR-146 confirms Stickers are permanently deferred, routed to Bucket F in
-  `commander_tail_report.py`, and not in scope for any ticket.
-- **Contraptions (Unfinity's "crank this contraption" sub-mechanic).**
-  Silver-border/Unstable only, like Stickers/Attractions — confirmed via
-  `PAR-93`'s legality audit: all 45 cards using the phrase are from
-  *Unstable*, `legalities.commander`/`legacy`/`vintage` all `not_legal`, and
-  the current Comprehensive Rules' RULE 723 is "Controlling Another Player",
-  not Contraptions (RULE 715 is Adventure) — Contraptions never had a real CR
-  number to begin with. `PAR-93` retired the parser side of this on
-  2026-09-20; `MEC-100` re-proposed the identical gap under a wrong RULE
-  723 citation and was retired the same way on 2026-09-22 without being
-  built — see `Done_Backend.md`'s PAR-93 entry. If this resurfaces a third
-  time, that is the signal to add a `NEVER_SUPPORTED` gate verdict
-  (`gate.py`'s `_mentions_stickers` pattern) rather than re-litigating the
-  legality question again.
-- **Conspiracy draft-matters.** Moved out of `BACKLOG.md`'s Bucket C
-  2026-09-14 once traced card-by-card (`scripts/commander_tail_report.py`
-  tags it 13 Commander-legal cards): every unclaimed clause is literally
-  draft-mechanic text — `"draft this card face up"`, passing the last card
-  of a booster pack, "secretly" numbering a pick — with no function outside
-  a physical/digital draft, confirmed by sampling `Agent of Acquisitions`
-  and `Canal Dredger`'s full unclaimed clause sets. Unlike Stickers, this
-  doesn't carry a `NEVER_SUPPORTED` gate verdict — it stays UNMODELED and
-  counted in the raw coverage percentage — this is a backlog-ranking
-  decision, not a `parser/oracle/gate.py` classification: no ticket will
-  ever be filed to close it.
-  (Banding and Horsemanship, tagged alongside Conspiracy by the same
-  Bucket C pass, were reconsidered the same day and moved to `BACKLOG.md`
-  instead — see `MEC-87`/`MEC-88` — once combat.py turned out to have zero
-  engine support for either, and both keywords are demonstrably live on
-  legal Commander cards, e.g. `Riding the Dilu Horse` granting Horsemanship
-  and `Cathedral of Serra` granting Banding to creatures that don't
-  natively have it: real, functional gaps, not dead print-only text.)
+- **Stickers (RULE 123), Attractions (RULE 717) and Contraptions.**
+  These cards/mechanics receive the shared permanent `NEVER_SUPPORTED` verdict
+  and the Unsupported label, rather than appearing as ordinary parser gaps.
+  Sticker Sheet inserts remain excluded from the coverage denominator
+  (RULE 123.2); ordinary cards mentioning these mechanics still count.
+- **Conspiracy draft-matters.** Physical draft instructions and hidden/double
+  agenda mechanics are permanently Unsupported. Opening a booster pack during
+  an ordinary game is not itself a draft exclusion.
 - **Vanguard (RULE 902) beyond its already-shipped hand-size/life-total
   modifiers.** Its ~107 avatars are a small, long-retired
   supplemental-product pool (not a real deck, no set is designed around it

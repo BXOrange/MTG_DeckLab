@@ -39,6 +39,11 @@ def coverage_for(card: Any) -> dict[str, object]:
     verdict `specs_for` falls back to for binding, so "modeled" here means
     "the engine plays this card's abilities", not just "text parses".
     """
+    from mtg_analyzer.models.cards.support_policy import unsupported_reason
+    reason = unsupported_reason(card)
+    if reason:
+        return {"modeled": False, "unsupported": True, "unsupported_reason": reason,
+                "source": "policy", "unclaimed": []}
     if card_registry.is_authored_card(card):
         return {"modeled": True, "source": "catalogue", "unclaimed": []}
     result = parse_oracle(card)

@@ -241,14 +241,22 @@ def get_deck_coverage(
     resolved = loader.load_cards([e.name for e in parsed.all_cards])
     unmodeled_count = 0
     unmodeled_card_names: list[str] = []
+    unsupported_count = 0
+    unsupported_card_names: list[str] = []
     for entry in parsed.all_cards:
         card = resolved.cards.get(entry.name)
         if card is None:
             continue
-        if not coverage_for(card)["modeled"]:
+        coverage = coverage_for(card)
+        if coverage.get("unsupported"):
+            unsupported_count += entry.qty
+            unsupported_card_names.append(entry.name)
+        elif not coverage["modeled"]:
             unmodeled_count += entry.qty
             unmodeled_card_names.append(entry.name)
     result = {
+        "unsupportedCount": unsupported_count,
+        "unsupportedCardNames": sorted(unsupported_card_names),
         "unmodeledCount": unmodeled_count,
         "unmodeledCardNames": sorted(unmodeled_card_names),
     }

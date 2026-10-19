@@ -4,7 +4,10 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry, GameContext
+from mtg_analyzer.parser.oracle.catalogue.keywords import parse_keywords
+from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -310,8 +313,18 @@ def test_perpetual_blitz_choice_filters_hand_and_survives_zone_changes():
         "It perpetually gains blitz. The blitz cost is equal to its mana cost."
     )))
     player.mana_pool.add_many({"R": 8, "B": 1})
-    engine.cast_spell(player, source, blitz=0)
-    engine.resolve_until_stable()
+    # Retain the shared primitive regression; the Alchemy card itself is Unsupported.
+    assert parse_oracle(source.card).unsupported_reason == "alchemy"
+    attach_to_object(source, parse_keywords(source.card))
+    segment = segment_line(
+        "when ~ enters, choose a creature card in your hand without blitz. "
+        "it perpetually gains blitz. the blitz cost is equal to its mana cost",
+        allow_spell_effect=False, provenance=None)
+    assert segment.spec is not None
+    for spec in segment.spec.effects:
+        effect = EffectRegistry.create(spec.type, spec.params)
+        effect.source = source
+        effect.apply(GameContext(state, engine.rules))
     choice = state.pending_choice
     assert choice["kind"] == "choose_objects"
     options = {int(option["id"]) for option in choice["options"]}
@@ -332,7 +345,7 @@ def test_perpetual_blitz_choice_filters_hand_and_survives_zone_changes():
 
 @pytest.mark.full_cache
 @pytest.mark.parametrize("name", [
-    'Henzie "Toolbox" Torre', 'Riveteers Provocateur', 'Tenacious Underdog',
+    'Henzie "Toolbox" Torre', 'Tenacious Underdog',
     'Sabin, Master Monk', 'Night Clubber', 'Workshop Warchief', 'Riveteers Requisitioner',
 ])
 def test_real_cache_blitz_cards_bind_complete_text(name):
@@ -412,3 +425,14 @@ def test_henzie_uses_announced_x_for_creature_spell_mana_value():
     GameSession(engine).apply_action({**offer, "x": 4})
     engine.resolve_until_stable()
     assert obj.blitz_cost_paid and obj.x_paid == 4 and player.mana_pool.total() == 1
+
+
+@pytest.mark.full_cache
+def test_real_alchemy_blitz_card_is_unsupported():
+    from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+    printed = CardDatabase(DEFAULT_DB_PATH).get_card("Riveteers Provocateur")
+    assert printed is not None
+    assert parse_oracle(printed).unsupported_reason == "alchemy"
+    _, _, player = game()
+    obj = add(player, printed)
+    assert not obj.triggered_abilities

@@ -44,7 +44,13 @@ def test_the_player_event_grammar_fails_closed(cond):
      "Pangosaur", "Punishing Fire", "Warped Researcher", "Vampire Scrivener"],
 )
 def test_real_cards_are_modeled(name):
-    assert parse_oracle(_named(name)).modeled is True
+    result = parse_oracle(_named(name))
+    if name == 'Shadowheart, Cleric of Trickery':
+        assert result.never_supported
+        assert result.unsupported_reason == "digital_only"
+        assert not result.specs
+    else:
+        assert result.modeled
 
 
 def _life(state, pid):

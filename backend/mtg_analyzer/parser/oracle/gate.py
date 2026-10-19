@@ -62,7 +62,7 @@ from .spec import AbilitySpec, EffectSpec, ParserProvenance, contains_marker, fo
 
 MODELED = "MODELED"
 UNMODELED = "UNMODELED"
-#: Stickers (RULE 123) are a permanent project non-goal — see
+#: Permanent product exclusions (including stickers, RULE 123) — see
 #: `docs/implementation-state/DEFERRED.md` — not a "not yet" gap like an ordinary
 #: UNMODELED card. Sticker Sheets and cards mentioning them are `NEVER_SUPPORTED`
 #: instead of `UNMODELED` so its unclaimed clauses never surface in the
@@ -4099,7 +4099,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 698: Bare plural pool casts offer every eligible card, rather than a single cast.
 # 699: Target-opponent milling preserves the opponent restriction in the shared mill grammar.
 # 700: Permanent casting filters include Battle (RULE 110.4).
-PARSER_VERSION = "701"
+PARSER_VERSION = "702"
 
 
 def parser_source_hash() -> str:
@@ -4126,6 +4126,10 @@ def parser_source_hash() -> str:
         digest.update(path.relative_to(root).as_posix().encode("utf-8"))
         # Git's Windows checkout can use CRLF; identical source must keep the same fingerprint.
         digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+    # This shared model policy also determines the parser verdict.
+    policy_path = root.parents[1] / "models" / "cards" / "support_policy.py"
+    digest.update(b"models/cards/support_policy.py")
+    digest.update(policy_path.read_bytes().replace(b"\r\n", b"\n"))
     return digest.hexdigest()
 
 
@@ -4134,6 +4138,7 @@ class ParseResult:
     """The front-end's output for one card: specs + a fail-closed coverage verdict."""
 
     specs: list[AbilitySpec] = field(default_factory=list)
+    unsupported_reason: Optional[str] = None
     coverage: str = MODELED
     #: Unclaimed ability lines (template seeds for the processing list, docs/09).
     unclaimed: list[str] = field(default_factory=list)
@@ -4144,7 +4149,7 @@ class ParseResult:
 
     @property
     def never_supported(self) -> bool:
-        """RULE 123 Stickers — a permanent non-goal, not an ordinary gap."""
+        """A permanent product exclusion, distinct from incomplete grammar."""
         return self.coverage == NEVER_SUPPORTED
 
     #: The effect-bearing specs (triggered / spell_effect / activated /
@@ -4515,6 +4520,13 @@ def _parse_cache_key(card: Any) -> tuple[Any, ...]:
     merely shares a name.
     """
     return (
+        getattr(card, "_unsupported_reason", None),
+        getattr(card, "digital", None),
+        tuple(sorted(getattr(card, "games", None) or ())),
+        tuple(sorted((getattr(card, "legalities", None) or {}).items())),
+        getattr(card, "back_oracle_text", "") or "",
+        getattr(card, "back_type_line", "") or "",
+        getattr(card, "type_line", "") or "",
         getattr(card, "name", "") or "",
         getattr(card, "oracle_text", "") or "",
         tuple(getattr(card, "keywords", None) or ()),
@@ -4610,6 +4622,11 @@ def parse_oracle(card: Any) -> ParseResult:
     contract for the hand-authored registry) even though the parse itself
     now runs at most once per distinct input.
     """
+    from ...models.cards.support_policy import unsupported_reason
+
+    reason = unsupported_reason(card)
+    if reason:
+        return ParseResult(coverage=NEVER_SUPPORTED, unsupported_reason=reason)
     key = _parse_cache_key(card)
     cached = _PARSE_CACHE.get(key)
     if cached is None:

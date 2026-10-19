@@ -150,7 +150,8 @@ class CardDatabase:
     def _clear_on_schema_change(
         self, conn: sqlite3.Connection, old: Optional[str], new: str
     ) -> None:
-        if old == _SUPPORT_METADATA_PREDECESSOR:
+        if old in {_SUPPORT_METADATA_PREDECESSOR,
+                   "9689054c477b2c30672c3ac9f8c5e3fb6e760ccefdbebc3d3b651b70ab109fc0"}:
             self._migrate_support_metadata(conn)
             self.schema_migrated = True
             return
@@ -187,8 +188,8 @@ class CardDatabase:
                     if row:
                         evidence = json.loads(row[0])
                 for field, default in (('digital', None), ('games', []), ('legalities', {})):
-                    if field not in data:
-                        data[field] = evidence.get(field, default)
+                    if field not in data or data[field] in (None, [], {}):
+                        data[field] = evidence.get(field, data.get(field, default))
                 updates.append((json.dumps(data), card_id))
             conn.executemany('UPDATE cards SET data = ? WHERE id = ?', updates)
         finally:

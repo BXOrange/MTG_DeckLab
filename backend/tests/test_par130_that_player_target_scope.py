@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.parser.oracle.segmenter import segment_line
+from mtg_analyzer.parser.oracle.normalize import normalize
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TARGET_FRAMES, SCOPE_THAT_PLAYER
 from mtg_analyzer.models.cards.card import Card
@@ -128,7 +130,13 @@ def test_slot_fails_closed_without_a_trigger_antecedent(oracle):
     "Blind Zealot", "A-Dokuchi Silencer", "Rustmouth Ogre", "Sigil of Sleep",
 ])
 def test_real_cards_are_modeled(name):
-    assert parse_oracle(_named(name)).modeled
+    result = parse_oracle(_named(name))
+    if name == 'A-Dokuchi Silencer':
+        assert result.never_supported
+        assert result.unsupported_reason == "digital_only"
+        assert not result.specs
+    else:
+        assert result.modeled
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +257,16 @@ def test_reflexive_payoff_keeps_the_damaged_player():
     # "you may discard a card. When you do, destroy target … that player
     # controls" — the reflexive trigger carries the outer DAMAGE event.
     engine, state = _engine()
-    silencer = _real(state, "A-Dokuchi Silencer")
+    printed = _named("A-Dokuchi Silencer")
+    assert parse_oracle(printed).unsupported_reason == "digital_only"
+    # Exercise the ordinary trigger primitive, without binding the excluded card.
+    silencer = _bf(state, _card("Reflexive Listener", "Creature — Human Ninja",
+                               is_creature=True, power=2, toughness=1))
+    text = next(line for line in normalize(printed.oracle_text, printed.name).splitlines()
+                if line.startswith("whenever"))
+    segment = segment_line(text, allow_spell_effect=False, provenance=None)
+    assert segment.spec is not None
+    attach_to_object(silencer, [segment.spec])
     state.player_by_id("p1").hand.append(
         GameObject(_card("Junk", "Instant"), owner_id="p1", zone=Zone.HAND))
     hit = _bear("Hit", "p2", state)
