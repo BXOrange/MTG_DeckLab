@@ -1125,6 +1125,8 @@ class GameState:
         #: batched per-object events fired inside it, flushed as `EVENT_BATCH`es.
         self._batch_depth: int = 0
         self._batch_buffer: list[GameEvent] = []
+        #: RULE 603.10: pre-departure trigger sources while committing simultaneous sacrifices.
+        self._simultaneous_departure_sources: Optional[list[GameObject]] = None
         #: Held open across an interactive multi-pick (`hold_batches`): the picks of one
         #: "sacrifice two creatures" / "discard two cards" are one event, answered one
         #: pick at a time.

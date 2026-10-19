@@ -1682,11 +1682,14 @@ class ChoosePlayerObjectsEffect(GameEffect):
     def __init__(self, player_ids=None, chosen_ids=None, then_that_many=None, source=None,
                  player_scope="you_and_defending", action="discard_or_sacrifice", optional=False,
                  card_types_any=None, declined_ids=None, else_effects=None, permanent_filter=None,
-                 else_simultaneous=False, start_with_next_opponent=False):
+                 else_simultaneous=False, start_with_next_opponent=False, keep_types=None, keep_state=None):
         super().__init__(source)
         #: "Starting with the next opponent in turn order, each player chooses …" (Sadistic Shell Game) — the seat after the
         #: controller chooses first and the controller last, instead of the usual APNAP order from the active player.
         self.start_with_next_opponent = bool(start_with_next_opponent)
+        self.keep_types = (list(keep_types) if isinstance(keep_types, (list, tuple)) else []
+                           ) if keep_types is not None else None
+        self.keep_state = keep_state
         self.player_ids = player_ids
         self.chosen_ids = []
         for item in chosen_ids or []:
@@ -1706,6 +1709,9 @@ class ChoosePlayerObjectsEffect(GameEffect):
 
         controller = _controller_of(self.source, context)
         if controller is None:
+            return
+        if self.keep_types is not None:
+            self._choose_keepers(context, controller.id)
             return
         if self.player_ids is None:
             defender = _defending_player_of(self.source, context)
@@ -1806,6 +1812,86 @@ class ChoosePlayerObjectsEffect(GameEffect):
                 apply_declined_effects()
         else:
             apply_declined_effects()
+
+
+    def _choose_keepers(self, context, controller_id):
+        from copy import deepcopy
+        from .. import combat, continuous, effect_conditions
+
+        allowed = {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
+        if (self.action != "sacrifice_rest" or not self.keep_types
+                or any(not isinstance(kind, str) or kind not in allowed for kind in self.keep_types)
+                or len(set(self.keep_types)) != len(self.keep_types)):
+            return  # fail closed: an unknown keeper category cannot sacrifice a board.
+        frame = deepcopy(self.keep_state)
+        if frame is None:
+            defender = _defending_player_of(self.source, context)
+            wanted = {controller_id, getattr(defender, "id", None)}
+            players = [p for p in context.state.living_players_apnap()
+                       if self.player_scope == "each_player" or
+                       (p.id != controller_id if self.player_scope == "each_opponent" else p.id in wanted)]
+            if self.player_ids is not None:
+                wanted = set(self.player_ids)
+                players = [p for p in players if p.id in wanted]
+            filt = effect_conditions.pin_source_reference(
+                self.permanent_filter, self.source, context.resolving_source_incarnation,
+            )
+            frame = {"players": [p.id for p in players], "pools": {}, "kept": {},
+                     "player_index": 0, "type_index": 0, "filter": filt}
+            for player in players:
+                frame["pools"][player.id] = [[o.instance_id, o.zone_incarnation]
+                    for o in context.state.permanents_controlled_by(player.id)
+                    if combat.matches_object_filter(o, filt, reference=self.source, state=context.state)]
+                frame["kept"][player.id] = []
+        if "picked" in frame:
+            frame["kept"][frame.pop("picked_for")].extend(frame.pop("picked"))
+
+        def current_objects(pid):
+            return [obj for iid, visit in frame["pools"][pid]
+                    if (obj := context.state.find_object(iid)) is not None
+                    and obj.zone == Zone.BATTLEFIELD and obj.zone_incarnation == visit
+                    and obj.controller_id == pid]
+
+        while frame["player_index"] < len(frame["players"]):
+            pid = frame["players"][frame["player_index"]]
+            if frame["type_index"] >= len(self.keep_types):
+                frame["player_index"] += 1
+                frame["type_index"] = 0
+                continue
+            kind = self.keep_types[frame["type_index"]]
+            candidates = [obj for obj in current_objects(pid) if kind in continuous.card_types_of(obj)]
+            frame["type_index"] += 1
+            if not candidates:
+                continue  # RULE 609.3: choose each available type, even if others are absent.
+            if len(candidates) == 1:
+                obj = candidates[0]
+                frame["kept"][pid].append([obj.instance_id, obj.zone_incarnation])
+                continue
+            # No object moves during selection. A multitype permanent may
+            # fill more than one category (RULE 608.2e).
+            frame["picked_for"] = pid
+            frame["picked"] = {"kind": "chosen_object_visits"}
+            continuation = {"type": "choose_player_objects", "params": {
+                "action": self.action, "keep_types": self.keep_types, "keep_state": frame,
+                "player_scope": self.player_scope, "permanent_filter": self.permanent_filter,
+            }}
+            no_pick = deepcopy(frame)
+            no_pick.pop("picked")
+            no_pick.pop("picked_for")
+            skipped = {"type": "choose_player_objects", "params": {**continuation["params"], "keep_state": no_pick}}
+            context.choose_objects(context.state.player_by_id(pid), candidates, "select_referent", count=1,
+                                   source=self.source, then_specs=[continuation], else_specs=[skipped],
+                                   prompt=f"{kind.capitalize()} behalten")
+            return
+        # RULE 608.2e: every player chooses before anyone acts. Sacrifice
+        # only original visits outside the union of that player's keepers.
+        victims = []
+        for pid in frame["players"]:
+            kept = {tuple(visit) for visit in frame["kept"][pid]}
+            victims.extend(obj for obj in current_objects(pid)
+                           if (obj.instance_id, obj.zone_incarnation) not in kept
+                           and not obj.cant_be_sacrificed_this_turn)
+        context.engine.sacrifice_simultaneously(victims)
 
 
 class ConniveEffect(GameEffect):

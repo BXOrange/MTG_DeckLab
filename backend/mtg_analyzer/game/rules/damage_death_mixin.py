@@ -657,6 +657,29 @@ class DamageDeathMixin:
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
         self._move_to_graveyard(obj, cause="sacrifice")
+    def sacrifice_simultaneously(self, objects: list[GameObject]) -> None:
+        """Retain each departing permanent's trigger sources for the batch."""
+        from copy import copy
+
+        outer = getattr(self.state, "_simultaneous_departure_sources", None)
+        if outer is None:
+            # RULE 603.10a: a dying/sacrificed source still sees the other
+            # simultaneous departures, independent of iteration order.
+            sources = []
+            for obj in self.state.permanents():
+                prior = copy(obj)
+                prior.triggered_abilities = list(obj.triggered_abilities)
+                prior._granted_triggered_abilities = list(obj.granted_triggered_abilities)
+                sources.append(prior)
+            self.state._simultaneous_departure_sources = sources
+        try:
+            with self.state.simultaneous():
+                for obj in objects:
+                    if obj.zone == Zone.BATTLEFIELD and not obj.cant_be_sacrificed_this_turn:
+                        self.put_into_graveyard(obj)
+        finally:
+            self.state._simultaneous_departure_sources = outer
+
     def note_sacrificed(self, source: Optional[GameObject], victim: GameObject) -> None:
         """Remember on ``source`` what was just sacrificed, for a "the sacrificed creature's
         power / toughness / mana value" amount (`continuous.count_selector`'s ``sacrificed_cost_*``).

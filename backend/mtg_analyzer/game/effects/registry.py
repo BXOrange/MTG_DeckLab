@@ -2536,6 +2536,7 @@ EffectRegistry.register(
         declined_ids=p.get("declined_ids"), else_effects=p.get("else_effects"),
         permanent_filter=p.get("permanent_filter"), else_simultaneous=bool(p.get("else_simultaneous", False)),
         start_with_next_opponent=bool(p.get("start_with_next_opponent", False)),
+        keep_types=p.get("keep_types"), keep_state=p.get("keep_state"),
     ),
 )
 EffectRegistry.register(

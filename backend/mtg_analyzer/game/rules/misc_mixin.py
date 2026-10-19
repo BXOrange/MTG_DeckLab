@@ -4106,6 +4106,9 @@ class MiscSystemsMixin:
                     return list(getattr(source, "sacrificed_cost_card_types", []))
                 if value == {"kind": "chosen_instance_ids"}:
                     return list(chosen_ids or [])
+                if value == {"kind": "chosen_object_visits"}:
+                    return [[obj.instance_id, obj.zone_incarnation] for iid in chosen_ids or []
+                            if (obj := self.state.find_object(iid)) is not None]
                 return {key: capture(item) for key, item in value.items()}
             if isinstance(value, list):
                 return [capture(item) for item in value]

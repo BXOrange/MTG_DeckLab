@@ -2245,6 +2245,29 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+# Per-type keeper choices share one pool and sacrifice its complement.
+_CHOOSE_KEEP_TYPES_RE = _c(
+    r"(?P<who>each player|each opponent) chooses (?P<choices>an? [a-z]+(?:(?:, |,? and )an? [a-z]+)*) "
+    r"from among the (?P<pool>.+?) they control, then sacrifices the rest"
+)
+
+
+def _choose_keep_types(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .characteristic_phrase import PERMANENT_CARD_TYPES
+    from .count_phrase import parse_count_phrase
+
+    kinds = [re.sub(r"^an? ", "", word) for word in re.split(r",? and |, ", m.group("choices"))]
+    if len(set(kinds)) != len(kinds) or any(kind not in PERMANENT_CARD_TYPES for kind in kinds):
+        return None
+    pool = parse_count_phrase(m.group("pool") + " you control")
+    if pool is None or pool.get("zone") != "battlefield" or pool.get("of") != "you":
+        return None
+    return [EffectSpec("choose_player_objects", {
+        "action": "sacrifice_rest", "keep_types": kinds, "permanent_filter": pool.get("filter", {}),
+        "player_scope": "each_player" if m.group("who") == "each player" else "each_opponent",
+    })]
+
+
 # Library slices share one deterministic exile primitive: whose library,
 # which edge to remove from, and how many cards to remove or retain.
 _LIBRARY_EXILE_RE = _c(
@@ -18053,6 +18076,7 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:you )?draws? {COUNT} cards? at the beginning of the next turn's upkeep"),
         _draw_next_upkeep,
     ),
+    EffectHandler("choose_keep_types", _CHOOSE_KEEP_TYPES_RE, _choose_keep_types),
     EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive

@@ -235,7 +235,14 @@ class TriggerCollectionMixin:
             # this event, including the entering creature's own, for as long
             # as the static is in play.
             return
-        for obj in self.state.permanents():
+        sources = self.state.permanents()
+        lookback = {EventType.LEAVES_BATTLEFIELD, EventType.DIES, EventType.SACRIFICE}
+        departure_sources = getattr(self.state, "_simultaneous_departure_sources", None)
+        if (departure_sources is not None
+                and (event.type in lookback or
+                     (event.type == EventType.EVENT_BATCH and event.get("batch_of") in lookback))):
+            sources = departure_sources
+        for obj in sources:
             # RULE 613.7f: a permanent stripped of all abilities (Humility,
             # Dress Down) has no triggered abilities to fire — not even a
             # layer-6-granted one, which is itself an ability it no longer has.
