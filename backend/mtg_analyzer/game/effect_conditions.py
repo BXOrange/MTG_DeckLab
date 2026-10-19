@@ -117,7 +117,7 @@ EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
      "attacked_player", "first_drawn_this_turn", "chosen_player",
-     "enchanted_player"}
+     "enchanted_player", "previous_entry_controller"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -277,6 +277,9 @@ def subject_of(
     if of == "previous_target":
         previous = getattr(context, "previous_targets", None) or []
         return _object_or_none(previous[0]) if previous else None
+    if of == "previous_entry_controller":
+        obj = subject_of("previous_target", context, source, targets)
+        return _player_by_id(context, getattr(obj, "entry_controller_id", None))
     if of == "remembered":
         # The trigger subject a `pay_cost_then(remember_trigger_subject)` stamped on its source,
         # for the "if you do" branch that resolves after the trigger event's window has closed.

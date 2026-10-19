@@ -83,11 +83,16 @@ class BlinkEffect(GameEffect):
                  transformed=False, face_down_kind=None, return_step=None,
                  return_scope='any', return_effects=None, tapped_if_types=None,
                  subject='targets', exile_effects=None, departing_copy=None,
-                 return_if_successful=False, return_to_battlefield=True):
+                 return_if_successful=False, return_to_battlefield=True,
+                 group=None, group_player=None, selector=None, selector_filter=None):
         super().__init__(source)
-        if subject not in {'targets', 'source', 'previous_targets', 'event_visits'}:
+        if subject not in {'targets', 'source', 'previous_targets', 'event_visits', 'group'}:
             raise ValueError('Unknown blink subject')
+        if group is not None and selector is not None:
+            raise ValueError('A blink group needs one selector')
         self.target, self.subject = target, subject
+        self.group, self.group_player = group, group_player
+        self.selector, self.selector_filter = selector, selector_filter
         self._captured_target_incarnation = None
         self._captured_target_zone = None
         self.creature_filter = creature_filter
@@ -96,6 +101,8 @@ class BlinkEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter,
             optional=optional, count=count, count_max=count_max) if (
                 subject == 'targets' and not self._trigger_subject_mode) else None
+        if subject == 'group' and group_player in {'player', 'opponent'}:
+            self.target_spec = TargetSpec(kind=group_player)
         self.under_your_control = under_your_control
         options = dict(tapped=tapped, attacking=attacking,
             entry_counters=entry_counters, typed_entry_counters=typed_entry_counters,
@@ -126,6 +133,19 @@ class BlinkEffect(GameEffect):
             expected = context.resolving_source_incarnation
             chosen = [self.source] if (self.source is not None
                 and (expected is None or self.source.zone_incarnation == expected)) else []
+        elif self.subject == 'group':
+            # RULE 608.2c: snapshot the ordinary exile selector once before
+            # any member moves; return the captured set as one entry batch.
+            if self.group is not None:
+                from .core import _group_objects
+                chosen = _group_objects(context, self.group, self.group_player,
+                                        self.source, (targets or [None])[0]) or []
+            elif self.selector is not None:
+                from .damage_draw import _mass_selector_objects
+                chosen = _mass_selector_objects(context, self.selector,
+                                                self.selector_filter, source=self.source)
+            else:
+                chosen = []
         elif self.subject == 'previous_targets':
             chosen = list(context.previous_targets)
         elif self.subject == 'event_visits':

@@ -82,7 +82,11 @@ def test_self_blink_and_mass_forms_parse():
                              f"beginning of the next end step", self_subject=True) is not None
     mass = parse_effect_body("exile each creature you control. return those cards to the battlefield under "
                              "their owner's control at the beginning of the next end step.")
-    assert [s.type for s in mass] == ["exile", "create_delayed_trigger"]
+    assert [s.type for s in mass] == ["blink"]
+    assert mass[0].params == {
+        "subject": "group", "return_step": "end", "return_scope": "any",
+        "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+    }
 
 
 def test_a_dies_trigger_return_uses_a_captured_death_instead_of_exile():

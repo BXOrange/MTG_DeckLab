@@ -2792,6 +2792,8 @@ EffectRegistry.register(
         subject=p.get('subject', 'targets'), exile_effects=p.get('exile_effects'),
         departing_copy=p.get('departing_copy'), return_if_successful=bool(p.get('return_if_successful', False)),
         return_to_battlefield=bool(p.get('return_to_battlefield', True)),
+        group=p.get('group'), group_player=p.get('group_player'),
+        selector=p.get('selector'), selector_filter=p.get('selector_filter'),
     ),
 )
 EffectRegistry.register(

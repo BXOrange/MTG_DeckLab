@@ -1431,6 +1431,9 @@ class GameState:
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
         obj.turn_entered = self.internal_turn.number
+        # RULE 110.2a: preserve the entry recipient independently of later
+        # control changes and only for this battlefield visit.
+        obj.entry_controller_id = obj.controller_id
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty

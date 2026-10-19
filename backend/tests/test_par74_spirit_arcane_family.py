@@ -564,11 +564,7 @@ def test_exile_self_if_you_do_delayed_return_parses():
         "owner's control at the beginning of the next end step",
         self_subject=True,
     ) == [
-        EffectSpec("exile", {"target_kind": None, "remember": True}),
-        EffectSpec("create_delayed_trigger", {
-            "step": "end", "scope": "any",
-            "effects": [{"type": "return_linked_exile", "params": {"destination": "battlefield"}}],
-        }),
+        EffectSpec("blink", {"subject": "source", "return_step": "end", "return_scope": "any"}),
     ]
 
 

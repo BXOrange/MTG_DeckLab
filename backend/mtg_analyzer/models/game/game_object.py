@@ -578,6 +578,7 @@ class GameObject:
         #: `game/condition_query.py`'s ``entered_this_turn`` check. ``None``
         #: for an object that has never been on the battlefield.
         self.turn_entered: Optional[int] = None
+        self.entry_controller_id: Optional[str] = None
         #: RULE 702.26 (phasing): while ``True``, this permanent is treated
         #: as though it doesn't exist — untargetable, can't attack/block,
         #: ignored by static/continuous effects and SBAs. Still structurally
@@ -1601,6 +1602,7 @@ class GameObject:
         self.exerted_this_turn = False
         self.summoning_sick = True
         self.turn_entered = None
+        self.entry_controller_id = None
         self.phased_out = False
         self.damage_marked = 0
         self.counters = {}

@@ -19,7 +19,8 @@ _DEFERRED_SOURCE_EXILE = re.compile(
 _RETURN = re.compile(rf'return {_REFERENCE} to the battlefield(?P<transformed> transformed)?(?P<face_down> face down)?(?P<tapped> tapped)?(?: under (?P<who>your|(?:its|her|his) owner\'?s|their owners?\'s?) control)?(?P<tail>.*)')
 _COUNTER = re.compile(rf'(?:with |and )(?:an? |(?P<count>\d+) )(?P<kind>{COUNTER_KIND_PATTERN}) counters?(?: on (?:it|them))?')
 _RETURN_BODY_TYPES = frozenset({'draw', 'discard', 'gain_life', 'lose_life',
-    'create_token', 'grant_until', 'seq', 'bind', 'if_else', 'optional'})
+    'create_token', 'grant_until', 'pump', 'add_counters', 'tap',
+    'seq', 'bind', 'if_else', 'optional'})
 
 
 def source_return_specs(body):
@@ -81,8 +82,24 @@ def _rider_specs(text, *, live_returned=True):
     These are continuations of one announced blink. Targeted instructions
     require their own announcement support and must remain unclaimed here.
     """
-    from ..segmenter import parse_effect_body
+    from ..segmenter import parse_effect_body, _stamp_counters_on_referent
+    if live_returned:
+        entered = re.fullmatch(r'if it entered under your control, (?P<then>.+?)'
+                              r'(?:\. otherwise, (?P<else>.+))?', text)
+        if entered is not None:
+            yes = _rider_specs(entered['then'])
+            no = _rider_specs(entered['else']) if entered['else'] else []
+            if yes is None or no is None:
+                return None
+            return [{'type': 'if_else', 'params': {
+                'condition': {'kind': 'is_you', 'of': 'previous_entry_controller'},
+                'then': yes, 'else': no,
+            }}]
+    # Reuse the ordinary previous-subject grammar; a return receipt is the
+    # antecedent even when the rider has no preceding target clause.
+    text = re.sub(r'^(tap|untap) it$', r'\1 that permanent', text)
     specs = parse_effect_body(text, previous_subject=True)
+    specs = _stamp_counters_on_referent(text, specs) if specs else specs
     if not specs and live_returned:
         # Here the previous subject is a freshly returned permanent,
         # after all entry choices. Ordinary destruction/exile tails must
@@ -165,13 +182,14 @@ def flicker_sequence_specs(body, *, self_subject=False):
         if exiled is None or len(exiled) != 1 or exiled[0].type != 'exile':
             return None
         original = dict(exiled[0].params)
-        if not original.get('target_kind') and subject != '~':
+        if not original.get('target_kind') and subject != '~' and not (original.get('group') or original.get('selector')):
             return None
         if any(k not in {
-            'target_kind', 'creature_filter', 'optional', 'count', 'count_max', 'target_count', 'target_count_max'
+            'target_kind', 'creature_filter', 'optional', 'count', 'count_max', 'target_count', 'target_count_max',
+            'group', 'group_player', 'selector', 'filter',
         } for k in original):
             return None
-    text = split['return'].strip().rstrip('.')
+    text = re.sub(r'^if you do, ', '', split['return'].strip().rstrip('.'))
     schedules = list(_SCHEDULE.finditer(text))
     if len(schedules) > 1:
         return None
@@ -179,7 +197,10 @@ def flicker_sequence_specs(body, *, self_subject=False):
     if subject == '~':
         params.pop('target_kind', None)
         params['subject'] = 'source'
-    text = re.sub(r'^if you do, ', '', text)
+    elif params.get('group') is not None or params.get('selector') is not None:
+        params['subject'] = 'group'
+        if 'filter' in params:
+            params['selector_filter'] = params.pop('filter')
     if params.get('optional'):
         params['target_count_max'] = params.pop('count_max', params.pop('count', 1))
     elif 'count' in params:
@@ -242,7 +263,11 @@ def flicker_sequence_specs(body, *, self_subject=False):
             while remaining:
                 counter = _COUNTER.match(remaining)
                 if counter is None:
-                    return None
+                    riders = _rider_specs(re.sub(r'^and ', '', remaining))
+                    if riders is None:
+                        return None
+                    params['return_effects'] = riders
+                    break
                 counters[counter['kind']] = counters.get(counter['kind'], 0) + int(counter['count'] or 1)
                 remaining = remaining[counter.end():].strip()
             params['entry_counters'] = counters
