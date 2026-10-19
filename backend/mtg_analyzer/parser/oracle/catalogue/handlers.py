@@ -2371,6 +2371,62 @@ def _choose_keep_types(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: MEC-127 (RULE 101.4, 608.2e, 701.17/701.8): "each player chooses N <permanents> they control[, then sacrifices the
+#: rest | . Destroy the rest | . Destroy all other X | . Return all X not chosen this way to their owners' hands]"
+#: (Razia's Purification, Covetous Elegy, Single Combat, Divine Reckoning, Fall of the First Civilization, Urza's
+#: Sylex, Consuming Tide). One counted pick per player in APNAP order, then one simultaneous removal of the rest.
+_CHOOSE_KEEP_COUNT_RE = _c(
+    r"(?P<who>each player|each opponent) chooses (?P<up>up to )?(?P<n>an?|\d+) (?P<pool>[a-z ]+?) they control"
+    r"(?:, then (?P<sac>sacrifices the rest)"
+    r"|\. (?:(?P<dest>destroy (?:the rest|all other (?P<dvict>[a-z ]+?)))"
+    r"|return all (?P<rvict>[a-z ]+?) not chosen this way to their owners' hands))"
+)
+
+
+def _choose_keep_count(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_count_phrase
+
+    pool = parse_count_phrase(m.group("pool") + " you control")
+    if pool is None or pool.get("zone") != "battlefield" or pool.get("of") != "you":
+        return None
+    count = 1 if m.group("n") in ("a", "an") else int(m.group("n"))
+    if count < 1 or (m.group("up") and count < 2):
+        return None
+    params: dict = {
+        "action": "sacrifice_rest", "keep_count": count, "permanent_filter": pool.get("filter", {}),
+        "player_scope": "each_player" if m.group("who") == "each player" else "each_opponent",
+        "rest_action": "sacrifice" if m.group("sac") else "destroy" if m.group("dest") else "return_to_hand",
+    }
+    if m.group("up"):
+        params["keep_up_to"] = True
+    victims = m.group("dvict") or m.group("rvict")
+    if victims:
+        # The removal can name a wider class than the pool one chooses from ("choose 6 lands ... destroy all other
+        # permanents"); an identical class is just the pool again.
+        wide = parse_count_phrase(victims + " you control")
+        if wide is None or wide.get("zone") != "battlefield" or wide.get("of") != "you":
+            return None
+        if wide.get("filter", {}) != params["permanent_filter"]:
+            params["victim_filter"] = wide.get("filter", {})
+    return [EffectSpec("choose_player_objects", params)]
+
+
+#: Planar Overlay: "Each player chooses a land they control of each basic land type. Return those lands to their
+#: owners' hands." (RULE 305.6: one keeper category per basic land type; the *chosen* lands are the ones returned.)
+_CHOOSE_LAND_OF_EACH_TYPE_RE = _c(
+    r"each player chooses a land they control of each basic land type\. "
+    r"return those lands to their owners' hands"
+)
+_BASIC_LAND_TYPE_WORDS = ("plains", "island", "swamp", "mountain", "forest")
+
+
+def _choose_land_of_each_type(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("choose_player_objects", {
+        "action": "sacrifice_rest", "keep_types": list(_BASIC_LAND_TYPE_WORDS), "act_on_chosen": True,
+        "rest_action": "return_to_hand", "permanent_filter": {"card_type": "land"}, "player_scope": "each_player",
+    })]
+
+
 # Library slices share one deterministic exile primitive: whose library,
 # which edge to remove from, and how many cards to remove or retain.
 _LIBRARY_EXILE_RE = _c(
@@ -10556,6 +10612,44 @@ def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("create_token", params)]
 
 
+#: Covetous Elegy's tail: "then you create a tapped Treasure token for each creature your opponents control" --
+#: the count is read live when the (already finished) edict has resolved.
+_NAMED_TOKEN_PER_OPPONENT_CREATURE_RE = _c(
+    rf"(?:then )?(?:you )?creates? an? (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) token "
+    r"for each creature your opponents control"
+)
+
+
+def _named_token_per_opponent_creature(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"token_name": _NAMED_TOKEN_WORDS[m.group("name")], "count_selector": "creatures_opponents_control"}
+    if m.group("tapped"):
+        params["tapped"] = True
+    return [EffectSpec("create_token", params)]
+
+
+#: Single Combat's tail: "Players can't cast creature or planeswalker spells until the end of your next turn." (RULE
+#: 601.3a prohibition, RULE 611.2 duration): a floating `cast_prohibition` over every player's spells of those types.
+_PLAYERS_CANT_CAST_TYPES_UNTIL_RE = _c(
+    r"players can't cast (?P<types>(?:artifact|creature|enchantment|planeswalker|instant|sorcery)"
+    r"(?:(?:, | or |, or )(?:artifact|creature|enchantment|planeswalker|instant|sorcery))*) spells "
+    r"until the end of your next turn"
+)
+
+
+def _players_cant_cast_types_until(m: re.Match[str]) -> list[EffectSpec]:
+    types = re.split(r", or |, | or ", m.group("types"))
+    return [EffectSpec("grant_until", {
+        "target_kind": None, "duration": "end_of_your_next_turn",
+        "static": {"type": "cast_prohibition", "params": {"scope": "all", "spell_types": types}},
+    })]
+
+
+#: Consuming Tide's tail: "then you draw a card for each opponent who has more cards in their hand than you."
+_DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE = _c(
+    r"(?:then )?(?:you )?draws? a card for each opponent who has more cards in their hand than you"
+)
+
+
 #: PAR-147: "<destroy/exile/choose> target <permanent>. **Its controller creates** a <token>." (Contraband Livestock's
 #: results rows, Buy Your Silence, Ravenform, Afterlife, ...). The "its" is the permanent an earlier clause of the
 #: same ability targeted (RULE 608.2h last-known information: it is usually gone by now), so the row is offered only
@@ -18449,6 +18543,14 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("recover_milled", _RECOVER_MILLED_RE, _recover_milled),
     EffectHandler("choose_keep_types", _CHOOSE_KEEP_TYPES_RE, _choose_keep_types),
+    EffectHandler("choose_keep_count", _CHOOSE_KEEP_COUNT_RE, _choose_keep_count),
+    EffectHandler("choose_land_of_each_type", _CHOOSE_LAND_OF_EACH_TYPE_RE, _choose_land_of_each_type),
+    EffectHandler("named_token_per_opponent_creature", _NAMED_TOKEN_PER_OPPONENT_CREATURE_RE,
+                  _named_token_per_opponent_creature),
+    EffectHandler("players_cant_cast_types_until", _PLAYERS_CANT_CAST_TYPES_UNTIL_RE, _players_cant_cast_types_until),
+    EffectHandler("draw_per_opponent_with_more_cards", _DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE,
+                  lambda m: [EffectSpec("draw", {"count": {
+                      "kind": "count_selector", "selector": "opponents_with_more_cards_in_hand"}})]),
     EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive

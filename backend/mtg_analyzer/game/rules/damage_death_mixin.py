@@ -659,6 +659,15 @@ class DamageDeathMixin:
         self._move_to_graveyard(obj, cause="sacrifice")
     def _sacrifice_simultaneously(self, objects: list[GameObject]) -> None:
         """Retain each departing permanent's trigger sources for the batch."""
+        self._remove_simultaneously(
+            [obj for obj in objects if not obj.cant_be_sacrificed_this_turn], self.put_into_graveyard,
+        )
+
+    def _remove_simultaneously(self, objects: list[GameObject], remove) -> None:
+        """Remove every battlefield object in ``objects`` with ``remove`` as one event (sacrifice, destroy, return).
+
+        RULE 603.10a / 608.2e: the batch shares one pre-departure snapshot of trigger sources, so a leaves-the-battlefield
+        trigger sees every other permanent that left with it, whichever the iteration order."""
         from copy import copy
 
         outer = getattr(self.state, "_simultaneous_departure_sources", None)
@@ -675,8 +684,8 @@ class DamageDeathMixin:
         try:
             with self.state.simultaneous():
                 for obj in objects:
-                    if obj.zone == Zone.BATTLEFIELD and not obj.cant_be_sacrificed_this_turn:
-                        self.put_into_graveyard(obj)
+                    if obj.zone == Zone.BATTLEFIELD:
+                        remove(obj)
         finally:
             self.state._simultaneous_departure_sources = outer
 

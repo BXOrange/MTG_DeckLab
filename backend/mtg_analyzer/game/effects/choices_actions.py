@@ -1687,8 +1687,21 @@ class ChoosePlayerObjectsEffect(GameEffect):
     def __init__(self, player_ids=None, chosen_ids=None, then_that_many=None, source=None,
                  player_scope="you_and_defending", action="discard_or_sacrifice", optional=False,
                  card_types_any=None, declined_ids=None, else_effects=None, permanent_filter=None,
-                 else_simultaneous=False, start_with_next_opponent=False, keep_types=None, keep_state=None):
+                 else_simultaneous=False, start_with_next_opponent=False, keep_types=None, keep_state=None,
+                 keep_count=None, keep_up_to=False, rest_action="sacrifice", victim_filter=None,
+                 act_on_chosen=False):
         super().__init__(source)
+        #: MEC-127 "chooses N <permanents> they control, then sacrifices/destroys the rest": one pick of ``keep_count``
+        #: (``keep_up_to`` for "up to N") from the pool instead of one pick per ``keep_types`` category.
+        self.keep_count = keep_count  # validated in `_choose_keepers`, which fails closed on a non-positive/non-int value
+        self.keep_up_to = bool(keep_up_to)
+        #: What happens to the permanents that were not chosen: ``sacrifice`` / ``destroy`` / ``return_to_hand``.
+        self.rest_action = rest_action
+        #: Which permanents the "rest" covers when wider than the pool one chooses from (Urza's Sylex chooses lands but
+        #: destroys every other permanent); ``None`` means the same filter as the pool.
+        self.victim_filter = victim_filter
+        #: Planar Overlay: the chosen permanents (not the rest) are the ones acted on.
+        self.act_on_chosen = bool(act_on_chosen)
         #: "Starting with the next opponent in turn order, each player chooses …" (Sadistic Shell Game) — the seat after the
         #: controller chooses first and the controller last, instead of the usual APNAP order from the active player.
         self.start_with_next_opponent = bool(start_with_next_opponent)
@@ -1715,7 +1728,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
         controller = _controller_of(self.source, context)
         if controller is None:
             return
-        if self.keep_types is not None:
+        if self.keep_types is not None or self.keep_count is not None:
             self._choose_keepers(context, controller.id)
             return
         if self.player_ids is None:
@@ -1819,15 +1832,34 @@ class ChoosePlayerObjectsEffect(GameEffect):
             apply_declined_effects()
 
 
+    #: RULE 305.6: land-type keeper categories (Planar Overlay's "a land of each basic land type"), matched by subtype.
+    KEEP_BASIC_LAND_TYPES = ("plains", "island", "swamp", "mountain", "forest")
+    KEEP_REST_ACTIONS = ("sacrifice", "destroy", "return_to_hand")
+
+    def _keep_params(self, keep_state):
+        return {"action": self.action, "keep_types": self.keep_types, "keep_state": keep_state,
+                "player_scope": self.player_scope, "permanent_filter": self.permanent_filter,
+                "keep_count": self.keep_count, "keep_up_to": self.keep_up_to, "rest_action": self.rest_action,
+                "victim_filter": self.victim_filter, "act_on_chosen": self.act_on_chosen,
+                "player_ids": self.player_ids}
+
     def _choose_keepers(self, context, controller_id):
         from copy import deepcopy
         from .. import combat, continuous, effect_conditions
 
-        allowed = {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
-        if (self.action != "sacrifice_rest" or not self.keep_types
-                or any(not isinstance(kind, str) or kind not in allowed for kind in self.keep_types)
-                or len(set(self.keep_types)) != len(self.keep_types)):
+        allowed = {"artifact", "battle", "creature", "enchantment", "land", "planeswalker",
+                   *self.KEEP_BASIC_LAND_TYPES}
+        counted = self.keep_count is not None
+        if (self.action != "sacrifice_rest" or self.rest_action not in self.KEEP_REST_ACTIONS
+                or counted == bool(self.keep_types)
+                or (counted and (not isinstance(self.keep_count, int) or isinstance(self.keep_count, bool)
+                                 or self.keep_count < 1))
+                or (self.keep_types and (
+                    any(not isinstance(kind, str) or kind not in allowed for kind in self.keep_types)
+                    or len(set(self.keep_types)) != len(self.keep_types)))):
             return  # fail closed: an unknown keeper category cannot sacrifice a board.
+        # A counted keep is one pick over the whole pool (category ``None``); a per-type keep is one pick per category.
+        kinds = [None] if counted else self.keep_types
         frame = deepcopy(self.keep_state)
         if frame is None:
             defender = _defending_player_of(self.source, context)
@@ -1859,44 +1891,65 @@ class ChoosePlayerObjectsEffect(GameEffect):
 
         while frame["player_index"] < len(frame["players"]):
             pid = frame["players"][frame["player_index"]]
-            if frame["type_index"] >= len(self.keep_types):
+            if frame["type_index"] >= len(kinds):
                 frame["player_index"] += 1
                 frame["type_index"] = 0
                 continue
-            kind = self.keep_types[frame["type_index"]]
-            candidates = [obj for obj in current_objects(pid) if kind in continuous.card_types_of(obj)]
+            kind = kinds[frame["type_index"]]
+            if kind is None:
+                candidates = current_objects(pid)
+            elif kind in self.KEEP_BASIC_LAND_TYPES:
+                candidates = [obj for obj in current_objects(pid) if continuous.has_subtype(obj, kind)]
+            else:
+                candidates = [obj for obj in current_objects(pid) if kind in continuous.card_types_of(obj)]
             frame["type_index"] += 1
             if not candidates:
                 continue  # RULE 609.3: choose each available type, even if others are absent.
-            if len(candidates) == 1:
-                obj = candidates[0]
-                frame["kept"][pid].append([obj.instance_id, obj.zone_incarnation])
+            keep_n = self.keep_count if counted else 1
+            if len(candidates) <= keep_n and not (counted and self.keep_up_to):
+                # Nothing to decide: every candidate is chosen ("chooses three" with only two available chooses both).
+                frame["kept"][pid].extend([obj.instance_id, obj.zone_incarnation] for obj in candidates)
                 continue
             # No object moves during selection. A multitype permanent may
             # fill more than one category (RULE 608.2e).
             frame["picked_for"] = pid
             frame["picked"] = {"kind": "chosen_object_visits"}
-            continuation = {"type": "choose_player_objects", "params": {
-                "action": self.action, "keep_types": self.keep_types, "keep_state": frame,
-                "player_scope": self.player_scope, "permanent_filter": self.permanent_filter,
-            }}
+            continuation = {"type": "choose_player_objects", "params": self._keep_params(frame)}
             no_pick = deepcopy(frame)
             no_pick.pop("picked")
             no_pick.pop("picked_for")
-            skipped = {"type": "choose_player_objects", "params": {**continuation["params"], "keep_state": no_pick}}
-            context.choose_objects(context.state.player_by_id(pid), candidates, "select_referent", count=1,
+            skipped = {"type": "choose_player_objects", "params": self._keep_params(no_pick)}
+            context.choose_objects(context.state.player_by_id(pid), candidates, "select_referent", count=keep_n,
                                    source=self.source, then_specs=[continuation], else_specs=[skipped],
-                                   prompt=f"{kind.capitalize()} behalten")
+                                   optional=counted and self.keep_up_to,
+                                   prompt=(f"{keep_n} Permanents behalten" if counted else f"{kind.capitalize()} behalten"))
             return
-        # RULE 608.2e: every player chooses before anyone acts. Sacrifice
-        # only original visits outside the union of that player's keepers.
+        # RULE 608.2e: every player chooses before anyone acts. Act only
+        # on original visits outside the union of that player's keepers
+        # (or, for Planar Overlay, on the keepers themselves).
         victims = []
         for pid in frame["players"]:
             kept = {tuple(visit) for visit in frame["kept"][pid]}
-            victims.extend(obj for obj in current_objects(pid)
-                           if (obj.instance_id, obj.zone_incarnation) not in kept
-                           and not obj.cant_be_sacrificed_this_turn)
-        context.engine._sacrifice_simultaneously(victims)
+            if self.act_on_chosen:
+                victims.extend(obj for obj in current_objects(pid) if (obj.instance_id, obj.zone_incarnation) in kept)
+                continue
+            if self.victim_filter is None:
+                rest = current_objects(pid)
+            else:
+                # The removal can reach beyond the pool one chose from (Urza's Sylex: choose lands, destroy all
+                # other permanents).
+                vfilt = effect_conditions.pin_source_reference(
+                    self.victim_filter, self.source, context.resolving_source_incarnation)
+                rest = [o for o in context.state.permanents_controlled_by(pid)
+                        if combat.matches_object_filter(o, vfilt, reference=self.source, state=context.state)]
+            victims.extend(obj for obj in rest if (obj.instance_id, obj.zone_incarnation) not in kept)
+        if self.rest_action == "sacrifice":
+            context.engine._sacrifice_simultaneously([o for o in victims if not o.cant_be_sacrificed_this_turn])
+        elif self.rest_action == "destroy":
+            # RULE 701.8 / 608.2e: one simultaneous destruction, so each dying permanent sees the others (603.10a).
+            context.engine._remove_simultaneously(victims, context.destroy)
+        else:
+            context.engine._remove_simultaneously(victims, context.return_to_hand)
 
 
 class ConniveEffect(GameEffect):
