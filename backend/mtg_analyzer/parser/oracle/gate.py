@@ -4104,7 +4104,15 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      with it, resolved on resolution; `shares_color_with_reference` filter key), with a trailing "you gain life
 #      equal to the damage dealt this way" as the node's `then_effects`, and "those creatures get ..." as the
 #      per-member previous subject. +9 / -0 (Bathe in Light is hand-authored: one colour pick for the group).
-PARSER_VERSION = "701"
+# 702: MEC-127 -- "each player chooses N <permanents> they control" keep-counts: ", then sacrifices the rest" (Razia's
+#      Purification, Covetous Elegy, Single Combat), ". Destroy the rest" / ". Destroy all other <class>" (Divine
+#      Reckoning, Fall of the First Civilization, Urza's Sylex) and ". Return all <class> not chosen this way to their
+#      owners' hands" (Consuming Tide) as `choose_player_objects` ``keep_count`` / ``keep_up_to`` / ``rest_action`` /
+#      ``victim_filter``; Planar Overlay's land of each basic land type (``act_on_chosen``); and the tails "then you
+#      create a tapped Treasure token for each creature your opponents control", "then you draw a card for each
+#      opponent who has more cards in their hand than you" and "players can't cast <types> spells until the end of
+#      your next turn" (floating `cast_prohibition`). +8 / -0.
+PARSER_VERSION = "702"
 
 
 def parser_source_hash() -> str:

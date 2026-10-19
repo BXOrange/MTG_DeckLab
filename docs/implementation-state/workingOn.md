@@ -42,15 +42,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
-
-## MEC-127 · Keep-N-then-sacrifice edicts
-
-- **Started / last update:** 2026-10-19 / 2026-10-19
-- **Goal of this run:** close MEC-127: keep-count on `ChoosePlayerObjectsEffect`, APNAP choices, simultaneous sacrifice/destroy of the rest, with parser rows, PARSER_VERSION bump and execution tests.
-- **Done (built + tested):** —
-- **In progress:** sizing and primitive check.
-- **Next step:** size the family; read `ChoosePlayerObjectsEffect` (`keep_types`) and its continuation before extending it.
-- **Decisions:** selected by the orchestrator (MEC-125 excluded by user). Ticket filed by user decision 2026-10-19.
-- **Baselines / artefacts:** —
-- **Known failures:** —
-- **Residue:** —

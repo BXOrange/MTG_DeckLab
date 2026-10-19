@@ -2553,6 +2553,9 @@ EffectRegistry.register(
         permanent_filter=p.get("permanent_filter"), else_simultaneous=bool(p.get("else_simultaneous", False)),
         start_with_next_opponent=bool(p.get("start_with_next_opponent", False)),
         keep_types=p.get("keep_types"), keep_state=p.get("keep_state"),
+        keep_count=p.get("keep_count"), keep_up_to=bool(p.get("keep_up_to", False)),
+        rest_action=p.get("rest_action", "sacrifice"), victim_filter=p.get("victim_filter"),
+        act_on_chosen=bool(p.get("act_on_chosen", False)),
     ),
 )
 EffectRegistry.register(

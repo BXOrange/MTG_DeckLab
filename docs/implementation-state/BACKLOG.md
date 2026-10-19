@@ -61,8 +61,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 - **MEC-125 · Cross-game delayed returns.** Model explicit paper-card instructions that carry exiled cards into a later game: persist captured cards and participants, select the qualifying next game and schedule the return by that player's turn index. Size the printed family first (Time Machine); reuse ordinary return/entry effects within the destination game. Current GameState/delayed triggers are game-local; no cross-game return primitive was found. Independent of PAR-157.
 
-- **MEC-127 · Keep-N-then-sacrifice edicts.** "Each player chooses N <permanents> they control, then sacrifices/destroys the rest": add a keep-count to `ChoosePlayerObjectsEffect` (today only per-type `keep_types`), APNAP choices, simultaneous removal. ~8 cards (Razia's Purification, Divine Reckoning, Covetous Elegy, Single Combat, Fall of the First Civilization, Urza's Sylex, Planar Overlay, Consuming Tide). Includes the parser rows.
-
 
 
 
