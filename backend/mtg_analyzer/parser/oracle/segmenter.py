@@ -4338,6 +4338,90 @@ def _exiled_this_way_conditionals(
     return specs
 
 
+#: PAR-132: "<discard/sacrifice ...>. If a [non]land card is discarded this way, <body>." (Lord Windgrace, Civilized Scholar,
+#: Psychic Miasma) and "<discard/sacrifice ...>. <effect> for each [non]land card discarded / permanent sacrificed this way."
+#: (Seasoned Pyromancer, Gerrard's Verdict, Nahiri's Lithoforming, Visions of Ruin). RULE 608.2c: "this way" is exactly what
+#: the first instruction discarded / sacrificed. That is the affected player's later answer, so the window is a
+#: `mark_event_log` position on the source (not a per-resolution list that a `pending_choice` resume would lose); the
+#: `this_way_pool` condition and the `discarded_this_way` / `sacrificed_this_way` amounts read the `DISCARD_CARD` /
+#: `SACRIFICE` events logged after it.
+_THIS_WAY_TYPES = r"(?P<non>non)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)?"
+_THIS_WAY_VERBS = {"discarded": "discard", "sacrificed": "sacrifice"}
+_THIS_WAY_IF_RE = re.compile(
+    rf"^if an? {_THIS_WAY_TYPES} ?(?:card )?(?:was|is) (?P<verb>discarded|sacrificed) this way, (?P<then>.+?)\.?$"
+)
+_THIS_WAY_EACH_RE = re.compile(
+    rf"^(?:then )?(?P<rest>.+?) for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>discarded|sacrificed) this way\.?$"
+)
+_THIS_WAY_EACH_LEAD_RE = re.compile(
+    rf"^for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>discarded|sacrificed) this way, (?P<rest>.+?)\.?$"
+)
+_THIS_WAY_SPLIT_RE = re.compile(
+    r"\.\s+(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:discarded|sacrificed) this way, "
+    r"|for each [a-z ]*(?:discarded|sacrificed) this way, "
+    r"|.+ for each [a-z ]*(?:discarded|sacrificed) this way))"
+)
+
+
+def _announces_real_target(specs: "list[EffectSpec]") -> bool:
+    """Whether any (nested) spec names a RULE 115 target; ``target_kind`` null/"source" is the untargeted self form."""
+    return re.search(
+        r'"target_kind": "(?!source")', json.dumps([spec.to_dict() for spec in specs], default=str),
+    ) is not None
+
+
+def _discarded_this_way_specs(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    if " discarded this way" not in body and " sacrificed this way" not in body:
+        return None
+    parts = _THIS_WAY_SPLIT_RE.split(body)
+    if len(parts) < 2:
+        return None
+    before = parse_effect_body(parts[0].strip().rstrip("."), group_subject=group_subject)
+    if not before:
+        return None
+    before_json = json.dumps([s.to_dict() for s in before], default=str)
+    specs = [EffectSpec("mark_event_log", {}), *before]
+    for sentence in parts[1:]:
+        sentence = sentence.strip()
+        m = _THIS_WAY_IF_RE.match(sentence)
+        each = None
+        if m is None:
+            each = m = _THIS_WAY_EACH_RE.match(sentence) or _THIS_WAY_EACH_LEAD_RE.match(sentence)
+        if m is None or (m.group("non") and not m.group("type")):
+            return None
+        verb = m.group("verb")
+        # The measured verb must be the one the first clause performs ("sacrificed this way" after a discard is not).
+        if f'"type": "{_THIS_WAY_VERBS[verb]}"' not in before_json:
+            return None
+        if each is None:
+            then = parse_effect_body(m.group("then"), self_subject=self_subject, group_subject=group_subject)
+            if not then or any(spec.condition for spec in then) or _announces_real_target(then):
+                return None
+            condition: dict[str, Any] = {"kind": "this_way_pool", "pool": verb}
+            if m.group("type"):
+                condition["card_type"] = m.group("type")
+                if m.group("non"):
+                    condition["negate"] = True
+            specs += [EffectSpec(spec.type, dict(spec.params), condition=condition) for spec in then]
+            continue
+        amount: dict[str, Any] = {"kind": f"{verb}_this_way"}
+        if m.group("type"):
+            amount["card_type"] = m.group("type")
+            if m.group("non"):
+                amount["negate"] = True
+        bound = _bound_for_each_amount(
+            m, amount, self_subject=self_subject, previous_subject=False,
+            group_subject=group_subject, previous_selector=False,
+        )
+        # A `bind` only scales effects whose factory reads a ``$n`` count (a `sacrifice` count is a plain int).
+        if bound is None or _announces_real_target(bound) or '"type": "sacrifice"' in json.dumps(
+                [s.to_dict() for s in bound], default=str):
+            return None
+        specs += bound
+    return specs
+
 
 def _bound_for_each_amount(
     match: "re.Match[str]", amount: dict[str, Any], *, self_subject: bool,
@@ -6294,6 +6378,10 @@ def _parse_effect_body_inner(
     any_number_this_way = _any_number_this_way_specs(body, self_subject=self_subject, group_subject=group_subject)
     if any_number_this_way is not None:
         return any_number_this_way
+
+    discarded_this_way = _discarded_this_way_specs(body, self_subject=self_subject, group_subject=group_subject)
+    if discarded_this_way is not None:
+        return discarded_this_way
 
     exile_x_for_each = _EXILE_X_GY_FOR_EACH_CREATE_RE.match(body)
     if exile_x_for_each is not None:

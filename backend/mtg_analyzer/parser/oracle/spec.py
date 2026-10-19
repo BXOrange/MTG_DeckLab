@@ -253,6 +253,7 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
+    "negate": bool,  # PAR-132 `discarded_this_way`: count the cards that do NOT have ``card_type``
     "won": bool,  # RULE 705: the `coin_flips` amount counts won (True) or lost (False) flips
     # RULE 706: the `die_results` amount counts the kept dice of the last roll by ``which`` (even / odd / different /
     # equal ``value`` / all).

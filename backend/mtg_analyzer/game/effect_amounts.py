@@ -164,6 +164,10 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "moved_count",  # + optional ``card_type``
         "created_count",  # actual preceding creations/exiles in this resolution
         "damaged_creatures_since_mark",  # actual damage after mark_event_log
+        # PAR-132: cards discarded since `mark_event_log` -- "for each nonland card discarded this way" (Seasoned
+        # Pyromancer, Gerrard's Verdict); optional ``card_type`` (+ ``negate``) narrows by card type.
+        "discarded_this_way",
+        "sacrificed_this_way",  # the same over `SACRIFICE` events (Nahiri's Lithoforming, Visions of Ruin)
         # The larger of two measurements — ``left`` / ``right`` are themselves amounts.
         "greater_of",
         # "the difference between that creature's power and its toughness" (Jaws of Defeat) — |left - right|.
@@ -366,6 +370,10 @@ def _base(
             else:
                 total += int(getattr(obj, characteristic, 0) or 0)
         return total
+
+    if kind in ("discarded_this_way", "sacrificed_this_way"):
+        return len(discarded_this_way(
+            context, source, amount.get("card_type"), bool(amount.get("negate")), kind.split("_")[0]))
 
     if kind == "damaged_creatures_since_mark":
         start = getattr(source, "window_event_mark", len(context.state.event_log))
@@ -627,3 +635,26 @@ def amount_of(
     if isinstance(maximum, int) and not isinstance(maximum, bool):
         value = min(value, maximum)
     return value
+
+
+#: "<verb>ed this way" pools by name -> the event each member is logged as (RULE 701.8 discard, RULE 701.17 sacrifice).
+THIS_WAY_EVENTS: dict[str, str] = {"discarded": "DISCARD_CARD", "sacrificed": "SACRIFICE"}
+
+
+def discarded_this_way(
+    context: "GameContext", source: Any, card_type: Optional[str] = None, negate: bool = False,
+    pool: str = "discarded",
+) -> list[Any]:
+    """The ``DISCARD_CARD`` / ``SACRIFICE`` events (``pool``) logged since the source's `MarkEventLogEffect` window opened
+    (RULE 608.2c: "this way" is exactly what the instruction before it discarded / sacrificed). The window lives on the
+    source rather than on the resolution's `GameContext`, so it survives the `pending_choice` pause of a discard or
+    sacrifice the affected player answers later. ``card_type`` keeps objects whose type words include it (``negate``:
+    lack it)."""
+    mark = getattr(source, "window_event_mark", None)
+    start = len(context.state.event_log) if mark is None else int(mark)  # no window opened: nothing is "this way"
+    wanted = str(card_type or "").lower()
+    kind = THIS_WAY_EVENTS[pool]
+    events = [e for e in context.state.event_log[start:] if e.type == kind]
+    if not wanted:
+        return events
+    return [e for e in events if (wanted in (e.get("object_types") or ())) != negate]

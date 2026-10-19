@@ -420,6 +420,13 @@ def _context_holds(
     if kind == "this_way_pool":
         from .continuous import card_types_of  # function-scoped: continuous imports this package
 
+        if condition.get("pool") in ("discarded", "sacrificed"):
+            # RULE 608.2c: the cards the `mark_event_log`-opened window saw discarded (survives a pending choice).
+            from .effect_amounts import discarded_this_way  # function-scoped: effect_amounts imports this module
+
+            return bool(discarded_this_way(
+                context, source, condition.get("card_type"), bool(condition.get("negate")),
+                str(condition["pool"])))
         pool = {"exiled": "exiled_objects", "destroyed": "destroyed_objects"}.get(str(condition.get("pool")))
         if pool is None:
             return None

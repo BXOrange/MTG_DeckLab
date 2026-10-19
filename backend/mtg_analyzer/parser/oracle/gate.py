@@ -4051,7 +4051,12 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      becomes-the-target bodies "counter that spell or ability" (`CounterSpellEffect` ``target_from_trigger_event=
 #      "stack_id"``) / "that spell or ability's controller sacrifices a land of their choice" (marker
 #      `event_player_events`, same antecedent check as v688).
-PARSER_VERSION = "690"
+# 691: PAR-132 -- "<discard/sacrifice ...>. If a [non]land card is discarded this way, <body>" and "<...>. <effect> for each
+#      [non]<type> discarded / sacrificed this way": a `mark_event_log` window on the source (survives the affected
+#      player's pending choice) read by the `this_way_pool` condition (pools ``discarded`` / ``sacrificed``) and the new
+#      `discarded_this_way` / `sacrificed_this_way` amounts (Lord Windgrace, Civilized Scholar, Psychic Miasma,
+#      Seasoned Pyromancer, Gerrard's Verdict, Visions of Ruin, Voracious Fell Beast). +7 / -0.
+PARSER_VERSION = "691"
 
 
 def parser_source_hash() -> str:
