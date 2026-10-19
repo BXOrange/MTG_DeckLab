@@ -1498,8 +1498,10 @@ class GameObject:
         without adding correctness. Likewise leaves `triggered_abilities`/
         `activated_abilities`/`static_effects`/`intrinsic_keywords`/
         `parametric_keywords` alone: they're bound once from the card's own
-        printed text and would come back byte-identical from a re-bind, so
-        there's nothing to "forget" there — same reasoning `reset_derived`'s
+        printed text and would come back byte-identical from a re-bind.
+        If resetting exposes a different printed face, rebuild those lists
+        from that front face instead. Otherwise there's nothing to "forget"
+        there — same reasoning `reset_derived`'s
         `_granted_*`/`_derived_*` fields already get via the next
         `continuous.recompute` pass rather than an explicit clear here.
         """
@@ -1514,14 +1516,14 @@ class GameObject:
 
             restore_face(self, self._copy_zone_base)
             self._copy_zone_base = None
-        was_flipped = self.flipped
+        was_other_face = self.transformed or self.flipped
         if self.transformed or self.flipped:
             self.card = self._front_card  # RULE 711.8 / 710.4: a new object presents its front face
         self._front_card = self.card
         self.transformed = False
         self.flipped = False
-        if was_flipped:
-            # RULE 110.5 / 710.4: the flipped half's abilities were bound onto this object, so the front's must
+        if was_other_face:
+            # RULE 400.7 / 712.14: the other face's abilities were bound onto this object, so the front's must
             # replace them now (a bound-once ability list is otherwise only rebuilt by an explicit bind).
             from ...game.binding.core import bind_from_catalogue  # function-scoped: models/ must not import game/ at load
 

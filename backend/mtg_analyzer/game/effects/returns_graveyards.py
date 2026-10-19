@@ -1192,6 +1192,9 @@ class ReturnFromGraveyardEffect(GameEffect):
                         self._apply_one(context, card)
             return
         if self.previous_subject:
+            if self.destination == 'battlefield':
+                self._return_battlefield_batch(context, list(context.previous_targets))
+                return
             with context.state.simultaneous():
                 for obj in list(context.previous_targets):
                     if getattr(obj, "zone", None) == Zone.GRAVEYARD:

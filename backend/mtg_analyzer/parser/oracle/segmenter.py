@@ -1682,6 +1682,26 @@ _AND_CONNECTOR = r"\s+and\s+"
 _CONNECTORS: tuple[str, ...] = (
     r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, _AND_CONNECTOR,
 )
+
+
+def _split_effect_connector(body: str, separator: str) -> list[str]:
+    """Keep a quoted ability intact while splitting the surrounding effects."""
+    spans = [(m.start(), m.end()) for m in re.finditer(separator, body)
+             if body[:m.start()].count('"') % 2 == 0]
+    if separator == _CONNECTORS[0]:
+        # A quoted ability's final period also ends its
+        # enclosing sentence; retain the closing quote in that first part.
+        spans.extend((m.start() + 1, m.end()) for m in re.finditer(r'(?<=\.)"\s+', body)
+                     if body[:m.start()].count('"') % 2 == 1)
+    parts = []
+    start = 0
+    for left, right in sorted(spans):
+        if left < start:
+            continue
+        parts.append(body[start:left])
+        start = right
+    parts.append(body[start:])
+    return [part for part in parts if part.strip()]
 #: "**target player|opponent** draws a card" … "and **loses** 2 life": a third-person-singular verb opening a
 #: later "and" part has no subject of its own (the bare "lose" of "you draw and lose" is the controller's).
 _ELIDED_TARGET_LOSS_RE = re.compile(r"\b(?:other|another)\b", re.IGNORECASE)
@@ -6264,7 +6284,7 @@ def _parse_effect_body_inner(
         # across "…, if you do, X, it gains …" it would leave the later clauses outside the gate.
         if sep is _PRONOUN_COMMA_CONNECTOR and re.search(r"\b(?:if|when) you (?:do|don't),", body, re.I):
             continue
-        parts = [p for p in re.split(sep, body) if p.strip()]
+        parts = _split_effect_connector(body, sep)
         if len(parts) > 1:
             collected: list[EffectSpec] = []
             ok = True

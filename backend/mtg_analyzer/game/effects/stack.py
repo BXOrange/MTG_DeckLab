@@ -1238,7 +1238,7 @@ class MillEffect(GameEffect):
         elif self.target_spec is not None:
             player = targets[0] if targets else None
         else:
-            player = context.active_player
+            player = _controller_of(self.source, context)
         if player is None:
             return
         count = self._measured(self.count, context, targets)

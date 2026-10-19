@@ -4120,7 +4120,7 @@ class MiscSystemsMixin:
         # (`GameContext.previous_targets`), exactly as a targeted clause's targets would be.
         outer_previous = getattr(self.context, "previous_targets", [])
         picked_objects = [o for o in (self.state.find_object(i) for i in chosen_ids or []) if o is not None]
-        if picked_objects:
+        if chosen_ids is not None:
             self.context.previous_targets = picked_objects
         try:
             self._apply_effect_specs(list(then_specs or []), source)
@@ -4195,6 +4195,10 @@ class MiscSystemsMixin:
             "count": count,
             "optional": optional,
             "picked": list(picked),
+            # RULE 400.7: a pure selection names the offered visit even
+            # while subsequent picks or an undo snapshot are pending.
+            "selection_visits": ({str(o.instance_id): o.zone_incarnation for o in pool}
+                                 if action == "select_referent" else None),
             "remaining": remaining,
             "prompt": f"{label} (noch {remaining})" if count > 1 else label,
             "prompt_base": label,
@@ -4267,6 +4271,11 @@ class MiscSystemsMixin:
             self.state.pending_choice = choice
             raise ValueError("This choice is mandatory")
         offered = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
+        visits = choice.get("selection_visits")
+        if visits is not None:
+            offered = {iid for iid in offered
+                       if (obj := self._object_by_instance_id(iid)) is not None
+                       and obj.zone_incarnation == visits.get(str(iid))}
         if instance_id is not None:
             if instance_id not in offered:
                 # resolve_choice claims the continuation before dispatch;
@@ -4353,7 +4362,9 @@ class MiscSystemsMixin:
                         choice.get("then_specs_if_commander"), commander_taken,
                         choice.get("then_that_many"),
                         picked_measure if (choice.get("then_that_many") or {}).get("measure") else len(picked),
-                        chosen_ids=picked,
+                        chosen_ids=[iid for iid in picked if visits is None or
+                                    ((obj := self._object_by_instance_id(iid)) is not None
+                                     and obj.zone_incarnation == visits.get(str(iid)))],
                     )
                 elif choice.get("else_specs"):
                     # "If you don't, incubate 3." (Traumatic Revelation) — the
@@ -4385,6 +4396,7 @@ class MiscSystemsMixin:
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["source_incarnation"] = choice.get("source_incarnation")
+        next_choice["selection_visits"] = choice.get("selection_visits")
         next_choice["commander_taken"] = commander_taken
         next_choice["picked_measure"] = picked_measure
         next_choice["picked_card_types"] = [sorted(types) for types in picked_card_types]
@@ -4397,6 +4409,9 @@ class MiscSystemsMixin:
             self._object_by_instance_id(o["instance_id"])
             for o in choice["options"]
             if "instance_id" in o and o["instance_id"] not in picked
+            and (choice.get("selection_visits") is None or
+                 ((obj := self._object_by_instance_id(o["instance_id"])) is not None
+                  and obj.zone_incarnation == choice["selection_visits"].get(str(obj.instance_id))))
         ]
     def _object_by_instance_id(self, instance_id: Optional[int]) -> Optional[GameObject]:
         """Any `GameObject` anywhere in the game, by id — the reverse lookup

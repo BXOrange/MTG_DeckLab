@@ -2245,6 +2245,38 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+# A mill's captured pool composes with ordinary selection and return effects.
+_RECOVER_MILLED_RE = _c(
+    r"(?P<may>you may )?put (?P<quant>an?|up to \d+|all|any number of) "
+    r"(?P<what>.+? cards?) from among the milled cards "
+    r"(?P<dest>into your hand|onto the battlefield|on top of your library)"
+    r"(?P<control> under your control)?"
+)
+
+
+def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .characteristic_phrase import parse_object_phrase
+
+    parsed = parse_object_phrase(m.group("what"), plural=True)
+    if parsed is None or parsed[1] is not None:
+        return None
+    destination = {"into your hand": "hand", "onto the battlefield": "battlefield",
+                   "on top of your library": "library_top"}[m.group("dest")]
+    if m.group("control") and destination != "battlefield":
+        return None
+    quant = m.group("quant")
+    count = int(quant.split()[-1]) if quant.startswith("up to ") else "all" if quant in {"all", "any number of"} else 1
+    return [EffectSpec("choose_objects", {
+        "action": "select_referent", "what": "card", "pool_zone": "milled",
+        "permanent_filter": parsed[0], "count": count,
+        "optional": bool(m.group("may")) or quant.startswith("up to ") or quant == "any number of",
+        "then": [{"type": "return_from_graveyard", "params": {
+            "previous_subject": True, "destination": destination,
+            "under_your_control": destination == "battlefield",
+        }}],
+    })]
+
+
 # Per-type keeper choices share one pool and sacrifice its complement.
 _CHOOSE_KEEP_TYPES_RE = _c(
     r"(?P<who>each player|each opponent) chooses (?P<choices>an? [a-z]+(?:(?:, |,? and )an? [a-z]+)*) "
@@ -4917,13 +4949,23 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: Effect`'s existing ``duration="end_of_turn"`` resolve-time shape
 #: instead of a standing layer-6 static.
 _GRANT_QUOTED_ABILITY_UNTIL_EOT_RE = _c(
-    r"until end of turn, target creature gains \"(?P<inner>.+)\""
+    r"until end of turn, (?P<subject>target creature|[a-z ]+) gains? \"(?P<inner>.+)\""
 )
 
 
 def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from .static_handlers import _quoted_ability_grant_effects  # local: avoid a module cycle
 
+    if m.group("subject") != "target creature":
+        from .static_handlers import static_effect_specs
+        grants = static_effect_specs(f'{m.group("subject")} have "{m.group("inner")}"')
+        if not grants or any(s.type not in {"grant_triggered_ability", "grant_activated_ability",
+                                           "grant_mana_ability"} for s in grants):
+            return None
+        return [EffectSpec("grant_until", {
+            "static": grants[0].to_dict(), "extra_statics": [s.to_dict() for s in grants[1:]],
+            "duration": "end_of_turn", "target_kind": None, "lock_group": True,
+        })]
     grant = _quoted_ability_grant_effects(m.group("inner"))
     if grant is None:
         return None
@@ -18080,6 +18122,7 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:you )?draws? {COUNT} cards? at the beginning of the next turn's upkeep"),
         _draw_next_upkeep,
     ),
+    EffectHandler("recover_milled", _RECOVER_MILLED_RE, _recover_milled),
     EffectHandler("choose_keep_types", _CHOOSE_KEEP_TYPES_RE, _choose_keep_types),
     EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
     # PAR-13: "exile the top N cards of your library. you may play them

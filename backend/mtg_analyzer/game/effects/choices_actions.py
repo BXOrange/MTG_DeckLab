@@ -1504,6 +1504,11 @@ class ChooseObjectsEffect(GameEffect):
                     else context.state.permanents_controlled_by(pool_player.id) if pool_player else [])
         elif self.pool_zone in {"graveyard", "hand"}:
             pool = getattr(pool_player, self.pool_zone) if pool_player else []
+        elif self.pool_zone == "milled":
+            # RULE 701.17: only this mill instruction's actual graveyard
+            # arrivals, not a fresh scan of the player's graveyard.
+            pool = [obj for obj in (getattr(context, "milled_objects", None) or [])
+                    if obj.zone == Zone.GRAVEYARD]
         else:
             raise ValueError(f"Unknown choice pool zone: {self.pool_zone}")
         candidates = [

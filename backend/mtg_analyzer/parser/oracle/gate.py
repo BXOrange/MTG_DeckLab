@@ -4039,7 +4039,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 # 655: MEC-119 -- Warp costs come from the card's standalone keyword line,
 #      never a preceding grant or an incompletely supported non-mana cost.
 # 656: MEC-119 -- fail closed when a native Warp cost cannot be carried.
-PARSER_VERSION = "684"
+PARSER_VERSION = "685"
 
 
 def parser_source_hash() -> str:
