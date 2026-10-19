@@ -132,6 +132,15 @@ class CounterSpellEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         on_pay = self.on_pay_effect_specs or None
         unless_pays = self._unless_pays_cost(context)
+        if self.target_from_trigger_event == "stack_id":
+            # RULE 701.5 / 115.9: "counter that spell or ability" under a becomes-the-target head names the stack
+            # item that targeted -- a spell or an ability, found by the event's ``stack_id`` (an ability has no
+            # `GameObject` to look up). Gone from the stack already: nothing to counter.
+            event = context.trigger_event or {}
+            item = next((i for i in context.state.stack if i.stack_id == event.get("stack_id")), None)
+            if item is not None:
+                self._counter_one(context, item, unless_pays, on_pay)
+            return
         if self.target_from_trigger_event:
             event = context.trigger_event or {}
             instance_id = event.get(self.target_from_trigger_event)

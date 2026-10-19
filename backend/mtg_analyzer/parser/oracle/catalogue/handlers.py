@@ -9132,6 +9132,37 @@ _COUNTER_UNLESS_PAY_RE = _c(
 )
 
 
+#: PAR-132: "counter that spell or ability." under a becomes-the-target head (Glyph Keeper, the Glasskites): the stack
+#: item that targeted is the firing BECOMES_TARGET event's ``stack_id`` (`CounterSpellEffect`). Any other head has no
+#: such antecedent, so the marker `gate._event_player_antecedent_ok` checks keeps the clause unclaimed there.
+_COUNTER_THAT_SPELL_OR_ABILITY_RE = _c(r"counter that spell or ability")
+
+
+def _counter_that_spell_or_ability(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("counter", {
+        "target_from_trigger_event": "stack_id", EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],
+    })]
+
+
+#: "~ becomes the target of a spell or ability, **that spell or ability's controller** sacrifices a land of their
+#: choice." (Lava Runner): the targeting object's controller is the event's ``player_id``.
+_SPELL_CONTROLLER_SACRIFICES_RE = _c(
+    rf"that spell or ability's controller sacrifices (?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
+    rf"(?P<what>{'|'.join(_SACRIFICE_EDICT_WHAT_WORDS)})s? of their choice"
+)
+
+
+def _spell_controller_sacrifices(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("nontoken"):
+        return None
+    what = _SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
+    count = 1 if m.group("count") in ("a", "an") else int(m.group("count"))
+    return [EffectSpec("sacrifice", {
+        "what": what, "count": count, "player": {"of": "event_player"},
+        EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],
+    })]
+
+
 def _counter_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
     verb = "pay" if m.group("verb") == "pays" else "discard"
     return [EffectSpec("counter_unless_pay", {"cost": f"{verb} {m.group('amount')}"})]
@@ -19833,6 +19864,8 @@ HANDLERS: list[EffectHandler] = [
         _COUNTER_UNLESS_PAY_RE,
         _counter_unless_pay,
     ),
+    EffectHandler("counter_that_spell_or_ability", _COUNTER_THAT_SPELL_OR_ABILITY_RE, _counter_that_spell_or_ability),
+    EffectHandler("spell_controller_sacrifices", _SPELL_CONTROLLER_SACRIFICES_RE, _spell_controller_sacrifices),
     EffectHandler(
         "counter_target_spell_unless_discard_hand",
         _COUNTER_TARGET_SPELL_UNLESS_DISCARD_HAND_RE,

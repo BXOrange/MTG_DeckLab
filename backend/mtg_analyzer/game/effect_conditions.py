@@ -150,6 +150,10 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
         "milled_land_this_way",
+        # PAR-132 -- "if a creature card was exiled this way" / "if a noncreature card is exiled this way": a card
+        # this resolution's `exile` / `destroy` moved (`GameContext.exiled_objects` / `destroyed_objects`) has
+        # (or, with ``negate``, lacks) the card type ``card_type``; no ``card_type`` accepts any moved object.
+        "this_way_pool",
         # Grab the Prize — the card discarded as this spell's additional cost had the card type ``card_type``.
         "discarded_cost_card_is",
         # Demonic Covenant — two of the cards this resolution's mill moved have exactly the same set of card types.
@@ -412,6 +416,19 @@ def _context_holds(
         if source is None:
             return None
         return str(condition.get("card_type", "")).lower() in (getattr(source, "discarded_cost_card_types", None) or [])
+
+    if kind == "this_way_pool":
+        from .continuous import card_types_of  # function-scoped: continuous imports this package
+
+        pool = {"exiled": "exiled_objects", "destroyed": "destroyed_objects"}.get(str(condition.get("pool")))
+        if pool is None:
+            return None
+        card_type = str(condition.get("card_type") or "").lower()
+        negate = bool(condition.get("negate"))
+        return any(
+            not card_type or ((card_type in card_types_of(obj)) != negate)
+            for obj in getattr(context, pool, None) or []
+        )
 
     if kind == "milled_land_this_way":
         milled = getattr(context, "milled_objects", None)

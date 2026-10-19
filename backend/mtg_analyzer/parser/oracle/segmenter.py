@@ -4198,6 +4198,147 @@ def _bound_pump_for_each(spec: EffectSpec, amount: dict[str, Any]) -> "Optional[
     })]
 
 
+#: PAR-132: "<Tap/Sacrifice/Return/Discard> any number of `<what>`. `<body>` for each `<what>` `<verb>ed` this way."
+#: (Harmony of Nature, Minas Tirith Garrison, Charge Across the Araba, Mind Maggots, ...). RULE 608.2c: "this way"
+#: names the objects the first instruction actually acted on, so the pick and its payoff are one `choose_objects`
+#: whose ``then_that_many`` body is bound to how many were picked (the "x" sentinel, `_substitute_x_specs`) --
+#: the body is the ordinary "for each" bind over that count. The pool noun must be the counted noun, so "for each
+#: *other* thing" never aliases the pick.
+_THIS_WAY_PAST = {"tap": "tapped", "sacrifice": "sacrificed", "return": "returned", "discard": "discarded"}
+_THIS_WAY_PICK_ACTION = {"tap": "tap", "sacrifice": "sacrifice", "return": "return_to_hand", "discard": "discard"}
+_ANY_NUMBER_LEAD = (
+    r"(?:you may )?(?P<verb>tap|sacrifice|return|discard) any number of (?P<what>[a-z ]+?)"
+    r"(?: to (?:its owner's|their owner's|their owners') hands?)?"
+)
+_ANY_NUMBER_THIS_WAY_TRAILING_RE = re.compile(
+    rf"^{_ANY_NUMBER_LEAD}\.\s*(?P<rest>[^.]+?),? for each (?P<noun>[a-z ]+?) (?P<past>[a-z]+) this way\.?$"
+)
+_ANY_NUMBER_THIS_WAY_LEADING_RE = re.compile(
+    rf"^{_ANY_NUMBER_LEAD}\.\s*for each (?P<noun>[a-z ]+?) (?P<past>[a-z]+) this way, (?P<rest>[^.]+?)\.?$"
+)
+#: The pick-pool characteristics a `choose_objects` ``permanent_filter`` can carry for this family.
+_THIS_WAY_FILTER_KEYS = frozenset({"card_type", "subtype"})
+
+
+#: "Discard your hand[, then draw N cards]." (Pyretic Charge, Malfegor): the whole hand is the pick, so it is the
+#: any-number pick made mandatory and complete; the redraw runs after the discard and its tally.
+_DISCARD_HAND_LEAD_RE = re.compile(
+    r"^discard (?:your hand|all the cards in your hand)(?:, then draw (?P<draw>\d+) cards)?\.\s*"
+)
+
+
+def _any_number_this_way_specs(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    whole_hand = _DISCARD_HAND_LEAD_RE.match(body)
+    if whole_hand is not None:
+        specs = _any_number_this_way_specs(
+            "discard any number of cards. " + body[whole_hand.end():], self_subject=self_subject,
+            group_subject=group_subject,
+        )
+        if specs is None:
+            return None
+        pick = EffectSpec("choose_objects", {**specs[0].params, "optional": False})
+        draw = whole_hand.group("draw")
+        return [pick] + ([EffectSpec("draw", {"count": int(draw)})] if draw else [])
+    m = _ANY_NUMBER_THIS_WAY_TRAILING_RE.match(body) or _ANY_NUMBER_THIS_WAY_LEADING_RE.match(body)
+    if m is None:
+        return None
+    verb = m.group("verb")
+    if m.group("past") != _THIS_WAY_PAST[verb]:
+        return None
+    what = m.group("what")
+    from_hand = verb == "discard"
+    # The pool is the controller's own permanents ("you control") or, for a discard, their hand ("cards").
+    if from_hand:
+        if not what.endswith(" cards") and what != "cards":
+            return None
+        pool_phrase = what
+    elif what.endswith(" you control"):
+        pool_phrase = what[: -len(" you control")]
+    elif verb == "sacrifice":
+        pool_phrase = what  # "sacrifice any number of creatures": always the controller's own
+    else:
+        return None
+    untapped = pool_phrase.startswith("untapped ")
+    if untapped != (verb == "tap"):
+        return None
+    pool_phrase = pool_phrase.removeprefix("untapped ")
+    pool = parse_count_phrase(pool_phrase)
+    counted = parse_count_phrase(m.group("noun"))
+    if pool is None or counted is None:
+        return None
+    pool_filter = dict(pool.get("filter") or {})
+    # Every pick is in the pool, so a counted noun that is the pool's own or broader ("for each card discarded"
+    # after "any number of creature cards") counts exactly the picks; a narrower one would not.
+    counted_filter = dict(counted.get("filter") or {})
+    if set(pool_filter) - _THIS_WAY_FILTER_KEYS or (counted_filter and counted_filter != pool_filter):
+        return None
+    bound = _bound_for_each_amount(
+        re.match(r"(?P<rest>.+)", m.group("rest").strip()), {"kind": "fixed", "amount": "x"},
+        self_subject=self_subject, previous_subject=False, group_subject=group_subject, previous_selector=False,
+    )
+    if bound is None or len(bound) != 1 or '"target_kind"' in json.dumps(bound[0].to_dict(), default=str):
+        return None
+    params: dict[str, Any] = {
+        "action": _THIS_WAY_PICK_ACTION[verb], "what": "permanent", "count": "all", "optional": True,
+        "then_that_many": {"effects": [bound[0].to_dict()]},
+    }
+    if pool_filter:
+        params["permanent_filter"] = pool_filter
+    if verb == "tap":
+        params["require_untapped"] = True
+    if from_hand:
+        params["pool_zones"] = ["hand"]
+    return [EffectSpec("choose_objects", params)]
+
+
+
+#: PAR-132: "<exile ...>. If a [non]creature card was exiled this way, <body>." (Diregraf Scavenger, Mastermind Plum,
+#: Raven Eagle, Deathgorge Scavenger's pair). RULE 608.2c: "this way" is what the first instruction actually exiled
+#: (`GameContext.exiled_objects`), so each conditional sentence rides the new ``this_way_pool`` condition; an exile
+#: that finds nothing (an empty graveyard, a declined "you may") leaves the pool empty and the body unrun.
+_EXILED_THIS_WAY_SENTENCE_RE = re.compile(
+    r"^if an? (?P<non>non)?(?P<type>creature|artifact|land|enchantment|planeswalker)? ?card "
+    r"(?:was|is) exiled this way, (?P<then>.+?)\.?$"
+)
+_EXILED_THIS_WAY_SPLIT_RE = re.compile(r"\.\s+(?=if an? [a-z]+ card (?:was|is) exiled this way, )")
+
+
+def _exiled_this_way_conditionals(
+    body: str, *, self_subject: bool, group_subject: bool,
+) -> "Optional[list[EffectSpec]]":
+    if " exiled this way, " not in body:
+        return None
+    parts = _EXILED_THIS_WAY_SPLIT_RE.split(body)
+    if len(parts) < 2:
+        return None
+    before = parse_effect_body(parts[0].strip().rstrip(".") , group_subject=group_subject)
+    if not before or not any(
+        spec.type == "exile" or (spec.type == "optional" and any(
+            inner.get("type") == "exile" for inner in spec.params.get("effects") or []))
+        for spec in before
+    ):
+        return None
+    specs = list(before)
+    for sentence in parts[1:]:
+        m = _EXILED_THIS_WAY_SENTENCE_RE.match(sentence.strip())
+        if m is None or (m.group("non") and not m.group("type")):
+            return None
+        then = parse_effect_body(m.group("then"), self_subject=self_subject, group_subject=group_subject)
+        if not then or any(spec.condition for spec in then) or '"target_kind"' in json.dumps(
+                [spec.to_dict() for spec in then], default=str):
+            return None
+        condition: dict[str, Any] = {"kind": "this_way_pool", "pool": "exiled"}
+        if m.group("type"):
+            condition["card_type"] = m.group("type")
+            if m.group("non"):
+                condition["negate"] = True
+        specs += [EffectSpec(spec.type, dict(spec.params), condition=condition) for spec in then]
+    return specs
+
+
+
 def _bound_for_each_amount(
     match: "re.Match[str]", amount: dict[str, Any], *, self_subject: bool,
     previous_subject: bool, group_subject: bool, previous_selector: bool,
@@ -6145,6 +6286,14 @@ def _parse_effect_body_inner(
         if after_specs is None or not any(s.type == "copy_permanent" for s in after_specs):
             return None
         return before_specs + after_specs
+
+    exiled_this_way = _exiled_this_way_conditionals(body, self_subject=self_subject, group_subject=group_subject)
+    if exiled_this_way is not None:
+        return exiled_this_way
+
+    any_number_this_way = _any_number_this_way_specs(body, self_subject=self_subject, group_subject=group_subject)
+    if any_number_this_way is not None:
+        return any_number_this_way
 
     exile_x_for_each = _EXILE_X_GY_FOR_EACH_CREATE_RE.match(body)
     if exile_x_for_each is not None:

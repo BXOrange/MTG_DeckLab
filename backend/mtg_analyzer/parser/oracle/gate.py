@@ -4043,7 +4043,15 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      resolution's own destroyed/exiled objects; "its controller creates" reads the loop item), and
 #      "that player / that spell or ability's controller" under a becomes-the-target head (marker
 #      `event_player_events`, checked by `_event_player_antecedent_ok`). +8 / -0.
-PARSER_VERSION = "688"
+# 689: PAR-132 -- "<tap/sacrifice/return/discard> any number of X. <body> for each X <verb>ed this way" (one
+#      `choose_objects` pick whose `then_that_many` body is the for-each bind over how many were picked), and
+#      "<exile ...>. If a [non]creature card was exiled this way, <body>" (new `this_way_pool` condition over
+#      `GameContext.exiled_objects`).
+# 690: PAR-132 -- "discard your hand[, then draw N]. ... for each card discarded this way" on the same pick, and the
+#      becomes-the-target bodies "counter that spell or ability" (`CounterSpellEffect` ``target_from_trigger_event=
+#      "stack_id"``) / "that spell or ability's controller sacrifices a land of their choice" (marker
+#      `event_player_events`, same antecedent check as v688).
+PARSER_VERSION = "690"
 
 
 def parser_source_hash() -> str:

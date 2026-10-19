@@ -201,6 +201,7 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "min": int, "max": int, "amount": int, "min_power": int,
     "zone": str, "incarnation": int,
     "colors": list, "types": list,
+    "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
 
 #: The literal placeholders for a spell's announced {X} (RULE 107.3) that may sit in
