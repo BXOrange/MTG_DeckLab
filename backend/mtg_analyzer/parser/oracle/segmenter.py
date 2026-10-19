@@ -5644,6 +5644,13 @@ def parse_effect_body(
     physical_fight = physical_fight_specs(body)
     if physical_fight is not None:
         return physical_fight
+    from .catalogue.target_groups import target_group_specs
+    target_group = target_group_specs(body, lambda text: parse_effect_body(
+        text, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    ))
+    if target_group is not None:
+        return target_group
     from .catalogue.fight_sequences import fight_sequence_specs, source_counter_fight_specs
     fight_sequence = fight_sequence_specs(body) or source_counter_fight_specs(body)
     if fight_sequence is not None:

@@ -659,6 +659,110 @@ class ForEachEffect(_CompositeEffect):
             context.engine.resume_deferred_effects()
 
 
+#: `TargetGroupEffect.shares` vocabulary → the `combat.matches_object_filter` relative key that implements it.
+#: Closed like every other whitelisted name; an unlisted word makes the node do nothing (fail closed).
+TARGET_GROUP_SHARES: dict[str, str] = {"color": "shares_color_with_reference"}
+
+#: The `TargetGroupEffect.then_effects` sentinel for the total damage the group's loop actually dealt
+#: ("You gain life equal to the damage dealt this way" — Brightflame). Substituted like a `bind` name.
+DAMAGE_DEALT_SENTINEL = "$damage_dealt"
+
+
+def shared_characteristic_group(
+    context: GameContext, seed: Any, shares: str, filt: Optional[dict[str, Any]] = None,
+) -> list[Any]:
+    """``seed`` plus every *other* battlefield object matching ``filt`` that shares the ``shares``
+    characteristic with it (RULE 105.2 colour) — "target X and each other Y that shares a color with it".
+    The seed leads the list; an unlisted ``shares`` word or a non-object seed gives ``[]`` (fail closed)."""
+    from .. import combat  # function-scoped: combat imports effects lazily too
+
+    key = TARGET_GROUP_SHARES.get(shares)
+    if key is None or not hasattr(seed, "instance_id"):
+        return []
+    wanted = {**(filt or {}), key: True}
+    others = [
+        obj for obj in context.state.permanents()
+        if obj is not seed
+        and combat.matches_object_filter(obj, wanted, reference=seed, state=context.state)
+    ]
+    return [seed, *others]
+
+
+class TargetGroupEffect(_CompositeEffect):
+    """``target_group`` — "<effect> target X **and each other Y that shares a color with it**" (RULE 105.2).
+
+    One target is announced (RULE 601.2c: the body's *first* effect's requirement is this node's only
+    one — the "it"/"those" of any later body effect is that group, not another target). At resolution the
+    group is the target plus every other permanent matching ``filter`` that shares the named characteristic
+    with it *as it is now* (RULE 608.2h: a group is "each other Y", determined on resolution), and the body
+    runs once per member with that member as its target (`ForEachEffect`'s ``item_as_target`` machinery).
+    The group's other members are not targets, so hexproof/protection from the *spell* does not exclude
+    them (the damage/protection rules of the body still apply to each).
+
+    RULE 608.2b: if the one target is illegal on resolution the spell/ability does not resolve at all, so no
+    group is formed (the engine's fizzle check already runs before `apply`); a target that has since
+    stopped being a creature of the right kind is simply not a seed (`targets` empty → no-op). A colourless
+    target shares no colour: the group is the target alone.
+
+    ``then_effects`` run once after the loop with `DAMAGE_DEALT_SENTINEL` replaced by the damage the loop
+    dealt from this node's source (RULE 120.4: damage actually dealt, after prevention).
+    """
+
+    def __init__(
+        self,
+        effects: Optional[list[Any]] = None,
+        shares: str = "color",
+        filter: Optional[dict[str, Any]] = None,  # noqa: A002 - the spec param is spelled `filter` everywhere
+        then_effects: Optional[list[Any]] = None,
+        source: Optional[GameObject] = None,
+    ) -> None:
+        super().__init__(effects, source)
+        self.shares = shares
+        self.filter = dict(filter or {})
+        self.then_specs = _as_spec_dicts(then_effects)
+
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        for effect in _build(self.inner_specs[:1], self.source):
+            return list(effect.target_specs)
+        return []
+
+    def _group(self, context: GameContext, seed: Any) -> list[Any]:
+        return shared_characteristic_group(context, seed, self.shares, self.filter)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ...models.game.events import EventType  # function-scoped: models/game import cycle guard
+
+        if not targets or not self.inner_specs:
+            return
+        items = self._group(context, targets[0])
+        if not items:
+            return
+        log_start = len(context.state.event_log)
+        context.engine.defer_iteration(
+            [], items, source=self.source,
+            specs=[dict(spec) for spec in self.inner_specs], item_as_target=True,
+        )
+        while (
+            not context.state.pending_choice
+            and context.state.deferred_effects
+            and context.state.deferred_effects[-1].get("kind") == context.engine.DEFERRED_ITERATION
+        ):
+            context.engine.resume_deferred_effects()
+        if not self.then_specs:
+            return
+        source_id = getattr(self.source, "instance_id", None)
+        dealt = sum(
+            int(e.get("amount", 0) or 0) for e in context.state.event_log[log_start:]
+            if e.type == EventType.DAMAGE and e.get("source_id") == source_id
+        )
+        bound = [
+            {**spec, "params": BindEffect._substitute(dict(spec.get("params") or {}), DAMAGE_DEALT_SENTINEL, dealt)}
+            for spec in self.then_specs
+        ]
+        self._run(bound, context, targets)
+
+
 class BindEffect(_CompositeEffect):
     """``bind`` — RULE 608.2's "…equal to", measured once for the body.
 
@@ -776,5 +880,13 @@ EffectRegistry.register(
     "bind",
     lambda p: BindEffect(
         effects=p.get("effects"), name=p.get("name", "n"), amount=p.get("amount"),
+    ),
+)
+EffectRegistry.register(
+    # RULE 105.2 / 608.2 — "<effect> target X and each other Y that shares a color with it."
+    "target_group",
+    lambda p: TargetGroupEffect(
+        effects=p.get("effects"), shares=str(p.get("shares", "color")),
+        filter=p.get("filter"), then_effects=p.get("then_effects"),
     ),
 )

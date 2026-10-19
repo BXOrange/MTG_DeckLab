@@ -3838,10 +3838,15 @@ class GrantProtectionEffect(GameEffect):
         target_kind: Optional[str] = "creature_you_control",
         allow_colorless: bool = False,
         previous_subject: bool = False,
+        group: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.allow_colorless = allow_colorless
+        #: "Target creature and each other creature that shares a color with it gain protection from the chosen
+        #: color" (Bathe in Light, MEC-126): ``{"shares", "filter"}`` — the one colour pick covers the target
+        #: and its sharing group (`composition.shared_characteristic_group`).
+        self.group = dict(group) if group else None
         #: "~ gains protection from the color of your choice until end of
         #: turn" (Jareth, Cartel Aristocrat, …) — no RULE 115 target, act on
         #: this effect's own source.
@@ -3864,6 +3869,15 @@ class GrantProtectionEffect(GameEffect):
             recipients = [self.source] if self.source is not None else []
         else:
             recipients = [targets[0]] if targets else []
+        if self.group and recipients and recipients[0] is not None:
+            from .composition import shared_characteristic_group  # function-scoped: composition imports core
+
+            members = shared_characteristic_group(
+                context, recipients[0], str(self.group.get("shares", "")), self.group.get("filter"),
+            )
+            if members:
+                context.engine.grant_protection_choice(members[0], controller, self.allow_colorless, also=members[1:])
+            return
         for target in recipients:
             if target is not None:
                 context.engine.grant_protection_choice(target, controller, self.allow_colorless)

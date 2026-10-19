@@ -60,8 +60,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 ## MEC — Game mechanic
 
 
-- **MEC-126 · Target-seeded shared-characteristic groups.** "Target X and each other Y that shares a color with it": announce one target, then apply the body to it and every other object sharing a color with it at resolution; needs a target-seeded group (`group_selector_objects` never sees `previous_targets`) and a shares-color-with-reference predicate. ~10 cards (Cleansing Beam, Wojek Embermage/Apothecary/Siren, Brightflame, Rally the Righteous, Surge of Zeal, Incite Hysteria, Leave No Trace, Bathe in Light); the predicate alone also serves "shares a creature type with it" filters (Heirloom Blade, Tajuru Paragon, Titan of Littjara). Includes the parser rows.
-
 - **MEC-127 · Keep-N-then-sacrifice edicts.** "Each player chooses N <permanents> they control, then sacrifices/destroys the rest": add a keep-count to `ChoosePlayerObjectsEffect` (today only per-type `keep_types`), APNAP choices, simultaneous removal. ~8 cards (Razia's Purification, Divine Reckoning, Covetous Elegy, Single Combat, Fall of the First Civilization, Urza's Sylex, Planar Overlay, Consuming Tide). Includes the parser rows.
 
 

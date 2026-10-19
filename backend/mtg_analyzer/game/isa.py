@@ -507,6 +507,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "attach_triggering_permanent": "attach",
     # PAR-123: names the object a group trigger fired for as the referent of a later pronoun.
     "trigger_subject_referent": "choose",
+    # MEC-126: a targeted body fanned out over the target and the objects sharing a colour with it.
+    "target_group": "choose",
     "unattach": "attach",
     "attacker_creates_attacking_token": "create",
     "become_copy_until_eot": "copy_object",

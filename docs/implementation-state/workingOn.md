@@ -43,14 +43,14 @@ Block template (do not change this, copy below the line, fill in there):
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
 
-## MEC-126 · Target-seeded shared-characteristic groups
+## MEC-127 · Keep-N-then-sacrifice edicts
 
 - **Started / last update:** 2026-10-19 / 2026-10-19
-- **Goal of this run:** Compose one announced target with an untargeted group sharing a reference characteristic, through ordinary effect bodies.
-- **Done (built + tested):** Read-only sizing confirms ten unmodeled Radiance cards; existing creature-type-sharing predicate and generic choices/continuations identified.
-- **In progress:** Disjoint engine-only primitive stage; parser/registry hookup waits for PAR-168 acceptance.
-- **Next step:** Worker: implement the shared color-sharing predicate and target-seeded group composition with runtime regression tests, without editing files owned by the active support-policy worker. Then wire ordinary grammar and registry and run full acceptance.
-- **Decisions:** Seed target and ability source are separate references. Multicolor intersection is not transitive; colorless seeds keep only themselves. Group members are not separately targeted. Reuse ordinary body/choice capabilities; no per-card adapters.
-- **Baselines / artefacts:** Worktree /tmp/mtg-par157-mec-audit, isolated cache/data as PAR-168.
-- **Known failures:** Existing selectors cannot seed from an announced target. Existing per-recipient choose-color protection would prompt multiple times for a group.
-- **Residue:** Shared primitive, single group color-choice composition, grammar/binder, real-card runtime matrix, coverage and independent verification.
+- **Goal of this run:** close MEC-127: keep-count on `ChoosePlayerObjectsEffect`, APNAP choices, simultaneous sacrifice/destroy of the rest, with parser rows, PARSER_VERSION bump and execution tests.
+- **Done (built + tested):** —
+- **In progress:** sizing and primitive check.
+- **Next step:** size the family; read `ChoosePlayerObjectsEffect` (`keep_types`) and its continuation before extending it.
+- **Decisions:** selected by the orchestrator (MEC-125 excluded by user). Ticket filed by user decision 2026-10-19.
+- **Baselines / artefacts:** —
+- **Known failures:** —
+- **Residue:** —

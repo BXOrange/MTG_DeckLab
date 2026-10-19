@@ -9,6 +9,7 @@ from . import baral_and_kari_zev  # noqa: F401
 from . import baral_chief_of_compliance  # noqa: F401
 from . import barret_avalanche_leader  # noqa: F401
 from . import barret_wallace  # noqa: F401
+from . import bathe_in_light  # noqa: F401
 from . import battlefield_thaumaturge  # noqa: F401
 from . import battletide_alchemist  # noqa: F401
 from . import beacon_of_unrest  # noqa: F401
