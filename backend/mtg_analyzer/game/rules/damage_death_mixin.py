@@ -1235,6 +1235,7 @@ class DamageDeathMixin:
         obj.static_effects = []
         obj.replacement_effects = []
         obj.intrinsic_keywords = set()
+        obj.intrinsic_keyword_instances = {}
         obj.parametric_keywords = {}
         # RULE 702 keywords printed in the new text (here, just "Enchant
         # Forest you control") are docked structurally — via the same

@@ -4118,7 +4118,10 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 #      creates ..." stays UNMODELED instead of paying the controller. +0 / -0.
 # 705: BUG-7 -- the draw-per-opponent-with-more-cards tail is anchored to the controller; third-person "each
 #      opponent / target player draws ..." stays UNMODELED instead of drawing for the controller. +0 / -0.
-PARSER_VERSION = "705"
+# 706: BUG-10 -- a flag keyword printed several times on its own keyword line ("Cascade, cascade", "Prowess,
+#      prowess", "Myriad, myriad") carries ``instances`` on its keyword spec (RULE 113.2c); the binder keeps the count
+#      and printed Cascade now triggers (RULE 702.85a/c). +0 / -0.
+PARSER_VERSION = "706"
 
 
 def parser_source_hash() -> str:

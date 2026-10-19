@@ -61,6 +61,8 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
     # (`RollDieEffect` / `roll_dice_modifier`) — a garbled "roll a d10^9"
     # must not make a results-table row unreachable or wedge the roll loop.
     "sides", "ignore_lowest", "ignore_highest",
+    # RULE 113.2c: a flag keyword printed several times on one line ("Cascade, cascade").
+    "instances",
 )
 
 #: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.

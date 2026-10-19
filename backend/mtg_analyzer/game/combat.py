@@ -304,7 +304,11 @@ def keyword_instances(obj: "GameObject", keyword: str) -> int:
     ...) must keep using `has`; only a trigger site wants this count. 0 when ``obj`` does not have the keyword at all."""
     if not has(obj, keyword):
         return 0
-    printed = int(keyword in keywords_of(obj.card) or keyword in (getattr(obj, "intrinsic_keywords", None) or ()))
+    if keyword in (getattr(obj, "intrinsic_keywords", None) or ()):
+        # "Cascade, cascade": the parser-bound instance count (`GameObject.intrinsic_keyword_instances`).
+        printed = int((getattr(obj, "intrinsic_keyword_instances", None) or {}).get(keyword, 1))
+    else:
+        printed = int(keyword in keywords_of(obj.card))
     granted = int((getattr(obj, "_granted_keyword_instances", None) or {}).get(keyword, 0))
     return max(1, printed + granted)
 

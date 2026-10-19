@@ -303,7 +303,7 @@ class TriggerCollectionMixin:
         self._collect_self_cast_triggers(event)
         self._collect_storm_triggers(event)
         self._collect_demonstrate_triggers(event)
-        self._collect_granted_cascade_triggers(event)
+        self._collect_cascade_triggers(event)
         self._collect_impulsive_draw_triggers(event)
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
@@ -1266,7 +1266,12 @@ class TriggerCollectionMixin:
         )
         self._queue_firing(ability, event, obj, capture=False)
 
-    def _collect_granted_cascade_triggers(self, event: GameEvent) -> None:
+    def _collect_cascade_triggers(self, event: GameEvent) -> None:
+        """RULE 702.85a: "When you cast this spell, …" — one trigger per instance of cascade (RULE 702.85c).
+
+        Printed instances ("Cascade, cascade", `combat.keyword_instances`) and "spells you cast have
+        cascade" grants (`continuous.granted_cast_keyword_instances`) add up, the same way storm's do.
+        """
         if event.type != EventType.SPELL_CAST:
             return
         obj = self.state.find_object(event.get("instance_id"))
@@ -1274,7 +1279,9 @@ class TriggerCollectionMixin:
             return
         from ..effects.library import CascadeEffect
 
-        for _ in range(continuous.granted_cast_keyword_instances(self.state, obj, event, "cascade")):
+        instances = combat.keyword_instances(obj, "cascade")
+        instances += continuous.granted_cast_keyword_instances(self.state, obj, event, "cascade")
+        for _ in range(instances):
             ability = TriggeredAbility(
                 EventType.SPELL_CAST,
                 [CascadeEffect(mana_value=event.get("mana_value", 0),

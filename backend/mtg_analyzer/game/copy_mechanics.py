@@ -142,6 +142,7 @@ def become_copy(
     obj.enter_as_copy_effects = []
     obj.spell_effects = []
     obj.intrinsic_keywords = set()
+    obj.intrinsic_keyword_instances = {}
     obj.parametric_keywords = {}
     bind_from_catalogue(obj)
 

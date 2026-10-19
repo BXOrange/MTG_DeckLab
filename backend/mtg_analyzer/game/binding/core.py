@@ -3493,6 +3493,14 @@ def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
     is_parametric = bool(_PARAMETRIC_KEYWORD_KEYS & keyword.keys())
     if not is_parametric:
         obj.intrinsic_keywords.add(str(name))
+        # RULE 113.2c: "Cascade, cascade" is two instances; the set above can only say "has it".
+        counts = getattr(obj, "intrinsic_keyword_instances", None)
+        if counts is None:
+            counts = obj.intrinsic_keyword_instances = {}
+        if int(keyword.get("instances") or 1) > 1:
+            counts[str(name)] = int(keyword["instances"])
+        else:
+            counts.pop(str(name), None)
         return True
 
     # Parametric: keep the parameter, and dock the shape combat/cost expects.
@@ -4582,7 +4590,12 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     builder = _KEYWORD_TRIGGERED_BUILDERS.get(name)
     if builder is None:
         return []
-    return builder(obj, spec, keyword.get("n"))
+    # RULE 702.108b (and each triggered keyword's own "b" rule): every printed instance
+    # ("Prowess, prowess") triggers separately, so each gets its own ability.
+    abilities: list[TriggeredAbility] = []
+    for _ in range(max(1, int(keyword.get("instances") or 1))):
+        abilities.extend(builder(obj, spec, keyword.get("n")))
+    return abilities
 
 
 def parametric_keyword_triggered_abilities(

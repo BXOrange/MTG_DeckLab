@@ -988,6 +988,9 @@ class GameObject:
         #: `_granted_keywords` they are the object's *own* keywords, so they are
         #: not cleared by `reset_derived`.
         self.intrinsic_keywords: set[str] = set()
+        #: RULE 113.2c: how many instances stand behind an `intrinsic_keywords` entry printed more than once on its
+        #: keyword line ("Cascade, cascade" → ``{"cascade": 2}``); absent means one. Read by `combat.keyword_instances`.
+        self.intrinsic_keyword_instances: dict[str, int] = {}
         #: Parametric keyword abilities the binder docked with their one
         #: parameter (RULE 702), keyed by slug: ``{"annihilator": {"n": 2},
         #: "kicker": {"cost": "{2}{R}"}, "landwalk": {"quality": "island"}}``.
@@ -1535,6 +1538,7 @@ class GameObject:
             self.replacement_effects = []
             self.enter_as_copy_effects = []
             self.intrinsic_keywords = set()
+            self.intrinsic_keyword_instances = {}
             self.parametric_keywords = {}
             bind_from_catalogue(self)
         self.adventure_snapshot = None
@@ -2144,6 +2148,7 @@ class GameObject:
         "replacement_effects",
         "enter_as_copy_effects",
         "intrinsic_keywords",
+        "intrinsic_keyword_instances",
         "parametric_keywords",
     )
 
@@ -2183,6 +2188,7 @@ class GameObject:
         self.replacement_effects = []
         self.enter_as_copy_effects = []
         self.intrinsic_keywords = set()
+        self.intrinsic_keyword_instances = {}
         self.parametric_keywords = {}
 
     def turn_face_up(self) -> bool:

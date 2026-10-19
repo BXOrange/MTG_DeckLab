@@ -333,6 +333,24 @@ Uncast exiled cards are randomized onto the library bottom after either
 casting or declining, before priority is offered. The cast spell remains
 on the stack for responses.
 
+**Printed cascade and repeated keyword instances (BUG-10, PARSER_VERSION 706).**
+Only *granted* cascade ever triggered: no trigger builder existed for the
+printed keyword, so the 37 cached Cascade cards were `MODELED` but inert.
+`_collect_cascade_triggers` now queues one trigger per instance, printed
+(`combat.keyword_instances`) plus granted, the same way storm counts them
+(RULE 702.85a/c). Scryfall's `keywords` array is de-duplicated, so "Cascade,
+cascade" read as one instance. `parse_keywords` now counts a flag keyword
+repeated on its own keyword line (every comma token is that keyword) as
+`instances` on the spec. `attach_keyword` keeps the count in
+`GameObject.intrinsic_keyword_instances`, which is reset alongside every
+`intrinsic_keywords` reset and carried in the face snapshot.
+`combat.keyword_instances` reads it as the printed count, and bind-time
+keyword trigger builders build one ability per instance (RULE 702.108b).
+This also fixes Prowess ×2 (Ruric Thar, Thor Odinson) and Myriad ×2 (Scurry
+of Squirrels). Verified on the real engine: Bloodbraid Elf offers 1 cascade,
+Maelstrom Wanderer 2, Apex Devastator 4. Coverage is +0/-0.
+`tests/test_bug10_printed_cascade.py`.
+
 ### Revealed-card payments inside player iterations
 
 `reveal_top` resets its referent for an empty library and emits a public

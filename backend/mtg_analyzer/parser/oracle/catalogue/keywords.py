@@ -603,6 +603,25 @@ def _clause_for(text: str, display: str) -> str:
     return display
 
 
+#: Reminder text inside a keyword line ("Cascade, cascade (When you cast …)").
+_REMINDER_RE = re.compile(r"\([^)]*\)")
+
+
+def _printed_instances(text: str, display: str) -> int:
+    """How many times a flag keyword is printed on its own keyword line.
+
+    RULE 702.85c / 702.108b / 702.116b: "Cascade, cascade" (Maelstrom Wanderer) is two instances,
+    each triggering separately. Scryfall's ``keywords`` array is de-duplicated, so only the
+    printed line can say so; a line only counts when every comma-separated token is this keyword.
+    """
+    best = 1
+    for line in text.splitlines():
+        tokens = [t.strip().casefold() for t in _REMINDER_RE.sub("", line).split(",")]
+        if len(tokens) > 1 and all(t == display.casefold() for t in tokens):
+            best = max(best, len(tokens))
+    return best
+
+
 def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -> dict:
     """Build the keyword's ``{name, param?}`` dict, extracting from oracle text.
 
@@ -731,6 +750,8 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if kdef.shape is KeywordShape.FLAG and (instances := _printed_instances(text, kdef.display)) > 1:
+            param["instances"] = instances
         if kdef.slug == "equip" and (dash := EQUIP_DASH_COST_RE.search(text)) is not None:
             # A non-mana equip cost is carried as text (the Ward idiom, `costs.parse_activation_cost` reads it) only when the cost
             # grammar fully represents it; otherwise no cost is recorded and the line stays unclaimed (never a free equip).

@@ -651,6 +651,7 @@ class CopiesMixin:
         obj.replacement_effects = []
         obj.enter_as_copy_effects = []
         obj.intrinsic_keywords = set()
+        obj.intrinsic_keyword_instances = {}
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
     def transform_permanent(self, obj: GameObject) -> bool:
@@ -675,6 +676,7 @@ class CopiesMixin:
         obj.replacement_effects = []
         obj.enter_as_copy_effects = []
         obj.intrinsic_keywords = set()
+        obj.intrinsic_keyword_instances = {}
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
         # RULE 712.8: "whenever ~ transforms into <name>, …" (Brutal Cathar).
@@ -711,6 +713,7 @@ class CopiesMixin:
         obj.replacement_effects = []
         obj.enter_as_copy_effects = []
         obj.intrinsic_keywords = set()
+        obj.intrinsic_keyword_instances = {}
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
         return True
