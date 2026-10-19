@@ -9879,9 +9879,13 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         params["token_name"] = tname.strip().title()
     token_ab = m.groupdict().get("token_ab")
     if token_ab:
-        from .static_handlers import _quoted_ability_grant_effects_list  # function-scoped: static_handlers imports this module
+        from ..segmenter import segment_line
 
-        if not _quoted_ability_grant_effects_list(token_ab):
+        # RULE 111.3: this is the token's own printed ability, not an
+        # ability re-granted to another object. Validate its native scope.
+        ability = segment_line(token_ab.rstrip(" ,.;"), allow_spell_effect=False,
+                               provenance=ParserProvenance())
+        if not ability.claimed or ability.spec is None:
             return None  # an ability nothing models would leave the token silently without it
         params["oracle_text"] = "\n".join(filter(None, (params.get("oracle_text"), token_ab.rstrip(" ,.;"))))
     return params
@@ -21821,9 +21825,10 @@ HANDLERS: list[EffectHandler] = [
             # Feral Appetite, Pest Rescuer, Hunt for Specimens, …). Baked
             # onto each token via `CreateTokenEffect.token_dies_gain_life`.
             rf'(?: with "when (?:~|it) dies, you gain (?P<dies_life>\d+) life\.?")?'
-            # PAR-148: (after the Pest's own `dies_life` row, which keeps its baked trigger) a quoted triggered ability the token carries ("with \"when ~ dies, it deals 1 damage to
-            # any target.\"" — the Devil tokens); only an ability the oracle parser fully models is accepted.
-            rf'(?: with "(?P<token_ab>(?:when|whenever|at the beginning of)[^"]+)")?'
+            # A token owns its quoted ability; validate the entire native
+            # ability rather than limiting it to trigger heads. Leave the
+            # measured P/T CDA form to its existing branch below.
+            rf'(?: with "(?P<token_ab>(?!(?:this token|this creature|~)\x27s power)[^"]+)")?'
             + rf'(?: (?:with|and) "(?P<quoted_cda>(?:this token|this creature|~)\'?s power[^\"]+)")?'
             # PAR-122: "…token that's all colors" (The Fish Brewer) — RULE 105.1's five colors.
             + r"(?P<all_colors> that'?s all colors| that are all colors)?"

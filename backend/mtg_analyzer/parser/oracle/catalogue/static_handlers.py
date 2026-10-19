@@ -1457,6 +1457,16 @@ def object_filter(text: str) -> Optional[dict]:
     text = text.strip().rstrip(".").strip()
     if not text:
         return None
+    # Share the validated subtype-negation vocabulary with other selectors.
+    # RULE 509.1b: restrictions apply to either side of a proposed block.
+    if text.startswith("non"):
+        from .characteristic_phrase import parse_object_phrase
+        parsed = parse_object_phrase(text, plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        negative = parsed[0]
+        if "without_subtype" in negative:
+            return negative
     words = text.split()
     if words and words[0] in _OBJECT_FILTER_FLAG_WORDS:
         flag = words.pop(0)
@@ -1740,6 +1750,10 @@ _QUALIFIED_SUBJECT = (
 #: unclaimed rather than losing its qualifier.
 _TAIL_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[list[dict]]]]] = [
     (
+        re.compile(r"can'?t block or be blocked by (?P<filter>.+)", re.I),
+        lambda m: _filter_restriction(m, "cant_block_filtered", "cant_be_blocked_by"),
+    ),
+    (
         re.compile(r"can'?t be blocked by more than (?P<n>\d+) creatures?", re.I),
         lambda m: [{"kind": "max_blockers", "count": int(m.group("n"))}],
     ),
@@ -1824,9 +1838,9 @@ _QUALIFIED_CLAUSE_RE = re.compile(
 )
 
 
-def _filter_restriction(m: "re.Match[str]", kind: str) -> Optional[list[dict]]:
+def _filter_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]:
     filt = object_filter(m.group("filter"))
-    return None if filt is None else [{"kind": kind, "filter": filt}]
+    return None if filt is None else [{"kind": kind, "filter": filt} for kind in kinds]
 
 
 def _condition_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]:
