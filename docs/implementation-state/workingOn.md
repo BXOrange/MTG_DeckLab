@@ -42,3 +42,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## MEC-126 · Target-seeded shared-characteristic groups
+
+- **Started / last update:** 2026-10-19 / 2026-10-19
+- **Goal of this run:** close MEC-126: target-seeded group ("target X and each other Y that shares a color with it") plus a shares-with-reference predicate, with parser rows, PARSER_VERSION bump and execution tests.
+- **Done (built + tested):** —
+- **In progress:** sizing and primitive check.
+- **Next step:** size the family with `engine_bench.py cards` / `parser_probe.py`; check existing ForEachEffect `item_as_target`, `previous_targets`, `combat.matches_object_filter` before adding the composite.
+- **Decisions:** selected by the orchestrator (lowest eligible MEC; MEC-125 excluded by user). Ticket filed by user decision 2026-10-19.
+- **Baselines / artefacts:** —
+- **Known failures:** —
+- **Residue:** —
