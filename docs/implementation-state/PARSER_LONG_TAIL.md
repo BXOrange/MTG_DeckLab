@@ -651,7 +651,7 @@ for the body/state patterns (40 front, 7 back) and 4 for the casting-window patt
 (1 front, 3 back). These are sizing candidates, not promised unlocks or an exhaustive
 mechanic inventory; recheck each shared shape before implementation.
 
-**PAR-166 — shared body/state grammar batch.** Factor independent axes rather than complete
+**PAR-166 — shared body/state grammar batch** (closed at PARSER_VERSION 694, 2026-10-19; see `Done_Backend.md` "PAR-166", leftovers in `singletons.md` Batch 8). Factor independent axes rather than complete
 one card at a time:
 
 - choosing player versus pool owner/zone, selected-object continuation and measured

@@ -287,3 +287,20 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 | Borborygmos and Fblthp, Miasma Demon, Neheb | reflexive `when you discard one or more cards this way` | |
 | Cytoplast Manipulator, Scarwood Bandits, Charisma, Opportunistic Dragon | control `for as long as ~ remains on the battlefield` | Blocked on target filters, not the duration. |
 
+## Batch 8 — 2026-10-19 PAR-166 close-out (PARSER_VERSION 694)
+
+Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authoring; the engine-shaped groups are listed in `Done_Backend.md` "PAR-166".
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Eunuchs' Intrigues, Goblin War Cry | opponent chooses a creature; "other creatures they control can't block this turn" | Same clause on both; restriction body over the complement of the choice. |
+| Fell Beast's Shriek | each opponent chooses a creature; "tap and goad the chosen creatures" | |
+| Banshee, Eternal Flame | "half x damage, rounded …, to you" | |
+| Catacomb Dragon, Freyalise Supplicant | half of a creature's power | Different referents (blocked creature vs. sacrificed creature). |
+| Singularity Rupture, Colorless Ultimatum | mill/exile half a library | Different recipients and zones. |
+| Heartless Hidetsugu, Lurking Evil | halved life, other bodies | |
+| Essence Pulse | "each creature gets -x/-x" | Unparsed even with a fixed number. |
+| Leyline of the Guildpact | "each nonland permanent you control is all colors" | |
+| Ghostfire | "~ is colorless" inside a spell body | |
+| Ezzaroot Channeler, Licia | per-life cost reduction | |
+
