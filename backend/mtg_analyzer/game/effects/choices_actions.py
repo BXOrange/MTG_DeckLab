@@ -1922,7 +1922,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
             context.choose_objects(context.state.player_by_id(pid), candidates, "select_referent", count=keep_n,
                                    source=self.source, then_specs=[continuation], else_specs=[skipped],
                                    optional=counted and self.keep_up_to,
-                                   prompt=(f"{keep_n} Permanents behalten" if counted else f"{kind.capitalize()} behalten"))
+                                   prompt=self._keep_prompt(keep_n, counted, kind))
             return
         # RULE 608.2e: every player chooses before anyone acts. Act only
         # on original visits outside the union of that player's keepers
@@ -1955,6 +1955,17 @@ class ChoosePlayerObjectsEffect(GameEffect):
             context.engine._remove_simultaneously(victims, context.destroy)
         else:
             context.engine._remove_simultaneously(victims, context.return_to_hand)
+
+    #: Prompt suffix per ``rest_action`` when ``act_on_chosen`` is set: the chosen permanents are the ones acted on, so
+    #: the generic "behalten" (keep) prompt would mislead (Planar Overlay returns the chosen lands to hand).
+    ACT_ON_CHOSEN_PHRASES = {"sacrifice": "opfern", "destroy": "zerstören", "return_to_hand": "zurück auf die Hand"}
+
+    def _keep_prompt(self, keep_n, counted, kind):
+        """Selection prompt: "behalten" for keepers, an act-specific phrase when the chosen ones are acted on."""
+        label = f"{keep_n} Permanents" if counted else kind.capitalize()
+        if self.act_on_chosen and self.rest_action in self.ACT_ON_CHOSEN_PHRASES:
+            return f"{label} {self.ACT_ON_CHOSEN_PHRASES[self.rest_action]}"
+        return f"{label} behalten"
 
 
 class ConniveEffect(GameEffect):

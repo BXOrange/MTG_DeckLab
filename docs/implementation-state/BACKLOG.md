@@ -107,9 +107,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-8 · Planar Overlay prompt says "behalten" for the lands that get bounced.**
-  With `act_on_chosen` the per-type prompt in `ChoosePlayerObjectsEffect` still reads "<Type> behalten",
-  but the chosen land is returned to hand. Use an act-specific prompt (and i18n key) for that mode.
 - **BUG-9 · Cleanups in the keep/sacrifice-rest code (code review).** In `choices_actions.py`:
   `cant_be_sacrificed_this_turn` is filtered both before `_sacrifice_simultaneously` and inside it
   (keep one layer); `pin_source_reference(self.victim_filter, …)` is recomputed per player (hoist);

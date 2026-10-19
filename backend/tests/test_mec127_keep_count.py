@@ -364,3 +364,18 @@ def test_each_opponent_keep_scope_destroy_all_other_permanents_reaches_the_caste
     eng.resolve_until_stable()
     assert _where(*theirs[:2]) == [Zone.BATTLEFIELD] * 2
     assert mine.zone == my_bear.zone == theirs[2].zone == their_bear.zone == Zone.GRAVEYARD
+
+
+def test_planar_overlay_prompt_names_the_return_not_a_keep():
+    # BUG-8: with act_on_chosen the chosen land is bounced, so the pick prompt must not say "behalten"; the keep
+    # modes (Razia, Reckoning) keep it.
+    eng = _engine()
+    _put(eng, "Plains", "Basic Land — Plains", is_land=True)
+    _put(eng, "Plains2", "Basic Land — Plains", is_land=True)
+    _cast(eng, "Planar Overlay", OVERLAY)
+    assert eng.state.pending_choice["prompt"] == "Plains zurück auf die Hand"
+    eng2 = _engine()
+    for i in range(2):
+        _creat(eng2, f"bear{i}")
+    _cast(eng2, "Divine Reckoning", RECKONING)
+    assert eng2.state.pending_choice["prompt"] == "1 Permanents behalten"
