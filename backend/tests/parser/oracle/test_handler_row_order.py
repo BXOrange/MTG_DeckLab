@@ -32,3 +32,15 @@ def test_every_effect_rows_module_contributes_rows_in_assembly_order():
         assert hasattr(mod, "ROWS"), f"effect_rows.{name} must export ROWS"
         flat.extend(mod.ROWS)
     assert {id(h) for h in flat} == {id(h) for h in HANDLERS}, "a row module is not assembled into HANDLERS"
+
+
+_MATCHERS_PINNED = Path(__file__).with_name("line_matcher_order.txt")
+
+
+def test_line_matcher_order_is_pinned():
+    """`segmenter.LINE_MATCHERS` (PAR-172 M3): first matcher to return a Segment wins, so order is semantics.
+    Update `line_matcher_order.txt` in the same change when a matcher is added, removed or moved on purpose."""
+    from mtg_analyzer.parser.oracle.segmenter import LINE_MATCHERS
+
+    assert [m.name for m in LINE_MATCHERS] == _MATCHERS_PINNED.read_text(encoding="utf-8").split()
+    assert len({m.name for m in LINE_MATCHERS}) == len(LINE_MATCHERS)

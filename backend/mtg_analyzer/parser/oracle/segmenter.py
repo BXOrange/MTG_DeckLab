@@ -8071,25 +8071,30 @@ def segment_line(
     return whole
 
 
-def _segment_line_unsplit(
-    line: str,
-    *,
-    allow_spell_effect: bool,
-    provenance: ParserProvenance,
-    is_saga: bool = False,
-) -> Segment:
-    """Parse one normalised ability ``line`` into a `Segment`.
+@dataclass(frozen=True)
+class LineContext:
+    """What every `LINE_MATCHERS` row sees: the stripped line plus the three gates `segment_line` was given."""
 
-    ``allow_spell_effect`` gates bare imperative clauses (no trigger wrapper)
-    to instants/sorceries — a permanent's non-triggered imperative would be
-    mis-modeled as a resolve-time effect, so for permanents it's left unclaimed
-    (fail-closed) rather than turned into a `spell_effect`. ``is_saga`` gates
-    the RULE 714 chapter-line grammar ("i, ii — <effect>") to actual Sagas, so
-    the numeral-dash shape can't misfire on an unrelated card.
-    """
-    raw = line.strip()
-    if not raw:
-        return Segment(raw=raw, claimed=True)  # blank lines are trivially covered
+    raw: str
+    line: str
+    allow_spell_effect: bool
+    provenance: ParserProvenance
+    is_saga: bool
+
+
+@dataclass(frozen=True)
+class LineMatcher:
+    """One ordered row of `LINE_MATCHERS`: a named matcher returning a `Segment` to claim (or refuse) the line, or
+    ``None`` to fall through to the next row. ORDER IS SEMANTICS: the first row to return a `Segment` wins, and a row
+    that returns an unclaimed `Segment` ends the search (it recognised the shape but could not model it)."""
+
+    name: str
+    match: Callable[[LineContext], Optional[Segment]]
+
+
+def _line_neither_day_nor_night(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     if re.fullmatch(
         r"if it'?s neither day nor night, it becomes day as (?:~|this (?:creature|artifact|enchantment)|[a-z][a-z' -]+) enters\.?",
         raw,
@@ -8103,36 +8108,57 @@ def _segment_line_unsplit(
             ),
             claimed=True,
         )
+    return None
 
-    # PAR-28: "Boast/Exhaust/Forecast/Power-up/Solved/Max speed — [ability]".
-    # Checked *before* `is_keyword_line`, since `_KEYWORD_TOKEN_RE`'s greedy
-    # `.*$` would otherwise claim the whole "<keyword> — <cost>: <effect>"
-    # line as a bare keyword line (producing no ability at all).
+
+# PAR-28: "Boast/Exhaust/Forecast/Power-up/Solved/Max speed — [ability]".
+# Checked *before* `is_keyword_line`, since `_KEYWORD_TOKEN_RE`'s greedy
+# `.*$` would otherwise claim the whole "<keyword> — <cost>: <effect>"
+# line as a bare keyword line (producing no ability at all).
+def _line_kw_labeled(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    allow_spell_effect = ctx.allow_spell_effect
+    provenance = ctx.provenance
+    is_saga = ctx.is_saga
     kw_labeled = _segment_keyword_labeled_ability(
         raw, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
     )
     if kw_labeled is not None:
         return kw_labeled
+    return None
 
-    # BUG-1: "Equip—<non-mana cost>[. Activate only once each turn.]" is a keyword line only when the cost grammar fully represents
-    # the cost (RULE 602.1, `costs.parse_activation_cost`); a choice cost ("Pay {3} or discard a card") stays unclaimed, never free.
+
+# BUG-1: "Equip—<non-mana cost>[. Activate only once each turn.]" is a keyword line only when the cost grammar fully represents
+# the cost (RULE 602.1, `costs.parse_activation_cost`); a choice cost ("Pay {3} or discard a card") stays unclaimed, never free.
+def _line_equip_dash(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
     equip_dash = EQUIP_DASH_COST_RE.fullmatch(raw.strip())
     if equip_dash is not None:
         if scan_cost_text(equip_dash.group("cost").strip()).leftover is None:
             return Segment(raw=raw, claimed=True, keyword_line=True)
         return Segment(raw=raw, claimed=False)
+    return None
 
-    # BUG-1: an "Equip abilities you activate …" static, or an "Equip {N}. <rider>" sentence, is not a bare equip cost. The keyword
-    # token's greedy `.*$` would claim it whole and drop the rider, so it falls through to the static handlers instead.
+
+# BUG-1: an "Equip abilities you activate …" static, or an "Equip {N}. <rider>" sentence, is not a bare equip cost. The keyword
+# token's greedy `.*$` would claim it whole and drop the rider, so it falls through to the static handlers instead.
+def _line_equip_once_each_turn(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
     if is_keyword_line(raw) and (_EQUIP_RIDER_RE.match(raw) is None or EQUIP_ONCE_EACH_TURN_RE.fullmatch(raw)):
         return Segment(raw=raw, claimed=True, keyword_line=True)
+    return None
 
-    # PAR-79 fifth increment: see `_ETB_AND_CAST_TRIGGER_RE`'s own docstring
-    # — split before any single-trigger regex gets a look, so a compound
-    # "enters and whenever you cast" line always goes through this path
-    # rather than falling through to the composed cast head (whose own
-    # ``^(?:whenever|when) <actor>`` anchor wouldn't match this line's leading
-    # "when ~ enters and " anyway, but the ordering is deliberate).
+
+# PAR-79 fifth increment: see `_ETB_AND_CAST_TRIGGER_RE`'s own docstring
+# — split before any single-trigger regex gets a look, so a compound
+# "enters and whenever you cast" line always goes through this path
+# rather than falling through to the composed cast head (whose own
+# ``^(?:whenever|when) <actor>`` anchor wouldn't match this line's leading
+# "when ~ enters and " anyway, but the ordering is deliberate).
+def _line_etb_and_cast(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    allow_spell_effect = ctx.allow_spell_effect
+    provenance = ctx.provenance
     etb_and_cast = _ETB_AND_CAST_TRIGGER_RE.match(raw)
     if etb_and_cast is not None:
         body = etb_and_cast.group("body").strip()
@@ -8148,10 +8174,19 @@ def _segment_line_unsplit(
         if etb_seg.spec is not None and cast_seg.spec is not None:
             return Segment(raw=raw, spec=etb_seg.spec, extra_specs=[cast_seg.spec], claimed=True)
         return Segment(raw=raw)
+    return None
 
+
+def _line_play_with_top_revealed(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
     if _PLAY_WITH_TOP_REVEALED_RE.match(raw):
         return Segment(raw=raw, claimed=True)  # informational-only, no spec (see docstring)
+    return None
 
+
+def _line_meld_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     meld_trig = _MELD_TRIGGER_RE.match(raw)
     if meld_trig is not None:
         step = _PHASE_STEP_WORDS.get(meld_trig.group("step").lower(), meld_trig.group("step").lower())
@@ -8166,7 +8201,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_attack_meld(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     attack_meld = _ATTACK_MELD_TRIGGER_RE.match(raw)
     if attack_meld is not None:
         before = parse_effect_body(attack_meld.group("before"))
@@ -8182,7 +8222,12 @@ def _segment_line_unsplit(
             trigger={"event": "PLAYER_ATTACKED", "condition": {"subject": "you"}},
             raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
 
+
+def _line_wordy(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     wordy = re.fullmatch(r"whenever you cast a wordy spell, (.+)", raw)
     if wordy is not None:
         effects = parse_effect_body(wordy[1])
@@ -8193,7 +8238,12 @@ def _segment_line_unsplit(
             trigger={"event": "SPELL_CAST", "condition": {"subject": "group", "controller": "you", "type": "permanent"},
                      "printed_rules_lines_at_least": 4},
             raw_text=raw, parser=provenance), claimed=True)
+    return None
 
+
+def _line_magecraft(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     magecraft = _MAGECRAFT_RE.match(raw)
     if magecraft is not None:
         effects = parse_effect_body(magecraft.group("body"))
@@ -8211,7 +8261,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_counter_free_spell(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     if _COUNTER_FREE_SPELL_RE.match(raw):
         spec = AbilitySpec(
             "triggered",
@@ -8225,7 +8280,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_enters_if_cast(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     enters_if_cast = _ENTERS_IF_CAST_RE.match(raw)
     if enters_if_cast is not None:
         body, optional = peel_optional(enters_if_cast.group("body"))
@@ -8257,7 +8317,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_enters_if_madness(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     enters_if_madness = _ENTERS_IF_MADNESS_PAID_RE.match(raw)
     if enters_if_madness is not None:
         body, optional = peel_optional(enters_if_madness.group("body"))
@@ -8277,7 +8342,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_cast_spell_not_their_turn_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cast_spell_not_their_turn_trig = _CAST_SPELL_NOT_THEIR_TURN_TRIGGER_RE.match(raw)
     if cast_spell_not_their_turn_trig is not None:
         body, optional = peel_optional(cast_spell_not_their_turn_trig.group("body"))
@@ -8297,7 +8367,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_cast_spell_no_mana_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cast_spell_no_mana_trig = _CAST_SPELL_NO_MANA_TRIGGER_RE.match(raw)
     if cast_spell_no_mana_trig is not None:
         body, optional = peel_optional(cast_spell_no_mana_trig.group("body"))
@@ -8317,7 +8392,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_cast_spell_targets_src(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cast_spell_targets_src = _CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE.match(raw)
     if cast_spell_targets_src is not None:
         body, optional = peel_optional(cast_spell_targets_src.group("body"))
@@ -8337,7 +8417,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_cast_spell_shares_type(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cast_spell_shares_type = _CAST_SPELL_SHARES_TYPE_SOURCE_TRIGGER_RE.match(raw)
     if cast_spell_shares_type is not None:
         body, optional = peel_optional(cast_spell_shares_type.group("body"))
@@ -8359,7 +8444,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_cast_spell_targets_perm(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cast_spell_targets_perm = _CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE.match(raw)
     if cast_spell_targets_perm is not None:
         subj = cast_spell_targets_perm.group("subj").lower()
@@ -8380,7 +8470,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_two_color_cast(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     two_color_cast = _CAST_TWO_COLOR_SPELL_TRIGGER_RE.match(raw)
     if two_color_cast is not None:
         body, optional = peel_optional(two_color_cast.group("body"))
@@ -8412,7 +8507,12 @@ def _segment_line_unsplit(
             "cast_of_all_colors": colors,
         }, optional=optional, raw_text=raw, parser=provenance)
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_cast_this_spell_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cast_this_spell_trig = _CAST_THIS_SPELL_TRIGGER_RE.match(raw)
     if cast_this_spell_trig is not None:
         body, optional = peel_optional(cast_this_spell_trig.group("body"))
@@ -8428,7 +8528,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_draw_trig_plain(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     draw_trig_plain = _DRAW_TRIGGER_PLAIN_RE.match(raw)
     if draw_trig_plain is not None:
         subj = draw_trig_plain.group("subj").lower()
@@ -8445,7 +8550,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_reveal_first(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     reveal_first = _REVEAL_FIRST_DRAW_RE.match(raw)
     if reveal_first is not None:
         body, optional = peel_optional(reveal_first.group("body"))
@@ -8467,7 +8577,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_draw_trig_nth(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     draw_trig_nth = _DRAW_CARD_TRIGGER_NTH_RE.match(raw)
     if draw_trig_nth is not None:
         subj = draw_trig_nth.group("subj").lower()
@@ -8489,7 +8604,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_tap_mana_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     tap_mana_trig = _TAP_FOR_MANA_TRIGGER_RE.match(raw)
     if tap_mana_trig is not None:
         subj = tap_mana_trig.group("subj").lower()
@@ -8512,7 +8632,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_two_color_cast_repeat(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     two_color_cast = _CAST_TWO_COLOR_SPELL_TRIGGER_RE.match(raw)
     if two_color_cast is not None:
         body, optional = peel_optional(two_color_cast.group("body"))
@@ -8529,7 +8654,12 @@ def _segment_line_unsplit(
             "cast_of_all_colors": colors,
         }, optional=optional, raw_text=raw, parser=provenance)
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_doctor_or_companion_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     doctor_or_companion_trig = _DOCTOR_OR_COMPANION_CREATURE_CAST_TRIGGER_RE.match(raw)
     if doctor_or_companion_trig is not None:
         body, optional = peel_optional(doctor_or_companion_trig.group("body"))
@@ -8562,7 +8692,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=doctor_spec, extra_specs=[companion_spec], claimed=True)
+    return None
 
+
+def _line_composed_cast(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     composed_cast = _CAST_TRIGGER_COMPOSED_RE.match(raw)
     if composed_cast is not None:
         composed_keys = parse_spell_phrase(composed_cast.group("phrase"))
@@ -8572,7 +8707,12 @@ def _segment_line_unsplit(
             return _cast_trigger_segment(
                 raw, composed_cast.group("subj"), composed_keys, composed_cast.group("body"), provenance
             )
+    return None
 
+
+def _line_cycle_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cycle_trig = _CYCLE_TRIGGER_RE.match(raw)
     if cycle_trig is not None:
         body = cycle_trig.group("body")
@@ -8597,13 +8737,23 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_caused_discard_replacement(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     if _CAUSED_DISCARD_REPLACEMENT_RE.match(raw) is not None:
         return Segment(raw=raw, claimed=True, spec=AbilitySpec(
             "replacement", [EffectSpec("discard_to_battlefield", {})],
             raw_text=raw, parser=provenance,
         ))
+    return None
 
+
+def _line_caused_discard(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     caused_discard = _OPPONENT_CAUSED_DISCARD_TRIGGER_RE.match(raw)
     if caused_discard is not None:
         is_self = caused_discard.group("what").lower() != "a card"
@@ -8622,10 +8772,19 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_exert_bare(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
     if _EXERT_BARE_RE.match(raw) is not None:
         return Segment(raw=raw, claimed=True, keyword_line=True)
+    return None
 
+
+def _line_exert_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     exert_trig = _EXERT_TRIGGER_RE.match(raw)
     if exert_trig is not None:
         # "…as he attacks. When you do, he gains flying" (Themberchaud): the effect grammar
@@ -8642,7 +8801,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_exert_player_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     exert_player_trig = _EXERT_PLAYER_TRIGGER_RE.match(raw)
     if exert_player_trig is not None:
         effects = parse_effect_body(exert_player_trig.group("body"))
@@ -8656,7 +8820,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_sacrifice_trig(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     sacrifice_trig = _SACRIFICE_TYPE_TRIGGER_RE.match(raw)
     if sacrifice_trig is not None:
         effects = parse_effect_body(sacrifice_trig.group("body"), self_subject=True)
@@ -8676,7 +8845,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_control_none_matching(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     control_none_matching = _CONTROL_NONE_MATCHING_RE.match(raw)
     if control_none_matching is not None:
         effects = parse_effect_body(control_none_matching.group("body"), self_subject=True)
@@ -8690,7 +8864,12 @@ def _segment_line_unsplit(
             trigger={"event": "STATE_CHECK", "controls_none_matching": quality},
             raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
 
+
+def _line_control_none_sac(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     control_none_sac = _CONTROL_NONE_SACRIFICE_RE.match(raw)
     if control_none_sac is not None:
         effects = parse_effect_body(control_none_sac.group("body"), self_subject=True)
@@ -8708,18 +8887,23 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # RULE 118.9 alternative costs — checked regardless of card type
-    # (unlike every other row `allow_spell_effect` gates below): a spell's
-    # mana cost doesn't care what it becomes once it resolves, so the
-    # Bringer cycle prints "You may pay <mana> rather than pay this
-    # spell's mana cost." on an ordinary creature spell exactly the same
-    # way Force of Will prints it on an instant. Widening `_is_spell`
-    # itself to include creatures was tried and reverted — it also gates
-    # unrelated bare-imperative rows below (Strive, free-cast conditions, …)
-    # that broke real creature static/replacement-clause tests when creature
-    # cards started reaching them, so only this alt_cost family is pulled
-    # out and made unconditional instead.
+
+# RULE 118.9 alternative costs — checked regardless of card type
+# (unlike every other row `allow_spell_effect` gates below): a spell's
+# mana cost doesn't care what it becomes once it resolves, so the
+# Bringer cycle prints "You may pay <mana> rather than pay this
+# spell's mana cost." on an ordinary creature spell exactly the same
+# way Force of Will prints it on an instant. Widening `_is_spell`
+# itself to include creatures was tried and reverted — it also gates
+# unrelated bare-imperative rows below (Strive, free-cast conditions, …)
+# that broke real creature static/replacement-clause tests when creature
+# cards started reaching them, so only this alt_cost family is pulled
+# out and made unconditional instead.
+def _line_alt_cost_exile_hand_color(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pitch = _ALT_COST_EXILE_HAND_COLOR_RE.match(raw)
     if pitch is not None:
         color = resolve_color_word(pitch.group("color"))
@@ -8733,7 +8917,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_sacrifice_filter(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     sac_filter = _ALT_COST_SACRIFICE_NONTOKEN_COLOR_CREATURE_RE.match(raw)
     if sac_filter is not None:
         color = resolve_color_word(sac_filter.group("color"))
@@ -8747,7 +8936,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_sacrifice_type(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     sac_type = _ALT_COST_SACRIFICE_TYPE_RE.match(raw)
     if sac_type is not None:
         spec = AbilitySpec(
@@ -8758,7 +8952,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_return_two(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     ret_two = _ALT_COST_RETURN_TWO_RE.match(raw)
     if ret_two is not None:
         spec = AbilitySpec(
@@ -8769,7 +8968,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_pay_life_if_control_land(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pay_if = _ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE.match(raw)
     if pay_if is not None:
         spec = AbilitySpec(
@@ -8783,7 +8987,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_pay_mana_if_attacking(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pay_mana_if_attacking = _ALT_COST_PAY_MANA_IF_ATTACKING_RE.match(raw)
     if pay_mana_if_attacking is not None:
         spec = AbilitySpec(
@@ -8799,7 +9008,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_pay_mana_if_you_attacked(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pay_mana_if_you_attacked = _ALT_COST_PAY_MANA_IF_YOU_ATTACKED_RE.match(raw)
     if pay_mana_if_you_attacked is not None:
         spec = AbilitySpec(
@@ -8813,7 +9027,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_pay_mana(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pay_mana = _ALT_COST_PAY_MANA_RE.match(raw)
     if pay_mana is not None:
         spec = AbilitySpec(
@@ -8824,7 +9043,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_sacrifice_if_control_land(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     sac_if = _ALT_COST_SACRIFICE_IF_CONTROL_LAND_RE.match(raw)
     if sac_if is not None:
         spec = AbilitySpec(
@@ -8838,7 +9062,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_tap_creature_if_control_land(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     tap_if = _ALT_COST_TAP_CREATURE_IF_CONTROL_LAND_RE.match(raw)
     if tap_if is not None:
         spec = AbilitySpec(
@@ -8852,7 +9081,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_pay_mana_and_return_land(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pay_and_return = _ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE.match(raw)
     if pay_and_return is not None:
         spec = AbilitySpec(
@@ -8866,7 +9100,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_sacrifice_count(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     sac_count = _ALT_COST_SACRIFICE_COUNT_RE.match(raw)
     if sac_count is not None:
         spec = AbilitySpec(
@@ -8877,7 +9116,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_exile_hand_color_count(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pitch_color_count = _ALT_COST_EXILE_HAND_COLOR_COUNT_RE.match(raw)
     if pitch_color_count is not None:
         color = resolve_color_word(pitch_color_count.group("color"))
@@ -8891,7 +9135,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_exile_hand_if_not_your_turn(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pitch_if_not_your_turn = _ALT_COST_EXILE_HAND_COLOR_IF_NOT_YOUR_TURN_RE.match(raw)
     if pitch_if_not_your_turn is not None:
         color = resolve_color_word(pitch_if_not_your_turn.group("color"))
@@ -8908,7 +9157,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_pay_life_and_exile_hand(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pitch_pay_life = _ALT_COST_PAY_LIFE_AND_EXILE_HAND_COLOR_RE.match(raw)
     if pitch_pay_life is not None:
         color = resolve_color_word(pitch_pay_life.group("color"))
@@ -8925,7 +9179,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_discard_land(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     discard_land = _ALT_COST_DISCARD_LAND_TYPE_RE.match(raw)
     if discard_land is not None:
         spec = AbilitySpec(
@@ -8936,7 +9195,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_alt_cost_pay_mana_if_treasure(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     pay_mana_if_treasure = _ALT_COST_PAY_MANA_IF_TREASURE_RE.match(raw)
     if pay_mana_if_treasure is not None:
         spec = AbilitySpec(
@@ -8950,7 +9214,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_cast_mana_source_restriction(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     cast_mana_source = _CAST_MANA_SOURCE_RESTRICTION_RE.match(raw)
     if cast_mana_source is not None:
         kind = {"basic lands": "basic_land", "creatures": "creature"}[
@@ -8964,15 +9233,20 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # RULE 601.2b/604.3 additional cost — checked before every other wrapper
-    # since it has neither a trigger word nor a colon (so it can't be
-    # mistaken for one of those shapes below). Not gated by
-    # ``allow_spell_effect``: the "as an additional cost to cast this spell,"
-    # wrapper is unambiguous and applies to a creature/other permanent spell
-    # just as much as an instant/sorcery (Kinsbaile Aspirant/Lys Alana
-    # Dignitary/Silvergill Mentor — Behold, PAR-29), and the spec it emits
-    # carries no bare imperative for the gate to guard against.
+
+# RULE 601.2b/604.3 additional cost — checked before every other wrapper
+# since it has neither a trigger word nor a colon (so it can't be
+# mistaken for one of those shapes below). Not gated by
+# ``allow_spell_effect``: the "as an additional cost to cast this spell,"
+# wrapper is unambiguous and applies to a creature/other permanent spell
+# just as much as an instant/sorcery (Kinsbaile Aspirant/Lys Alana
+# Dignitary/Silvergill Mentor — Behold, PAR-29), and the spec it emits
+# carries no bare imperative for the gate to guard against.
+def _line_collect_evidence_discount(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     evidence_discount = _COLLECT_EVIDENCE_COST_REDUCTION_RE.match(raw)
     if evidence_discount is not None:
         cost = {"collect_evidence": int(evidence_discount.group("evidence"))}
@@ -8989,7 +9263,12 @@ def _segment_line_unsplit(
             raw_text=raw, parser=provenance,
         )
         return Segment(raw=raw, spec=cost_spec, extra_specs=[reduction_spec], claimed=True)
+    return None
 
+
+def _line_additional_cost_line(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     add_cost = _ADDITIONAL_COST_LINE_RE.match(raw)
     if add_cost is not None:
         cost_text = add_cost.group("cost")
@@ -9012,17 +9291,27 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # PAR-35's casting clauses are unambiguous spell metadata, so like an
-    # additional cost they apply to permanent spells too (Harbinger of the
-    # Tides / Armor of Thorns), not only bare instant/sorcery effects.
+
+# PAR-35's casting clauses are unambiguous spell metadata, so like an
+# additional cost they apply to permanent spells too (Harbinger of the
+# Tides / Armor of Thorns), not only bare instant/sorcery effects.
+def _line_declare_attackers_if_attacked(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     if _DECLARE_ATTACKERS_IF_ATTACKED_RE.match(raw):
         return Segment(raw=raw, spec=AbilitySpec(
             "spell_effect", effects=[],
             cast_timing_restriction={"step": "declare_attackers", "controller_attacked": True},
             raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
 
+
+def _line_combat_cast_only(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     combat_cast = _COMBAT_CAST_ONLY_RE.fullmatch(raw)
     if combat_cast:
         groups = combat_cast.groupdict()
@@ -9037,13 +9326,24 @@ def _segment_line_unsplit(
             "spell_effect", effects=[], cast_timing_restriction=restriction,
             raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
+
+
+def _line_before_blockers_cast_only(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     if _BEFORE_BLOCKERS_CAST_ONLY_RE.fullmatch(raw):
         return Segment(raw=raw, spec=AbilitySpec(
             "spell_effect", effects=[],
             cast_timing_restriction={"before_blockers": True, "first_combat": True},
             raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
 
+
+def _line_cast_only_if_another_color(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     another_cast = _CAST_ONLY_IF_ANOTHER_COLOR_RE.match(raw)
     if another_cast is not None:
         color = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[
@@ -9054,7 +9354,12 @@ def _segment_line_unsplit(
             cast_condition={"another_spell_cast_this_turn": {"color": color}},
             raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
 
+
+def _line_conditional_flash_for_mana(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     flash_for_mana = _CONDITIONAL_FLASH_FOR_EXTRA_MANA_RE.match(raw)
     if flash_for_mana is not None:
         return Segment(raw=raw, spec=AbilitySpec(
@@ -9062,7 +9367,12 @@ def _segment_line_unsplit(
             flash_extra_cost=re.sub(r"\s+", "", flash_for_mana.group("cost")),
             raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
 
+
+def _line_flash_then_cleanup_sac(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     if _FLASH_THEN_CLEANUP_SAC_RE.match(raw):
         return Segment(raw=raw, spec=AbilitySpec(
             "triggered",
@@ -9074,7 +9384,13 @@ def _segment_line_unsplit(
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
             conditional_flash={"unconditional": True}, raw_text=raw, parser=provenance,
         ), claimed=True)
+    return None
 
+
+def _line_spell_free_cast_conditions(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    allow_spell_effect = ctx.allow_spell_effect
+    provenance = ctx.provenance
     if allow_spell_effect:
         # RULE 601.2f-adjacent condition-gated free-cast alternative cost —
         # "If you control a commander, you may cast this spell without
@@ -9162,9 +9478,15 @@ def _segment_line_unsplit(
                 parser=provenance,
             )
             return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # Saga chapter ability "i, ii — <effect>" (RULE 714.2d) — checked before
-    # every other wrapper since it has neither a trigger word nor a colon.
+
+# Saga chapter ability "i, ii — <effect>" (RULE 714.2d) — checked before
+# every other wrapper since it has neither a trigger word nor a colon.
+def _line_saga_chapter(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
+    is_saga = ctx.is_saga
     if is_saga:
         chap = CHAPTER_LINE_RE.match(raw)
         if chap is not None:
@@ -9184,10 +9506,15 @@ def _segment_line_unsplit(
                 parser=provenance,
             )
             return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # Planeswalker loyalty ability "[±N]: <effect>" (RULE 606.5c) — its cost is
-    # the bracket, so it's recognised before the generic activated case (whose
-    # cost sniff wouldn't accept a bare "[+1]").
+
+# Planeswalker loyalty ability "[±N]: <effect>" (RULE 606.5c) — its cost is
+# the bracket, so it's recognised before the generic activated case (whose
+# cost sniff wouldn't accept a bare "[+1]").
+def _line_loyalty_ability(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     loy = _LOYALTY_LINE_RE.match(raw)
     if loy is not None:
         if loy.group(2) == "x":
@@ -9212,10 +9539,17 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # Activated ability "<cost>: <effect>" — checked before the trigger/spell
-    # cases since a colon unambiguously marks it (RULE 602.1). A trigger has no
-    # colon, so this never steals one.
+
+# Activated ability "<cost>: <effect>" — checked before the trigger/spell
+# cases since a colon unambiguously marks it (RULE 602.1). A trigger has no
+# colon, so this never steals one.
+def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    allow_spell_effect = ctx.allow_spell_effect
+    provenance = ctx.provenance
+    is_saga = ctx.is_saga
     act = _ACTIVATED_RE.match(raw)
     if act is not None and _is_activation_cost(act.group("cost")):
         alternative = _ALTERNATIVE_COST_RE.fullmatch(act.group("cost").strip())
@@ -9389,7 +9723,12 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
+
+def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     phase_trig = _PHASE_TRIGGER_RE.match(raw)
     if phase_trig is not None:
         step_word = (
@@ -9535,7 +9874,13 @@ def _segment_line_unsplit(
                 parser=provenance,
             ))
         return Segment(raw=raw, spec=phase_specs[0], claimed=True, extra_specs=phase_specs[1:])
+    return None
 
+
+def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    allow_spell_effect = ctx.allow_spell_effect
+    provenance = ctx.provenance
     trig = TRIGGER_RE.match(raw)
     if trig is not None:
         cond_text = trig.group("cond")
@@ -10103,13 +10448,19 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # No trigger wrapper. On a *permanent*, "As ~ enters, choose a creature
-    # type/color" (RULE 601.2b) is a characteristic-defining choice made as
-    # part of entering — an ``enter_replacement`` ability (RULE 614.1c/
-    # 614.12's family, not a triggered ability and not `static_effect_specs`'
-    # standing-continuous-ability shape either), tried first since it's a
-    # narrower, closed pair of clauses.
+
+# No trigger wrapper. On a *permanent*, "As ~ enters, choose a creature
+# type/color" (RULE 601.2b) is a characteristic-defining choice made as
+# part of entering — an ``enter_replacement`` ability (RULE 614.1c/
+# 614.12's family, not a triggered ability and not `static_effect_specs`'
+# standing-continuous-ability shape either), tried first since it's a
+# narrower, closed pair of clauses.
+def _line_permanent_standing_line(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    allow_spell_effect = ctx.allow_spell_effect
+    provenance = ctx.provenance
     if not allow_spell_effect:
         enter_choice = enter_choice_specs(raw)
         if enter_choice is not None:
@@ -10137,19 +10488,25 @@ def _segment_line_unsplit(
             )
             return Segment(raw=raw, spec=spec, claimed=True)
         return Segment(raw=raw)  # permanent bare imperative → unclaimed
+    return None
 
-    # RULE 601.2f "This spell costs {N} less to cast if `<condition>`."/
-    # "…for each attacking creature [you control]." — a spell's own self
-    # cost reduction, printed on an instant/sorcery rather than a
-    # permanent. `continuous.self_cost_reduction_for` already reads this
-    # off *any* object's `static_effects` regardless of zone (Ghostfire
-    # Slice's own hand-authored entry proves the engine side works) — the
-    # only missing piece was ever reaching `static_effect_specs` at all
-    # for a card where `allow_spell_effect` is true, since every clause
-    # below this point is otherwise routed to the resolve-time
-    # `spell_effect` parse instead. Scoped to a pure ``cost_reduction``
-    # result so an unrelated static-shaped false match can't misfile a
-    # genuine resolve-time clause here.
+
+# RULE 601.2f "This spell costs {N} less to cast if `<condition>`."/
+# "…for each attacking creature [you control]." — a spell's own self
+# cost reduction, printed on an instant/sorcery rather than a
+# permanent. `continuous.self_cost_reduction_for` already reads this
+# off *any* object's `static_effects` regardless of zone (Ghostfire
+# Slice's own hand-authored entry proves the engine side works) — the
+# only missing piece was ever reaching `static_effect_specs` at all
+# for a card where `allow_spell_effect` is true, since every clause
+# below this point is otherwise routed to the resolve-time
+# `spell_effect` parse instead. Scoped to a pure ``cost_reduction``
+# result so an unrelated static-shaped false match can't misfile a
+# genuine resolve-time clause here.
+def _line_spell_cost_static(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    allow_spell_effect = ctx.allow_spell_effect
+    provenance = ctx.provenance
     if allow_spell_effect:
         cost_static = static_effect_specs(raw)
         if cost_static is not None and (
@@ -10158,8 +10515,13 @@ def _segment_line_unsplit(
         ):
             spec = AbilitySpec("static", effects=cost_static, raw_text=raw, parser=provenance)
             return Segment(raw=raw, spec=spec, claimed=True)
+    return None
 
-    # A resolve-time effect (instant/sorcery only).
+
+# A resolve-time effect (instant/sorcery only).
+def _line_spell_effect_imperative(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    provenance = ctx.provenance
     body, optional = peel_optional(raw)
     effects = parse_effect_body(body)
     if effects is None:
@@ -10172,6 +10534,110 @@ def _segment_line_unsplit(
         parser=provenance,
     )
     return Segment(raw=raw, spec=spec, claimed=True)
+
+
+LINE_MATCHERS: tuple[LineMatcher, ...] = (
+    LineMatcher("neither_day_nor_night", _line_neither_day_nor_night),
+    LineMatcher("kw_labeled", _line_kw_labeled),
+    LineMatcher("equip_dash", _line_equip_dash),
+    LineMatcher("equip_once_each_turn", _line_equip_once_each_turn),
+    LineMatcher("etb_and_cast", _line_etb_and_cast),
+    LineMatcher("play_with_top_revealed", _line_play_with_top_revealed),
+    LineMatcher("meld_trig", _line_meld_trig),
+    LineMatcher("attack_meld", _line_attack_meld),
+    LineMatcher("wordy", _line_wordy),
+    LineMatcher("magecraft", _line_magecraft),
+    LineMatcher("counter_free_spell", _line_counter_free_spell),
+    LineMatcher("enters_if_cast", _line_enters_if_cast),
+    LineMatcher("enters_if_madness", _line_enters_if_madness),
+    LineMatcher("cast_spell_not_their_turn_trig", _line_cast_spell_not_their_turn_trig),
+    LineMatcher("cast_spell_no_mana_trig", _line_cast_spell_no_mana_trig),
+    LineMatcher("cast_spell_targets_src", _line_cast_spell_targets_src),
+    LineMatcher("cast_spell_shares_type", _line_cast_spell_shares_type),
+    LineMatcher("cast_spell_targets_perm", _line_cast_spell_targets_perm),
+    LineMatcher("two_color_cast", _line_two_color_cast),
+    LineMatcher("cast_this_spell_trig", _line_cast_this_spell_trig),
+    LineMatcher("draw_trig_plain", _line_draw_trig_plain),
+    LineMatcher("reveal_first", _line_reveal_first),
+    LineMatcher("draw_trig_nth", _line_draw_trig_nth),
+    LineMatcher("tap_mana_trig", _line_tap_mana_trig),
+    LineMatcher("two_color_cast_repeat", _line_two_color_cast_repeat),
+    LineMatcher("doctor_or_companion_trig", _line_doctor_or_companion_trig),
+    LineMatcher("composed_cast", _line_composed_cast),
+    LineMatcher("cycle_trig", _line_cycle_trig),
+    LineMatcher("caused_discard_replacement", _line_caused_discard_replacement),
+    LineMatcher("caused_discard", _line_caused_discard),
+    LineMatcher("exert_bare", _line_exert_bare),
+    LineMatcher("exert_trig", _line_exert_trig),
+    LineMatcher("exert_player_trig", _line_exert_player_trig),
+    LineMatcher("sacrifice_trig", _line_sacrifice_trig),
+    LineMatcher("control_none_matching", _line_control_none_matching),
+    LineMatcher("control_none_sac", _line_control_none_sac),
+    LineMatcher("alt_cost_exile_hand_color", _line_alt_cost_exile_hand_color),
+    LineMatcher("alt_cost_sacrifice_filter", _line_alt_cost_sacrifice_filter),
+    LineMatcher("alt_cost_sacrifice_type", _line_alt_cost_sacrifice_type),
+    LineMatcher("alt_cost_return_two", _line_alt_cost_return_two),
+    LineMatcher("alt_cost_pay_life_if_control_land", _line_alt_cost_pay_life_if_control_land),
+    LineMatcher("alt_cost_pay_mana_if_attacking", _line_alt_cost_pay_mana_if_attacking),
+    LineMatcher("alt_cost_pay_mana_if_you_attacked", _line_alt_cost_pay_mana_if_you_attacked),
+    LineMatcher("alt_cost_pay_mana", _line_alt_cost_pay_mana),
+    LineMatcher("alt_cost_sacrifice_if_control_land", _line_alt_cost_sacrifice_if_control_land),
+    LineMatcher("alt_cost_tap_creature_if_control_land", _line_alt_cost_tap_creature_if_control_land),
+    LineMatcher("alt_cost_pay_mana_and_return_land", _line_alt_cost_pay_mana_and_return_land),
+    LineMatcher("alt_cost_sacrifice_count", _line_alt_cost_sacrifice_count),
+    LineMatcher("alt_cost_exile_hand_color_count", _line_alt_cost_exile_hand_color_count),
+    LineMatcher("alt_cost_exile_hand_if_not_your_turn", _line_alt_cost_exile_hand_if_not_your_turn),
+    LineMatcher("alt_cost_pay_life_and_exile_hand", _line_alt_cost_pay_life_and_exile_hand),
+    LineMatcher("alt_cost_discard_land", _line_alt_cost_discard_land),
+    LineMatcher("alt_cost_pay_mana_if_treasure", _line_alt_cost_pay_mana_if_treasure),
+    LineMatcher("cast_mana_source_restriction", _line_cast_mana_source_restriction),
+    LineMatcher("collect_evidence_discount", _line_collect_evidence_discount),
+    LineMatcher("additional_cost_line", _line_additional_cost_line),
+    LineMatcher("declare_attackers_if_attacked", _line_declare_attackers_if_attacked),
+    LineMatcher("combat_cast_only", _line_combat_cast_only),
+    LineMatcher("before_blockers_cast_only", _line_before_blockers_cast_only),
+    LineMatcher("cast_only_if_another_color", _line_cast_only_if_another_color),
+    LineMatcher("conditional_flash_for_mana", _line_conditional_flash_for_mana),
+    LineMatcher("flash_then_cleanup_sac", _line_flash_then_cleanup_sac),
+    LineMatcher("spell_free_cast_conditions", _line_spell_free_cast_conditions),
+    LineMatcher("saga_chapter", _line_saga_chapter),
+    LineMatcher("loyalty_ability", _line_loyalty_ability),
+    LineMatcher("activated_ability", _line_activated_ability),
+    LineMatcher("phase_trigger", _line_phase_trigger),
+    LineMatcher("triggered_ability", _line_triggered_ability),
+    LineMatcher("permanent_standing_line", _line_permanent_standing_line),
+    LineMatcher("spell_cost_static", _line_spell_cost_static),
+    LineMatcher("spell_effect_imperative", _line_spell_effect_imperative),
+)
+
+
+def _segment_line_unsplit(
+    line: str,
+    *,
+    allow_spell_effect: bool,
+    provenance: ParserProvenance,
+    is_saga: bool = False,
+) -> Segment:
+    """Parse one normalised ability ``line`` into a `Segment`.
+
+    ``allow_spell_effect`` gates bare imperative clauses (no trigger wrapper)
+    to instants/sorceries — a permanent's non-triggered imperative would be
+    mis-modeled as a resolve-time effect, so for permanents it's left unclaimed
+    (fail-closed) rather than turned into a `spell_effect`. ``is_saga`` gates
+    the RULE 714 chapter-line grammar ("i, ii — <effect>") to actual Sagas, so
+    the numeral-dash shape can't misfire on an unrelated card.
+    """
+    raw = line.strip()
+    if not raw:
+        return Segment(raw=raw, claimed=True)  # blank lines are trivially covered
+    ctx = LineContext(
+        raw=raw, line=line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    for matcher in LINE_MATCHERS:
+        segment = matcher.match(ctx)
+        if segment is not None:
+            return segment
+    return Segment(raw=raw)  # unreachable: the last matcher always returns; unclaimed is the fail-closed fallback
 
 
 #: "you may pay {E}… . If/When you do, <effect>." (Aether Chaser) / "you

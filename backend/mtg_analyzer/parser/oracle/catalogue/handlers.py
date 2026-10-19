@@ -43,17 +43,6 @@ from .effect_rows import tokens_animate_misc
 from .effect_rows import party
 
 
-
-#: PAR-140: "it becomes a Rogue in addition to its other types" / "~ becomes a Vampire and a Zombie …" /
-#: "target creature becomes an artifact in addition to its other types until end of turn" — a type
-#: addition with no new P/T or abilities (RULE 205.1b: *in addition* keeps the rest), riding a put/return
-#: clause (Butch DeLoria, Beorn the Fierce, Origin of Spider-Man). One `grant_until` over a layer-4
-#: `type_change`: "until end of turn" ends at cleanup, otherwise it is a permanent effect
-#: (`rest_of_game`, RULE 611.2a). A word that is neither a card type, "legendary" nor a known subtype
-#: fails the clause closed.
-_BECOMES_IN_ADDITION_TYPES: frozenset[str] = frozenset({"artifact", "creature", "enchantment", "land"})
-
-
 def match_clause(
     clause: str, *, self_subject: bool = False, previous_subject: bool = False,
     group_subject: bool = False, previous_selector: bool = False,
@@ -189,8 +178,6 @@ def _per_player_target_specs(clause: str, **flags: bool) -> Optional[list[Effect
     if not _stamp_per_player(specs, _PER_PLAYER_SCOPE[m.group("who")]):
         return None
     return specs
-
-
 
 
 HANDLERS: list[EffectHandler] = [
