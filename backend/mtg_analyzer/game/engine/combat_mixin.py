@@ -588,7 +588,9 @@ class CombatMixin:
             # damage lands even if a caller skips this check) — checked here
             # as well so deathtouch/lifelink below don't fire off damage that
             # never happened. Players carry no protection in this model.
-            if isinstance(target, GameObject) and combat.is_protected_from(target, source):
+            # RULE 615.12: unpreventable damage ignores protection's prevention.
+            if (isinstance(target, GameObject) and combat.is_protected_from(target, source)
+                    and not self.rules.damage_prevention_is_disabled()):
                 continue
             self.rules.deal_damage(target, amount, source=source, combat=True)
             if amount <= 0:

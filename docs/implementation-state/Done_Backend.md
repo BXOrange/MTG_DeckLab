@@ -1712,6 +1712,7 @@ The counter-removal and excess-damage tallies survive nested composition.
 
 - **What:** New `ReplacementEffect.prevents_damage` marker stamped on every prevention-shaped effect construction site, plus a turn-scoped `GameState.damage_prevention_disa…
 - **Files:** `game/rules_engine.py`, `game/effects/core.py`, `models/game_state.py`, `game/rules/damage_death_mixin.py`.
+- **Protection is prevention too (BUG-24, RULE 615.12/702.16e):** the early protection returns in `deal_damage` (creature protection, a player's protection from everything / from a player / from a quality) and in `_apply_combat_damage` ignored disabled prevention, so a red source never damaged a pro-red creature under Skullcrack or Everlasting Torment. Every one is now gated on `DamageDeathMixin.damage_prevention_is_disabled()` (turn flag or standing static, now also used by `_run_replacement_loop`); protection's targeting/blocking/attachment parts are untouched. Tests: `tests/test_bug24_unpreventable_damage_protection.py`.
 - **Why:** Deliberately not reusing the existing `damage_prevention_shield` cleanup-sweep flag despite the similar name — that flag means "sweep me at cleanup, I'm one-tur…
 
 ### RULE 616.1e `can_replace` Condition Fix

@@ -643,14 +643,8 @@ class RulesEngine(
         on_resolved: Optional[Union[Callable[[Optional[GameEvent]], None], dict[str, Any]]],
     ) -> Optional[GameEvent]:
         current: Optional[GameEvent] = event
-        prevention_disabled = self.state.damage_prevention_disabled
-        if not prevention_disabled:
-            # "Damage can't be prevented." (Everlasting Torment) — the
-            # standing battlefield-static sibling of the turn-scoped flag
-            # above; same RULE 615 effect, no lifecycle of its own.
-            from . import continuous  # local: avoid the continuous↔rules cycle
-
-            prevention_disabled = continuous.damage_prevention_globally_disabled(self.state)
+        # RULE 615.12: turn flag or standing static (shared helper).
+        prevention_disabled = self.damage_prevention_is_disabled()
         while current is not None:
             applicable = [
                 effect

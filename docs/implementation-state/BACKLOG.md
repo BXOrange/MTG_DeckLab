@@ -166,12 +166,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   source-ability consequences in the shared successful-damage path, without duplicating combat
   or fight handling; cover prevented damage as well as actual hits. Coordinate with BUG-22.
 
-- **BUG-24 · P2 · Let unpreventable damage pass protection (RULE 615.12/702.16c).**
-  Early protection returns in `game/rules/damage_death_mixin.py:deal_damage` and
-  `game/engine/combat_mixin.py:_apply_combat_damage` ignore disabled prevention. A red source must
-  damage a protected creature when prevention is disabled; preserve protection's independent
-  targeting, blocking and attachment restrictions.
-
 - **BUG-25 · P1 · Process multiplayer departures immediately (RULE 800.4a).**
   `game/rules/sba_mixin.py` defers departing players' objects/effects through `pending_leave_ids`
   until `begin_turn`; a conceding player's permanents still affect the ongoing turn. Perform the

@@ -253,6 +253,14 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 class DamageDeathMixin:
     """Damage/life-loss and every zone move off the battlefield (destroy/sacrifice/exile/bounce/graveyard), plus life gain and damage prevention."""
 
+    def damage_prevention_is_disabled(self) -> bool:
+        """RULE 615.12: "damage can't be prevented" is in force, either the
+        turn-scoped flag or the standing battlefield static — the same two
+        sources `_run_replacement_loop` consults."""
+        if self.state.damage_prevention_disabled:
+            return True
+        return continuous.damage_prevention_globally_disabled(self.state)
+
     def deal_damage(
         self,
         target: Any,
@@ -274,24 +282,30 @@ class DamageDeathMixin:
         # stated quality, not just combat damage — a burn spell from a
         # protected colour fizzles here same as a blocked attacker would.
         # Players carry no protection in this model.
-        if not is_player and source is not None and is_protected_from(target, source):
+        # RULE 615.12: where damage can't be prevented, the prevention part of
+        # protection is inert (the targeting/blocking/attachment parts of
+        # RULE 702.16b are not damage and are enforced elsewhere).
+        if (not is_player and source is not None and is_protected_from(target, source)
+                and not self.damage_prevention_is_disabled()):
             return
         # RULE 702.16e: a *player* with protection from everything (Teferi's
         # Protection) is dealt no damage at all — the player-side mirror of
         # the permanent check above, which `is_protected_from` can't answer
         # because players carry no printed protection.
-        if is_player and self._player_protected_from_everything(target):
+        # RULE 615.12: unpreventable damage ignores every player-protection return below too.
+        if is_player and self._player_protected_from_everything(target) and not self.damage_prevention_is_disabled():
             return
         # MEC-62 (Noble Heritage): "you gain protection from that player" —
         # the single-player-scoped sibling just above, checked only when a
         # source is actually known (an unattributed/sourceless damage event
         # can't match "controlled by that player" either way).
-        if is_player and source is not None and self._player_protected_from_source_controller(target, source):
+        if (is_player and source is not None and self._player_protected_from_source_controller(target, source)
+                and not self.damage_prevention_is_disabled()):
             return
         # RULE 702.16e: "you … have protection from <quality>" off a standing static (Serra's Emissary).
         if is_player and source is not None and protection_qualities_cover(
             continuous.player_static_protections(self.state, target), source
-        ):
+        ) and not self.damage_prevention_is_disabled():
             return
         target_id = target.id if is_player else target.instance_id
         event = GameEvent(
