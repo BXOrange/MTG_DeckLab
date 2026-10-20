@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-177`**; next free `MEC`: **`MEC-128`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-177`**; next free `MEC`: **`MEC-128`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**; next free `BUG`: **`BUG-35`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -112,3 +112,140 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
+- **BUG-12 · P1 · MODELED cards must bind successfully.** Align emitted IR, validation and
+  factories in `parser/oracle/{gate,spec}.py`, `game/binding/core.py` and
+  `game/effects/{registry,operands}.py`: Burrog Barrage (`spell_type`), Farideh, Devil's Chosen
+  (`value`), Fang, Fearless l'Cie (leaked trigger-limit marker), Guardian Naga // Banishing Coils,
+  Personal Sanctuary and Spirit of Resistance (static `prevent_damage`), Raffine, Scheming Seer
+  and Spymaster's Vault (structured connive `times`) currently raise during binding. Add a
+  full-cache invariant that every MODELED card binds, including nested effects.
+
+- **BUG-13 · P1 · Separate actual colors from Commander color identity (RULE 202.2/903.4).**
+  `models/game/game_object.py:colors` treats a Forest with green identity as a green permanent.
+  Preserve face colors/color indicators separately and derive effective colors through layer 5;
+  cover colored activated costs, devoid, multiple faces and downstream targeting/protection/counts.
+
+- **BUG-14 · P1 · Apply the complete SBA set simultaneously (RULE 704.3).**
+  `game/rules/sba_mixin.py` removes one object before recomputing the next sweep: zero-toughness
+  Elesh Norn leaves first and saves an opposing 2/2 that was also at zero toughness. Freeze all
+  applicable actions and required choices from one derived state, apply them together, then repeat.
+
+- **BUG-15 · P1 · Order continuous effects by dependency (RULE 613.8).**
+  `game/continuous.py:_in_layer` uses timestamps alone; Urborg entering after Blood Moon incorrectly
+  grants Swamp. Reevaluate dependencies, including effect existence, within each layer. Correct
+  `tests/test_land_type_grant_interactions.py` to require Blood Moon to suppress Urborg in either
+  entry order.
+
+- **BUG-16 · P1 · Stop removed statics before they begin applying in later layers (RULE 613.6).**
+  `game/continuous.py:recompute` retains a creature lord's anthem after Humility removes its
+  abilities in layer 6, leaving another creature 2/2 instead of 1/1. Track effect existence across
+  layers while preserving multi-layer effects that already began applying earlier.
+
+- **BUG-17 · P2 · Preserve later keyword grants after earlier ability removal (RULE 613.7).**
+  `game/combat.py:_obj_keywords` unconditionally vetoes keywords when `loses_all_abilities` is set.
+  Humility followed by a newer enchantment granting flying must leave the affected creatures with
+  flying. Resolve additions/removals in layer order and expose the final ability set to consumers.
+
+- **BUG-18 · P1 · Use current battlefield types for targets, costs and selectors (RULE 613.1d).**
+  `game/targeting.py` artifact/enchantment frames and `game/continuous.py:_has_card_type` read
+  printed card flags. A creature made an artifact cannot be selected as an artifact. Share derived
+  type checks across battlefield consumers, covering additions and removals while retaining the
+  appropriate card-characteristic checks in other zones.
+
+- **BUG-19 · P1 · Mask every illegal resolution target (RULE 608.2b/400.7).**
+  `game/rules/casting_mixin.py:_mask_restricted_targets` retains failed targets that left the
+  battlefield. With one legal player target remaining, a two-target damage ability still marks
+  damage on its other, exiled target. Blank failed zone/visit slots centrally while preserving
+  target groups, partial resolution and allocated damage.
+
+- **BUG-20 · P1 · Give first-strike damage its own priority window (RULE 510.3–4).**
+  `game/engine/turn_loop_mixin.py:_step_combat_damage` performs both damage steps synchronously;
+  an unblocked 2-power double striker deals four damage before interactive priority returns.
+  Schedule separate steps with SBAs, trigger placement and APNAP priority between them; preserve
+  the step state through choices and undo.
+
+- **BUG-21 · P2 · Retain first-step combat-damage eligibility (RULE 510.4).**
+  `game/engine/combat_mixin.py:_deals_in_step` tests current keywords only. An unblocked 2/2
+  deals four damage if its first-strike-granting lord dies in the first step. Remember exact
+  combatant visits and their initial eligibility; regular damage permits initially ordinary
+  combatants and remaining creatures that currently have double strike. Coordinate with BUG-20.
+
+- **BUG-22 · P1 · Derive combat consequences from completed damage (RULE 120.3f/615.1/702.2b).**
+  `game/engine/combat_mixin.py:_apply_combat_damage` uses assignments after prevention/replacement:
+  Fog still grants lifelink life and emits aggregate player-hit events; partial prevention grants
+  too much life; a prevented deathtouch hit kills a creature with old marked damage. Use actual
+  completed source/recipient/amount receipts, including redirection and suspended replacement
+  choices, and aggregate only successful hits. Coordinate shared finalization with BUG-23.
+
+- **BUG-23 · P1 · Apply lifelink/deathtouch to noncombat damage (RULE 120.3f/702.2b).**
+  `game/rules/damage_death_mixin.py:_finish_damage` omits both consequences: three damage from a
+  lifelinker gains no life, and one damage from a deathtouch source leaves a 4/4 alive. Finalize
+  source-ability consequences in the shared successful-damage path, without duplicating combat
+  or fight handling; cover prevented damage as well as actual hits. Coordinate with BUG-22.
+
+- **BUG-24 · P2 · Let unpreventable damage pass protection (RULE 615.12/702.16c).**
+  Early protection returns in `game/rules/damage_death_mixin.py:deal_damage` and
+  `game/engine/combat_mixin.py:_apply_combat_damage` ignore disabled prevention. A red source must
+  damage a protected creature when prevention is disabled; preserve protection's independent
+  targeting, blocking and attachment restrictions.
+
+- **BUG-25 · P1 · Process multiplayer departures immediately (RULE 800.4a).**
+  `game/rules/sba_mixin.py` defers departing players' objects/effects through `pending_leave_ids`
+  until `begin_turn`; a conceding player's permanents still affect the ongoing turn. Perform the
+  ownership/control/stack departure sequence immediately, including ending control effects and
+  removing abilities controlled by the departed player. Keep review snapshots independent of live
+  rules state; cover concession, loss, stolen objects and priority transfer in a three-player game.
+
+- **BUG-26 · P2 · Let the controller choose the surviving legend (RULE 704.5j).**
+  `game/rules/sba_mixin.py:_apply_legend_rule` always keeps the first copy, discarding even a later
+  copy with more counters. Add resumable choices for conflicting legend groups and apply the
+  chosen departures in the simultaneous SBA batch. Coordinate with BUG-14.
+
+- **BUG-27 · P2 · Include battles in permanent-card graveyard targets (RULE 110.4).**
+  `game/targeting.py:_GRAVEYARD_TYPE_FILTERS` omits battles from `permanent` and
+  `nonland_permanent`. Reuse a complete permanent-card predicate and audit copied type
+  enumerations; a battle card must be selectable by a target-permanent-card return effect.
+
+- **BUG-28 · P2 · Reset ability-resolution counts each turn (RULE 500.1).**
+  `game/rules/casting_mixin.py:_count_ability_resolution` stamps display-only `turn_nr`.
+  Resolving once on each of two players' turns incorrectly activates a second-time-this-turn
+  rider. Use `internal_turn.number`; replace the manual round-counter increment in
+  `tests/test_par120_ability_resolution_count.py` with actual turn transitions, including extra turns.
+
+- **BUG-29 · P2 · Execute intrinsic phasing during untap (RULE 702.26a).**
+  `game/engine/turn_loop_mixin.py:_step_untap` phases permanents in but never phases out a
+  phased-in permanent with phasing. Compute both sets before applying either simultaneously,
+  retaining indirect-phasing and exact-object behavior; verify repeated untaps and attachments.
+
+- **BUG-30 · P2 · Keep combat state through end-of-combat priority (RULE 511.2–3).**
+  `game/engine/turn_loop_mixin.py:_step_end_combat` clears attackers/blockers and expires
+  until-end-of-combat effects as the step begins. Move cleanup/expiry to the transition out of
+  that step so its priority window and resolving triggers still see attacking/blocking status
+  and active combat-duration effects.
+
+- **BUG-31 · P1 · Resolve ninjutsu as an activated ability (RULE 702.49a/602/117).**
+  `game/engine/combat_mixin.py:ninjutsu` immediately puts the Ninja onto the battlefield with no
+  stack item and rejects legal activation after damage. Use hand-zone reveal/return costs,
+  ordinary stack resolution, response priority and split-second restrictions; allow activation
+  whenever a qualifying unblocked attacker exists and its controller has priority. Coordinate
+  end-of-combat timing with BUG-30.
+
+- **BUG-32 · P2 · Match permanent cards in typed “this way” pools (RULE 110.4/608.2c).**
+  `game/effect_amounts.py:this_way_matches` checks `permanent` against `card_types_of`, which
+  excludes that marker. “Mill 3 cards. You gain 2 life for each permanent card milled this way”
+  therefore counts a milled creature as zero. Share a complete permanent-card predicate across
+  pool amounts and conditions; verify mixed permanent/nonpermanent pools.
+
+- **BUG-33 · P2 · Sum characteristics of discarded/sacrificed objects (RULE 608.2h).**
+  `game/effect_amounts.py:this_way_matching` returns events for these pools, while `this_way_sum`
+  excludes events: a sacrificed 2-power creature counts as one but contributes zero power.
+  Resolve characteristic sums from object/event LKI snapshots, retaining token counts and zone
+  visits. Cover unfiltered and card-type-filtered sums; this amount primitive must work even
+  before the parser emits it.
+
+- **BUG-34 · P2 · Complete the exile-pool gameplay regression's destination checks.**
+  `tests/test_par175_clause_linkage.py:test_exile_a_graveyard_then_counters_for_the_creature_cards_exiled_reads_the_exile_pool`
+  must assert both named cards actually enter exile and only the caster gains exactly three life,
+  plus a separate illegal/missing-player-target case (RULE 608.2b). Keep the explicit player target
+  and exact life/graveyard assertions; extend those checks to distinguish
+  successful exile from another graveyard exit.
