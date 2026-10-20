@@ -284,6 +284,8 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
     "negate": bool,  # PAR-132 `discarded_this_way`: count the cards that do NOT have ``card_type``
+    # PAR-175 M4b `this_way_count` / `this_way_sum`: which "<verb>ed this way" pool, narrowed by creature subtype / colour.
+    "pool": str, "subtype": str, "color": str,
     "won": bool,  # RULE 705: the `coin_flips` amount counts won (True) or lost (False) flips
     # RULE 706: the `die_results` amount counts the kept dice of the last roll by ``which`` (even / odd / different /
     # equal ``value`` / all).

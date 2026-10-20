@@ -683,3 +683,163 @@ def test_a_lieutenant_style_trigger_gives_both_created_goblins_haste():
     goblins = [o for o in eng.state.battlefield if o.is_token and "Goblin" in o.name]
     assert len(goblins) == 2
     assert all("haste" in {k.lower() for k in o.granted_keywords} or o.temp_keywords for o in goblins)
+
+
+# --- M4b: one typed handle over every "<verb>ed this way" pool -----------------------------------------------------
+
+
+def _pooled(*cards, zone=Zone.GRAVEYARD):
+    objs = []
+    for name, type_line, cost, power in cards:
+        creature = "Creature" in type_line
+        objs.append(GameObject(Card(
+            id=name, name=name, type_line=type_line, mana_cost_string=cost, is_creature=creature,
+            color_identity={c for c in cost if c in "WUBRG"}, converted_mana_cost=cost.count("{"),
+            power=power if creature else None, toughness=power if creature else None), owner_id="p1", zone=zone))
+    return objs
+
+
+def _ctx_with(**pools):
+    eng = _engine()
+    ctx = GameContext(eng.state, eng.rules)
+    for field, objs in pools.items():
+        setattr(ctx, field, objs)
+    return eng, ctx
+
+
+@pytest.mark.parametrize("pool,field", [("destroyed", "destroyed_objects"), ("exiled", "exiled_objects"), ("milled", "milled_objects")])
+def test_this_way_count_and_sum_filter_every_context_pool_the_same_way(pool, field):
+    from mtg_analyzer.game import effect_amounts
+
+    bear, wall_ench, red_bolt = _pooled(
+        ("Bear", "Creature — Bear", "{1}{G}", 2), ("Pacifism", "Enchantment — Aura", "{1}{W}", 0), ("Elf", "Creature — Elf Druid", "{R}", 3))
+    eng, ctx = _ctx_with(**{field: [bear, wall_ench, red_bolt]})
+    amount = lambda **kw: effect_amounts.amount_of({"kind": "this_way_count", "pool": pool, **kw}, ctx, None, None)
+    assert amount() == 3
+    assert amount(card_type="creature") == 2 and amount(card_type="creature", negate=True) == 1
+    assert amount(card_type="enchantment") == 1
+    assert amount(subtype="elf") == 1
+    assert amount(color="R") == 1 and amount(color="G") == 1
+    total = effect_amounts.amount_of({"kind": "this_way_sum", "pool": pool, "characteristic": "power", "card_type": "creature"}, ctx, None, None)
+    assert total == 5
+    assert effect_amounts.amount_of({"kind": "this_way_sum", "pool": pool, "characteristic": "mana_value"}, ctx, None, None) == 5
+
+
+def test_a_pool_nothing_has_filled_and_an_unknown_pool_count_zero():
+    from mtg_analyzer.game import effect_amounts
+
+    eng, ctx = _ctx_with()
+    assert effect_amounts.amount_of({"kind": "this_way_count", "pool": "destroyed"}, ctx, None, None) == 0
+    assert effect_amounts.amount_of({"kind": "this_way_count", "pool": "created"}, ctx, None, None) == 0
+
+
+def test_the_this_way_pool_condition_reads_the_same_typed_handle():
+    from mtg_analyzer.game import effect_conditions
+
+    (ench,) = _pooled(("Pacifism", "Enchantment — Aura", "{1}{W}", 0))
+    eng, ctx = _ctx_with(destroyed_objects=[ench])
+    has = lambda pool, **kw: effect_conditions.condition_state({"kind": "this_way_pool", "pool": pool, **kw}, ctx, None, None)
+    assert has("destroyed", card_type="enchantment") is True
+    assert has("destroyed", card_type="creature") is False
+    assert has("destroyed", card_type="enchantment", negate=True) is False
+    assert has("destroyed", color="W") is True
+    assert has("milled", card_type="enchantment") is False  # nothing milled
+    assert has("created") is None  # unknown pool: unanswerable, never a guess
+
+
+_POOL_PRODUCERS = {
+    "exiled": {"exile", "exile_target_graveyard", "optional"},
+    "destroyed": {"destroy", "optional"},
+    "milled": {"mill", "optional"},
+}
+
+
+def _bound_count_cast(oracle, setup, targets=()):
+    """Cast a parsed sorcery with ``setup(eng, p1, p2)`` having prepared the boards; returns (eng, p1, p2)."""
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    setup(eng, p1, p2)
+    card = _sorcery("Test This Way", oracle)
+    assert parse_oracle(card).coverage == MODELED, parse_oracle(card).unclaimed
+    _cast_parsed(eng, card, targets=[{'p1': p1, 'p2': p2}[x] if isinstance(x, str) else x for x in targets])
+    return eng, p1, p2
+
+
+def _bf_permanent(eng, owner, name, type_line):
+    obj = GameObject(Card(id=name, name=name, type_line=type_line, oracle_text=""), owner_id=owner, zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(obj)
+    return obj
+
+
+def test_multanis_decree_gains_life_only_for_the_enchantments_it_destroyed():
+    def setup(eng, p1, p2):
+        _bf_permanent(eng, "p2", "Ench A", "Enchantment")
+        _bf_permanent(eng, "p2", "Ench B", "Enchantment — Aura")
+        _bf_permanent(eng, "p1", "Relic", "Artifact")
+
+    eng, p1, _ = _bound_count_cast("Destroy all enchantments. You gain 2 life for each enchantment destroyed this way.", setup)
+    life0 = 40
+    assert p1.life == life0 + 4 and [o.name for o in eng.state.battlefield] == ["Relic"]
+
+
+def test_tribune_of_rot_shape_makes_a_token_per_creature_card_milled_and_none_for_other_cards():
+    def setup(eng, p1, p2):
+        for name, tl in (("Top Bear", "Creature — Bear"), ("Top Land", "Basic Land — Forest"), ("Top Elf", "Creature — Elf")):
+            p1.add_to_zone(GameObject(_card(name, "", tl) if "Creature" in tl else Card(id=name, name=name, type_line=tl, is_land=True),
+                                      owner_id="p1", zone=Zone.LIBRARY), Zone.LIBRARY)
+
+    eng, p1, _ = _bound_count_cast("Mill 3 cards. For each creature card milled this way, create a 1/1 green Saproling creature token.", setup)
+    assert len([o for o in eng.state.battlefield if o.is_token and "Saproling" in o.name]) == 2
+
+
+def test_exile_a_graveyard_then_counters_for_the_creature_cards_exiled_reads_the_exile_pool():
+    def setup(eng, p1, p2):
+        for name, tl in (("Dead Bear", "Creature — Bear"), ("Dead Spell", "Sorcery")):
+            card = _card(name, "", tl) if "Creature" in tl else Card(id=name, name=name, type_line=tl, is_sorcery=True)
+            p2.add_to_zone(GameObject(card, owner_id="p2", zone=Zone.GRAVEYARD), Zone.GRAVEYARD)
+
+    eng, p1, p2 = _bound_count_cast("Exile target player's graveyard. You gain 3 life for each creature card exiled this way.", setup, targets=["p2"])
+    # one creature card in the graveyard: 3 life, not 6 (the sorcery was exiled too but is not a creature card)
+    assert p1.life == 43 and not p2.graveyard
+
+
+def test_a_conditioned_follow_up_runs_only_when_the_pool_has_a_matching_object():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    specs = parse_effect_body("destroy target creature or enchantment. if an enchantment was destroyed this way, you lose 2 life")
+    assert specs[1].condition == {"kind": "this_way_pool", "pool": "destroyed", "card_type": "enchantment"}
+    # an "is destroyed" wording and a pronoun in the body belong to other rows: unchanged / unclaimed here
+    assert parse_effect_body("destroy target creature or enchantment. if a creature was destroyed this way, return it to your hand") is None
+
+
+@pytest.mark.full_cache
+@pytest.mark.timeout(900)  # parses the whole cache
+def test_every_typed_this_way_amount_follows_a_clause_that_fills_its_pool():
+    from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+
+    offenders = []
+
+    def uses_pool(node):
+        found = []
+        if isinstance(node, dict):
+            if node.get("kind") == "this_way_count" or (node.get("kind") == "this_way_pool"):
+                found.append(node["pool"])
+            for v in node.values():
+                found += uses_pool(v)
+        elif isinstance(node, list):
+            for v in node:
+                found += uses_pool(v)
+        return found
+
+    for card in CardDatabase(DEFAULT_DB_PATH).list_cards():
+        result = parse_oracle(card)
+        if not result.modeled:
+            continue
+        for spec in result.specs:
+            effects = [e.to_dict() for e in spec.effects]
+            for index, effect in enumerate(effects):
+                for pool in uses_pool(effect):
+                    if pool in _POOL_PRODUCERS and not any(
+                            earlier["type"] in _POOL_PRODUCERS[pool] for earlier in effects[:index]) and pool != "discarded" and pool != "sacrificed":
+                        offenders.append((card.name, pool))
+    assert offenders == []

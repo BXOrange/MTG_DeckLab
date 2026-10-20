@@ -49,7 +49,6 @@ from .catalogue.flicker_sequences import (
     linked_pool_return_specs,
     source_return_specs,
 )
-from .catalogue.fight_sequences import fight_sequence_specs, source_counter_fight_specs
 from .catalogue.dying_hosts import dying_host_return_specs
 from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.target_groups import target_group_specs
@@ -4093,6 +4092,24 @@ _THIS_WAY_TALLY_RE = re.compile(r"^(?:creature|permanent|card)s? (?P<verb>destro
 _THIS_WAY_TALLY_NAMES = {"destroyed": "permanents_destroyed_this_way", "exiled": "objects_exiled_this_way"}
 
 
+_THIS_WAY_COUNT_PHRASE_RE = re.compile(
+    r"^(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)? ?"
+    r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled) this way$"
+)
+
+
+def _this_way_filter(m: "re.Match[str]") -> dict[str, Any]:
+    """The ``card_type`` / ``negate`` / ``color`` filter a `_THIS_WAY_TYPES` match names (shared by every "this way" reader)."""
+    filt: dict[str, Any] = {}
+    if m.group("type") and m.group("type") != "permanent":
+        filt["card_type"] = m.group("type")
+        if m.group("non"):
+            filt["negate"] = True
+    if m.group("color"):
+        filt["color"] = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[m.group("color")]
+    return filt
+
+
 def _count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -4105,6 +4122,12 @@ def _count_amount(
     this_way = _THIS_WAY_TALLY_RE.match(phrase)
     if this_way is not None:
         return {"kind": "this_way", "tally": _THIS_WAY_TALLY_NAMES[this_way.group("verb")]}
+    typed = _THIS_WAY_COUNT_PHRASE_RE.match(phrase)
+    if typed is not None:
+        # PAR-175 M4b: "the number of creature cards exiled this way" -- the typed handle (`effect_amounts.this_way_count`).
+        filt = _this_way_filter(typed)
+        if typed.group("verb") == "milled" or filt:
+            return {"kind": "this_way_count", "pool": typed.group("verb"), **filt}
     cm = _FOR_EACH_COUNTER_RE.match(phrase)
     if cm is not None:
         who = cm.group("who").lower()
@@ -4336,72 +4359,38 @@ def _any_number_this_way_specs(
     return [EffectSpec("choose_objects", params)]
 
 
-#: PAR-132: "<exile ...>. If a [non]creature card was exiled this way, <body>." (Diregraf Scavenger, Mastermind Plum,
-#: Raven Eagle, Deathgorge Scavenger's pair). RULE 608.2c: "this way" is what the first instruction actually exiled
-#: (`GameContext.exiled_objects`), so each conditional sentence rides the new ``this_way_pool`` condition; an exile
-#: that finds nothing (an empty graveyard, a declined "you may") leaves the pool empty and the body unrun.
-_EXILED_THIS_WAY_SENTENCE_RE = re.compile(
-    r"^if an? (?P<non>non)?(?P<type>creature|artifact|land|enchantment|planeswalker)? ?card "
-    r"(?:was|is) exiled this way, (?P<then>.+?)\.?$"
+#: PAR-132 / PAR-175 M4b: "<instruction>. If a [non]creature card was `<verb>`ed this way, <body>." and "<instruction>.
+#: <effect> for each [non]land card `<verb>`ed this way." / "for each … this way, <effect>." (Diregraf Scavenger,
+#: Seasoned Pyromancer, Multani's Decree, Tribune of Rot ...). RULE 608.2c: "this way" is exactly what the instruction
+#: before it exiled / destroyed / milled / discarded / sacrificed -- one grammar over one typed handle
+#: (`effect_amounts.THIS_WAY_POOLS`, the ``this_way_pool`` condition, the ``this_way_count`` amount). A discard or
+#: sacrifice can pause for the affected player's answer, so those two read the `mark_event_log` window instead of a
+#: per-resolution list; their amounts keep the older ``discarded_this_way`` / ``sacrificed_this_way`` spelling.
+_THIS_WAY_TYPES = (
+    r"(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)?"
 )
-_EXILED_THIS_WAY_SPLIT_RE = re.compile(r"\.\s+(?=if an? [a-z]+ card (?:was|is) exiled this way, )")
-
-
-def _exiled_this_way_conditionals(
-    body: str, *, reading: ClauseReading = STANDALONE,
-) -> "Optional[list[EffectSpec]]":
-    if " exiled this way, " not in body:
-        return None
-    parts = _EXILED_THIS_WAY_SPLIT_RE.split(body)
-    if len(parts) < 2:
-        return None
-    before = parse_effect_body(parts[0].strip().rstrip(".") , reading=ClauseReading(group_subject=reading.group_subject))
-    if not before or not any(
-        spec.type == "exile" or (spec.type == "optional" and any(
-            inner.get("type") == "exile" for inner in spec.params.get("effects") or []))
-        for spec in before
-    ):
-        return None
-    specs = list(before)
-    for sentence in parts[1:]:
-        m = _EXILED_THIS_WAY_SENTENCE_RE.match(sentence.strip())
-        if m is None or (m.group("non") and not m.group("type")):
-            return None
-        then = parse_effect_body(m.group("then"), reading=ClauseReading(self_subject=reading.self_subject, group_subject=reading.group_subject), )
-        if not then or any(spec.condition for spec in then) or '"target_kind"' in json.dumps(
-                [spec.to_dict() for spec in then], default=str):
-            return None
-        condition: dict[str, Any] = {"kind": "this_way_pool", "pool": "exiled"}
-        if m.group("type"):
-            condition["card_type"] = m.group("type")
-            if m.group("non"):
-                condition["negate"] = True
-        specs += [EffectSpec(spec.type, dict(spec.params), condition=condition) for spec in then]
-    return specs
-
-
-#: PAR-132: "<discard/sacrifice ...>. If a [non]land card is discarded this way, <body>." (Lord Windgrace, Civilized Scholar,
-#: Psychic Miasma) and "<discard/sacrifice ...>. <effect> for each [non]land card discarded / permanent sacrificed this way."
-#: (Seasoned Pyromancer, Gerrard's Verdict, Nahiri's Lithoforming, Visions of Ruin). RULE 608.2c: "this way" is exactly what
-#: the first instruction discarded / sacrificed. That is the affected player's later answer, so the window is a
-#: `mark_event_log` position on the source (not a per-resolution list that a `pending_choice` resume would lose); the
-#: `this_way_pool` condition and the `discarded_this_way` / `sacrificed_this_way` amounts read the `DISCARD_CARD` /
-#: `SACRIFICE` events logged after it.
-_THIS_WAY_TYPES = r"(?P<non>non)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)?"
-_THIS_WAY_VERBS = {"discarded": "discard", "sacrificed": "sacrifice"}
+#: verb -> the effect types that perform it (the first clause must contain one) and whether it needs the event window.
+_THIS_WAY_VERBS: dict[str, tuple[frozenset[str], bool]] = {
+    "exiled": (frozenset({"exile"}), False),
+    "destroyed": (frozenset({"destroy"}), False),
+    "milled": (frozenset({"mill"}), False),
+    "discarded": (frozenset({"discard"}), True),
+    "sacrificed": (frozenset({"sacrifice"}), True),
+}
+_THIS_WAY_VERB_RE = "|".join(_THIS_WAY_VERBS)
 _THIS_WAY_IF_RE = re.compile(
-    rf"^if an? {_THIS_WAY_TYPES} ?(?:card )?(?:was|is) (?P<verb>discarded|sacrificed) this way, (?P<then>.+?)\.?$"
+    rf"^if an? {_THIS_WAY_TYPES} ?(?:card )?(?P<aux>was|is) (?P<verb>{_THIS_WAY_VERB_RE}) this way, (?P<then>.+?)\.?$"
 )
 _THIS_WAY_EACH_RE = re.compile(
-    rf"^(?:then )?(?P<rest>.+?) for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>discarded|sacrificed) this way\.?$"
+    rf"^(?:then )?(?P<rest>.+?) for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>{_THIS_WAY_VERB_RE}) this way\.?$"
 )
 _THIS_WAY_EACH_LEAD_RE = re.compile(
-    rf"^for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>discarded|sacrificed) this way, (?P<rest>.+?)\.?$"
+    rf"^for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>{_THIS_WAY_VERB_RE}) this way, (?P<rest>.+?)\.?$"
 )
 _THIS_WAY_SPLIT_RE = re.compile(
-    r"\.\s+(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:discarded|sacrificed) this way, "
-    r"|for each [a-z ]*(?:discarded|sacrificed) this way, "
-    r"|.+ for each [a-z ]*(?:discarded|sacrificed) this way))"
+    rf"\.\s+(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:{_THIS_WAY_VERB_RE}) this way, "
+    rf"|for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way, "
+    rf"|.+ for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way))"
 )
 
 
@@ -4412,10 +4401,11 @@ def _announces_real_target(specs: "list[EffectSpec]") -> bool:
     ) is not None
 
 
-def _discarded_this_way_specs(
-    body: str, *, reading: ClauseReading = STANDALONE,
+def _this_way_sequences(
+    body: str, *, verbs: frozenset[str], reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
-    if " discarded this way" not in body and " sacrificed this way" not in body:
+    """The instruction + its "this way" consumers (see the block comment above), for the pools in ``verbs``."""
+    if " this way" not in body or not any(f" {v} this way" in body for v in verbs):
         return None
     parts = _THIS_WAY_SPLIT_RE.split(body)
     if len(parts) < 2:
@@ -4424,35 +4414,45 @@ def _discarded_this_way_specs(
     if not before:
         return None
     before_json = json.dumps([s.to_dict() for s in before], default=str)
-    specs = [EffectSpec("mark_event_log", {}), *before]
+    windowed = False
+    specs = list(before)
     for sentence in parts[1:]:
         sentence = sentence.strip()
         m = _THIS_WAY_IF_RE.match(sentence)
         each = None
         if m is None:
             each = m = _THIS_WAY_EACH_RE.match(sentence) or _THIS_WAY_EACH_LEAD_RE.match(sentence)
-        if m is None or (m.group("non") and not m.group("type")):
+        if m is None or (m.group("non") and not m.group("type")) or m.group("verb") not in verbs:
             return None
         verb = m.group("verb")
+        producers, needs_window = _THIS_WAY_VERBS[verb]
         # The measured verb must be the one the first clause performs ("sacrificed this way" after a discard is not).
-        if f'"type": "{_THIS_WAY_VERBS[verb]}"' not in before_json:
+        if not any(f'"type": "{effect_type}"' in before_json for effect_type in producers):
             return None
+        windowed = windowed or needs_window
+        filt: dict[str, Any] = {}
+        if m.group("type"):
+            filt["card_type"] = m.group("type")
+            if m.group("non"):
+                filt["negate"] = True
+        if m.group("color"):
+            filt["color"] = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[m.group("color")]
         if each is None:
+            if verb == "destroyed" and m.group("aux") == "is":
+                return None  # "if a creature is destroyed this way" is the older condition-peel row's (`static_handlers`)
+            if verb in ("destroyed", "milled") and re.search(r"\b(?:it|its|that|those|them|they|their)\b", m.group("then")):
+                return None  # a pronoun would name the pooled object, which no row can bind yet: stay unclaimed
             then = parse_effect_body(m.group("then"), reading=ClauseReading(self_subject=reading.self_subject, group_subject=reading.group_subject), )
             if not then or any(spec.condition for spec in then) or _announces_real_target(then):
                 return None
-            condition: dict[str, Any] = {"kind": "this_way_pool", "pool": verb}
-            if m.group("type"):
-                condition["card_type"] = m.group("type")
-                if m.group("non"):
-                    condition["negate"] = True
+            condition: dict[str, Any] = {"kind": "this_way_pool", "pool": verb, **filt}
             specs += [EffectSpec(spec.type, dict(spec.params), condition=condition) for spec in then]
             continue
-        amount: dict[str, Any] = {"kind": f"{verb}_this_way"}
-        if m.group("type"):
-            amount["card_type"] = m.group("type")
-            if m.group("non"):
-                amount["negate"] = True
+        if verb in ("destroyed", "exiled") and not filt.get("negate") and not filt.get("color") and filt.get("card_type", "creature") in ("creature", "permanent"):
+            return None  # the untyped destroyed/exiled tally (`_THIS_WAY_TALLY_RE`, permanents_destroyed_this_way) already owns this
+        amount: dict[str, Any] = (
+            {"kind": f"{verb}_this_way", **filt} if needs_window else {"kind": "this_way_count", "pool": verb, **filt}
+        )
         bound = _bound_for_each_amount(
             m, amount, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=False, group_subject=reading.group_subject, previous_selector=False),
         )
@@ -4461,7 +4461,7 @@ def _discarded_this_way_specs(
                 [s.to_dict() for s in bound], default=str):
             return None
         specs += bound
-    return specs
+    return [EffectSpec("mark_event_log", {}), *specs] if windowed else specs
 
 
 def _bound_for_each_amount(
@@ -5610,9 +5610,9 @@ def _parse_effect_body_unstamped(
     ))
     if target_group is not None:
         return target_group
-    fight_sequence = fight_sequence_specs(body) or source_counter_fight_specs(body)
-    if fight_sequence is not None:
-        return fight_sequence
+    # (PAR-175 M4b: the body-level `fight_sequence_specs` / `source_counter_fight_specs` call was retired -- the clause-level
+    # call in `catalogue/handlers.match_clause` claims every one of those bodies, with the identical specs, for the whole
+    # cache.)
     if reading.attached_subject:
         # RULE 400.7e: keep a dying host's conditional return riders atomic
         # before sentence/connector splitting can lose their shared referent.
@@ -6389,17 +6389,23 @@ def _parse_effect_body_inner(
             return None
         return before_specs + after_specs
 
-    exiled_this_way = _exiled_this_way_conditionals(body, reading=ClauseReading(self_subject=reading.self_subject, group_subject=reading.group_subject), )
-    if exiled_this_way is not None:
-        return exiled_this_way
+    pooled_this_way = _this_way_sequences(
+        body, verbs=frozenset({"exiled", "destroyed", "milled"}),
+        reading=ClauseReading(self_subject=reading.self_subject, group_subject=reading.group_subject),
+    )
+    if pooled_this_way is not None:
+        return pooled_this_way
 
     any_number_this_way = _any_number_this_way_specs(body, reading=ClauseReading(self_subject=reading.self_subject, group_subject=reading.group_subject), )
     if any_number_this_way is not None:
         return any_number_this_way
 
-    discarded_this_way = _discarded_this_way_specs(body, reading=ClauseReading(self_subject=reading.self_subject, group_subject=reading.group_subject), )
-    if discarded_this_way is not None:
-        return discarded_this_way
+    windowed_this_way = _this_way_sequences(
+        body, verbs=frozenset({"discarded", "sacrificed"}),
+        reading=ClauseReading(self_subject=reading.self_subject, group_subject=reading.group_subject),
+    )
+    if windowed_this_way is not None:
+        return windowed_this_way
 
     exile_x_for_each = _EXILE_X_GY_FOR_EACH_CREATE_RE.match(body)
     if exile_x_for_each is not None:

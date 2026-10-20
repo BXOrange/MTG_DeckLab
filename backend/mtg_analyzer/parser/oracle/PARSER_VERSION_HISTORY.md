@@ -4087,3 +4087,10 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      after a creating clause reads as the pronoun rows take it; a creation followed by riders that consumed it keeps the
      CREATED referent (Dollhouse of Horrors' "It gains haste" is the token, not the Dollhouse); the sacrifice-it row
      refuses an attached-host pronoun. +16 / -0.
+712: PAR-175 M4b -- one typed handle over the "<verb>ed this way" pools (`effect_amounts.THIS_WAY_POOLS`: exiled, destroyed,
+     milled, discarded, sacrificed; `this_way_count` / `this_way_sum` amounts and the `this_way_pool` condition, filtered by
+     card type / subtype / colour). `_this_way_sequences` replaces the pre-split `_exiled_this_way_conditionals` and
+     `_discarded_this_way_specs` (no card they claimed changed) and adds the destroyed and milled pools ("for each creature
+     card milled this way, ...", "if an enchantment was destroyed this way, ..."); typed count phrases ("the number of
+     creature cards exiled this way") reach every amount row. The body-level fight-sequence call is retired (the
+     clause-level one claims every such body identically). +8 / -0.
