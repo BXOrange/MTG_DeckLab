@@ -178,11 +178,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   copy with more counters. Add resumable choices for conflicting legend groups and apply the
   chosen departures in the simultaneous SBA batch. Coordinate with BUG-14.
 
-- **BUG-29 · P2 · Execute intrinsic phasing during untap (RULE 702.26a).**
-  `game/engine/turn_loop_mixin.py:_step_untap` phases permanents in but never phases out a
-  phased-in permanent with phasing. Compute both sets before applying either simultaneously,
-  retaining indirect-phasing and exact-object behavior; verify repeated untaps and attachments.
-
 - **BUG-30 · P2 · Keep combat state through end-of-combat priority (RULE 511.2–3).**
   `game/engine/turn_loop_mixin.py:_step_end_combat` clears attackers/blockers and expires
   until-end-of-combat effects as the step begins. Move cleanup/expiry to the transition out of

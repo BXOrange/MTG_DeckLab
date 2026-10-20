@@ -581,6 +581,11 @@ class GameObject:
         #: flip them back. Set/cleared by `game/card_catalogue`'s
         #: phase-out effects and that same untap-step sweep.
         self.phased_out: bool = False
+        #: RULE 702.26g/h: ``instance_id`` of the host this permanent phased
+        #: out *indirectly* with (an Aura/Equipment/Fortification attached to
+        #: a phasing permanent), else ``None``. An indirectly phased-out
+        #: permanent never phases in on its own; it phases in with its host.
+        self.phased_out_with: Optional[int] = None
         #: Damage marked this turn (RULE 120); cleared during cleanup.
         self.damage_marked: int = 0
         #: Counters on the permanent, keyed by kind (RULE 122): e.g.
@@ -1566,6 +1571,7 @@ class GameObject:
         self.turn_entered = None
         self.entry_controller_id = None
         self.phased_out = False
+        self.phased_out_with = None
         self.damage_marked = 0
         self.counters = {}
         self.attacking = False

@@ -3390,6 +3390,7 @@ of their reminder text or catalogue entry.
 ### Phasing (RULE 702.26)
 
 - **What:** A new `GameObject.phased_out` flag, filtered out of `GameState.permanents()`/`permanents_controlled_by` (the sanctioned battlefield-reading choke point) so comb…
+- **Intrinsic phasing in the untap step (BUG-29, RULE 502.1/702.26a/g/h):** `_step_untap` only phased permanents in. It now takes both sets before applying either: the active player's phased-in permanents with phasing (`combat.has(obj, "phasing")`, so granted phasing counts) phase out, the directly phased-out ones phase in, and attachments phase indirectly with their host (any controller), keeping `attached_to` and recording the host in `GameObject.phased_out_with` so they return only with it. A permanent phasing in is not phased out in the same step. **Not changed:** the single-permanent `PhaseOutEffect` (Robe of Stars) still unattaches instead of phasing attachments indirectly. Tests: `tests/test_bug29_untap_phasing.py`.
 - **Files:** `game/rules_engine.py`, `game/game_engine.py`, `models/game_state.py`
 
 ### ENG-6/ENG-10: Copy-of-a-Copy (RULE 707.2)

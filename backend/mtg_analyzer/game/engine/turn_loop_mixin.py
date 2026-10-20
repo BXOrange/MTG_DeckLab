@@ -706,18 +706,47 @@ class TurnLoopMixin:
 
     def _step_untap(self) -> None:
         active = self.state.active_player
-        # RULE 702.26a: "at the beginning of the untap step, before
-        # performing any other turn-based actions", every phased-out
-        # permanent this player controls phases back in. (No card in this
-        # engine yet auto-phases an already-phased-in permanent *out* at
-        # this point, so that half of 702.26a is deliberately not modeled —
-        # every phase-out here comes from an explicit activated ability,
-        # e.g. Robe of Stars' Astral Projection.) Reads `state.battlefield`
-        # directly, not `permanents_controlled_by`, since that filters
-        # phased-out objects out — exactly the ones this loop needs to find.
-        for obj in self.state.battlefield:
-            if obj.controller_id == active.id and obj.phased_out:
-                obj.phased_out = False
+        # RULE 502.1 / 702.26a: the untap step's first action is phasing,
+        # simultaneously: every phased-in permanent with phasing the active
+        # player controls phases out, and every permanent that phased out
+        # under that player's control phases in. Both sets are computed
+        # before either is applied, so a permanent phasing in this step is
+        # not also phased out (it was phased out when the sets were taken).
+        # Reads `state.battlefield` directly, not `permanents_controlled_by`,
+        # since that filters phased-out objects out.
+        battlefield = list(self.state.battlefield)
+        phase_in = [
+            obj for obj in battlefield
+            if obj.phased_out and obj.phased_out_with is None
+            and obj.controller_id == active.id
+        ]
+        phase_out = [
+            obj for obj in battlefield
+            if not obj.phased_out and obj.controller_id == active.id
+            and combat.has(obj, "phasing")
+        ]
+        # RULE 702.26g/h: attachments phase with their host (indirectly),
+        # whoever controls them; the attachment link is kept (unlike an
+        # explicit phase-out effect) so the pair returns together.
+        phase_in_ids = {obj.instance_id for obj in phase_in}
+        phase_out_ids = {obj.instance_id for obj in phase_out}
+        indirect_in = [
+            obj for obj in battlefield
+            if obj.phased_out and obj.phased_out_with in phase_in_ids
+        ]
+        indirect_out = [
+            obj for obj in battlefield
+            if not obj.phased_out and obj.attached_to in phase_out_ids
+            and obj.instance_id not in phase_out_ids
+        ]
+        for obj in phase_in + indirect_in:
+            obj.phased_out = False
+            obj.phased_out_with = None
+        for obj in phase_out:
+            obj.phased_out = True
+        for obj in indirect_out:
+            obj.phased_out = True
+            obj.phased_out_with = obj.attached_to
         # RULE 502.3-adjacent (Winter Orb/Static Orb/Winter Moon): "players
         # can't untap more than N `<type>` during their untap steps" — a
         # flat, unscoped cap that applies to every player's untap step

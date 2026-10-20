@@ -66,6 +66,10 @@ COMBAT_KEYWORDS: frozenset[str] = frozenset(
         # `_ORACLE_PATTERNS` — see `game/engine/combat_mixin.py`'s
         # `declare_attackers`.
         "exert",
+        # RULE 702.26: phasing is read by the untap step, not combat; it
+        # lives in this set because this is the one derived-keyword reader
+        # (printed + intrinsic + granted - removed).
+        "phasing",
     }
 )
 
@@ -112,6 +116,7 @@ _ORACLE_PATTERNS: dict[str, re.Pattern[str]] = {
         "indestructible": "indestructible",
         "infect": "infect",
         "wither": "wither",
+        "phasing": "phasing",
     }.items()
 }
 
