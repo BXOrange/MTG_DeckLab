@@ -166,6 +166,8 @@ class TestUnionsAreComposed:
                 self.is_land = kw.get("land", False)
                 self.is_planeswalker = kw.get("planeswalker", False)
                 self.is_battle = kw.get("battle", False)
+                self.is_artifact = kw.get("artifact", False)
+                self.is_enchantment = kw.get("enchantment", False)
                 self.colors = ()
                 self.card = _Card(kw.get("artifact", False), kw.get("enchantment", False))
 

@@ -1211,7 +1211,7 @@ def _build_group_ok(
                 return False
             if not any(
                 getattr(o, "attached_to", None) == event_instance
-                and "aura" in (o.card.type_line or "").lower()
+                and o.has_subtype("aura")
                 and o.controller_id == cid
                 for o in state.battlefield
             ):
@@ -1688,7 +1688,7 @@ def _trigger_condition(
             if state is None or iid is None:
                 return False
             return any(
-                o.attached_to == iid and "equipment" in o.card.type_line.lower()
+                o.attached_to == iid and o.has_subtype("equipment")
                 for o in state.battlefield
             )
 
@@ -2740,7 +2740,7 @@ def _trigger_condition(
             return not any(
                 o.instance_id != leaving_id
                 and o.controller_id == cid
-                and w in o.card.type_line.partition("—")[2].strip().lower().split()
+                and o.has_subtype(w)
                 for o in state.battlefield
             )
 
@@ -2775,7 +2775,7 @@ def _trigger_condition(
                 1 for o in state.battlefield
                 if o.controller_id == did
                 and (getattr(o, "is_land", False)
-                     or "land" in o.card.type_line.partition("—")[0].lower().split())
+                     or "land" in o.type_words)
             )
             return n >= want
 

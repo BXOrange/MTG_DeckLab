@@ -1558,7 +1558,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                     continue
                 if want_creature and not obj.is_creature:
                     continue
-                if self.mass_of_target_player == "artifact" and not obj.card.is_artifact:
+                if self.mass_of_target_player == "artifact" and not obj.is_artifact:
                     continue
                 self._take(context, obj, controller)
             context.recompute()

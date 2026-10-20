@@ -848,7 +848,7 @@ def condition_holds(
         owner_id = getattr(subject, "controller_id", None)
         return owner_id is not None and getattr(state, "monarch_id", None) == owner_id
     if kind == "controls_greatest_mana_value_artifact":
-        artifacts = [o for o in state.permanents() if o.card.is_artifact]
+        artifacts = [o for o in state.permanents() if o.is_artifact]
         mine = [o for o in artifacts if o.controller_id == controller_id]
         if not mine:
             return False
@@ -993,7 +993,7 @@ def condition_holds(
         wanted = str(condition.get("card_type", "land")).lower()
         names: dict[str, int] = {}
         for o in state.permanents():
-            if o.controller_id != controller_id or wanted not in (o.card.type_line or "").lower().split("—")[0]:
+            if o.controller_id != controller_id or wanted not in o.type_words:
                 continue
             for name in o.names:
                 names[name] = names.get(name, 0) + 1
@@ -1004,8 +1004,8 @@ def condition_holds(
         subtype = str(condition.get("subtype", "")).lower()
         return bool(subtype and controller_id is not None and any(
             o.is_creature and o.controller_id == controller_id
-            and "legendary" in str(o.card.type_line).lower()
-            and subtype in str(o.card.type_line).lower()
+            and o.is_legendary
+            and o.has_subtype(subtype)
             for o in state.battlefield
         ))
     if kind == "control_permanent_of_each_color":
@@ -1332,7 +1332,7 @@ def condition_holds(
                 continue
             if getattr(obj, "turn_entered", None) != turn:
                 continue
-            if word in obj.card.type_line.lower():
+            if word in obj.type_words or obj.has_subtype(word):
                 return True
         return False
     if kind == "card_types_in_graveyard_at_least":
@@ -1450,7 +1450,7 @@ def condition_holds(
         n = sum(
             1 for o in state.battlefield
             if o.controller_id == controller_id
-            and word in o.card.type_line.partition("—")[2].strip().lower().split()
+            and o.has_subtype(word)
         )
         return _within(n, condition, default_min=1)
     if kind == "opponent_cast_color_this_turn":

@@ -167,15 +167,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -312,12 +312,12 @@ def _controls_check_type(state: Any, controller_id: Optional[str], types: list[s
         words = t.lower().split()
         if _CHECK_PERMANENT_TYPE_WORDS & set(words):
             if any(
-                o.controller_id == controller_id and all(w in o.card.type_line.lower() for w in words)
+                o.controller_id == controller_id and all(w in o.type_words or o.has_subtype(w) for w in words)
                 for o in state.battlefield
             ):
                 return True
         elif any(
-            o.is_land and o.controller_id == controller_id and t in o.card.type_line.lower()
+            o.is_land and o.controller_id == controller_id and o.has_subtype(t)
             for o in state.battlefield
         ):
             return True
@@ -396,7 +396,7 @@ class CastingResolutionMixin:
                 # +1/+1 counters, where X is twice the number of counters removed this way." — **simplification:** every such
                 # permanent loses its counters (the "any number" choice is taken as "all").
                 for other in list(self.state.battlefield):
-                    if other is obj or not (other.card.is_artifact or other.is_creature or other.card.is_enchantment):
+                    if other is obj or not (other.is_artifact or other.is_creature or other.is_enchantment):
                         continue
                     for kind, n in list((other.counters or {}).items()):
                         if n and n > 0:
@@ -574,7 +574,7 @@ class CastingResolutionMixin:
                     for o in self.state.battlefield
                     if o.is_land
                     and o.controller_id == obj.controller_id
-                    and type_word in o.card.type_line.lower()
+                    and o.has_subtype(type_word)
                 )
             elif condition.get("basic"):
                 other_lands = sum(
@@ -582,7 +582,7 @@ class CastingResolutionMixin:
                     for o in self.state.battlefield
                     if o.is_land
                     and o.controller_id == obj.controller_id
-                    and "basic" in o.card.type_line.lower()
+                    and o.has_supertype("basic")
                 )
             else:
                 other_lands = sum(
@@ -678,7 +678,7 @@ class CastingResolutionMixin:
         (derived subtypes included — a changeling counts as a Dragon)."""
         return any(
             o is not obj and o.controller_id == obj.controller_id
-            and any(t in o.card.type_line.lower() or continuous.has_subtype(o, t) for t in types)
+            and any(t in o.type_words or o.has_subtype(t) for t in types)
             for o in self.state.battlefield
         )
     def predict_land_tapped(self, obj: GameObject, card: Optional[Card] = None) -> Optional[bool]:
@@ -714,7 +714,7 @@ class CastingResolutionMixin:
                 other_lands = sum(
                     1 for o in self.state.battlefield
                     if o.is_land and o.controller_id == obj.controller_id
-                    and "basic" in o.card.type_line.lower()
+                    and o.has_supertype("basic")
                 )
             else:
                 other_lands = sum(
@@ -1455,7 +1455,7 @@ class CastingResolutionMixin:
             # that makes it one is attached, so the ability itself widens the target (``allow_planeswalker``); a
             # permanent already attached is a creature through that Equipment's own static, which keeps it legal on
             # the RULE 704.5n re-check.
-            is_host = target.is_creature or (allow_planeswalker and target.card.is_planeswalker)
+            is_host = target.is_creature or (allow_planeswalker and target.is_planeswalker)
             return is_host and (not check_control or target.controller_id == obj.controller_id)
         if kind == "reconfigure":
             # RULE 702.151a: "another target creature you control."
@@ -1488,9 +1488,9 @@ class CastingResolutionMixin:
             if quality == "creature":
                 return target.is_creature
             if quality == "artifact":
-                return target.card.is_artifact
+                return target.is_artifact
             if quality == "enchantment":
-                return target.card.is_enchantment
+                return target.is_enchantment
             if quality == "land":
                 return target.is_land
             if quality == "planeswalker":
@@ -2836,7 +2836,7 @@ class CastingResolutionMixin:
                     x = int(getattr(obj, "x_paid", 0) or 0)
                     if x > 0:
                         self.add_counters(obj, x, kind="+1/+1")
-                if obj.card.is_planeswalker and effect.extra_counter_if_planeswalker:
+                if obj.is_planeswalker and effect.extra_counter_if_planeswalker:
                     self.add_counters(obj, 1, kind=effect.extra_counter_if_planeswalker)
                 if effect.grant_mana_option:
                     # `GameObject.granted_mana_options` is a read-only,

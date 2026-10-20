@@ -1268,7 +1268,7 @@ class ExchangeControlEffect(GameEffect):
                 for aura in [
                     o for o in context.state.battlefield
                     if o.attached_to in (mine.instance_id, theirs.instance_id)
-                    and "aura" in (o.card.type_line or "").lower()
+                    and o.has_subtype("aura")
                 ]:
                     context.destroy(aura)
             context.recompute()

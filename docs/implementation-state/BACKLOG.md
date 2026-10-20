@@ -103,12 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-18 · P1 · Use current battlefield types for targets, costs and selectors (RULE 613.1d).**
-  `game/targeting.py` artifact/enchantment frames and `game/continuous.py:_has_card_type` read
-  printed card flags. A creature made an artifact cannot be selected as an artifact. Share derived
-  type checks across battlefield consumers, covering additions and removals while retaining the
-  appropriate card-characteristic checks in other zones.
-
 - **BUG-19 · P1 · Mask every illegal resolution target (RULE 608.2b/400.7).**
   `game/rules/casting_mixin.py:_mask_restricted_targets` retains failed targets that left the
   battlefield. With one legal player target remaining, a two-target damage ability still marks

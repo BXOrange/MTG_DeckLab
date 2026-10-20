@@ -218,15 +218,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "planeswalker":
-        return obj.card.is_planeswalker
+        return obj.is_planeswalker
     if what == "battle":
-        return obj.card.is_battle
+        return obj.is_battle
     if what == "nonland":
         # "…sacrifice a nonland permanent of their choice or discard a
         # card." (Tergrid's Lantern, MEC-43 round 4E) — the negated-type
@@ -242,18 +242,18 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     if what == "artifact_or_creature":
         # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
         # creature" additional cost — the single most-repeated compound
         # sacrifice cost in the cache.
-        return obj.is_creature or obj.card.is_artifact
+        return obj.is_creature or obj.is_artifact
     if what == "creature_artifact_or_land":
         # PAR-13: "sacrifice a creature, artifact, or land of their choice"
         # (Tomb of Annihilation's "Sandfall Cell" dungeon room) — the
         # payer's own choice of *type*, not "any permanent" (which would
         # wrongly also license sacrificing an enchantment/planeswalker).
-        return obj.is_creature or obj.card.is_artifact or obj.is_land
+        return obj.is_creature or obj.is_artifact or obj.is_land
     if "_" in what:
         # ENG-49/ENG-51: `costs.parse_activation_cost`'s permanent-phrase
         # encoding — "an artifact or creature", "a nonland permanent" —

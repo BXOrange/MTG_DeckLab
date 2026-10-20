@@ -503,7 +503,7 @@ class GrantKeywordsToChosenTypeUntilEotEffect(GameEffect):
         for obj in context.state.battlefield:
             if obj is self.source or obj.controller_id != controller_id:
                 continue
-            if wanted.lower() not in (obj.card.type_line or "").lower():
+            if wanted.lower() not in obj.type_words and not obj.has_subtype(wanted):
                 continue
             for kw in self.keywords:
                 obj.temp_keywords.add(kw)

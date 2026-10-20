@@ -536,7 +536,7 @@ class CastingMixin:
         candidates = [
             obj
             for obj in self.state.permanents_controlled_by(player.id)
-            if obj.is_token or obj.card.is_artifact or obj.card.is_enchantment
+            if obj.is_token or obj.is_artifact or obj.is_enchantment
         ]
         if not candidates:
             return None
@@ -1906,7 +1906,7 @@ class CastingMixin:
         if kind == "controls_subtype_as_cast":
             subtype = str(condition.get("subtype", "")).lower()
             return bool(subtype) and any(
-                o.controller_id == player.id and subtype in o.card.type_line.lower().split()
+                o.controller_id == player.id and o.has_subtype(subtype)
                 for o in self.state.battlefield
             )
         if kind == "controls_commander_as_cast":
@@ -3240,7 +3240,7 @@ class CastingMixin:
         if subtype == "basic land":
             pool = [
                 o for o in self.state.permanents_controlled_by(player.id)
-                if o.card.is_land and "basic" in o.card.type_line.lower()
+                if o.card.is_land and o.has_supertype("basic")
             ]
         else:
             pool = [

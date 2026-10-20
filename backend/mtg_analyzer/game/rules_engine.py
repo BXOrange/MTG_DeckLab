@@ -107,15 +107,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "planeswalker":
-        return obj.card.is_planeswalker
+        return obj.is_planeswalker
     if what == "battle":
-        return obj.card.is_battle
+        return obj.is_battle
     if what == "face_down":
         return bool(obj.face_down)  # "a face-down permanent you control" (Primordial Mist)
     if what == "nontoken_creature":
@@ -126,11 +126,11 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "artifact_or_creature":
         # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
         # creature" additional cost.
-        return obj.is_creature or obj.card.is_artifact
+        return obj.is_creature or obj.is_artifact
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 

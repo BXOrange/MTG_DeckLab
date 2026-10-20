@@ -1867,7 +1867,51 @@ class GameObject:
         card alone. It matters to exactly one rule the engine models, the
         RULE 704.5j legend-rule SBA.
         """
-        return self.card.is_legendary or self._granted_legendary
+        # The flag is set from the type line at import, but hand-built cards carry only the line.
+        printed = self.card.is_legendary or "legendary" in self.card.type_line.partition("—")[0].lower().split()
+        return printed or self._granted_legendary
+
+    def _has_derived_type(self, type_word: str, printed: bool) -> bool:
+        """RULE 613.1d: the shared "currently has card type X" check for non-creature types.
+
+        Printed type unless a layer-4 effect removes it ("loses all other card types", Blood Moon-style
+        overwrites), or a layer-4 / self-outside-battlefield effect adds it (a creature made an artifact).
+        Only the battlefield runs the layer system; elsewhere `_added_types`/`_removed_types` are empty so
+        this degrades to the card's own characteristics (RULE 400.7 resets them on a zone change)."""
+        if type_word in self.outside_battlefield_characteristics().get("add_types", []):
+            return True
+        if printed:
+            return type_word not in self._removed_types
+        return type_word in self._added_types
+
+    def has_subtype(self, subtype: str) -> bool:
+        """RULE 205.3: whether the object currently has ``subtype`` (any type's: Island, Aura, Vehicle, Elf).
+
+        The single battlefield-facing subtype predicate: layer-4 adds/overwrites (Blood Moon's "Nonbasic
+        lands are Mountains", RULE 613.5) and Changeling (RULE 702.73) come from `continuous.has_subtype`;
+        off the battlefield nothing is stamped, so it reads the card's own type line."""
+        from ...game import continuous
+
+        return continuous.has_subtype(self, subtype)
+
+    def has_supertype(self, supertype: str) -> bool:
+        """RULE 205.4: whether the object currently has ``supertype`` (basic, snow, legendary, world).
+
+        Legendary is the one supertype a modeled effect grants (the Ring emblem, `is_legendary`); a copy's
+        "isn't legendary" rewrites the copy's own type line. No modeled effect adds or removes basic, snow or
+        world, so those read the printed type line — kept in this one helper so the decision lives in one place."""
+        word = supertype.lower()
+        if word == "legendary":
+            return self.is_legendary
+        return word in self.card.type_line.partition("—")[0].lower().split()
+
+    @property
+    def is_artifact(self) -> bool:
+        return self._has_derived_type("artifact", bool(self.card.is_artifact))
+
+    @property
+    def is_enchantment(self) -> bool:
+        return self._has_derived_type("enchantment", bool(self.card.is_enchantment))
 
     @property
     def is_planeswalker(self) -> bool:
@@ -1879,7 +1923,7 @@ class GameObject:
     def is_battle(self) -> bool:
         """Whether this is a battle (RULE 310) — the attackable, non-creature
         permanent type whose "toughness" is its defense-counter count."""
-        return self.card.is_battle
+        return self._has_derived_type("battle", bool(self.card.is_battle))
 
     @property
     def type_words(self) -> set[str]:

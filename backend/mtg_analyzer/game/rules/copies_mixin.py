@@ -96,15 +96,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 

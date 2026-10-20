@@ -196,7 +196,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
             src_obj = context.state.find_object(source_id) if source_id is not None else None
             if src_obj is None:
                 return False
-            if subtype is not None and subtype.lower() not in (src_obj.card.type_line or "").lower():
+            if subtype is not None and not src_obj.has_subtype(subtype):
                 return False
             if keyword is not None:
                 from .. import combat  # local: avoid the combat<->effects import cycle
@@ -204,7 +204,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
                 if not combat.has(src_obj, keyword):
                     return False
             if enchanted and not any(
-                o.attached_to == src_obj.instance_id and "aura" in o.card.type_line.lower()
+                o.attached_to == src_obj.instance_id and o.has_subtype("aura")
                 for o in context.state.permanents()
             ):
                 return False
@@ -480,7 +480,7 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
             src_obj = context.state.find_object(source_id) if source_id is not None else None
             if src_obj is not None:
                 for type_word in types:
-                    if type_word == "artifact" and bool(src_obj.card.is_artifact):
+                    if type_word == "artifact" and bool(src_obj.is_artifact):
                         return True
         return False
 

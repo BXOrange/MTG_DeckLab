@@ -1069,7 +1069,7 @@ def matches_object_filter(
             return False
         attached = any(
             getattr(o, "attached_to", None) == obj.instance_id
-            and attach_word in (getattr(o.card, "type_line", "") or "").lower()
+            and o.has_subtype(attach_word)
             for o in state.battlefield
         )
         if attached != bool(wanted):
@@ -1103,7 +1103,7 @@ def matches_object_filter(
         if not all(str(t).lower() in obj_types for t in card_type_all):
             return False
     if filt.get("basic") or filt.get("nonbasic"):
-        is_basic = "basic" in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0]
+        is_basic = obj.has_supertype("basic")
         if filt.get("basic") and not is_basic:
             return False
         if filt.get("nonbasic") and is_basic:
@@ -1112,9 +1112,9 @@ def matches_object_filter(
         return False
     if filt.get("not_reference") and reference is not None and obj is reference:
         return False
-    if filt.get("snow") and "snow" not in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0].split():
+    if filt.get("snow") and not obj.has_supertype("snow"):
         return False
-    if filt.get("without_snow") and "snow" in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0].split():
+    if filt.get("without_snow") and obj.has_supertype("snow"):
         return False
     if filt.get("named_as_reference") and (reference is None or not set(obj.names) & set(reference.names)):
         return False

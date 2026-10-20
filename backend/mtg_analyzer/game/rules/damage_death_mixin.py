@@ -99,15 +99,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "planeswalker":
-        return obj.card.is_planeswalker
+        return obj.is_planeswalker
     if what == "battle":
-        return obj.card.is_battle
+        return obj.is_battle
     if what.startswith("subtype:"):
         # "…tap X untapped Myr you control" (Myr Battlesphere) — a creature subtype word, derived (layer 4).
         return continuous.has_subtype(obj, what.partition(":")[2])
@@ -129,13 +129,13 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "artifact_or_creature":
         # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
         # creature" additional cost.
-        return obj.is_creature or obj.card.is_artifact
+        return obj.is_creature or obj.is_artifact
     if what == "creature_or_enchantment":
-        return obj.is_creature or obj.card.is_enchantment
+        return obj.is_creature or obj.is_enchantment
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     if what == "creature_or_land":
         # PAR-117: Tainted Aether's own edict — "its controller sacrifices
         # a creature or land of their choice."
@@ -145,7 +145,7 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # (Tomb of Annihilation's "Sandfall Cell" dungeon room) — the
         # payer's own choice of *type*, not "any permanent" (which would
         # wrongly also license sacrificing an enchantment/planeswalker).
-        return obj.is_creature or obj.card.is_artifact or obj.is_land
+        return obj.is_creature or obj.is_artifact or obj.is_land
     # PAR-152: a word none of the above names is a subtype/state/colour/token word ("sacrifice two Blood tokens",
     # Strefan; "sacrifice a Treasure") — the shared cost matcher reads it, never "any permanent".
     return continuous.matches_permanent_word(obj, what)
@@ -198,7 +198,7 @@ def _damage_source_matches(
         # "…by enchanted creatures." (Wall of Putrid Flesh) — the source
         # itself currently has an Aura attached, not the shield's own host.
         if not any(
-            o.attached_to == source.instance_id and "aura" in o.card.type_line.lower()
+            o.attached_to == source.instance_id and o.has_subtype("aura")
             for o in state.permanents()
         ):
             return False
@@ -2194,7 +2194,7 @@ class DamageDeathMixin:
             if recipient_filter:
                 if recipient_filter.get("token") and not getattr(target_obj, "is_token", False):
                     return False
-                if recipient_filter.get("artifact") and not target_obj.card.is_artifact:
+                if recipient_filter.get("artifact") and not target_obj.is_artifact:
                     return False
                 if recipient_filter.get("attacking") and not target_obj.attacking:
                     return False

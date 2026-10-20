@@ -224,20 +224,21 @@ _CARD_TYPE_ATTRS: dict[str, str] = {
 
 
 def _has_card_type(obj: "GameObject", card_type: str) -> bool:
-    """Whether ``obj``'s *printed* card is of ``card_type`` — reads the
-    `Card` flags directly (not layer-4 `_added_types`), since every static
-    family that uses this filters on the entering/affected object's own
-    printed identity (an artifact staying an artifact regardless of any
-    other layer effect in play). ``"permanent"`` (RULE 110.1) always
-    matches — everything on the battlefield is one."""
+    """Whether ``obj`` currently has ``card_type`` — RULE 613.1d: on the battlefield the layer-4 derived
+    types (a creature made an artifact is one; a permanent that lost a type is not), else the card's own
+    characteristics (`characteristic_card`, RULE 113.6c). ``"permanent"`` (RULE 110.1) always matches."""
     from ..models.game.game_object import Zone
 
     if card_type == "permanent":
         return True
     attr = _CARD_TYPE_ATTRS.get(card_type)
-    if attr and getattr(obj, "zone", None) != Zone.BATTLEFIELD and hasattr(obj, "characteristic_card"):
+    if not attr:
+        return False
+    if getattr(obj, "zone", None) == Zone.BATTLEFIELD and isinstance(getattr(type(obj), attr, None), property):
+        return bool(getattr(obj, attr))
+    if getattr(obj, "zone", None) != Zone.BATTLEFIELD and hasattr(obj, "characteristic_card"):
         return bool(getattr(obj.characteristic_card(), attr, False))
-    return bool(attr and getattr(obj.card, attr, False))
+    return bool(getattr(obj.card, attr, False))
 
 
 def has_card_type(obj: "GameObject", card_type: str) -> bool:
@@ -307,7 +308,7 @@ def matches_permanent_word(obj: "GameObject", word: str) -> bool:
 def _is_nonbasic(obj: "GameObject") -> bool:
     """RULE 205.4a: a land with no "Basic" supertype (the same substring
     check `game/targeting.py`'s "nonbasic land" filter already uses)."""
-    return "basic" not in obj.card.type_line.lower()
+    return not obj.has_supertype("basic")
 
 
 def _has_color(obj: "GameObject", colors: list) -> bool:
@@ -539,7 +540,7 @@ def group_selector_objects(
         result = [
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id
-            and "legendary" in o.card.type_line.lower()
+            and o.is_legendary
         ]
     elif affects == "legendary_permanents_you_control":
         # "Each legendary permanent you control has ward {2}." (Gold-Forged
@@ -547,13 +548,13 @@ def group_selector_objects(
         # non-creature sibling of ``legendary_creatures_you_control`` above.
         result = [
             o for o in battlefield
-            if o.controller_id == controller_id and "legendary" in o.card.type_line.lower()
+            if o.controller_id == controller_id and o.is_legendary
         ]
     elif affects == "nonlegendary_creatures_you_control":
         result = [
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id
-            and "legendary" not in o.card.type_line.lower()
+            and not o.is_legendary
         ]
     elif affects == "permanents_you_control":
         result = [o for o in battlefield if o.controller_id == controller_id]
@@ -595,7 +596,7 @@ def group_selector_objects(
         result = [
             o for o in battlefield
             if o.is_land and o.controller_id == controller_id
-            and land_subtype in o.card.type_line.lower()
+            and o.has_subtype(land_subtype)
         ]
     elif affects == "commander_creatures_you_own":
         # "Commander creatures you own have '<ability>'." (Acolyte of
@@ -609,7 +610,7 @@ def group_selector_objects(
             if o.is_creature and o.is_commander and o.owner_id == controller_id
         ]
     elif affects == "artifacts_you_control":
-        result = [o for o in battlefield if o.card.is_artifact and o.controller_id == controller_id]
+        result = [o for o in battlefield if o.is_artifact and o.controller_id == controller_id]
     elif affects == "enchanted_or_equipped_creatures_you_control":
         # Halvar, God of Battle's "creatures you control that are enchanted
         # or equipped" — a creature you control with *anything* (Aura or
@@ -1704,7 +1705,7 @@ def count_selector(
         in_scope = {
             "permanents": lambda o: True,
             "creatures": lambda o: o.is_creature,
-            "artifacts": lambda o: bool(o.card.is_artifact),
+            "artifacts": lambda o: bool(o.is_artifact),
         }.get(scope_name)
         if metric is None or in_scope is None:
             return 0
@@ -1756,7 +1757,7 @@ def count_selector(
         return sum(
             1 for o in graveyard
             if o.card.is_instant or o.card.is_sorcery
-            or "adventure" in (o.card.type_line or "").lower()
+            or o.has_subtype("adventure")
         )
     if selector == "instant_or_sorcery_cards_in_your_graveyard":
         # "This spell costs {1} less to cast for each instant and sorcery
@@ -1810,11 +1811,11 @@ def count_selector(
             if part == "creatures":
                 return o.is_creature
             if part == "artifacts":
-                return o.card.is_artifact
+                return o.is_artifact
             if part == "lands":
                 return o.is_land
             if part == "enchantments":
-                return o.card.is_enchantment
+                return o.is_enchantment
             if part == "planeswalkers":
                 return o.is_planeswalker
             if part == "permanents":
@@ -1958,12 +1959,12 @@ def count_selector(
         return sum(
             1 for o in bf
             if o.is_creature and o.controller_id == controller_id
-            and "legendary" in o.card.type_line.lower()
+            and o.is_legendary
         )
     if selector == "legendary_creatures_and_planeswalkers_you_control":
         return sum(
             1 for o in bf
-            if o.controller_id == controller_id and "legendary" in o.card.type_line.lower()
+            if o.controller_id == controller_id and o.is_legendary
             and (o.is_creature or o.is_planeswalker)
         )
     if selector.startswith("other_permanents_you_control_of_subtype_"):
@@ -2019,9 +2020,9 @@ def count_selector(
             and is_modified(state, creature)
         )
     if selector == "artifacts_you_control":
-        return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)
+        return sum(1 for o in bf if o.is_artifact and o.controller_id == controller_id)
     if selector == "enchantments_you_control":
-        return sum(1 for o in bf if o.card.is_enchantment and o.controller_id == controller_id)
+        return sum(1 for o in bf if o.is_enchantment and o.controller_id == controller_id)
     if selector == "commander_casts_this_game":
         # "…for each time you've cast your commander from the command zone
         # this game." (Vanguard of the Restless, Commander's Insight,
@@ -2085,12 +2086,12 @@ def count_selector(
         # these singleton decks never reach).
         return sum(
             1 for o in bf
-            if "aura" in (o.card.type_line or "").lower() and o.controller_id == controller_id
+            if o.has_subtype("aura") and o.controller_id == controller_id
         )
     if selector == "artifacts_and_or_enchantments_you_control":
         return sum(
             1 for o in bf
-            if (o.card.is_artifact or o.card.is_enchantment) and o.controller_id == controller_id
+            if (o.is_artifact or o.is_enchantment) and o.controller_id == controller_id
         )
     if selector == "creatures_opponents_control":
         # "for each creature your opponents control" (Riot Control) — the
@@ -2115,7 +2116,7 @@ def count_selector(
         # ``"opponents_permanents"`` uses.
         return sum(
             1 for o in bf
-            if (o.card.is_artifact or o.card.is_enchantment)
+            if (o.is_artifact or o.is_enchantment)
             and o.controller_id not in (None, controller_id)
         )
     if selector == "equipment_you_control":
@@ -2132,7 +2133,7 @@ def count_selector(
         # battlefield." (Ancestral Mask, PAR-43) — every enchantment on the
         # battlefield minus the Aura bearing this ability itself.
         source_id = getattr(source, "instance_id", None)
-        return sum(1 for o in bf if o.card.is_enchantment and o.instance_id != source_id)
+        return sum(1 for o in bf if o.is_enchantment and o.instance_id != source_id)
     if selector == "other_creatures_you_control":
         # "~ gets +1/+0 for each other creature you control." (Leonardo, Big
         # Brother, PAR-43) — `creatures_you_control` minus the source itself
@@ -2149,7 +2150,7 @@ def count_selector(
         source_id = getattr(source, "instance_id", None)
         return sum(
             1 for o in bf
-            if o.card.is_artifact and o.controller_id == controller_id and o.instance_id != source_id
+            if o.is_artifact and o.controller_id == controller_id and o.instance_id != source_id
         )
     if selector == "transformed_permanents_you_control":
         # "~ gets +1/+0 for each transformed permanent you control."
@@ -2342,7 +2343,7 @@ def _attached_subtype_count(state: "GameState", obj: "GameObject", subtype: str)
     every object a static ability affects)."""
     return sum(
         1 for o in state.battlefield
-        if o.attached_to == obj.instance_id and subtype in (o.card.type_line or "").lower()
+        if o.attached_to == obj.instance_id and o.has_subtype(subtype)
     )
 
 
@@ -2498,7 +2499,7 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
         controller_id = getattr(ability.source, "controller_id", None)
         quals |= {
             f"mv:{int(getattr(o, "mana_value", 0) or 0)}"
-            for o in state.battlefield if o.controller_id == controller_id and o.card.is_artifact
+            for o in state.battlefield if o.controller_id == controller_id and o.is_artifact
         }
     if ability.params.get("protection_from_colors_not_in_commanders_identity"):
         controller_id = getattr(ability.source, "controller_id", None)
@@ -4850,9 +4851,9 @@ def _obj_matches_target_criteria(
     if crit.pop("permanent", False) and obj not in state.battlefield:
         return False
     card_type = crit.pop("card_type", None)
-    if card_type and card_type.lower() not in obj.card.type_line.lower():
+    if card_type and card_type.lower() not in obj.type_words and not obj.has_subtype(card_type):
         return False
-    if crit.pop("legendary", False) and "legendary" not in obj.card.type_line.lower():
+    if crit.pop("legendary", False) and not obj.is_legendary:
         return False
     if crit.pop("is_token", False) and not getattr(obj, "is_token", False):
         return False
@@ -5602,7 +5603,7 @@ def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[s
         # the same shape `_off_battlefield_objects` above already uses.
         if owner is None or obj not in owner.graveyard:
             continue
-        if ability.params.get("nonland_only") and obj.card.is_land:
+        if ability.params.get("nonland_only") and obj.is_land:
             continue
         granted_type = str(ability.params.get("card_type") or "").lower()
         if granted_type and not getattr(obj.card, f"is_{granted_type}", False):
@@ -5636,7 +5637,7 @@ def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[
         owner = next((p for p in state.players if p.id == controller_id), None)
         if owner is None or obj not in owner.graveyard:
             continue
-        if ability.params.get("nonland_only") and obj.card.is_land:
+        if ability.params.get("nonland_only") and obj.is_land:
             continue
         card_types = ability.params.get("card_types")
         if card_types and not any(_has_card_type(obj, str(t)) for t in card_types):

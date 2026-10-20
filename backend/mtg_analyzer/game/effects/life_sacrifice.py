@@ -1524,7 +1524,7 @@ class JuxtaposeEffect(GameEffect):
         candidates = [
             o for o in state.permanents()
             if o.controller_id == player_id
-            and (o.is_creature if want_creature else bool(o.card.is_artifact))
+            and (o.is_creature if want_creature else bool(o.is_artifact))
         ]
         if not candidates:
             return None
@@ -2462,7 +2462,7 @@ class TragicArroganceEffect(GameEffect):
             for word in self._TYPE_WORDS:
                 of_type = [
                     o for o in perms
-                    if word in (o.card.type_line or "").lower()
+                    if word in o.type_words or o.has_subtype(word)
                 ]
                 if not of_type:
                     continue

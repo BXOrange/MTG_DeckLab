@@ -893,7 +893,7 @@ def _attached_auras_and_equipment_count(context: GameContext, source: Optional["
     return sum(
         1 for o in context.state.battlefield
         if o.attached_to == source.instance_id
-        and ("aura" in o.card.type_line.lower() or "equipment" in o.card.type_line.lower())
+        and (o.has_subtype("aura") or o.has_subtype("equipment"))
     )
 
 
@@ -2007,12 +2007,12 @@ class RevealHandChooseDiscardEffect(GameEffect):
             checks = {
                 "creature": obj.is_creature,
                 "planeswalker": bool(getattr(obj, "is_planeswalker", False)),
-                "artifact": bool(card.is_artifact),
+                "artifact": obj.is_artifact,
                 "instant": bool(card.is_instant),
                 "sorcery": bool(card.is_sorcery),
-                "enchantment": bool(card.is_enchantment),
+                "enchantment": obj.is_enchantment,
                 # "a creature or battle card" (Traumatic Revelation).
-                "battle": bool(getattr(card, "is_battle", False)),
+                "battle": obj.is_battle,
             }
             if not any(checks.get(t, False) for t in self.card_types):
                 return False
@@ -2266,19 +2266,19 @@ def _mass_selector_objects(
     if selector == "all_creatures":
         result = [o for o in battlefield if o.is_creature]
     elif selector == "all_artifacts":
-        result = [o for o in battlefield if o.card.is_artifact]
+        result = [o for o in battlefield if o.is_artifact]
     elif selector == "all_enchantments":
-        result = [o for o in battlefield if o.card.is_enchantment]
+        result = [o for o in battlefield if o.is_enchantment]
     elif selector == "all_artifacts_and_enchantments":
-        result = [o for o in battlefield if o.card.is_artifact or o.card.is_enchantment]
+        result = [o for o in battlefield if o.is_artifact or o.is_enchantment]
     elif selector == "all_planeswalkers":
         result = [o for o in battlefield if getattr(o, "is_planeswalker", False)]
     elif selector == "all_permanents":
         result = list(battlefield)
     elif selector == "all_lands":
-        result = [o for o in battlefield if o.card.is_land]
+        result = [o for o in battlefield if o.is_land]
     elif selector == "all_nonland_permanents":
-        result = [o for o in battlefield if not o.card.is_land]
+        result = [o for o in battlefield if not o.is_land]
     elif selector == "equipment_attached_to_previous":
         # "destroy all Equipment attached to that creature." (Awaken the
         # Sleeper's own after-tail) — "that creature" is the threaten
@@ -2288,7 +2288,7 @@ def _mass_selector_objects(
         result = [
             o for o in battlefield
             if pid is not None and o.attached_to == pid
-            and "equipment" in (o.card.type_line or "").lower()
+            and o.has_subtype("equipment")
         ]
     elif selector == "opponents_creatures":
         controller_id = getattr(source, "controller_id", None)
@@ -2315,7 +2315,7 @@ def _mass_selector_objects(
             if o is not source and controller_id is not None and o.controller_id == controller_id
         ]
     elif selector == "all_other_nonland_permanents":
-        result = [o for o in battlefield if not o.card.is_land and o is not source]
+        result = [o for o in battlefield if not o.is_land and o is not source]
     elif selector == "all_other_creatures":
         # RULE 400: "other" excludes this effect's own source, regardless
         # of who controls it (Novablast Wurm, Mageta the Lion).
@@ -2367,7 +2367,7 @@ def _mass_selector_objects(
         # "selector picks the zone/type, filter narrows it" split every
         # other mass-wipe qualifier here uses.
         if filt.get("nonbasic"):
-            result = [o for o in result if "basic" not in (o.card.type_line or "").lower()]
+            result = [o for o in result if not o.has_supertype("basic")]
         # "Return all creature **tokens** / all **nontoken** creatures to
         # their owners' hands." (Perplexing Test, PAR-60) — RULE 111.9.
         if filt.get("token") is not None:
@@ -2381,7 +2381,7 @@ def _mass_selector_objects(
             want = bool(filt["enchanted"])
             aura_hosts = {
                 o.attached_to for o in battlefield
-                if "aura" in (o.card.type_line or "").lower() and o.attached_to is not None
+                if o.has_subtype("aura") and o.attached_to is not None
             }
             result = [o for o in result if (o.instance_id in aura_hosts) == want]
         # "…each nonland permanent with mana value X whose controller was dealt combat damage by this creature

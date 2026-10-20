@@ -96,15 +96,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -2876,7 +2876,7 @@ class SearchMixin:
         """
         artifacts = [
             o for o in self.state.permanents()
-            if o.card.is_artifact and o.controller_id == player.id
+            if o.is_artifact and o.controller_id == player.id
         ]
         if not artifacts:
             return
@@ -2909,7 +2909,7 @@ class SearchMixin:
         self.put_into_graveyard(victim)
         eligible = [
             o for o in player.library
-            if o.card.is_artifact
+            if o.is_artifact
         ]
         if not eligible:
             self.shuffle_library(player)

@@ -1087,14 +1087,14 @@ class ActivationMixin:
         if what == "creature":
             return obj.is_creature
         if what == "artifact":
-            return obj.card.is_artifact
+            return obj.is_artifact
         if what == "enchantment":
-            return obj.card.is_enchantment
+            return obj.is_enchantment
         if what == "land":
             return obj.is_land
         if what == "creature_or_enchantment":
             # "sacrifice a creature or enchantment or pay {N}" (Betrayer's Bargain, Final Flare).
-            return obj.is_creature or obj.card.is_enchantment
+            return obj.is_creature or obj.is_enchantment
         if what == "creature_or_land":
             # "sacrifice a creature or land" (Merciless Resolve).
             return obj.is_creature or obj.is_land
@@ -1106,14 +1106,14 @@ class ActivationMixin:
             # function already handled, so a cost using one silently fell
             # through to the "any permanent" catch-all below instead of the
             # narrower RAW-correct set.
-            return obj.is_creature or obj.card.is_planeswalker
+            return obj.is_creature or obj.is_planeswalker
         if what == "creature_artifact_or_land":
             # PAR-13: "sacrifice a creature, artifact, or land" (Sandfall
             # Cell) — see `_matches_permanent_type`'s matching branch.
-            return obj.is_creature or obj.card.is_artifact or obj.is_land
+            return obj.is_creature or obj.is_artifact or obj.is_land
         if what == "artifact_or_creature":
             # Deadly Dispute/Costly Plunder-shaped additional cost.
-            return obj.is_creature or obj.card.is_artifact
+            return obj.is_creature or obj.is_artifact
         # Everything else — "an artifact or creature", "a green creature"
         # (Natural Order's hand-authored `green_creature`), "a noncreature
         # artifact", "a basic land", "a creature with defender", "ten

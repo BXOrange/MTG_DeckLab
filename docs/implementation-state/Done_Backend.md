@@ -2253,6 +2253,12 @@ The same predicate can gate sacrifice-dependent resolving sequences.
 - **Exposed:** the identity fallback had masked missing layer-5 colour on manlands — Restless Anchorage's grant lacked `affects: self`; Raging Ravine, Restless Cottage/Spire and Hedge Whisperer gained their colour change (parser animations already emit a `color` static).
 - **Tests:** `tests/test_bug13_colors_vs_identity.py`, `tests/test_card_color_table_full_cache.py`. Hand-built test `Card`s that are costless with an identity keep "identity = colour" through a test-only shim in `tests/conftest.py` (cards built by the engine or cache are untouched).
 
+### Current battlefield types for targets, costs and selectors (BUG-18, RULE 613.1d/205)
+
+- **What:** targeting frames, `continuous._has_card_type`, cost matchers, mass effects and counts read printed `card.is_artifact`/`is_enchantment`/type-line words, so a creature made an artifact (Liquimetal Coating) could not be targeted, sacrificed or counted as one, and a Blood Moon'd Hallowed Fountain still satisfied "if you control an Island". `GameObject` now owns the shared predicates: `is_artifact`/`is_enchantment`/`is_battle` via `_has_derived_type` (printed type minus layer-4 removals plus additions), `has_subtype` (delegates to `continuous.has_subtype`: layer-4 adds/overwrites, Changeling) and `has_supertype` (legendary via `is_legendary`; basic/snow/world stay printed because no modelled effect changes them, decided in that one helper). About 165 battlefield sites across targeting, continuous, static/condition queries, combat, the effect modules and the rules/engine mixins route through them; off the battlefield the same predicates fall back to the card's own characteristics.
+- **Kept on card data:** spell/hand/graveyard/library/exile filters, last-known-information event payloads (they snapshot the printed line), inline changeling expansions in the search/misc mixins, and RULE 606 loyalty checks.
+- **Tests:** `tests/test_bug18_derived_types_consumers.py` (real cards through the layer pass: Liquimetal Coating, Swift Reconfiguration, Blood Moon + Hallowed Fountain, graveyard/hand cards).
+
 ### MEC-47: Licid — a creature that turns itself into an Aura (first pass, hand-authored)
 
 - **What:** the Tempest Licid cycle's shared ability — "{cost}, {T}: This creature loses this ability and becomes an Aura enchantment with enchant creature.
