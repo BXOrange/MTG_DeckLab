@@ -257,16 +257,19 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # Colossus Hammer) is subtracted last, after the union — RULE 613.7f
     # ability-removal applies regardless of which of the three sources
     # granted the keyword in the first place.
-    # RULE 613.7f: a "loses all abilities" static ability (Humility, Dress
-    # Down) strips every keyword — including the object's own printed ones —
-    # regardless of source. Granted keywords from a *lower-timestamp* effect
-    # would layer back on in real rules, but no cube card stacks a grant over
-    # Humility, so the simple "all gone" answer is correct here.
+    # RULE 613.7f / 613.7: a "loses all abilities" static ability (Humility, Dress
+    # Down) strips the printed keywords and every grant with an *earlier*
+    # timestamp; `continuous._apply_layer_6_ability` applies it in timestamp
+    # order and clears `_granted_keywords` at that point, so what remains in
+    # `granted_keywords` is exactly the later grants (Humility, then a newer
+    # flying grant, keeps flying). The object's own keywords are the only
+    # thing left to veto here.
     if getattr(obj, "loses_all_abilities", False):
-        # "…it loses all abilities, and it can't attack or block" (Opportunistic Dragon): the restriction
-        # is a rules effect, not an ability the object has, so a *granted* flag outlives the ability loss
-        # (RULE 613.7f — it is a Pacifism's effect, not text the creature loses). Its own printed ones go.
-        return frozenset(getattr(obj, "granted_keywords", set()) or set()) & _EFFECT_RESTRICTION_FLAGS
+        return (
+            frozenset(getattr(obj, "granted_keywords", set()) or set())
+            - frozenset(getattr(obj, "removed_keywords", set()) or set())
+            - frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
+        )
     return (
         ((keywords_of(obj.card) if getattr(obj, "card", None) is not None else frozenset())
          - frozenset(getattr(obj, "suppressed_keywords", None) or ()))

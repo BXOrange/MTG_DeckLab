@@ -3033,6 +3033,22 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # keywords go via `_obj_keywords`, triggered/activated abilities
                 # are gated at fire/activate time on this flag.
                 obj._loses_all_abilities = True
+                # RULE 613.7: layer-6 effects apply in timestamp order, so this
+                # removal only takes away what an *earlier* effect granted
+                # (`abilities` is timestamp-sorted). Drop the keywords/removals
+                # accumulated so far; a grant with a later timestamp is added
+                # below and survives (Humility, then a newer "has flying").
+                # Restriction flags (can't attack/block) are rules effects, not
+                # abilities, so they stay (see `combat._obj_keywords`).
+                from .combat import _EFFECT_RESTRICTION_FLAGS  # function-scoped: combat imports continuous
+
+                obj._granted_keywords.intersection_update(_EFFECT_RESTRICTION_FLAGS)
+                obj._granted_keyword_instances = {
+                    kw: n for kw, n in obj._granted_keyword_instances.items()
+                    if kw in _EFFECT_RESTRICTION_FLAGS
+                }
+                obj._removed_keywords.clear()
+                obj._granted_parametric_keywords.clear()
                 _trace(obj, 6, _source_name(ability), "loses all abilities")
             if keywords:
                 obj._granted_keywords.update(keywords)
@@ -3350,6 +3366,10 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         counted = sorted(
             kind for kind in KEYWORD_COUNTER_SLUGS if int(counters.get(kind, 0) or 0) > 0
         )
+        if obj._loses_all_abilities:
+            # Counters carry no layer-6 timestamp here, so keep the pre-BUG-17
+            # answer: ability loss also strips counter-granted keywords.
+            counted = []
         if counted:
             obj._granted_keywords.update(KEYWORD_COUNTER_SLUGS[kind] for kind in counted)
             _trace(obj, 6, "Keyword counter", "gains " + ", ".join(counted), duration="permanent")

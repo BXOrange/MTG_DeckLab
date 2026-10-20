@@ -124,11 +124,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   abilities in layer 6, leaving another creature 2/2 instead of 1/1. Track effect existence across
   layers while preserving multi-layer effects that already began applying earlier.
 
-- **BUG-17 · P2 · Preserve later keyword grants after earlier ability removal (RULE 613.7).**
-  `game/combat.py:_obj_keywords` unconditionally vetoes keywords when `loses_all_abilities` is set.
-  Humility followed by a newer enchantment granting flying must leave the affected creatures with
-  flying. Resolve additions/removals in layer order and expose the final ability set to consumers.
-
 - **BUG-18 · P1 · Use current battlefield types for targets, costs and selectors (RULE 613.1d).**
   `game/targeting.py` artifact/enchantment frames and `game/continuous.py:_has_card_type` read
   printed card flags. A creature made an artifact cannot be selected as an artifact. Share derived

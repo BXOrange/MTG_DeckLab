@@ -2234,6 +2234,7 @@ The same predicate can gate sacrifice-dependent resolving sequences.
 ### Board-wide ability strip (layer 6, RULE 613.7f)
 
 - **What:** A `remove_all_abilities` static sets `GameObject.loses_all_abilities`, stripping every keyword and gating both triggered and activated abilities — Humility (pai…
+- **Later grants survive (BUG-17, RULE 613.7):** `combat._obj_keywords` vetoed every keyword while `loses_all_abilities` was set, so a flying grant newer than Humility was lost. `_apply_layer_6_ability` now applies the loss in timestamp order: it clears the keywords, instance counts, removals and parametric grants accumulated so far (restriction flags such as "can't attack or block" stay — they are rules effects), and later grants add back; `_obj_keywords` returns the remaining granted keywords and still drops printed ones. **Known limits:** until-end-of-turn `temp_keywords` and keyword counters carry no layer-6 timestamp, so temp grants always count as newer than the loss (one made before a same-turn Humility wrongly survives) and counter keywords are always stripped; later-granted non-keyword abilities stay suppressed by the flag. Tests: `tests/test_bug17_layer6_keyword_order.py`.
 - **Files:** `game/continuous.py`, `game/effects/core.py`
 
 ### MEC-47: Licid — a creature that turns itself into an Aura (first pass, hand-authored)
