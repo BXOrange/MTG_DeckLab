@@ -1310,9 +1310,10 @@ def test_legend_rule_keeps_one():
     a = obj_on_battlefield(eng.state, eng, c)
     b = obj_on_battlefield(eng.state, eng, c)
     eng.rules.check_state_based_actions()
+    assert eng.state.pending_choice["kind"] == "legend_rule"  # RULE 704.5j: the controller picks
+    eng.resolve_pending_choice(str(a.instance_id))
     survivors = [o for o in eng.state.battlefield if o.name == "Commander"]
-    assert len(survivors) == 1
-    assert survivors[0] is a  # the first-seen copy is kept
+    assert survivors == [a] and b not in survivors
 
 
 def test_draw_from_empty_library_loses():

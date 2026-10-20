@@ -32,7 +32,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuations, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
@@ -71,6 +71,12 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+
+#: Sentinel `_legend_rule_keep` returns while the controller has not yet picked a survivor.
+_LEGEND_CHOICE_PENDING = object()
+#: Separator between controller id and card name in a legend group key (a control character no name contains).
+_LEGEND_KEY_SEP = "\x1f"
+
 
 @dataclass
 class SbaAction:
@@ -271,6 +277,13 @@ class StateBasedActionsMixin:
         # (and every player loss) is collected from this one derived state, then all are applied as
         # a single event; `check_state_based_actions` repeats the sweep until none applies.
         actions = self._sba_collect_actions()
+        if self._legend_groups_awaiting_choice:
+            # RULE 704.5j + 704.3: a controller must still pick a surviving legend. Nothing of this
+            # sweep is applied yet; the answer is stored and the next sweep recollects the very
+            # same actions from the unchanged board, so the whole batch lands together.
+            self._open_legend_rule_choice(self._legend_groups_awaiting_choice)
+            return True
+        self.state.legend_rule_picks.clear()
         losses = self._sba_collect_player_losses()
         if not actions and not losses:
             # RULE 903.9a is an offer, not an action: made only once the board has settled.
@@ -289,6 +302,7 @@ class StateBasedActionsMixin:
         permanent another action already removes."""
         actions: list[SbaAction] = []
         claimed: set[int] = set()
+        self._legend_groups_awaiting_choice = []  # RULE 704.5j groups still needing a pick this sweep
 
         def take(found: list[SbaAction]) -> None:
             for action in found:
@@ -667,13 +681,56 @@ class StateBasedActionsMixin:
         for group in groups.values():
             if len(group) > 1:
                 keep = self._legend_rule_keep(group, doomed)
+                if keep is _LEGEND_CHOICE_PENDING:
+                    continue
                 found.extend(self._departure(obj) for obj in group if obj is not keep)
         return found
 
-    def _legend_rule_keep(self, group: list[GameObject], doomed: set[int]) -> GameObject:
-        """The copy the controller keeps. Seam for a resumable controller choice (RULE 704.5j);
-        until that exists, the first copy that no other action of this sweep removes."""
-        return next((o for o in group if o.instance_id not in doomed), group[0])
+    @staticmethod
+    def _legend_group_key(group: list[GameObject]) -> str:
+        """Identity of one RULE 704.5j group: the controller and the shared name."""
+        return f"{group[0].controller_id}{_LEGEND_KEY_SEP}{group[0].name}"
+
+    def _legend_rule_keep(self, group: list[GameObject], doomed: set[int]):
+        """The copy the controller keeps (RULE 704.5j). Copies another action of this sweep already
+        removes cannot be the survivor; with one candidate left there is nothing to choose. With
+        several, the controller's stored pick is used, or the group is queued for a choice and
+        `_LEGEND_CHOICE_PENDING` returned (the sweep then applies nothing)."""
+        candidates = [o for o in group if o.instance_id not in doomed]
+        if len(candidates) <= 1:
+            return candidates[0] if candidates else group[0]
+        picked = self.state.legend_rule_picks.get(self._legend_group_key(group))
+        keep = next((o for o in candidates if o.instance_id == picked), None)
+        if keep is not None:
+            return keep
+        self._legend_groups_awaiting_choice.append((group, candidates))
+        return _LEGEND_CHOICE_PENDING
+
+    def _open_legend_rule_choice(self, waiting: list) -> None:
+        """RULE 101.4: choices are made in APNAP order, so the first waiting group of the earliest
+        player in turn order is asked; later groups follow on the re-run sweep."""
+        order = {p.id: i for i, p in enumerate(self.state.living_players_apnap())}
+        group, candidates = min(
+            waiting, key=lambda w: order.get(w[0][0].controller_id, len(order)))
+        self.open_choice({
+            "kind": "legend_rule",
+            "player_id": group[0].controller_id,
+            "group_key": self._legend_group_key(group),
+            "prompt": f"{group[0].name}: Welche Kopie behalten? (Legendenregel)",
+            "options": [
+                {"id": str(o.instance_id), "instance_id": o.instance_id, "label": o.name}
+                for o in candidates
+            ],
+        })
+
+    @continuations.choice("legend_rule", answer=continuations.ANSWER_INT_REQUIRED, rule="704.5j")
+    def _resume_legend_rule(self, choice: dict[str, Any], answer: int) -> None:
+        """Store the controller's pick; the SBA sweep that follows applies it with its batch."""
+        if answer not in {o["instance_id"] for o in choice["options"]}:
+            self.open_choice(choice)
+            raise ValueError("Choose one of the offered copies")
+        self.state.legend_rule_picks[choice["group_key"]] = answer
+
     def _loss_prevented(self, player: Player) -> bool:
         return any(
             isinstance(e, WinConditionEffect) and e.prevents_loss()

@@ -146,6 +146,10 @@ def test_legend_rule_runs_in_the_same_batch_as_a_zero_toughness_death():
     doomed.add_counters("-1/-1", 1)
     eng.recompute_continuous_effects()
 
+    # BUG-26: the controller picks the surviving legend first; the batch then lands as one.
+    assert eng.rules._sba_pass() is True
+    assert doomed in eng.state.battlefield and eng.state.pending_choice["kind"] == "legend_rule"
+    eng.rules.resolve_choice(str(first.instance_id))
     assert eng.rules._sba_pass() is True
 
     assert doomed not in eng.state.battlefield

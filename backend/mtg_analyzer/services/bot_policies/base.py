@@ -176,6 +176,10 @@ class Bot:
             return self.pick_opponent_target(view, answers)
         if kind == "opponent_chooser" and answers:
             return self.pick_opponent_chooser(view, answers)
+        if kind == "legend_rule" and answers:
+            # RULE 704.5j: keep the copy worth most (counters raise its visible power/toughness).
+            return max((a for a in answers if a["type"] == "choose"),
+                       key=lambda a: self._option_worth(view, a), default=answers[0])
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
         # RULE 103.6: use offered opening-hand permissions, including

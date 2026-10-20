@@ -564,6 +564,10 @@ class GameState:
         self.pending_turn_step: Optional[dict[str, Any]] = None
         self.pending_dredge_return: Optional[dict[str, Any]] = None
         self.player_loss_batch: Optional[dict[str, Any]] = None
+        #: RULE 704.5j: the surviving legend each controller already chose in the current SBA sweep,
+        #: keyed by `RulesEngine._legend_group_key`; the sweep re-collects from the unchanged board
+        #: after each answer and reads these, then clears them once its batch is applied.
+        self.legend_rule_picks: dict[str, int] = {}
         # Only serializable engine continuations use this replacement frame.
         self.replacement_continuation: Optional[dict[str, Any]] = None
 

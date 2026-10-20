@@ -640,12 +640,12 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 - **What:** Foundational implementation of Casting (RULE 601), Stack (RULE 608 LIFO), Mana (RULE 504), Priority (RULE 117), Triggered Abilities (RULE 603/607), and State-Ba…
 - **Files:** `game/rules_engine.py`
 
-### Simultaneous state-based actions (BUG-14, RULE 704.3)
+### Simultaneous state-based actions and the legend-rule choice (BUG-14/BUG-26, RULE 704.3/704.5j)
 
 - **What:** `_sba_pass` acted on the first applicable check and recomputed, so a zero-toughness Elesh Norn left first and its -2/-2 stopped killing an opposing 2/2. Now the non-704.5 status checks (control windows, day/night, ascend, soulbond, Ring-bearer) run first as before; then `_sba_collect_actions` reads every RULE 704.5 action (toughness, loyalty, Siege/battle, Saga, lethal/deathtouch damage, counter annihilation, illegal attachments via `_illegal_attachment_actions`, unbestow, legend rule, stranded tokens) and `_sba_collect_player_losses` every player loss off one derived state, and `_sba_apply` performs them together: in-place changes first, then all battlefield departures through `_remove_simultaneously` (one pre-batch trigger-source snapshot, RULE 603.10a), then the losses. An object is claimed by the first action naming it (0 toughness beats lethal damage, so indestructible doesn't matter, RULE 704.5f); a Siege whose defeat trigger fires this sweep is not also put into the graveyard; the RULE 903.9a commander-zone offer is made only once nothing else applies.
-- **Legend rule:** decided from the same frozen state; `_legend_rule_keep(group, doomed)` still keeps the first copy no other action removes — the seam for BUG-26's controller choice.
+- **Legend rule choice (BUG-26, RULE 704.5j/101.4):** `_legend_rule_keep` drops copies another action of the sweep already removes; with two or more candidates left the controller picks through a resumable `legend_rule` pending choice (one group at a time, APNAP). While any group is unanswered the sweep applies nothing; each answer is stored in `GameState.legend_rule_picks` (survives clone/undo), the next sweep recollects the same actions from the unchanged board, reads the picks, applies the whole batch (the unchosen copies die with every other departure) and clears them. Bots keep the copy with the highest visible power + toughness + mana value; the session offers ordinary `choose` actions, so no frontend change was needed.
 - **Known limits:** a replacement choice that pauses the batch (a WOULD_DIE or player-loss replacement) resumes with a fresh sweep, not the frozen remainder.
-- **Tests:** `tests/test_bug14_simultaneous_sbas.py`.
+- **Tests:** `tests/test_bug14_simultaneous_sbas.py`, `tests/test_bug26_legend_rule_choice.py`.
 
 ### Interactive stack (RULE 608)
 

@@ -152,8 +152,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   ownership/control/stack departure sequence immediately, including ending control effects and
   removing abilities controlled by the departed player. Keep review snapshots independent of live
   rules state; cover concession, loss, stolen objects and priority transfer in a three-player game.
-
-- **BUG-26 · P2 · Let the controller choose the surviving legend (RULE 704.5j).**
-  `game/rules/sba_mixin.py:_apply_legend_rule` always keeps the first copy, discarding even a later
-  copy with more counters. Add resumable choices for conflicting legend groups and apply the
-  chosen departures in the simultaneous SBA batch. Coordinate with BUG-14.
