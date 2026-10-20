@@ -228,6 +228,8 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
     "counter": str, "selector": (str, dict), "name": str, "keyword": str,
     "op": str, "step": str,  # ``during_step`` (Misleading Signpost)
+    "phase": str,  # ``during_phase`` (PAR-176)
+    "margin": int,  # ``opponent_controls_more_lands`` (PAR-176)
     "min": int, "max": int, "amount": int, "min_power": int,
     "zone": str, "incarnation": int,
     "colors": list, "types": list,

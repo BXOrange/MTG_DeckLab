@@ -53,15 +53,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-176 · Activation restrictions ("Activate only …", RULE 602.5, 602.5b/d/e).** 78 UNMODELED cards
-  become MODELED once their "activate only …" sentence is claimed (size: strip the sentence, re-parse;
-  498 UNMODELED cards carry one). Families: timing windows ("during your upkeep" 21, any upkeep,
-  combat, a named step, "before …", "as an instant"), "and only …" conjunctions of timing, once-per-turn
-  and a condition ("as a sorcery and only once each turn" 5), and condition gates over the
-  `static_conditions` vocabulary (power, hand size, life, permanents controlled, this-turn history).
-  Extend `_ACTIVATE_ONLY_IF_TRAILING_RE`/the activation-limit stamping rather than per-card rows.
-
-
 ## MEC — Game mechanic
 
 

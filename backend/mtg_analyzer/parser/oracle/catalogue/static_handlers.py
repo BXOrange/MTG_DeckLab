@@ -3900,10 +3900,43 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "life_at_least", "amount": int(m.group("n"))}),
     (re.compile(r"you have (?P<n>\d+) or less life", re.I),
      lambda m: {"kind": "life_at_most", "amount": int(m.group("n"))}),
-    (re.compile(r"you have (?P<n>\d+) or more cards in hand", re.I),
+    (re.compile(r"you have (?P<n>\d+) or more cards in (?:your )?hand", re.I),
      lambda m: {"kind": "cards_in_hand_at_least", "amount": int(m.group("n"))}),
-    (re.compile(r"you have (?P<n>\d+) or fewer cards in hand", re.I),
+    (re.compile(r"you have (?P<n>\d+) or fewer cards in (?:your )?hand", re.I),
      lambda m: {"kind": "cards_in_hand_at_most", "amount": int(m.group("n"))}),
+    # PAR-176 (Library of Alexandria, Magus of the Library): "exactly N" is the two bounds together.
+    (re.compile(r"you have exactly (?P<n>\d+) cards in (?:your )?hand", re.I),
+     lambda m: {"kind": "all", "conditions": [
+         {"kind": "cards_in_hand_at_least", "amount": int(m.group("n"))},
+         {"kind": "cards_in_hand_at_most", "amount": int(m.group("n"))}]}),
+    # PAR-176 (Ayli, Eternal Pilgrim): Righteous Valkyrie's starting-life-total reading, spelled "at least N life more".
+    (re.compile(r"you have at least (?P<n>\d+) life more than your starting life total", re.I),
+     lambda m: {"kind": "life_over_starting_at_least", "amount": int(m.group("n"))}),
+    # PAR-176: the source's own derived power (RULE 613) -- "Activate only if this creature's power is 4 or greater".
+    (re.compile(r"(?:~|this creature)'s power is (?P<n>\d+) or greater", re.I),
+     lambda m: {"kind": "power", "min": int(m.group("n"))}),
+    # PAR-176 (Fungus Elemental): `entered_this_turn` reads the source's own entry turn.
+    (re.compile(r"(?:~|this creature) entered (?:the battlefield )?this turn", re.I),
+     lambda m: {"kind": "entered_this_turn"}),
+    # PAR-176 (Skarrgan Firebird): RULE 120.3 damage dealt to any opponent this turn.
+    (re.compile(r"an opponent was dealt damage this turn", re.I),
+     lambda m: {"kind": "opponent_was_dealt_damage_this_turn"}),
+    # PAR-176 (Tectonic Edge): a per-opponent land count.
+    (re.compile(r"an opponent controls (?P<n>\d+) or more lands", re.I),
+     lambda m: {"kind": "opponent_controls_at_least", "min": int(m.group("n")), "filter": {"card_type": "land"}}),
+    # PAR-176 (Isolated Watchtower): `opponent_controls_more_lands` with the required margin.
+    (re.compile(r"an opponent controls at least (?P<n>\d+) more lands than you", re.I),
+     lambda m: {"kind": "opponent_controls_more_lands", "margin": int(m.group("n"))}),
+    # PAR-176 (Zhalfirin Decoy, Cleaving Reaper): "you had X enter the battlefield under your control this turn" is
+    # the past-tense history "X entered the battlefield under your control this turn" (RULE 603.4-style event log).
+    (re.compile(r"you had (?P<what>.+?) enter the battlefield under your control this turn", re.I),
+     lambda m: static_condition(f"{m.group('what')} entered the battlefield under your control this turn")),
+    # PAR-176 (Sawback Manticore): the source is in combat as an attacker or blocker.
+    (re.compile(r"(?:~|this creature) is attacking or blocking", re.I),
+     lambda m: {"kind": "any", "conditions": [{"kind": "source_attacking"}, {"kind": "source_blocking"}]}),
+    # PAR-176 (Grizzled Wolverine): RULE 509.1a -- some creature is currently declared as blocking the source.
+    (re.compile(r"at least (?:one|1) creature is blocking (?:~|this creature)", re.I),
+     lambda m: {"kind": "source_has_blockers"}),
     (re.compile(r"you have no cards in hand", re.I),
      lambda m: {"kind": "cards_in_hand_at_most", "amount": 0}),
     # "as long as you've drawn two or more cards this turn" — read off
@@ -4092,6 +4125,26 @@ def _pronoun_attached_condition(cond: str, subject: str) -> Optional[dict]:
     if not pronoun:
         return None
     return built[0] if len(built) == 1 else {"kind": "all", "conditions": built}
+
+
+def activation_attached_condition(text: str) -> Optional[dict]:
+    """"enchanted creature is white and untapped" (Nature's Chosen, Earthlore) -> an activation gate over the host.
+
+    PAR-176.  Only the *activation-condition* surface reads the host's tapped/attacking states: there the subject is
+    spelled out, and the effect that follows never has a bare "it" that could be mistaken for the Aura.  The generic
+    intervening-"if" surface must not (`_ATTACHED_STATE_KINDS`: "tap it" would tap the Aura, Narcolepsy).
+    """
+    m = re.fullmatch(rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) is (?P<words>[a-z]+(?: and [a-z]+)?)",
+                     text.strip().rstrip("."), re.I)
+    if m is None:
+        return None
+    parts = []
+    for word in m.group("words").split(" and "):
+        reading = _attached_characteristic(word) or _attached_state_condition(f"{m.group('subject')} is {word}")
+        if reading is None:
+            return None
+        parts.append(reading)
+    return parts[0] if len(parts) == 1 else {"kind": "all", "conditions": parts}
 
 
 def _attached_characteristic(word: str) -> Optional[dict]:

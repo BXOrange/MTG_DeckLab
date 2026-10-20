@@ -3210,11 +3210,14 @@ def bind_ability(
         # PAR-10: "…and only if `<condition>`." — the same marker-then-strip
         # shape as the two above, folded into `ActivationCost.
         # activation_condition` instead of a flag.
-        condition_marker = next(
-            (e for e in effect_specs if e.type == ACTIVATION_CONDITION_MARKER), None
-        )
-        if condition_marker is not None:
-            activation_condition = dict(condition_marker.params.get("condition") or {})
+        # PAR-176: several restriction sentences/atoms each carry a condition; every one must hold (RULE 602.5),
+        # so they are conjoined rather than the first winning.
+        condition_markers = [dict(e.params.get("condition") or {})
+                             for e in effect_specs if e.type == ACTIVATION_CONDITION_MARKER]
+        if len(condition_markers) == 1:
+            activation_condition = condition_markers[0]
+        elif condition_markers:
+            activation_condition = {"kind": "all", "conditions": condition_markers}
         # Strip every timing/cap/condition marker before building real
         # effects (RULE 602.5d / 603.2) — each is folded into the
         # ActivatedAbility/cost, not a GameEffect.

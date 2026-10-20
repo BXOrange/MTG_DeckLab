@@ -52,10 +52,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from .phases import default_turn_sequence
+
 if TYPE_CHECKING:  # models must not be imported at runtime (module boundary)
     from ..models.game.game_object import GameObject
     from ..models.game.game_state import GameState
 
+
+#: The steps of a turn in order (RULE 500.1), read off the engine's own default sequence so "before the <step> step"
+#: cannot drift from the turn loop.
+TURN_STEP_ORDER: tuple[str, ...] = tuple(
+    step.name for _phase, step in default_turn_sequence().iter_steps()
+)
 
 #: Every recognized ``kind``. A condition naming anything else is false.
 STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
@@ -97,6 +105,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "…if it's your main phase" (Moraug, Fury of Akoum): the controller's own precombat or postcombat main phase.
         "your_main_phase",
         "source_blocking",
+        "source_has_blockers",  # PAR-176: "at least one creature is blocking ~"
         "source_paired",  # RULE 702.94b soulbond
         "source_attached",  # "as long as ~ is attached to a creature"
         "source_equipped",  # "as long as ~ is equipped"
@@ -320,6 +329,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "nonland_permanents_entered_this_turn",
         # "…enters during the declare attackers step" (Misleading Signpost) — RULE 500's current step.
         "during_step",  # + ``step``
+        # PAR-176 (RULE 602.5d activation windows): "Activate only during combat" -- the current phase (RULE 500.1),
+        # and "...before the combat damage step" -- the current step precedes ``step`` in turn order (RULE 500.1).
+        "during_phase",  # + ``phase``
+        "before_step",  # + ``step``
         # "…only if you're attacking two or more opponents" (Nemesis Phoenix) — RULE 506.2 + 508.4: the distinct
         # players the controller's attacking creatures attack (a planeswalker or battle counts as its controller).
         "attacking_opponents_at_least",  # + ``min``
@@ -704,6 +717,8 @@ def condition_holds(
             and active.id == controller_id
             and getattr(state, "current_step", "") == "upkeep"
         )
+    if kind == "source_has_blockers":  # PAR-176 / RULE 509.1a
+        return bool(getattr(subject, "blocked_by", None))
     if kind == "source_blocking":
         return getattr(subject, "blocking", None) is not None or bool(
             getattr(subject, "additional_blocking", None)
@@ -798,6 +813,14 @@ def condition_holds(
         return max(o.power or 0 for o in mine) >= max(o.power or 0 for o in creatures)
     if kind == "during_step":
         return getattr(state, "current_step", "") == str(condition.get("step", ""))
+    if kind == "during_phase":  # PAR-176 / RULE 500.1
+        return getattr(state, "current_phase", "") == str(condition.get("phase", ""))
+    if kind == "before_step":  # PAR-176 / RULE 500.1: strictly earlier in the turn than ``step``
+        current = getattr(state, "current_step", "")
+        limit = str(condition.get("step", ""))
+        return current in TURN_STEP_ORDER and limit in TURN_STEP_ORDER and (
+            TURN_STEP_ORDER.index(current) < TURN_STEP_ORDER.index(limit)
+        )
     if kind == "attacking_opponents_at_least":
         defended: set[str] = set()
         for obj in state.battlefield:
@@ -1227,8 +1250,10 @@ def condition_holds(
     if kind == "opponent_controls_more_lands":
         from .continuous import count_selector
         mine = count_selector(state, controller_id, "lands_you_control")
+        # PAR-176: "at least N more lands than you" -- ``margin`` defaults to the plain "more" (1).
+        margin = int(condition.get("margin", 1) or 1)
         return any(
-            count_selector(state, p.id, "lands_you_control") > mine
+            count_selector(state, p.id, "lands_you_control") >= mine + margin
             for p in getattr(state, "players", [])
             if p.id not in (None, controller_id)
         )

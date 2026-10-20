@@ -311,3 +311,25 @@ Sized during PAR-175 M4b: "the permanent(s) for which …" occurs on this card o
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Scrambleverse | "for each nonland permanent, choose a player at random. then each player gains control of each permanent for which they were chosen. untap those permanents." | Needs a random player per permanent and control changes by that assignment; no engine primitive for a per-object random choice yet. |
+
+
+## Batch 10 — 2026-10-20 PAR-176 close-out (PARSER_VERSION 713)
+
+Each card's "Activate only …" sentence is otherwise claimed; only its condition has no `static_conditions` primitive. Arcum's Sleigh and Kjeldoran Guard share one shape: promote them together. See `Done_Backend.md` "\"Activate only …\" restriction sentences (PAR-176)".
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Arcum's Sleigh, Kjeldoran Guard | "only if defending player controls a snow land" | Needs a defending-player condition. |
+| Cinder Crawler | "only if ~ is blocked" | "Blocked" must persist after its blockers leave (RULE 509.1h); `blocked_by` is cleared. |
+| Sea Troll | "only if ~ blocked or was blocked by a blue creature this turn" | Per-turn block history with the blocker's color. |
+| Ashen Ghoul | "only if three or more creature cards are above ~ in your graveyard" | Graveyard order position. |
+| Matzalantli | permanent types among cards in your graveyard | Distinct card-type count over a zone. |
+| Kitsune Bonesetter | "more cards in hand than each opponent" | Hand-size comparison against every opponent. |
+| Skyblade's Boon | "only if ~ is on the battlefield or in your graveyard" | Zone-of-source condition. |
+| Blitzball | an opponent was dealt combat damage by a legendary creature this turn | Per-turn damage history by source type. |
+| Bonecache Overseer | cards left your graveyard this turn, or you sacrificed a Food | Per-turn zone-exit and sacrifice history. |
+| Deadhead | "only if an opponent isn't touching their hand" | Real-world action; likely `NEVER_SUPPORTED`. |
+| Kongming's Contraptions | "only if you've been attacked this step" | Per-step attack history. |
+| Rocket Launcher | controlled continuously since your most recent turn began | Summoning-sickness-style control timestamp for a noncreature. |
+| Sarevok's Tome | "only if you've completed a dungeon" | Completed-dungeon flag per player. |
+

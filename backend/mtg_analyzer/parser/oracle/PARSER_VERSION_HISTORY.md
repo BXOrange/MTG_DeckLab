@@ -4094,3 +4094,12 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      card milled this way, ...", "if an enchantment was destroyed this way, ..."); typed count phrases ("the number of
      creature cards exiled this way") reach every amount row. The body-level fight-sequence call is retired (the
      clause-level one claims every such body identically). +8 / -0.
+713: PAR-176 -- "Activate only ..." restriction sentences (RULE 602.5, 602.5b/d): one compound grammar
+     (`costs_mana_limits._activate_only_compound`) splits the sentence at "and only"/", only" into atoms -- timing windows
+     (your/any upkeep, combat, a named step, before a named step / before attackers are declared, as a sorcery / instant),
+     the once-per-turn / once caps, and "if <condition>" gates -- and folds them into the existing markers; several
+     condition markers are now conjoined by the binder instead of the first one winning. New engine condition kinds
+     `during_phase`, `before_step`, `source_has_blockers` and a `margin` on `opponent_controls_more_lands`; new condition
+     phrases (exactly N cards in hand, source power, entered this turn, opponent damaged / controls N lands, attacking
+     or blocking, enchanted host untapped / "white and untapped", "you had X enter ... this turn", life over starting).
+     Any unknown atom refuses the whole sentence.

@@ -10,6 +10,7 @@ from ..clause_hooks import parse_effect_body
 from ..clause_reading import ClauseReading
 from ..clause_primitives import (
     ACTION_ONCE_PER_TURN_MARKER,
+    ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
     announces_creature_target,
     ONCE_PER_TURN_MARKER,
@@ -20,7 +21,7 @@ from ..clause_primitives import (
     X_SPEND_COLOR_MARKER,
 )
 from ..counters import KEYWORD_COUNTER_KINDS
-from ..static_handlers import static_condition
+from ..static_handlers import activation_attached_condition, static_condition
 from ..subgrammars import (
     count_of,
     NUMBER,
@@ -1478,7 +1479,7 @@ def activation_condition_dict(text: str) -> Optional[dict[str, Any]]:
     # shipped card — and only a phrase genuinely new to *both* tables reaches
     # the shared vocabulary for the first time.
 
-    return static_condition(stripped)
+    return static_condition(stripped) or activation_attached_condition(stripped)
 
 
 _SORCERY_SPEED_AND_CONDITION_RE = compile_clause(
@@ -1516,6 +1517,75 @@ def _activate_only_if(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if condition is None:
         return None
     return [EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": condition})]
+
+
+#: PAR-176 (RULE 602.5): "Activate only <restriction>[ and only <restriction>]..." -- one grammar for the whole
+#: printed restriction sentence instead of a row per pairing.  Each atom is either a timing window (RULE 602.5d, 500.1),
+#: a per-turn / per-game cap (RULE 602.5b), or an "if <condition>" gate over the shared `static_conditions` vocabulary.
+#: Every atom must be enforceable by `can_activate`; one unknown atom refuses the whole sentence (fail closed).
+_ACTIVATE_ONLY_ANY_RE = compile_clause(r"activate (?:this ability )?only (?P<rest>.+)")
+_RESTRICTION_SPLIT_RE = re.compile(r"(?:,\s*(?:and\s+)?|\s+and\s+)only\s+")
+
+#: Oracle step words -> the engine's `current_step` names (RULE 500.1, `phases.default_turn_sequence`).
+_RESTRICTION_STEP_WORDS: dict[str, str] = {
+    "upkeep": "upkeep",
+    "draw": "draw",
+    "beginning of combat": "begin_combat",
+    "declare attackers": "declare_attackers",
+    "declare blockers": "declare_blockers",
+    "combat damage": "combat_damage",
+    "end of combat": "end_combat",
+    "end": "end",
+}
+_RESTRICTION_STEP_ALT = "|".join(sorted((re.escape(w) for w in _RESTRICTION_STEP_WORDS), key=len, reverse=True))
+
+_RESTRICTION_ATOM_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], tuple[list[EffectSpec], list[dict]]]]] = [
+    # RULE 602.5d: sorcery timing; "as an instant" is the default timing, so it restricts nothing.
+    (re.compile(r"as a sorcery|any time you could cast a sorcery", re.I),
+     lambda m: ([EffectSpec(SORCERY_SPEED_MARKER, {})], [])),
+    (re.compile(r"as an instant|any time you could cast an instant", re.I), lambda m: ([], [])),
+    # RULE 602.5b: the per-turn / per-game caps ("once each turn" must be tried before "once").
+    (re.compile(r"once each turn", re.I), lambda m: ([EffectSpec(ONCE_PER_TURN_MARKER, {})], [])),
+    (re.compile(r"once", re.I), lambda m: ([EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {})], [])),
+    (re.compile(r"during your turn", re.I), lambda m: ([EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {})], [])),
+    (re.compile(r"during your upkeep", re.I), lambda m: ([], [{"kind": "your_upkeep"}])),
+    (re.compile(r"during (?:any|each) upkeep(?: step)?", re.I), lambda m: ([], [{"kind": "during_step", "step": "upkeep"}])),
+    (re.compile(r"during combat", re.I), lambda m: ([], [{"kind": "during_phase", "phase": "combat"}])),
+    (re.compile(rf"during the (?P<step>{_RESTRICTION_STEP_ALT}) step", re.I),
+     lambda m: ([], [{"kind": "during_step", "step": _RESTRICTION_STEP_WORDS[m.group("step").lower()]}])),
+    (re.compile(rf"before the (?P<step>{_RESTRICTION_STEP_ALT}) step", re.I),
+     lambda m: ([], [{"kind": "before_step", "step": _RESTRICTION_STEP_WORDS[m.group("step").lower()]}])),
+    (re.compile(r"before attackers are declared", re.I), lambda m: ([], [{"kind": "before_step", "step": "declare_attackers"}])),
+]
+
+
+def _activate_only_compound(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    specs: list[EffectSpec] = []
+    conditions: list[dict] = []
+    for atom in _RESTRICTION_SPLIT_RE.split(m.group("rest").strip().rstrip(".")):
+        atom = atom.strip()
+        gate = re.fullmatch(r"if (?P<cond>.+)", atom, re.I)
+        if gate is not None:
+            condition = activation_condition_dict(gate.group("cond"))
+            if condition is None:
+                return None
+            conditions.append(condition)
+            continue
+        for pattern, build in _RESTRICTION_ATOM_RES:
+            hit = pattern.fullmatch(atom)
+            if hit is not None:
+                atom_specs, atom_conditions = build(hit)
+                specs.extend(atom_specs)
+                conditions.extend(atom_conditions)
+                break
+        else:
+            return None
+    if conditions:
+        merged = conditions[0] if len(conditions) == 1 else {"kind": "all", "conditions": conditions}
+        specs.append(EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": merged}))
+    # "Activate only as an instant" restricts nothing (RULE 602.5d's default); an empty conjunction records that
+    # the sentence was understood without inventing a marker the binder would have to learn.
+    return specs or [EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": {"kind": "all", "conditions": []}})]
 
 
 ROWS: list[EffectHandler] = [
@@ -1862,6 +1932,11 @@ ROWS: list[EffectHandler] = [
         _ACTIVATE_ONLY_IF_RE,
         _activate_only_if,
     ),
+    # PAR-176: every remaining "Activate only ..." sentence -- tried last so the exact rows above keep their specs.
+    # "during your turn and only if <cond>" is also the exact row above, which spells the own-turn gate as a
+    # `your_turn` condition instead of the flag: same legality, declared as the older row's fallback.
+    EffectHandler("activate_only_compound", _ACTIVATE_ONLY_ANY_RE, _activate_only_compound,
+                  fallback_for=("activate_during_your_turn_and_if",)),
     # "you win the game." (RULE 104.2 — Felidar Sovereign, Test of Endurance: the upkeep trigger's body after its
     # intervening "if you have 40 or more life"). The conditional library-empty form is the row below.
     EffectHandler("win_game", compile_clause(r"you win the game"), lambda m: [EffectSpec("win_game", {})]),
