@@ -207,10 +207,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   ordinary stack resolution, response priority and split-second restrictions; allow activation
   whenever a qualifying unblocked attacker exists and its controller has priority. Coordinate
   end-of-combat timing with BUG-30.
-
-- **BUG-34 · P2 · Complete the exile-pool gameplay regression's destination checks.**
-  `tests/test_par175_clause_linkage.py:test_exile_a_graveyard_then_counters_for_the_creature_cards_exiled_reads_the_exile_pool`
-  must assert both named cards actually enter exile and only the caster gains exactly three life,
-  plus a separate illegal/missing-player-target case (RULE 608.2b). Keep the explicit player target
-  and exact life/graveyard assertions; extend those checks to distinguish
-  successful exile from another graveyard exit.
