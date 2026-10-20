@@ -103,12 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-15 · P1 · Order continuous effects by dependency (RULE 613.8).**
-  `game/continuous.py:_in_layer` uses timestamps alone; Urborg entering after Blood Moon incorrectly
-  grants Swamp. Reevaluate dependencies, including effect existence, within each layer. Correct
-  `tests/test_land_type_grant_interactions.py` to require Blood Moon to suppress Urborg in either
-  entry order.
-
 - **BUG-18 · P1 · Use current battlefield types for targets, costs and selectors (RULE 613.1d).**
   `game/targeting.py` artifact/enchantment frames and `game/continuous.py:_has_card_type` read
   printed card flags. A creature made an artifact cannot be selected as an artifact. Share derived

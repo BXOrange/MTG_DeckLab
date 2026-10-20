@@ -47,17 +47,19 @@ less"), which aren't part of 613 but are the other everyday static effect and
 are computed here for the same recompute.
 
 RULE 613.8's *dependency* system (an effect whose order depends on another
-applying first) is modeled **only within layer 2** (`_order_control_effects`)
-— confirmed by tracing every selector this engine has that a same-sublayer
-effect could depend on: a `pt_cda`'s count-selectors (`_count_selector`) can
-only *count* objects (creatures/lands/permanents/artifacts you control, cards
-in a graveyard), never read another object's power/toughness, so no 7a
-dependency is constructible at all; every other sublayer (pt_set/pt_mod/
-pt_switch/type/color/ability) can't construct one either. Layer 2 is the one
-real case: a controller-scoped `affects` ("creatures you control") can see a
-different object set depending on whether another control-change ran first —
-the textbook CR 613.8 example. Elsewhere, ordering is by timestamp only
-(RULE 613.7, `_in_layer`).
+applying first) is modeled in three places. Layer 2 uses `_order_control_effects`
+(a controller-scoped `affects` sees a different object set depending on whether
+another control change ran first). Layers 4 (type), 5 (colour) and 7b/7d/7e
+(P/T, whose power-filtered selectors read the working values via
+`_publish_working_pt`) use the generic `_apply_in_dependency_order`: it
+tentatively applies one effect to scratch state and checks whether another's
+existence (source lost all abilities -- Blood Moon vs. Urborg) or affected set
+changed, re-evaluating after every application (613.8c) and falling back to
+timestamp order for loops (613.8b). Layer 6 uses the cheaper
+`_layer_6_dependency_order`: a static whose source is in a "loses all
+abilities" effect's affected set follows that effect (Humility vs. a creature
+lord's grant). Layer 3's word substitution can't create one (no selector reads
+oracle text) and a `pt_cda`'s count-selectors only count objects, so 7a has none.
 
 `recompute(state)` resets every battlefield object's derived characteristics
 and re-derives them from scratch, stamping the result — and a per-object,
@@ -973,6 +975,108 @@ def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]
         key=lambda a: a.timestamp if getattr(a, "timestamp", None) is not None
         else getattr(a.source, "timestamp", 0),
     )
+
+
+#: RULE 613.8: the most same-layer effects the dependency pass will probe. Each
+#: ordering step probes every pending pair against a scratch copy of the board's
+#: derived state (O(n^3) probes over a whole layer), so a pathological pile of
+#: effects in one layer falls back to plain timestamp order (RULE 613.7) rather
+#: than stalling a recompute. Real boards carry a handful per layer.
+DEPENDENCY_POOL_LIMIT: int = 16
+
+#: The per-object derived fields a layer-4/5 effect can write; the dependency
+#: probe saves and restores exactly these around a tentative application.
+_DEPENDENCY_SCRATCH_FIELDS: tuple[str, ...] = (
+    "_added_types", "_removed_types", "_added_subtypes", "_derived_subtypes",
+    "_derived_colors", "_loses_all_abilities", "_granted_legendary", "static_trace",
+    "_derived_power", "_derived_toughness",
+)
+
+
+def _static_ability_ceased(ability: StaticAbility) -> bool:
+    """RULE 613.8a(b): an ability whose source has lost all abilities within this
+    layer no longer exists, so it applies nothing. Floating effects (RULE 611.2b,
+    independent of their source) and statics granted by layer 6 are exempt,
+    exactly as in `_drop_statics_removed_in_layer_6`."""
+    if ability.duration is not None or getattr(ability, "object_ids", None):
+        return False
+    source = ability.source
+    if source is None or not getattr(source, "_loses_all_abilities", False):
+        return False
+    return not any(ability is g for g in getattr(source, "_granted_static_abilities", ()))
+
+
+def _dependency_signature(
+    state: "GameState", ability: StaticAbility, refresh: Any = None,
+) -> tuple:
+    """What RULE 613.8a(b) says another effect can change about ``ability``: that
+    it exists, and what it applies to. ``refresh`` re-publishes working state a
+    selector reads (layer 7's in-progress P/T) before the selector runs."""
+    if refresh is not None:
+        refresh()
+    if _static_ability_ceased(ability):
+        return (False, ())
+    return (True, tuple(sorted(o.instance_id for o in affected_objects(state, ability))))
+
+
+def _depends_on(
+    state: "GameState", dependent: StaticAbility, other: StaticAbility,
+    apply_one: Any, scratch: tuple = (), refresh: Any = None,
+) -> bool:
+    """RULE 613.8a: does ``dependent`` depend on ``other``? Both are in the same
+    layer (the caller guarantees it) and neither is a CDA, so condition (a)/(c)
+    hold; condition (b) is tested by applying ``other`` alone to a scratch copy of
+    the derived state and comparing ``dependent``'s existence / affected set.
+    ``scratch`` lists the extra containers (dicts/sets) ``apply_one`` writes to
+    besides the per-object fields, so the probe leaves no residue in them."""
+    before = _dependency_signature(state, dependent, refresh)
+    objects = list(state.battlefield)
+    saved = [
+        {f: copy.copy(getattr(o, f)) for f in _DEPENDENCY_SCRATCH_FIELDS} for o in objects
+    ]
+    saved_containers = [copy.deepcopy(c) for c in scratch]
+    try:
+        apply_one(other)
+        changed = _dependency_signature(state, dependent, refresh) != before
+    finally:
+        for o, fields in zip(objects, saved):
+            for f, v in fields.items():
+                setattr(o, f, v)
+        for container, snapshot in zip(scratch, saved_containers):
+            container.clear()
+            container.update(snapshot)
+    return changed
+
+
+def _apply_in_dependency_order(
+    state: "GameState", abilities: list[StaticAbility], layer: str, apply_one: Any,
+    scratch: tuple = (), refresh: Any = None,
+) -> None:
+    """Apply one (sub)layer's effects in RULE 613.8 order, calling ``apply_one``.
+
+    Timestamp order (RULE 613.7) is the base. Repeatedly pick the earliest
+    pending effect that depends on no other pending effect (613.8a) and apply
+    it; the order is re-evaluated after every application (613.8c) because
+    applying one can create or remove a dependency. If every pending effect
+    depends on another -- a loop (613.8b) -- the earliest by timestamp goes.
+    """
+    pending = _in_layer(abilities, layer)
+    if len(pending) < 2 or len(pending) > DEPENDENCY_POOL_LIMIT:
+        for ability in pending:
+            apply_one(ability)
+        return
+    while pending:
+        chosen = pending[0]
+        if len(pending) > 1:
+            for cand in pending:
+                if not any(
+                    _depends_on(state, cand, other, apply_one, scratch, refresh)
+                    for other in pending if other is not cand
+                ):
+                    chosen = cand
+                    break
+        pending.remove(chosen)
+        apply_one(chosen)
 
 
 #: Colour word → WUBRG letter, for the ``devotion_to_<colour>`` selectors
@@ -2788,7 +2892,11 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
         if obj.attached_to is not None and "reconfigure" in (obj.parametric_keywords or {}):
             obj._removed_types.add("creature")
 
-    for ability in _in_layer(abilities, "type"):
+    def _apply_type_ability(ability: StaticAbility) -> None:
+        # RULE 613.8a / 613.8c: an ability whose source has already lost all
+        # abilities (Blood Moon applied first to Urborg) no longer exists.
+        if _static_ability_ceased(ability):
+            return
         added = ability.params.get("add_types", [])
         # "…and loses all other card types…" (Vraska, Betrayal's Sting's
         # -2 — "target creature becomes a Treasure artifact … and loses
@@ -2826,7 +2934,7 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                 linked is None or getattr(getattr(linked, "zone", None), "value", None) != "exile"
                 or not linked.card.is_creature
             ):
-                continue
+                return
             power, toughness = linked.card.power, linked.card.toughness
             if not (isinstance(power, int) and isinstance(toughness, int)):
                 power = toughness = None
@@ -2903,6 +3011,10 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
             _trace(obj, 4, _source_name(ability), f"becomes {label}")
 
+    _apply_in_dependency_order(
+        state, abilities, "type", _apply_type_ability, scratch=(animation_pt,)
+    )
+
     # Still layer 4, but off the battlefield (Arcane Adaptation/Ashes of the
     # Fallen) — see `_apply_off_battlefield_types`.
     _apply_off_battlefield_types(state, abilities)
@@ -2922,7 +3034,9 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
 
 def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
     # -- Layer 5: colour-changing effects (RULE 613.4b).
-    for ability in _in_layer(abilities, "color"):
+    def _apply_color_ability(ability: StaticAbility) -> None:
+        if _static_ability_ceased(ability):
+            return
         colors = [str(c).upper() for c in ability.params.get("colors", [])]
         replace = bool(ability.params.get("set", True))
         for obj in affected_objects(state, ability):
@@ -2930,6 +3044,8 @@ def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
                 obj._derived_colors = set() if replace else obj.colors
             obj._derived_colors.update(colors)
             _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
+
+    _apply_in_dependency_order(state, abilities, "color", _apply_color_ability)
 
 
 #: A ``grant_effects`` param value naming the *granting* permanent ("…you may have it fight Grothama") —
@@ -3014,13 +3130,46 @@ def _grant_flag_keyword_triggers(state: "GameState", obj: "GameObject", keywords
         obj._granted_triggered_abilities.extend(built)
 
 
+def _layer_6_dependency_order(state: "GameState", abilities: list):
+    """RULE 613.8a/613.8c: layer-6 order. A printed static depends on a
+    "loses all abilities" effect whose affected set contains the static's source
+    (applying it ends the static's existence), so the removal goes first; all
+    else stays in timestamp order (613.7, BUG-17). Re-evaluated after each
+    application (a generator: the caller applies each yielded effect before the
+    next is chosen). A loop of mutual removals falls back to timestamp (613.8b)."""
+    pending = _in_layer(abilities, "ability")
+    removals = [a for a in pending if a.params.get("lose_all_abilities")]
+    if not removals:
+        yield from pending
+        return
+    while pending:
+        chosen = pending[0]
+        live = [r for r in pending if r.params.get("lose_all_abilities")]
+        for cand in pending:
+            if cand.duration is not None or getattr(cand, "object_ids", None):
+                blockers = False  # RULE 611.2b: independent of its source
+            else:
+                blockers = any(
+                    r is not cand and cand.source in affected_objects(state, r)
+                    for r in live
+                )
+            if not blockers:
+                chosen = cand
+                break
+        pending.remove(chosen)
+        yield chosen
+
+
 def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     # -- Layer 6: ability-adding effects (keyword / mana / triggered-ability
     # grants — RULE 613.7f). A grant is re-derived every pass exactly like
     # every other layer effect here, so it disappears on its own the moment
     # its source stops applying — no separate removal code (RULE 613.6).
     live_grant_keys: set[tuple[int, int]] = set()
-    for ability in _in_layer(abilities, "ability"):
+    for ability in _layer_6_dependency_order(state, abilities):
+        # RULE 613.8a: its source lost all abilities to an earlier layer-6 effect.
+        if _static_ability_ceased(ability):
+            continue
         keywords = ability.params.get("keywords", [])
         #: ENG-31: parametric keyword *grants* — ``[{"name": "firebending",
         #: "n": 2}, ...]``. A number-carrying keyword can't ride the flat
@@ -3519,7 +3668,16 @@ def _apply_layer_7_pt(
     # ``None`` leaves that half at its layer-7a value — "Exchange target
     # opponent's life total with ~'s toughness." (Tree of Perdition) sets
     # only the toughness.
-    for ability in _in_layer(abilities, "pt_set"):
+    def _publish_working_pt() -> None:
+        # RULE 613.8a: a power/toughness-filtered selector ("creatures with power
+        # 2 or less get +1/+1") reads the P/T *as of this point in layer 7*, not
+        # the printed value `GameObject.power` falls back to before the pass ends.
+        for o in state.battlefield:
+            if o.instance_id in base:
+                o._derived_power, o._derived_toughness = base[o.instance_id]
+
+    def _apply_pt_set(ability: StaticAbility) -> None:
+        _publish_working_pt()
         power = ability.params.get("power", 0)
         toughness = ability.params.get("toughness", 0)
         # "…have base power and toughness X/X, where X is the number of cards in your hand" (Jolrael): a
@@ -3534,6 +3692,10 @@ def _apply_layer_7_pt(
                 new_t = base[obj.instance_id][1] if toughness is None else toughness
                 base[obj.instance_id] = [new_p, new_t]
                 _trace(obj, 7, _source_name(ability), f"set to {new_p}/{new_t}", new_p, new_t)
+
+    _apply_in_dependency_order(
+        state, abilities, "pt_set", _apply_pt_set, scratch=(base,), refresh=_publish_working_pt
+    )
 
     # Base P/T includes layer 7a/7b, before counters and modifiers (RULE 613.4).
     for obj in state.battlefield:
@@ -3569,7 +3731,8 @@ def _apply_layer_7_pt(
     # Battlehammer) — `power`/`toughness` become the *per-unit* amount when
     # `power_count`/`toughness_count` is set, multiplied by that count
     # instead of added as a flat delta.
-    for ability in _in_layer(abilities, "pt_mod"):
+    def _apply_pt_mod(ability: StaticAbility) -> None:
+        _publish_working_pt()
         d_power = ability.params.get("power", 0)
         d_toughness = ability.params.get("toughness", 0)
         p_sel = ability.params.get("power_count")
@@ -3584,6 +3747,10 @@ def _apply_layer_7_pt(
                 base[obj.instance_id][1] += toughness
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, _source_name(ability), f"{_signed(power)}/{_signed(toughness)}", p, t)
+
+    _apply_in_dependency_order(
+        state, abilities, "pt_mod", _apply_pt_mod, scratch=(base,), refresh=_publish_working_pt
+    )
 
     # 7d (cont.): temporary "until end of turn" P/T bonuses from a resolved
     # pump effect (Giant Growth) — same sublayer as anthems (RULE 613.4d);
@@ -3616,12 +3783,17 @@ def _apply_layer_7_pt(
 
     # 7e: switch power and toughness (RULE 613.7e / 701.28). Applied last, so it
     # swaps the fully-computed values.
-    for ability in _in_layer(abilities, "pt_switch"):
+    def _apply_pt_switch(ability: StaticAbility) -> None:
+        _publish_working_pt()
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
                 base[obj.instance_id].reverse()
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, _source_name(ability), f"switched to {p}/{t}", p, t)
+
+    _apply_in_dependency_order(
+        state, abilities, "pt_switch", _apply_pt_switch, scratch=(base,), refresh=_publish_working_pt
+    )
 
     # A *resolving* one-shot switch (Twisted Image-shaped — PAR-81), as
     # opposed to a granted/printed static ability above: applied after
