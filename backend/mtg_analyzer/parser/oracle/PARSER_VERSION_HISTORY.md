@@ -4068,3 +4068,8 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      behind `IfYouDoEffect` (the antecedent must have changed the game; "exile/tap N" that cannot be done in full is
      not offered), for `may_effect_then`, `may_attach_if_you_do` and `may_exile_target_if_you_do`; 16 earlier MODELED
      cards gain the test. +31 / -0 (36 parse-newly-MODELED, 5 already hand-authored).
+709: PAR-175 M2 -- `ClauseReading.referents` (the clause-produced referent environment; `previous_subject` /
+     `previous_selector` are views of it, `segmenter.produces` its one producer) with every other output unchanged;
+     the RULE 608.2c "if you do" gate refuses antecedents whose footprint the engine's `game_fingerprint` cannot
+     observe (`spec.IF_YOU_DO_ANTECEDENT_TYPES`), which returns Armor Wars (a ``for_each`` draw antecedent; still
+     UNMODELED) to its pre-708 unclaimed text. +0 / -0.

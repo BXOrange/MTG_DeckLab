@@ -189,6 +189,34 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
     {"seq", "if_else", "optional", "for_each", "bind"}
 )
 
+#: PAR-175 (RULE 608.2c): the effect types a "you may X. If you do, Y." antecedent may be, because the engine's
+#: `composition.game_fingerprint` -- how it learns that X was actually performed -- observes their footprint (zone
+#: membership, life, tapped state, counters, attachment, damage, the source's zone, the stack). An antecedent of any
+#: other type (mana, player counters, designations, emblems, ...) leaves no trace the check can see, so the clause
+#: stays unclaimed rather than running Y on a guess. ``search`` is the one performed-by-attempting type
+#: (`composition.ALWAYS_DONE_ANTECEDENTS`). Kept equal to the engine's view by `tests/test_par175_clause_linkage.py`.
+IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
+    "draw", "discard", "exile", "exile_own_graveyard_cards", "choose_objects", "sacrifice_self", "add_counters",
+    "search", "tap", "attach", "create_token", "bind",
+    # A card placed from hand moves zones (Ultra Magnus-shaped "you may put … onto the battlefield. If you do, …").
+    "put_from_hand_onto_battlefield", "put_from_defending_hand",
+})
+#: A ``bind`` antecedent measures an amount and runs its body: the body's types must be allowed too.
+IF_YOU_DO_BODY_TYPES: frozenset[str] = frozenset({"bind"})
+
+
+def if_you_do_antecedent_ok(effects: list[dict]) -> bool:
+    """Whether every effect of a serialized antecedent (recursing into a ``bind`` body) has an observable footprint."""
+    for effect in effects:
+        if effect.get("type") not in IF_YOU_DO_ANTECEDENT_TYPES:
+            return False
+        if effect["type"] in IF_YOU_DO_BODY_TYPES and not if_you_do_antecedent_ok(
+            list((effect.get("params") or {}).get("effects") or [])
+        ):
+            return False
+    return True
+
+
 #: Non-``kind`` keys a **structured** effect condition may carry, and the
 #: type each must have (ENG-36). The ``kind`` vocabulary itself lives in
 #: `game/effect_conditions.py` and `game/static_conditions.py`, which this

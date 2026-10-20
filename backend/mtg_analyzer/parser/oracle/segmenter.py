@@ -19,7 +19,9 @@ from __future__ import annotations
 import copy
 import json
 import re
-from .catalogue.clause_reading import STANDALONE, ClauseReading
+from .catalogue.clause_reading import (
+    SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT, ClauseReading, Referent,
+)
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional
 
@@ -2116,7 +2118,7 @@ def _die_that_much_specs(
     if _THAT_MUCH_RE.search(rest) is None:
         return None
     return _bind_x_specs(
-        _THAT_MUCH_RE.sub("x", rest), {"kind": "die_result"}, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject, previous_selector=False),
+        _THAT_MUCH_RE.sub("x", rest), {"kind": "die_result"}, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject, previous_selector=False),
     )
 
 
@@ -3759,7 +3761,7 @@ def _if_else_specs(
     if match is None:
         return None
     condition = _group_pronoun_condition(
-        match.group("cond"), static_condition(match.group("cond")), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+        match.group("cond"), static_condition(match.group("cond")), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
     )
     if condition is None:
         return None
@@ -4150,7 +4152,7 @@ def _for_each_amount_specs(
     something the card never scaled.
     """
     amount = _count_amount(
-        phrase, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+        phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
     )
     if amount is None:
         return None
@@ -4865,7 +4867,7 @@ def _where_x_specs(
         minus = _MINUS_TAIL_RE.search(phrase)
         if minus is not None:
             phrase = phrase[: minus.start()]
-        amount = _count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject), )
+        amount = _count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET)), )
         if amount is None and " plus the number of " in phrase:
             # "…the number of caves you control **plus the number of** cave cards in your graveyard" (Calamitous
             # Cave-In): a sum of counts, which the amount grammar reads as one expression.
@@ -5010,7 +5012,7 @@ def _referent_characteristic_specs(
         "of": "trigger_subject" if reading.group_subject and not reading.previous_subject else "previous_target",
     }
     inner = parse_effect_body(
-        rest.strip(), reading=ClauseReading(self_subject=False, previous_subject=reading.previous_subject, group_subject=reading.group_subject, previous_selector=reading.previous_selector),
+        rest.strip(), reading=ClauseReading(self_subject=False, group_subject=reading.group_subject, referents=reading.referents),
     )
     if not inner:
         return None
@@ -5459,17 +5461,17 @@ def _peel_condition(
         inner = None
         if row.parse_rest is not None:
             inner = row.parse_rest(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
             )
         if inner is None:
             inner = parse_effect_body(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
             )
         if inner is None:
             return True, None
         condition = row.build(match)
         condition = _group_pronoun_condition(
-            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if (
             condition is not None and reading.previous_subject and not reading.self_subject and not reading.group_subject
@@ -5510,7 +5512,7 @@ def _peel_condition(
         # re-fold it through `parse_effect_body` so it gets that gate rather
         # than silently inheriting this one.
         more = parse_effect_body(
-            trailing, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            trailing, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         return True, (gated + more if more is not None else None)
     return False, None
@@ -5532,7 +5534,7 @@ def _with_after_tail(
     if not after_text:
         return specs
     after_specs = parse_effect_body(
-        after_text, reading=ClauseReading(previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+        after_text, reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
     )
     if after_specs is None:
         return None
@@ -5763,7 +5765,7 @@ def _parse_effect_body_inner(
     # Preserve the existing hand-cheat package before placement-tail folding.
     # Its choice already owns haste and the delayed sacrifice (MEC-73).
     if "that creature gains haste until end of turn" in body:
-        packaged = match_clause(body, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject), )
+        packaged = match_clause(body, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET)), )
         if packaged and len(packaged) == 1 and packaged[0].type == "cheat_creature_from_hand":
             return packaged
     # "you may **have** target creature get -2/-2 until end of turn" (Blightcaster, Battle-Rattle Shaman, the
@@ -5809,7 +5811,7 @@ def _parse_effect_body_inner(
     # "if C," gate or a first sentence — creates the same turn-long trigger a whole line does.
     if _TURN_TRIGGER_RE.match(body):
         turn_trigger = _turn_trigger_segment(
-            body, provenance=ParserProvenance(), reading=ClauseReading(previous_subject=reading.previous_subject),
+            body, provenance=ParserProvenance(), reading=ClauseReading(referents=reading.referents_of(TARGET)),
         )
         if turn_trigger is not None and turn_trigger.claimed and turn_trigger.spec is not None:
             return list(turn_trigger.spec.effects)
@@ -5881,7 +5883,7 @@ def _parse_effect_body_inner(
     # *without* its gate — a wrong-but-modeled unconditional card is worse
     # than an unclaimed one.
     matched, peeled = _peel_condition(
-        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
     )
     if matched:
         return peeled
@@ -5983,7 +5985,7 @@ def _parse_effect_body_inner(
     enters_atk = _CREATED_ENTERS_ATTACKING_RE.match(body)
     if enters_atk is not None:
         before_specs = parse_effect_body(
-            enters_atk.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            enters_atk.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         name_subj = (enters_atk.group("name_subj") or "").strip().lower()
         # ``create_named_legendary_token`` emits a plain ``create_token``
@@ -6015,7 +6017,7 @@ def _parse_effect_body_inner(
     if spend_mana is not None:
         restriction = _spend_mana_restriction(spend_mana.group("what"))
         before_specs = parse_effect_body(
-            spend_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            spend_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         ) if restriction is not None else None
         if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
             return None
@@ -6025,13 +6027,13 @@ def _parse_effect_body_inner(
             for spec in before_specs
         ]
         return _with_after_tail(
-            before_specs, spend_mana.group("after"), reading=ClauseReading(previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            before_specs, spend_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
 
     keep_mana = _KEEP_MANA_SENTENCE_RE.match(body)
     if keep_mana is not None:
         before_specs = parse_effect_body(
-            keep_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            keep_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
             return None
@@ -6042,13 +6044,13 @@ def _parse_effect_body_inner(
             for spec in before_specs
         ]
         return _with_after_tail(
-            before_specs, keep_mana.group("after"), reading=ClauseReading(previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            before_specs, keep_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:
         before_specs = parse_effect_body(
-            no_regen.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            no_regen.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6088,7 +6090,7 @@ def _parse_effect_body_inner(
     regen_exile = _REGEN_EXILE_RIDER_RE.match(body.strip())
     if regen_exile is not None:
         before_specs = parse_effect_body(
-            regen_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            regen_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if not before_specs or not any(spec.type == "damage" for spec in before_specs):
             return None
@@ -6106,7 +6108,7 @@ def _parse_effect_body_inner(
     die_to_exile = _DIE_TO_EXILE_SENTENCE_RE.match(body)
     if die_to_exile is not None:
         before_specs = parse_effect_body(
-            die_to_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            die_to_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6132,7 +6134,7 @@ def _parse_effect_body_inner(
     kicked_mag = _KICKED_MAGNITUDE_OVERRIDE_RE.match(body)
     if kicked_mag is not None:
         before_specs = parse_effect_body(
-            kicked_mag.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            kicked_mag.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6153,7 +6155,7 @@ def _parse_effect_body_inner(
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:
         before_specs = parse_effect_body(
-            gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(
             spec.type == "gain_control_until_eot" for spec in before_specs
@@ -6180,7 +6182,7 @@ def _parse_effect_body_inner(
         if certain is None:
             continue
         before_specs = parse_effect_body(
-            certain.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            certain.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == antecedent_type for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
@@ -6189,7 +6191,7 @@ def _parse_effect_body_inner(
     exile_self_delayed_return = _EXILE_SELF_THEN_DELAYED_RETURN_RE.match(body)
     if exile_self_delayed_return is not None:
         before_specs = parse_effect_body(
-            exile_self_delayed_return.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            exile_self_delayed_return.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == "exile" for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
@@ -6207,7 +6209,7 @@ def _parse_effect_body_inner(
         if before_text.startswith("exile ") and not re.search(r"\btarget\b", before_text):
             return None  # nontargeted exile choices must be made during resolution
         before_specs = parse_effect_body(
-            before_text, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         after_text = action_then.group("after")
         condition = None
@@ -6244,10 +6246,10 @@ def _parse_effect_body_inner(
     roll_when_you_do = _ROLL_DIE_THEN_WHEN_YOU_DO_RE.match(body)
     if roll_when_you_do is not None:
         before_specs = parse_effect_body(
-            roll_when_you_do.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            roll_when_you_do.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         after_specs = parse_effect_body(
-            roll_when_you_do.group("after"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            roll_when_you_do.group("after"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if (before_specs is None or len(before_specs) != 1
                 or before_specs[0].type != "roll_die" or after_specs is None):
@@ -6274,7 +6276,7 @@ def _parse_effect_body_inner(
     prefixed_delayed = _PREFIXED_DELAYED_SAC_EXILE_RE.match(body)
     if prefixed_delayed is not None:
         before_specs = parse_effect_body(
-            prefixed_delayed.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            prefixed_delayed.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6286,7 +6288,7 @@ def _parse_effect_body_inner(
     prefixed_delayed_tail = _PREFIXED_DELAYED_TAIL_RE.match(body)
     if prefixed_delayed_tail is not None:
         before_specs = parse_effect_body(
-            prefixed_delayed_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            prefixed_delayed_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         delayed_specs = match_clause(prefixed_delayed_tail.group("delayed"))
         # Fall through (rather than fail closed) when this split doesn't
@@ -6357,7 +6359,7 @@ def _parse_effect_body_inner(
         if optional_exile:
             before_text = before_text[len("you may "):]
         before_specs = parse_effect_body(
-            before_text, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
         )
         if before_specs is not None and optional_exile:
             before_specs = [
@@ -6437,7 +6439,7 @@ def _parse_effect_body_inner(
     if direct is not None:
         return direct
 
-    timed = _for_as_long_as_counter_specs(body, reading=ClauseReading(previous_subject=reading.previous_subject))
+    timed = _for_as_long_as_counter_specs(body, reading=ClauseReading(referents=reading.referents_of(TARGET)))
     if timed is not None:
         return timed
 
@@ -6528,8 +6530,9 @@ def _parse_effect_body_inner(
             # It gains haste …") — the *first* sub-part must inherit that,
             # not restart from nothing. ``self_subject`` still isn't passed
             # down (see this function's docstring).
-            referent = reading.previous_subject
-            referent_selector = reading.previous_selector
+            referents = reading.referents
+            referent = any(r.kind == TARGET for r in referents)
+            referent_selector = any(r.kind == SELECTOR for r in referents)
             # PAR-32: a self-subject trigger body ("whenever ~ attacks, put a
             # +1/+1 counter on ~. it gains deathtouch until end of turn." —
             # Agent of the Shadow Thieves) — "it" in every sub-clause still
@@ -6577,10 +6580,7 @@ def _parse_effect_body_inner(
                 if otherwise is not None:
                     sub = _otherwise_specs(
                         otherwise.group("rest"), collected[len(collected) - last_len:] if last_len else [],
-                        reading=ClauseReading(
-                            self_subject=carry_self and not referent, previous_subject=referent,
-                            previous_selector=referent_selector, group_subject=reading.group_subject,
-                        ),
+                        reading=_sequel_reading(reading, carry_self, referents),
                     )
                     if sub is not None:
                         del collected[len(collected) - last_len:]  # the if_else replaces them
@@ -6593,7 +6593,7 @@ def _parse_effect_body_inner(
                         for end in range(min(len(parts), idx + _MAX_SENTENCE_WINDOW), idx + 1, -1):
                             window = re.sub(r"^then\s+", "", ". ".join(p.strip() for p in parts[idx:end]), flags=re.I)
                             sub = match_clause(
-                                window, reading=ClauseReading(self_subject=carry_self and not referent, previous_subject=referent, group_subject=reading.group_subject, previous_selector=referent_selector),
+                                window, reading=_sequel_reading(reading, carry_self, referents),
                             )
                             if sub is not None:
                                 skip_until = end
@@ -6601,7 +6601,7 @@ def _parse_effect_body_inner(
                     if sub is None:
                         sub = parse_effect_body(
                             part,
-                            reading=ClauseReading(self_subject=carry_self and not referent, previous_subject=referent, group_subject=reading.group_subject, previous_selector=referent_selector),
+                            reading=_sequel_reading(reading, carry_self, referents),
                         )
                 if sub is None and sep == _AND_CONNECTOR and idx:
                     # "~ deals 3 damage to X if … **and 3 damage to Y** if …" / "you gain X life if … **and X life**
@@ -6611,7 +6611,7 @@ def _parse_effect_body_inner(
                             parts[idx - 1].lstrip().lower().startswith(verb_head) and elided.match(part)
                         ):
                             sub = parse_effect_body(
-                                f"{verb_head}{part}", reading=ClauseReading(self_subject=carry_self and not referent, previous_subject=referent, group_subject=reading.group_subject, previous_selector=referent_selector),
+                                f"{verb_head}{part}", reading=_sequel_reading(reading, carry_self, referents),
                             )
                             # "any other target" / "another …" is only kept distinct by the stamp (ENG-52); an
                             # effect that cannot carry it leaves the compound unclaimed.
@@ -6645,7 +6645,7 @@ def _parse_effect_body_inner(
                 # chose no creature leaves the pronoun unbound — and so
                 # unclaimed — rather than letting it drift onto some earlier
                 # clause's pick, which is the ambiguity this gate exists for.
-                referent = announces_creature_target(sub)
+                referent = TARGET in {r.kind for r in produces(sub)}
                 # PAR-32: once a clause picks a *different* targeted creature,
                 # the self-subject carry is broken (a later "it" now means
                 # that pick, via ``referent``, not the source).
@@ -6684,7 +6684,8 @@ def _parse_effect_body_inner(
                 # creatures. They gain …" — tracked independently since a
                 # selector clause never sets ``referent`` above (it targets
                 # nothing at all, RULE 601.2c).
-                referent_selector = _announces_group_selector(sub)
+                referent_selector = SELECTOR in {r.kind for r in produces(sub)}
+                referents = _referents_from(referent, referent_selector)
             if ok:
                 return collected
 
@@ -6696,7 +6697,7 @@ def _parse_effect_body_inner(
     # implementations — where in the pipeline a gate binds is a real property
     # of the gate, and the only thing that separates the two tables.
     matched, peeled = _peel_condition(
-        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -6751,7 +6752,7 @@ def _parse_effect_body_inner(
         return each_object
 
     matched, peeled = _peel_condition(
-        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject, group_subject=reading.group_subject),
+        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -6802,7 +6803,7 @@ def _parse_effect_body_inner(
             rest = its_controller_may.group("rest").strip()
             if not _MID_BODY_OPTIONAL_RE.match(rest) and not _REFLEXIVE_TRIGGER_RE.search(rest):
                 inner = parse_effect_body(
-                    rest, reading=ClauseReading(previous_subject=reading.previous_subject, group_subject=reading.group_subject, previous_selector=reading.previous_selector),
+                    rest, reading=ClauseReading(group_subject=reading.group_subject, referents=reading.referents),
                 )
                 if inner:
                     inner_dicts = [
@@ -6959,6 +6960,31 @@ def _is_group_selector_value(value: object) -> bool:
     if isinstance(value, dict):
         return value in _GROUP_SELECTOR_STRUCTURED_FILTERS
     return value in _GROUP_SELECTOR_VALUES
+
+
+def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
+    """What a just-parsed clause leaves for the next one to name (the referent environment's one producer): the
+    object it chose (``it`` / ``that creature``) and/or the group it acted on (``they`` / ``those creatures``)."""
+    out: list[Referent] = []
+    if announces_creature_target(specs):
+        out.append(TARGET_REFERENT)
+    if _announces_group_selector(specs):
+        out.append(SELECTOR_REFERENT)
+    return tuple(out)
+
+
+def _referents_from(target: bool, selector: bool) -> tuple[Referent, ...]:
+    """The environment for the next clause, after the sequencing loop has applied its carry-over rules."""
+    return tuple(ref for ref, on in ((TARGET_REFERENT, target), (SELECTOR_REFERENT, selector)) if on)
+
+
+def _sequel_reading(reading: ClauseReading, carry_self: bool, referents: tuple[Referent, ...]) -> ClauseReading:
+    """The reading of the next clause of a sequence: the source keeps "it" until a clause chose something else, the
+    group-trigger subject carries over, and the environment is what the clauses so far produced."""
+    chose = any(r.kind == TARGET for r in referents)
+    return ClauseReading(
+        self_subject=carry_self and not chose, group_subject=reading.group_subject, referents=referents,
+    )
 
 
 def _announces_group_selector(specs: list[EffectSpec]) -> bool:

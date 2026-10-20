@@ -248,3 +248,74 @@ def test_pre_existing_tap_it_row_also_gets_the_outcome_test():
     if result.coverage == MODELED:  # intervening-if shapes keep the same wrapper
         (trig,) = [s for s in result.specs if s.ability_kind == "triggered"]
         assert trig.effects[0].params.get("if_you_do_from") == 1
+
+
+# --- M2: the referent environment and the "if you do" antecedent allowlist ---------------------------------------
+
+
+def test_previous_subject_and_selector_are_views_of_the_referent_environment():
+    from mtg_analyzer.parser.oracle.catalogue.clause_reading import (
+        SELECTOR, SELECTOR_REFERENT, TARGET, TARGET_REFERENT, ClauseReading,
+    )
+
+    assert ClauseReading(previous_subject=True).referents == (TARGET_REFERENT,)
+    assert ClauseReading(previous_selector=True).referents == (SELECTOR_REFERENT,)
+    both = ClauseReading(referents=(TARGET_REFERENT, SELECTOR_REFERENT))
+    assert both.previous_subject and both.previous_selector
+    # Changing a view re-derives the environment; narrowing keeps only the asked kinds.
+    assert both.but(previous_subject=False).referents == (SELECTOR_REFERENT,)
+    assert both.referents_of(TARGET) == (TARGET_REFERENT,) and both.referents_of(SELECTOR) == (SELECTOR_REFERENT,)
+    assert both.satisfies(ClauseReading(previous_subject=True)) and not ClauseReading().satisfies(both)
+
+
+def test_a_sequence_hands_each_clause_what_the_clauses_before_it_produced():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body, produces
+
+    chose = parse_effect_body("tap target creature")
+    assert [r.kind for r in produces(chose)] == ["target"]
+    group = parse_effect_body("untap all creatures you control")
+    assert [r.kind for r in produces(group)] == ["selector"]
+    assert produces(parse_effect_body("draw a card")) == ()
+    # "it" reads what the previous clause chose; with no antecedent the pronoun stays unclaimed.
+    assert parse_effect_body("tap target creature. it gains haste until end of turn") is not None
+    assert parse_effect_body("draw a card. it gains haste until end of turn") is None
+
+
+def test_antecedent_allowlist_matches_the_engine_view_and_refuses_unobservable_types():
+    from mtg_analyzer.game.effects.composition import ALWAYS_DONE_ANTECEDENTS
+    from mtg_analyzer.parser.oracle.spec import IF_YOU_DO_ANTECEDENT_TYPES, if_you_do_antecedent_ok
+
+    assert ALWAYS_DONE_ANTECEDENTS <= IF_YOU_DO_ANTECEDENT_TYPES
+    assert if_you_do_antecedent_ok([{"type": "draw", "params": {}}])
+    assert if_you_do_antecedent_ok([{"type": "bind", "params": {"effects": [{"type": "draw", "params": {}}]}}])
+    assert not if_you_do_antecedent_ok([{"type": "bind", "params": {"effects": [{"type": "add_mana", "params": {}}]}}])
+    assert not if_you_do_antecedent_ok([{"type": "gain_life", "params": {}}])
+    # An antecedent the fingerprint cannot see (life gain is observed, a player counter is not) fails closed.
+    bad = parse_oracle(_card("Test Energy", "Whenever this creature attacks, you may get {E}{E}. If you do, draw a card."))
+    assert bad.coverage != MODELED
+
+
+@pytest.mark.full_cache
+@pytest.mark.timeout(900)  # parses the whole cache
+def test_every_emitted_if_you_do_antecedent_is_in_the_allowlist():
+    from mtg_analyzer.parser.oracle.spec import if_you_do_antecedent_ok
+    from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+
+    def walk(node, name, out):
+        if isinstance(node, dict):
+            params = node.get("params") if isinstance(node.get("params"), dict) else None
+            if node.get("type") == "optional" and params and "if_you_do_from" in params:
+                out.append((name, params["effects"][: params["if_you_do_from"]]))
+            for value in node.values():
+                walk(value, name, out)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value, name, out)
+
+    antecedents = []
+    for card in CardDatabase(DEFAULT_DB_PATH).list_cards():
+        result = parse_oracle(card)
+        if result.modeled:
+            walk([s.to_dict() for s in result.specs], card.name, antecedents)
+    assert antecedents
+    assert [name for name, x in antecedents if not if_you_do_antecedent_ok(x)] == []

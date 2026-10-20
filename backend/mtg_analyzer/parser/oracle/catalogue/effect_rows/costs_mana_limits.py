@@ -31,7 +31,7 @@ from ..subgrammars import (
     target_kind_allowed,
 )
 from ...normalize import SELF
-from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
+from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL, if_you_do_antecedent_ok
 from .shared import (
     ATTACHED_SUBJECT,
     BECOMES_TARGET_EVENT,
@@ -1077,7 +1077,10 @@ def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if any(s.params.get("target_kind") for s in second):
         return None
-    # RULE 608.2c: "if you do" -- the second part waits for the first to have been performed (`IfYouDoEffect`).
+    # RULE 608.2c: "if you do" -- the second part waits for the first to have been performed (`IfYouDoEffect`), which
+    # the engine can only see for antecedents with an observable footprint; any other stays unclaimed.
+    if not if_you_do_antecedent_ok([s.to_dict() for s in first]):
+        return None
     return [EffectSpec("optional", {
         "effects": [s.to_dict() for s in first] + [s.to_dict() for s in second],
         "if_you_do_from": len(first),
