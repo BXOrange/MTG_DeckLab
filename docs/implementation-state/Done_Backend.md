@@ -640,6 +640,13 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 - **What:** Foundational implementation of Casting (RULE 601), Stack (RULE 608 LIFO), Mana (RULE 504), Priority (RULE 117), Triggered Abilities (RULE 603/607), and State-Ba…
 - **Files:** `game/rules_engine.py`
 
+### Simultaneous state-based actions (BUG-14, RULE 704.3)
+
+- **What:** `_sba_pass` acted on the first applicable check and recomputed, so a zero-toughness Elesh Norn left first and its -2/-2 stopped killing an opposing 2/2. Now the non-704.5 status checks (control windows, day/night, ascend, soulbond, Ring-bearer) run first as before; then `_sba_collect_actions` reads every RULE 704.5 action (toughness, loyalty, Siege/battle, Saga, lethal/deathtouch damage, counter annihilation, illegal attachments via `_illegal_attachment_actions`, unbestow, legend rule, stranded tokens) and `_sba_collect_player_losses` every player loss off one derived state, and `_sba_apply` performs them together: in-place changes first, then all battlefield departures through `_remove_simultaneously` (one pre-batch trigger-source snapshot, RULE 603.10a), then the losses. An object is claimed by the first action naming it (0 toughness beats lethal damage, so indestructible doesn't matter, RULE 704.5f); a Siege whose defeat trigger fires this sweep is not also put into the graveyard; the RULE 903.9a commander-zone offer is made only once nothing else applies.
+- **Legend rule:** decided from the same frozen state; `_legend_rule_keep(group, doomed)` still keeps the first copy no other action removes — the seam for BUG-26's controller choice.
+- **Known limits:** a replacement choice that pauses the batch (a WOULD_DIE or player-loss replacement) resumes with a fresh sweep, not the frozen remainder.
+- **Tests:** `tests/test_bug14_simultaneous_sbas.py`.
+
 ### Interactive stack (RULE 608)
 
 - **What:** Casting leaves the spell on the stack instead of auto-resolving; `GameEngine.pass_priority` resolves the top object one at a time so instants can be cast in res…

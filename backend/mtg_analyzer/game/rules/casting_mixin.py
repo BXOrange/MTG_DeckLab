@@ -1559,17 +1559,17 @@ class CastingResolutionMixin:
                 self._end_bestow(attached)
             elif self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)
-    def _revalidate_attachments(self) -> bool:
-        """RULE 704.5m/n: unattach any permanent whose attachment has become
-        illegal since it was attached, with its *host* still on the
-        battlefield (a host that leaves is `_detach_attachments_from`'s job).
+    def _illegal_attachment_actions(self) -> list:
+        """RULE 704.5m/n: the SBA actions for every permanent whose attachment has become
+        illegal since it was attached, with its *host* still on the battlefield (a host that
+        leaves is `_detach_attachments_from`'s job).
 
-        Checked against the same `_attachment_legal` an initial attach uses,
-        so any new legality rule added there (protection, quality, control)
-        is re-validated here for free. Returns on the first permanent it
-        unattaches, matching every other SBA check's "one action, then
-        re-check the whole board" cadence.
-        """
+        Checked against the same `_attachment_legal` an initial attach uses, so any new legality
+        rule added there (protection, quality, control) is re-validated here for free. Returns
+        every such action found in the current state (RULE 704.3); `_sba_apply` performs them."""
+        from .sba_mixin import SbaAction
+
+        found: list[SbaAction] = []
         for attached in self.state.permanents():
             host_id = attached.attached_to
             if host_id is None:
@@ -1578,10 +1578,11 @@ class CastingResolutionMixin:
             if player_host is not None:
                 if self._attachment_legal(attached, player_host, check_control=False):
                     continue
-                attached.attached_to = None
-                if self._attachment_kind(attached) == "enchant":
-                    self._move_to_graveyard(attached)
-                return True
+                found.append(SbaAction(
+                    attached, lambda a=attached: self._unattach_illegal(a, player_host=True),
+                    departs=self._attachment_kind(attached) == "enchant",
+                ))
+                continue
             host = self._object_by_instance_id(host_id)
             if host is None or host not in self.state.battlefield or host.phased_out:
                 # Host leaving the battlefield is `_detach_attachments_from`'s
@@ -1593,23 +1594,35 @@ class CastingResolutionMixin:
                 continue
             if self._attachment_legal(attached, host, check_control=False):
                 continue
-            attached.attached_to = None
-            if getattr(attached, "bestowed", False):
-                # RULE 702.103f: an exception to RULE 704.5m — the bestowed
-                # Aura becomes unattached and stays on the battlefield as a
-                # creature rather than being put into its owner's graveyard.
-                self._end_bestow(attached)
-                return True
-            if getattr(attached, "is_licid_aura", False):
-                # MEC-47: a Licid whose host left is an Aura attached to
-                # nothing → owner's graveyard (RULE 704.5m). Clear the flag
-                # so its `for_as_long_as` type-change static self-sweeps and
-                # a later reanimation comes back a plain creature.
-                attached.is_licid_aura = False
+            bestowed = getattr(attached, "bestowed", False)
+            found.append(SbaAction(
+                attached, lambda a=attached: self._unattach_illegal(a),
+                departs=not bestowed and self._attachment_kind(attached) == "enchant",
+            ))
+        return found
+
+    def _unattach_illegal(self, attached, player_host: bool = False) -> None:
+        """Apply one RULE 704.5m/n un-attachment found by `_illegal_attachment_actions`."""
+        attached.attached_to = None
+        if player_host:
             if self._attachment_kind(attached) == "enchant":
-                self._move_to_graveyard(attached)  # RULE 704.5m
-            return True  # RULE 704.5n: Equipment/Fortification just unattaches
-        return False
+                self._move_to_graveyard(attached)
+            return
+        if getattr(attached, "bestowed", False):
+            # RULE 702.103f: an exception to RULE 704.5m — the bestowed
+            # Aura becomes unattached and stays on the battlefield as a
+            # creature rather than being put into its owner's graveyard.
+            self._end_bestow(attached)
+            return
+        if getattr(attached, "is_licid_aura", False):
+            # MEC-47: a Licid whose host left is an Aura attached to
+            # nothing → owner's graveyard (RULE 704.5m). Clear the flag
+            # so its `for_as_long_as` type-change static self-sweeps and
+            # a later reanimation comes back a plain creature.
+            attached.is_licid_aura = False
+        if self._attachment_kind(attached) == "enchant":
+            self._move_to_graveyard(attached)  # RULE 704.5m
+        # RULE 704.5n: Equipment/Fortification just unattaches
     @staticmethod
     def _effects_for_spell(obj: GameObject) -> list[Any]:
         """Effects a spell applies when it resolves.

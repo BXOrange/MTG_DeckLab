@@ -103,11 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-14 · P1 · Apply the complete SBA set simultaneously (RULE 704.3).**
-  `game/rules/sba_mixin.py` removes one object before recomputing the next sweep: zero-toughness
-  Elesh Norn leaves first and saves an opposing 2/2 that was also at zero toughness. Freeze all
-  applicable actions and required choices from one derived state, apply them together, then repeat.
-
 - **BUG-15 · P1 · Order continuous effects by dependency (RULE 613.8).**
   `game/continuous.py:_in_layer` uses timestamps alone; Urborg entering after Blood Moon incorrectly
   grants Swamp. Reevaluate dependencies, including effect existence, within each layer. Correct
