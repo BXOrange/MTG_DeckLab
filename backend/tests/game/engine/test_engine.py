@@ -37,6 +37,9 @@ def land(name="Forest", produces="Forest"):
 
 
 def creature(name="Grizzly Bears", cost="{1}{G}", power=2, toughness=2, **kw):
+    if kw.get("color_identity") and cost == "{1}{G}":
+        # RULE 202.2: colour comes from the cost, so a recoloured test creature needs matching pips.
+        cost = "{1}" + "".join("{%s}" % c for c in sorted(kw["color_identity"]))
     return Card(
         id=name,
         name=name,

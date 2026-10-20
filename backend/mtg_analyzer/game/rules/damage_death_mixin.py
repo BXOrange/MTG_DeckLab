@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
 from ...models.cards.card import Card
+from ...models.cards.card_colors import effective_colors
 from ...models.game.emblem import Emblem
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
@@ -332,7 +333,7 @@ class DamageDeathMixin:
             source_subtypes=(sorted(continuous.derived_subtype_words(source))
                              if getattr(source, "card", None) is not None else []),
             source_controller_id=source.controller_id if source is not None else None,
-            source_colors=tuple(getattr(getattr(source, "card", None), "color_identity", None) or ()) if source is not None else (),
+            source_colors=tuple(sorted(effective_colors(source))) if source is not None else (),
             # Gratuitous Violence-shaped "a *creature* you control" doubling
             # (as opposed to Furnace of Rath's unscoped "a source") needs
             # this to tell the two apart — see `_double_damage_replacement`.

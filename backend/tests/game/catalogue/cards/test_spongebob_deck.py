@@ -464,14 +464,19 @@ def test_ramos_grows_by_one_for_each_color_of_a_spell_i_cast():
     engine.state.add_to_battlefield(ramos)
 
     def cast(colors, cost):
+        # RULE 202.2: the spell's colours come from the symbols of its cost.
+        symbols = "".join("{%s}" % c for c in sorted(colors))
         spell = GameObject(
             Card(id="S", name="Spell", type_line="Sorcery", is_sorcery=True, color_identity=set(colors),
-                 mana_cost_string="{" + str(cost) + "}", converted_mana_cost=cost),
+                 mana_cost_string=symbols + "{%d}" % (cost - len(colors)) if cost > len(colors) else symbols,
+                 converted_mana_cost=cost),
             owner_id="p1", zone=Zone.HAND,
         )
         bind_from_catalogue(spell)
         p1.add_to_zone(spell, Zone.HAND)
-        p1.mana_pool.add_many({"C": cost})
+        for color in colors:
+            p1.mana_pool.add(color, 1)
+        p1.mana_pool.add_many({"C": cost - len(colors)} if cost > len(colors) else {})
         engine.cast_spell(p1, spell)
         for _ in range(3):
             engine.rules.put_triggers_on_stack()

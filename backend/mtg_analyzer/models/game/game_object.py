@@ -1240,7 +1240,7 @@ class GameObject:
         self._derived_subtypes: Optional[set[str]] = None
         #: Colours set/added by a layer-5 static ability (RULE 613.4b). ``None``
         #: means no colour-changing effect applies, so `colors` falls back to
-        #: the printed card's ``color_identity``.
+        #: the printed card's colours.
         self._derived_colors: Optional[set[str]] = None
         #: Oracle text rewritten by a layer-3 "text_change" static ability
         #: (RULE 612), or ``None`` if none applies. Consulted today only by
@@ -1684,11 +1684,11 @@ class GameObject:
 
     @property
     def colors(self) -> set[str]:
-        """Effective colours (RULE 105 / layer 5), or the printed identity.
+        """Effective colours (RULE 105 / layer 5), or the printed colours.
 
         Prefers colours a layer-5 static ability stamped (`_derived_colors`);
-        otherwise the printed card's ``color_identity`` — the model's colour
-        proxy the combat/anthem code already reads."""
+        otherwise the card's printed colours (RULE 202.2: mana cost / colour
+        indicator, devoid), never its Commander colour identity (RULE 903.4)."""
         if self._derived_colors is not None:
             return set(self._derived_colors)
         from ...game import rooms
@@ -1697,7 +1697,9 @@ class GameObject:
             from ..mana.mana_cost import ManaCost
 
             return set().union(*(symbol.colors for symbol in ManaCost.parse(self.mana_cost_string).symbols))
-        return set(self.card.color_identity or set())
+        from ..cards.card_colors import printed_colors
+
+        return set(printed_colors(self.card))
 
     @property
     def effective_oracle_text(self) -> str:

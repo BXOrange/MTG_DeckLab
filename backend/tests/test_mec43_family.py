@@ -27,6 +27,9 @@ def _named(name):
 def _vanilla(name="Bear", power=2, toughness=2, is_land=False, mana_cost_string="{1}{G}", color_identity=None):
     if is_land:
         return Card(id=name, name=name, type_line="Land", is_land=True, oracle_text="{T}: Add {C}.")
+    if mana_cost_string == "{1}{G}" and color_identity != {"G"}:
+        # RULE 202.2: colour comes from the cost, so a recoloured (or colourless) test creature needs matching pips.
+        mana_cost_string = "{1}" + "".join("{%s}" % c for c in sorted(color_identity or ())) if color_identity else "{2}"
     return Card(
         id=name, name=name, type_line="Creature — Bear", is_creature=True,
         power=power, toughness=toughness, mana_cost_string=mana_cost_string,

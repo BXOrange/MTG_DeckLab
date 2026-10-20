@@ -76,6 +76,7 @@ import re
 from typing import Any, Union
 
 from .card import Card
+from .card_colors import printed_colors
 from .creature_types import CREATURE_SUBTYPES
 
 _ALL_CREATURE_TYPES_TEXT = ' '.join(sorted(CREATURE_SUBTYPES))
@@ -285,7 +286,7 @@ def _color_matches(card: Card, color_val: Any) -> bool:
     if not color_val:
         return True
     wanted = [color_val] if isinstance(color_val, str) else list(color_val)
-    identity = card.color_identity
+    identity = printed_colors(card)  # RULE 202.2: actual colours, not Commander identity (RULE 903.4)
     # "colorless" is a real (if unusual) search word ("a colorless creature
     # card" — Eye of Ugin) meaning an *empty* colour identity, not a WUBRG
     # letter to look for among the card's colours — the opposite check from

@@ -397,6 +397,7 @@ def test_text_change_rewrites_a_colour_word_and_flips_protection():
     src = put(eng.state, creature("Wall", oracle_text="Protection from red."))
     attacker = put(eng.state, creature("Red Ogre", oracle_text=""), controller="p2")
     attacker.card.color_identity = {"R"}
+    attacker.card.printed_colors_override = frozenset({"R"})  # RULE 202.2 fixture colour
     assert combat.is_protected_from(src, attacker)  # baseline: protected from red
 
     static("text", "self", {"replace": {"red": "blue"}}, src)
@@ -404,6 +405,7 @@ def test_text_change_rewrites_a_colour_word_and_flips_protection():
     assert src.effective_oracle_text == "Protection from blue."
     assert not combat.is_protected_from(src, attacker)  # no longer protected from red…
     attacker.card.color_identity = {"U"}
+    attacker.card.printed_colors_override = frozenset({"U"})  # RULE 202.2 fixture colour
     assert combat.is_protected_from(src, attacker)  # …but now protected from blue
 
 

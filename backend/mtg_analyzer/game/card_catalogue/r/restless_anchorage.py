@@ -12,7 +12,7 @@ def _card() -> list[AbilitySpec]:
                 "type": "type_change", "params": {"add_types": ["creature"], "add_subtypes": ["Bird"],
                                                   "power": 2, "toughness": 3}}}),
             EffectSpec("grant_until", {"target_kind": None, "duration": "end_of_turn", "static": {
-                "type": "color_change", "params": {"colors": ["W", "U"], "set": True}}}),
+                "type": "color_change", "params": {"colors": ["W", "U"], "set": True, "affects": "self"}}}),
             EffectSpec("grant_until", {"target_kind": None, "duration": "end_of_turn", "static": {
                 "type": "grant_keyword", "params": {"keywords": ["flying"]}}}),
         ], cost={"mana": "{1}{W}{U}"}),

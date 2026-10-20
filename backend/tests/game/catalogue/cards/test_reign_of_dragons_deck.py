@@ -30,12 +30,19 @@ def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
     return obj
 
 
+def _cost_string(mv, color_identity=None):
+    """A mana cost of value ``mv`` whose colour symbols match ``color_identity`` (RULE 202.2: colour comes from the cost)."""
+    colors = sorted(color_identity or ())
+    generic = mv - len(colors)
+    return ("{%d}" % generic if generic > 0 else "") + "".join("{%s}" % c for c in colors)
+
+
 def _filler(engine, name="Filler", type_line="Creature", player="p1", mv=0, power=None, toughness=None,
             zone=Zone.BATTLEFIELD, **kw):
     card = Card(id=name, name=name, type_line=type_line, converted_mana_cost=mv,
                 is_creature="Creature" in type_line, is_land="Land" in type_line,
                 is_instant="Instant" in type_line, is_sorcery="Sorcery" in type_line,
-                power=power, toughness=toughness, mana_cost_string="{%d}" % mv if mv else "", **kw)
+                power=power, toughness=toughness, mana_cost_string=_cost_string(mv, kw.get("color_identity")), **kw)
     obj = GameObject(card, owner_id=player, zone=zone)
     obj.controller_id = player
     bind_from_catalogue(obj)

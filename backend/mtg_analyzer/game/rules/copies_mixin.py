@@ -23,7 +23,8 @@ import copy
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
-from ...models.cards.card import Card
+from ...models.cards.card import VALID_COLORS, Card
+from ...models.cards.card_colors import printed_colors, with_color_override
 from ...models.game.emblem import Emblem
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
@@ -227,7 +228,7 @@ class CopiesMixin:
         if add_colors:
             # "…in addition to its other colors" (PAR-135): the copiable colours plus these, expressed
             # through `Card.as_copy`'s replace-only ``set_colors`` so the card model needs no change.
-            set_colors = sorted({*(set_colors if set_colors is not None else copiable.color_identity), *add_colors})
+            set_colors = sorted({*(set_colors if set_colors is not None else printed_colors(copiable)), *add_colors})
         if add_types:
             # "…it's a Synth artifact creature in addition to its other types" (Shaun, Father of Synths): a type the
             # original already has is not added a second time ("Creature Artifact Creature").
@@ -239,6 +240,8 @@ class CopiesMixin:
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
+            if set_colors is not None:
+                with_color_override(copiable, [c for c in set_colors if c in VALID_COLORS])  # RULE 707.9b: beats the unchanged mana cost
         tokens = self.create_token(controller_id, copiable, count)
         return tokens
 

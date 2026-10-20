@@ -79,7 +79,9 @@ def _creature(
     obj = GameObject(
         Card(
             id=name, name=name, type_line="Creature — Ogre", is_creature=True,
-            power=power, toughness=toughness, mana_cost_string="{2}{R}",
+            power=power, toughness=toughness,
+            # RULE 202.2: colour comes from the cost symbols.
+            mana_cost_string="{2}" + "".join("{%s}" % c for c in sorted(color_identity or {"R"})),
             converted_mana_cost=3, is_legendary=is_legendary,
             color_identity=color_identity,
         ),

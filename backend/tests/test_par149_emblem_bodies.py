@@ -297,7 +297,7 @@ def test_ersta_emblem_twenty_wizard_intervening_threshold():
 def test_jaya_live_emblem_copies_each_red_instant_or_sorcery_twice(kind,color,copies):
     eng=engine();emblem(eng,'whenever you cast a red instant or sorcery spell, copy it twice. you may choose new targets for the copies')
     spell=put(eng,'Spell','p1',kind,'You gain 1 life.',zone=Zone.HAND)
-    spell.card.is_sorcery=kind=='Sorcery';spell.card.color_identity={color}
+    spell.card.is_sorcery=kind=='Sorcery';spell.card.color_identity={color};spell.card.mana_cost_string='{'+color+'}';eng.state.players[0].mana_pool.add(color,1)
     before=eng.state.players[0].life
     eng.cast_spell(eng.state.players[0],spell);eng.resolve_until_stable()
     while eng.state.pending_choice:
@@ -315,7 +315,7 @@ def test_emblem_library_search_filters_and_puts_selected_card_on_battlefield(phr
     player=eng.state.players[0]
     selected=put(eng,'Selected','p1',kind,zone=Zone.HAND)
     excluded=put(eng,'Excluded','p1','Conspiracy',zone=Zone.HAND)
-    if color:selected.card.color_identity={color}
+    if color:selected.card.color_identity={color};selected.card.mana_cost_string='{'+color+'}'
     for obj in (selected,excluded):
         player.hand.remove(obj);obj.zone=Zone.LIBRARY;player.library.append(obj)
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN,step='end',phase='ending'))

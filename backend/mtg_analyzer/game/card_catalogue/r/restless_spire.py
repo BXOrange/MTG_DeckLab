@@ -12,10 +12,10 @@ def _restless_spire() -> list[AbilitySpec]:
     still a land.
     Whenever this land attacks, scry 1.
 
-    — the Restless Cottage manland template. Documented simplifications: the
-    colour change and the "during your turn" narrowing on first strike are
-    not modeled (the animated creature keeps first strike unconditionally
-    while animated)."""
+    — the Restless Cottage manland template. The colour change ("blue and red",
+    layer 5) is modeled; the "during your turn" narrowing on first strike is
+    not (the animated creature keeps first strike unconditionally while
+    animated)."""
     return [
         AbilitySpec(
             "activated",
@@ -26,6 +26,11 @@ def _restless_spire() -> list[AbilitySpec]:
                         "add_types": ["creature"], "add_subtypes": ["Elemental"],
                         "power": 2, "toughness": 1,
                     }},
+                }),
+                EffectSpec("grant_until", {
+                    "duration": "end_of_turn", "target_kind": None,
+                    "static": {"type": "color_change", "params": {
+                        "colors": ["U", "R"], "set": True, "affects": "self"}},
                 }),
                 EffectSpec("grant_until", {
                     "duration": "end_of_turn", "target_kind": None,

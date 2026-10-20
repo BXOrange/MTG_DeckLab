@@ -24,6 +24,9 @@ in a `test_cube_batch_*` module (the established naming convention, so new
 cube batches are covered automatically with no per-file change).
 """
 
+import sys
+from pathlib import Path
+
 import pytest
 
 #: Module-name prefixes that are always full-cache regressions.
@@ -66,3 +69,36 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if _is_full_cache(item):
             item.add_marker(skip)
+
+
+# ---------------------------------------------------------------------------
+# Hand-built test cards: "costless + colour_identity" means "this card is that colour".
+# ---------------------------------------------------------------------------
+# RULE 202.2: real colour comes from the mana cost (or a colour indicator), and a costless card is colourless
+# (BUG-13). Thousands of synthetic fixtures predate that and write ``Card(..., color_identity={"R"})`` with no
+# cost to mean "a red card". For Cards constructed *directly by test code* (never by the engine / cache loader,
+# so real cards are untouched) such a card gets a colour override equal to its identity. A test that exercises
+# the real derivation opts out by listing its module in `_REAL_COLOR_MODULES`.
+
+_TESTS_DIR = str(Path(__file__).resolve().parent)
+_REAL_COLOR_MODULES = ("test_bug13_colors_vs_identity.py", "test_card_color_table_full_cache.py")
+
+
+def _install_fixture_color_shim() -> None:
+    from mtg_analyzer.models.cards.card import Card
+    from mtg_analyzer.models.cards.card_colors import with_color_override
+
+    original = Card.__init__
+
+    def init(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        if not self.color_identity or (self.mana_cost_string or "").strip():
+            return
+        caller = sys._getframe(1).f_code.co_filename
+        if caller.startswith(_TESTS_DIR) and not caller.endswith(_REAL_COLOR_MODULES):
+            with_color_override(self, self.color_identity)
+
+    Card.__init__ = init
+
+
+_install_fixture_color_shim()

@@ -30,12 +30,19 @@ def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
     return obj
 
 
+def _cost_string(mv, color_identity=None):
+    """A mana cost of value ``mv`` whose colour symbols match ``color_identity`` (RULE 202.2: colour comes from the cost)."""
+    colors = sorted(color_identity or ())
+    generic = mv - len(colors)
+    return ("{%d}" % generic if generic > 0 else "") + "".join("{%s}" % c for c in colors)
+
+
 def _filler(engine, name="Filler", type_line="Creature", player="p1", mv=0, power=None, toughness=None,
             zone=Zone.BATTLEFIELD, **kw):
     card = Card(id=name, name=name, type_line=type_line, converted_mana_cost=mv,
                 is_creature="Creature" in type_line, is_land="Land" in type_line,
                 is_instant="Instant" in type_line, is_sorcery="Sorcery" in type_line,
-                power=power, toughness=toughness, mana_cost_string="{%d}" % mv if mv else "",
+                power=power, toughness=toughness, mana_cost_string=_cost_string(mv, kw.get("color_identity")),
                 mana_cost={"generic": mv} if mv else {}, **kw)
     obj = GameObject(card, owner_id=player, zone=zone)
     obj.controller_id = player
@@ -153,11 +160,11 @@ def test_ardbert_pumps_every_legendary_creature_on_white_and_black_casts():
     other = _hero_like(engine, "Other Legend")
     plain = _filler(engine, "Plain", power=1, toughness=1)
     white = _filler(engine, "White Spell", "Instant", mv=1, zone=Zone.HAND, color_identity={"W"})
-    _cast(engine, white, {"C": 1})
+    _cast(engine, white, {"W": 1})
     assert other.counters.get("+1/+1") == 1 and not plain.counters.get("+1/+1")
     assert combat.has(other, "vigilance") and not combat.has(plain, "vigilance")
     black = _filler(engine, "Black Spell", "Instant", mv=1, zone=Zone.HAND, color_identity={"B"})
-    _cast(engine, black, {"C": 1})
+    _cast(engine, black, {"B": 1})
     assert other.counters.get("+1/+1") == 2 and combat.has(other, "menace")
 
 

@@ -103,11 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-13 · P1 · Separate actual colors from Commander color identity (RULE 202.2/903.4).**
-  `models/game/game_object.py:colors` treats a Forest with green identity as a green permanent.
-  Preserve face colors/color indicators separately and derive effective colors through layer 5;
-  cover colored activated costs, devoid, multiple faces and downstream targeting/protection/counts.
-
 - **BUG-14 · P1 · Apply the complete SBA set simultaneously (RULE 704.3).**
   `game/rules/sba_mixin.py` removes one object before recomputing the next sweep: zero-toughness
   Elesh Norn leaves first and saves an opposing 2/2 that was also at zero toughness. Freeze all

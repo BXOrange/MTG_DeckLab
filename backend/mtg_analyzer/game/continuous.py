@@ -77,6 +77,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from .creature_types import CREATURE_SUBTYPES
+from ..models.cards.card_colors import effective_colors
 from .rooms import unlocked_door_names
 from .effects.core import (
     ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
@@ -311,7 +312,7 @@ def _has_color(obj: "GameObject", colors: list) -> bool:
     """Whether ``obj`` is any of ``colors`` (RULE 105 / colour-scoped anthems).
 
     Reads the object's effective ``colors`` (a layer-5 colour-changing effect
-    if one applies, else the printed ``color_identity`` — the same field the
+    if one applies, else the printed colours, RULE 202.2 — the same derivation the
     tutor's `card_query` matches on). ``"C"`` means colourless — no WUBRG.
     """
     identity = obj.colors
@@ -5278,7 +5279,7 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
             continue
         color = ability.params.get("color")
-        if color and color not in (getattr(card, "color_identity", None) or set()):
+        if color and color not in effective_colors(card):
             # "Your opponents can't cast blue creature spells." (Llawan,
             # Cephalid Empress, MEC-43) — combines with ``creature_only``
             # above rather than duplicating it, the same additive-knob
@@ -5864,7 +5865,7 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
             continue
         # "You may cast **green** creature spells as though they had flash." (Yeva, Nature's Herald)
         color = ability.params.get("color")
-        if color and str(color).upper() not in (getattr(card, "color_identity", None) or set()):
+        if color and str(color).upper() not in effective_colors(card):
             continue
         type_filter = ability.params.get("type_filter")
         if type_filter:

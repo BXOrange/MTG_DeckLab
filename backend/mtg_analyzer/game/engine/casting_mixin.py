@@ -3047,7 +3047,7 @@ class CastingMixin:
         for card_obj in player.hand:
             if card_obj is exclude:
                 continue
-            if color in (card_obj.card.color_identity or set()):
+            if color in card_obj.colors:
                 return card_obj
         return None
     def _exile_hand_card_color_count_candidates(
@@ -3063,7 +3063,7 @@ class CastingMixin:
         """
         pool = [
             card_obj for card_obj in player.hand
-            if card_obj is not exclude and color in (card_obj.card.color_identity or set())
+            if card_obj is not exclude and color in card_obj.colors
         ]
         return pool[:count] if len(pool) >= count else None
     def _discard_land_type_candidate(

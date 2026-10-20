@@ -136,7 +136,7 @@ def test_unknown_subject_fails_closed():
 def test_is_color_and_is_subtype_read_derived_characteristics():
     eng = _engine()
     host = _put(eng.state, _creature("Goblin Scout", type_line="Creature — Goblin Scout"))
-    host.card.color_identity = ["R"]
+    host.card.color_identity = ["R"]; host.card.mana_cost_string = "{1}{R}"  # RULE 202.2: colour from the cost
     aura = _put(eng.state, _aura("Clout"))
     aura.attached_to = host.instance_id
 
@@ -251,7 +251,7 @@ def test_clout_of_the_dominus_is_modeled_end_to_end():
 def test_conditional_anthem_only_applies_while_the_host_matches():
     eng = _engine()
     host = _put(eng.state, _creature("Bear", power=2, toughness=2))
-    host.card.color_identity = ["G"]
+    host.card.color_identity = ["G"]; host.card.mana_cost_string = "{1}{G}"
     aura = _put(eng.state, _aura(
         "Clout", "As long as enchanted creature is red, it gets +1/+1 and has haste."
     ))
@@ -259,7 +259,7 @@ def test_conditional_anthem_only_applies_while_the_host_matches():
     eng.recompute_continuous_effects()
     assert (host.power, host.toughness) == (2, 2)
 
-    host.card.color_identity = ["R"]
+    host.card.color_identity = ["R"]; host.card.mana_cost_string = "{1}{R}"  # RULE 202.2: colour from the cost
     eng.recompute_continuous_effects()
     assert (host.power, host.toughness) == (3, 3)
     assert combat.has(host, "haste")
