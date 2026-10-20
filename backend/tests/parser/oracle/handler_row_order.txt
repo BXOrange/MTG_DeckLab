@@ -251,6 +251,7 @@ tap_attacking_creatures
 tap_selector
 tap_self_and_subtype
 tap_self
+tap_previous_subject
 tap_group_subject
 tap_attached
 exile_attached
@@ -498,7 +499,6 @@ pump_multi_target
 untap_previous_group
 skip_untap_previous_selector
 tap_previous_selector
-tap_previous_subject
 skip_next_untap_target
 skip_next_untap_prev
 skip_next_untap_event_object

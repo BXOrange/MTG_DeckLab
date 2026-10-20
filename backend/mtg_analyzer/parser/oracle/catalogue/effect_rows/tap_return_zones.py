@@ -336,6 +336,22 @@ def _tap_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap})]
 
 
+#: "…, then untap **that land**." (Avatar Kyoshi — PAR-30, following
+#: "earthbend N") / "…, then tap **that permanent**." — the singular
+#: `previous_subject` sibling of `_UNTAP_PREVIOUS_GROUP_RE`: "that
+#: `<permanent-word>`" names the single object the preceding clause chose
+#: (`EffectHandler.previous_subject_only`, `GameContext.previous_targets`).
+#: Distinct from `_TAP_GROUP_SUBJECT_RE` ("that creature", `group_subject_
+#: only`) and `_tap_self` ("it"/"this ~", the ability's own source).
+_TAP_PREVIOUS_SUBJECT_RE = compile_clause(
+    r"(?:then )?(?P<verb>tap|untap) that (?:land|permanent|artifact|creature)"
+)
+
+
+def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("tap", {"previous_subject": True, "untap": m.group("verb").lower() == "untap"})]
+
+
 #: MEC-28: "untap that creature" (Finest Hour's own attacks-alone trigger) —
 #: the `group_subject_only` sibling of `_tap_self`'s bare "it"/"~" pronoun:
 #: "that creature" is genuinely ambiguous (it means *whichever creature
@@ -1532,6 +1548,15 @@ ROWS: list[EffectHandler] = [
         compile_clause(rf"(?P<verb>tap|untap) {SELF_SUBJECT}"),
         _tap_self,
     ),
+    # "…, then untap that land." (Avatar Kyoshi, following "earthbend N") —
+    # the singular previous-subject reading. It sits before `tap_group_subject`: where a
+    # group-subject trigger also made an earlier pick, "that creature" names the nearest antecedent (RULE 608.2c).
+    EffectHandler(
+        "tap_previous_subject",
+        _TAP_PREVIOUS_SUBJECT_RE,
+        _tap_previous_subject,
+        requires=ClauseReading(previous_subject=True),
+    ),
     # "untap that creature" (Finest Hour, MEC-28) — only offered from a
     # group-subject trigger body, where "that creature" unambiguously means
     # whichever creature matched the trigger.
@@ -1540,6 +1565,7 @@ ROWS: list[EffectHandler] = [
         _TAP_GROUP_SUBJECT_RE,
         _tap_self,
         requires=ClauseReading(group_subject=True),
+        fallback_for=("tap_previous_subject",),
     ),
     # "tap enchanted creature" / "untap enchanted creature" (Freed from the
     # Real/Pemmin's Aura-shaped Aura activated abilities).

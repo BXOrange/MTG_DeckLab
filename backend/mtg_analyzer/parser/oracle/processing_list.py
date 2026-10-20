@@ -27,9 +27,9 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
-from .gate import ParseResult, parse_oracle
+from .gate import ParseResult, parse_oracle, unclaimed_spans
 from .normalize import SELF
 
 #: Literal-abstraction passes, applied in order, that fold a clause to its
@@ -48,6 +48,18 @@ def abstract_clause(clause: str) -> str:
     for pattern, placeholder in _ABSTRACTIONS:
         text = pattern.sub(placeholder, text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def unclaimed_work_units(card: Any, result: ParseResult) -> list[str]:
+    """The unclaimed clauses of ``result`` narrowed to their minimal blocking part (PAR-175 M5).
+
+    Each entry of ``result.unclaimed`` maps to the sentence or connector part that blocked it
+    (`gate.unclaimed_spans`), or to itself when none isolates it. Ranking these groups cards by the
+    sentence that actually needs a handler instead of by the whole printed line. Report only: the
+    verdict still comes from ``unclaimed``.
+    """
+    spans = {entry.line: entry.span for entry in unclaimed_spans(card, result)}
+    return [spans.get(line, line) for line in result.unclaimed]
 
 
 @dataclass(frozen=True)
@@ -93,12 +105,18 @@ class CoverageReport:
         }
 
 
-def coverage_report(results: Iterable[ParseResult]) -> CoverageReport:
+def coverage_report(
+    results: Iterable[ParseResult],
+    *,
+    work_units: Callable[[ParseResult], list[str]] = lambda result: result.unclaimed,
+) -> CoverageReport:
     """Aggregate `ParseResult`s into a coverage metric + ranked processing list.
 
     Each unclaimed clause is template-abstracted and counted **once per card**
     (a card that repeats a clause doesn't inflate its rank), so the count is
-    "how many cards this template blocks" — the docs/09 unlock ranking.
+    "how many cards this template blocks" — the docs/09 unlock ranking. ``work_units`` picks the
+    clauses to rank per result (default the whole unclaimed lines; `coverage_over_cards(by_span=True)`
+    passes the minimal blocking sentences).
     """
     total = 0
     modeled = 0
@@ -113,7 +131,7 @@ def coverage_report(results: Iterable[ParseResult]) -> CoverageReport:
         if result.never_supported:
             never_supported += 1
             continue
-        templates = {abstract_clause(c) for c in result.unclaimed if c.strip()}
+        templates = {abstract_clause(c) for c in work_units(result) if c.strip()}
         for template in templates:
             template_cards[template] += 1
 
@@ -126,6 +144,14 @@ def coverage_report(results: Iterable[ParseResult]) -> CoverageReport:
     )
 
 
-def coverage_over_cards(cards: Iterable[Any]) -> CoverageReport:
-    """Convenience: run `parse_oracle` over ``cards`` and report coverage."""
-    return coverage_report(parse_oracle(card) for card in cards)
+def coverage_over_cards(cards: Iterable[Any], *, by_span: bool = False) -> CoverageReport:
+    """Convenience: run `parse_oracle` over ``cards`` and report coverage (``by_span``: rank minimal sentences)."""
+    if not by_span:
+        return coverage_report(parse_oracle(card) for card in cards)
+    owner: dict[int, Any] = {}
+    results = []
+    for card in cards:
+        result = parse_oracle(card)
+        owner[id(result)] = card
+        results.append(result)
+    return coverage_report(results, work_units=lambda result: unclaimed_work_units(owner[id(result)], result))

@@ -53,15 +53,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-175 · Clause linkage across a sequence (14_ S4 + "axis 4").** `parse_effect_body` sequences
-  any number of sentences/connectors, but (a) one unclaimed part discards the whole body, and (b)
-  the only cross-clause state is a one-step "previous clause chose a creature" flag, so a later
-  clause cannot name what an earlier one produced; multi-sentence rows (`_MAX_SENTENCE_WINDOW`)
-  memorize such combinations instead. Build a referent environment (clause-produced groups/objects
-  consumed by "those cards", "they", "for each of those …", "the permanent for which they were
-  chosen") and residue-aware sequencing per [14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md)
-  S4. Reference card: Dack Fayden, Helping Hand (UNMODELED today). Size the referent families
-  with `parser_probe.py` before building.
 
 
 

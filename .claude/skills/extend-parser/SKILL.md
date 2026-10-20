@@ -27,7 +27,14 @@ PROBE=../.claude/skills/extend-parser/scripts/parser_probe.py
 ```bash
 python $PROBE rank --top 40                  # live processing list
 python $PROBE rank --grep 'monstrous'        # ranked, filtered to a family
+python $PROBE rank --by line                 # group by whole unclaimed line (default: --by span)
 ```
+
+`rank` groups by the **minimal blocking sentence** (`gate.unclaimed_spans`, computed on demand, PAR-175 M5): the
+sentence or ", then" part whose removal lets the rest of the line parse, so a long line with one gap
+ranks under that gap, not as a one-off template. It is report data only -- `unclaimed` and the verdict
+still hold the whole line (the card stays UNMODELED), and the sentence still needs its own consumer row.
+`blocked` and `composition` keep working on whole lines.
 
 Then — **always, before writing any regex** — find out how many of those cards
 a handler would genuinely finish:

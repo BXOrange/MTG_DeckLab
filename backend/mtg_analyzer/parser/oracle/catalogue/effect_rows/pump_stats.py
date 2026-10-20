@@ -382,22 +382,6 @@ def _tap_previous_selector(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"selector": "previous_selector", "untap": m.group("verb").lower() == "untap"})]
 
 
-#: "…, then untap **that land**." (Avatar Kyoshi — PAR-30, following
-#: "earthbend N") / "…, then tap **that permanent**." — the singular
-#: `previous_subject` sibling of `_UNTAP_PREVIOUS_GROUP_RE`: "that
-#: `<permanent-word>`" names the single object the preceding clause chose
-#: (`EffectHandler.previous_subject_only`, `GameContext.previous_targets`).
-#: Distinct from `_TAP_GROUP_SUBJECT_RE` ("that creature", `group_subject_
-#: only`) and `_tap_self` ("it"/"this ~", the ability's own source).
-_TAP_PREVIOUS_SUBJECT_RE = compile_clause(
-    r"(?:then )?(?P<verb>tap|untap) that (?:land|permanent|artifact|creature)"
-)
-
-
-def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("tap", {"previous_subject": True, "untap": m.group("verb").lower() == "untap"})]
-
-
 #: "[That / target / ~] `<permanent>` doesn't untap during
 #: [its controller's / your / the player's] next untap step." — Barl's Cage
 #: and the ~95-card "Tap X. It doesn't untap …" tempo family (Chillbringer,
@@ -1240,14 +1224,6 @@ ROWS: list[EffectHandler] = [
         _TAP_PREVIOUS_SELECTOR_RE,
         _tap_previous_selector,
         requires=ClauseReading(previous_selector=True),
-    ),
-    # "…, then untap that land." (Avatar Kyoshi, following "earthbend N") —
-    # the singular previous-subject sibling of the row just above.
-    EffectHandler(
-        "tap_previous_subject",
-        _TAP_PREVIOUS_SUBJECT_RE,
-        _tap_previous_subject,
-        requires=ClauseReading(previous_subject=True),
     ),
     # "target/that/~ <permanent> doesn't untap during … next untap step"
     # (Barl's Cage + the ~95-card "Tap X. It doesn't untap …" family).

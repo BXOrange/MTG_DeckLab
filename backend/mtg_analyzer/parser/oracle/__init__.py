@@ -23,6 +23,7 @@ from .processing_list import (
     abstract_clause,
     coverage_over_cards,
     coverage_report,
+    unclaimed_work_units,
 )
 from .spec import (
     ALLOWED_ABILITY_KINDS,
@@ -50,5 +51,6 @@ __all__ = [
     "TemplateEntry",
     "abstract_clause",
     "coverage_report",
+    "unclaimed_work_units",
     "coverage_over_cards",
 ]

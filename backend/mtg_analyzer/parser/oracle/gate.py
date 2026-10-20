@@ -52,6 +52,7 @@ from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
 from .catalogue.effect_rows.shared import EVENT_PLAYER_EVENTS_KEY
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
+from .residue import UnclaimedSpan, minimal_unclaimed_span
 from .segmenter import (
     FLASHBACK_DISCOUNT_LINE_RE,
     Segment,
@@ -1783,3 +1784,21 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         coverage=MODELED if all_claimed else UNMODELED,
         unclaimed=unclaimed,
     )
+
+
+def unclaimed_spans(card: Any, result: ParseResult) -> list[UnclaimedSpan]:
+    """PAR-175 M5: the minimal blocking part of each unclaimed line of ``result`` (report only).
+
+    Lazy on purpose: it re-segments each failed line minus one part, which costs about 40% on top of a
+    full-cache parse, so only reports (`processing_list`, `parser_probe rank`) ask for it. It never changes
+    ``result``: the line stays unclaimed and the card `UNMODELED`. Lines are probed with the card's
+    spell/saga context, so a Leveler/Class/Station body line may fall back to the whole line.
+    """
+    provenance = ParserProvenance(version=PARSER_VERSION, source="rule:oracle")
+    spell = _is_spell(card)
+    saga = bool(getattr(card, "is_saga", False))
+
+    def claims(text: str) -> bool:
+        return segment_line(text, allow_spell_effect=spell, provenance=provenance, is_saga=saga).claimed
+
+    return [UnclaimedSpan(line, minimal_unclaimed_span(line, claims)) for line in result.unclaimed]
