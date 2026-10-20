@@ -42,7 +42,6 @@ header before treating the two as equally verified.
 | Wedding Invitation | "If it's a vampire, it also gains lifelink" — a target-subtype-conditional keyword tail | A one-off conditional-grant-on-target shape. |
 | Long River Lurker | ETB-targeted creature, then a delayed exile-and-return keyed to *that* creature dealing combat damage | The delayed trigger needs to reference an ETB-time RULE 115 target, not a self/previous-object referent. |
 | Atomic Microsizer | Equip-trigger: choose a target, that creature becomes unblockable **and** animates to a fixed base P/T | The choose-then-animate compound on an equip trigger. |
-| Zhuge Jin, Wu Strategist | "Activate only during your turn, before attackers are declared" | An activation-timing restriction tied to a combat sub-step, not just "your turn". |
 | Secret Tunnel | "2 target creatures you control that share a creature type" | A same-type-as-each-other multi-target filter (cross-target constraint, not a fixed filter). |
 | Open into Wonder | X target creatures, then a quoted-grant tail on "those creatures" | X-count multi-target combined with a group quoted-ability grant. |
 | Unquenchable Fury | "Each minotaur can't be blocked this turn except by 2 or more creatures" | Mass/subtype-scoped unblockable with a *count*-based (not filter-based) except-by clause; `UnblockableEffect.selector` is a closed name enum, not filterable. |
@@ -304,3 +303,11 @@ Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authori
 | Ghostfire | "~ is colorless" inside a spell body | |
 | Ezzaroot Channeler, Licia | per-life cost reduction | |
 
+
+## Batch 9 — 2026-10-20 PAR-175 close-out (PARSER_VERSION 712)
+
+Sized during PAR-175 M4b: "the permanent(s) for which …" occurs on this card only. See `Done_Backend.md` "Clause linkage across a sequence (PAR-175)".
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Scrambleverse | "for each nonland permanent, choose a player at random. then each player gains control of each permanent for which they were chosen. untap those permanents." | Needs a random player per permanent and control changes by that assignment; no engine primitive for a per-object random choice yet. |

@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-176`**; next free `MEC`: **`MEC-128`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
+  > **`PAR-177`**; next free `MEC`: **`MEC-128`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -53,9 +53,13 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-
-
-
+- **PAR-176 · Activation restrictions ("Activate only …", RULE 602.5, 602.5b/d/e).** 78 UNMODELED cards
+  become MODELED once their "activate only …" sentence is claimed (size: strip the sentence, re-parse;
+  498 UNMODELED cards carry one). Families: timing windows ("during your upkeep" 21, any upkeep,
+  combat, a named step, "before …", "as an instant"), "and only …" conjunctions of timing, once-per-turn
+  and a condition ("as a sorcery and only once each turn" 5), and condition gates over the
+  `static_conditions` vocabulary (power, hand size, life, permanents controlled, this-turn history).
+  Extend `_ACTIVATE_ONLY_IF_TRAILING_RE`/the activation-limit stamping rather than per-card rows.
 
 
 ## MEC — Game mechanic
