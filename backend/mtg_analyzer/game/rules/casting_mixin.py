@@ -2166,20 +2166,22 @@ class CastingResolutionMixin:
                 self.check_state_based_actions()
         return True
     def _mask_restricted_targets(self, item, groups, verdicts, targets, target_groups):
-        """RULE 608.2b: blank (``None``) the slots of battlefield and player targets that failed their requirement.
+        """RULE 608.2b/400.7: blank (``None``) every slot whose target is illegal now -- left its zone (a new object),
+        or no longer meets its requirement -- so no instruction can act on it.
 
         ``verdicts`` parallels ``zip(specs, groups)``. Slots keep their positions so later clauses and
         allocated damage still line up (as for copies, `stack_copy_targets.resolution_targets`)."""
-        flat = [target for group in (groups or []) for target in group]
+        if groups is None:
+            # Unpartitioned item (a single target requirement, `partition_targets` -> None): every spec
+            # judged the whole target list, so a slot is illegal as soon as any verdict rejects it.
+            groups = [list(item.targets or [])]
+            verdicts = [[all(column) for column in zip(*verdicts)]] if verdicts else []
+        flat = [target for group in groups for target in group]
         failed = {
             id(target)
             for group, flags in zip(groups or [], verdicts)
             for target, ok in zip(group, flags)
-            if not ok and (
-                isinstance(target, Player)
-                or (isinstance(target, GameObject) and target.zone == Zone.BATTLEFIELD
-                    and target in self.state.battlefield)
-            )
+            if not ok and isinstance(target, (Player, GameObject, StackItem))
         }
         if not failed or len(flat) != len(item.targets) or any(a is not b for a, b in zip(flat, item.targets)):
             return targets, target_groups
@@ -2294,9 +2296,8 @@ class CastingResolutionMixin:
                     valid[:] = [False] * len(valid)
             any_legal = any(v for group in verdicts for v in group)
             if any_legal and not fallback_creature:
-                # RULE 608.2b: a target that no longer meets its restriction is simply not affected while the
-                # legal ones still are. Only restriction failures are masked (as `resolution_targets` does for
-                # copies); a target that merely left its zone is already skipped by each instruction.
+                # RULE 608.2b: an illegal target (restriction failed or left its zone, RULE 400.7) is simply not
+                # affected while the legal ones still are; blanked centrally, as `resolution_targets` does for copies.
                 resolution_targets, resolution_groups = self._mask_restricted_targets(
                     item, groups, verdicts, resolution_targets, resolution_groups,
                 )

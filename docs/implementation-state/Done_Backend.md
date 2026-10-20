@@ -1308,6 +1308,8 @@ unchanged. Player targets are rechecked the same way (BUG-4): opponent/"you" sco
 (RULE 702.11b-c, only against opponents) and protection (RULE 702.16b, also against your own sources), with
 the same slot masking. Tests: `tests/test_bug3_resolution_target_restrictions.py`, `tests/test_bug4_player_target_recheck.py`.
 
+**Every illegal slot is blanked (BUG-19, RULE 608.2b/400.7).** `_mask_restricted_targets` used to blank only failed player and battlefield slots, assuming each instruction skipped a target that had left its zone — but a two-target damage ability still marked damage on its exiled target, and a single-requirement spell (no `target_groups`, so the mask received `groups=None`) masked nothing: Arc Lightning still dealt its allocated damage to an exiled creature. Every failed `Player`/`GameObject`/`StackItem` slot is now blanked in place, an unpartitioned item is treated as one group (a slot fails when any spec's verdict rejects it), and allocations to a blanked slot are simply not dealt (RULE 601.2d — no redistribution). The mismatched-slot guard is defensive (never reached through the engine; copies take `copy_resolution_targets`), and a bestow/mutate fallback deliberately skips masking because the spell resolves as a creature. Tests: `tests/test_bug19_resolution_target_masking.py`.
+
 ### Optional player groups and Equipment slots (RULE 115 / 601.2c)
 
 The target-count selector `players` supplies an optional group of distinct

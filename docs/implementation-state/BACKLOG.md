@@ -103,12 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-19 · P1 · Mask every illegal resolution target (RULE 608.2b/400.7).**
-  `game/rules/casting_mixin.py:_mask_restricted_targets` retains failed targets that left the
-  battlefield. With one legal player target remaining, a two-target damage ability still marks
-  damage on its other, exiled target. Blank failed zone/visit slots centrally while preserving
-  target groups, partial resolution and allocated damage.
-
 - **BUG-20 · P1 · Give first-strike damage its own priority window (RULE 510.3–4).**
   `game/engine/turn_loop_mixin.py:_step_combat_damage` performs both damage steps synchronously;
   an unblocked 2-power double striker deals four damage before interactive priority returns.
