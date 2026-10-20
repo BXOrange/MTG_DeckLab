@@ -20,7 +20,7 @@ import copy
 import json
 import re
 from .catalogue.clause_reading import (
-    CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
+    COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
     ClauseReading, Referent,
 )
 from dataclasses import dataclass, field, replace
@@ -6573,6 +6573,7 @@ def _parse_effect_body_inner(
                 # "… . Then <effect>" sentence, unlike the explicit
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
+                part = _created_noun_to_pronoun(part, referents)
                 if sep == _AND_CONNECTOR:
                     part = part.rstrip(",").strip()  # "…if {g} was spent to cast this spell**,** and …"
                     # A repeated third-person verb keeps the current group
@@ -6645,6 +6646,10 @@ def _parse_effect_body_inner(
                 if collected and _OTHER_TARGET_PART_RE.search(part):
                     # ENG-52: "…. ~ deals 2 damage to any other target": not the target an earlier clause chose.
                     sub, _ = _stamp_distinct_from_others(sub)
+                sub = _fold_counter_destination(sub, collected)
+                if sub is None:
+                    ok = False
+                    break
                 last_len = len(sub)
                 collected.extend(sub)
                 prev_referent, prev_referent_selector = referent, referent_selector
@@ -6698,7 +6703,7 @@ def _parse_effect_body_inner(
                 referent_selector = SELECTOR in {r.kind for r in produces(sub)}
                 # What was just *made* stays the referent while later clauses keep consuming it ("... It has "...".
                 # It gains haste ..."), and only then.
-                made = tuple(r for r in produces(sub) if r.kind == CREATED) or (
+                made = tuple(r for r in produces(sub) if r.kind in (CREATED, COUNTERED)) or (
                     tuple(r for r in prev_referents if r.kind == CREATED)
                     if any(s.params.get("referent") == CREATED for s in sub) else ()
                 )
@@ -6993,8 +6998,17 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
         out.append(TARGET_REFERENT)
     if _announces_group_selector(specs):
         out.append(SELECTOR_REFERENT)
-    if specs and specs[-1].type in _CREATING_TYPES:
-        out.append(CREATED_GROUP_REFERENT if specs[-1].params.get("count", 1) != 1 else CREATED_REFERENT)
+    if specs and specs[-1].type == "counter" and not specs[-1].params.get("destination"):
+        out.append(COUNTERED_REFERENT)
+    # The creation may be followed, inside the same clause, by riders that already consumed it ("create a token that's a
+    # copy of …, except it has "…"" is a copy plus a grant on the copy): the last spec that is not such a rider decides.
+    core = list(specs)
+    while len(core) > 1 and core[-1].params.get("previous_subject") and core[-1].params.get("target_kind") is None:
+        core.pop()
+    if core and core[-1].type in _CREATING_TYPES | {"copy_permanent"}:
+        out.append(CREATED_GROUP_REFERENT if core[-1].params.get("count", 1) != 1 else CREATED_REFERENT)
+        if not any(r.kind == TARGET for r in out):
+            out.append(TARGET_REFERENT)
     return tuple(out)
 
 
@@ -7004,6 +7018,41 @@ _CREATED_AWARE_TYPES: frozenset[str] = frozenset({"pump", "grant_until"})
 
 
 _CREATED_DELAYED_BODIES: frozenset[str] = frozenset({"sacrifice_specific", "exile_specific", "destroy_specific"})
+
+
+_CREATED_SUBJECT_RE = re.compile(r"^(?:those|the) tokens\b|^that token\b", re.IGNORECASE)
+_CREATED_OBJECT_RE = re.compile(
+    r"^(?P<verb>sacrifice|exile|destroy|untap|tap|return) (?:those|the) tokens\b|^(?P<verb1>sacrifice|exile|destroy|untap|tap|return) that token\b",
+    re.IGNORECASE,
+)
+
+
+def _created_noun_to_pronoun(part: str, referents: tuple[Referent, ...]) -> str:
+    """"Create two tokens. **Those tokens** gain haste. Sacrifice **those tokens** at the beginning of the next end step."
+    -- right after a creating clause the noun names exactly what was made, so it reads as the pronoun the pronoun rows
+    already take (they / them / it). Without a CREATED referent the text is left alone (and stays unclaimed)."""
+    if not any(r.kind == CREATED for r in referents):
+        return part
+    group = next(r for r in referents if r.kind == CREATED).group
+    obj = _CREATED_OBJECT_RE.match(part)
+    if obj is not None:
+        verb = obj.group("verb") or obj.group("verb1")
+        return f"{verb} {'them' if group or obj.group('verb') else 'it'}" + part[obj.end():]
+    if _CREATED_SUBJECT_RE.match(part):
+        return ("they" if group else "it") + part[_CREATED_SUBJECT_RE.match(part).end():]
+    return part
+
+
+def _fold_counter_destination(sub: list[EffectSpec], collected: list[EffectSpec]) -> Optional[list[EffectSpec]]:
+    """"Counter target spell. If that spell is countered this way, exile it instead of putting it into its owner's
+    graveyard." -- the consumer row (offered only right after a counter) emits a ``counter_destination`` marker; it
+    becomes the ``destination`` of the counter already collected. ``None`` when it has no counter to join."""
+    if not any(s.type == "counter_destination" for s in sub):
+        return sub
+    if len(sub) != 1 or not collected or collected[-1].type != "counter" or collected[-1].params.get("destination"):
+        return None
+    collected[-1] = replace(collected[-1], params={**collected[-1].params, "destination": sub[0].params["destination"]})
+    return []
 
 
 def _stamp_created_pronouns(specs: list[EffectSpec]) -> list[EffectSpec]:

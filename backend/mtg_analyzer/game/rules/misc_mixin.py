@@ -5347,9 +5347,14 @@ class MiscSystemsMixin:
         return False
     def counter_spell(
         self, target: Any, suspend_time_counters: Optional[int] = None, countered_by: Optional[str] = None,
-        exile_instead: bool = False, library_choice: bool = False,
+        exile_instead: bool = False, library_choice: bool = False, destination: Optional[str] = None,
     ) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
+
+        ``destination`` (PAR-175 M4: "If that spell is countered this way, `<exile it | put it on top of its owner's
+        library | put it into its owner's hand>` instead of putting it into its owner's graveyard.") is the
+        replacement landing zone, one of `COUNTER_DESTINATIONS`; a token that would go to a library or hand ceases to
+        exist (RULE 111.7), as it does for ``library_choice``.
 
         ``library_choice`` (Hinder — "put that card on your choice of the top or bottom of its owner's library
         instead of into that player's graveyard"): the card waits on top of its owner's library until the countering
@@ -5388,8 +5393,14 @@ class MiscSystemsMixin:
                     item.obj.zone = Zone.EXILE
                 else:
                     owner.add_to_zone(item.obj, Zone.LIBRARY)
-            elif exile_instead:
+            elif exile_instead or destination == "exile":
                 owner.add_to_zone(item.obj, Zone.EXILE)
+            elif destination in ("hand", "library_top"):
+                if item.obj.is_token:
+                    item.obj.zone = Zone.EXILE
+                else:
+                    owner.add_to_zone(item.obj, Zone.HAND if destination == "hand" else Zone.LIBRARY)
+                    self._flag_commander_zone_choice(item.obj)  # RULE 903.9b: a hand/library move may be redirected
             elif suspend_time_counters:
                 owner.add_to_zone(item.obj, Zone.EXILE)
                 if not _has_suspend(item.obj):
@@ -5507,11 +5518,13 @@ class MiscSystemsMixin:
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_instead: bool = False,
         library_choice: bool = False,
+        destination: Optional[str] = None,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
 
-        ``exile_instead`` only applies to the plain (no ``unless_pays``) counter — no printed card
-        combines the exile redirect with a payment.
+        ``exile_instead`` only applies to the plain (no ``unless_pays``) counter. ``destination`` (Syncopate-style
+        "unless its controller pays {X}. If that spell is countered this way, exile it instead …") applies on every
+        branch that ends in the spell being countered, the declined and the cannot-pay ones included.
 
         Refuses outright if ``target`` carries a "can't be countered" marker
         (RULE 118 — the spell stays on the stack, unaffected). With no
@@ -5548,7 +5561,7 @@ class MiscSystemsMixin:
         if not unless_pays:
             self.counter_spell(
                 target, suspend_time_counters=suspend_time_counters, countered_by=countered_by,
-                exile_instead=exile_instead, library_choice=library_choice,
+                exile_instead=exile_instead, library_choice=library_choice, destination=destination,
             )
             return
         cost = ManaCost.parse(unless_pays)
@@ -5558,7 +5571,9 @@ class MiscSystemsMixin:
         if controller is None or not controller.mana_pool.can_pay(
             cost, life_available=controller.life
         ):
-            self.counter_spell(target, suspend_time_counters=suspend_time_counters, countered_by=countered_by)
+            self.counter_spell(
+                target, suspend_time_counters=suspend_time_counters, countered_by=countered_by, destination=destination,
+            )
             if tap_lands_empty_pool_if_unpaid and controller is not None:
                 self._tap_lands_and_empty_pool(controller)  # couldn't pay = "doesn't"
             return
@@ -5566,6 +5581,7 @@ class MiscSystemsMixin:
         self._pending_counter_target = target
         self._pending_counter_cost = cost
         self._pending_counter_suspend = suspend_time_counters
+        self._pending_counter_destination = destination
         self._pending_counter_on_pay_specs = list(on_pay_effect_specs or [])
         self._pending_counter_on_pay_source = source
         self.open_choice({
@@ -5591,6 +5607,8 @@ class MiscSystemsMixin:
         target = self._pending_counter_target
         cost = self._pending_counter_cost
         suspend_time_counters = getattr(self, "_pending_counter_suspend", None)
+        destination = getattr(self, "_pending_counter_destination", None)
+        self._pending_counter_destination = None
         on_pay_specs = list(getattr(self, "_pending_counter_on_pay_specs", None) or [])
         on_pay_source = getattr(self, "_pending_counter_on_pay_source", None)
         tap_penalty = bool(getattr(self, "_pending_counter_tap_penalty", False))
@@ -5619,7 +5637,7 @@ class MiscSystemsMixin:
             return
         self.counter_spell(
             target, suspend_time_counters=suspend_time_counters,
-            countered_by=choice.get("countered_by"),
+            countered_by=choice.get("countered_by"), destination=destination,
         )
         if tap_penalty and penalised_player is not None:
             self._tap_lands_and_empty_pool(penalised_player)  # Power Sink: "if that player doesn't"

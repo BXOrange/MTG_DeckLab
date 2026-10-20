@@ -4080,3 +4080,10 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      creating clause after an earlier pick is stamped `referent="created"` so the pick (Salt Road Skirmish's destroyed
      creature) is not the recipient, and so is a delayed "sacrifice/exile it" after it (`capture="created_objects"`). A quoted body naming the printing card ("named ~", Sound the Call) stays unclaimed.
      +30 / -0 (32 parse-newly-MODELED, 2 already hand-authored).
+711: PAR-175 M4a -- "If that spell is countered this way, exile it / put it on top of its owner's library / put it into its
+     owner's hand instead of putting it into its owner's graveyard" (`countered_this_way_destination`, offered after a
+     counter via a COUNTERED referent, folded into the `counter` spec as ``destination``; engine: `CounterSpellEffect.
+     destination` through the plain, unless-pays-declined and cannot-pay branches); "those tokens / that token" right
+     after a creating clause reads as the pronoun rows take it; a creation followed by riders that consumed it keeps the
+     CREATED referent (Dollhouse of Horrors' "It gains haste" is the token, not the Dollhouse); the sacrifice-it row
+     refuses an attached-host pronoun. +16 / -0.

@@ -806,6 +806,7 @@ EffectRegistry.register(
         exile_standing_free_cast=bool(p.get("exile_standing_free_cast", False)),  # Kheru Spellsnatcher
         library_choice=bool(p.get("library_choice", False)),  # Hinder
         count=p.get("target_count", 1), optional=bool(p.get("optional", False)),  # PAR-150: "up to two target spells"
+        destination=p.get("destination"),  # PAR-175 M4: "if that spell is countered this way, exile it instead …"
     ),
 )
 EffectRegistry.register(

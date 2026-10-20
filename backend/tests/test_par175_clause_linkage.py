@@ -562,3 +562,124 @@ def test_no_modeled_card_resolves_a_pronoun_after_a_creation_through_a_stale_pic
             for spec in result.specs:
                 scan(spec.effects, card.name)
     assert offenders == []
+
+
+# --- M4a: "If that spell is countered this way, <redirect> instead of putting it into its owner's graveyard" -----------
+
+import test_counter_family as _TC  # noqa: E402  (stack fixtures shared with the counter-family tests)
+
+
+def _counter_parsed(oracle):
+    result = parse_oracle(_sorcery("Test Counter", oracle))
+    assert result.coverage == MODELED, result.unclaimed
+    return [e for s in result.specs for e in s.effects if e.type == "counter"]
+
+
+@pytest.mark.parametrize("sentence,destination", [
+    ("exile it instead of putting it into its owner's graveyard", "exile"),
+    ("put it on top of its owner's library instead of into that player's graveyard", "library_top"),
+    ("put it into its owner's hand instead of into that player's graveyard", "hand"),
+])
+def test_countered_this_way_redirect_is_the_counters_destination(sentence, destination):
+    (plain,) = _counter_parsed(f"Counter target spell. If that spell is countered this way, {sentence}.")
+    assert plain.params == {"destination": destination}
+    (taxed,) = _counter_parsed(f"Counter target spell unless its controller pays {{3}}. If that spell is countered this way, {sentence}.")
+    assert taxed.params == {"unless_pays": "{3}", "destination": destination}
+
+
+def test_a_countered_this_way_clause_without_a_counter_before_it_is_not_claimed():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    assert parse_effect_body("draw a card. if that spell is countered this way, exile it instead of putting it into its owner's graveyard") is None
+    assert parse_effect_body("if that spell is countered this way, exile it instead of putting it into its owner's graveyard") is None
+    assert parse_effect_body("counter target spell. if that spell is countered this way, shuffle it into your library") is None
+
+
+def _stack_counter(destination, cost=None, answer=None, token=False):
+    eng, p1, p2 = _TC.two_player_engine()
+    target = _TC.push_spell(eng, p2, _TC.instant("Doomed Bolt"), [])
+    if token:
+        target.is_token = True
+    if cost:
+        p2.mana_pool.add("U", 5)
+    eng.rules.counter_unless_pays(target, cost, source=None, destination=destination)
+    if answer:
+        eng.rules.resolve_choice(answer)
+    return eng, p1, p2, target
+
+
+@pytest.mark.parametrize("destination,zone", [("exile", Zone.EXILE), ("hand", Zone.HAND), ("library_top", Zone.LIBRARY)])
+def test_a_plain_countered_spell_goes_to_the_redirect_zone(destination, zone):
+    eng, _, p2, target = _stack_counter(destination)
+    assert target not in [i.obj for i in eng.state.stack]
+    assert target.zone == zone and target not in p2.graveyard
+    if destination == "library_top":
+        assert p2.library[0] is target or p2.library[-1] is target
+
+
+@pytest.mark.parametrize("destination,zone", [("exile", Zone.EXILE), ("hand", Zone.HAND)])
+def test_unless_pays_declined_applies_the_redirect_but_paying_keeps_the_spell_on_the_stack(destination, zone):
+    eng, _, p2, target = _stack_counter(destination, cost="{1}", answer="decline")
+    assert target.zone == zone and target not in p2.graveyard
+    eng, _, p2, target = _stack_counter(destination, cost="{1}", answer="pay")
+    assert target in [i.obj for i in eng.state.stack] and target.zone == Zone.STACK
+
+
+def test_unless_pays_that_cannot_be_paid_still_redirects():
+    eng, _, p2, target = _stack_counter("exile", cost=None)
+    eng, p1, p2 = _TC.two_player_engine()
+    target = _TC.push_spell(eng, p2, _TC.instant("Doomed Bolt"), [])
+    eng.rules.counter_unless_pays(target, "{3}", source=None, destination="exile")  # p2 has no mana: auto-countered
+    assert eng.state.pending_choice is None and target.zone == Zone.EXILE
+
+
+def test_a_countered_token_spell_copy_ceases_to_exist_instead_of_reaching_a_hand():
+    eng, _, p2, target = _stack_counter("hand", token=True)
+    assert target not in p2.hand and target not in p2.graveyard
+
+
+def test_an_unknown_counter_destination_is_refused_by_the_engine():
+    from mtg_analyzer.game.effects.stack import CounterSpellEffect
+
+    with pytest.raises(ValueError):
+        CounterSpellEffect(destination="battlefield")
+
+
+def test_real_card_text_resolves_through_the_effect_registry_to_the_redirect_zone():
+    # Memory Lapse and Syncopate, parsed from their printed text and run as bound effects against a spell on the stack.
+    for oracle, zone in (
+        ("Counter target spell. If that spell is countered this way, put it on top of its owner's library instead of into that player's graveyard.", Zone.LIBRARY),
+        ("Counter target spell. If that spell is countered this way, exile it instead of putting it into its owner's graveyard.", Zone.EXILE),
+    ):
+        eng, p1, p2 = _TC.two_player_engine()
+        target = _TC.push_spell(eng, p2, _TC.instant("Doomed Bolt"), [])
+        src = GameObject(_sorcery("Test Counter", oracle), owner_id="p1", zone=Zone.STACK)
+        (spec,) = _counter_parsed(oracle)
+        (effect,) = build_effects([spec], source=src)
+        effect.apply(GameContext(eng.state, eng.rules), [target])
+        assert target.zone == zone and target not in p2.graveyard
+
+
+def test_those_tokens_after_a_creating_clause_read_as_the_pronoun_rows_take_them():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    one = parse_effect_body("create a 1/1 red goblin creature token. that token gains haste until end of turn")
+    many = parse_effect_body("create 2 1/1 red goblin creature tokens. those tokens gain haste until end of turn")
+    assert [s.type for s in one] == [s.type for s in many] == ["create_token", "pump"]
+    assert many[1].params["previous_subject"] and many[1].params["keywords"] == ["haste"]
+    delayed = parse_effect_body("create 2 1/1 red goblin creature tokens. sacrifice those tokens at the beginning of the next end step")
+    assert delayed and delayed[1].type == "create_delayed_trigger"
+    # The noun only means the creation when a creating clause came right before it.
+    assert parse_effect_body("draw a card. those tokens gain haste until end of turn") is None
+    assert parse_effect_body("tap target creature. those tokens gain haste until end of turn") is None
+
+
+def test_a_lieutenant_style_trigger_gives_both_created_goblins_haste():
+    eng = _engine()
+    card = _sorcery("Test Lieutenant", "Create two 1/1 red Goblin creature tokens. Those tokens gain haste until end of turn.")
+    assert parse_oracle(card).coverage == MODELED
+    _cast_parsed(eng, card)
+    eng.recompute_continuous_effects()
+    goblins = [o for o in eng.state.battlefield if o.is_token and "Goblin" in o.name]
+    assert len(goblins) == 2
+    assert all("haste" in {k.lower() for k in o.granted_keywords} or o.temp_keywords for o in goblins)

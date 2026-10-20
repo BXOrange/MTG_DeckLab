@@ -6,7 +6,7 @@ import re
 
 from typing import Optional
 from ..clause_hooks import parse_effect_body
-from ..clause_reading import ClauseReading
+from ..clause_reading import COUNTERED_REFERENT, ClauseReading
 from ..static_handlers import quoted_ability_grant_effects, static_effect_specs
 from ..subgrammars import (
     all_permanent_type_selector,
@@ -738,7 +738,12 @@ _exile_multi_target = _multi_target_builder("exile", allow_spell=True)
 #: "Sacrifice ~."/"Sacrifice this enchantment." (Dress Down/Underworld
 #: Breach-shaped standing end-step self-sac) — the self form, no player
 #: choice or RULE 115 target (RULE 701.17).
-def _sacrifice_self(m: re.Match[str]) -> list[EffectSpec]:
+def _sacrifice_self(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # "Whenever equipped creature deals combat damage to a player, you may sacrifice **it**." (Foot Chopper): under an
+    # attached-permanent trigger the bare pronoun is the host, not the Equipment/Aura carrying the ability; there is no
+    # host-sacrifice effect to emit, so the clause stays unclaimed instead of sacrificing the wrong object.
+    if reading.attached_subject and re.fullmatch(r"sacrifice it", m.group(0).strip(), re.IGNORECASE):
+        return None
     return [EffectSpec("sacrifice_self", {})]
 #: "`<sacrifice | destroy | tap | exile>` ~ unless you pay `<cost>`" (RULE 118.3) — one
 #: row over the leading verb instead of four near-identical ones (PAR-121): the four
@@ -883,6 +888,23 @@ def _counter_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if optional:
         params["optional"] = True
     return [EffectSpec("counter", params)]
+
+
+#: PAR-175 M4: "If that spell is countered this way, `<exile it | put it on top of its owner's library | put it into its
+#: owner's hand>` instead of putting it into its owner's graveyard." (Dissipate, Memory Lapse, Remand, Syncopate ...) --
+#: the replacement destination of the spell the preceding clause countered (RULE 701.5a, 614.1). Offered only right
+#: after a counter (`ClauseReading.referents` has COUNTERED); the sequence folds it into that `counter` spec.
+_COUNTERED_THIS_WAY_RE = compile_clause(
+    r"if (?:that spell|it) is countered this way, (?:"
+    r"(?P<exile>exile it instead of putting it into its owner's graveyard)"
+    r"|(?P<top>put (?:it|that card) on top of its owner's library instead of into (?:that player's|its owner's) graveyard)"
+    r"|(?P<hand>put (?:it|that card) into its owner's hand instead of into (?:that player's|its owner's) graveyard))"
+)
+
+
+def _countered_this_way(m: re.Match[str]) -> list[EffectSpec]:
+    destination = "exile" if m.group("exile") else "library_top" if m.group("top") else "hand"
+    return [EffectSpec("counter_destination", {"destination": destination})]
 
 
 ROWS: list[EffectHandler] = [
@@ -1032,6 +1054,10 @@ ROWS: list[EffectHandler] = [
             + IF_COLOR_SUFFIX
         ),
         _counter,
+    ),
+    EffectHandler(
+        "countered_this_way_destination", _COUNTERED_THIS_WAY_RE, _countered_this_way,
+        requires=ClauseReading(referents=(COUNTERED_REFERENT,)),
     ),
     # PAR-150: "counter up to two target spells [and/or abilities]" (RULE 115.1a plural of the row above).
     EffectHandler("counter_multi_target", _COUNTER_MULTI_RE, _counter_multi),
@@ -1209,6 +1235,6 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "sacrifice_self",
         compile_clause(rf"sacrifice {SELF_SUBJECT}"),
-        _sacrifice_self,
+        _sacrifice_self, reading_aware=True,
     ),
 ]

@@ -1061,9 +1061,11 @@ def _have_that_player_lose_life(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("lose_life", {"amount": int(m.group("n")), "player": ENTERING_CONTROLLER})]
 
 
-def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-
-    first = parse_effect_body(m.group("effect1").strip(), reading=ClauseReading(self_subject=True))
+def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # The attached-host fact travels into both halves: "you may sacrifice it" under an equipped-creature trigger
+    # names the host, which no row may read as the source.
+    inner_reading = ClauseReading(self_subject=True, attached_subject=reading.attached_subject)
+    first = parse_effect_body(m.group("effect1").strip(), reading=inner_reading)
     if not first:
         return None
     # A *targeted* (RULE 115) antecedent needs its own announced-target
@@ -1072,7 +1074,7 @@ def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # targeted follow-up) — fail closed rather than silently drop the target.
     if any(s.params.get("target_kind") for s in first):
         return None
-    second = parse_effect_body(m.group("effect2").strip(), reading=ClauseReading(self_subject=True))
+    second = parse_effect_body(m.group("effect2").strip(), reading=inner_reading)
     if not second:
         return None
     if any(s.params.get("target_kind") for s in second):
@@ -1663,7 +1665,7 @@ ROWS: list[EffectHandler] = [
         "may_effect_then",
         _MAY_EFFECT_THEN_RE,
         _may_effect_then,
-        fallback_for=("pay_cost_then_general",),
+        fallback_for=("pay_cost_then_general",), reading_aware=True,
     ),
     # MEC-19: "counter it unless that player pays <cost>" — the
     # un-keyworded-Ward-shaped `BECOMES_TARGET` trigger's own resolution.

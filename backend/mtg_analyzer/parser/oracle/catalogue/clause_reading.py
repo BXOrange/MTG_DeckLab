@@ -35,6 +35,11 @@ SELECTOR = "selector"
 CREATED = "created"
 
 
+#: `Referent.kind`: the spell the preceding clause countered -- "If that spell is countered this way, ..." names it
+#: (RULE 701.5a); the consumer folds into that `counter` spec as its replacement destination.
+COUNTERED = "countered"
+
+
 @dataclass(frozen=True)
 class Referent:
     """One thing an earlier clause of the same body produced, which a later clause may name with a pronoun."""
@@ -50,6 +55,7 @@ TARGET_REFERENT = Referent(TARGET)
 SELECTOR_REFERENT = Referent(SELECTOR, group=True)
 CREATED_REFERENT = Referent(CREATED)
 CREATED_GROUP_REFERENT = Referent(CREATED, group=True)
+COUNTERED_REFERENT = Referent(COUNTERED)
 
 
 @dataclass(frozen=True)

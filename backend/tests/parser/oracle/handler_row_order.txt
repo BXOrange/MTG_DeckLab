@@ -207,6 +207,7 @@ regenerate_attached
 regenerate
 regenerate_self
 counter
+countered_this_way_destination
 counter_multi_target
 counter_spell_or_ability
 counter_activated_or_triggered_ability
