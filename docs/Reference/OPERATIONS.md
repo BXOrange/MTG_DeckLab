@@ -28,7 +28,7 @@ or the test setup.
 
 - `cd backend && python -m pytest -q`, or `python backend/scripts/run_tests.py
   [pytest args]` (finds the venv itself; adds `--hard-timeout SECONDS`, default
-  120s, killing the process group for hangs the per-test timer cannot reach).
+  1800s (the full-cache suite takes ~7 min), killing the process group for hangs the per-test timer cannot reach).
 - `pytest-timeout` aborts any test over 20s (`backend/pytest.ini`).
 - **Plain `pytest -q` skips the full-cache tier** (`test_cube_batch_*`, anything
   marked `full_cache`): run `pytest --full-cache` or `MTG_FULL_CACHE_TESTS=1`

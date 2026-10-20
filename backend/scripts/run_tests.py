@@ -44,15 +44,19 @@ from install import ensure_backend_venv  # noqa: E402 (path must be set first)
 
 TEST_NODE_RE = re.compile(r"^(tests/\S+::\S+)")
 
+#: Whole-run wall-clock ceiling. The full suite including the `--full-cache` tier takes ~7 minutes (15k tests,
+#: measured 2026-10-20), so the ceiling leaves ~4x headroom: it must only catch a real hang, never a slow full run.
+DEFAULT_HARD_TIMEOUT_S = 1800.0
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--hard-timeout",
         type=float,
-        default=120.0,
+        default=DEFAULT_HARD_TIMEOUT_S,
         help="Overall wall-clock ceiling in seconds for the whole run "
-        "(default: 120; the full suite normally runs in ~10s). Only "
+        f"(default: {DEFAULT_HARD_TIMEOUT_S:.0f}; the full suite incl. --full-cache takes ~7 min). Only "
         "fires if a hang isn't already caught by pytest-timeout's own "
         "per-test timer.",
     )
