@@ -1,6 +1,7 @@
 """Choices, voting, keyword actions, combat, and player-turn effects."""
 from __future__ import annotations
 
+from ...models.cards.card_query import PERMANENT_CARD_TYPES
 from .core import GameEffect
 from .. import continuations
 from ._runtime import install, register
@@ -1882,7 +1883,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
         from copy import deepcopy
         from .. import combat, continuous, effect_conditions
 
-        allowed = {"artifact", "battle", "creature", "enchantment", "land", "planeswalker",
+        allowed = {*PERMANENT_CARD_TYPES,  # RULE 110.4
                    *continuous._BASIC_LAND_TYPES}  # RULE 305.6: land-type keepers match by subtype
         counted = self.keep_count is not None
         if (self.action != "sacrifice_rest" or self.rest_action not in self.KEEP_REST_ACTIONS

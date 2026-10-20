@@ -218,6 +218,33 @@ def describe(criteria: Criteria) -> str:
     return f"{article} {label} card{suffix}"
 
 
+#: RULE 110.4: the permanent types are artifact, battle, creature, enchantment, land and planeswalker. The one
+#: source of truth for "permanent card" / "permanent type" -- never re-enumerate these at a use site.
+PERMANENT_CARD_TYPES: frozenset[str] = frozenset(
+    {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
+)
+
+
+def card_type_words(card: Card) -> frozenset[str]:
+    """The lowercase *card-type* words of ``card``'s printed type line (RULE 205.2a): every word before
+    the em dash of each face, so supertypes ride along but a subtype ("Equipment", "Forest") never does."""
+    words: set[str] = set()
+    for face in (card.type_line or "").lower().split("//"):
+        words.update(face.partition("\u2014")[0].split())
+    return frozenset(words)
+
+
+def is_permanent_card(card: Card) -> bool:
+    """Whether ``card`` is a permanent card (RULE 110.4): it has at least one permanent type, battle included."""
+    return bool(card_type_words(card) & PERMANENT_CARD_TYPES)
+
+
+def is_nonland_permanent_card(card: Card) -> bool:
+    """A permanent card that is not a land ("nonland permanent card", RULE 110.4 + 305)."""
+    words = card_type_words(card)
+    return bool(words & PERMANENT_CARD_TYPES) and "land" not in words
+
+
 def _card_type_line(card: Card) -> str:
     """RULE 702.73a/604.3a: printed subtype CDAs apply in a searched zone."""
     type_line = (card.type_line or '').lower()

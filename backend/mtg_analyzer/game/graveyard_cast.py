@@ -59,14 +59,9 @@ def temporary_graveyard_pool_grant(player: "Player", state: "GameState", obj):
 
 
 def _is_permanent_card(card: "Card") -> bool:
-    """Whether ``card`` is a permanent card (creature/artifact/enchantment/
-    land/planeswalker) — Lurrus's own "a permanent spell" restriction.
-    Mirrors `ExileGraveyardCardCounterIfPermanentEffect`'s identical check
-    (`game/effects/core.py`)."""
-    return bool(
-        card.is_creature or card.is_artifact or card.is_enchantment
-        or card.is_land or getattr(card, "is_planeswalker", False)
-    )
+    """Whether ``card`` is a permanent card (RULE 110.4, battle included) — Lurrus's own "a permanent spell"
+    restriction."""
+    return card_query.is_permanent_card(card)
 
 
 def permanent_types(card: "Card") -> set[str]:

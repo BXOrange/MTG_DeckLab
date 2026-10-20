@@ -698,9 +698,7 @@ class DamageDeathMixin:
         if source is None:
             return
         source.sacrificed_cost_mana_value = victim.mana_value
-        source.sacrificed_cost_card_types = sorted(victim.type_words & {
-            "artifact", "battle", "creature", "enchantment", "land", "planeswalker",
-        })
+        source.sacrificed_cost_card_types = sorted(victim.type_words & card_query.PERMANENT_CARD_TYPES)  # RULE 110.4
         source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
         source.sacrificed_cost_power = victim.power
         source.sacrificed_cost_toughness = victim.toughness

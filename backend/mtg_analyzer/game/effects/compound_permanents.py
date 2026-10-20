@@ -1,6 +1,7 @@
 """Resolution sequences involving permanent names and death information."""
 from __future__ import annotations
 
+from ...models.cards.card_query import PERMANENT_CARD_TYPES
 from ...models.game.events import EventType
 from ...models.game.game_object import Zone
 from ..targeting import TargetSpec
@@ -137,7 +138,7 @@ class _RecoverMilledPermanentEffect(GameEffect):
 
     def apply(self, context, targets=None):
         from .core import _controller_of
-        permanent_types = {'artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'}
+        permanent_types = PERMANENT_CARD_TYPES  # RULE 110.4
         candidates = [obj for obj in self._milled(context)
                       if obj is not None and obj.zone == Zone.GRAVEYARD
                       and set(obj.type_words) & permanent_types]

@@ -1275,6 +1275,12 @@ to every gathered target. Resolution conditions can read the actual `cast_from_e
 
 - Authored restricted attachment abilities can set `cost.attach_kind`; the binder carries it to the live ability for keyword-specific cost effects. Restricted Equip abilities use controller-scoped targets and sorcery timing, matching the ordinary keyword path.
 
+### One permanent-card predicate; battles are permanent cards (RULE 110.4, BUG-27)
+
+- **What:** `models/cards/card_query.py` holds the single source of truth: `PERMANENT_CARD_TYPES` (artifact, battle, creature, enchantment, land, planeswalker), `card_type_words` (card types before the em dash per face, never subtypes), `is_permanent_card` and `is_nonland_permanent_card`. The `permanent`/`nonland_permanent` graveyard target filters omitted battles, so a battle card could not be returned by Elvish Regrower–style "target permanent card" effects. They now use the predicate, which also makes a land creature such as Dryad Arbor correctly not a nonland permanent card. Copied enumerations that meant "permanent type" now use the constant: Lurrus-style graveyard casting (`graveyard_cast.py`, which also missed battles), shares-a-type returns, milled-permanent counts, dig type words, sacrificed-cost card types, keeper choices and `turn_history`. On the battlefield, "target spell or nonland permanent you don't control" listed four types and missed battles (and wrongly included Dryad Arbor); it now takes every permanent that is not a land.
+- **Why:** one predicate instead of re-enumerated type lists. Type lists that are deliberately narrower or are full card-type vocabularies (the check-land phrases, `FREE_CAST_SLOT_TYPES`, instant/sorcery-inclusive `_CARD_TYPES` sets, hand-authored catalogue data) and the parser's own lists (no `game/` imports, unchanged output) were left as they are. BUG-32 (`this_way_matches`) can reuse the predicate. No parser output change (PARSER_VERSION stays 714).
+- **Files:** `models/cards/card_query.py`, `models/game/turn_history.py`, `game/targeting.py`, `game/graveyard_cast.py`, `game/effects/{returns_graveyards,compound_permanents,library,choices_actions}.py`, `game/rules/damage_death_mixin.py`. Tests: `tests/test_bug27_battle_permanent_card_targets.py`.
+
 ### Target legality rechecked at resolution (RULE 608.2b, BUG-3/BUG-4)
 
 `casting_mixin._apply_stack_item` rechecks each battlefield target with `targeting.target_meets_restrictions`, which

@@ -26,6 +26,7 @@ from typing import Any, Optional, Union
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
 from ..models.game.player import Player
+from ..models.cards.card_query import is_nonland_permanent_card, is_permanent_card
 from ..parser.oracle.spec import TARGET_CHOOSER_OPPONENT
 from . import combat
 
@@ -77,10 +78,9 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
     "sorcery": lambda o: bool(o.card.is_sorcery),
-    "permanent": lambda o: o.is_creature or o.is_land or o.is_planeswalker
-    or bool(o.card.is_artifact or o.card.is_enchantment),
-    "nonland_permanent": lambda o: o.is_creature or o.is_planeswalker
-    or bool(o.card.is_artifact or o.card.is_enchantment),
+    # RULE 110.4: a permanent card has any permanent type -- battle included (`card_query.is_permanent_card`).
+    "permanent": lambda o: is_permanent_card(o.card),
+    "nonland_permanent": lambda o: is_nonland_permanent_card(o.card),
     # "Put target artifact or creature card from a graveyard onto the
     # battlefield…" (MEC-43 round 2, Beacon of Unrest) — the artifact
     # sibling of `creature_or_planeswalker` below.
@@ -2232,9 +2232,9 @@ def _legal_targets_for(
         permanents = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if (not o.is_land if unscoped else (
-                (o.is_creature or o.is_planeswalker or o.card.is_artifact or o.card.is_enchantment)
-                and o.controller_id not in (None, controller_id)))
+            # RULE 110.4: every nonland permanent qualifies, battles included -- not a re-enumeration of types.
+            if not o.is_land
+            and (unscoped or o.controller_id not in (None, controller_id))
             and o is not source
             and _targetable_by(o, source)
         ]

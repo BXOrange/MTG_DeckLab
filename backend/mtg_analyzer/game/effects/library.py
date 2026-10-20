@@ -1,6 +1,7 @@
 """Library search, look/exile/cast windows, mana, exchanges, and advanced actions."""
 from __future__ import annotations
 
+from ...models.cards.card_query import PERMANENT_CARD_TYPES
 from .core import GameEffect
 from ._runtime import install, register
 
@@ -1691,9 +1692,7 @@ class AddCountersToTriggerDamagedPlayerEffect(GameEffect):
 #: RULE 205.2a's permanent card types — the vocabulary "shares a permanent
 #: type with it" (Cloudstone Curio) compares against, so a shared *spell*
 #: type (instant/sorcery, which no permanent has anyway) can never match.
-_PERMANENT_TYPE_WORDS: frozenset[str] = frozenset(
-    {"artifact", "creature", "enchantment", "land", "planeswalker", "battle"}
-)
+_PERMANENT_TYPE_WORDS: frozenset[str] = PERMANENT_CARD_TYPES  # RULE 110.4
 
 
 def _printed_main_types(card: Any) -> set[str]:

@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Callable, Iterable, Optional
 
+from ..cards.card_query import PERMANENT_CARD_TYPES
 from .events import EventType, GameEvent
 
 Events = Iterable[GameEvent]
@@ -253,7 +254,6 @@ def creatures_damaged_by_source(events: Events) -> "defaultdict[int, set[int]]":
 
 # -- cards that reached a graveyard, bends, counters ------------------------------------------
 
-_PERMANENT_CARD_TYPES = frozenset({"artifact", "battle", "creature", "enchantment", "land", "planeswalker"})
 
 
 def _graveyard_arrivals(events: Events) -> "Iterable[tuple[str, list[str]]]":
@@ -283,7 +283,7 @@ def creature_card_to_graveyard(events: Events) -> "set[str]":
 
 def permanent_card_to_graveyard(events: Events) -> "set[str]":
     """Owners into whose graveyard a permanent card went from anywhere (RULE 702.175)."""
-    return {owner for owner, types in _graveyard_arrivals(events) if _PERMANENT_CARD_TYPES & set(types)}
+    return {owner for owner, types in _graveyard_arrivals(events) if PERMANENT_CARD_TYPES & set(types)}
 
 
 def bends(events: Events) -> "defaultdict[str, set[str]]":

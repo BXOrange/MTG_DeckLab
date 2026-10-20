@@ -4,6 +4,7 @@ from __future__ import annotations
 from .core import GameEffect
 from .. import continuations
 from ._runtime import install, register
+from ...models.cards.card_query import PERMANENT_CARD_TYPES, is_permanent_card
 from ..targeting import graveyard_card_matches, legal_targets
 
 install(globals())
@@ -136,7 +137,7 @@ class SacrificeSharedTypeToReturnEffect(GameEffect):
     paid sacrifice returns the card (`return_remembered_graveyard_cards`, armed with the exile replacement)."""
 
     #: The card types a "shares a card type" comparison reads (RULE 205.2a, permanent types).
-    _CARD_TYPES = frozenset({"artifact", "creature", "enchantment", "land", "planeswalker", "battle"})
+    _CARD_TYPES = PERMANENT_CARD_TYPES  # RULE 110.4
 
     def __init__(self, source: Optional["GameObject"] = None, target_kind: str = "graveyard_permanent") -> None:
         super().__init__(source)
@@ -2094,12 +2095,7 @@ class BudgetDigOntoBattlefieldEffect(GameEffect):
 
 def _is_permanent_card_obj(obj: Any) -> bool:
     card = getattr(obj, "card", None)
-    if card is None:
-        return False
-    tl = (getattr(card, "type_line", "") or "").lower()
-    return any(w in tl for w in (
-        "creature", "artifact", "enchantment", "planeswalker", "land", "battle",
-    ))
+    return card is not None and is_permanent_card(card)  # RULE 110.4
 
 
 # ===========================================================================

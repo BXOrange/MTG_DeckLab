@@ -184,11 +184,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   copy with more counters. Add resumable choices for conflicting legend groups and apply the
   chosen departures in the simultaneous SBA batch. Coordinate with BUG-14.
 
-- **BUG-27 · P2 · Include battles in permanent-card graveyard targets (RULE 110.4).**
-  `game/targeting.py:_GRAVEYARD_TYPE_FILTERS` omits battles from `permanent` and
-  `nonland_permanent`. Reuse a complete permanent-card predicate and audit copied type
-  enumerations; a battle card must be selectable by a target-permanent-card return effect.
-
 - **BUG-28 · P2 · Reset ability-resolution counts each turn (RULE 500.1).**
   `game/rules/casting_mixin.py:_count_ability_resolution` stamps display-only `turn_nr`.
   Resolving once on each of two players' turns incorrectly activates a second-time-this-turn
@@ -216,7 +211,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **BUG-32 · P2 · Match permanent cards in typed “this way” pools (RULE 110.4/608.2c).**
   `game/effect_amounts.py:this_way_matches` checks `permanent` against `card_types_of`, which
   excludes that marker. “Mill 3 cards. You gain 2 life for each permanent card milled this way”
-  therefore counts a milled creature as zero. Share a complete permanent-card predicate across
+  therefore counts a milled creature as zero. Use `card_query.is_permanent_card` across
   pool amounts and conditions; verify mixed permanent/nonpermanent pools.
 
 - **BUG-33 · P2 · Sum characteristics of discarded/sacrificed objects (RULE 608.2h).**
