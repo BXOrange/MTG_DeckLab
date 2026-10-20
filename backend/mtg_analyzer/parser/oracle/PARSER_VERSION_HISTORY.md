@@ -4110,3 +4110,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      body (Fang, Fearless l'Cie; Defiled Crypt); structured conditions accept the `spell_type` and `value` fields the
      parser already emitted (Burrog Barrage, Farideh); the connive factory keeps a structured `times` operand (Raffine,
      Spymaster's Vault). +0 / -0 (no verdict changes).
+715: BUG-32 -- typed "this way" count phrases keep "permanent" ("for each permanent card milled this way" no longer counts
+     every card); the engine matches the `permanent` / `nonland_permanent` markers via the shared permanent-type list
+     (RULE 110.4) in amounts, conditions and the discard / sacrifice event pools.

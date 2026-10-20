@@ -4101,7 +4101,7 @@ _THIS_WAY_COUNT_PHRASE_RE = re.compile(
 def _this_way_filter(m: "re.Match[str]") -> dict[str, Any]:
     """The ``card_type`` / ``negate`` / ``color`` filter a `_THIS_WAY_TYPES` match names (shared by every "this way" reader)."""
     filt: dict[str, Any] = {}
-    if m.group("type") and m.group("type") != "permanent":
+    if m.group("type"):  # "permanent" stays: RULE 110.4 permanent cards are matched by the engine marker
         filt["card_type"] = m.group("type")
         if m.group("non"):
             filt["negate"] = True

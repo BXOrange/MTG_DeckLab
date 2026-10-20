@@ -208,12 +208,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   whenever a qualifying unblocked attacker exists and its controller has priority. Coordinate
   end-of-combat timing with BUG-30.
 
-- **BUG-32 · P2 · Match permanent cards in typed “this way” pools (RULE 110.4/608.2c).**
-  `game/effect_amounts.py:this_way_matches` checks `permanent` against `card_types_of`, which
-  excludes that marker. “Mill 3 cards. You gain 2 life for each permanent card milled this way”
-  therefore counts a milled creature as zero. Use `card_query.is_permanent_card` across
-  pool amounts and conditions; verify mixed permanent/nonpermanent pools.
-
 - **BUG-33 · P2 · Sum characteristics of discarded/sacrificed objects (RULE 608.2h).**
   `game/effect_amounts.py:this_way_matching` returns events for these pools, while `this_way_sum`
   excludes events: a sacrificed 2-power creature counts as one but contributes zero power.

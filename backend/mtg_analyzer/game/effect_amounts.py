@@ -686,12 +686,25 @@ def this_way_matching(context: "GameContext", source: Any, spec: dict[str, Any])
     return [o for o in this_way_objects(context, source, pool) if this_way_matches(o, spec)]
 
 
+def type_marker_matches(types: Any, wanted: str) -> bool:
+    """Whether the card-type words ``types`` satisfy ``wanted``. RULE 110.4: "permanent" (and "nonland_permanent") is
+    not a card type but a marker for having at least one permanent type, so it never appears in a type set itself."""
+    from ..models.cards.card_query import PERMANENT_CARD_TYPES  # the one permanent-type list
+
+    words = {str(t).lower() for t in types}
+    if wanted == "permanent":
+        return bool(words & PERMANENT_CARD_TYPES)
+    if wanted == "nonland_permanent":
+        return bool(words & PERMANENT_CARD_TYPES) and "land" not in words
+    return wanted in words
+
+
 def this_way_matches(obj: Any, spec: dict[str, Any]) -> bool:
     """Whether a pooled object satisfies the optional ``card_type`` (+ ``negate``) / ``subtype`` / ``color`` of ``spec``."""
     from .continuous import card_types_of, has_subtype  # function-scoped: continuous imports this module
 
     card_type = str(spec.get("card_type") or "").lower()
-    if card_type and ((card_type in card_types_of(obj)) == bool(spec.get("negate"))):
+    if card_type and (type_marker_matches(card_types_of(obj), card_type) == bool(spec.get("negate"))):
         return False
     subtype = str(spec.get("subtype") or "").lower()
     if subtype and not has_subtype(obj, subtype):
@@ -716,4 +729,4 @@ def discarded_this_way(
     events = [e for e in context.state.event_log[start:] if e.type == kind]
     if not wanted:
         return events
-    return [e for e in events if (wanted in (e.get("object_types") or ())) != negate]
+    return [e for e in events if type_marker_matches(e.get("object_types") or (), wanted) != negate]
