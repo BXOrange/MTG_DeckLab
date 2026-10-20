@@ -405,17 +405,26 @@ class CombatMixin:
         return list(self.attackers) + [
             b for b in self.state.battlefield if combat.blocking_attacker_ids(b)
         ]
-    @staticmethod
-    def _deals_in_step(obj: GameObject, first_strike_step: bool) -> bool:
+    def _deals_in_step(self, obj: GameObject, first_strike_step: bool) -> bool:
         """Whether ``obj`` deals damage in this combat-damage step.
 
-        First-strike step: first strike *or* double strike. Regular step:
-        double strike (again) or a creature with neither — a pure first-striker
-        has already dealt and deals nothing more.
+        First-strike step: first strike *or* double strike (as the step
+        begins). Regular step, RULE 510.4: a creature deals damage if it
+        currently has double strike, or if it did *not* take part in the
+        first-strike step. That participation is the exact record kept on
+        ``GameState.first_strike_step_combatants`` (instance + zone visit, so
+        a creature that left and returned is a new object, RULE 400.7), not
+        its current keywords: a pure first-striker that lost first strike
+        deals nothing more, and an ordinary creature that gained first strike
+        since still deals its regular damage. With no first-strike step this
+        combat (record ``None``), every combatant is ordinary.
         """
-        fs = combat.has_first_strike(obj)
-        ds = combat.has_double_strike(obj)
-        return (fs or ds) if first_strike_step else (ds or not fs)
+        if first_strike_step:
+            return combat.has_first_strike(obj) or combat.has_double_strike(obj)
+        if combat.has_double_strike(obj):
+            return True
+        record = self.state.first_strike_step_combatants
+        return record is None or (obj.instance_id, obj.zone_incarnation) not in record
     def _deal_combat_damage_step(self, first_strike_step: bool) -> None:
         # (target, amount, source) gathered before anything is dealt.
         assignments: list[tuple[Any, int, GameObject]] = []

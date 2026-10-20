@@ -103,12 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-21 · P2 · Retain first-step combat-damage eligibility (RULE 510.4).**
-  `game/engine/combat_mixin.py:_deals_in_step` tests current keywords only. An unblocked 2/2
-  deals four damage if its first-strike-granting lord dies in the first step. Remember exact
-  combatant visits and their initial eligibility; regular damage permits initially ordinary
-  combatants and remaining creatures that currently have double strike. Coordinate with BUG-20.
-
 - **BUG-22 · P1 · Derive combat consequences from completed damage (RULE 120.3f/615.1/702.2b).**
   `game/engine/combat_mixin.py:_apply_combat_damage` uses assignments after prevention/replacement:
   Fog still grants lifelink life and emits aggregate player-hit events; partial prevention grants
