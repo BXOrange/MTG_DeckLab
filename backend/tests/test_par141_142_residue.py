@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -70,7 +71,7 @@ def test_the_pronoun_comma_never_splits_inside_a_gated_body():
     # Split across the gate, "it gains …" would fall outside "if you do".
     specs = parse_effect_body(
         "you may discard a card. if you do, put a +1/+1 counter on ~, it gains haste until end of turn",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     )
     assert specs is None or [s.type for s in specs] == ["pay_cost_then"]
 
@@ -123,7 +124,7 @@ def test_a_counter_duration_retimes_the_type_addition():
 
 def test_a_counter_duration_needs_a_pick_and_a_retimable_body():
     assert parse_effect_body("it is an island in addition to its other types for as long as it has a flood counter on it") is None
-    assert parse_effect_body("draw a card for as long as it has a flood counter on it", previous_subject=True) is None
+    assert parse_effect_body("draw a card for as long as it has a flood counter on it", reading=ClauseReading(previous_subject=True)) is None
 
 
 def test_aquitects_will_makes_the_land_an_island_only_while_the_counter_stays():
@@ -176,7 +177,7 @@ def test_a_dies_gate_on_it_reads_the_death_snapshot_not_a_pick():
                       if s.ability_kind == "triggered" for e in s.effects]
     assert totem_effect.condition == {"kind": "trigger_event_object", "card_type": "creature"}
     # Present tense is the source itself, not a snapshot.
-    present = parse_effect_body("if it's a creature, draw a card", self_subject=True)
+    present = parse_effect_body("if it's a creature, draw a card", reading=ClauseReading(self_subject=True))
     assert present[0].condition == {"kind": "is_card_type", "card_type": "creature"}
 
 
@@ -223,7 +224,7 @@ def test_a_self_return_with_counters_makes_the_returned_permanent_the_next_it():
     specs = parse_effect_body(
         "return it to the battlefield under its owner's control with 2 +1/+1 counters on it. "
         "it's a demon in addition to its other types",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     )
     assert [s.type for s in specs] == ["return_self_to_battlefield", "grant_until"]
     assert specs[0].params["extra_counters"] == {"kind": "+1/+1", "count": 2}
@@ -250,7 +251,7 @@ def test_a_self_return_hands_the_returned_permanent_to_the_next_clause():
 
 
 def test_copy_tail_modifiers():
-    from mtg_analyzer.parser.oracle.catalogue.handlers import _parse_copy_except_tail as tail
+    from mtg_analyzer.parser.oracle.catalogue.effect_rows.damage_copy import parse_copy_except_tail as tail
 
     assert tail("it's an enchantment in addition to its other types") == {"add_types": ["Enchantment"]}
     assert tail("it's legendary") == {"legendary": True}

@@ -1255,6 +1255,32 @@ class PayCostThenEffect(GameEffect):
         )
 
 
+class PutEnteringIntoGraveyardEffect(GameEffect):
+    """RULE 614.12: "If you don't, put it into its owner's graveyard." -- the
+    "instead" half of an entry replacement (Mox Diamond: "If this artifact would
+    enter, you may discard a land card instead. If you do, put this artifact onto
+    the battlefield. If you don't, put it into its owner's graveyard.").
+
+    Runs as a before-entry instruction (`entry_effect`) on the permanent spell
+    that is resolving: the object never becomes a permanent, so no
+    `ENTERS_BATTLEFIELD` fires. `RulesEngine._send_to_graveyard_unentered` clears
+    the pending entry, which is how `_offer_enter_choices` and `resolve_choice`
+    know to stop continuing the entry. Outside a resolving permanent spell
+    (a batch entry such as a blink or reanimation) the object is flagged
+    ``entry_abandoned`` and `battlefield_batches.advance_battlefield_batch`
+    sends it to its owner's graveyard without admitting it.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        entry = context.state.pending_permanent_entry
+        if entry is not None and entry["obj"] is self.source:
+            context.engine._send_to_graveyard_unentered(self.source)
+        else:
+            self.source.entry_abandoned = True
+
+
 class RequestAllPlayersDeclineOrEffect(GameEffect):
     """"Any player may pay `<cost>`. If no one does, `<effect>`." (Rhystic
     Circle, MEC-30, RULE 118.3-adjacent) — the multi-player sibling of
@@ -1470,6 +1496,29 @@ class ChooseObjectsEffect(GameEffect):
                 and obj.zone_incarnation == expected)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        pooled = self.pool_candidates(context, targets)
+        if pooled is None:
+            return
+        player, candidates = pooled
+        count = len(candidates) if self.count == "all" else self.count
+        if self.count_amount is not None:
+            from .. import effect_amounts  # function-scoped: effect_amounts imports this package
+
+            count = effect_amounts.amount_of(self.count_amount, context, self.source, targets)
+        context.choose_objects(
+            player, candidates, self.action, count=count,
+            optional=self.optional, prompt=self.prompt, source=self.source,
+            then_specs=self.then, then_specs_if_commander=self.then_if_commander,
+            else_specs=self.else_effects, then_that_many=self.then_that_many,
+            distinct_card_types=self.distinct_card_types,
+            minimum_card_types=self.minimum_card_types,
+        )
+
+    def pool_candidates(
+        self, context: GameContext, targets: Optional[list[Any]] = None,
+    ) -> Optional[tuple[Any, list[Any]]]:
+        """The chooser and the objects they may pick from, or ``None`` when there is no chooser. Also what an
+        "if you do" wrapper asks to learn whether this instruction can be performed in full."""
         from .. import combat
 
         from ..rules_engine import _matches_permanent_type
@@ -1481,7 +1530,7 @@ class ChooseObjectsEffect(GameEffect):
         else:
             player = _controller_of(self.source, context)
         if player is None:
-            return
+            return None
         pool_player = player
         if self.pool_player_selector == "defending_player":
             event = context.trigger_event or {}
@@ -1524,19 +1573,7 @@ class ChooseObjectsEffect(GameEffect):
             and not (self.require_untapped and obj.tapped)
             and (not self.saddlers_only or self._saddled_this_turn(context, obj))
         ]
-        count = len(candidates) if self.count == "all" else self.count
-        if self.count_amount is not None:
-            from .. import effect_amounts  # function-scoped: effect_amounts imports this package
-
-            count = effect_amounts.amount_of(self.count_amount, context, self.source, targets)
-        context.choose_objects(
-            player, candidates, self.action, count=count,
-            optional=self.optional, prompt=self.prompt, source=self.source,
-            then_specs=self.then, then_specs_if_commander=self.then_if_commander,
-            else_specs=self.else_effects, then_that_many=self.then_that_many,
-            distinct_card_types=self.distinct_card_types,
-            minimum_card_types=self.minimum_card_types,
-        )
+        return player, candidates
 
 
 class DisorientingChoiceEffect(GameEffect):
@@ -3029,34 +3066,6 @@ class DestroySpecificEffect(GameEffect):
                 context.engine.destroy(obj)
 
 
-class DiscardSpecificEffect(GameEffect):
-    """Discard the exact hand cards baked into this effect (RULE 701.8).
-
-    The hand-zone sibling of `SacrificeSpecificEffect`/`DestroySpecificEffect`
-    — "conjure a duplicate of that spell into your hand. … Discard **the
-    duplicate** at the beginning of your next end step." (Spellchain Scatter,
-    PAR-124), whose referent is `GameContext.created_objects` (baked in by
-    `CreateDelayedTriggerEffect`'s ``capture="created_objects"`` branch, which
-    special-cases any inner effect exposing an ``.objects`` list). Silently
-    skips anything no longer in its owner's hand by the time this resolves
-    (RULE 111.7 — already discarded, cast, or otherwise moved some other way).
-    """
-
-    def __init__(
-        self,
-        objects: list["GameObject"],
-        source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        self.objects = objects
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        for obj in list(self.objects):
-            player = context.state.player_by_id(obj.owner_id)
-            if player is not None and obj in player.hand:
-                context.discard_specific(obj, cause=self.source)
-
-
 class ReturnSpecificToHandEffect(GameEffect):
     """Return the exact permanents baked into this effect to their owners'
     hands (RULE 608.2 / 400.7).
@@ -3430,45 +3439,6 @@ class ScrollRackFinishEffect(GameEffect):
         context.engine.open_scroll_rack_order_choice(player, ids, source=self.source)
 
 
-class MarchesaDelayedReturnEffect(GameEffect):
-    """RULE 603.7 delayed half of "return that card to the battlefield under
-    your control at the beginning of the next end step" (Marchesa, the
-    Black Rose-shaped: a creature you control with a counter on it dies).
-    ``dying_object`` is baked in at construction — there's nothing left to
-    target once the delayed trigger fires (the same RULE 603.4 per-firing
-    shape `RulesEngine._collect_impulsive_draw_triggers`/`ImpulsiveDrawEffect`
-    already use for Ragavan's per-firing damaged player).
-    """
-
-    def __init__(self, dying_object: "GameObject", source: Optional["GameObject"] = None,
-                 graveyard_incarnation: Optional[int] = None) -> None:
-        super().__init__(source)
-        self.dying_object = dying_object
-        self.graveyard_incarnation = graveyard_incarnation if graveyard_incarnation is not None else dying_object.zone_incarnation
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game.game_state import DelayedTrigger
-
-        # RULE 603.7e: the resolving ability controller owns its delayed trigger.
-        controller_id = _controller_of(self.source, context).id
-        inner = ReturnFromGraveyardEffect(
-            target=self.dying_object,
-            expected_incarnation=self.graveyard_incarnation,
-            destination="battlefield",
-            under_your_control=True,
-            source=self.source,
-        )
-        context.state.delayed_triggers.append(
-            DelayedTrigger(
-                controller_id=controller_id,
-                step="end",
-                scope="any",
-                effects=[inner],
-                description=f"{self.dying_object.name}: unter Kontrolle zurück auf das Schlachtfeld",
-            )
-        )
-
-
 class ReturnDyingSubjectToBattlefieldEffect(GameEffect):
     """RULE 400.7e: return the dying host, distinct from its Aura source."""
 
@@ -3592,13 +3562,10 @@ class ReturnSelfAttachedEffect(GameEffect):
 
 class ReturnSelfFromGraveyardEffect(GameEffect):
     """"...if this creature is in your graveyard, you may return it to your
-    hand." (RULE 112.6a, Infesting Radroach) — ``obj`` is baked in at
-    construction (`RulesEngine._collect_mill_return_from_graveyard_
-    triggers`, the same per-firing shape `MarchesaDelayedReturnEffect`
-    above uses for its own dying object), deliberately with no
-    `target_spec` of its own so `_place_or_pause_trigger` never opens a
-    target choice for it — "it" is always this ability's own source, never
-    a pick. Re-checks ``obj``'s zone at resolution time rather than
+    hand." (RULE 112.6a, Infesting Radroach) — ``obj`` may be baked in at
+    construction, deliberately with no `target_spec` of its own so
+    `_place_or_pause_trigger` never opens a target choice for it — "it" is
+    always this ability's own source, never a pick. Re-checks ``obj``'s zone at resolution time rather than
     assuming it's still in the graveyard (RULE 603.3c/608.2b: something
     else may have moved it between trigger and resolution, e.g. an
     opponent's graveyard-hate instant).

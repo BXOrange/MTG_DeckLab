@@ -19,6 +19,8 @@ import re
 from typing import Any, Iterable, Optional
 
 from .characteristic_phrase import KEYWORD_WORDS, parse_absent_quality
+from .count_phrase import parse_count_phrase
+from .subtype_vocabulary import SUBTYPES
 
 #: The canonical vocabulary of nouns that name a permanent type/group,
 #: singular, concrete types first then the two abstract/negated readings
@@ -147,7 +149,6 @@ _ADJECTIVE_TYPE_WORDS = frozenset({"artifact", "enchantment", "land", "planeswal
 def target_adjective_filter(word: str) -> Optional[dict]:
     """One pre-noun adjective of a target phrase → its `combat.matches_object_filter` fragment, else
     ``None`` (fail closed — a word that is none of the vocabulary is never guessed to be a subtype)."""
-    from .subtype_vocabulary import SUBTYPES
 
     w = word.lower()
     if w in _ADJECTIVE_STATE_WORDS:
@@ -171,7 +172,6 @@ def target_adjective_filter(word: str) -> Optional[dict]:
 
 
 def _adjective_alternation() -> str:
-    from .subtype_vocabulary import SUBTYPES
 
     words = {*SCOPE_ADJECTIVES, *_ADJECTIVE_COLOR_WORDS, *_ADJECTIVE_TYPE_WORDS, *SUBTYPES}
     words -= _ADJECTIVE_STATE_WORDS
@@ -221,7 +221,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target werewolf creature", "werewolf_creature"),
     # PAR-141: "target `<adjective>` creature [you control]" — the adjective is read back as a filter
     # fragment by `target_adjective_filter` (`resolve_target_creature_state_filter`), never dropped:
-    # `handlers.EffectHandler.match` refuses a builder that loses it.
+    # `effect_rows.shared.EffectHandler.match` refuses a builder that loses it.
     (rf"target (?:{TARGET_ADJECTIVE}) creature you control", "creature_you_control"),
     (rf"target (?:{TARGET_ADJECTIVE}) creature", "creature"),
     # An ATTACKS trigger's defending player is carried on the event; this is
@@ -452,7 +452,7 @@ OTHER_PREFIX = r"(?:another|other) "
 #: scope above, not a row per phrase. The same vocabulary as `characteristic_phrase`'s "without …"
 #: tail (keyword words, counter kinds). `target_quality_filter` reads it back as a
 #: `combat.matches_object_filter` fragment and `resolve_target_kind` drops it; a handler that
-#: matched one without merging that fragment is refused by `handlers.EffectHandler.match`.
+#: matched one without merging that fragment is refused by `effect_rows.shared.EffectHandler.match`.
 _QUALITY_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
 #: PAR-135: "any target **that isn't a Dinosaur**" / "target creature that isn't a commander" — the
 #: negated *identity* of a target (a subtype, a card type or the commander designation), the sibling of
@@ -689,7 +689,6 @@ def devotion_selector(m: "re.Match[str]") -> "Optional[str | dict[str, Any]]":
 
 def subtype_count_selector(word: str) -> Optional[dict[str, Any]]:
     """ "`<word>` you control" → the structured count selector, or ``None``."""
-    from .count_phrase import parse_count_phrase  # function-scoped: count_phrase is a sibling grammar
 
     return parse_count_phrase(f"{word.lower()} you control")
 
@@ -806,7 +805,6 @@ def isnt_a_filter(word: str) -> Optional[dict]:
     A creature subtype → ``without_subtype``, a card type → ``without_card_type``, and "commander" (RULE
     903.3) → ``is_commander: False``. Players, planeswalkers and battles are never a subtype, so a filter
     that only ever inspects a creature leaves them legal, which is what the English means."""
-    from .subtype_vocabulary import SUBTYPES
 
     w = word.lower()
     if w == "commander":
@@ -921,13 +919,13 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
 #: confirmed via `inspect-db` against the real cache — a live rules bug, not
 #: a coverage gap), just one layer up from where that fix landed.
 _TARGET_COMBAT_STATE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?: you control|" + NOT_YOU_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?: you control|" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
     re.IGNORECASE,
 )
 
 
 _TARGET_ADJECTIVE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
     re.IGNORECASE,
 )
 

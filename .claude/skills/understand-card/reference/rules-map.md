@@ -13,7 +13,7 @@ Read the CR passage with `understand_card.py term "<word>"` or
 
 | Idiom | Rule | Modeled in |
 | --- | --- | --- |
-| "When/Whenever/At …" (recognising the condition) | 603.1–603.2 | `parser/oracle/segmenter.py` (`_TRIGGER_RE`, `_trigger_condition`) |
+| "When/Whenever/At …" (recognising the condition) | 603.1–603.2 | `parser/oracle/segmenter.py` (`TRIGGER_RE`, `_trigger_condition`) |
 | "When ~ enters" / "dies" / "attacks" / "blocks" | 603.2, 603.3 | segmenter trigger conditions → `game/binding/core.py` `_trigger_condition` |
 | "Whenever you gain life / cast / draw" (player events) | 603.2 | segmenter `_PLAYER_TRIGGER_CONDITIONS`; engine `EventType.*` in `game/rules_engine.py` |
 | "At the beginning of the next …, …" (delayed) | 603.7 | `effects.CreateDelayedTriggerEffect`, `GameState.delayed_triggers` |
@@ -44,7 +44,7 @@ Read the CR passage with `understand_card.py term "<word>"` or
 
 | Idiom | Rule | Modeled in |
 | --- | --- | --- |
-| "<cost>: <effect>" | 602 | `parser/oracle/catalogue/handlers.py`, `game/costs.py` |
+| "<cost>: <effect>" | 602 | `parser/oracle/catalogue/effect_rows/`, `game/costs.py` |
 | "{T}, Sacrifice ~: …" / "Pay N life:" additional costs | 118 | `game/costs.py` cost parser |
 | "[+1] / [−2] / [−X]" loyalty | 606 | `game/game_engine.py` `activate_ability` |
 | "Activate only as a sorcery" / "only once each turn" | 602.5 | segmenter activation markers |
@@ -55,7 +55,7 @@ Common: Destroy 701.8, Exile 701.20, Sacrifice 701.21, Tap/Untap 701.22,
 Counter 701.6, Create 701.7, Draw 701.24, Discard 701.9, Mill 701.17,
 Search 701.19, Scry 701.20, Fight 701.14, Proliferate 701.29,
 Cascade 702.85, Explore 701.44. Primitive: `game/effects/` (grep the
-effect-type string); parser bodies: `parser/oracle/catalogue/handlers.py`.
+effect-type string); parser bodies: `parser/oracle/catalogue/effect_rows/`.
 
 ## Combat (RULE 506–511, 702)
 

@@ -133,8 +133,11 @@ def test_mox_diamond_discards_a_land_to_enter():
 
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
-    assert state.pending_choice is not None and state.pending_choice["kind"] == "enter_or_graveyard"
-    engine.rules.resolve_choice(str(land.instance_id))
+    assert state.pending_choice is not None and state.pending_choice["kind"] == "pay_cost_then"
+    assert state.pending_choice["entry_effect"]  # a before-entry instruction (RULE 614.12)
+    engine.rules.resolve_choice("pay")
+    if state.pending_choice is not None:  # which land to discard
+        engine.rules.resolve_choice(str(land.instance_id))
     engine.resolve_until_stable()
 
     assert any(o.name == "Mox Diamond" for o in state.battlefield)

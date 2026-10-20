@@ -44,8 +44,8 @@ def _creature(state, name, pid, toughness=2, keywords=None):
 def test_bare_nonflyer_form_parses():
     assert parse_effect_body("~ deals 2 damage to each creature without flying") == [
         EffectSpec("damage", {
-            "amount": 2, "selector": "each_creature",
-            "selector_filter": {"without_keyword": "flying"},
+            "amount": 2, "group": {"zone": "battlefield", "of": "any",
+                                   "filter": {"card_type": "creature", "without_keyword": "flying"}},
         })
     ]
 
@@ -55,15 +55,15 @@ def test_x_and_player_form_parses():
         "~ deals x damage to each creature without flying and each player"
     ) == [
         EffectSpec("damage", {
-            "amount": "x", "selector": "each_creature_and_player",
-            "selector_filter": {"without_keyword": "flying"},
+            "amount": "x", "group_and_players": "each_player",
+            "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "without_keyword": "flying"}},
         })
     ]
 
 
 def test_plain_each_creature_still_unfiltered():
     assert parse_effect_body("~ deals 2 damage to each creature") == [
-        EffectSpec("damage", {"amount": 2, "selector": "each_creature"})
+        EffectSpec("damage", {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})
     ]
 
 

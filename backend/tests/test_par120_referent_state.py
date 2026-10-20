@@ -29,6 +29,7 @@ original search phrase).
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -133,14 +134,14 @@ def test_referent_condition_gates_a_resolving_effect():
         "kind": "is_card_type", "of": _PREVIOUS_TARGET, "card_type": "creature",
     })]
     assert parse_effect_body(
-        "if it was a creature card, you gain 3 life", previous_subject=True,
+        "if it was a creature card, you gain 3 life", reading=ClauseReading(previous_subject=True),
     ) == expected
     assert parse_effect_body("if it was a creature card, you gain 3 life") == expected
 
 
 def test_cast_provenance_condition_gates_a_self_triggered_effect():
     assert parse_effect_body(
-        "if you cast it from your hand, add {r}{r}{r}", self_subject=True,
+        "if you cast it from your hand, add {r}{r}{r}", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("add_mana", {"colors": ["R", "R", "R"]}, condition={
         "kind": "flag", "flag": "was_cast_from_hand",
     })]

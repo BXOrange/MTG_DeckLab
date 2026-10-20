@@ -52,7 +52,7 @@ _DOUBLE_TOKENS_RE = re.compile(
 )
 #: PAR-104: "If 1 or more tokens would be created under your control, those tokens plus a Mutagen token are
 #: created instead." (Donatello, the Brains; Peregrin Took's Food is the hand-authored original) — one extra
-#: named token alongside every creation (`additional_named_token`). The names are `handlers._NAMED_TOKEN_WORDS`'
+#: named token alongside every creation (`additional_named_token`). The names are `effect_rows.shared.NAMED_TOKEN_WORDS`'
 #: closed set: a name outside it would synthesize a blank token.
 _ADDITIONAL_NAMED_TOKEN_RE = re.compile(
     r"if 1 or more tokens would be created under your control, those tokens plus an? (?:additional )?"

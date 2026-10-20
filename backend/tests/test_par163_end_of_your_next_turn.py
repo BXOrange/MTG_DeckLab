@@ -392,10 +392,11 @@ def test_lidless_gaze_style_each_library_window_with_any_type_mana():
         "exile the top card of each player's library. until the end of your next turn, you may play those cards, "
         "and mana of any type can be spent to cast those spells."
     )
-    assert [(s.type, s.params) for s in specs] == [(
-        "impulsive_draw",
-        {"count": 1, "same_turn_only": False, "each_player": True, "mana_wildcard": "type"},
-    )]
+    assert [(s.type, s.params) for s in specs] == [
+        ("exile_top_of_library",
+         {"face_down": False, "player_selector": "each_player", "count": 1, "position": "top"}),
+        ("cast_window_exiled_pool", {"mana_wildcard": "type"}),
+    ]
     eng = _engine(2)
     _apply(eng, specs, _source(eng))
     p1 = eng.state.player_by_id("p1")

@@ -8,6 +8,7 @@ and an optional `kind` filter.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -34,7 +35,7 @@ def _db():
      {"kind": "+1/+1", "mode": "target", "target_kind": "creature_you_control"}),
 ])
 def test_double_counters_clause_modes(clause, expect):
-    specs = match_clause(clause, self_subject=True)
+    specs = match_clause(clause, reading=ClauseReading(self_subject=True))
     assert specs == [type(specs[0])("double_counters_on_target", expect)]
 
 

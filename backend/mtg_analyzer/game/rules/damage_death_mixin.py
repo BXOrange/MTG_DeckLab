@@ -58,7 +58,6 @@ from ..effects.core import (
     GameContext,
     GameEffect,
     ImpulsiveDrawEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,
@@ -2376,7 +2375,7 @@ class DamageDeathMixin:
             # dies, …"). Every consumer that does mean creatures
             # specifically already narrows on the event's own
             # ``object_types`` (`effect_binder._build_group_ok`'s ``type``
-            # filter, `_collect_counter_death_return_triggers`'s explicit
+            # filter, a `has_counter_kind` trigger's explicit
             # check), so widening the firing condition can't over-fire them.
             self.state.fire_event(
                 GameEvent(
@@ -2392,7 +2391,7 @@ class DamageDeathMixin:
                     # Snapshotted live (before `remove_from_battlefield`
                     # below): a "dies with a counter on it" trigger
                     # condition (Marchesa, the Black Rose-shaped,
-                    # `_collect_counter_death_return_triggers`) needs
+                    # ``has_counter_kind``) needs
                     # this off the event, not a live re-lookup — the
                     # dying object may already be gone from the
                     # battlefield by the time that check runs.

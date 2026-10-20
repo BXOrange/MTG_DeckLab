@@ -36,6 +36,7 @@ stays open.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -97,7 +98,7 @@ def _aura(name, host, controller="p1"):
 
 
 def test_lose_life_gated_on_attached_subject():
-    assert match_clause("its controller loses 2 life", attached_subject=True) == [
+    assert match_clause("its controller loses 2 life", reading=ClauseReading(attached_subject=True)) == [
         EffectSpec("lose_life", {"amount": 2, "player": _ATTACHED_CONTROLLER})
     ]
     # Ungated — no attached-permanent trigger condition offered this
@@ -106,31 +107,31 @@ def test_lose_life_gated_on_attached_subject():
 
 
 def test_lose_life_that_much_gated_on_attached_subject():
-    assert match_clause("its controller loses that much life", attached_subject=True) == [
+    assert match_clause("its controller loses that much life", reading=ClauseReading(attached_subject=True)) == [
         EffectSpec("lose_life", {"amount_from_trigger_event": "amount", "player": _ATTACHED_CONTROLLER})
     ]
 
 
 def test_gain_life_gated_on_attached_subject():
-    assert match_clause("its controller gains 3 life", attached_subject=True) == [
+    assert match_clause("its controller gains 3 life", reading=ClauseReading(attached_subject=True)) == [
         EffectSpec("gain_life", {"amount": 3, "player": _ATTACHED_CONTROLLER})
     ]
 
 
 def test_draws_gated_on_attached_subject():
-    assert match_clause("its controller draws a card", attached_subject=True) == [
+    assert match_clause("its controller draws a card", reading=ClauseReading(attached_subject=True)) == [
         EffectSpec("draw", {"count": 1, "player": _ATTACHED_CONTROLLER})
     ]
 
 
 def test_discards_gated_on_attached_subject():
-    assert match_clause("its controller discards a card", attached_subject=True) == [
+    assert match_clause("its controller discards a card", reading=ClauseReading(attached_subject=True)) == [
         EffectSpec("discard", {"count": 1, "player": _ATTACHED_CONTROLLER})
     ]
 
 
 def test_mills_gated_on_attached_subject():
-    assert match_clause("its controller mills 3 cards", attached_subject=True) == [
+    assert match_clause("its controller mills 3 cards", reading=ClauseReading(attached_subject=True)) == [
         EffectSpec("mill", {"count": 3, "selector": "attached_permanent_controller"})
     ]
 

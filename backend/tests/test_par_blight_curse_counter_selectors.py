@@ -24,10 +24,13 @@ def _creature(state, name, controller):
 
 def test_mass_counter_selectors_parse_without_claiming_qualified_near_misses():
     assert match_clause("put a -1/-1 counter on each creature") == [
-        EffectSpec("add_counters", {"count": 1, "kind": "-1/-1", "selector": "each_creature"})
+        EffectSpec("add_counters", {"count": 1, "kind": "-1/-1", "group": {
+            "zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})
     ]
     assert match_clause("put x -1/-1 counters on each creature") == [
-        EffectSpec("add_counters", {"kind": "-1/-1", "selector": "each_creature", "x_multiplier": 1})
+        # PAR-169: the generalized group row reads the announced X as ``count: "x"``.
+        EffectSpec("add_counters", {"count": "x", "kind": "-1/-1", "group": {
+            "zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})
     ]
     # A qualified group is no near miss any more: the shared group grammar reads "nonblack" (batch 5,
     # `handlers._ADD_PT_COUNTER_GROUP_RE`) as a structured selector, not a closed named one.

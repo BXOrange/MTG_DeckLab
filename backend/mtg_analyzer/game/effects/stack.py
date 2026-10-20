@@ -7,6 +7,10 @@ from ._runtime import install, register
 
 install(globals())
 
+#: Where a countered spell goes instead of its owner's graveyard (PAR-175 M4).
+COUNTER_DESTINATIONS: frozenset[str] = frozenset({"exile", "hand", "library_top"})
+
+
 class CounterSpellEffect(GameEffect):
     """Counter a target spell on the stack (RULE 701.5).
 
@@ -41,9 +45,17 @@ class CounterSpellEffect(GameEffect):
         library_choice: bool = False,
         count: int = 1,
         optional: bool = False,
+        destination: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: PAR-175 M4: "If that spell is countered this way, exile it / put it on top of its owner's library / put it
+        #: into its owner's hand instead of putting it into its owner's graveyard." (Dissipate, Memory Lapse, Remand) --
+        #: one of `COUNTER_DESTINATIONS`; anything else is refused (an unknown redirect must not silently be a plain
+        #: counter).
+        if destination is not None and destination not in COUNTER_DESTINATIONS:
+            raise ValueError(f"Unknown counter destination: {destination!r}")
+        self.destination = destination
         #: PAR-150: RULE 115.1a "counter up to two target spells" (Double Negative) -- one `TargetSpec` of ``count``
         #: picks, each countered in turn. ``optional`` is the "up to" floor of 0.
         self.count = max(1, int(count))
@@ -150,6 +162,7 @@ class CounterSpellEffect(GameEffect):
                     target, unless_pays=unless_pays, source=self.source,
                     suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
                     tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
+                    destination=self.destination,
                 )
             return
         # RULE 115.1a: only this effect's own ``count`` picks off a possibly shared targets list.
@@ -169,7 +182,7 @@ class CounterSpellEffect(GameEffect):
                 suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
                 tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
                 exile_instead=self.exile_then_cast_free or self.exile_standing_free_cast,
-                library_choice=self.library_choice,
+                library_choice=self.library_choice, destination=self.destination,
             )
             if self.exile_then_cast_free and countered_obj is not None and countered_obj.zone == Zone.EXILE:
                 caster = _controller_of(self.source, context)
@@ -453,38 +466,6 @@ def _resume_demonstrate_opponent(rules, choice, answer):
     DemonstrateCopyEffect(stage="opponent_copy", controller_id=choice["player_id"],
         spell_stack_id=choice["spell_stack_id"], copy_ids=choice["copy_ids"],
         opponent_id=answer).apply(rules.context)
-
-
-class ConjureDuplicateIntoHandEffect(GameEffect):
-    """"Conjure a duplicate of that spell into your hand." (Spellchain
-    Scatter, PAR-124) — the hand-zone sibling of `CopySpellEffect`'s
-    ``spell_from_trigger_event`` mode: "that spell" is RULE 603.1's own
-    firing-event referent (the spell this `create_turn_trigger` ability
-    fired for), not a RULE 115 target, resolved the identical way.
-    """
-
-    def __init__(
-        self,
-        spell_from_trigger_event: Optional[str] = None,
-        source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        self.spell_from_trigger_event = spell_from_trigger_event
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.spell_from_trigger_event is None:
-            return
-        event = context.trigger_event or {}
-        instance_id = event.get(self.spell_from_trigger_event)
-        target = context.state.find_object(instance_id) if instance_id is not None else None
-        if target is None:
-            return
-        controller_id = getattr(_controller_of(self.source, context), "id", None)
-        if controller_id is None:
-            return
-        duplicate = context.conjure_duplicate_into_hand(target, controller_id)
-        if duplicate is not None:
-            context.created_objects.append(duplicate)
 
 
 class CopyAbilityEffect(GameEffect):

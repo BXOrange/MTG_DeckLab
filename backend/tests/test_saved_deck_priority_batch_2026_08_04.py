@@ -81,31 +81,31 @@ def _bf(state, card, controller="p1"):
 
 def test_destroy_all_creatures_parses():
     assert match_clause("destroy all creatures") == [
-        EffectSpec("destroy", {"selector": "all_creatures"})
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})
     ]
 
 
 def test_destroy_all_artifacts_with_mana_value_filter_parses():
     assert match_clause("destroy all artifacts with mana value 3 or less") == [
-        EffectSpec("destroy", {"selector": "all_artifacts", "filter": {"max_mana_value": 3}})
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "artifact", "max_mana_value": 3}}})
     ]
 
 
 def test_destroy_all_creatures_with_toughness_filter_parses():
     assert match_clause("destroy all creatures with toughness 4 or greater") == [
-        EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_toughness": 4}})
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "min_toughness": 4}}})
     ]
 
 
 def test_destroy_all_lands_parses():
     assert match_clause("destroy all lands") == [
-        EffectSpec("destroy", {"selector": "all_lands"})
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}}})
     ]
 
 
 def test_exile_all_permanents_parses():
     assert match_clause("exile all permanents") == [
-        EffectSpec("exile", {"selector": "all_permanents"})
+        EffectSpec("exile", {"group": {"zone": "battlefield", "of": "any"}})
     ]
 
 
@@ -113,7 +113,7 @@ def test_destroy_all_creatures_power_filter_parses():
     # Dusk // Dawn/Elspeth, Sun's Champion-shaped — the power-threshold
     # sibling of the mana-value/toughness mass-destroy filters just above.
     assert match_clause("destroy all creatures with power 4 or greater") == [
-        EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_power": 4}})
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "min_power": 4}}})
     ]
 
 
@@ -124,7 +124,8 @@ def test_damnation_full_card_is_modeled_with_no_regen():
     assert result.modeled
     spec = result.effect_specs[0]
     assert spec.effects[0].type == "destroy"
-    assert spec.effects[0].params == {"selector": "all_creatures", "can_be_regenerated": False}
+    assert spec.effects[0].params == {
+        "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "can_be_regenerated": False}
 
 
 def test_destroy_all_creatures_executes_and_wipes_the_board():

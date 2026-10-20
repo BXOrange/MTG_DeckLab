@@ -41,6 +41,7 @@ covers what closes them:
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.card_registry import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -104,7 +105,7 @@ def test_that_creature_pronoun_needs_group_subject_flag():
     # not be guessed absent the caller confirming a real group-subject
     # trigger.
     assert parse_effect_body("untap that creature") is None
-    assert parse_effect_body("untap that creature", group_subject=True) is not None
+    assert parse_effect_body("untap that creature", reading=ClauseReading(group_subject=True)) is not None
 
 
 def test_finest_hour_untaps_the_attacking_alone_creature():

@@ -176,7 +176,7 @@ def test_kicked_wrapper_combines_with_a_base_effect_via_period_connector():
 def test_add_counters_each_creature_you_control_selector_is_recognized():
     (spec,) = parse_effect_body("put 2 +1/+1 counters on each creature you control")
     assert spec.type == "add_counters"
-    assert spec.params["selector"] == "each_creature_you_control"
+    assert spec.params["group"] == {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
 
 
 # ---------------------------------------------------------------------------

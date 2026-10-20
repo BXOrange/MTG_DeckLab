@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext
@@ -52,10 +53,10 @@ def test_those_creatures_pronoun_parses_like_they():
     # `previous_subject_only` rows need the referent flag set (the connector
     # split does this after a target-choosing clause).
     assert match_clause(
-        "each of those creatures gains persist until end of turn", previous_subject=True
+        "each of those creatures gains persist until end of turn", reading=ClauseReading(previous_subject=True)
     ) == [EffectSpec("pump", {"keywords": ["persist"], "previous_subject": True})]
     assert match_clause(
-        "those creatures gain vigilance until end of turn", previous_subject=True
+        "those creatures gain vigilance until end of turn", reading=ClauseReading(previous_subject=True)
     ) == [EffectSpec("pump", {"keywords": ["vigilance"], "previous_subject": True})]
 
 

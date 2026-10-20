@@ -7,8 +7,10 @@ to build. Paths are relative to `backend/mtg_analyzer/`.
 
 | The clause is… | File | Registered in |
 | --- | --- | --- |
-| a one-shot effect body ("destroy target …", "draw a card") | `parser/oracle/catalogue/handlers.py` | `HANDLERS` list |
+| a one-shot effect body ("destroy target …", "draw a card") | the family module in `parser/oracle/catalogue/effect_rows/` (damage, tokens, counters, …; helpers used by several families in `effect_rows/shared.py`) | that module's `ROWS`; `handlers.py` assembles them into `HANDLERS` in a fixed order pinned by `tests/parser/oracle/handler_row_order.txt` (order is semantics: update that file deliberately, and declare `fallback_for` when a row backs up another) |
 | a standing static ("creatures you control get +1/+1", a permission, a grant) | `parser/oracle/catalogue/static_handlers.py` | no single table — entry point `static_effect_specs(clause)`, built from `_FILTER_RES` / `_CONDITION_RES` / `_TAIL_RES` (plus `enter_choice_specs` for RULE 601.2b) |
+
+Ordered tables (first answer wins; order is pinned in `tests/parser/oracle/*_order.txt`, update the file when you add/move a row on purpose): `handlers.HANDLERS` (effect rows, `handler_row_order.txt`), `segmenter.LINE_MATCHERS` (whole-line shapes, `line_matcher_order.txt`), `static_handlers.STATIC_MATCHERS` (statics, `static_matcher_order.txt`; a matcher returns `DECLINE` to stop the search with `None`, plain `None` to fall through).
 | a **trigger condition** ("whenever ~ becomes monstrous") | `parser/oracle/segmenter.py` | `_TRIGGER_VERBS` / `_PHASE_STEP_WORDS` / `_PLAYER_TRIGGER_CONDITIONS` |
 | an activated-ability **cost** | `parser/oracle/segmenter.py` (+ `game/costs.py` for the engine side) | — |
 | a RULE 702 keyword | `parser/oracle/catalogue/keywords.py` | `KEYWORDS` |
@@ -47,7 +49,7 @@ So: patterns are lowercase, use `~` for the source, and never need to handle
 | `COUNT_X` | `a\|an\|x\|\d+` | `count_or_x_of(...)` → int **or** the string `"x"` |
 | `SPELL_TARGET` | "target noncreature spell", … | `resolve_spell_filter(...)` |
 | `COLOR_WORD_ALT`, `IF_COLOR_SUFFIX` | colour words / "if it's red" | `resolve_color_word(...)` |
-| `_MULTI_TARGET_QUANTIFIER` + `_MULTI_TARGET_ALT` (in `handlers.py`) | RULE 115.1a N≥2, "up to two target creatures" | `_multi_target_params(m)` |
+| `MULTI_TARGET_QUANTIFIER` + `MULTI_TARGET_ALT` (in `effect_rows/shared.py`) | RULE 115.1a N≥2, "up to two target creatures" | `multi_target_params(m)` |
 
 Every builder returning `None` after a successful regex match is **correct and
 expected** for an unrecognised target phrase — that's the fail-closed path.
@@ -115,9 +117,11 @@ def _monstrosity(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 `fullmatch`, so **do not anchor** with `^`/`$` yourself, and do not leave a
 trailing `.*` — that would claim clauses you haven't modeled.
 
-`self_subject_only=True` / `previous_subject_only=True` gate a row whose
-subject is a bare pronoun ("it fights …"). Use them; claiming a pronoun blind
-mis-models cards like Epic Confrontation into resolving to nothing.
+`requires=ClauseReading(self_subject=True)` / `requires=ClauseReading(previous_subject=True)` (or `group_subject`,
+`previous_selector`, `attached_subject`) gate a row whose subject is a bare pronoun ("it fights …"): the row is
+offered only under that reading (`catalogue/clause_reading.py`). Use them; claiming a pronoun blind mis-models
+cards like Epic Confrontation into resolving to nothing. A builder that must re-enter the table or branch on
+`reading.group_clause` takes `(m, reading)` and the row sets `reading_aware=True`.
 
 ## Trailing sentence that retroactively modifies the previous clause
 
@@ -158,7 +162,8 @@ _MY_TAIL_RE = re.compile(
 my_tail = _MY_TAIL_RE.match(body)
 if my_tail is not None:
     before_specs = parse_effect_body(
-        my_tail.group("before"), self_subject=self_subject, previous_subject=previous_subject
+        my_tail.group("before"),
+        reading=ClauseReading(self_subject=reading.self_subject, previous_subject=reading.previous_subject),
     )
     if before_specs is None or not any(spec.type == "<expected type>" for spec in before_specs):
         return None  # fail closed — the tail only makes sense after that clause
@@ -167,7 +172,9 @@ if my_tail is not None:
     after_text = (my_tail.group("after") or "").strip()
     if not after_text:
         return before_specs
-    after_specs = parse_effect_body(after_text, previous_subject=_announces_creature_target(before_specs))
+    after_specs = parse_effect_body(
+        after_text, reading=ClauseReading(previous_subject=announces_creature_target(before_specs))
+    )
     if after_specs is None:
         return None
     return before_specs + after_specs

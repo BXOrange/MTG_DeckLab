@@ -357,7 +357,7 @@ def test_damage_handler_accepts_it_and_this_land_subjects():
 
 def test_damage_selector_handler_recognizes_each_creature_player_and_opponent():
     creatures = parse_effect_body("~ deals 2 damage to each creature")[0]
-    assert creatures.params == {"amount": 2, "selector": "each_creature"}
+    assert creatures.params == {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}
     players = parse_effect_body("~ deals 1 damage to each player")[0]
     assert players.params == {"amount": 1, "selector": "each_player"}
     opponents = parse_effect_body("~ deals 3 damage to each opponent")[0]

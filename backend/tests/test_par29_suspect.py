@@ -13,6 +13,7 @@ Reference: game/rules/misc_mixin.py (`suspect`), game/combat.py
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -28,9 +29,9 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
 def test_suspect_subject_shapes_parse():
-    assert match_clause("suspect it", self_subject=True) == [EffectSpec("suspect", {})]
+    assert match_clause("suspect it", reading=ClauseReading(self_subject=True)) == [EffectSpec("suspect", {})]
     assert match_clause("suspect it") is None
-    assert match_clause("suspect it", previous_subject=True) == [
+    assert match_clause("suspect it", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("suspect", {"previous_subject": True})
     ]
     assert match_clause("suspect enchanted creature") == [

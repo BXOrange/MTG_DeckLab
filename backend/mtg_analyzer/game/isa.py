@@ -491,6 +491,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "each_opponent_returns_greatest_mv_creature": "move_object",
     "exile_creature_card_make_spirit": "exile",
     "return_trigger_subject_to_hand": "move_object",
+    "put_entering_into_graveyard": "move_object",  # RULE 614.12 — Mox Diamond's declined entry
     "prevent_attacking_planeswalkers_this_turn": "create_continuous_effect",
     "coin_of_fate_split": "move_object",
     "cast_exiled_with_source": "cast",
@@ -540,7 +541,6 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_spell": "copy_object",
     "demonstrate_copy": "copy_object",  # RULE 702.144a Demonstrate body
     "copy_self_spell": "copy_object",
-    "conjure_duplicate_into_hand": "copy_object",
     "create_emblem": "create",
     "create_token_for_linked_exile": "create",
     # ENG-37 re-derivation: not a `create`+`copy_object` weld. The "copy" is
@@ -555,7 +555,6 @@ _ALIAS_TYPES: dict[str, str] = {
     "deal_damage_to_chosen_player": "deal_damage",
     "destroy_each_with_mana_value": "destroy",
     "destroy_specific": "destroy",
-    "discard_specific": "discard",
     "dig_until": "reveal",
     # ENG-37 B5: reveal a library top card + stash it as the `revealed`
     # referent; move that stashed card; cast it for free. Each is one
@@ -638,7 +637,6 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_escape": "create_continuous_effect",
     "grant_evoke": "create_continuous_effect",
     "grant_offspring": "create_continuous_effect",
-    "choose_perpetual_blitz": "create_continuous_effect",
     "grant_flash_until_eot": "create_continuous_effect",
     "grant_flashback_to_target": "create_continuous_effect",
     "grant_graveyard_cast_permission_this_turn": "create_continuous_effect",
@@ -1045,7 +1043,6 @@ _SPECIAL_TYPES: dict[str, str] = {
     "exile_cast_spell_into_imprint_pool": "Imprint-pool casting",
     "exile_graveyard_card_counter_if_permanent": "Permanent-sensitive graveyard exile",
     "exile_self_collect_evidence_return": "Lamplight Phoenix",
-    "specialize": "Specialize (Duskmourn) — parked, see DEFERRED.md",
     "double_cast_x": "X-doubling cast family",
     "expressive_iteration": "Expressive Iteration",
     "expressive_iteration_exile_step": "Expressive Iteration",

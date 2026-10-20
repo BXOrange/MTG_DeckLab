@@ -352,7 +352,12 @@ remainder *after* frames the paused effect had parked itself, and the deferred
 stack pops from the top — so "each player sacrifices a creature, you gain 5
 life" gained the life before the second player had sacrificed.
 
-### S4 — Clause grammar with residue
+### S4 — Clause grammar with residue — **closed** (PAR-175)
+
+> Shipped as a referent environment on `ClauseReading` plus report-only residue spans, not a recursive-descent
+> rewrite: residue never changes a verdict (fail-closed), and M0 sizing showed the linkage tail is mostly
+> singletons. Details and numbers: `Done_Backend.md` "Clause linkage across a sequence (PAR-175)".
+
 
 Rewrite `parse_effect_body` as recursive descent over the connectives measured
 in `13_` §5.2, replacing all-or-nothing `fullmatch` with residue. Fix the two

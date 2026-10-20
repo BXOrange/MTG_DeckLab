@@ -11,6 +11,7 @@ again" (Delina, Wild Mage). Each card is parsed from its real Oracle text and ex
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -176,10 +177,10 @@ def test_the_exiled_card_is_its_own_referent():
 
 
 def test_copies_of_it_need_the_attacking_shape():
-    assert match_clause("create x tokens that are copies of it and that are tapped and attacking", self_subject=True)
+    assert match_clause("create x tokens that are copies of it and that are tapped and attacking", reading=ClauseReading(self_subject=True))
     # a cast trigger's copy of the *spell* is not this row's reading
-    assert match_clause("create a token that's a copy of it", self_subject=True) is None
-    assert match_clause("create 2 tokens that are copies of it", self_subject=True) is None
+    assert match_clause("create a token that's a copy of it", reading=ClauseReading(self_subject=True)) is None
+    assert match_clause("create 2 tokens that are copies of it", reading=ClauseReading(self_subject=True)) is None
 
 
 def test_defending_player_count_and_modified_iteration_selectors():
@@ -210,7 +211,7 @@ def test_exile_from_graveyard_with_lesser_power_a_subtype_and_a_counter():
 def test_a_dice_row_copy_with_an_end_of_combat_grant_and_roll_again():
     specs = parse_effect_body(
         "create a tapped and attacking token that's a copy of that creature, except it's not legendary and it has "
-        "\"at end of combat, exile ~.\"", previous_subject=True,
+        "\"at end of combat, exile ~.\"", reading=ClauseReading(previous_subject=True),
     )
     copy, delayed = specs
     assert copy.params["not_legendary"] and copy.params["referent"] == "previous"

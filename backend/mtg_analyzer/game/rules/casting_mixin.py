@@ -64,7 +64,6 @@ from ..effects.core import (
     GameContext,
     GameEffect,
     ImpulsiveDrawEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,
@@ -1945,12 +1944,22 @@ class CastingResolutionMixin:
         from ..binding.core import build_effects  # function-scoped: binder cycle
         from ...parser.oracle.spec import EffectSpec
 
-        built = build_effects(
-            [EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
-                        condition=d.get("condition"))
-             for d in specs],
-            source,
-        )
+        split = choice.get("if_you_do_from") if accepted else None
+        spec_objs = [EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
+                                condition=d.get("condition"))
+                     for d in specs]
+        if split and 0 < split < len(spec_objs):
+            # RULE 608.2c: "You may X. If you do, Y." -- Y waits behind a check that X changed the game.
+            from ..effects.composition import ALWAYS_DONE_ANTECEDENTS, IfYouDoEffect, game_fingerprint
+
+            built = build_effects(spec_objs[:split], source)
+            if all(s.type in ALWAYS_DONE_ANTECEDENTS for s in spec_objs[:split]):
+                built += build_effects(spec_objs[split:], source)
+            else:
+                built.append(IfYouDoEffect(
+                    game_fingerprint(self.context, source), [s.to_dict() for s in spec_objs[split:]], source))
+        else:
+            built = build_effects(spec_objs, source)
         # RULE 601.2c/608.2h: the announced targets, re-found by id across the
         # pause. One that has left a zone is dropped rather than substituted —
         # the same last-known-information handling as the referent above.
@@ -2632,82 +2641,8 @@ class CastingResolutionMixin:
             else:
                 _after_copy_choice()
 
-        if obj.enter_or_graveyard_discard_land:
-            self._offer_enter_or_graveyard(obj, _after_replacement_choice)
-        else:
-            _after_replacement_choice()
-    def _offer_enter_or_graveyard(
-        self, obj: GameObject, continuation: Callable[[], None]
-    ) -> None:
-        """RULE 614.12: offer ``obj``'s "you may discard a land card instead"
-        choice *before* anything else about entering the battlefield is even
-        considered (Mox Diamond) — declining sends it straight to its
-        owner's graveyard, the same way a spell that never became a
-        permanent always has (`_send_to_graveyard_unentered`).
+        _after_replacement_choice()
 
-        No prompt at all when the controller has no land card to discard
-        (RULE 601.2c-style: nothing to choose, nothing pauses) — straight to
-        the graveyard, mirroring `_offer_enter_as_copy`'s no-legal-target
-        case exactly.
-        """
-        player = self.state.player_by_id(obj.controller_id)
-        lands = [c for c in player.hand if c.card.is_land] if player is not None else []
-        if not lands:
-            self._send_to_graveyard_unentered(obj)
-            return
-        self._pending_enter_or_graveyard_obj = obj
-        self._pending_enter_or_graveyard_continuation = continuation
-        options = [
-            {"id": str(c.instance_id), "label": c.name, "instance_id": c.instance_id}
-            for c in lands
-        ]
-        options.append({"id": "decline", "label": "Nicht abwerfen (auf den Friedhof)"})
-        self.open_choice({
-            "kind": "enter_or_graveyard",
-            "player_id": obj.controller_id,
-            "prompt": f"{obj.name}: Land abwerfen, um es ins Spiel zu bringen?",
-            "options": options,
-        })
-    @continuations.choice("enter_or_graveyard", answer=continuations.ANSWER_STR, rule="614.12")
-    def _resume_enter_or_graveyard(self, choice: dict[str, Any], answer: Optional[str]) -> None:
-        """Answer a pending `enter_or_graveyard` choice (RULE 614.12), then
-        either resume whatever battlefield-entry work `_offer_enter_or_
-        graveyard` deferred (a land was discarded) or route the object
-        straight to its owner's graveyard instead (declined).
-
-        ``answer`` is a land card's stringified ``instance_id``, or
-        ``None``/``"decline"`` to decline.
-        """
-        obj = self._pending_enter_or_graveyard_obj
-        continuation = self._pending_enter_or_graveyard_continuation
-        self._pending_enter_or_graveyard_obj = None
-        self._pending_enter_or_graveyard_continuation = None
-        if obj is None:
-            return
-        if answer is None or str(answer) == "decline":
-            self._send_to_graveyard_unentered(obj)
-            return
-        land = self._resolve_choice_option(choice["options"], str(answer))
-        player = self.state.player_by_id(obj.controller_id)
-        if land is not None and player is not None and land in player.hand:
-            player.remove_from_zone(land, Zone.HAND)
-            player.add_to_zone(land, Zone.GRAVEYARD)
-            self.state.fire_event(
-                GameEvent(
-                    EventType.DISCARD_CARD, player_id=player.id, instance_id=land.instance_id,
-                    # "…discards a permanent card." (Tergrid, God of
-                    # Fright, MEC-43 round 4E) — see `draw_discard_mixin.
-                    # _main_type_words`'s identical stamp; always a land
-                    # here (RULE 118.9's Pitch cycle), kept for consistency
-                    # rather than assuming callers never widen this route.
-                    object_types=sorted(
-                        w for w in land.card.type_line.partition("—")[0].strip().lower().split() if w
-                    ),
-                )
-            )
-            self.state.fire_event(GameEvent(EventType.DISCARD, player_id=player.id, count=1))
-        if continuation is not None:
-            continuation()
     def _send_to_graveyard_unentered(self, obj: GameObject) -> None:
         """RULE 614.12's "don't pay" branch: ``obj`` never becomes a
         permanent at all — no `ENTERS_BATTLEFIELD`. Straight to its owner's
@@ -2929,12 +2864,17 @@ class CastingResolutionMixin:
             obj.enter_choice_effects = remaining
             outer_actor = self.context.acting_player_id
             self.context.acting_player_id = obj.controller_id
+            entry_before = self.state.pending_permanent_entry
             try:
                 effect.apply(self.context)
             finally:
                 self.context.acting_player_id = outer_actor
             if self.state.pending_choice:
                 self.state.pending_choice["entry_effect"] = True
+            elif entry_before is not None and self.state.pending_permanent_entry is None:
+                # RULE 614.12: the instruction replaced the entry itself (Mox Diamond's "if you
+                # don't, put it into its owner's graveyard") -- nothing is left to enter.
+                return
             else:
                 self._offer_enter_choices(obj, continuation)
             return

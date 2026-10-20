@@ -67,7 +67,7 @@ def test_mass_damage_rider_arms_on_damaged_this_way():
         "~ deals 3 damage to each creature. "
         "if a creature dealt damage this way would die this turn, exile it instead"
     ) == [
-        EffectSpec("damage", {"amount": 3, "selector": "each_creature"}),
+        EffectSpec("damage", {"amount": 3, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
         EffectSpec("grant_die_to_exile_this_turn", {"damaged_this_way": True}),
     ]
 

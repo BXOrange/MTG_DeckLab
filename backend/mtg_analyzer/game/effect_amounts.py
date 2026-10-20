@@ -168,6 +168,11 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # Pyromancer, Gerrard's Verdict); optional ``card_type`` (+ ``negate``) narrows by card type.
         "discarded_this_way",
         "sacrificed_this_way",  # the same over `SACRIFICE` events (Nahiri's Lithoforming, Visions of Ruin)
+        # PAR-175 M4b: ONE typed handle over every "<verb>ed this way" pool (`THIS_WAY_POOLS`): ``pool`` + an optional
+        # ``card_type`` / ``subtype`` / ``color`` filter (``negate`` flips the type test). ``this_way_count`` counts the
+        # matching objects, ``this_way_sum`` adds a ``characteristic`` (power / toughness / mana_value) over them.
+        "this_way_count",
+        "this_way_sum",
         # The larger of two measurements — ``left`` / ``right`` are themselves amounts.
         "greater_of",
         # "the difference between that creature's power and its toughness" (Jaws of Defeat) — |left - right|.
@@ -370,6 +375,15 @@ def _base(
             else:
                 total += int(getattr(obj, characteristic, 0) or 0)
         return total
+
+    if kind in ("this_way_count", "this_way_sum"):
+        matching = this_way_matching(context, source, amount)
+        if kind == "this_way_count":
+            return len(matching)
+        characteristic = str(amount.get("characteristic", "mana_value"))
+        if characteristic not in CHARACTERISTICS:
+            return 0
+        return sum(int(getattr(o, characteristic, 0) or 0) for o in matching if not hasattr(o, "get"))  # events carry none
 
     if kind in ("discarded_this_way", "sacrificed_this_way"):
         return len(discarded_this_way(
@@ -641,6 +655,49 @@ def amount_of(
 
 #: "<verb>ed this way" pools by name -> the event each member is logged as (RULE 701.8 discard, RULE 701.17 sacrifice).
 THIS_WAY_EVENTS: dict[str, str] = {"discarded": "DISCARD_CARD", "sacrificed": "SACRIFICE"}
+
+
+#: The "<verb>ed this way" pools by name (RULE 608.2c: "this way" is exactly what the instruction before it did).
+#: Three live on `GameContext` and are reset per resolution; discard and sacrifice are read from the `mark_event_log`
+#: window (`THIS_WAY_EVENTS`) because their instruction can pause for the affected player's answer.
+THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed"})
+_CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects"}
+
+
+def this_way_objects(context: "GameContext", source: Any, pool: str) -> list[Any]:
+    """The objects ``pool`` holds for the resolution now running -- the one resolver every typed "this way" amount and
+    condition reads. An unknown pool, or one nothing has filled yet, is empty (never a guess)."""
+    if pool in THIS_WAY_EVENTS:
+        found = (context.state.find_object(e.get("instance_id")) for e in discarded_this_way(context, source, None, False, pool))
+        return [obj for obj in found if obj is not None]
+    field = _CONTEXT_POOL_FIELDS.get(pool)
+    return list(getattr(context, field, None) or []) if field else []
+
+
+def this_way_matching(context: "GameContext", source: Any, spec: dict[str, Any]) -> list[Any]:
+    """The members of ``spec["pool"]`` that satisfy ``spec``'s filter. A discard / sacrifice with only a card-type
+    filter is answered from the events themselves (a sacrificed *token* has no object left to look at, but still
+    counts); anything finer needs the objects."""
+    pool = str(spec.get("pool", ""))
+    if pool not in THIS_WAY_POOLS:
+        return []
+    if pool in THIS_WAY_EVENTS and not (spec.get("subtype") or spec.get("color")):
+        return discarded_this_way(context, source, spec.get("card_type"), bool(spec.get("negate")), pool)
+    return [o for o in this_way_objects(context, source, pool) if this_way_matches(o, spec)]
+
+
+def this_way_matches(obj: Any, spec: dict[str, Any]) -> bool:
+    """Whether a pooled object satisfies the optional ``card_type`` (+ ``negate``) / ``subtype`` / ``color`` of ``spec``."""
+    from .continuous import card_types_of, has_subtype  # function-scoped: continuous imports this module
+
+    card_type = str(spec.get("card_type") or "").lower()
+    if card_type and ((card_type in card_types_of(obj)) == bool(spec.get("negate"))):
+        return False
+    subtype = str(spec.get("subtype") or "").lower()
+    if subtype and not has_subtype(obj, subtype):
+        return False
+    color = str(spec.get("color") or "").upper()
+    return not color or color in {str(c).upper() for c in (getattr(obj, "colors", None) or ())}
 
 
 def discarded_this_way(

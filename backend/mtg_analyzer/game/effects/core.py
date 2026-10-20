@@ -574,9 +574,6 @@ class GameContext:
         return self.engine.copy_self_spell(obj, controller_id, targets=targets,
                                            choose_new_targets=choose_new_targets)
 
-    def conjure_duplicate_into_hand(self, target: Any, controller_id: str) -> Optional["GameObject"]:
-        return self.engine.conjure_duplicate_into_hand(target, controller_id)
-
     def copy_ability(self, target: Any, controller_id: str, new_targets: Optional[list] = None,
                      *, choose_new_targets: bool = False, defer_choice: bool = False):
         return self.engine.copy_ability(target, controller_id, new_targets,
@@ -835,12 +832,13 @@ class GameContext:
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_instead: bool = False,
         library_choice: bool = False,
+        destination: Optional[str] = None,
     ) -> None:
         self.engine.counter_unless_pays(
             target, unless_pays, source, suspend_time_counters=suspend_instead,
             on_pay_effect_specs=on_pay_effect_specs,
             tap_lands_empty_pool_if_unpaid=tap_lands_empty_pool_if_unpaid,
-            exile_instead=exile_instead, library_choice=library_choice,
+            exile_instead=exile_instead, library_choice=library_choice, destination=destination,
         )
 
     def counter_ability(self, target: Any) -> None:
@@ -1575,8 +1573,29 @@ def _apply_effects_partitioned(
                 # mass group is replayable by name.
                 context.previous_selector = ADD_COUNTERS_GROUP_AFFECTS[selecting.selector]
             elif (
+                isinstance(selecting, AddCountersEffect)
+                and isinstance(selecting.group, dict) and selecting.group_player is None
+                and selecting.group.get("filter") in (
+                    {"card_type": "creature"}, {"card_type": "creature", "not_reference": True})
+                and selecting.subtypes is None and not selecting.creature_filter
+            ):
+                # PAR-169: the structured spelling of the same unnarrowed creature group
+                # (`add_pt_counter_group`) — replayable as the group dict itself.
+                context.previous_selector = (
+                    {**selecting.group, "filter": {**selecting.group["filter"], "not_reference": True}}
+                    if selecting.group_other else dict(selecting.group)
+                )
+            elif (
                 isinstance(selecting, DealDamageEffect)
-                and getattr(selecting, "selector", None) in PREVIOUS_GROUP_DAMAGE_SELECTORS
+                and (
+                    getattr(selecting, "selector", None) in PREVIOUS_GROUP_DAMAGE_SELECTORS
+                    # PAR-169: a structured creature-only group (`damage_group`), creatures alone.
+                    or (
+                        selecting.group is not None and selecting.group_and_players is None
+                        and selecting.group_player is None
+                        and (selecting.group.get("filter") or {}).get("card_type") == "creature"
+                    )
+                )
             ):
                 # PAR-128: "~ deals 1 damage to each creature with flying your
                 # opponents control. Tap those creatures." (Thundermaw

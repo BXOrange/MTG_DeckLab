@@ -8,6 +8,7 @@ target the preceding split clause chose (`GameContext.previous_targets`,
 creature." -> "it gains haste.").
 """
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.parser.oracle.segmenter import match_clause, parse_effect_body
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.models.cards.card import Card
@@ -18,11 +19,11 @@ from mtg_analyzer.game.game_engine import GameEngine
 
 
 def _specs(body, **kw):
-    return parse_effect_body(body, **kw)
+    return parse_effect_body(body, reading=ClauseReading(**kw))
 
 
 def test_singular_it_keyword_only_previous_subject():
-    specs = match_clause("it gains hexproof until end of turn", previous_subject=True)
+    specs = match_clause("it gains hexproof until end of turn", reading=ClauseReading(previous_subject=True))
     assert specs is not None
     assert specs[0].type == "pump"
     assert specs[0].params["keywords"] == ["hexproof"]
@@ -32,7 +33,7 @@ def test_singular_it_keyword_only_previous_subject():
 def test_singular_that_creature_pt_and_keyword():
     specs = match_clause(
         "that creature gets +2/+0 and gains haste until end of turn",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     )
     assert specs is not None
     p = specs[0].params
@@ -42,14 +43,14 @@ def test_singular_that_creature_pt_and_keyword():
 
 
 def test_singular_also_qualifier():
-    specs = match_clause("it also gets +3/+0 until end of turn", previous_subject=True)
+    specs = match_clause("it also gets +3/+0 until end of turn", reading=ClauseReading(previous_subject=True))
     assert specs is not None
     assert (specs[0].params["power"], specs[0].params["toughness"]) == (3, 0)
 
 
 def test_fail_closed_without_previous_subject():
     # The row is `previous_subject_only` — nothing to bind the pronoun to.
-    assert match_clause("it gains haste until end of turn", previous_subject=False) is None
+    assert match_clause("it gains haste until end of turn", reading=ClauseReading(previous_subject=False)) is None
 
 
 def test_connector_loop_propagates_referent_through_untap():

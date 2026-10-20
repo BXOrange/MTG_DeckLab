@@ -43,6 +43,7 @@ Front-End" PAR-71 entry.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -157,7 +158,7 @@ def test_discover_from_trigger_event():
 
 def test_discover_from_previous_target_when_gated():
     assert match_clause(
-        "discover x, where x is that spell's mana value", previous_subject=True,
+        "discover x, where x is that spell's mana value", reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("discover", {"mana_value_from_subject": "previous_subject_mana_value"})]
     # Ungated (no preceding counter clause) falls back to the trigger-event
     # reading instead of the previous_subject_only row.
@@ -168,7 +169,7 @@ def test_discover_from_previous_target_when_gated():
 
 def test_draw_from_previous_target_when_gated():
     assert match_clause(
-        "draw cards equal to that spell's mana value", previous_subject=True,
+        "draw cards equal to that spell's mana value", reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("draw", {"amount_from_subject": "previous_subject_mana_value"})]
     # Not offered at all without the gate (no ungated draw-from-MV sibling
     # exists — a plain spell with no antecedent target has no safe reading).
@@ -179,7 +180,7 @@ def test_create_inline_token_count_from_previous_target_when_gated():
     assert match_clause(
         "create x 1/1 colorless thopter artifact creature tokens with flying, "
         "where x is that spell's mana value",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("create_token", {
         "colors": [], "subtypes": ["Thopter"], "keywords": ["flying"], "is_artifact": True,
         "token_name": "Thopter", "power": 1, "toughness": 1,
@@ -189,7 +190,7 @@ def test_create_inline_token_count_from_previous_target_when_gated():
 
 def test_create_named_token_count_from_previous_target_when_gated():
     assert match_clause(
-        "create x treasure tokens, where x is that spell's mana value", previous_subject=True,
+        "create x treasure tokens, where x is that spell's mana value", reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("create_token", {
         "token_name": "Treasure", "count_from_subject": "previous_subject_mana_value",
     })]

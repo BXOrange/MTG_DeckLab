@@ -7,10 +7,9 @@ from ...card_registry.core import register
 
 # ---------------------------------------------------------------------------
 # RULE 728 Rad counters — "whenever ~ deals combat damage to a player, they
-# get N rad counters" cards whose *damaged player* varies per firing (the
-# oracle-text parser has no such per-firing grammar; see
-# `AbilitySpec.rad_counters_on_combat_damage`, `RulesEngine._collect_rad_
-# counter_damage_triggers`, `game/effects/core.py`'s `AddPlayerCountersEffect`).
+# get N rad counters" cards: an ordinary DAMAGE trigger over
+# `add_player_counters`, the damaged player read off the firing event
+# (`{"of": "damaged_player"}`).
 # Each card's *other*, unrelated ability is a "whenever a player/an opponent
 # mills a nonland card, ..."/"whenever one or more nonland cards are milled,
 # ..." trigger (RULE 701.13) — now modeled too, off `EventType.MILL_CARD`
@@ -40,9 +39,15 @@ def _glowing_one() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec(
-            "static",
-            [],
-            rad_counters_on_combat_damage={"count": 4},
+            "triggered",
+            [EffectSpec("add_player_counters", {
+                "amount": 4, "kind": "rad", "player": {"of": "damaged_player"},
+            })],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
         ),
         AbilitySpec(
             "triggered",

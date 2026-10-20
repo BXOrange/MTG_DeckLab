@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import Zone
 from .core import GameEffect, _controller_of, ChooseColorReplacement, _apply_effects_partitioned
 
 
@@ -213,6 +214,18 @@ def advance_battlefield_batch(rules, frame):
         elif stage == 'choose':
             rules._offer_enter_choices(obj, lambda: None)
             if not rules.state.pending_choice:
+                if obj.entry_abandoned:
+                    # RULE 614.12: the entry was replaced (Mox Diamond declined) -- the object never
+                    # enters, so no ENTERS_BATTLEFIELD; it goes to its owner's graveyard from where it is.
+                    obj.entry_abandoned = False
+                    record['entry_failed'] = True
+                    if obj.zone.value != 'graveyard':
+                        owner = rules.state.player_by_id(obj.owner_id)
+                        rules._remove_from_current_zone(owner, obj)
+                        owner.add_to_zone(obj, Zone.GRAVEYARD)
+                    frame['cursor'] += 1
+                    frame['stage'] = 'reset'
+                    continue
                 frame['stage'] = 'read'
         elif stage == 'read':
             rules._offer_read_ahead(obj, lambda: None)

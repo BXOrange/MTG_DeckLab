@@ -34,6 +34,7 @@ through) and Zulaport Duelist (`_announces_creature_target`'s generic
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -92,7 +93,7 @@ def _run(eng, src, specs, targets=None):
 
 
 def test_lose_life_gated_on_previous_subject():
-    assert match_clause("its controller loses 2 life", previous_subject=True) == [
+    assert match_clause("its controller loses 2 life", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("lose_life", {"amount": 2, "player": _PREVIOUS_TARGET_CONTROLLER})
     ]
     # Ungated — no antecedent clause chose anything this pronoun could name —
@@ -101,31 +102,31 @@ def test_lose_life_gated_on_previous_subject():
 
 
 def test_gain_life_gated_on_previous_subject():
-    assert match_clause("its controller gains 2 life", previous_subject=True) == [
+    assert match_clause("its controller gains 2 life", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("gain_life", {"amount": 2, "player": _PREVIOUS_TARGET_CONTROLLER})
     ]
     assert match_clause("its controller gains 2 life") is None
 
 
 def test_draws_gated_on_previous_subject():
-    assert match_clause("its controller draws a card", previous_subject=True) == [
+    assert match_clause("its controller draws a card", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("draw", {"count": 1, "player": _PREVIOUS_TARGET_CONTROLLER})
     ]
-    assert match_clause("its controller draws 2 cards", previous_subject=True) == [
+    assert match_clause("its controller draws 2 cards", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("draw", {"count": 2, "player": _PREVIOUS_TARGET_CONTROLLER})
     ]
     assert match_clause("its controller draws a card") is None
 
 
 def test_discards_gated_on_previous_subject():
-    assert match_clause("its controller discards a card", previous_subject=True) == [
+    assert match_clause("its controller discards a card", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("discard", {"count": 1, "player": _PREVIOUS_TARGET_CONTROLLER})
     ]
     assert match_clause("its controller discards a card") is None
 
 
 def test_mills_gated_on_previous_subject():
-    assert match_clause("its controller mills 4 cards", previous_subject=True) == [
+    assert match_clause("its controller mills 4 cards", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("mill", {"count": 4, "selector": "previous_subject_controller"})
     ]
     assert match_clause("its controller mills 4 cards") is None
@@ -133,7 +134,7 @@ def test_mills_gated_on_previous_subject():
 
 def test_gains_life_equal_to_mana_value_via_bind():
     assert match_clause(
-        "its controller gains life equal to its mana value", previous_subject=True,
+        "its controller gains life equal to its mana value", reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("bind", {
         "name": "mv",
         "amount": {"kind": "characteristic", "characteristic": "mana_value", "of": "previous_target"},
@@ -147,7 +148,7 @@ def test_gains_life_equal_to_mana_value_via_bind():
 
 def test_mills_equal_to_power_via_bind():
     assert match_clause(
-        "its controller mills cards equal to that creature's power", previous_subject=True,
+        "its controller mills cards equal to that creature's power", reading=ClauseReading(previous_subject=True),
     ) == [EffectSpec("bind", {
         "name": "power",
         "amount": {"kind": "characteristic", "characteristic": "power", "of": "previous_target"},

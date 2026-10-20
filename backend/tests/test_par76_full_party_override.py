@@ -21,6 +21,7 @@ Front-End" PAR-76 entry.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -108,7 +109,7 @@ def test_the_destined_white_mage_modeled():
 def test_damage_each_opponent_full_party_parses():
     assert parse_effect_body(
         "~ deals 1 damage to each opponent. if you have a full party, it "
-        "deals 3 damage to each opponent instead", self_subject=True,
+        "deals 3 damage to each opponent instead", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("damage", {
         "amount": 1, "selector": "each_opponent", "amount_if_full_party": 3,
     })]

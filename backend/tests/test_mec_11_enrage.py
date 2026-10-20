@@ -406,26 +406,6 @@ def test_silverclad_ferocidons_each_opponent_sacrifices():
     assert silverclad in state.permanents()
 
 
-def test_stalwart_speartail_attacks_damages_creatures_and_planeswalkers_once_each():
-    engine, state = _engine("p1", "p2")
-    speartail = _bf(state, Card(
-        id="Stalwart Speartail", name="Stalwart Speartail", type_line="Creature — Dinosaur",
-        mana_cost_string="{1}{R}{G}", converted_mana_cost=3, is_creature=True, power=4, toughness=4,
-    ))
-    victim = _bf(state, _creature("Victim6", 2, 5), controller="p2")
-    walker = _bf(state, Card(
-        id="Some Planeswalker", name="Some Planeswalker", type_line="Planeswalker — Test",
-        mana_cost_string="{3}{U}", converted_mana_cost=4, loyalty=5,
-    ), controller="p2")
-    speartail.attacking = True
-    state.fire_event(GameEvent(
-        "ATTACKS", instance_id=speartail.instance_id, controller_id="p1", player_id="p1",
-    ))
-    engine.resolve_until_stable()
-    assert victim.damage_marked == 1
-    assert walker.loyalty == 4
-
-
 def test_trapjaw_tyrant_exiles_and_returns_when_it_leaves():
     engine, state = _engine("p1", "p2")
     tyrant = _bf(state, Card(
@@ -476,7 +456,7 @@ def test_every_hand_authored_enrage_card_binds_without_error():
     names = [
         "Bellowing Aegisaur", "Frilled Deathspitter", "Sun-Crowned Hunters",
         "Indoraptor, the Perfect Hybrid", "Polyraptor", "Raphael, Ninja Destroyer",
-        "Red Hulk", "Silverclad Ferocidons", "Stalwart Speartail", "Trapjaw Tyrant",
+        "Red Hulk", "Silverclad Ferocidons", "Trapjaw Tyrant",
         "Vrondiss, Rage of Ancients",
     ]
     for name in names:

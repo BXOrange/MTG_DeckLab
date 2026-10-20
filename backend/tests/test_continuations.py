@@ -239,10 +239,7 @@ class TestPublicSurfaceShrank:
         # (RULE 706's "chosen at random" primitive, PAR-80) is called externally
         # from `RandomNumberEffect.apply()` (`context.engine.random_int(...)`),
         # not just by other `RulesEngine` methods, so it has to stay public.
-        # Bumped 171 -> 172: `conjure_duplicate_into_hand` (Spellchain Scatter,
-        # PAR-124) is called externally from `ConjureDuplicateIntoHandEffect.
-        # apply()` the same way.
-        # Bumped 172 -> 175 (PAR-107..114): `look_at_hand` and `look_reorder_top` are called from
+        # Bumped 171 -> 175 (PAR-107..114): `look_at_hand` and `look_reorder_top` are called from
         # `GameContext` (`LookAtHandEffect`/`LookReorderTopEffect`) and `note_sacrificed` from
         # `GameEngine`'s cost payment, none of them from another `RulesEngine` method.
         # PAR-100: hand-to-library ordering is called by PutHandOnBottomEffect.

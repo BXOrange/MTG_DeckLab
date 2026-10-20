@@ -18,7 +18,7 @@ import re
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
-from .count_phrase import _NUMBER, _number
+from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .object_trigger_head import parse_object_trigger_head
 from .spell_phrase import parse_spell_phrase
 
@@ -54,9 +54,9 @@ _YOU = re.compile(r"^you(?:'ve| have)? ")
 
 def _quantity(text: str) -> Optional[tuple[Optional[int], Optional[int], str]]:
     """Leading quantity words → ``(min, max, rest)``; ``None`` when there are none."""
-    m = re.match(rf"^(?P<n>{_NUMBER}) or more ", text)
+    m = re.match(rf"^(?P<n>{NUMBER_WORD_PATTERN}) or more ", text)
     if m:
-        return _number(m.group("n")), None, text[m.end():]
+        return number_value(m.group("n")), None, text[m.end():]
     m = re.match(r"^(?:a|an|one or more) ", text)
     if m:
         return 1, None, text[m.end():]

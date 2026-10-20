@@ -17,6 +17,7 @@ Reference: game/rules/search_mixin.py (`explore`), game/effects/core.py
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -33,13 +34,13 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 def test_self_and_pronoun_explores_parse():
     assert match_clause("~ explores") == [EffectSpec("explore", {})]
     assert match_clause("it explores") is None
-    assert match_clause("it explores", self_subject=True) == [EffectSpec("explore", {})]
-    assert match_clause("she explores", self_subject=True) == [EffectSpec("explore", {})]
+    assert match_clause("it explores", reading=ClauseReading(self_subject=True)) == [EffectSpec("explore", {})]
+    assert match_clause("she explores", reading=ClauseReading(self_subject=True)) == [EffectSpec("explore", {})]
 
 
 def test_previous_subject_explores_parses():
     assert match_clause("that creature explores") is None
-    assert match_clause("that creature explores", previous_subject=True) == [
+    assert match_clause("that creature explores", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("explore", {"previous_subject": True})
     ]
 
@@ -51,7 +52,7 @@ def test_target_creature_explores_parses():
 
 
 def test_double_explore_and_mass_explore_stay_unclaimed():
-    assert match_clause("it explores, then it explores again", self_subject=True) is None
+    assert match_clause("it explores, then it explores again", reading=ClauseReading(self_subject=True)) is None
     assert match_clause("each merfolk creature you control explores") is None
 
 

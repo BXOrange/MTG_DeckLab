@@ -42,6 +42,7 @@ are separately-shaped residue, deliberately not attempted this pass.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -136,7 +137,7 @@ def test_celestial_sword_is_modeled():
 
 
 def test_sacrifices_gated_on_attached_subject():
-    assert match_clause("its controller sacrifices a creature of their choice", attached_subject=True) == [
+    assert match_clause("its controller sacrifices a creature of their choice", reading=ClauseReading(attached_subject=True)) == [
         EffectSpec("sacrifice", {"what": "creature", "count": 1, "player": _ATTACHED_CONTROLLER})
     ]
     # Ungated — no attached-permanent trigger condition offered this
@@ -146,7 +147,7 @@ def test_sacrifices_gated_on_attached_subject():
 
 def test_sacrifices_gated_on_group_subject():
     assert match_clause(
-        "its controller sacrifices a creature or land of their choice", group_subject=True,
+        "its controller sacrifices a creature or land of their choice", reading=ClauseReading(group_subject=True),
     ) == [
         EffectSpec("sacrifice", {"what": "creature_or_land", "count": 1, "player": _ENTERING_CONTROLLER})
     ]
@@ -154,7 +155,7 @@ def test_sacrifices_gated_on_group_subject():
 
 def test_sacrifices_nontoken_creature():
     assert match_clause(
-        "its controller sacrifices a nontoken creature of their choice", attached_subject=True,
+        "its controller sacrifices a nontoken creature of their choice", reading=ClauseReading(attached_subject=True),
     ) == [
         EffectSpec("sacrifice", {"what": "nontoken_creature", "count": 1, "player": _ATTACHED_CONTROLLER})
     ]
@@ -165,7 +166,7 @@ def test_sacrifices_unwhitelisted_combo_fails_closed():
     # `_SACRIFICE_WHAT_OR_COMBOS` entry — fail closed rather than guess a
     # `_matches_permanent_type` string the engine would silently accept-all on.
     assert match_clause(
-        "its controller sacrifices a artifact or land of their choice", attached_subject=True,
+        "its controller sacrifices a artifact or land of their choice", reading=ClauseReading(attached_subject=True),
     ) is None
 
 

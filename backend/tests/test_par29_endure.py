@@ -22,6 +22,7 @@ game/effects/core.py (`EndureEffect`), parser/oracle/catalogue/handlers.py.
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -38,16 +39,16 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 def test_endure_subject_shapes_parse():
     assert match_clause("~ endures 3") == [EffectSpec("endure", {"amount": 3})]
     assert match_clause("it endures 3") is None
-    assert match_clause("it endures 3", self_subject=True) == [
+    assert match_clause("it endures 3", reading=ClauseReading(self_subject=True)) == [
         EffectSpec("endure", {"amount": 3})
     ]
-    assert match_clause("that creature endures 2", previous_subject=True) == [
+    assert match_clause("that creature endures 2", reading=ClauseReading(previous_subject=True)) == [
         EffectSpec("endure", {"amount": 2, "previous_subject": True})
     ]
     assert match_clause("target creature you control endures 1") == [
         EffectSpec("endure", {"amount": 1, "target_kind": "creature_you_control"})
     ]
-    assert match_clause("it endures x", self_subject=True) is None
+    assert match_clause("it endures x", reading=ClauseReading(self_subject=True)) is None
 
 
 def test_endure_dynamic_x_parses():

@@ -6,11 +6,11 @@ mana-wildcard). Both build on the shared `ImpulsiveDrawEffect`/
 covers for the Light Up the Stage-shaped single-player case.
 
 Engine side: `game/effects/core.py`'s `GraveyardImpulsiveCastEffect`/
-`ReturnRemainingExiledEffect`, `RulesEngine._collect_impulsive_draw_triggers`/
+`ReturnRemainingExiledEffect`, `ImpulsiveDrawEffect`'s ``library_of="that_player"``/
 `exile_graveyard_with_cast_permission`/`_grant_temp_play_permission`,
 `GameState.temp_play_permission_player`/`mana_wildcard_permission`,
-`ManaPool`'s ``wildcard`` param, `game/card_registry.py`'s
-`AbilitySpec.impulsive_draw_on_combat_damage` marker.
+`ManaPool`'s ``wildcard`` param (PAR-174 retired the Ragavan
+`impulsive_draw_on_combat_damage` marker for an ordinary triggered ability).
 """
 
 from __future__ import annotations
@@ -65,13 +65,15 @@ def _ragavan(state, controller="p1"):
     return _battlefield_obj(state, card, controller)
 
 
-def test_ragavan_registered_and_binds_treasure_plus_marker():
+def test_ragavan_registered_and_binds_one_trigger_with_treasure_then_impulsive_draw():
+    # PAR-174: one ordinary triggered ability, as printed (no per-object marker field any more).
     eng = _engine("p1", "p2")
     ragavan = _ragavan(eng.state)
-    assert any(
-        getattr(e, "token_name", None) == "Treasure" for e in ragavan.triggered_abilities[0].effects
-    )
-    assert ragavan.impulsive_draw_on_combat_damage == {"count": 1}
+    assert len(ragavan.triggered_abilities) == 1
+    effects = ragavan.triggered_abilities[0].effects
+    assert getattr(effects[0], "token_name", None) == "Treasure"
+    assert type(effects[1]).__name__ == "ImpulsiveDrawEffect"
+    assert effects[1].library_of == "that_player" and effects[1].same_turn_only
 
 
 def test_ragavan_combat_damage_creates_treasure_and_exiles_from_damaged_players_library():
@@ -87,7 +89,7 @@ def test_ragavan_combat_damage_creates_treasure_and_exiles_from_damaged_players_
 
     eng.rules.deal_damage(p2, 2, source=ragavan, combat=True)
     placed = eng.rules.put_triggers_on_stack()
-    assert placed == 2  # Treasure creation + the exile/cast-permission grant
+    assert placed == 1  # one trigger: Treasure creation, then the exile/cast-permission grant
     eng.resolve_until_stable()
 
     # A Treasure token for Ragavan's controller (p1), not the damaged player.

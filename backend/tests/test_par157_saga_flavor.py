@@ -1,4 +1,5 @@
 """Saga flavor labels compose with ordinary chapter bodies and return axes."""
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.binding.core import build_effects
@@ -105,7 +106,7 @@ def test_source_pronoun_scope_is_required_for_flicker_capture():
     from mtg_analyzer.parser.oracle.catalogue.flicker_sequences import flicker_sequence_specs
     body = "exile it, then return it to the battlefield transformed under its owner's control"
     assert flicker_sequence_specs(body) is None
-    assert flicker_sequence_specs(body, self_subject=True)[0].params['subject'] == 'source'
+    assert flicker_sequence_specs(body, reading=ClauseReading(self_subject=True))[0].params['subject'] == 'source'
 
 
 @pytest.mark.parametrize('tail', ['under a secret controller', 'and secretly double its power'])

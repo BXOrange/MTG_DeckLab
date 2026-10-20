@@ -27,6 +27,7 @@ Front-End" PAR-78 entry (once closed).
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -110,7 +111,7 @@ def test_sample_real_cards_now_modeled():
 
 def test_self_only_with_source_filter_parses():
     assert parse_effect_body(
-        "prevent all damage that would be dealt to ~ by artifact creatures", self_subject=True,
+        "prevent all damage that would be dealt to ~ by artifact creatures", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("prevent_damage_shield", {
         "amount": "all", "self_only": True,
         "source_filter": {"creature": True, "artifact": True},
@@ -413,7 +414,7 @@ def test_prismatic_ward_shields_only_from_the_chosen_colors_sources():
 def test_self_subject_pronoun_accepts_him_and_her():
     for pronoun in ("it", "him", "her"):
         assert parse_effect_body(
-            f"prevent all damage that would be dealt to {pronoun} this turn", self_subject=True,
+            f"prevent all damage that would be dealt to {pronoun} this turn", reading=ClauseReading(self_subject=True),
         ) == [EffectSpec("prevent_damage_shield", {"amount": "all", "self_only": True})]
 
 

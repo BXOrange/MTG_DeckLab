@@ -23,6 +23,7 @@ Three parser rows close them (PAR-30), all reusable well beyond Incubate:
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
@@ -46,7 +47,7 @@ def test_counter_reflexive_if_they_do_clause():
     specs = match_clause(
         "counter target creature or battle spell unless its controller pays {4}. "
         "if they do, you incubate 2",
-        self_subject=True,
+        reading=ClauseReading(self_subject=True),
     )
     assert specs is not None and specs[0].type == "counter"
     p = specs[0].params
@@ -59,7 +60,7 @@ def test_counter_reflexive_if_they_do_clause():
         }},
     ]
     # a bare "counter … unless pays" (no reflexive) still parses, no on_pay
-    bare = match_clause("counter target spell unless its controller pays {3}", self_subject=True)
+    bare = match_clause("counter target spell unless its controller pays {3}", reading=ClauseReading(self_subject=True))
     assert bare is not None and "on_pay_effect_specs" not in bare[0].params
 
 

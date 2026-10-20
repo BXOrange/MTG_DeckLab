@@ -65,8 +65,6 @@ def costs_for(state, player, obj) -> list[BlitzCost]:
     printed = (obj.parametric_keywords or {}).get("blitz", {}).get("cost")
     if printed:
         result.append(BlitzCost(parse_activation_cost(printed)))
-    if "blitz" in obj.perpetual_keywords:
-        result.append(BlitzCost(parse_activation_cost(obj.card.mana_cost_string or "{0}")))
     for ability in _statics_for(state, player, "grant_blitz"):
         params = ability.params
         minimum = int(params.get("min_mana_value", 0))
@@ -116,22 +114,3 @@ def resolve_blitz(state, obj, controller_id) -> None:
         effects=[BlitzSacrificeEffect(obj, controller_id)],
         description=f"{obj.name}: Blitz — im nächsten Endsegment opfern",
     ))
-
-
-class ChoosePerpetualBlitzEffect(GameEffect):
-    """Riveteers Provocateur's permanent card modification (MEC-109).
-
-    Reuses the serializable object chooser and MEC-98's perpetual keyword
-    storage; the cost is derived from the selected card's mana cost.
-    """
-    def apply(self, context, targets=None) -> None:
-        player = context.state.player_by_id(context.resolving_controller_id or self.source.controller_id)
-        if player is None:
-            return
-        candidates = [obj for obj in player.hand if obj.card.is_creature
-                      and "blitz" not in (obj.parametric_keywords or {})
-                      and "blitz" not in obj.perpetual_keywords]
-        context.choose_objects(
-            player, candidates, "grant_perpetual_blitz", count=1,
-            prompt="Kreaturenkarte ohne Blitz wählen", source=self.source,
-        )

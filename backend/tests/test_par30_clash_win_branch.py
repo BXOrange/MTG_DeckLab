@@ -20,6 +20,7 @@ need ordinary effect grammar; this batch closes a cohesive first slice:
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
@@ -48,7 +49,7 @@ def test_free_cast_from_hand_both_word_orders():
     )
     assert a == b == [
         __import__("mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]).EffectSpec(
-            "free_cast_from_hand", {"max_mana_value": 8}
+            "free_cast_from_hand", {"zones": ["hand"], "during_resolution": True, "max_mana_value": 8}
         )
     ]
 
@@ -75,7 +76,7 @@ def test_clash_is_referent_transparent_in_connector_split():
 def test_pump_prev_singular_accepts_an_additional():
     got = match_clause(
         "that creature gets an additional +2/+2 and gains trample until end of turn",
-        previous_subject=True,
+        reading=ClauseReading(previous_subject=True),
     )
     assert got is not None and got[0].type == "pump"
     assert got[0].params["power"] == 2 and got[0].params["toughness"] == 2
@@ -86,9 +87,8 @@ def test_destroy_all_opponents_enchantments():
     got = match_clause("destroy all enchantments your opponents control")
     assert got == [__import__(
         "mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]
-    ).EffectSpec("destroy", {"selector": "opponents_enchantments"})]
-    # a scope on a noun with no named opponent-scoped selector reads as a structured group
-    # (PAR-128 `DestroyEffect.group`) instead of failing closed
+    ).EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "enchantment"}}})]
+    # a scope on any noun reads as a structured group (PAR-128 `DestroyEffect.group`)
     [land] = match_clause("destroy all lands your opponents control")
     assert land.params == {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "land"}}}
 

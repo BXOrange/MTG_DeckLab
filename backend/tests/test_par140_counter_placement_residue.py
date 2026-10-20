@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game import combat, continuous
@@ -384,5 +385,5 @@ def test_the_wrong_kind_of_counter_does_not_pay():
 def test_a_group_trigger_it_is_not_read_as_the_source_that_pays():
     # "it" is the dying creature there, not the permanent with the trigger.
     assert match_clause(
-        "you may remove a menace counter from it. when you do, draw a card", group_subject=True
+        "you may remove a menace counter from it. when you do, draw a card", reading=ClauseReading(group_subject=True)
     ) is None

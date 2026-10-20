@@ -16,6 +16,7 @@ as a bycatch, Bond of Revival):
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
@@ -77,7 +78,7 @@ def test_repeated_colour_fails_closed():
 
 def test_it_gains_haste_until_your_next_turn_parses():
     assert match_clause(
-        "it gains haste until your next turn", previous_subject=True
+        "it gains haste until your next turn", reading=ClauseReading(previous_subject=True)
     ) == [
         EffectSpec("grant_until", {
             "static": {"type": "grant_keyword", "params": {"keywords": ["haste"]}},
@@ -90,7 +91,7 @@ def test_it_gains_haste_until_your_next_turn_parses():
 
 def test_it_gains_haste_until_end_of_combat_parses():
     assert match_clause(
-        "then it gains trample until end of combat", previous_subject=True
+        "then it gains trample until end of combat", reading=ClauseReading(previous_subject=True)
     ) == [
         EffectSpec("grant_until", {
             "static": {"type": "grant_keyword", "params": {"keywords": ["trample"]}},
@@ -107,7 +108,7 @@ def test_a_bare_it_still_claims_nothing_without_the_previous_subject_reading():
 
 def test_it_gains_nonsense_fails_closed():
     assert match_clause(
-        "it gains wobbliness until your next turn", previous_subject=True
+        "it gains wobbliness until your next turn", reading=ClauseReading(previous_subject=True)
     ) is None
 
 

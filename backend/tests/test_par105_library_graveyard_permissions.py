@@ -252,9 +252,9 @@ def test_each_other_group_parses_to_a_group_selector_minus_the_source():
     [spec] = _group_counters("put a +1/+1 counter on each other dragon creature you control.")
     assert spec.type == "add_counters" and spec.params["group_other"] is True
     assert spec.params["group"] == {"zone": "battlefield", "of": "you", "filter": {"subtype": "dragon", "card_type": "creature"}}
-    # the closed selector row still reads its own named phrases exactly as before
+    # PAR-169: the plain "each other creature you control" is the same group row's, not a named selector's
     [named] = _group_counters("put a +1/+1 counter on each other creature you control.")
-    assert named.params.get("selector") == "each_other_creature_you_control" and "group" not in named.params
+    assert named.params.get("group_other") is True and "selector" not in named.params
     # a target phrase is not a group
     assert not _group_counters("put a +1/+1 counter on each of up to two target creatures you control.") or True
 

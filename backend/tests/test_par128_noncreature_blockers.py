@@ -173,8 +173,8 @@ def test_tap_all_lands_defending_player_controls_parses():
     result, [effect] = _specs("Whenever enchanted creature becomes blocked, tap all lands defending player controls.",
                               types="Enchantment — Aura")
     assert result.modeled
-    assert effect.params["selector_player"] == "defending"
-    assert effect.params["selector"]["of"] == "you"
+    # PAR-169: the generalized group row scopes the group to the defending player itself.
+    assert effect.params["selector"]["of"] == "defending"
 
 
 def test_tap_all_creatures_defending_player_controls_taps_only_the_attacked_players():
@@ -309,13 +309,17 @@ def test_the_group_rows_parse_to_a_structured_group(oracle, kind):
     assert spec.type == kind and spec.params["group"]["zone"] == "battlefield"
 
 
-def test_the_named_selectors_still_win_over_the_group_row():
+def test_the_group_row_wins_over_the_named_selectors():
+    """PAR-169: the generalized group row is primary; the named selectors only keep what it declines."""
     from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
     [spec] = parse_effect_body("destroy all creatures")
-    assert spec.params == {"selector": "all_creatures"}
+    assert spec.params == {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}
     [spec] = parse_effect_body("destroy all artifacts your opponents control")
-    assert spec.params == {"selector": "opponents_artifacts"}
+    assert spec.params == {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "artifact"}}}
+    # the named row still reads the numeric-X bound the group grammar does not
+    [spec] = parse_effect_body("destroy all artifacts with mana value x or less")
+    assert spec.params["selector"] == "all_artifacts"
 
 
 @pytest.mark.parametrize("oracle", [

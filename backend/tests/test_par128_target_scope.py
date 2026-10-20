@@ -509,7 +509,7 @@ def test_damage_to_each_creature_with_a_keyword_your_opponents_control_executes(
     for o in (mine_flyer, their_flyer):
         o.card.keywords = ["Flying"]
     [spec] = parse_effect_body("it deals 1 damage to each creature with flying your opponents control")
-    assert spec.params["selector"] == "each_creature_opponents_control"
+    assert spec.params["group"]["of"] == "opponents" and spec.params["group"]["filter"]["keyword"] == "flying"
     _run(engine, state, "it deals 1 damage to each creature with flying your opponents control", src)
     assert (mine_flyer.damage_marked, their_flyer.damage_marked, their_bear.damage_marked) == (0, 1, 0)
 
@@ -569,7 +569,7 @@ def test_destroy_all_creatures_your_opponents_control_executes():
     src = _bear(state, "src", "p1")
     mine, theirs = _bear(state, "mine", "p1"), _bear(state, "theirs", "p2")
     [spec] = match_clause("destroy all creatures your opponents control")
-    assert spec.params == {"selector": "opponents_creatures"}
+    assert spec.params == {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}}
     _run(engine, state, "destroy all creatures your opponents control", src)
     assert theirs not in state.battlefield and mine in state.battlefield and src in state.battlefield
 
@@ -580,7 +580,8 @@ def test_return_all_other_nonland_permanents_skips_the_source_and_lands():
     rock = _bf(state, Card(id="rk", name="Rock", type_line="Artifact"), "p2")
     land = _bf(state, Card(id="ln", name="Forest", type_line="Basic Land — Forest", is_land=True), "p2")
     [spec] = match_clause("return all other nonland permanents to their owners' hands")
-    assert spec.type == "return_to_hand" and spec.params == {"selector": "all_other_nonland_permanents"}
+    assert spec.type == "return_to_hand" and spec.params == {
+        "group": {"zone": "battlefield", "of": "any", "filter": {"without_card_type": "land", "not_reference": True}}}
     _run(engine, state, "return all other nonland permanents to their owners' hands", src)
     assert src in state.battlefield and land in state.battlefield and rock not in state.battlefield
     assert rock in state.player_by_id("p2").hand
@@ -1133,9 +1134,10 @@ def test_damage_to_each_other_creature_without_flying():
     assert _damage(ground) == 1 and _damage(flyer) == 0 and _damage(src) == 0
 
 
-def test_the_named_selectors_still_win_over_the_general_group_row():
+def test_the_general_group_row_wins_over_the_named_selectors():
+    # PAR-169: the group row is primary; the named `damage_selector` only keeps what it declines.
     [spec] = parse_effect_body("~ deals 2 damage to each creature")
-    assert spec.params == {"amount": 2, "selector": "each_creature"}
+    assert spec.params == {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}
     # PAR-107…114 run 2 (Inflame): its own row, the `each_creature` selector narrowed by the marked-damage filter —
     # never the general group row, which still refuses a "dealt damage" qualifier.
     [filtered] = parse_effect_body("~ deals 2 damage to each creature dealt damage this turn")
@@ -1183,7 +1185,8 @@ def test_that_player_after_a_creature_target_is_that_targets_controller():
 
 def test_x_damage_to_each_creature_and_each_player_is_parsed():
     [spec] = parse_effect_body("~ deals x damage to each creature and each player")
-    assert spec.params == {"amount": "x", "selector": "each_creature_and_player"}
+    assert spec.params == {"amount": "x", "group_and_players": "each_player",
+                           "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}
 
 
 def test_damage_to_each_other_creature_and_each_player_spares_only_the_source():

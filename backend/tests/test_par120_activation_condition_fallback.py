@@ -23,7 +23,7 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.parser.oracle.catalogue.handlers import _activation_condition_dict
+from mtg_analyzer.parser.oracle.catalogue.effect_rows.costs_mana_limits import activation_condition_dict as _activation_condition_dict
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 

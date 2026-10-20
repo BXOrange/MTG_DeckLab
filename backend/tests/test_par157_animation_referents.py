@@ -1,4 +1,5 @@
 """Animation composes previous targets, retained types and lasting grants."""
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.game_engine import GameEngine
@@ -21,7 +22,7 @@ def _land(eng, name, who='p1'):
 def test_animation_referent_is_gated_and_reuses_the_shared_builder(pronoun):
     text = f'{pronoun} becomes a 3/4 blue elemental creature with flying until end of turn'
     assert match_clause(text) is None
-    specs = match_clause(text, previous_subject=True)
+    specs = match_clause(text, reading=ClauseReading(previous_subject=True))
     assert specs and specs[0].type == 'grant_until'
     assert specs[0].params['previous_subject'] and specs[0].params['target_kind'] is None
     assert specs[0].params['duration'] == 'end_of_turn'
@@ -57,7 +58,7 @@ def test_animation_applies_to_all_previous_targets_and_persists_without_reaching
     "they become 6/6 elemental creatures with unknownword",
 ])
 def test_animation_does_not_drop_unknown_types_abilities_or_tails(text):
-    assert match_clause(text, previous_subject=True) is None
+    assert match_clause(text, reading=ClauseReading(previous_subject=True)) is None
 
 
 @pytest.mark.full_cache

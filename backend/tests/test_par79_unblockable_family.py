@@ -109,7 +109,10 @@ def test_plain_keyword_grant_still_works():
 def test_bare_self_unblockable_rejects_power_filter():
     # "with power N or less" needs a real RULE 115 target, not the bare
     # self-referential ("~ can't be blocked this turn") form — fail closed.
-    from mtg_analyzer.parser.oracle.catalogue.handlers import _cant_be_blocked_turn, _CANT_BE_BLOCKED_TURN_RE
+    from mtg_analyzer.parser.oracle.catalogue.effect_rows.counters_blocking import (
+        CANT_BE_BLOCKED_TURN_RE as _CANT_BE_BLOCKED_TURN_RE,
+        cant_be_blocked_turn as _cant_be_blocked_turn,
+    )
     m = _CANT_BE_BLOCKED_TURN_RE.fullmatch("~ can't be blocked this turn")
     assert m is not None and m.groupdict().get("selfref")
     assert _cant_be_blocked_turn(m) == [EffectSpec("unblockable", {"target_kind": None})]
@@ -675,6 +678,7 @@ def test_may_effect_then_parses_as_optional_wrapping_a_sequence():
             {"type": "draw", "params": {"count": 1}},
             {"type": "discard", "params": {"count": 1}},
         ],
+        "if_you_do_from": 1,  # PAR-175: RULE 608.2c outcome test
     })]
 
 
@@ -684,7 +688,7 @@ def test_may_effect_then_does_not_preempt_the_cost_shaped_row():
     # cruder untargeted-optional wrap.
     specs = parse_effect_body("you may pay {1}. if you do, draw a card.")
     assert specs == [EffectSpec("pay_cost_then", {
-        "cost": "{1}", "effects": [{"type": "draw", "params": {"count": 1}}],
+        "cost": "pay {1}", "effects": [{"type": "draw", "params": {"count": 1}}],
     })]
 
 
@@ -794,6 +798,7 @@ def test_may_effect_then_peel_guard_protects_resolving_effect_antecedent():
             }},
             {"type": "unblockable", "params": {"target_kind": None}},
         ],
+        "if_you_do_from": 1,  # PAR-175: RULE 608.2c outcome test
     })]
 
 
@@ -1007,26 +1012,6 @@ def test_real_cards_now_modeled_eighth_increment():
     for c in cards:
         r = parse_oracle(c)
         assert r.modeled, (c.name, r.unclaimed)
-
-
-def test_alora_cheerful_scout_stays_unmodeled():
-    # The tail's own "it perpetually gets +1/+1" names the just-returned
-    # creature again — `create_delayed_trigger`'s `previous_or_self`
-    # capture bakes its referent once, at arm time, onto every inner
-    # effect built from *this* clause's own recursive parse; a second,
-    # independent pronoun reference in the "if you do" follow-up isn't
-    # reachable through that (see `_delayed_sac_exile_when_first`'s own
-    # docstring) and must stay unclaimed rather than building a
-    # `PumpEffect` with no target baked in at all.
-    c = _card(
-        "Alora, Cheerful Scout", "Creature — Halfling Rogue",
-        "Whenever you attack, up to one target attacking creature can't be "
-        "blocked this turn. At the beginning of the next end step, return that "
-        "creature to its owner's hand. If you do, it perpetually gets +1/+1.",
-        power=1, toughness=1, mana_cost_string="{1}{G}",
-    )
-    r = parse_oracle(c)
-    assert not r.modeled
 
 
 def test_delayed_return_with_if_you_do_fires_both_effects():

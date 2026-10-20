@@ -22,6 +22,7 @@ from typing import Optional
 
 from ..spec import EffectSpec
 from .dig import parse_criteria
+from .clause_hooks import static_condition
 
 #: Words `dig.parse_criteria` would read as a subtype (and so silently never match a real card) although
 #: they name something else — a rarity. Refused so the line stays unclaimed.
@@ -162,8 +163,6 @@ def parse_graveyard_cast_permission(text: str) -> Optional[list[EffectSpec]]:
     if own is not None:
         params: dict = {"zones": ["graveyard"]}
         if own.group("cond"):
-            from .static_handlers import static_condition  # function-scoped: static_handlers imports this module
-
             condition = static_condition(own.group("cond"))
             if condition is None:
                 return None

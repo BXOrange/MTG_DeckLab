@@ -184,7 +184,14 @@ class SmartBot(GreedyBot):
             reveal = next((a for a in choices if a.get('option_id') == 'reveal'), None)
             if reveal:
                 return reveal
-        if kind == 'enter_or_graveyard':
+        pending_entry = view.get('pending_choice') or {}
+        if kind == 'pay_cost_then' and pending_entry.get('entry_effect'):
+            # A before-entry payment (Mox Diamond's "discard a land card instead"): the bot only
+            # casts it with a land to spare, and a declined Mox is simply lost.
+            pay = next((a for a in choices if a.get('option_id') == 'pay'), None)
+            if pay:
+                return pay
+        if kind == 'choose_objects' and pending_entry.get('entry_effect') and pending_entry.get('action') == 'discard':
             lands = [a for a in choices if a.get('option_id') != 'decline']
             if lands:
                 return min(lands, key=lambda a: (self._colour_need(view, self._plan(view, a))

@@ -49,14 +49,14 @@ def test_target_player_edict_parses():
 def test_uncapped_free_cast_parses():
     assert match_clause(
         "you may cast a spell from your hand without paying its mana cost"
-    ) == [EffectSpec("free_cast_from_hand", {})]
+    ) == [EffectSpec("free_cast_from_hand", {"zones": ["hand"], "during_resolution": True})]
     assert match_clause(
         "you may cast a noncreature spell from your hand without paying its mana cost"
-    ) == [EffectSpec("free_cast_from_hand", {"noncreature_only": True})]
-    # the capped MEC-20 "Expertise" form still parses unchanged
+    ) == [EffectSpec("free_cast_from_hand", {
+        "zones": ["hand"], "during_resolution": True, "card_criteria": {"without_type": "creature"}})]
     assert match_clause(
         "cast a spell with mana value 3 or less from your hand without paying its mana cost"
-    ) == [EffectSpec("free_cast_from_hand", {"max_mana_value": 3})]
+    ) == [EffectSpec("free_cast_from_hand", {"zones": ["hand"], "during_resolution": True, "max_mana_value": 3})]
 
 
 def test_put_type_from_hand_parses_and_fails_closed():

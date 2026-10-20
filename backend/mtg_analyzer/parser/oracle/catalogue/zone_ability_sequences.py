@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import re
 
+from .clause_reading import ClauseReading
 from ..spec import EffectSpec, ParserProvenance
+from .clause_hooks import parse_effect_body, segment_line
 
 
 def exile_grant_specs(body):
@@ -13,7 +15,6 @@ def exile_grant_specs(body):
     inner = re.fullmatch(r'(?P<head>.+?), if ~ is exiled, (?P<body>.+)', matched['inner'])
     if inner is None:
         return None
-    from ..segmenter import parse_effect_body, segment_line
 
     # Parse the event head separately: its entering object does not change
     # the explicit source referent established by "if ~ is exiled".
@@ -24,14 +25,14 @@ def exile_grant_specs(body):
     text = inner['body'].rstrip('.')
     optional = re.fullmatch(r"you may (?P<yes>.+?)\. if you don't, (?P<no>.+)", text)
     if optional:
-        yes = parse_effect_body(optional['yes'], self_subject=True)
-        no = parse_effect_body(optional['no'], self_subject=True)
+        yes = parse_effect_body(optional['yes'], reading=ClauseReading(self_subject=True))
+        no = parse_effect_body(optional['no'], reading=ClauseReading(self_subject=True))
         if not yes or not no:
             return None
         effects = [EffectSpec('optional', {'effects': [s.to_dict() for s in yes],
                                           'else_effects': [s.to_dict() for s in no]})]
     else:
-        effects = parse_effect_body(text, self_subject=True)
+        effects = parse_effect_body(text, reading=ClauseReading(self_subject=True))
     if not effects:
         return None
     # Optional branches currently share no announcement for distinct

@@ -69,7 +69,9 @@ from mtg_analyzer.parser.oracle import (  # noqa: E402
     abstract_clause,
     parse_oracle,
 )
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading  # noqa: E402
 from mtg_analyzer.parser.oracle.catalogue.handlers import HANDLERS, match_clause  # noqa: E402
+from mtg_analyzer.parser.oracle.gate import unclaimed_spans  # noqa: E402
 from mtg_analyzer.parser.oracle.normalize import normalize  # noqa: E402
 from mtg_analyzer.parser.oracle.segmenter import segment_line  # noqa: E402
 from mtg_analyzer.parser.oracle.spec import ParserProvenance  # noqa: E402
@@ -125,9 +127,18 @@ def _print_coverage(counts):
 
 
 def cmd_rank(args):
-    rows, counts = scan(load_cards(args.card_db, args.limit))
+    cards = load_cards(args.card_db, args.limit)
+    rows, counts = scan(cards)
     _print_coverage(counts)
-
+    if args.by == "span":
+        # PAR-175 M5: lazy -- only the uncovered cards' failed lines are re-segmented (parse_oracle is memoised).
+        by_name = {getattr(card, "name", "") or "": card for card in cards}
+        spans: dict[str, str] = {}
+        for name, covered, unclaimed in rows:
+            if not covered and unclaimed:
+                card = by_name[name]
+                for entry in unclaimed_spans(card, parse_oracle(card)):
+                    spans[entry.line] = entry.span
     pattern = re.compile(args.grep, re.IGNORECASE) if args.grep else None
     template_cards: Counter[str] = Counter()
     for _name, covered, unclaimed in rows:
@@ -139,7 +150,8 @@ def cmd_rank(args):
 
     ranked = sorted(template_cards.items(), key=lambda kv: (-kv[1], kv[0]))
     label = f" matching /{args.grep}/" if args.grep else ""
-    print(f"\ntop {args.top} unclaimed templates{label} (cards blocked → template):")
+    unit = "sentence" if args.by == "span" else "line"
+    print(f"\ntop {args.top} unclaimed {unit} templates{label} (cards blocked → template):")
     for template, n in ranked[: args.top]:
         print(f"  {n:5d}  {template}")
     if not ranked:
@@ -218,8 +230,8 @@ def cmd_clause(args):
 
     for label, kwargs in (
         ("plain", {}),
-        ("self_subject", {"self_subject": True}),
-        ("previous_subject", {"previous_subject": True}),
+        ("self_subject", {"reading": ClauseReading(self_subject=True)}),
+        ("previous_subject", {"reading": ClauseReading(previous_subject=True)}),
     ):
         for line in [line for line in norm.split("\n") if line.strip()]:
             specs = match_clause(line, **kwargs)
@@ -506,6 +518,8 @@ def main() -> None:
     p = sub.add_parser("rank", help="live processing list")
     p.add_argument("--top", type=int, default=40)
     p.add_argument("--grep", default=None, help="only templates matching this regex")
+    p.add_argument("--by", choices=("span", "line"), default="span",
+                   help="group by the minimal blocking sentence (default) or by the whole unclaimed line")
     p.set_defaults(func=cmd_rank)
 
     p = sub.add_parser("blocked", help="cards a template blocks, split solo vs also-blocked")

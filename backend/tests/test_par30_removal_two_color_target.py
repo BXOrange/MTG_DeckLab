@@ -57,7 +57,7 @@ def test_destroy_two_color_with_keyword_filter_parses():
 
 def test_single_color_destroy_still_works():
     assert match_clause("destroy target black creature") == [
-        EffectSpec("destroy", {"target_kind": "creature", "color": "B"})
+        EffectSpec("destroy", {"target_kind": "creature", "creature_filter": {"color": "B"}})
     ]
 
 

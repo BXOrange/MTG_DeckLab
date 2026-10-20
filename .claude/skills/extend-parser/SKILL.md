@@ -27,7 +27,14 @@ PROBE=../.claude/skills/extend-parser/scripts/parser_probe.py
 ```bash
 python $PROBE rank --top 40                  # live processing list
 python $PROBE rank --grep 'monstrous'        # ranked, filtered to a family
+python $PROBE rank --by line                 # group by whole unclaimed line (default: --by span)
 ```
+
+`rank` groups by the **minimal blocking sentence** (`gate.unclaimed_spans`, computed on demand, PAR-175 M5): the
+sentence or ", then" part whose removal lets the rest of the line parse, so a long line with one gap
+ranks under that gap, not as a one-off template. It is report data only -- `unclaimed` and the verdict
+still hold the whole line (the card stays UNMODELED), and the sentence still needs its own consumer row.
+`blocked` and `composition` keep working on whole lines.
 
 Then — **always, before writing any regex** — find out how many of those cards
 a handler would genuinely finish:
@@ -93,7 +100,7 @@ this table gets hard to reason about.
 Patterns, whitelists and the anti-over-match rules: **[reference/handler-recipe.md](reference/handler-recipe.md)**.
 Read it before editing — it lists the shared sub-grammar macros to reuse, the
 three registries a new effect type must be added to, and which file each kind
-of clause belongs in (`handlers.py` vs `static_handlers.py` vs `segmenter.py`).
+of clause belongs in (`effect_rows/<family>.py` vs `static_handlers.py` vs `segmenter.py`).
 
 ### 4. Prove it, including what you didn't intend
 
@@ -140,7 +147,8 @@ python -m pytest -q                       # whole suite, fast, keep it green
       is keyed on content-hash **+ version**; measuring twice in one batch
       without a bump silently reuses the first run's rows. If you add more
       handlers after already measuring, bump *again* (or delete that version's
-      rows). Hand-authoring alone needs no bump.
+      rows). Hand-authoring alone needs no bump. Add the version's changelog
+      entry to `parser/oracle/PARSER_VERSION_HISTORY.md`, not to `gate.py`.
 - [ ] **Authoritative measurement**: `python scripts/coverage_report.py --top 40`
       (ledger-backed — the probe is not a substitute for this).
 - [ ] **Sync the number in four places**, they drift:

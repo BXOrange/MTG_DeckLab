@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -42,7 +43,7 @@ def test_multi_target_tap_and_skip_parses():
 def test_damage_recipient_tap_and_skip_parses_only_in_self_damage_trigger_context():
     clause = "tap that creature and it doesn't untap during its controller's next untap step"
     assert parse_effect_body(clause) is None
-    assert parse_effect_body(clause, self_subject=True) == [
+    assert parse_effect_body(clause, reading=ClauseReading(self_subject=True)) == [
         EffectSpec("tap", {"target_operand": "damage_recipient"}),
         EffectSpec("skip_next_untap", {"target_operand": "damage_recipient"}),
     ]

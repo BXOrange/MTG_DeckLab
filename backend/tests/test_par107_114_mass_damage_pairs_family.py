@@ -16,6 +16,7 @@ Reference: parser/oracle/catalogue/handlers.py (`_DAMAGE_PLUS_ADDITIONAL_RE`, th
 
 from __future__ import annotations
 
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 import pytest
 
 from mtg_analyzer.game.binding.core import build_effects
@@ -90,7 +91,7 @@ def test_radiant_flames_x_is_the_colours_spent():
 
 
 def test_lose_x_life_parses_and_a_non_x_creature_phrase_stays_out():
-    assert [(e.type, e.params) for e in parse_effect_body("you lose x life", self_subject=True)] == [
+    assert [(e.type, e.params) for e in parse_effect_body("you lose x life", reading=ClauseReading(self_subject=True))] == [
         ("lose_life", {"amount": "x"})]
 
 
@@ -124,13 +125,13 @@ def test_gain_then_draw_acts_on_the_targeted_player_not_the_caster():
 
 def test_a_verb_without_a_previous_player_reading_is_refused():
     # mill has no way to point at the earlier clause's player, so the sentence is not claimed.
-    assert parse_effect_body("target player gains 3 life and mills 2 cards", self_subject=True) is None
+    assert parse_effect_body("target player gains 3 life and mills 2 cards", reading=ClauseReading(self_subject=True)) is None
 
 
 def test_you_and_target_forms_are_untouched():
-    assert [e.params for e in parse_effect_body("you draw 2 cards and lose 2 life", self_subject=True)] == [
+    assert [e.params for e in parse_effect_body("you draw 2 cards and lose 2 life", reading=ClauseReading(self_subject=True))] == [
         {"count": 2}, {"amount": 2}]
-    drain = parse_effect_body("target opponent loses 3 life and you gain 3 life", self_subject=True)
+    drain = parse_effect_body("target opponent loses 3 life and you gain 3 life", reading=ClauseReading(self_subject=True))
     assert [e.params for e in drain] == [{"amount": 3, "target_kind": "opponent"}, {"amount": 3}]
 
 
@@ -229,6 +230,6 @@ def test_creatures_target_player_controls_get_the_pump_for_that_player_only():
 
 
 def test_you_may_have_target_creature_get_is_an_optional_pump():
-    [optional] = parse_effect_body("you may have target creature get -2/-2 until end of turn", self_subject=True)
+    [optional] = parse_effect_body("you may have target creature get -2/-2 until end of turn", reading=ClauseReading(self_subject=True))
     assert optional.type == "optional"
     assert optional.params["effects"][0]["params"] == {"power": -2, "toughness": -2, "target_kind": "creature"}

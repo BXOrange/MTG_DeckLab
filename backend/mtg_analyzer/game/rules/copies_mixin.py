@@ -56,7 +56,6 @@ from ..effects.core import (
     GameContext,
     GameEffect,
     ImpulsiveDrawEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,
@@ -241,9 +240,6 @@ class CopiesMixin:
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
         tokens = self.create_token(controller_id, copiable, count)
-        # MEC-98: a copy carries the original's perpetual changes (Alchemy).
-        for token in tokens:
-            token.copy_perpetual_from(source)
         return tokens
 
     def _apply_populate_enter_state(
@@ -429,42 +425,6 @@ class CopiesMixin:
 
         stage(self, copies, may_choose=choose_new_targets and new_targets is None, defer=defer_choice)
         return copies
-    def conjure_duplicate_into_hand(
-        self, target: Any, controller_id: str,
-    ) -> Optional[GameObject]:
-        """"Conjure a duplicate of that spell into your hand." (Spellchain
-        Scatter, PAR-124) — the hand-zone sibling of `copy_spell` above: a
-        real, castable copy of a spell's own card, sitting in a hand rather
-        than resolving off the stack. RULE 707's "a copy of a card" mechanic
-        never actually distinguishes *where* the copy ends up (a token
-        permanent, a stack item, or — this project's first instance — a hand
-        card); only the destination zone differs from every other copy
-        primitive here.
-        """
-        item = self._stack_item_for(target)
-        if item is None or item.obj is None:
-            return None
-        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
-
-        copiable = getattr(item.obj, "_front_card", item.obj.card)
-        copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.HAND)
-        copy_obj.is_token = True
-        copy_obj.is_copy = True
-        # RULE 704.5d exempts a token only while it stays a permanent; this
-        # one is deliberately created off the battlefield and meant to
-        # persist there (`GameObject.conjured_into_hand`, see its own
-        # docstring) — without this, `_remove_stranded_tokens` would reap it
-        # the instant the next SBA pass ran, before it could ever be cast or
-        # discarded.
-        copy_obj.conjured_into_hand = True
-        copy_obj.copy_perpetual_from(item.obj)  # MEC-98: a duplicate keeps perpetual changes
-        bind_from_catalogue(copy_obj)
-        player = self.state.player_by_id(controller_id)
-        if player is None:
-            return None
-        player.hand.append(copy_obj)
-        return copy_obj
-
     def copy_ability(
         self, target: Any, controller_id: str, new_targets: Optional[list[Any]] = None,
         *, choose_new_targets: bool = False, defer_choice: bool = False, from_recipe: bool = False,

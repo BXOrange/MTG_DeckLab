@@ -3,7 +3,8 @@ import pytest
 
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import GameContext
-from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause, _emblem_ability_spec
+from mtg_analyzer.parser.oracle.catalogue.effect_rows.tokens_animate_misc import emblem_ability_spec as _emblem_ability_spec
+from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
@@ -44,13 +45,13 @@ def test_each_opponent_gets_their_own_emblem_excluding_lost_players():
     "creatures your opponents control don't untap during their controllers' untap steps",
 ])
 def test_apostrophes_are_preserved_when_parsing_nested_abilities(body, monkeypatch):
-    from mtg_analyzer.parser.oracle import segmenter
-    original = segmenter.segment_line
+    from mtg_analyzer.parser.oracle.catalogue import clause_hooks
+    original = clause_hooks._segment_line  # the registered segmenter entry point (PAR-172)
     observed = []
     def spy(text, **kwargs):
         observed.append(text)
         return original(text, **kwargs)
-    monkeypatch.setattr(segmenter, 'segment_line', spy)
+    monkeypatch.setattr(clause_hooks, '_segment_line', spy)
     _emblem_ability_spec(body)
     assert observed[0] == body
 

@@ -1,10 +1,10 @@
 """The repo-committed handler catalogue (docs/09 "THE CATALOGUE").
 
-Phase 1's first, cheapest, highest-yield deliverable is the **keyword
-catalogue** (`keywords.py`): the closed RULE 702 vocabulary, each keyword
-mapped to its `AbilitySpec` shape, with a regex that extracts the single
-parameter of a parametric keyword. The effect-clause handler rows and the
-shared sub-grammars land alongside it in later phases.
+The closed RULE 702 keyword vocabulary lives in `keywords.py` (each keyword mapped to
+its `AbilitySpec` shape, with a regex for a parametric keyword's parameter). Effect
+clauses are read by the handler rows in `handlers.py` (and the sibling per-family
+modules: `counters`, `lands`, `levels`, `modal`, …), static abilities by
+`static_handlers.py`; `segmenter.py` and `gate.py` drive them.
 """
 
 from .keywords import (

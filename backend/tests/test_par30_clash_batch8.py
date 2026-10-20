@@ -20,13 +20,13 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 def test_clause_forms():
     assert match_clause("untap all forests you control") == [
-        EffectSpec("tap", {"selector": "lands_you_control_of_type_forest", "untap": True})
+        EffectSpec("tap", {"selector": {"zone": "battlefield", "of": "you", "filter": {"subtype": "forest"}},
+                           "untap": True})
     ]
-    assert match_clause("untap all plains you control")[0].params["selector"] == (
-        "lands_you_control_of_type_plains"
-    )
+    assert match_clause("untap all plains you control")[0].params["selector"]["filter"] == {"subtype": "plains"}
     assert match_clause("~ deals 4 damage to each creature blocking it") == [
-        EffectSpec("damage", {"amount": 4, "selector": "each_creature_blocking_source"})
+        EffectSpec("damage", {"amount": 4, "group": {
+            "zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "blocking_source": True}}})
     ]
 
 
