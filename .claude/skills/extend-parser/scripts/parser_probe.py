@@ -69,6 +69,7 @@ from mtg_analyzer.parser.oracle import (  # noqa: E402
     abstract_clause,
     parse_oracle,
 )
+from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading  # noqa: E402
 from mtg_analyzer.parser.oracle.catalogue.handlers import HANDLERS, match_clause  # noqa: E402
 from mtg_analyzer.parser.oracle.normalize import normalize  # noqa: E402
 from mtg_analyzer.parser.oracle.segmenter import segment_line  # noqa: E402
@@ -218,8 +219,8 @@ def cmd_clause(args):
 
     for label, kwargs in (
         ("plain", {}),
-        ("self_subject", {"self_subject": True}),
-        ("previous_subject", {"previous_subject": True}),
+        ("self_subject", {"reading": ClauseReading(self_subject=True)}),
+        ("previous_subject", {"reading": ClauseReading(previous_subject=True)}),
     ):
         for line in [line for line in norm.split("\n") if line.strip()]:
             specs = match_clause(line, **kwargs)

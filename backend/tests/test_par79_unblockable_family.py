@@ -678,6 +678,7 @@ def test_may_effect_then_parses_as_optional_wrapping_a_sequence():
             {"type": "draw", "params": {"count": 1}},
             {"type": "discard", "params": {"count": 1}},
         ],
+        "if_you_do_from": 1,  # PAR-175: RULE 608.2c outcome test
     })]
 
 
@@ -797,6 +798,7 @@ def test_may_effect_then_peel_guard_protects_resolving_effect_antecedent():
             }},
             {"type": "unblockable", "params": {"target_kind": None}},
         ],
+        "if_you_do_from": 1,  # PAR-175: RULE 608.2c outcome test
     })]
 
 

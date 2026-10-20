@@ -291,7 +291,21 @@ def _strip_trigger_once_per_turn_marker(effects: list[EffectSpec]) -> tuple[list
     the binder.
     """
     remaining = [e for e in effects if e.type != TRIGGER_ONCE_PER_TURN_MARKER]
-    return remaining, len(remaining) != len(effects)
+    found = len(remaining) != len(effects)
+    # PAR-175: "you may X. If you do, Y. This ability triggers only once each turn." reads as one `optional` whose
+    # body swallowed the trailing sentence; the limit belongs to the trigger, not to the yes/no, so hoist it out.
+    unwrapped: list[EffectSpec] = []
+    for effect in remaining:
+        inner = effect.params.get("effects") if effect.type == "optional" else None
+        if isinstance(inner, list) and any(
+            isinstance(e, dict) and e.get("type") == TRIGGER_ONCE_PER_TURN_MARKER for e in inner
+        ):
+            found = True
+            effect = replace(effect, params={**effect.params, "effects": [
+                e for e in inner if not (isinstance(e, dict) and e.get("type") == TRIGGER_ONCE_PER_TURN_MARKER)
+            ]})
+        unwrapped.append(effect)
+    return unwrapped, found
 
 #: RULE ~702.156-ish "ability word" Magecraft — "Magecraft — Whenever you
 #: cast or copy an instant or sorcery spell, <effect>." (Professor Onyx/
@@ -10608,6 +10622,10 @@ _MID_BODY_ITS_CONTROLLER_MAY_RE = re.compile(
 )
 
 
+#: A sentence that opens with the outcome test of an optional/cost clause before it (RULE 608.2c / 603.12).
+_IF_YOU_DO_SENTENCE_RE = re.compile(r"\.\s+(?:if|when) you do\b", re.I)
+
+
 def peel_optional(body: str) -> tuple[str, bool]:
     """Strip a leading "you may " and report whether it was present (RULE 601.2)."""
     body = body.strip()
@@ -10637,6 +10655,12 @@ def peel_optional(body: str) -> tuple[str, bool]:
         )
         if causative_damage is not None:
             rest = f"{causative_damage.group('subject')} {causative_damage.group('deal')}"
+        # PAR-175: "you may X. If you do, Y." -- "if you do" is the outcome of the optional X (RULE 608.2c,
+        # 603.12), and the peel hands it a body whose first clause no longer says it was optional. When the peeled
+        # body cannot be read, the whole sentence pair is the unit (`may_effect_then`); a body the peel already
+        # reads keeps its meaning untouched.
+        if _IF_YOU_DO_SENTENCE_RE.search(rest) and parse_effect_body(rest) is None and parse_effect_body(body) is not None:
+            return body, False
         return rest, True
     return body, False
 

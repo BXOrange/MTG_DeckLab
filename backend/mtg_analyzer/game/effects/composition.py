@@ -412,8 +412,13 @@ class OptionalEffect(_CompositeEffect):
         player: Any = "you",
         source: Optional[GameObject] = None,
         else_effects: Optional[list[Any]] = None,
+        if_you_do_from: Optional[int] = None,
     ) -> None:
         super().__init__(effects, source)
+        #: "You may X. **If you do**, Y." (RULE 608.2c): the number of leading ``effects`` that are X. Y (the rest)
+        #: runs only when X actually changed the game (`IfYouDoEffect`), not whenever the question was answered
+        #: "yes". ``None`` is the older "you may do all of this" body with no outcome test.
+        self.if_you_do_from = if_you_do_from if isinstance(if_you_do_from, int) and 0 < if_you_do_from < len(self.inner_specs) else None
         #: "…may sacrifice it. **If they don't**, ~ deals 5 damage to that player." (Star Athlete, Enchanter's Bane) — the body
         #: that runs when the question is declined; carried on the pending choice like ``effect_specs``.
         self.else_specs = _as_spec_dicts(else_effects)
@@ -435,8 +440,30 @@ class OptionalEffect(_CompositeEffect):
         #: they?") of the same referent should read it the same way.
         self.player = player
 
+    def _antecedent_impossible(self, context: GameContext) -> bool:
+        """An "if you do" antecedent that cannot be performed in full is not offered (RULE 609.3 applies to the
+        instruction, but the question is only worth asking when "if you do" can come true): "exile two cards from
+        your graveyard" needs two."""
+        for spec in self.inner_specs[: self.if_you_do_from]:
+            if spec.get("type") == "choose_objects":
+                # "tap two other untapped creatures": fewer than two to pick cannot do it, so "if you do" cannot hold.
+                chooser = _build([spec], self.source)[0]
+                pooled = chooser.pool_candidates(context)
+                needed = chooser.count
+                if pooled is None or (isinstance(needed, int) and len(pooled[1]) < needed):
+                    return True
+            if spec.get("type") == "exile_own_graveyard_cards":
+                controller = effect_conditions._player_by_id(
+                    context, effect_conditions._controller_id(self.source, context))
+                needed = max(1, int((spec.get("params") or {}).get("count", 1)))
+                if controller is None or len(controller.graveyard) < needed:
+                    return True
+        return False
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.inner_specs and not self.else_specs:
+            return
+        if self.if_you_do_from and self._antecedent_impossible(context):
             return
         referent_subject_id = None
         if self.player == "target":
@@ -510,6 +537,7 @@ class OptionalEffect(_CompositeEffect):
             ],
             "effect_specs": [dict(spec) for spec in self.inner_specs],
             "else_specs": [dict(spec) for spec in self.else_specs],
+            "if_you_do_from": self.if_you_do_from,
             "source_id": getattr(self.source, "instance_id", None),
             # RULE 601.2c: the targets were fixed when the ability went on the
             # stack (see `target_specs` above), but the body does not run until
@@ -545,6 +573,53 @@ class OptionalEffect(_CompositeEffect):
             "acting_player_id": (getattr(context, "acting_player_id", None)
                                  or getattr(context, "resolving_controller_id", None)),
         })
+
+
+#: Antecedent effect types whose "if you do" is satisfied by *attempting* them: a search that finds nothing was
+#: still a search (RULE 701.23), though it leaves the zones unchanged. Every other antecedent must change the game.
+ALWAYS_DONE_ANTECEDENTS: frozenset[str] = frozenset({"search"})
+
+
+def game_fingerprint(context: GameContext, source: Optional[GameObject]) -> tuple:
+    """What an antecedent instruction could have changed: every zone's membership, life, the permanents' tapped
+    state and counters, and where the source is. Order within a zone is ignored (a shuffle is not progress)."""
+    state = context.state
+    players = tuple(
+        (
+            player.id, player.life, frozenset(o.instance_id for o in player.hand),
+            len(player.library), frozenset(o.instance_id for o in player.graveyard),
+            frozenset(o.instance_id for o in getattr(player, "exile", []) or []),
+        )
+        for player in state.players
+    )
+    battlefield = frozenset(
+        (o.instance_id, bool(o.tapped), tuple(sorted((getattr(o, "counters", None) or {}).items())),
+         getattr(o, "attached_to", None), getattr(o, "damage_marked", 0))
+        for o in state.battlefield
+    )
+    return (players, battlefield, getattr(source, "zone", None), getattr(source, "zone_incarnation", None),
+            len(state.stack))
+
+
+class IfYouDoEffect(_CompositeEffect):
+    """RULE 608.2c: "You may X. **If you do**, Y." -- Y runs only if X was actually performed.
+
+    ``before`` is `game_fingerprint` taken just before X; this node sits right after X in the same effect list
+    (so X's pauses, referents and tallies flow through unchanged) and compares. X that did nothing -- a draw from
+    an empty library, tapping what is already tapped, exiling a card that has left -- leaves Y undone.
+    """
+
+    def __init__(self, before: tuple, effects: Optional[list[Any]] = None, source: Optional[GameObject] = None) -> None:
+        super().__init__(effects, source)
+        self.before = before
+
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        return []  # Y's targets were announced with the enclosing ability (`OptionalEffect.target_specs`).
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if game_fingerprint(context, self.source) != self.before:
+            self._run(self.inner_specs, context, targets)
 
 
 class ForEachEffect(_CompositeEffect):
@@ -868,6 +943,7 @@ EffectRegistry.register(
         prompt=p.get("prompt", ""),
         player=p.get("player", "you"),
         else_effects=p.get("else_effects"),
+        if_you_do_from=p.get("if_you_do_from"),
     ),
 )
 EffectRegistry.register(

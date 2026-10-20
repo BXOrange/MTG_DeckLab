@@ -988,6 +988,7 @@ def _may_attach_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     attach_spec = EffectSpec("attach", {"target_kind": "creature_you_control"})
     return [EffectSpec("optional", {
         "effects": [attach_spec.to_dict()] + [s.to_dict() for s in second],
+        "if_you_do_from": 1,  # RULE 608.2c: the follow-up needs the attach to have happened
     })]
 
 
@@ -1007,7 +1008,9 @@ def _may_exile_target_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if any(s.params.get("target_kind") for s in second):
         return None  # a second RULE 115 target has nowhere to be announced from
-    return [EffectSpec("optional", {"effects": [first[0].to_dict()] + [s.to_dict() for s in second]})]
+    return [EffectSpec("optional", {
+        "effects": [first[0].to_dict()] + [s.to_dict() for s in second], "if_you_do_from": 1,  # RULE 608.2c
+    })]
 
 
 #: MEC-99: "you may choose to have it deal damage equal to its power to
@@ -1074,8 +1077,10 @@ def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if any(s.params.get("target_kind") for s in second):
         return None
+    # RULE 608.2c: "if you do" -- the second part waits for the first to have been performed (`IfYouDoEffect`).
     return [EffectSpec("optional", {
         "effects": [s.to_dict() for s in first] + [s.to_dict() for s in second],
+        "if_you_do_from": len(first),
     })]
 
 

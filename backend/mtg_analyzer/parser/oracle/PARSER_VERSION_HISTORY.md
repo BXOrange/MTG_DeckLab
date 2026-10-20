@@ -4061,3 +4061,10 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      creatures") now reads group-form add_counters / damage; a leading-"if" casting window is claimed; the
      target-adjective filter survives a "that player controls" tail; "N mana of any 1 color" is one pick again.
 ```
+708: PAR-175 M1 -- "you may X. If you do, Y." behind a trigger head stays one `optional` (`peel_optional` keeps the
+     "you may" when the peeled body cannot be read and the sentence pair can; RULE 608.2c outcome linkage), and a
+     trailing "This ability triggers only once each turn." is hoisted out of that wrapper onto the trigger's limit.
+     "If you do" is now an outcome test (RULE 608.2c): `optional` carries ``if_you_do_from`` and the follow-up waits
+     behind `IfYouDoEffect` (the antecedent must have changed the game; "exile/tap N" that cannot be done in full is
+     not offered), for `may_effect_then`, `may_attach_if_you_do` and `may_exile_target_if_you_do`; 16 earlier MODELED
+     cards gain the test. +31 / -0 (36 parse-newly-MODELED, 5 already hand-authored).

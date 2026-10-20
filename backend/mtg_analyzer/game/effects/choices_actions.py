@@ -1496,6 +1496,29 @@ class ChooseObjectsEffect(GameEffect):
                 and obj.zone_incarnation == expected)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        pooled = self.pool_candidates(context, targets)
+        if pooled is None:
+            return
+        player, candidates = pooled
+        count = len(candidates) if self.count == "all" else self.count
+        if self.count_amount is not None:
+            from .. import effect_amounts  # function-scoped: effect_amounts imports this package
+
+            count = effect_amounts.amount_of(self.count_amount, context, self.source, targets)
+        context.choose_objects(
+            player, candidates, self.action, count=count,
+            optional=self.optional, prompt=self.prompt, source=self.source,
+            then_specs=self.then, then_specs_if_commander=self.then_if_commander,
+            else_specs=self.else_effects, then_that_many=self.then_that_many,
+            distinct_card_types=self.distinct_card_types,
+            minimum_card_types=self.minimum_card_types,
+        )
+
+    def pool_candidates(
+        self, context: GameContext, targets: Optional[list[Any]] = None,
+    ) -> Optional[tuple[Any, list[Any]]]:
+        """The chooser and the objects they may pick from, or ``None`` when there is no chooser. Also what an
+        "if you do" wrapper asks to learn whether this instruction can be performed in full."""
         from .. import combat
 
         from ..rules_engine import _matches_permanent_type
@@ -1507,7 +1530,7 @@ class ChooseObjectsEffect(GameEffect):
         else:
             player = _controller_of(self.source, context)
         if player is None:
-            return
+            return None
         pool_player = player
         if self.pool_player_selector == "defending_player":
             event = context.trigger_event or {}
@@ -1550,19 +1573,7 @@ class ChooseObjectsEffect(GameEffect):
             and not (self.require_untapped and obj.tapped)
             and (not self.saddlers_only or self._saddled_this_turn(context, obj))
         ]
-        count = len(candidates) if self.count == "all" else self.count
-        if self.count_amount is not None:
-            from .. import effect_amounts  # function-scoped: effect_amounts imports this package
-
-            count = effect_amounts.amount_of(self.count_amount, context, self.source, targets)
-        context.choose_objects(
-            player, candidates, self.action, count=count,
-            optional=self.optional, prompt=self.prompt, source=self.source,
-            then_specs=self.then, then_specs_if_commander=self.then_if_commander,
-            else_specs=self.else_effects, then_that_many=self.then_that_many,
-            distinct_card_types=self.distinct_card_types,
-            minimum_card_types=self.minimum_card_types,
-        )
+        return player, candidates
 
 
 class DisorientingChoiceEffect(GameEffect):

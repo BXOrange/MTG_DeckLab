@@ -1944,12 +1944,22 @@ class CastingResolutionMixin:
         from ..binding.core import build_effects  # function-scoped: binder cycle
         from ...parser.oracle.spec import EffectSpec
 
-        built = build_effects(
-            [EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
-                        condition=d.get("condition"))
-             for d in specs],
-            source,
-        )
+        split = choice.get("if_you_do_from") if accepted else None
+        spec_objs = [EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
+                                condition=d.get("condition"))
+                     for d in specs]
+        if split and 0 < split < len(spec_objs):
+            # RULE 608.2c: "You may X. If you do, Y." -- Y waits behind a check that X changed the game.
+            from ..effects.composition import ALWAYS_DONE_ANTECEDENTS, IfYouDoEffect, game_fingerprint
+
+            built = build_effects(spec_objs[:split], source)
+            if all(s.type in ALWAYS_DONE_ANTECEDENTS for s in spec_objs[:split]):
+                built += build_effects(spec_objs[split:], source)
+            else:
+                built.append(IfYouDoEffect(
+                    game_fingerprint(self.context, source), [s.to_dict() for s in spec_objs[split:]], source))
+        else:
+            built = build_effects(spec_objs, source)
         # RULE 601.2c/608.2h: the announced targets, re-found by id across the
         # pause. One that has left a zone is dropped rather than substituted —
         # the same last-known-information handling as the referent above.
