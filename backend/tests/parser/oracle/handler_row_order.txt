@@ -288,6 +288,7 @@ reanimate_under_your_control
 choose_graveyard_return
 exile_return_at_declare_attackers
 it_gains_quoted_ability
+created_has_quoted_ability
 until_next_turn_conditional_gains
 reanimate_multi_under_your_control
 return_from_graveyard_top_any

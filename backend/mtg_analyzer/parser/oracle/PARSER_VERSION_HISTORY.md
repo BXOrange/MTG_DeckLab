@@ -4073,3 +4073,10 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      the RULE 608.2c "if you do" gate refuses antecedents whose footprint the engine's `game_fingerprint` cannot
      observe (`spec.IF_YOU_DO_ANTECEDENT_TYPES`), which returns Armor Wars (a ``for_each`` draw antecedent; still
      UNMODELED) to its pre-708 unclaimed text. +0 / -0.
+710: PAR-175 M3 -- the referent environment gains a CREATED kind (`produces`: what a create_token clause made); "It/They
+     has/have "<ability>"" after a creating clause is a created-only quoted-ability grant (`created_has_quoted_ability`:
+     `grant_until` + `referent="created"` over `quoted_ability_grant_effects_list`; Eldrazi Scion/Spawn mana riders,
+     Llanowar/Goldmeadow named tokens, Drudge Spell, Triskelavus). A pronoun clause (pump / grant_until) that follows a
+     creating clause after an earlier pick is stamped `referent="created"` so the pick (Salt Road Skirmish's destroyed
+     creature) is not the recipient, and so is a delayed "sacrifice/exile it" after it (`capture="created_objects"`). A quoted body naming the printing card ("named ~", Sound the Call) stays unclaimed.
+     +30 / -0 (32 parse-newly-MODELED, 2 already hand-authored).

@@ -647,6 +647,7 @@ class GrantUntilEffect(GameEffect):
         count: int = 1,
         condition: Optional[dict[str, Any]] = None,
         previous_subject: bool = False,
+        referent: Optional[str] = None,
         self_subject: bool = False,
         extra_statics: Optional[list[dict[str, Any]]] = None,
         lock_group: bool = False,
@@ -674,6 +675,9 @@ class GrantUntilEffect(GameEffect):
         #: ("Tap target land. It doesn't untap … for as long as ~ remains
         #: tapped.") instead of declaring a target of this effect's own.
         self.previous_subject = previous_subject
+        #: PAR-175: ``"created"`` -- the pronoun names what the preceding clause *made*, even when an earlier clause
+        #: of the same resolution chose something else ("Tap up to 2 target creatures. Create a token. It has …").
+        self.referent = referent
         #: MEC-46: apply to this effect's own source, no RULE 115 target
         #: ("~ gains protection from each color …" — Council Guardian,
         #: resolved through the vote's `winner_specs` with no duration).
@@ -710,7 +714,8 @@ class GrantUntilEffect(GameEffect):
             elif self.previous_subject:
                 # The previous clause's pick — or, when it created rather than chose ("Create a token that's
                 # a copy of …. It gains haste."), what it made (`PumpEffect.previous_subject`'s fallback).
-                chosen = list(context.previous_targets) or list(getattr(context, "created_objects", None) or [])
+                chosen = (list(getattr(context, "created_objects", None) or []) if self.referent == "created"
+                          else list(context.previous_targets) or list(getattr(context, "created_objects", None) or []))
             else:
                 chosen = list(targets or [])[: self.target_spec.effective_count]
             chosen_ids = [
@@ -2446,6 +2451,7 @@ class PumpEffect(GameEffect):
         amount_from_count_selector_axis: str = "both",
         creature_filter: Optional[dict] = None,
         previous_subject: bool = False,
+        referent: Optional[str] = None,
         subtypes: Optional[list[str]] = None,
         trigger_subject: bool = False,
         trigger_event_key: Optional[str] = None,
@@ -2516,6 +2522,8 @@ class PumpEffect(GameEffect):
         #: range rather than a fixed count — exactly the shape a target-count
         #: *range* creates and the reason no card needed this before.
         self.previous_subject = previous_subject
+        #: PAR-175: ``"created"`` -- "it"/"they" are what the preceding clause made, not an earlier pick.
+        self.referent = referent
         #: "Each creature your opponents control gets -1/-1 until end of
         #: turn for each poison counter its controller has." (Phyresis
         #: Outbreak-shaped) — unlike `amount_from_trigger_event` (one
@@ -2696,8 +2704,8 @@ class PumpEffect(GameEffect):
             # targeted something ("create a token …. It gains haste …" —
             # God-Pharaoh's Gift, Harried Dronesmith, Mordor on the March),
             # what it *made* (`created_objects`).
-            chosen = list(context.previous_targets) or list(
-                getattr(context, "created_objects", [])
+            chosen = list(getattr(context, "created_objects", [])) if self.referent == "created" else (
+                list(context.previous_targets) or list(getattr(context, "created_objects", []))
             )
             for obj in chosen:
                 self._pump_one(obj)

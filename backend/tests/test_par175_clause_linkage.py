@@ -319,3 +319,246 @@ def test_every_emitted_if_you_do_antecedent_is_in_the_allowlist():
             walk([s.to_dict() for s in result.specs], card.name, antecedents)
     assert antecedents
     assert [name for name, x in antecedents if not if_you_do_antecedent_ok(x)] == []
+
+
+# --- M3: riders on what the preceding clause created -------------------------------------------------------------
+
+
+SCION_ABILITY = 'it has "sacrifice ~: add {c}."'
+
+
+def _sorcery(name, oracle):
+    return Card(id=name, name=name, type_line="Sorcery", oracle_text=oracle, is_sorcery=True)
+
+
+def _cast_parsed(eng, card, targets=()):
+    """Cast a spell card from its own parsed oracle text and resolve it."""
+    from mtg_analyzer.game.mana_abilities import mana_abilities_for
+
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    eng.state.player_by_id("p1").hand.append(obj)
+    eng.rules.cast_spell(eng.state.player_by_id("p1"), obj, targets=list(targets) or None)
+    eng.resolve_until_stable()
+    return mana_abilities_for
+
+
+def test_a_quoted_ability_given_to_a_created_token_is_a_created_only_grant():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    specs = parse_effect_body(f"create a 1/1 colorless eldrazi scion creature token. {SCION_ABILITY}")
+    assert [s.type for s in specs] == ["create_token", "grant_until"]
+    grant = specs[1].params
+    assert grant["referent"] == "created" and grant["static"]["type"] == "grant_mana_ability"
+    assert grant["static"]["params"]["granted_mana_cost"] == "sacrifice ~"
+    # No creating clause before it: the pronoun has no antecedent, so nothing is claimed.
+    assert parse_effect_body(f"draw a card. {SCION_ABILITY}") is None
+    assert parse_effect_body(SCION_ABILITY) is None
+
+
+def test_the_rider_names_the_created_token_even_after_an_earlier_pick_in_the_same_spell():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    specs = parse_effect_body(f"tap up to 2 target creatures. create a 1/1 colorless eldrazi scion creature token. {SCION_ABILITY}")
+    assert specs and specs[-1].params["referent"] == "created"
+    haste = parse_effect_body("destroy target creature. create 2 1/1 red warrior creature tokens. they gain haste until end of turn")
+    assert haste[-1].type == "pump" and haste[-1].params["referent"] == "created"
+    # Without an earlier pick the engine's own fallback already reads what was created: spec unchanged.
+    plain = parse_effect_body("create a 1/1 red warrior creature token. it gains haste until end of turn")
+    assert "referent" not in plain[-1].params
+
+
+def test_a_quoted_ability_that_names_the_source_card_is_not_claimed():
+    # "named ~" in a granted body would mean the *token* once granted, not the card that printed it (Sound the Call).
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    assert parse_effect_body(
+        'create a 1/1 green wolf creature token. it has "this token gets +1/+1 for each card named ~ in each graveyard."'
+    ) is None
+
+
+def _scion_mana(eng, token):
+    from mtg_analyzer.game.mana_abilities import mana_abilities_for
+
+    return [a for a in mana_abilities_for(token, eng.state)] if token is not None else []
+
+
+def test_scions_get_the_sacrifice_for_mana_ability_and_the_tapped_creatures_do_not():
+    eng = _engine()
+    victim = GameObject(_card("Victim", "", "Creature — Bear"), owner_id="p2", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(victim)
+    card = _sorcery("Test Conditions", "Tap up to two target creatures. Create a 1/1 colorless Eldrazi Scion creature token. It has \"Sacrifice this token: Add {C}.\"")
+    result = parse_oracle(card)
+    assert result.coverage == MODELED, result.unclaimed
+    _cast_parsed(eng, card, targets=[victim])
+    scions = [o for o in eng.state.battlefield if o.is_token and "Scion" in o.name]
+    assert len(scions) == 1
+    assert _scion_mana(eng, scions[0]), "the created Scion carries the mana ability"
+    assert not _scion_mana(eng, victim), "the tapped creature must not get it"
+    assert len(_scion_mana(eng, scions[0])) == 1  # granted once
+
+
+def test_each_of_several_created_tokens_gets_it_exactly_once():
+    eng = _engine()
+    card = _sorcery("Test Hulk", "Create two 1/1 colorless Eldrazi Scion creature tokens. They have \"Sacrifice this token: Add {C}.\"")
+    assert parse_oracle(card).coverage == MODELED
+    _cast_parsed(eng, card)
+    scions = [o for o in eng.state.battlefield if o.is_token and "Scion" in o.name]
+    assert len(scions) == 2
+    assert [len(_scion_mana(eng, s)) for s in scions] == [1, 1]
+
+
+def test_they_gain_haste_reaches_the_created_tokens_not_the_destroyed_creature():
+    eng = _engine()
+    victim = GameObject(_card("Victim", "", "Creature — Bear"), owner_id="p2", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(victim)
+    card = _sorcery("Test Skirmish", "Destroy target creature. Create two 1/1 red Warrior creature tokens. They gain haste until end of turn.")
+    assert parse_oracle(card).coverage == MODELED
+    _cast_parsed(eng, card, targets=[victim])
+    eng.recompute_continuous_effects()
+    warriors = [o for o in eng.state.battlefield if o.is_token and "Warrior" in o.name]
+    assert len(warriors) == 2
+    assert all("haste" in {k.lower() for k in o.granted_keywords} or getattr(o, "temp_keywords", None) for o in warriors)
+    assert victim not in eng.state.battlefield
+
+
+def test_treasure_and_other_predefined_tokens_are_untouched_by_the_rider_row():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    treasure = parse_effect_body("create a treasure token")
+    assert [s.type for s in treasure] == ["create_token"] and "referent" not in treasure[0].params
+
+
+@pytest.mark.full_cache
+@pytest.mark.timeout(900)  # parses the whole cache
+def test_no_created_grant_quotes_the_printing_cards_own_name():
+    # A granted body's "~" is the token; a card whose quoted text names *itself* would silently mean the token.
+    import re
+
+    from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+
+    def has_created_grant(node):
+        if isinstance(node, dict):
+            if node.get("type") == "grant_until" and (node.get("params") or {}).get("referent") == "created":
+                return True
+            return any(has_created_grant(v) for v in node.values())
+        return isinstance(node, list) and any(has_created_grant(v) for v in node)
+
+    offenders = []
+    for card in CardDatabase(DEFAULT_DB_PATH).list_cards():
+        result = parse_oracle(card)
+        if result.modeled and has_created_grant([s.to_dict() for s in result.specs]):
+            quoted = " ".join(re.findall(r'"([^"]+)"', card.oracle_text or ""))
+            if card.name and card.name.lower() in quoted.lower():
+                offenders.append(card.name)
+    assert offenders == []
+
+
+# --- M3 review: token copies (God-Pharaoh's Gift, Offspring's Revenge, Mordor on the March) ------------------------
+# `CopyPermanentEffect.created_objects_are_referent` hands the copy on as the next clause's `previous_targets`, so these
+# are already right at resolution (unlike create_token after a pick); the tests pin that with real engine runs.
+
+GOD_PHARAOH = ("At the beginning of combat on your turn, you may exile a creature card from your graveyard. If you do, "
+               "create a token that's a copy of that card, except it's a 4/4 black Zombie. It gains haste until end of turn.")
+OFFSPRING = ("At the beginning of combat on your turn, exile target red, white, or black creature card from your graveyard. "
+             "Create a token that's a copy of that card, except it's 1/1. It gains haste until your next turn.")
+MORDOR = ("Exile a creature card from your graveyard. Create a token that's a copy of it. It gains haste until end of turn. "
+          "Exile it at the beginning of the next end step.")
+
+
+def _run_copy_effects(oracle, type_line, subtype_color="R"):
+    """Resolve the card through the engine's own stack with a red creature card in the graveyard picked as the exile.
+    A trigger body goes on the stack as the ability the card's trigger produces; a spell is cast."""
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    gy_card = GameObject(
+        Card(id="Dead", name="Dead Bear", type_line="Creature — Bear", is_creature=True, power=2, toughness=2,
+             mana_cost_string="{1}{R}", color_identity={"R"}), owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.add_to_zone(gy_card, Zone.GRAVEYARD)
+    card = Card(id="Src", name="Test Source", type_line=type_line, oracle_text=oracle,
+                is_sorcery="Sorcery" in type_line)
+    result = parse_oracle(card)
+    assert result.coverage == MODELED, result.unclaimed
+    if "Sorcery" in type_line:
+        obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+        bind_from_catalogue(obj)
+        p1.hand.append(obj)
+        eng.rules.cast_spell(p1, obj, targets=[gy_card])
+    else:
+        # A resolving ability: the same effect list through the stack's own resolution path (previous_targets and all).
+        from mtg_analyzer.game.effects.core import _apply_effects_partitioned
+
+        src = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+        eng.state.add_to_battlefield(src)
+        spec = next(s for s in result.specs if s.ability_kind == "triggered")
+        built = build_effects(spec.effects, source=src)
+        _apply_effects_partitioned(built, GameContext(eng.state, eng.rules), [gy_card], None, source=src)
+    eng.resolve_until_stable()
+    return eng, gy_card, [o for o in eng.state.battlefield if o.is_token], None
+
+
+def test_gods_pharaohs_gift_haste_goes_to_the_zombie_copy_not_the_exiled_card():
+    eng, exiled, tokens, _ = _run_copy_effects(GOD_PHARAOH, "Enchantment")
+    assert len(tokens) == 1 and exiled.zone == Zone.EXILE
+    eng.recompute_continuous_effects()
+    assert "haste" in {k.lower() for k in tokens[0].granted_keywords} or tokens[0].temp_keywords
+    assert not exiled.temp_keywords and "haste" not in {k.lower() for k in exiled.granted_keywords}
+
+
+def test_offspring_revenge_haste_until_next_turn_goes_to_the_copy():
+    eng, exiled, tokens, _ = _run_copy_effects(OFFSPRING, "Enchantment")
+    assert len(tokens) == 1 and exiled.zone == Zone.EXILE
+    eng.recompute_continuous_effects()
+    assert "haste" in {k.lower() for k in tokens[0].granted_keywords}
+    assert "haste" not in {k.lower() for k in exiled.granted_keywords}
+
+
+def test_mordor_on_the_march_exiles_the_token_copy_at_the_end_step():
+    eng, exiled, tokens, _ = _run_copy_effects(MORDOR, "Sorcery")
+    assert len(tokens) == 1 and exiled.zone == Zone.EXILE
+    eng.recompute_continuous_effects()
+    assert "haste" in {k.lower() for k in tokens[0].granted_keywords} or tokens[0].temp_keywords
+    token = tokens[0]
+    eng.state.current_step = "end"
+    eng._fire_delayed_triggers("end")  # RULE 603.7: the delayed exile due at the next end step
+    eng.resolve_until_stable()
+    assert token not in eng.state.battlefield
+    assert exiled.zone == Zone.EXILE  # the card exiled as the first instruction is not exiled again or returned
+
+
+@pytest.mark.full_cache
+@pytest.mark.timeout(900)  # parses the whole cache
+def test_no_modeled_card_resolves_a_pronoun_after_a_creation_through_a_stale_pick():
+    from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+
+    creators = {"create_token", "manifest", "manifest_dread"}  # copy_permanent hands its copies on itself
+    offenders = []
+
+    def scan(effects, name):
+        picked = stale = False
+        for effect in effects:
+            d = effect if isinstance(effect, dict) else effect.to_dict()
+            params = d.get("params") or {}
+            if d["type"] in creators:
+                stale = picked
+                continue
+            pronoun = (params.get("previous_subject") or params.get("referent") == "previous"
+                       or params.get("capture") in ("previous_or_self", "previous_targets"))
+            # "Return the exiled cards ..." (Disorder in the Court) deliberately names the pick, not the Clue made after.
+            names_pick = d["type"] == "create_delayed_trigger" and all(
+                e.get("type") == "return_specific_to_battlefield" for e in params.get("effects", []))
+            if (stale and pronoun and not names_pick and params.get("referent") != "created"
+                    and params.get("capture") != "created_objects"):
+                offenders.append((name, d["type"]))
+            if params.get("target_kind") or params.get("selector") or params.get("group"):
+                picked, stale = True, False
+            for key in ("effects", "then", "else", "else_effects"):
+                if isinstance(params.get(key), list):
+                    scan(params[key], name)
+
+    for card in CardDatabase(DEFAULT_DB_PATH).list_cards():
+        result = parse_oracle(card)
+        if result.modeled:
+            for spec in result.specs:
+                scan(spec.effects, card.name)
+    assert offenders == []

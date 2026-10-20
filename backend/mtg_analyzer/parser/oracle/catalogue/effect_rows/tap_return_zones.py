@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from typing import Optional
 from ..clause_hooks import parse_effect_body
-from ..clause_reading import ClauseReading
+from ..clause_reading import CREATED_REFERENT, ClauseReading
 from ..count_phrase import parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
-from ..static_handlers import quoted_ability_grant_effects
+from ..static_handlers import quoted_ability_grant_effects, quoted_ability_grant_effects_list
 from ..subgrammars import (
     COLOR_WORD_ALT,
     count_of,
@@ -116,6 +117,32 @@ def _it_gains_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "previous_subject": True,
         "target_kind": None,
     })]
+
+
+#: PAR-175 M3: "Create a 1/1 colorless Eldrazi Scion creature token. **It has** "Sacrifice ~: Add {C}."" /
+#: "Create 2 …tokens. **They have** …" -- a quoted ability given to what the preceding clause *made* (RULE 111.4 /
+#: 113.3: the token gets the ability when it is created, permanently). The grant is the fully modeled quoted-ability
+#: grant the equipment/aura rows use (`quoted_ability_grant_effects_list`), parked on the created objects only
+#: (``referent="created"``: an earlier clause's pick, e.g. the creatures a spell tapped, is never the recipient).
+#: Offered only when the preceding clause created (`ClauseReading.referents` has a CREATED kind). "gains" is left to
+#: `_IT_GAINS_QUOTED_ABILITY_RE` for the when/whenever bodies it already owns.
+_CREATED_HAS_QUOTED_ABILITY_RE = compile_clause(
+    r"(?:it|they) (?:has|have|gains?) \"(?P<inner>(?!(?:when|whenever)\b)[^\"]+)\""
+)
+
+
+def _created_has_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    grants = quoted_ability_grant_effects_list(m.group("inner"))
+    # "named ~" in a quoted body is the printing card's name, but a granted body's "~" is the token it is given to.
+    if not grants or "named_as_reference" in json.dumps([g.to_dict() for g in grants]):
+        return None
+    return [EffectSpec("grant_until", {
+        "static": {"type": grant.type, "params": grant.params},
+        "duration": "rest_of_game",
+        "previous_subject": True,
+        "referent": "created",
+        "target_kind": None,
+    }) for grant in grants]
 
 
 #: "Whenever this creature deals combat damage to a creature, exile that
@@ -1704,6 +1731,10 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         "it_gains_quoted_ability", _IT_GAINS_QUOTED_ABILITY_RE, _it_gains_quoted_ability, requires=ClauseReading(previous_subject=True),
+    ),
+    EffectHandler(
+        "created_has_quoted_ability", _CREATED_HAS_QUOTED_ABILITY_RE, _created_has_quoted_ability,
+        requires=ClauseReading(referents=(CREATED_REFERENT,)),
     ),
     EffectHandler(
         "until_next_turn_conditional_gains", _UNTIL_NEXT_TURN_CONDITIONAL_GAINS_RE,

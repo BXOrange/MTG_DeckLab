@@ -29,6 +29,12 @@ TARGET = "target"
 SELECTOR = "selector"
 
 
+#: `Referent.kind`: what the preceding clause *made* (tokens, copies, manifested cards) -- `GameContext.created_objects`
+#: -- read by "it" / "they" in "Create a token. It has ...". Always accompanied by `TARGET` (the older view), but
+#: unlike it never confused with an earlier clause's pick.
+CREATED = "created"
+
+
 @dataclass(frozen=True)
 class Referent:
     """One thing an earlier clause of the same body produced, which a later clause may name with a pronoun."""
@@ -42,6 +48,8 @@ class Referent:
 
 TARGET_REFERENT = Referent(TARGET)
 SELECTOR_REFERENT = Referent(SELECTOR, group=True)
+CREATED_REFERENT = Referent(CREATED)
+CREATED_GROUP_REFERENT = Referent(CREATED, group=True)
 
 
 @dataclass(frozen=True)
@@ -105,6 +113,7 @@ class ClauseReading:
             and (self.group_subject or not required.group_subject)
             and (self.previous_selector or not required.previous_selector)
             and (self.attached_subject or not required.attached_subject)
+            and {r.kind for r in required.referents} <= {r.kind for r in self.referents}
         )
 
 

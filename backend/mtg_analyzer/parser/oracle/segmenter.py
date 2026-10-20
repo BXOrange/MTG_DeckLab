@@ -20,7 +20,8 @@ import copy
 import json
 import re
 from .catalogue.clause_reading import (
-    SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT, ClauseReading, Referent,
+    CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
+    ClauseReading, Referent,
 )
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional
@@ -5583,6 +5584,15 @@ def _lift_opponent_choice(body: str) -> Optional[tuple[str, list[tuple[int, bool
 def parse_effect_body(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> Optional[list[EffectSpec]]:
+    """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
+    emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
+    specs = _parse_effect_body_unstamped(body, reading=reading)
+    return _stamp_created_pronouns(specs) if specs else specs
+
+
+def _parse_effect_body_unstamped(
+    body: str, *, reading: ClauseReading = STANDALONE,
+) -> Optional[list[EffectSpec]]:
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
@@ -6638,6 +6648,7 @@ def _parse_effect_body_inner(
                 last_len = len(sub)
                 collected.extend(sub)
                 prev_referent, prev_referent_selector = referent, referent_selector
+                prev_referents = referents
                 # RULE 601.2c: what the clause just parsed *chose* is what
                 # the next one's "it"/"that creature"/"those creatures" can
                 # point at (`effect_rows.shared.EffectHandler.previous_subject_only`,
@@ -6685,7 +6696,13 @@ def _parse_effect_body_inner(
                 # selector clause never sets ``referent`` above (it targets
                 # nothing at all, RULE 601.2c).
                 referent_selector = SELECTOR in {r.kind for r in produces(sub)}
-                referents = _referents_from(referent, referent_selector)
+                # What was just *made* stays the referent while later clauses keep consuming it ("... It has "...".
+                # It gains haste ..."), and only then.
+                made = tuple(r for r in produces(sub) if r.kind == CREATED) or (
+                    tuple(r for r in prev_referents if r.kind == CREATED)
+                    if any(s.params.get("referent") == CREATED for s in sub) else ()
+                )
+                referents = _referents_from(referent, referent_selector, made)
             if ok:
                 return collected
 
@@ -6962,6 +6979,12 @@ def _is_group_selector_value(value: object) -> bool:
     return value in _GROUP_SELECTOR_VALUES
 
 
+#: Effects that leave what they made in `GameContext.created_objects` for the next clause.
+_CREATING_TYPES: frozenset[str] = frozenset({"create_token"})
+# (``copy_permanent`` is not listed: `CopyPermanentEffect.created_objects_are_referent` already hands its copies on
+# as the next clause's `previous_targets`, so "Create a token that's a copy of that card. It gains haste." is right.)
+
+
 def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
     """What a just-parsed clause leaves for the next one to name (the referent environment's one producer): the
     object it chose (``it`` / ``that creature``) and/or the group it acted on (``they`` / ``those creatures``)."""
@@ -6970,12 +6993,52 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
         out.append(TARGET_REFERENT)
     if _announces_group_selector(specs):
         out.append(SELECTOR_REFERENT)
+    if specs and specs[-1].type in _CREATING_TYPES:
+        out.append(CREATED_GROUP_REFERENT if specs[-1].params.get("count", 1) != 1 else CREATED_REFERENT)
     return tuple(out)
 
 
-def _referents_from(target: bool, selector: bool) -> tuple[Referent, ...]:
+#: Pronoun consumers whose engine effect reads ``referent="created"`` (PumpEffect, GrantUntilEffect); a delayed
+#: trigger's ``capture`` is switched to ``created_objects`` instead.
+_CREATED_AWARE_TYPES: frozenset[str] = frozenset({"pump", "grant_until"})
+
+
+_CREATED_DELAYED_BODIES: frozenset[str] = frozenset({"sacrifice_specific", "exile_specific", "destroy_specific"})
+
+
+def _stamp_created_pronouns(specs: list[EffectSpec]) -> list[EffectSpec]:
+    """"Tap up to 2 target creatures. Create a token. It gains haste." / "Exile target creature card from your
+    graveyard. Create a token that's a copy of that card. It gains haste. Exile it at the beginning of the next end
+    step." -- ``previous_targets`` still holds what an earlier clause picked, so a pronoun clause that follows a
+    *creating* clause says so explicitly (`referent="created"`; a delayed trigger bakes ``capture="created_objects"``)
+    when something was picked before the creation. Without an earlier pick the engine's own fallback to
+    `created_objects` is already right, and the spec stays as it was. Idempotent."""
+    picked = False  # an earlier clause chose something (`previous_targets` is not empty at the creation)
+    stale = False  # ... and the most recent creating clause came after it
+    out: list[EffectSpec] = []
+    for spec in specs:
+        if spec.type in _CREATING_TYPES:
+            stale = picked
+            out.append(spec)
+            continue
+        if stale and spec.type in _CREATED_AWARE_TYPES and spec.params.get("previous_subject") and "referent" not in spec.params:
+            spec = replace(spec, params={**spec.params, "referent": CREATED})
+        elif (
+            stale and spec.type == "create_delayed_trigger" and spec.params.get("capture") == "previous_or_self"
+            # "Sacrifice/exile/destroy it/them" names the creation; "return the exiled cards" (Disorder in the Court)
+            # names the earlier pick even when a Clue was made in between.
+            and all(e.get("type") in _CREATED_DELAYED_BODIES for e in spec.params.get("effects", []))
+        ):
+            spec = replace(spec, params={**spec.params, "capture": "created_objects"})
+        elif spec.params.get("target_kind") or spec.params.get("selector") or spec.params.get("group"):
+            picked, stale = True, False  # a new pick is what the next pronoun names
+        out.append(spec)
+    return out
+
+
+def _referents_from(target: bool, selector: bool, created: tuple[Referent, ...] = ()) -> tuple[Referent, ...]:
     """The environment for the next clause, after the sequencing loop has applied its carry-over rules."""
-    return tuple(ref for ref, on in ((TARGET_REFERENT, target), (SELECTOR_REFERENT, selector)) if on)
+    return tuple(ref for ref, on in ((TARGET_REFERENT, target), (SELECTOR_REFERENT, selector)) if on) + created
 
 
 def _sequel_reading(reading: ClauseReading, carry_self: bool, referents: tuple[Referent, ...]) -> ClauseReading:
