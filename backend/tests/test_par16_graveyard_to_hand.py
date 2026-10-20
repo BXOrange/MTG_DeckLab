@@ -15,8 +15,7 @@ Two pieces:
   (inferred by `effect_binder.bind_ability`, the same "effect and permission
   travel together" idea `ActivationCost.graveyard_zone` already uses for the
   activated half) and `RulesEngine._collect_graveyard_function_triggers`,
-  a general scan alongside the older, mill-only
-  `_collect_mill_return_from_graveyard_triggers`.
+  a general scan (Infesting Radroach's MILL_CARD form rides it too since PAR-174).
 
 Reference: mtg_analyzer/game/{effects,effect_binder,rules/triggers_mixin}.py,
 mtg_analyzer/parser/oracle/catalogue/handlers.py.

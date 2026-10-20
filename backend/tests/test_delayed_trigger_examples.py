@@ -7,9 +7,8 @@ needed real examples to render against:
   window armed at the controller's next upkeep (`AbilitySpec.rebound`,
   `ReboundFreeCastWindowEffect`, `GameState.free_cast_instance_ids`).
 - Marchesa, the Black Rose's "return a counter-bearing creature you control
-  that died, at the beginning of the next end step" (`AbilitySpec.
-  counter_death_return`, `RulesEngine._collect_counter_death_return_
-  triggers`, `MarchesaDelayedReturnEffect`).
+  that died, at the beginning of the next end step" (an ordinary group
+  DIES trigger over `delay_return_dying_subject`).
 - Sneak Attack / Meek Attack's "put a creature from hand onto the
   battlefield with haste, sacrifice it at the beginning of the next end
   step" (`CheatCreatureFromHandEffect`, `SacrificeObjectEffect`).
@@ -228,13 +227,16 @@ def _marchesa(state, controller="p1"):
     return _battlefield_obj(state, card, controller)
 
 
-def test_marchesa_registered_with_counter_death_return_marker():
+def test_marchesa_registered_with_counter_death_trigger():
     from mtg_analyzer.game import card_registry as ac
 
     assert ac.is_registered("Marchesa, the Black Rose")
     card = _card("Marchesa, the Black Rose", "Legendary Creature")
     specs = ac.specs_for(card)
-    assert any(getattr(s, "counter_death_return", None) for s in specs)
+    assert any(
+        s.ability_kind == "triggered" and s.trigger["condition"].get("has_counter_kind") == "+1/+1"
+        for s in specs
+    )
 
 
 def test_marchesa_returns_a_dying_countered_creature_at_next_end_step():

@@ -57,7 +57,6 @@ from ..effects.core import (
     GrantSearchLimitedToTopNEffect,
     GrantSearchProhibitedEffect,
     ImpulsiveDrawEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,

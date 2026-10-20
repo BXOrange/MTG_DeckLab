@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
@@ -13,13 +14,13 @@ def _infesting_radroach() -> list[AbilitySpec]:
     graveyard, you may return it to your hand.
 
     — Infesting Radroach. "That many" ties the rad-counter amount to the
-    combat damage just dealt (`rad_counters_on_combat_damage`'s
-    ``"damage_amount"`` sentinel, `RulesEngine._collect_rad_counter_damage_
-    triggers`). The graveyard-return-on-opponent-mill ability is RULE
-    112.6a's own family — a triggered ability that must keep functioning
-    while its source sits in the graveyard, not a bind-once
-    `TriggeredAbility` at all — see `AbilitySpec.mill_return_from_graveyard`/
-    `RulesEngine._collect_mill_return_from_graveyard_triggers`.
+    combat damage just dealt (``amount_from_trigger_event: "amount"``). The
+    graveyard-return-on-opponent-mill ability is RULE 113.6a's own family: an
+    ordinary MILL_CARD trigger over `return_self_from_graveyard_to_hand`,
+    which `bind_ability` marks ``functions_from_graveyard`` (scanned by
+    `RulesEngine._collect_graveyard_function_triggers`). "An opponent" is the
+    group-subject ``not_you`` scope, "you" being the graveyard card's owner
+    (RULE 108.4).
     """
     return [
         AbilitySpec(
@@ -27,14 +28,22 @@ def _infesting_radroach() -> list[AbilitySpec]:
             [EffectSpec("grant_keyword", {"keywords": ["cant_block"], "affects": "self"})],
         ),
         AbilitySpec(
-            "static",
-            [],
-            rad_counters_on_combat_damage={"count": "damage_amount"},
+            "triggered",
+            [EffectSpec("add_player_counters", {
+                "kind": "rad", "player": {"of": "damaged_player"},
+                "amount_from_trigger_event": "amount",
+            })],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
         ),
         AbilitySpec(
-            "static",
-            [],
-            mill_return_from_graveyard=True,
+            "triggered",
+            [EffectSpec("return_self_from_graveyard_to_hand", {})],
+            trigger={"event": EventType.MILL_CARD, "condition": {"subject": "group", "controller": "not_you"}},
+            optional=True,
         ),
     ]
 

@@ -491,6 +491,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "each_opponent_returns_greatest_mv_creature": "move_object",
     "exile_creature_card_make_spirit": "exile",
     "return_trigger_subject_to_hand": "move_object",
+    "put_entering_into_graveyard": "move_object",  # RULE 614.12 — Mox Diamond's declined entry
     "prevent_attacking_planeswalkers_this_turn": "create_continuous_effect",
     "coin_of_fate_split": "move_object",
     "cast_exiled_with_source": "cast",

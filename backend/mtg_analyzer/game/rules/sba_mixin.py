@@ -55,7 +55,6 @@ from ..effects.core import (
     GameContext,
     GameEffect,
     ImpulsiveDrawEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,

@@ -116,7 +116,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
-     "attacked_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
+     "attacked_player", "attacking_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
      "enchanted_player", "previous_entry_controller"}
 )
 
@@ -340,6 +340,12 @@ def subject_of(
         # defending player is a distinct field on the same ATTACKS event.
         event = getattr(context, "trigger_event", None) or {}
         return _player_by_id(context, event.get("defending_player_id"))
+    if of == "attacking_player":
+        # RULE 506.4: "whenever a player attacks you with one or more creatures, **that player** gets …"
+        # (Struggle for Project Purity) — the aggregate `PLAYER_ATTACKED` names the attacker as
+        # ``attacking_player_id`` (the mirror image of `attacked_player` just above).
+        event = getattr(context, "trigger_event", None) or {}
+        return _player_by_id(context, event.get("attacking_player_id"))
     if of == "damage_recipient":
         # PAR-84 — a DAMAGE trigger can name the creature it damaged ("tap
         # that creature"), which is neither the triggering source nor a

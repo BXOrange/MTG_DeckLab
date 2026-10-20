@@ -13,9 +13,9 @@ def _the_reaper_king_no_more() -> list[AbilitySpec]:
 
     Registered wholesale (so the parser is skipped), so both clauses are
     authored: the ETB as an ordinary ``add_counters`` "each of up to two
-    target creatures" triggered ability, the dies trigger as
-    `counter_death_return` with ``once_per_turn`` (RULE 603.2) on top of
-    Necroskitter's opponent/immediate/optional shape.
+    target creatures" triggered ability, the dies trigger as Necroskitter's
+    group DIES trigger plus the action-limit marker ("Do this only once each
+    turn" -- limits the action, not the trigger).
     """
     return [
         AbilitySpec(
@@ -27,11 +27,23 @@ def _the_reaper_king_no_more() -> list[AbilitySpec]:
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
         ),
         AbilitySpec(
-            "static", [],
-            counter_death_return={
-                "counter_kind": "-1/-1", "opponent": True, "immediate": True,
-                "optional": True, "once_per_turn": True,
-            },
+            "triggered",
+            [
+                EffectSpec("trigger_subject_referent", {
+                    "event_key": "__group_subject__",
+                    "effects": [{"type": "return_from_graveyard", "params": {
+                        "target_kind": "any_graveyard_card", "destination": "battlefield",
+                        "under_your_control": True,
+                    }}],
+                }),
+                # PAR-135: "Do this only once each turn." limits the action, not the trigger.
+                EffectSpec("action_once_per_turn_marker", {}),
+            ],
+            trigger={"event": "DIES", "condition": {
+                "subject": "group", "controller": "not_you", "other": False,
+                "type": "creature", "has_counter_kind": "-1/-1",
+            }},
+            optional=True,
         ),
     ]
 

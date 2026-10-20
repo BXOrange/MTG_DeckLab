@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ....parser.oracle.spec import AbilitySpec
+from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
 
@@ -9,19 +9,23 @@ def _necroskitter() -> list[AbilitySpec]:
     Whenever a creature an opponent controls with a -1/-1 counter on it
     dies, you may return that card to the battlefield under your control.
 
-    Wither folds in from the RULE 702 keyword catalogue. The dies trigger
-    rides `AbilitySpec.counter_death_return` (`RulesEngine._collect_counter_
-    death_return_triggers`) — the Marchesa primitive, with ``opponent`` (the
-    dying creature is an opponent's), ``immediate`` (no "next end step"
-    delay), ``optional`` ("you may").
+    Wither folds in from the RULE 702 keyword catalogue. The dies trigger is
+    an ordinary group-subject DIES trigger (``has_counter_kind`` reads the
+    event's last-known counters, RULE 603.10a) over `return_self_to_battlefield`
+    aimed at the dying subject, "you may" via ``optional``.
     """
     return [
         AbilitySpec(
-            "static", [],
-            counter_death_return={
-                "counter_kind": "-1/-1", "opponent": True,
-                "immediate": True, "optional": True,
-            },
+            "triggered",
+            [EffectSpec("return_self_to_battlefield", {
+                "tapped": False, "under_your_control": True,
+                "target_kind": "trigger_subject", "trigger_event_key": "__group_subject__",
+            })],
+            trigger={"event": "DIES", "condition": {
+                "subject": "group", "controller": "not_you", "other": False,
+                "type": "creature", "has_counter_kind": "-1/-1",
+            }},
+            optional=True,
         )
     ]
 

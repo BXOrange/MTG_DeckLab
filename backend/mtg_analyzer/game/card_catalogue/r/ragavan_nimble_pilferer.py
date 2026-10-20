@@ -8,9 +8,9 @@ from ...card_registry.core import register
 # ---------------------------------------------------------------------------
 # Impulsive draw's dual-player extension — Ragavan, Nimble Pilferer's
 # damaged-player-library exile + Mnemonic Betrayal's whole-graveyard, "any
-# type" mana-wildcard exile. See `game/effects/core.py`'s `ImpulsiveDrawEffect`/
-# `GraveyardImpulsiveCastEffect`/`ReturnRemainingExiledEffect`,
-# `RulesEngine._collect_impulsive_draw_triggers`/`exile_with_play_permission`/
+# type" mana-wildcard exile. See `game/effects/library.py`'s `ImpulsiveDrawEffect`
+# (``library_of="that_player"``)/`GraveyardImpulsiveCastEffect`/
+# `ReturnRemainingExiledEffect`, `RulesEngine.exile_with_play_permission`/
 # `exile_graveyard_with_cast_permission`, and `ManaPool`'s ``wildcard`` param.
 # ---------------------------------------------------------------------------
 
@@ -21,31 +21,26 @@ def _ragavan_nimble_pilferer() -> list[AbilitySpec]:
     turn, you may cast that card.
     Dash {1}{R}
 
-    — Ragavan, Nimble Pilferer. Splits into two triggered abilities sharing
-    the same "self deals combat damage to a player" condition: the Treasure
-    token has no per-firing variance, so it's an ordinary bound
-    `TriggeredAbility` below; the exile-and-cast-permission half needs the
-    *damaged* player baked in fresh per firing (a bind-on-load ability's one
-    fixed effects list can't carry that), so it's a marker
-    (`impulsive_draw_on_combat_damage`) `RulesEngine.
-    _collect_impulsive_draw_triggers` reads off the event's own source
-    instead — see that method's docstring. Dash is a plain RULE 702 keyword,
-    covered by the keyword catalogue.
+    — Ragavan, Nimble Pilferer. One ordinary triggered ability over two
+    effects, as printed: the Treasure, then `impulsive_draw` with
+    ``library_of="that_player"`` (exile from the damaged player's library,
+    permission stays with Ragavan's controller). Dash is a plain RULE 702
+    keyword, covered by the keyword catalogue.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("create_token", {"token_name": "Treasure", "count": 1})],
+            [
+                EffectSpec("create_token", {"token_name": "Treasure", "count": 1}),
+                EffectSpec("impulsive_draw", {
+                    "count": 1, "same_turn_only": True, "library_of": "that_player",
+                }),
+            ],
             trigger={
                 "event": EventType.DAMAGE,
                 "condition": {"subject": "self"},
                 "filter": {"combat": True, "is_player": True},
             },
-        ),
-        AbilitySpec(
-            "static",
-            [],
-            impulsive_draw_on_combat_damage={"count": 1},
         ),
     ]
 

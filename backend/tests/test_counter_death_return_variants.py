@@ -1,15 +1,15 @@
-"""Blight Curse batch — the Marchesa `counter_death_return` primitive
-(`RulesEngine._collect_counter_death_return_triggers`) gained four optional
-marker flags for Necroskitter / The Reaper, King No More:
+"""Blight Curse batch — Necroskitter / The Reaper, King No More ("whenever a
+creature an opponent controls with a -1/-1 counter on it dies, you may
+return/put that card ... under your control"). PAR-174 retired the Marchesa
+`counter_death_return` marker these rode on: both are ordinary group-subject
+DIES triggers now (``has_counter_kind`` reading the event's last-known
+counters, RULE 603.10a):
 
-* ``opponent`` — the dying creature is an *opponent's*, not this
-  permanent's controller's (Marchesa's default is "you control").
-* ``immediate`` — resolve now, no "at the beginning of the next end step"
-  delay.
-* ``optional`` — "you may".
-* ``once_per_turn`` — RULE 603.2 (The Reaper).
+* opponent's creature (``controller: not_you``), "you may" (``optional``),
+  immediate (no end-step delay).
+* The Reaper: "Do this only once each turn" -- the PAR-135 action limit.
 
-Both cards are hand-authored (`card_registry/blight_curse.py`).
+Both cards are hand-authored.
 """
 
 from __future__ import annotations
@@ -62,6 +62,14 @@ def test_necroskitter_folds_in_wither():
     assert ("keyword", "wither") in kinds
 
 
+def _resolve_accepting(eng):
+    """Resolve the stack, answering every "you may" prompt with yes (RULE 603.5)."""
+    eng.resolve_until_stable()
+    while eng.state.pending_choice and eng.state.pending_choice.get("kind") == "trigger_target":
+        eng.rules.resolve_choice("do")
+        eng.resolve_until_stable()
+
+
 def _bare(name, pid):
     return Card(id=name[:6], name=name, type_line="Creature — Rat", is_creature=True,
                 power=2, toughness=2)
@@ -75,7 +83,7 @@ def test_necroskitter_steals_an_opponents_countered_creature_immediately():
 
     victim = _put(eng, _bare("Doomed", "p2"), "p2", counters={"-1/-1": 1})
     eng.rules.destroy(victim)
-    eng.resolve_until_stable()
+    _resolve_accepting(eng)
 
     # Immediate (not a delayed end-step return) and under p1's control.
     assert victim in eng.state.battlefield
@@ -118,9 +126,9 @@ def test_reaper_once_per_turn():
     v1 = _put(eng, _bare("First", "p2"), "p2", counters={"-1/-1": 1})
     v2 = _put(eng, _bare("Second", "p2"), "p2", counters={"-1/-1": 1})
     eng.rules.destroy(v1)
-    eng.resolve_until_stable()
+    _resolve_accepting(eng)
     eng.rules.destroy(v2)
-    eng.resolve_until_stable()
+    _resolve_accepting(eng)
 
     assert v1.controller_id == "p1" and v1 in eng.state.battlefield
     # The second one this turn does NOT come back (RULE 603.2 once-per-turn).

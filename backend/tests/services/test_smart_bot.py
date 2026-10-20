@@ -389,10 +389,14 @@ def test_reveal_land_always_reveals():
 
 
 def test_mox_diamond_discards_a_land_instead_of_losing_itself():
+    # PAR-174: a before-entry `pay_cost_then` ("pay" / "decline"), then the choice of which land goes.
     v = view(hand=[obj(5, 'Forest'), obj(6, 'Island')])
-    v['pending_choice'] = {'kind': 'enter_or_graveyard'}
+    v['pending_choice'] = {'kind': 'pay_cost_then', 'entry_effect': True}
+    answers = [{'type': 'choose', 'option_id': 'pay'}, {'type': 'decline'}]
+    assert bot().answer_choice(v, answers)['option_id'] == 'pay'
+    v['pending_choice'] = {'kind': 'choose_objects', 'action': 'discard', 'entry_effect': True}
     answers = [{'type': 'choose', 'option_id': '5', 'instance_id': 5},
-               {'type': 'choose', 'option_id': '6', 'instance_id': 6}, {'type': 'decline'}]
+               {'type': 'choose', 'option_id': '6', 'instance_id': 6}]
     assert bot().answer_choice(v, answers)['type'] == 'choose'
 
 

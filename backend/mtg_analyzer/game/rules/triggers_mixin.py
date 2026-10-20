@@ -59,7 +59,6 @@ from ..effects.core import (
     HauntLinkedDeathEffect,
     ImpulsiveDrawEffect,
     IncreaseSpeedEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,
@@ -258,6 +257,11 @@ class TriggerCollectionMixin:
             # Archdruid) sits alongside the object's own intrinsic abilities;
             # both fire through the same check/place pipeline.
             for index, ability in enumerate(obj.triggered_abilities + obj.granted_triggered_abilities):
+                if getattr(ability, "functions_from_graveyard", False):
+                    # RULE 113.6k: an ability that returns its own source from the graveyard
+                    # functions only there (`_collect_graveyard_function_triggers`) -- a
+                    # battlefield Eidolon/Radroach has nothing to return.
+                    continue
                 if event.type == EventType.STATE_CHECK:
                     # RULE 603.8: no repeat until prior firings have left the stack.
                     key = [obj.instance_id, obj.zone_incarnation, index]
@@ -304,15 +308,10 @@ class TriggerCollectionMixin:
         self._collect_storm_triggers(event)
         self._collect_demonstrate_triggers(event)
         self._collect_cascade_triggers(event)
-        self._collect_impulsive_draw_triggers(event)
-        self._collect_rad_counter_damage_triggers(event)
-        self._collect_attacks_you_rad_counter_triggers(event)
         self._collect_temporary_player_triggers(event)
         self._collect_turn_scoped_triggers(event)
         self._advance_turn_controls(event)
-        self._collect_counter_death_return_triggers(event)
         self._collect_undying_persist_triggers(event)
-        self._collect_mill_return_from_graveyard_triggers(event)
         self._collect_graveyard_function_triggers(event)
         self._collect_cycled_triggers(event)
         self._collect_discarded_triggers(event)
@@ -635,152 +634,6 @@ class TriggerCollectionMixin:
                     ),
                     event,
                 ))
-    def _collect_combat_damage_marker_trigger(
-        self,
-        event: GameEvent,
-        marker_attr: str,
-        build_effect: Callable[[dict, "GameObject", "Player", "Player"], GameEffect],
-        description: Callable[["GameObject"], str],
-    ) -> None:
-        """Shared "whenever ~ deals combat damage to a player, `<per-firing
-        effect>`" scaffold: the damaged player (and, per-marker, the amount)
-        varies per firing, which a bind-on-load `TriggeredAbility`'s one
-        fixed ``effects`` list can't carry (see that class's docstring,
-        `game/effects/core.py`) — so this is built fresh right here, the same
-        "per-firing data baked in right when the event fires" shape
-        `_collect_inherent_triggers` above uses for the Monarch/Initiative
-        combat-damage swap, queued through the ordinary ``pending_triggers``
-        pipeline (RULE 603.3 ordering/choices) rather than `check_rampage`/
-        `check_ward`'s "place immediately" shortcut, since this *is* a
-        genuine source-bound triggered ability, just one no object scan
-        could ever find pre-built. ``build_effect``/``description`` are the
-        only per-marker-family pieces (`_collect_impulsive_draw_triggers`/
-        `_collect_rad_counter_damage_triggers`); everything else — the
-        combat-damage-to-a-player guard, the source/marker/player lookups —
-        is identical between them.
-        """
-        if event.type != EventType.DAMAGE or not event.get("combat") or not event.get("is_player"):
-            return
-        source_id = event.get("source_id")
-        if source_id is None:
-            return
-        source = self.state.find_object(source_id)
-        if source is None:
-            return
-        marker = getattr(source, marker_attr, None)
-        if not marker:
-            return
-        try:
-            damaged_player = self.state.player_by_id(event["target_id"])
-            controller = self.state.player_by_id(source.controller_id)
-        except KeyError:
-            return
-        effect = build_effect(marker, source, damaged_player, controller)
-        ability = TriggeredAbility(
-            trigger_event=EventType.DAMAGE,
-            effects=[effect],
-            controller_id=controller.id,
-            source=source,
-            description=description(source),
-        )
-        self.pending_triggers.append((ability, event))
-    def _collect_impulsive_draw_triggers(self, event: GameEvent) -> None:
-        """"Whenever ~ deals combat damage to a player, exile the top card of
-        *that player's* library. Until end of turn, you may cast that card."
-        (Ragavan, Nimble Pilferer, `AbilitySpec.impulsive_draw_on_combat_
-        damage`). See `_collect_combat_damage_marker_trigger` for the shared
-        scaffold this and `_collect_rad_counter_damage_triggers` both ride.
-        """
-        def build_effect(
-            marker: dict, source: "GameObject", damaged_player: "Player", controller: "Player"
-        ) -> GameEffect:
-            return ImpulsiveDrawEffect(
-                count=int(marker.get("count", 1)),
-                player=damaged_player,
-                permission_player=controller,
-                same_turn_only=True,
-                source=source,
-            )
-
-        self._collect_combat_damage_marker_trigger(
-            event,
-            "impulsive_draw_on_combat_damage",
-            build_effect,
-            lambda source: f"{source.name}: verbanne die oberste Karte der gegnerischen Bibliothek",
-        )
-    def _collect_rad_counter_damage_triggers(self, event: GameEvent) -> None:
-        """"Whenever ~ deals combat damage to a player, they get N rad
-        counters." (Glowing One)/"...that many rad counters." (Infesting
-        Radroach, `AbilitySpec.rad_counters_on_combat_damage`). See
-        `_collect_combat_damage_marker_trigger` for the shared scaffold this
-        and `_collect_impulsive_draw_triggers` both ride.
-
-        ``marker["else"] == "proliferate"`` (Vexing Radgull: "...if they
-        don't have any rad counters. Otherwise, proliferate.") branches on
-        whether the damaged player currently has any of the granted
-        ``kind`` — checked live against the *pre-damage* count (this fires
-        off the same `DAMAGE` event `add_player_counters` would use, before
-        this ability's own grant), so "don't have any yet" reads correctly
-        even on the very first hit.
-        """
-        def build_effect(
-            marker: dict, source: "GameObject", damaged_player: "Player", controller: "Player"
-        ) -> GameEffect:
-            count = marker.get("count", 1)
-            amount = int(event.get("amount", 0)) if count == "damage_amount" else int(count)
-            kind = marker.get("kind", "rad")
-            if marker.get("else") == "proliferate" and damaged_player.counters.get(kind, 0) > 0:
-                return ProliferateEffect(source=source)
-            return AddPlayerCountersEffect(amount=amount, kind=kind, player=damaged_player, source=source)
-
-        self._collect_combat_damage_marker_trigger(
-            event,
-            "rad_counters_on_combat_damage",
-            build_effect,
-            lambda source: f"{source.name}: gib der geschädigten Spielerin/dem geschädigten Spieler Rad-Marken",
-        )
-    def _collect_attacks_you_rad_counter_triggers(self, event: GameEvent) -> None:
-        """"Whenever a player attacks you with one or more creatures, that
-        player gets twice that many rad counters." (Struggle for Project
-        Purity's Enclave mode, `AbilitySpec.rad_counters_on_attacked`) —
-        the attacking player and the amount (tied to `EventType.
-        PLAYER_ATTACKED`'s own ``count``) vary per firing, the same
-        "build fresh right here" shape every other rad-counter marker
-        collector uses; scans every permanent for the marker rather than
-        reading it off the event's own subject, since the event is about a
-        *player* attacking, not this ability's source
-        (`_collect_counter_death_return_triggers`'s same "scan every
-        permanent" style, for the same reason).
-        """
-        if event.type != EventType.PLAYER_ATTACKED:
-            return
-        defending_player_id = event.get("defending_player_id")
-        attacking_player_id = event.get("attacking_player_id")
-        if defending_player_id is None or attacking_player_id is None:
-            return
-        for obj in self.state.permanents():
-            marker = getattr(obj, "rad_counters_on_attacked", None)
-            if not marker:
-                continue
-            if obj.controller_id != defending_player_id:
-                continue
-            requires_mode = marker.get("requires_mode")
-            if requires_mode and getattr(obj, "chosen_mode", None) != requires_mode:
-                continue
-            try:
-                attacker = self.state.player_by_id(attacking_player_id)
-            except KeyError:
-                continue
-            amount = int(marker.get("multiplier", 1)) * int(event.get("count", 0))
-            effect = AddPlayerCountersEffect(amount=amount, kind="rad", player=attacker, source=obj)
-            ability = TriggeredAbility(
-                trigger_event=EventType.PLAYER_ATTACKED,
-                effects=[effect],
-                controller_id=obj.controller_id,
-                source=obj,
-                description=f"{obj.name}: gib der angreifenden Spielerin/dem angreifenden Spieler Rad-Marken",
-            )
-            self.pending_triggers.append((ability, event))
     def _collect_temporary_player_triggers(self, event: GameEvent) -> None:
         """Re-fire and expire `GameState.temporary_player_triggers` (Nuka-
         Nuke Launcher's "until the end of defending player's next turn,
@@ -906,73 +759,6 @@ class TriggerCollectionMixin:
         if len(remaining) != len(controls):
             self.state.turn_controls = remaining
 
-    def _collect_counter_death_return_triggers(self, event: GameEvent) -> None:
-        """"Whenever a creature you control with a counter of
-        ``counter_kind`` on it dies, return that card to the battlefield
-        under your control at the beginning of the next end step."
-        (Marchesa, the Black Rose, `AbilitySpec.counter_death_return`) — the
-        dying creature varies per firing, so this is built fresh here
-        exactly like `_collect_impulsive_draw_triggers` above, just scanning
-        every permanent for the marker instead of reading it off the
-        event's own source (Marchesa isn't the object the `DIES` event is
-        about — RULE 603.1's "group" subject shape, not "self").
-        """
-        if event.type != EventType.DIES:
-            return
-        if "creature" not in (event.get("object_types") or []):
-            return
-        dying_controller_id = event.get("controller_id")
-        dying_id = event.get("instance_id")
-        if dying_controller_id is None or dying_id is None:
-            return
-        dying_counters = event.get("counters") or {}
-        for obj in self.state.permanents():
-            marker = getattr(obj, "counter_death_return", None)
-            if not marker:
-                continue
-            # Marchesa scope: the dying creature is one *this* permanent's
-            # controller owns. ``opponent`` flips it (Necroskitter / The
-            # Reaper, King No More — "a creature an opponent controls …").
-            if marker.get("opponent"):
-                if dying_controller_id == obj.controller_id:
-                    continue
-            elif obj.controller_id != dying_controller_id:
-                continue
-            kind = marker.get("counter_kind", "+1/+1")
-            if dying_counters.get(kind, 0) <= 0:
-                continue
-            # RULE 603.2 per-instance "do this only once each turn" (Reaper).
-            if marker.get("once_per_turn") and getattr(obj, "_counter_death_return_turn", None) == self.state.turn_nr:
-                continue
-            dying_obj = self.state.find_object(dying_id)
-            if dying_obj is None:
-                continue
-            if marker.get("once_per_turn"):
-                obj._counter_death_return_turn = self.state.turn_nr
-            if marker.get("immediate"):
-                # "return/put that card to the battlefield under your
-                # control" with no "next end step" delay — resolve now.
-                effect: GameEffect = ReturnFromGraveyardEffect(
-                    target=dying_obj, destination="battlefield",
-                    under_your_control=True, optional=bool(marker.get("optional")),
-                    source=obj,
-                )
-                desc = f"{obj.name}: {dying_obj.name} unter deine Kontrolle zurückbringen"
-            else:
-                effect = MarchesaDelayedReturnEffect(
-                    dying_object=dying_obj, source=obj,
-                    graveyard_incarnation=event.get("graveyard_incarnation", dying_obj.zone_incarnation),
-                )
-                desc = f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen"
-            ability = TriggeredAbility(
-                trigger_event=EventType.DIES,
-                effects=[effect],
-                controller_id=obj.controller_id,
-                source=obj,
-                optional=bool(marker.get("optional")),
-                description=desc,
-            )
-            self.pending_triggers.append((ability, event))
     def _collect_undying_persist_triggers(self, event: GameEvent) -> None:
         """RULE 702.93 Undying / 702.79 Persist — "When this creature dies,
         if it had no ``<kind>`` counters on it, return it to the battlefield
@@ -993,7 +779,7 @@ class TriggerCollectionMixin:
         while it is still findable (RULE 603.6a look-back). The RULE 702.93a/
         702.79a "had no such counter" guard reads the pre-death snapshot off
         the event (``counters``) — the same RULE 603.10 last-known-
-        information read `_collect_counter_death_return_triggers` uses.
+        information read a `has_counter_kind` DIES trigger uses.
         """
         if event.type != EventType.DIES:
             return
@@ -1017,53 +803,6 @@ class TriggerCollectionMixin:
                 description=f"{dying_obj.name}: {keyword}",
             )
             self.pending_triggers.append((ability, event))
-    def _collect_mill_return_from_graveyard_triggers(self, event: GameEvent) -> None:
-        """"Whenever an opponent mills a nonland card, if this creature is
-        in your graveyard, you may return it to your hand." (RULE 112.6a,
-        Infesting Radroach, `AbilitySpec.mill_return_from_graveyard`) — a
-        triggered ability that must keep firing while its own source sits
-        in a *graveyard*, not the battlefield, so it can't ride the
-        ordinary `obj.triggered_abilities` scan (`_collect_triggers` only
-        walks `state.permanents()`); scanned here instead, exactly like
-        `_collect_counter_death_return_triggers`'s own "per-firing marker"
-        style, just over every player's graveyard rather than the
-        battlefield. `_collect_graveyard_function_triggers` right below is
-        this same idea's general form (PAR-16) — this one predates it and
-        is kept as its own bespoke, per-firing-marker method rather than
-        folded in, since it's keyed off a fresh `ReturnSelfFromGraveyardEffect`
-        built new every MILL_CARD event rather than an ordinary bound
-        `TriggeredAbility` already sitting on the object.
-
-        "You"/"your" (RULE 108.4: a graveyard card has no controller, only
-        an owner) is that graveyard's own player — so a player's *own* mill
-        never triggers their own graveyard-sitting Radroach; only somebody
-        else's does, matched by skipping the milling player's own graveyard
-        entirely below rather than by the usual group-subject "not_you"
-        binder machinery (this ability never goes through that pipeline at
-        all — it's built fresh per firing, like every other rad-counter
-        marker in this file).
-        """
-        if event.type != EventType.MILL_CARD:
-            return
-        milling_player_id = event.get("player_id")
-        if milling_player_id is None:
-            return
-        for player in self.state.players:
-            if player.id == milling_player_id:
-                continue
-            for obj in player.graveyard:
-                if not getattr(obj, "mill_return_from_graveyard", False):
-                    continue
-                effect = ReturnSelfFromGraveyardEffect(obj=obj, destination="hand", source=obj)
-                ability = TriggeredAbility(
-                    trigger_event=EventType.MILL_CARD,
-                    effects=[effect],
-                    optional=True,
-                    controller_id=player.id,
-                    source=obj,
-                    description=f"{obj.name}: zurück auf die Hand nehmen",
-                )
-                self.pending_triggers.append((ability, event))
     def _collect_graveyard_function_triggers(self, event: GameEvent) -> None:
         """RULE 113.6a (PAR-16): a triggered ability whose own effect body
         explicitly returns its source "from your graveyard" (`TriggeredAbility.
@@ -1072,9 +811,8 @@ class TriggerCollectionMixin:
         Eidolon/Phoenix family ("Whenever you cast a multicolored spell, you
         may return this card from your graveyard to your hand." — Aurora
         Eidolon; "Whenever a Demon you control enters, return this card from
-        your graveyard to your hand." — Blood Speaker). Unlike
-        `_collect_mill_return_from_graveyard_triggers` above, this scans the
-        object's own already-bound `triggered_abilities` — the ordinary
+        your graveyard to your hand." — Blood Speaker; Infesting Radroach's
+        MILL_CARD form). This scans the object's own already-bound `triggered_abilities` — the ordinary
         `check_trigger`/subject-condition machinery works unchanged for a
         graveyard-sitting source (a card's `controller_id` already defaults
         to its `owner_id` and never diverges without a control-change effect,

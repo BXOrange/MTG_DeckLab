@@ -58,7 +58,6 @@ from .effects.core import (
     GameContext,
     GameEffect,
     ImpulsiveDrawEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,
@@ -389,17 +388,6 @@ class RulesEngine(
         self._pending_transmute_sacrificed_mv: Optional[int] = None
         self._pending_transmute_found_obj: Optional[GameObject] = None
         self._pending_transmute_cost: Optional[Any] = None
-        #: A permanent spell carrying `GameObject.enter_or_graveyard_discard_
-        #: land` (RULE 614.12, "if ~ would enter, you may discard a land
-        #: card instead. If you do, put it onto the battlefield. If you
-        #: don't, put it into its owner's graveyard." — Mox Diamond), and the
-        #: battlefield-entry continuation to resume if the cost is paid —
-        #: populated only while that choice is pending, ahead of every other
-        #: entry choice (if it's declined, none of them matter — the object
-        #: never becomes a permanent at all); see `_offer_enter_or_graveyard`/
-        #: `_resume_enter_or_graveyard`.
-        self._pending_enter_or_graveyard_obj: Optional[GameObject] = None
-        self._pending_enter_or_graveyard_continuation: Optional[Callable[[], None]] = None
         #: The battle currently awaiting its RULE 310.8a/310.11a "choose a
         #: player to protect it" pick, and the battlefield-entry
         #: continuation to resume once it's answered — populated only while

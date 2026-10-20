@@ -53,11 +53,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-174 · Mechanic flags on `AbilitySpec`.** `rad_counters_on_combat_damage`,
-  `rad_counters_on_attacked`, `mill_return_from_graveyard`, `enter_or_graveyard_discard_land`,
-  `impulsive_draw_on_combat_damage` and `counter_death_return` are top-level IR fields, each with its
-  own validator, binder branch and `validate()` exemption. Express each as an ordinary
-  triggered/replacement spec over registered effects and retire the field.
 - **PAR-175 · Clause linkage across a sequence (14_ S4 + "axis 4").** `parse_effect_body` sequences
   any number of sentences/connectors, but (a) one unclaimed part discards the whole body, and (b)
   the only cross-clause state is a one-step "previous clause chose a creature" flag, so a later

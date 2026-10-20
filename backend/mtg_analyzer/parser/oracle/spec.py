@@ -654,30 +654,11 @@ class AbilitySpec:
     #: precedes 601.2f — the total cost is calculated only after targets are
     #: already chosen, unlike `conditional_flash`'s pre-cast timing check).
     strive_cost: Optional[str] = None
-    #: RULE 603.4-style per-firing marker: "whenever ~ deals combat damage
-    #: to a player, exile the top card of *that player's* library. Until
-    #: end of turn, you may cast that card." (Ragavan, Nimble Pilferer) —
-    #: the damaged player varies per firing, which a bind-on-load
-    #: `TriggeredAbility`'s one fixed effects list can't carry (see that
-    #: class's docstring, `game/effects/core.py`), so this rides as a plain
-    #: marker dict (``{"count": N}``, ``N>=1``) stamped onto the
-    #: `GameObject` at bind time instead of an ordinary effect —
-    #: `RulesEngine._collect_impulsive_draw_triggers` reads it fresh off
-    #: the event's own source every time a DAMAGE event fires, building the
-    #: per-firing `ImpulsiveDrawEffect` the same way `_collect_inherent_
-    #: triggers` already does for the Monarch/Initiative combat-damage
-    #: swap. Hand-authored only (`game/card_catalogue`) — the
-    #: oracle-text parser front-end never produces this field. May ride on
-    #: any spec regardless of ``ability_kind``, same "scan every spec,
-    #: attach to the object" idiom `additional_cost`/`conditional_flash` use
-    #: (`game/binding/core.py`'s `attach_to_object`).
-    impulsive_draw_on_combat_damage: Optional[dict[str, Any]] = None
     #: RULE 702.88b Rebound marker: "If you cast this spell from your hand,
     #: exile it as it resolves. At the beginning of your next upkeep, you
     #: may cast this card from exile without paying its mana cost."
     #: (Ephemerate) — hand-authored only, no effects of its own, same "scan
-    #: every spec, attach to the object" idiom as `impulsive_draw_on_combat_
-    #: damage`. Read by `RulesEngine.cast_spell` (arms ``obj.rebound_
+    #: every spec, attach to the object" idiom as `additional_cost`. Read by `RulesEngine.cast_spell` (arms ``obj.rebound_
     #: pending`` when cast from hand) and `resolve_top_of_stack` (exiles
     #: instead of routing to the graveyard, then arms the free-cast window
     #: via `GameState.free_cast_instance_ids` — a *standing* until-end-of-
@@ -685,79 +666,6 @@ class AbilitySpec:
     #: the delayed trigger's own resolution, the same simplification
     #: `exile_with_play_permission`'s impulsive-draw window already uses).
     rebound: bool = False
-    #: RULE 614.12: "If ~ would enter, you may discard a land card instead.
-    #: If you do, put ~ onto the battlefield. If you don't, put it into its
-    #: owner's graveyard." (Mox Diamond) — hand-authored only (confirmed a
-    #: singleton template cache-wide), same "scan every spec, attach a bare
-    #: flag to the object" idiom as `rebound`. Read by `RulesEngine.
-    #: _resolve_permanent_spell`/`_offer_enter_or_graveyard`, which offer
-    #: this choice *before* every other battlefield-entry step — declining
-    #: (or having no land to discard) means the object never becomes a
-    #: permanent at all.
-    enter_or_graveyard_discard_land: bool = False
-    #: RULE 603.7-style per-firing marker: "whenever a creature you control
-    #: with a counter of ``counter_kind`` on it dies, return that card to
-    #: the battlefield under your control at the beginning of the next end
-    #: step." (Marchesa, the Black Rose) — the dying creature varies per
-    #: firing, so this rides as a marker (mirroring `impulsive_draw_on_
-    #: combat_damage`'s own per-firing shape) rather than a bind-once
-    #: `TriggeredAbility`; `RulesEngine._collect_counter_death_return_
-    #: triggers` reads it fresh off every `DIES` event, checking the dying
-    #: object's counters (snapshotted onto the event by `_move_to_graveyard`
-    #: since the object may already be gone from the battlefield by the
-    #: time this runs). Hand-authored only. ``{"counter_kind": "+1/+1"}``
-    #: (default) — a single optional key, no other counter kind needed yet.
-    counter_death_return: Optional[dict[str, Any]] = None
-    #: RULE 728's own "whenever ~ deals combat damage to a player, they get
-    #: N rad counters" (Glowing One)/"...that many rad counters" (Infesting
-    #: Radroach) — the damaged player varies per firing, same per-firing
-    #: marker shape as `impulsive_draw_on_combat_damage`.
-    #: ``{"count": <int>}`` for a flat amount, or ``{"count":
-    #: "damage_amount"}`` for "that many" (the damage just dealt).
-    #: ``{"else": "proliferate"}`` (Vexing Radgull: "...if they don't have
-    #: any rad counters. Otherwise, proliferate.") branches to a
-    #: `ProliferateEffect` instead whenever the damaged player already has
-    #: >=1 of the granted ``kind``. ``{"kind": "rad"}`` (default) names
-    #: which counter kind — every real card in this family grants "rad",
-    #: kept as a key rather than hardcoded since the shape is otherwise
-    #: generic. Hand-authored only (`game/card_catalogue`) — the
-    #: oracle-text parser front-end has no "that many"/branching grammar
-    #: yet. `RulesEngine._collect_rad_counter_damage_triggers` reads it
-    #: fresh off the DAMAGE event's own source, mirroring `_collect_
-    #: impulsive_draw_triggers`.
-    rad_counters_on_combat_damage: Optional[dict[str, Any]] = None
-    #: RULE 506.4/728's "whenever a player attacks you with one or more
-    #: creatures, that player gets twice that many rad counters" (Struggle
-    #: for Project Purity's Enclave mode) — the attacking player *and* the
-    #: amount (tied to `EventType.PLAYER_ATTACKED`'s own ``count``) vary per
-    #: firing, same per-firing marker shape as `rad_counters_on_combat_
-    #: damage`. ``{"multiplier": <int>}`` (default 1) scales the granted
-    #: amount; ``{"requires_mode": <str>}`` additionally gates this marker
-    #: to only apply while `GameObject.chosen_mode` matches (Struggle for
-    #: Project Purity's own named-mode choice — see `AbilitySpec.trigger`'s
-    #: ``"named_mode"`` key for the ordinary-ability equivalent this marker
-    #: mechanism can't use, since it isn't a bind-once `TriggeredAbility` at
-    #: all). Hand-authored only. `RulesEngine._collect_attacks_you_rad_
-    #: counter_triggers` reads it fresh off every permanent on `PLAYER_
-    #: ATTACKED`, mirroring `_collect_counter_death_return_triggers`'s
-    #: "scan every permanent" style (the source isn't the event's own
-    #: subject here either).
-    rad_counters_on_attacked: Optional[dict[str, Any]] = None
-    #: RULE 112.6a: "Whenever an opponent mills a nonland card, if this
-    #: creature is in your graveyard, you may return it to your hand."
-    #: (Infesting Radroach) — the one triggered ability in this catalogue
-    #: that must still fire while its own source sits in a *graveyard*,
-    #: not the battlefield, so it can't ride the ordinary `obj.
-    #: triggered_abilities` scan (`RulesEngine._collect_triggers` only
-    #: walks `state.permanents()`). Rides as a bind-once marker instead
-    #: (mirroring `counter_death_return`'s own per-firing-scan shape),
-    #: read fresh off every player's graveyard by `RulesEngine._collect_
-    #: mill_return_from_graveyard_triggers`. A plain flag, not a dict —
-    #: unlike its rad-counter siblings, this ability's shape ("opponent
-    #: mills a nonland card" → "you may return this to hand") has no
-    #: card-varying parameter, the same reasoning `rebound` is a bare
-    #: bool. Hand-authored only.
-    mill_return_from_graveyard: bool = False
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -843,26 +751,8 @@ class AbilitySpec:
         if self.strive_cost is not None:
             self._validate_strive_cost()
 
-        if self.impulsive_draw_on_combat_damage is not None:
-            self._validate_impulsive_draw_on_combat_damage()
-
         if not isinstance(self.rebound, bool):
             raise SpecValidationError("'rebound' must be a bool")
-
-        if not isinstance(self.enter_or_graveyard_discard_land, bool):
-            raise SpecValidationError("'enter_or_graveyard_discard_land' must be a bool")
-
-        if self.counter_death_return is not None:
-            self._validate_counter_death_return()
-
-        if self.rad_counters_on_combat_damage is not None:
-            self._validate_rad_counters_on_combat_damage()
-
-        if self.rad_counters_on_attacked is not None:
-            self._validate_rad_counters_on_attacked()
-
-        if not isinstance(self.mill_return_from_graveyard, bool):
-            raise SpecValidationError("'mill_return_from_graveyard' must be a bool")
 
         if self.ability_kind == "triggered":
             if not self.trigger or "event" not in self.trigger:
@@ -1155,73 +1045,6 @@ class AbilitySpec:
             {"phase": "combat", "after_blockers": True},
         ):
             raise SpecValidationError("unknown cast_timing_restriction")
-
-    def _validate_impulsive_draw_on_combat_damage(self) -> None:
-        """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
-        spec = self.impulsive_draw_on_combat_damage
-        if not isinstance(spec, dict):
-            raise SpecValidationError("'impulsive_draw_on_combat_damage' must be a dict")
-        count = spec.get("count", 1)
-        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_EFFECT_MAGNITUDE:
-            raise SpecValidationError(
-                "'impulsive_draw_on_combat_damage' count must be an int in "
-                f"[1, {MAX_EFFECT_MAGNITUDE}]"
-            )
-
-    def _validate_rad_counters_on_combat_damage(self) -> None:
-        """Structural check for a ``rad_counters_on_combat_damage`` marker."""
-        spec = self.rad_counters_on_combat_damage
-        if not isinstance(spec, dict):
-            raise SpecValidationError("'rad_counters_on_combat_damage' must be a dict")
-        count = spec.get("count", 1)
-        if count != "damage_amount":
-            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_EFFECT_MAGNITUDE:
-                raise SpecValidationError(
-                    "'rad_counters_on_combat_damage' count must be an int in "
-                    f"[1, {MAX_EFFECT_MAGNITUDE}] or the literal string 'damage_amount'"
-                )
-        else_branch = spec.get("else")
-        if else_branch is not None and else_branch != "proliferate":
-            raise SpecValidationError(
-                "'rad_counters_on_combat_damage' else must be the literal string 'proliferate'"
-            )
-        kind = spec.get("kind", "rad")
-        if not isinstance(kind, str) or not kind:
-            raise SpecValidationError("'rad_counters_on_combat_damage' kind must be a non-empty str")
-
-    def _validate_rad_counters_on_attacked(self) -> None:
-        """Structural check for a ``rad_counters_on_attacked`` marker."""
-        spec = self.rad_counters_on_attacked
-        if not isinstance(spec, dict):
-            raise SpecValidationError("'rad_counters_on_attacked' must be a dict")
-        multiplier = spec.get("multiplier", 1)
-        if (
-            isinstance(multiplier, bool)
-            or not isinstance(multiplier, int)
-            or not 1 <= multiplier <= MAX_EFFECT_MAGNITUDE
-        ):
-            raise SpecValidationError(
-                f"'rad_counters_on_attacked' multiplier must be an int in [1, {MAX_EFFECT_MAGNITUDE}]"
-            )
-        requires_mode = spec.get("requires_mode")
-        if requires_mode is not None and (not isinstance(requires_mode, str) or not requires_mode):
-            raise SpecValidationError("'rad_counters_on_attacked' requires_mode must be a non-empty str")
-
-    def _validate_counter_death_return(self) -> None:
-        """Structural check for a ``counter_death_return`` marker."""
-        spec = self.counter_death_return
-        if not isinstance(spec, dict):
-            raise SpecValidationError("'counter_death_return' must be a dict")
-        kind = spec.get("counter_kind", "+1/+1")
-        if not isinstance(kind, str) or not kind:
-            raise SpecValidationError("'counter_death_return' counter_kind must be a non-empty str")
-        # Optional booleans (Necroskitter / The Reaper, King No More):
-        # ``opponent`` — the dying creature is an opponent's, not this
-        # permanent's controller's; ``immediate`` — no "next end step"
-        # delay; ``optional`` — "you may"; ``once_per_turn`` — RULE 603.2.
-        for flag in ("opponent", "immediate", "optional", "once_per_turn"):
-            if flag in spec and not isinstance(spec[flag], bool):
-                raise SpecValidationError(f"'counter_death_return' {flag} must be a bool")
 
     def _validate_strive_cost(self) -> None:
         """Structural check for a ``strive_cost`` clause: a non-empty run of

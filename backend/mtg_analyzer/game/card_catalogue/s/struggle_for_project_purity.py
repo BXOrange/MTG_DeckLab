@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
@@ -21,13 +22,11 @@ def _struggle_for_project_purity() -> list[AbilitySpec]:
     condition`'s new ``"named_mode"`` predicate so it only fires once
     "brotherhood" was actually chosen; its "you draw a card for each card
     drawn this way" is `DrawCardEffect`'s new ``"opponents_you_have"``
-    count_selector. Enclave needs a genuinely new aggregate event
-    (`EventType.PLAYER_ATTACKED`, fired once per combat rather than once per
-    attacking creature — see its own docstring) plus the same per-firing
-    marker mechanism the other rad-counter cards use
-    (`rad_counters_on_attacked`, gated the same way via its own
-    ``requires_mode`` key, since it's resolved by a dedicated collector
-    rather than the ordinary `TriggeredAbility` condition machinery).
+    count_selector. Enclave rides `EventType.PLAYER_ATTACKED` (fired once per
+    combat rather than once per attacking creature -- see its own docstring)
+    as an ordinary triggered ability: ``defender_is_you`` + the same ``named_mode`` gate,
+    `add_player_counters` to the ``attacking_player`` referent, the amount the
+    event's attacker ``count`` doubled.
     """
     return [
         AbilitySpec(
@@ -46,9 +45,16 @@ def _struggle_for_project_purity() -> list[AbilitySpec]:
             },
         ),
         AbilitySpec(
-            "static",
-            [],
-            rad_counters_on_attacked={"multiplier": 2, "requires_mode": "enclave"},
+            "triggered",
+            [EffectSpec("add_player_counters", {
+                "kind": "rad", "player": {"of": "attacking_player"},
+                # "twice that many": the attacking group's size, doubled.
+                "amount": {"kind": "trigger_event", "field": "count", "multiply": 2},
+            })],
+            trigger={
+                "event": EventType.PLAYER_ATTACKED, "condition": {"subject": "group"},
+                "defender_is_you": True, "named_mode": "enclave",
+            },
         ),
     ]
 

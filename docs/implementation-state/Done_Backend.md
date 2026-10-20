@@ -1663,6 +1663,7 @@ The counter-removal and excess-damage tallies survive nested composition.
 
 - **What:** New `AbilitySpec.enter_or_graveyard_discard_land` + `RulesEngine._offer_enter_or_graveyard`, spliced into `_resolve_permanent_spell`'s continuation chain *befor…
 - **Files:** `game/rules/casting_mixin.py`, `parser/oracle/spec.py`
+- **Superseded (PAR-174):** the dedicated field and `_offer_enter_or_graveyard` are gone; Mox Diamond is an ordinary `enter_replacement` → `entry_effect` → `pay_cost_then` whose "if you don't" branch is `put_entering_into_graveyard` (see "Mechanic flags retired into ordinary specs").
 
 ### Spark Double: copy-with-extra-counter (Replacement Effects)
 
@@ -4354,6 +4355,15 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 - **Files:** `services/replay.py`
 
 ## Instruction-Set Architecture (ISA) & Composition
+
+### Mechanic flags retired into ordinary specs (PAR-174)
+
+- **What:** the six card-specific top-level `AbilitySpec` fields (`rad_counters_on_combat_damage`, `rad_counters_on_attacked`, `mill_return_from_graveyard`, `enter_or_graveyard_discard_land`, `impulsive_draw_on_combat_damage`, `counter_death_return`) with their validators, binder branches, `GameObject` attributes and dedicated `_collect_*` trigger paths are gone; the nine cards using them are ordinary specs. Glowing One, Infesting Radroach and Vexing Radgull: a combat-damage-to-a-player trigger over `add_player_counters` (`damaged_player`; Radroach's "that many" from the trigger event; Radgull's "if they don't have any … otherwise proliferate" an `if_else` checked on resolution, RULE 608.2). Struggle for Project Purity: a `PLAYER_ATTACKED` trigger with the new `attacking_player` referent (`effect_conditions.subject_of`). Radroach's return: a `MILL_CARD` trigger over `return_self_from_graveyard_to_hand`, fired by the graveyard-function scan. Ragavan: one damage trigger (Treasure, then `impulsive_draw` from that player's library). Marchesa, Necroskitter, The Reaper, King No More: group dies triggers with `has_counter_kind`, the shapes the parser already emits. Mox Diamond: `enter_replacement` → `entry_effect` → `pay_cost_then` ("Discard a land card") whose else branch is the new `put_entering_into_graveyard`; for a resolving spell it abandons the entry, inside a battlefield batch (blink, reanimation) it marks `GameObject.entry_abandoned`, and `advance_battlefield_batch` sends that card to its owner's graveyard while the rest of the batch enters (RULE 614.12; the card never enters and fires no enter triggers).
+- **Bugs fixed on the way:** battlefield trigger collection also fired graveyard-only abilities (a Radroach on the battlefield prompted for a no-op; RULE 113.6k); `_pay_player_cost` ignored `discard_filter` and discarded the last hand card, so "discard a land card" could discard a nonland (now a filtered interactive discard, payability counts matching cards only); entry replacements were consumed by the first entry, so a reanimated Mox Diamond (or Struggle for Project Purity's choice) entered free the second time (`GameObject.enter_choice_template`, restored by `reset_as_new_object`, RULE 400.7). SmartBot answers Mox's payment instead of the retired choice kind.
+- **Behaviour changes (rules-correct):** Necroskitter and The Reaper actually ask "you may"; The Reaper's once-per-turn limits the action (PAR-135 marker) instead of the trigger; Marchesa triggers on her own death (RULE 603.10a look-back).
+- **Files:** `parser/oracle/spec.py`, `game/binding/core.py`, `game/effect_conditions.py`, `game/effects/{choices_actions,battlefield_batches,registry}.py`, `game/isa.py`, `game/rules/*_mixin.py`, `models/game/game_object.py`, `services/bot_policies/smart.py`, the nine `game/card_catalogue/` modules; tests `tests/test_par174_mechanic_flags.py` plus the existing card suites.
+- **Why:** each flag was a parallel IR with its own validator, binder branch and `validate()` exemption that only one card family could use; ordinary triggers and replacements make the same behaviour reachable for the parser and other cards.
+- **Validation:** existing card suites green before and after; 12 new execution tests (Mox via spell, reanimation with and without a land, two-object batch, clone with a pending batch choice, second entry; Radroach from the battlefield; Enclave on its controller's own attack). Parse fingerprint identical once the retired fields' defaults are accounted for; coverage verdicts of the nine cards unchanged; PARSER_VERSION 707 (lock re-pinned).
 
 ### The composition axis (ENG-37, `14_` S3)
 

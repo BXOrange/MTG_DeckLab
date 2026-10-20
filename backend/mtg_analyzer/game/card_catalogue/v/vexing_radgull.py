@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from ....parser.oracle.spec import AbilitySpec
+from ....models.game.events import EventType
+from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
 
@@ -11,21 +12,27 @@ def _vexing_radgull() -> list[AbilitySpec]:
     proliferate.
 
     — Vexing Radgull. Flying picked up unconditionally (RULE 702 keyword
-    fold-in). The branch is the same per-firing marker mechanism Glowing
-    One/Infesting Radroach use (`rad_counters_on_combat_damage`, the
-    damaged player varies per firing — no oracle-text grammar for that at
-    all), extended with its own ``else`` key
-    (`RulesEngine._collect_rad_counter_damage_triggers`): the damaged
-    player gets 2 rad counters if they currently have none, otherwise a
-    real RULE 701.30 proliferate happens instead (`game/effects/core.py`'s
-    `ProliferateEffect`, which now also proliferates player-level counters
-    — a documented gap this card is the first to actually need closed).
+    fold-in). An ordinary DAMAGE trigger over an `if_else` on the damaged
+    player's rad counters (checked as the ability resolves, RULE 608.2):
+    2 rad counters if they have none, otherwise a real RULE 701.30
+    proliferate (`ProliferateEffect`, which also proliferates player-level
+    counters).
     """
     return [
         AbilitySpec(
-            "static",
-            [],
-            rad_counters_on_combat_damage={"count": 2, "kind": "rad", "else": "proliferate"},
+            "triggered",
+            [EffectSpec("if_else", {
+                "condition": {"kind": "source_counters", "of": "damaged_player", "counter": "rad", "max": 0},
+                "then": [{"type": "add_player_counters", "params": {
+                    "amount": 2, "kind": "rad", "player": {"of": "damaged_player"},
+                }}],
+                "else": [{"type": "proliferate", "params": {}}],
+            })],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
         ),
     ]
 

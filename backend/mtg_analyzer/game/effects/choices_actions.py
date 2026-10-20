@@ -1255,6 +1255,32 @@ class PayCostThenEffect(GameEffect):
         )
 
 
+class PutEnteringIntoGraveyardEffect(GameEffect):
+    """RULE 614.12: "If you don't, put it into its owner's graveyard." -- the
+    "instead" half of an entry replacement (Mox Diamond: "If this artifact would
+    enter, you may discard a land card instead. If you do, put this artifact onto
+    the battlefield. If you don't, put it into its owner's graveyard.").
+
+    Runs as a before-entry instruction (`entry_effect`) on the permanent spell
+    that is resolving: the object never becomes a permanent, so no
+    `ENTERS_BATTLEFIELD` fires. `RulesEngine._send_to_graveyard_unentered` clears
+    the pending entry, which is how `_offer_enter_choices` and `resolve_choice`
+    know to stop continuing the entry. Outside a resolving permanent spell
+    (a batch entry such as a blink or reanimation) the object is flagged
+    ``entry_abandoned`` and `battlefield_batches.advance_battlefield_batch`
+    sends it to its owner's graveyard without admitting it.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        entry = context.state.pending_permanent_entry
+        if entry is not None and entry["obj"] is self.source:
+            context.engine._send_to_graveyard_unentered(self.source)
+        else:
+            self.source.entry_abandoned = True
+
+
 class RequestAllPlayersDeclineOrEffect(GameEffect):
     """"Any player may pay `<cost>`. If no one does, `<effect>`." (Rhystic
     Circle, MEC-30, RULE 118.3-adjacent) — the multi-player sibling of
@@ -3402,45 +3428,6 @@ class ScrollRackFinishEffect(GameEffect):
         context.engine.open_scroll_rack_order_choice(player, ids, source=self.source)
 
 
-class MarchesaDelayedReturnEffect(GameEffect):
-    """RULE 603.7 delayed half of "return that card to the battlefield under
-    your control at the beginning of the next end step" (Marchesa, the
-    Black Rose-shaped: a creature you control with a counter on it dies).
-    ``dying_object`` is baked in at construction — there's nothing left to
-    target once the delayed trigger fires (the same RULE 603.4 per-firing
-    shape `RulesEngine._collect_impulsive_draw_triggers`/`ImpulsiveDrawEffect`
-    already use for Ragavan's per-firing damaged player).
-    """
-
-    def __init__(self, dying_object: "GameObject", source: Optional["GameObject"] = None,
-                 graveyard_incarnation: Optional[int] = None) -> None:
-        super().__init__(source)
-        self.dying_object = dying_object
-        self.graveyard_incarnation = graveyard_incarnation if graveyard_incarnation is not None else dying_object.zone_incarnation
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game.game_state import DelayedTrigger
-
-        # RULE 603.7e: the resolving ability controller owns its delayed trigger.
-        controller_id = _controller_of(self.source, context).id
-        inner = ReturnFromGraveyardEffect(
-            target=self.dying_object,
-            expected_incarnation=self.graveyard_incarnation,
-            destination="battlefield",
-            under_your_control=True,
-            source=self.source,
-        )
-        context.state.delayed_triggers.append(
-            DelayedTrigger(
-                controller_id=controller_id,
-                step="end",
-                scope="any",
-                effects=[inner],
-                description=f"{self.dying_object.name}: unter Kontrolle zurück auf das Schlachtfeld",
-            )
-        )
-
-
 class ReturnDyingSubjectToBattlefieldEffect(GameEffect):
     """RULE 400.7e: return the dying host, distinct from its Aura source."""
 
@@ -3564,13 +3551,10 @@ class ReturnSelfAttachedEffect(GameEffect):
 
 class ReturnSelfFromGraveyardEffect(GameEffect):
     """"...if this creature is in your graveyard, you may return it to your
-    hand." (RULE 112.6a, Infesting Radroach) — ``obj`` is baked in at
-    construction (`RulesEngine._collect_mill_return_from_graveyard_
-    triggers`, the same per-firing shape `MarchesaDelayedReturnEffect`
-    above uses for its own dying object), deliberately with no
-    `target_spec` of its own so `_place_or_pause_trigger` never opens a
-    target choice for it — "it" is always this ability's own source, never
-    a pick. Re-checks ``obj``'s zone at resolution time rather than
+    hand." (RULE 112.6a, Infesting Radroach) — ``obj`` may be baked in at
+    construction, deliberately with no `target_spec` of its own so
+    `_place_or_pause_trigger` never opens a target choice for it — "it" is
+    always this ability's own source, never a pick. Re-checks ``obj``'s zone at resolution time rather than
     assuming it's still in the graveyard (RULE 603.3c/608.2b: something
     else may have moved it between trigger and resolution, e.g. an
     opponent's graveyard-hate instant).

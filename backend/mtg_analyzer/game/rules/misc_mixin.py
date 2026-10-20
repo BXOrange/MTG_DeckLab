@@ -59,7 +59,6 @@ from ..effects.core import (
     GameContext,
     GameEffect,
     ImpulsiveDrawEffect,
-    MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
     RadiationMillEffect,
@@ -5837,7 +5836,7 @@ class MiscSystemsMixin:
                 return False
         if cost.pay_life and player.life < cost.pay_life:
             return False
-        if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
+        if cost.discard and cost.discard != DISCARD_HAND and len(self._discard_pool(player, cost, source)) < cost.discard:
             return False
         if cost.sacrifice and not any(
             _matches_permanent_type(obj, cost.sacrifice)
@@ -5907,6 +5906,17 @@ class MiscSystemsMixin:
             for obj in self.state.permanents_controlled_by(player.id)
         )
         return has_nonland or bool(player.hand)
+    def _discard_pool(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
+    ) -> list[GameObject]:
+        """The hand cards that can pay ``cost``'s discard component -- the whole hand for a plain
+        "discard a card", the type-line-filtered subset for "discard a land card" (ENG-49)."""
+        from ..game_engine import GameEngine  # function-scoped: import cycle
+
+        return GameEngine(self.state, rules=self)._discard_cost_pool(
+            player, None, cost.discard_filter, getattr(source, "name", None),
+        )
+
     def _pay_player_cost(
         self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
     ) -> None:
@@ -5922,7 +5932,16 @@ class MiscSystemsMixin:
             self.lose_life(player, life_spent, cause="cost")
         if cost.pay_life:
             self.lose_life(player, cost.pay_life, cause="cost")
-        if cost.discard:
+        if cost.discard and cost.discard_filter and cost.discard != DISCARD_HAND:
+            # RULE 601.2b / 118.3: "discard a land card" is the payer's own pick among the cards that
+            # qualify (Mox Diamond's "you may discard a land card instead"); forced when only
+            # ``cost.discard`` of them are in hand. Pausing here is fine: the "if you do" half waits
+            # for it (`_resume_pay_cost_then` parks `DEFERRED_PAID_COST`).
+            self._request_choose_objects(
+                player, self._discard_pool(player, cost, source), "discard", count=cost.discard,
+                prompt="Wähle eine Karte zum Abwerfen", source=source,
+            )
+        elif cost.discard:
             self.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
         if cost.sacrifice:
             # "another"/"other …": the source is not a legal pick (RULE 109.5).

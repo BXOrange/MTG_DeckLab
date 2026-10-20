@@ -4667,14 +4667,8 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     by whichever spec happens to carry the spell's "real" effects, keeping
     the parser/binder split simple regardless of line order on the card.
 
-    ``impulsive_draw_on_combat_damage``/``rebound``/``counter_death_return``/
-    ``rad_counters_on_combat_damage``/``mill_return_from_graveyard`` are the
-    same "scan every spec" idiom, for hand-authored markers with no effects
-    of their own (RULE 603.4-style per-firing data — see `AbilitySpec`'s
-    docstring for each field, and `RulesEngine._collect_impulsive_draw_
-    triggers`/`_collect_counter_death_return_triggers`/`_collect_rad_
-    counter_damage_triggers`/`_collect_mill_return_from_graveyard_triggers`,
-    `cast_spell`/`resolve_top_of_stack` for ``rebound``).
+    ``rebound`` is the same "scan every spec" idiom, for a hand-authored
+    marker with no effects of its own (`cast_spell`/`resolve_top_of_stack`).
     """
     for spec in specs:
         if spec.additional_cost:
@@ -4729,27 +4723,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.strive_cost:
             spec.validate()
             obj.strive_cost = ManaCost.parse(spec.strive_cost)
-        if spec.impulsive_draw_on_combat_damage:
-            spec.validate()
-            obj.impulsive_draw_on_combat_damage = dict(spec.impulsive_draw_on_combat_damage)
         if spec.rebound:
             spec.validate()
             obj.has_rebound = True
-        if spec.enter_or_graveyard_discard_land:
-            spec.validate()
-            obj.enter_or_graveyard_discard_land = True
-        if spec.counter_death_return:
-            spec.validate()
-            obj.counter_death_return = dict(spec.counter_death_return)
-        if spec.rad_counters_on_combat_damage:
-            spec.validate()
-            obj.rad_counters_on_combat_damage = dict(spec.rad_counters_on_combat_damage)
-        if spec.rad_counters_on_attacked:
-            spec.validate()
-            obj.rad_counters_on_attacked = dict(spec.rad_counters_on_attacked)
-        if spec.mill_return_from_graveyard:
-            spec.validate()
-            obj.mill_return_from_graveyard = True
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
             keyword_ability = _keyword_activated_ability(obj, spec)
@@ -4894,6 +4870,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                     obj.enter_choice_effects.append(effect)
                 else:
                     obj.enter_as_copy_effects.append(effect)
+            obj.enter_choice_template = list(obj.enter_choice_effects)
         else:  # pragma: no cover - bind_ability already refused it
             raise BindError(f"cannot attach ability_kind {spec.ability_kind!r}")
 

@@ -3586,6 +3586,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # RULE 614.12 "If you don't, put it into its owner's graveyard." (Mox Diamond's
+    # `entry_effect` body, the else-branch of its discard payment)
+    "put_entering_into_graveyard",
+    lambda p: PutEnteringIntoGraveyardEffect(),
+)
+EffectRegistry.register(
     # "When enchanted creature dies, return that card to the battlefield
     # under its owner's control." (Gift of Immortality, PAR-60)
     "return_dying_subject_to_battlefield",

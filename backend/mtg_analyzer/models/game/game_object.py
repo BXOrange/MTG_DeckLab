@@ -854,18 +854,13 @@ class GameObject:
         #: `_offer_enter_as_copy`, before this object is added to the
         #: battlefield.
         self.enter_choice_effects: list[Any] = []
-        #: RULE 614.12: "If ~ would enter, you may discard a land card
-        #: instead. If you do, put ~ onto the battlefield. If you don't, put
-        #: it into its owner's graveyard." (Mox Diamond) — consulted by
-        #: `RulesEngine._offer_enter_or_graveyard` *before*
-        #: `enter_as_copy_effects`/`enter_choice_effects` even get a look
-        #: (if this is declined, the object never becomes a permanent at
-        #: all, so nothing else about entering matters). A plain flag
-        #: rather than a generic cost, since real-cache-wide this template
-        #: is a singleton (confirmed via a raw-text grep) — not worth a
-        #: general `ActivationCost`-shaped alternative-entry-cost primitive
-        #: until a second card actually needs one.
-        self.enter_or_graveyard_discard_land: bool = False
+        #: RULE 614.12: a before-entry instruction replaced this object's entry (Mox Diamond's "if you
+        #: don't, put it into its owner's graveyard") while it was being prepared inside a battlefield
+        #: batch; the batch consumes the flag and drops the entrant instead of admitting it.
+        self.entry_abandoned: bool = False
+        #: The `enter_choice_effects` as bound. Entry consumes that queue one instruction at a time, so a
+        #: new object (RULE 400.7: blink, reanimation) gets it back from here in `reset_as_new_object`.
+        self.enter_choice_template: Optional[list[Any]] = None
         #: The creature type/color chosen by this object's own "as ~ enters,
         #: choose a …" ability (`enter_choice_effects` above), e.g.
         #: ``"Goblin"`` / ``"R"``. Read by `game/continuous.py`'s
@@ -1472,6 +1467,9 @@ class GameObject:
         `_granted_*`/`_derived_*` fields already get via the next
         `continuous.recompute` pass rather than an explicit clear here.
         """
+        if self.enter_choice_template is not None:
+            self.enter_choice_effects = list(self.enter_choice_template)
+        self.entry_abandoned = False
         # RULE 708.9: a face-down permanent is revealed as it changes zones,
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).

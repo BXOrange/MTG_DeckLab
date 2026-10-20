@@ -22,9 +22,8 @@ def _marchesa_the_black_rose() -> list[AbilitySpec]:
     ordinary layer-6 `grant_keyword` — `check_dethrone` reads `combat.has`
     fresh at attack-declaration time, so a creature holding the granted
     keyword dethrones exactly like one with it printed. The third clause
-    (the RULE 603.7 delayed-return trigger) is modeled via
-    `AbilitySpec.counter_death_return`/`RulesEngine._collect_counter_
-    death_return_triggers` — a good showcase card for the "planned"
+    (the RULE 603.7 delayed-return trigger) is an ordinary group DIES
+    trigger over `delay_return_dying_subject` — a good showcase card for the "planned"
     delayed-trigger UI panel, same reason Ephemerate/Sneak Attack/Meek
     Attack were picked.
     """
@@ -36,9 +35,14 @@ def _marchesa_the_black_rose() -> list[AbilitySpec]:
             })],
         ),
         AbilitySpec(
-            "static",
-            [],
-            counter_death_return={"counter_kind": "+1/+1"},
+            "triggered",
+            [EffectSpec("delay_return_dying_subject", {
+                "tapped": False, "under_your_control": True, "step": "end", "scope": "any",
+            })],
+            trigger={"event": "DIES", "condition": {
+                "subject": "group", "controller": "you", "other": False,
+                "type": "creature", "has_counter_kind": "+1/+1",
+            }},
         )
     ]
 
