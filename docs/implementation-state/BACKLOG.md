@@ -119,11 +119,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   `tests/test_land_type_grant_interactions.py` to require Blood Moon to suppress Urborg in either
   entry order.
 
-- **BUG-16 · P1 · Stop removed statics before they begin applying in later layers (RULE 613.6).**
-  `game/continuous.py:recompute` retains a creature lord's anthem after Humility removes its
-  abilities in layer 6, leaving another creature 2/2 instead of 1/1. Track effect existence across
-  layers while preserving multi-layer effects that already began applying earlier.
-
 - **BUG-18 · P1 · Use current battlefield types for targets, costs and selectors (RULE 613.1d).**
   `game/targeting.py` artifact/enchantment frames and `game/continuous.py:_has_card_type` read
   printed card flags. A creature made an artifact cannot be selected as an artifact. Share derived

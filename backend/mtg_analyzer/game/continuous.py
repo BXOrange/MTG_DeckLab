@@ -916,6 +916,39 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
     return abilities
 
 
+#: RULE 613.1: layer 6 is the ability-adding/removing layer; every layer-number
+#: above it (the 7 sublayers, then the post-layer rules effects) comes later.
+ABILITY_LAYER_NUMBER: int = 6
+
+
+def _drop_statics_removed_in_layer_6(state: "GameState", abilities: list) -> list:
+    """RULE 613.6: a static ability whose source lost all abilities in layer 6
+    never starts to apply in a later layer (Humility on a lord: its layer-7
+    anthem is gone, so the other creature is 1/1, not 2/2).
+
+    Runs once, right after layer 6, so ``loses_all_abilities`` is this pass's
+    answer, not the previous recompute's. A static whose effect already began
+    applying in an earlier layer is unaffected: a single ``StaticAbility`` that
+    spans layers (a layer-4 animation that also sets P/T) applies those layers
+    itself, before layer 6, and so is not in the list this filters. Exempt:
+    floating effects from a resolved spell/ability (RULE 611.2b — independent
+    of their source) and statics granted to an object by layer 6 (their source
+    is the receiver, and the grant is itself a layer-6 effect). O(n).
+    """
+    granted = {
+        id(ab) for obj in state.battlefield
+        for ab in getattr(obj, "_granted_static_abilities", ())
+    }
+    kept = []
+    for ab in abilities:
+        if (ab.layer_number > ABILITY_LAYER_NUMBER
+                and ab.duration is None and id(ab) not in granted
+                and getattr(ab.source, "loses_all_abilities", False)):
+            continue
+        kept.append(ab)
+    return kept
+
+
 def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]:
     """Abilities in one (sub)layer, ordered by timestamp (RULE 613.7b).
 
@@ -3858,6 +3891,9 @@ def recompute(state: "GameState") -> None:
         ]
         if nested_ability_statics:
             _apply_layer_6_ability(state, nested_ability_statics)
+    # RULE 613.6: statics whose source lost its abilities in layer 6 never
+    # begin applying in layers 7+.
+    abilities = _drop_statics_removed_in_layer_6(state, abilities)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
     # RULE 702.75a / 406.3: controlling the Hideaway source permits looking;
