@@ -167,10 +167,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   `game/rules/sba_mixin.py:_apply_legend_rule` always keeps the first copy, discarding even a later
   copy with more counters. Add resumable choices for conflicting legend groups and apply the
   chosen departures in the simultaneous SBA batch. Coordinate with BUG-14.
-
-- **BUG-31 · P1 · Resolve ninjutsu as an activated ability (RULE 702.49a/602/117).**
-  `game/engine/combat_mixin.py:ninjutsu` immediately puts the Ninja onto the battlefield with no
-  stack item and rejects legal activation after damage. Use hand-zone reveal/return costs,
-  ordinary stack resolution, response priority and split-second restrictions; allow activation
-  whenever a qualifying unblocked attacker exists and its controller has priority. Coordinate
-  end-of-combat timing with BUG-30.

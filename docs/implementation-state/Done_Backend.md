@@ -3857,6 +3857,7 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 ### Cast-alternative/timing keywords: Backup, Dash, Madness, Miracle, Ninjutsu, Bestow (PAR-26)
 
 - **What:** All six cast-alternative/timing keywords, all
+- **Ninjutsu uses the stack (BUG-31, RULE 702.49a/602.2b/117):** it was modeled as a special action that put the Ninja onto the battlefield at once, only for the active player in the declare blockers step. `combat_mixin.ninjutsu` now pays mana and returns the attacker on activation, captures that attacker's defender (702.49d) and pushes an activated-ability `StackItem` with `NinjutsuEffect` (`game/effects/ninjutsu.py`); on resolution the Ninja enters tapped and attacking only if it is still in hand in the same zone visit (RULE 400.7). `ninjutsu_unblocked_attackers` offers it to any priority holder from the moment all defenders have declared blockers (`cast_timing.all_blockers_declared`, RULE 509.1h) through the end of combat step (kept by BUG-30), never under split second (702.61b). The wire action is unchanged. **Not modeled:** commander ninjutsu from the command zone (702.49e), a reveal event. Tests: `tests/test_bug31_ninjutsu_stack.py`.
 - **Files:** `game/binding/core.py` (`_kw_backup` + the dash/madness/
 
 ### Warp casting (MEC-119, RULE 702.185, PARSER_VERSION 656)

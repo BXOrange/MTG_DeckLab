@@ -278,6 +278,7 @@ def test_ninjutsu_swaps_an_unblocked_attacker_for_a_ninja():
     eng.declare_attackers(state.active_player, [rat])
     eng.advance_step()  # → declare_blockers
     assert state.current_step == "declare_blockers"
+    eng.declare_blockers(state.player_by_id("p2"), [])  # RULE 509.1h: unblocked only once blocks are declared
 
     p1 = state.player_by_id("p1")
     p1.mana_pool.add_many({"U": 1, "C": 1})
@@ -285,8 +286,11 @@ def test_ninjutsu_swaps_an_unblocked_attacker_for_a_ninja():
     assert ninjutsu_actions and ninjutsu_actions[0]["returned_attacker_id"] == rat.instance_id
 
     eng.ninjutsu(p1, ninja, rat)
-
+    # BUG-31: ninjutsu is an activated ability -- the Ninja enters on resolution.
     assert rat.zone == Zone.HAND and rat in p1.hand
+    assert ninja.zone == Zone.HAND and state.stack
+    eng.rules.resolve_top_of_stack()
+
     assert ninja.zone == Zone.BATTLEFIELD
     assert ninja.tapped and ninja.attacking
     assert ninja.attacked_this_turn is False  # entered attacking, never declared

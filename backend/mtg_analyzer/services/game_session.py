@@ -1362,8 +1362,9 @@ class GameSession:
         self.engine.declare_blockers(blocker_player, pairs, pay_block_tax=bool(action.get("pay_block_tax", True)))
 
     def _dispatch_ninjutsu(self, action: dict[str, Any], active: Player) -> None:
-        # RULE 702.49a Ninjutsu (PAR-26): swap an unblocked attacker for a
-        # Ninjutsu card from hand during the declare-blockers step.
+        # RULE 702.49a Ninjutsu: an activated ability from hand. Costs are
+        # paid now and the ability waits on the stack like any other
+        # (RULE 602.2, 117); the Ninja enters on resolution.
         ninja = self._object(action)
         returned = self._object_by_id(action["returned_attacker_id"])
         self.engine.ninjutsu(active, ninja, returned)

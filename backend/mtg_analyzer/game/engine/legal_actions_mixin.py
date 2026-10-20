@@ -1333,20 +1333,13 @@ class LegalActionsMixin:
                     }
                 )
 
-        if (
-            player is self.state.active_player
-            and self.state.current_step == "declare_blockers"
-        ):
-            # RULE 702.49a/b Ninjutsu (PAR-26): the active player may, during
-            # the declare-blockers step, return an *unblocked* attacker they
-            # control to hand and put a Ninjutsu card from hand onto the
-            # battlefield tapped and attacking in its place. One offer per
-            # (ninja in hand, unblocked attacker) pair whose mana cost the
-            # player can pay.
-            unblocked = [
-                o for o in self.state.battlefield
-                if o.attacking and o.controller_id == player.id and not o.blocked_by
-            ]
+        # RULE 702.49a/c Ninjutsu: an activated ability, usable by any player
+        # with priority who controls an unblocked attacker, from the declare
+        # blockers step through end of combat (never under split second).
+        # One offer per (ninja in hand, unblocked attacker) pair whose mana
+        # cost the player can pay.
+        unblocked = self.ninjutsu_unblocked_attackers(player)
+        if unblocked:
             for ninja in list(player.hand):
                 cost = getattr(ninja, "ninjutsu_cost", None)
                 if cost is None or not player.mana_pool.can_pay(cost):

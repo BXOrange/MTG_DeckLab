@@ -843,48 +843,82 @@ class CombatMixin:
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
             self.rules.check_dethrone(obj)
             self.rules._check_myriad(obj)  # RULE 702.116a
-    def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
-        """RULE 702.49a Ninjutsu — "[cost], Return an unblocked attacker you
-        control to hand: Put this card onto the battlefield from your hand
-        tapped and attacking." A RULE 702.49b special action, legal only for
-        the active player during the declare-blockers step (PAR-26).
+    #: RULE 702.49c: an unblocked attacker exists from the declare blockers
+    #: step through the end of combat step (BUG-30 keeps combat state until
+    #: the end of combat step is left).
+    NINJUTSU_STEPS = ("declare_blockers", "combat_damage", "end_combat")
 
-        The ninja takes the returned attacker's place in combat — same
-        defender, tapped and attacking, and it doesn't tap for its own
-        attack (it's *put* there, not declared). RULE 508.3a therefore does
-        not fire its ``ATTACKS`` triggers or mark it as having attacked.
-        ETB fires normally.
+    def ninjutsu_unblocked_attackers(self, player: Player) -> list[GameObject]:
+        """RULE 702.49a/c: the attackers ``player`` controls that count as
+        unblocked right now (none outside the declare-blockers..end-of-combat
+        window, none while a split-second spell is on the stack)."""
+        if self.state.current_step not in self.NINJUTSU_STEPS:
+            return []
+        # RULE 509.1h: no attacker is "unblocked" until blockers are declared.
+        if self.state.current_step == "declare_blockers":
+            from ..cast_timing import all_blockers_declared  # function-scoped: cast_timing reads engine state
+
+            if not all_blockers_declared(self):
+                return []
+        if continuous.split_second_active(self.state):  # RULE 702.61b
+            return []
+        return [
+            o for o in self.state.battlefield
+            if o.attacking and o.controller_id == player.id and not o.blocked_by
+        ]
+
+    def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
+        """RULE 702.49a Ninjutsu: an *activated* ability (RULE 602) that
+        functions only while the card is in hand: "[cost], Reveal this card
+        from your hand, Return an unblocked attacking creature you control to
+        its owner's hand: Put this card onto the battlefield from your hand
+        tapped and attacking."
+
+        The costs are paid now (RULE 602.2b); the ability goes on the stack
+        and the Ninja enters on resolution (`NinjutsuEffect`), so the
+        opponent can respond (RULE 117). It is not a special action, so it
+        needs priority (enforced in the session) and split second forbids it
+        (RULE 702.61b). The Ninja attacks whatever the returned creature was
+        attacking (RULE 702.49d, captured here).
         """
         cost = getattr(ninja, "ninjutsu_cost", None)
         if cost is None:
             raise ValueError(f"{ninja.name} has no ninjutsu")
-        if player is not self.state.active_player or self.state.current_step != "declare_blockers":
-            raise ValueError("ninjutsu can only be used during your declare-blockers step")
-        if ninja not in player.hand:
+        if ninja not in player.hand or ninja.owner_id != player.id:
             raise ValueError(f"{ninja.name} is not in hand")
-        if not (returned_attacker.attacking and returned_attacker.controller_id == player.id
-                and not returned_attacker.blocked_by):
+        if returned_attacker not in self.ninjutsu_unblocked_attackers(player):
             raise ValueError(f"{returned_attacker.name} is not an unblocked attacker you control")
         if not player.mana_pool.can_pay(cost):
             raise ValueError("cannot pay the ninjutsu cost")
 
+        # RULE 602.2b: pay every cost on activation.
         player.mana_pool.pay(cost)
-        defender = returned_attacker.combat_defender
+        defender = returned_attacker.combat_defender  # RULE 702.49d, before leaving combat
         self.rules.return_to_hand(returned_attacker)  # RULE 702.49a's own cost
+        # RULE 702.49a: revealing the Ninja is a cost; it stays in hand.
 
-        player.remove_from_zone(ninja, Zone.HAND)
-        ninja.tapped = True
-        ninja.summoning_sick = False
-        self.state.add_to_battlefield(ninja)
-        self.rules.put_onto_battlefield_attacking(ninja, defender=defender)
+        from ..effects.ninjutsu import NinjutsuEffect  # function-scoped: effects import engine types
+
+        item = StackItem(
+            kind="ability",
+            controller_id=player.id,
+            effects=[NinjutsuEffect(ninja.instance_id, player.id, ninja.zone_incarnation, defender)],
+            description=f"Ninjutsu: put {ninja.name} onto the battlefield tapped and attacking",
+            source=ninja,
+            category="activated_ability",
+        )
+        self.state.stack.append(item)
         self.state.fire_event(
             GameEvent(
-                EventType.ENTERS_BATTLEFIELD, controller_id=ninja.controller_id,
-                from_zone=Zone.HAND.value,
-                card_id=ninja.card.id, object=ninja.name, instance_id=ninja.instance_id,
+                EventType.ACTIVATED_ABILITY,
+                player_id=player.id, controller_id=player.id,
+                instance_id=ninja.instance_id,
                 object_types=sorted(ninja.type_words),
+                stack_id=item.stack_id,
             )
         )
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        self.give_priority(player)
     def _assign_defender(
         self, obj: GameObject, defender: Any, legal: list[dict[str, Any]]
     ) -> Optional[dict[str, Any]]:

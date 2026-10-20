@@ -4737,12 +4737,12 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             obj.triggered_abilities.extend(_keyword_triggered_abilities(obj, spec))
             _attach_affinity_static(obj, spec)
             if str((spec.keyword or {}).get("name") or "") == "ninjutsu":
-                # RULE 702.49a Ninjutsu (PAR-26): "[cost], Return an
-                # unblocked attacker you control to hand: Put this card onto
-                # the battlefield from your hand tapped and attacking." A
-                # combat-timed special action (`GameEngine.ninjutsu`,
-                # offered during the declare-blockers step) — its cost is
-                # pure mana here, read off `obj.ninjutsu_cost`.
+                # RULE 702.49a Ninjutsu: "[cost], Reveal this card from your
+                # hand, Return an unblocked attacker you control to hand: Put
+                # this card onto the battlefield from your hand tapped and
+                # attacking." An activated ability from hand
+                # (`GameEngine.ninjutsu` pays the costs and stacks it) — the
+                # mana cost is read off `obj.ninjutsu_cost`.
                 obj.ninjutsu_cost = ManaCost.parse((spec.keyword or {}).get("cost") or "{0}")
             if str((spec.keyword or {}).get("name") or "") == "miracle":
                 # RULE 702.94a Miracle (PAR-26): "You may cast this card for
