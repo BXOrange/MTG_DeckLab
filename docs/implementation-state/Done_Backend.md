@@ -4430,6 +4430,12 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 - **What:** `AbilitySpec.validate()` walked only `self.effects`, so docs/09's
 - **Files:** `parser/oracle/spec.py`,
 
+### Every MODELED card binds (BUG-12, PARSER_VERSION 714)
+
+- **What:** a full-cache bind of all 20,444 MODELED cards found 8 raising during `bind_from_catalogue`, in five causes, plus a sixth card found by spec-diff (Defiled Crypt, a Room door that binds only once unlocked). Fixes: a standing "prevent all damage …" clause, also behind "during your turn"/"as long as …", is a RULE 614/615 prevention effect, so it now emits a `replacement` spec (`replacements.standing_ability_kind`) instead of a `static` spec the binder had no factory for (Personal Sanctuary, Spirit of Resistance, Guardian Naga). The graveyard-exit trigger branch now strips "This ability triggers only once each turn" into `trigger["limit"]` (RULE 603.2) instead of leaking the marker into the body (Fang, Fearless l'Cie; Defiled Crypt). Structured conditions accept the `spell_type` and `value` fields the parser already emitted (Burrog Barrage, Farideh). The connive factory keeps a structured `times` operand instead of `int()`-ing it (Raffine, Spymaster's Vault).
+- **Why:** a MODELED verdict promises the card binds. The invariant test `test_every_modeled_card_binds_including_nested_effects` (full-cache tier, ~50s) binds every MODELED face and Room door, and builds the nested bodies of composite effects (`pay_cost_then`, `bind`, `optional`, …) that the composition layer otherwise builds only at resolve time. `REPLACEMENT_CLAUSE_EFFECT_TYPES` is a parser-side copy, because the parser must not import `game/`; a test pins it against both registries and against the types `replacements.py` emits. No verdict changed (+0 / −0); each fixed card is executed on a real engine in the same test file.
+- **Files:** `parser/oracle/catalogue/replacements.py`, `parser/oracle/segmenter.py`, `parser/oracle/spec.py`, `game/effects/registry.py`. Tests: `tests/test_bug12_modeled_cards_bind.py`.
+
 ### The atom inventory (ENG-34, `14_` S0)
 
 - **What:** `game/isa.py` — a CR-derived instruction set (**106** operations:

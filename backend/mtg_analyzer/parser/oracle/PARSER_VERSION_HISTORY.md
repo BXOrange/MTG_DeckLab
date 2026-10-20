@@ -4103,3 +4103,10 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      phrases (exactly N cards in hand, source power, entered this turn, opponent damaged / controls N lands, attacking
      or blocking, enchanted host untapped / "white and untapped", "you had X enter ... this turn", life over starting).
      Any unknown atom refuses the whole sentence.
+714: BUG-12 -- every MODELED card binds. A standing "prevent all damage ..." clause (also behind "during your turn" /
+     "as long as ...") is emitted as a `replacement` spec (`replacements.standing_ability_kind`), not a `static` one the
+     binder had no factory for (Personal Sanctuary, Spirit of Resistance, Guardian Naga); the graveyard-exit trigger
+     strips "This ability triggers only once each turn" into `trigger["limit"]` instead of leaking the marker into the
+     body (Fang, Fearless l'Cie; Defiled Crypt); structured conditions accept the `spell_type` and `value` fields the
+     parser already emitted (Burrog Barrage, Farideh); the connive factory keeps a structured `times` operand (Raffine,
+     Spymaster's Vault). +0 / -0 (no verdict changes).

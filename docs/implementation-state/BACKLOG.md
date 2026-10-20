@@ -103,14 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-12 · P1 · MODELED cards must bind successfully.** Align emitted IR, validation and
-  factories in `parser/oracle/{gate,spec}.py`, `game/binding/core.py` and
-  `game/effects/{registry,operands}.py`: Burrog Barrage (`spell_type`), Farideh, Devil's Chosen
-  (`value`), Fang, Fearless l'Cie (leaked trigger-limit marker), Guardian Naga // Banishing Coils,
-  Personal Sanctuary and Spirit of Resistance (static `prevent_damage`), Raffine, Scheming Seer
-  and Spymaster's Vault (structured connive `times`) currently raise during binding. Add a
-  full-cache invariant that every MODELED card binds, including nested effects.
-
 - **BUG-13 · P1 · Separate actual colors from Commander color identity (RULE 202.2/903.4).**
   `models/game/game_object.py:colors` treats a Forest with green identity as a green permanent.
   Preserve face colors/color indicators separately and derive effective colors through layer 5;

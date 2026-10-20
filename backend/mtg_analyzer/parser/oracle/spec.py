@@ -233,6 +233,8 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "min": int, "max": int, "amount": int, "min_power": int,
     "zone": str, "incarnation": int,
     "colors": list, "types": list,
+    "spell_type": str,  # ``another_spell_cast_this_turn`` (RULE 601: "another instant or sorcery spell")
+    "value": int,  # ``any_die_result`` threshold (RULE 706.3: "10 or higher")
     "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
 

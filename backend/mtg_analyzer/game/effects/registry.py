@@ -2556,7 +2556,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
         count_selector=p.get("count_selector"),
-        times=int(p.get("times", 1) or 1),
+        times=p.get("times", 1),  # a number or an `effect_amounts` operand (RULE 701.50d "connives X"); ConniveEffect clamps it
         creature_filter=p.get("creature_filter"),
         convoked=bool(p.get("convoked", False)),
     ),

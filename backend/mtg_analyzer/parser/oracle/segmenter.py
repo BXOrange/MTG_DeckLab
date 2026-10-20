@@ -60,7 +60,7 @@ from .catalogue.effect_rows.shared import base_verb
 from .catalogue.handlers import match_clause
 from .catalogue.keywords import ALIAS_DISPLAYS, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
-from .catalogue.replacements import replacement_clause_specs
+from .catalogue.replacements import replacement_clause_specs, standing_ability_kind
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import (
     enter_choice_specs,
@@ -10041,10 +10041,16 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             effects = parse_effect_body(body)
             if effects is None:
                 return Segment(raw=raw)
+            # RULE 603.2: "This ability triggers only once each turn." (Fang, Fearless l'Cie) is the trigger's limit.
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            if not effects:
+                return Segment(raw=raw)
             trigger: dict[str, Any] = {
                 "event": "CARDS_LEFT_GRAVEYARD",
                 "graveyard_owner": "you",
             }
+            if limit or body_limit:
+                trigger["limit"] = True
             if graveyard_exit.group("types"):
                 types = re.split(r" and/or | or ", graveyard_exit.group("types"))
                 if not set(types) <= _GRAVEYARD_EXIT_TYPES:
@@ -10529,7 +10535,7 @@ def _line_permanent_standing_line(ctx: LineContext) -> Optional[Segment]:
         static = static_effect_specs(raw)
         if static is not None:
             spec = AbilitySpec(
-                "static", effects=static, raw_text=raw, parser=provenance
+                standing_ability_kind(static), effects=static, raw_text=raw, parser=provenance
             )
             return Segment(raw=raw, spec=spec, claimed=True)
         # A standing "if X would Y, Z instead" line (RULE 614/616) is a

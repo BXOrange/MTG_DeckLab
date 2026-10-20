@@ -570,6 +570,25 @@ def _standing_prevent_count_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
     return EffectSpec("prevent_damage", params)
 
 
+#: Effect types `replacement_clause_specs` can emit -- they bind through `ReplacementRegistry`, never `EffectRegistry`.
+REPLACEMENT_CLAUSE_EFFECT_TYPES: frozenset[str] = frozenset({
+    "additional_damage", "additional_named_token", "die_to_exile", "double_counters", "double_damage",
+    "double_tokens", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
+    "roll_dice_modifier", "win_instead_of_empty_draw",
+})
+
+
+def standing_ability_kind(specs: list[EffectSpec]) -> str:
+    """``"replacement"`` when a standing clause's specs are all replacement effects, else ``"static"``.
+
+    RULE 614.1 / 615: "prevent all damage ..." (also behind an "as long as ..."/"during your turn" gate) is a
+    replacement/prevention effect, not a RULE 613 continuous effect, so it binds via `build_replacements`.
+    """
+    if specs and all(spec.type in REPLACEMENT_CLAUSE_EFFECT_TYPES for spec in specs):
+        return "replacement"
+    return "static"
+
+
 def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a standing replacement-effect ``clause``, or ``None``.
 
