@@ -208,13 +208,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   whenever a qualifying unblocked attacker exists and its controller has priority. Coordinate
   end-of-combat timing with BUG-30.
 
-- **BUG-33 · P2 · Sum characteristics of discarded/sacrificed objects (RULE 608.2h).**
-  `game/effect_amounts.py:this_way_matching` returns events for these pools, while `this_way_sum`
-  excludes events: a sacrificed 2-power creature counts as one but contributes zero power.
-  Resolve characteristic sums from object/event LKI snapshots, retaining token counts and zone
-  visits. Cover unfiltered and card-type-filtered sums; this amount primitive must work even
-  before the parser emits it.
-
 - **BUG-34 · P2 · Complete the exile-pool gameplay regression's destination checks.**
   `tests/test_par175_clause_linkage.py:test_exile_a_graveyard_then_counters_for_the_creature_cards_exiled_reads_the_exile_pool`
   must assert both named cards actually enter exile and only the caster gains exactly three life,

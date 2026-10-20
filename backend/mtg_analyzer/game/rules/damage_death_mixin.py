@@ -1069,6 +1069,16 @@ class DamageDeathMixin:
 
         return _that_many_value({"measure": "mana_value"}, [obj])
 
+    def _lki_characteristics(self, obj: GameObject) -> dict[str, int]:
+        """RULE 608.2h: the power / toughness / mana value ``obj`` had as it was discarded or sacrificed, for the
+        event payload -- a later "the total power of the creatures sacrificed this way" reads these, since a token (or
+        a card that has since changed zones) leaves no object to look at. Non-creatures carry 0 (never ``None``)."""
+        return {
+            "power": int(obj.power or 0),
+            "toughness": int(obj.toughness or 0),
+            "mana_value": self._last_known_mana_value(obj),
+        }
+
     def return_from_graveyard(
         self,
         obj: GameObject,
@@ -2475,6 +2485,8 @@ class DamageDeathMixin:
                         # exact-match ``filter`` key, not a new condition
                         # subject.
                         is_token=obj.is_token,
+                        # RULE 608.2h: last-known characteristics, for "total power of creatures sacrificed this way".
+                        **self._lki_characteristics(obj),
                     )
                 )
             self.state.remove_from_battlefield(obj)

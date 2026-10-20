@@ -377,13 +377,12 @@ def _base(
         return total
 
     if kind in ("this_way_count", "this_way_sum"):
-        matching = this_way_matching(context, source, amount)
         if kind == "this_way_count":
-            return len(matching)
+            return len(this_way_matching(context, source, amount))
         characteristic = str(amount.get("characteristic", "mana_value"))
         if characteristic not in CHARACTERISTICS:
             return 0
-        return sum(int(getattr(o, characteristic, 0) or 0) for o in matching if not hasattr(o, "get"))  # events carry none
+        return this_way_sum(context, source, amount, characteristic)
 
     if kind in ("discarded_this_way", "sacrificed_this_way"):
         return len(discarded_this_way(
@@ -684,6 +683,24 @@ def this_way_matching(context: "GameContext", source: Any, spec: dict[str, Any])
     if pool in THIS_WAY_EVENTS and not (spec.get("subtype") or spec.get("color")):
         return discarded_this_way(context, source, spec.get("card_type"), bool(spec.get("negate")), pool)
     return [o for o in this_way_objects(context, source, pool) if this_way_matches(o, spec)]
+
+
+def this_way_sum(context: "GameContext", source: Any, spec: dict[str, Any], characteristic: str) -> int:
+    """Total ``characteristic`` over the members of ``spec["pool"]`` that satisfy ``spec``'s filter.
+
+    RULE 608.2h: a discarded / sacrificed object is measured by the characteristics it last had where it was (hand /
+    battlefield), which its ``DISCARD_CARD`` / ``SACRIFICE`` event snapshots -- the object itself is already in
+    another zone (new object, RULE 400.7) or, for a token, gone. So those pools sum the *event* values, one per zone
+    visit (no double counting, tokens included); a subtype / colour filter still looks at the object, which a
+    vanished token cannot satisfy. The object pools (exiled / destroyed / milled) read the objects directly."""
+    pool = str(spec.get("pool", ""))
+    if pool not in THIS_WAY_EVENTS:
+        return sum(int(getattr(o, characteristic, 0) or 0) for o in this_way_matching(context, source, spec))
+    events = discarded_this_way(context, source, spec.get("card_type"), bool(spec.get("negate")), pool)
+    if spec.get("subtype") or spec.get("color"):
+        events = [e for e in events
+                  if (obj := context.state.find_object(e.get("instance_id"))) is not None and this_way_matches(obj, spec)]
+    return sum(int(e.get(characteristic, 0) or 0) for e in events)
 
 
 def type_marker_matches(types: Any, wanted: str) -> bool:

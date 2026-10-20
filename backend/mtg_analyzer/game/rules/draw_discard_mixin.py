@@ -605,6 +605,7 @@ class DrawDiscardMixin:
                     # tell an instant/sorcery discard apart from the rest.
                     object_types=_main_type_words(obj.card),
                     cause_controller_id=cause_controller_id,
+                    **self._lki_characteristics(obj),  # RULE 608.2h
                 )
             )
         if discarded:
@@ -647,6 +648,7 @@ class DrawDiscardMixin:
                     zone_incarnation=obj.zone_incarnation,
                     object_types=_main_type_words(obj.card),
                     cause_controller_id=cause_controller_id,
+                    **self._lki_characteristics(obj),  # RULE 608.2h
                 )
             )
         if discarded:
@@ -844,6 +846,7 @@ class DrawDiscardMixin:
                 zone_incarnation=obj.zone_incarnation,
                 object_types=_main_type_words(obj.card),  # see `discard`'s own comment
                 cause_controller_id=cause_controller_id,
+                **self._lki_characteristics(obj),  # RULE 608.2h
             )
         )
         self.state.fire_event(
