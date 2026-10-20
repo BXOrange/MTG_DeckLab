@@ -184,12 +184,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   copy with more counters. Add resumable choices for conflicting legend groups and apply the
   chosen departures in the simultaneous SBA batch. Coordinate with BUG-14.
 
-- **BUG-28 · P2 · Reset ability-resolution counts each turn (RULE 500.1).**
-  `game/rules/casting_mixin.py:_count_ability_resolution` stamps display-only `turn_nr`.
-  Resolving once on each of two players' turns incorrectly activates a second-time-this-turn
-  rider. Use `internal_turn.number`; replace the manual round-counter increment in
-  `tests/test_par120_ability_resolution_count.py` with actual turn transitions, including extra turns.
-
 - **BUG-29 · P2 · Execute intrinsic phasing during untap (RULE 702.26a).**
   `game/engine/turn_loop_mixin.py:_step_untap` phases permanents in but never phases out a
   phased-in permanent with phasing. Compute both sets before applying either simultaneously,

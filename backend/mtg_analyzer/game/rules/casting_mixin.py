@@ -1834,7 +1834,10 @@ class CastingResolutionMixin:
         resolutions = getattr(source, "ability_resolutions", None)
         if resolutions is None:
             return None
-        turn = self.state.turn_nr
+        # RULE 500.1: every player's turn (and each extra turn, RULE 500.7) is
+        # its own turn; the display-only round counter `turn_nr` would merge
+        # the table's turns and over-count "this turn".
+        turn = self.state.internal_turn.number
         stamped_turn, count = resolutions.get(item.ability_key, (turn, 0))
         count = (count if stamped_turn == turn else 0) + 1
         resolutions[item.ability_key] = (turn, count)

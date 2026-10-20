@@ -312,7 +312,7 @@ def test_gimli_resolution_count_resets_for_new_turn():
                 _answer_target(eng, enemy)
             else:
                 assert eng.state.pending_choice is None
-        eng.state.turn_nr += 1
+        eng.begin_turn()  # RULE 500.1: a real new turn resets the per-turn count
     assert gimli.counters.get('+1/+1') == 6
     assert enemy.damage_marked == 15
 
