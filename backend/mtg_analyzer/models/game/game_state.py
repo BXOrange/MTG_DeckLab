@@ -945,6 +945,8 @@ class GameState:
         #: board state — deep-copies with `clone`.
         self.end_turn_requested: bool = False
         self.end_combat_requested: bool = False
+        # RULE 511.3: the end of combat step has begun and still owes its remove-from-combat / duration cleanup.
+        self.end_combat_cleanup_pending: bool = False
 
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of

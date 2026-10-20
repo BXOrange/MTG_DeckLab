@@ -178,12 +178,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   copy with more counters. Add resumable choices for conflicting legend groups and apply the
   chosen departures in the simultaneous SBA batch. Coordinate with BUG-14.
 
-- **BUG-30 · P2 · Keep combat state through end-of-combat priority (RULE 511.2–3).**
-  `game/engine/turn_loop_mixin.py:_step_end_combat` clears attackers/blockers and expires
-  until-end-of-combat effects as the step begins. Move cleanup/expiry to the transition out of
-  that step so its priority window and resolving triggers still see attacking/blocking status
-  and active combat-duration effects.
-
 - **BUG-31 · P1 · Resolve ninjutsu as an activated ability (RULE 702.49a/602/117).**
   `game/engine/combat_mixin.py:ninjutsu` immediately puts the Ninja onto the battlefield with no
   stack item and rejects legal activation after damage. Use hand-zone reveal/return costs,

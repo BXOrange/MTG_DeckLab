@@ -1737,6 +1737,7 @@ def test_end_combat_removes_creatures_from_combat():
     eng.declare_attackers(eng.state.active_player, [bear])
     assert eng.attackers == [bear]
     eng._step_end_combat()
+    eng._finish_end_combat()  # RULE 511.3: removal happens as the step ends (BUG-30)
     assert eng.attackers == []
     assert not bear.attacking and bear.combat_defender is None
 
@@ -2598,6 +2599,7 @@ def test_deathtouch_flag_cleared_at_end_of_combat():
     eng._step_combat_damage()
     assert survivor.dealt_deathtouch_damage is True  # marked during combat
     eng._step_end_combat()
+    eng._finish_end_combat()  # RULE 511.3: removal happens as the step ends (BUG-30)
     assert survivor.dealt_deathtouch_damage is False  # cleared when combat ends
 
 

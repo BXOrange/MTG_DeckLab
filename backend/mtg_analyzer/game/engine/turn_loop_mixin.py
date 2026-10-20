@@ -176,6 +176,9 @@ class TurnLoopMixin:
             state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
+        # RULE 511.3: an end of combat step left without `advance_step` still owes its cleanup, settled while
+        # the outgoing player is still active (its "last combat" record belongs to them, not the next player).
+        self._finish_end_combat()
         self.state.end_steps_this_turn = 0
         self.state.pending_extra_end_steps = 0
         # RULE 606.3: loyalty usage expires every turn, including an
@@ -388,6 +391,7 @@ class TurnLoopMixin:
         """
         if self.state.game_over or self.state.pending_choice:
             return None
+        self._finish_end_combat()  # RULE 511.3: leaving the end of combat step removes creatures from combat
         # RULE 500.4-adjacent: drain any "additional combat phase" request an
         # effect queued since the last advance (`ExtraCombatPhaseEffect`) —
         # done here, not where it's queued, since only `GameEngine` (not the
@@ -943,15 +947,24 @@ class TurnLoopMixin:
         self._deal_combat_damage_step(first_strike_step=False)
         self.rules.check_state_based_actions()
     def _step_end_combat(self) -> None:
+        # RULE 511.1: "at end of combat" triggers fire as the step begins and RULE 511.2 gives players priority
+        # with combat intact: attacking/blocking status and "until end of combat" effects still apply. Removal
+        # from combat (RULE 511.3) waits for the transition out of the step (`_finish_end_combat`). The flag
+        # lives on `GameState` so a clone/undo snapshot taken inside the window still owes the cleanup.
+        self.state.end_combat_cleanup_pending = True
+
+    def _finish_end_combat(self) -> None:
+        """RULE 511.3: as the end of combat step ends, every creature is removed from combat and RULE 611's
+        combat-scoped continuous effects ("gains flying until end of combat") end with it — strictly earlier
+        than the cleanup step every ``temp_*`` grant waits for (`game/durations.py`)."""
+        if not self.state.end_combat_cleanup_pending:
+            return
+        self.state.end_combat_cleanup_pending = False
         self._record_last_combat()  # before the assignments go: "didn't attack during your last combat"
-        # RULE 511.3: creatures are removed from combat as it ends.
         self._clear_combat()
-        # …and RULE 611's combat-scoped continuous effects end with it
-        # ("target creature gains flying until end of combat"), which is
-        # strictly earlier than the cleanup step every ``temp_*`` grant waits
-        # for (`game/durations.py`).
         if durations.sweep(self.state, "end_of_combat"):
             self.recompute_continuous_effects()
+
     def _step_cleanup(self) -> None:
         active = self.state.active_player
         # RULE 514.1: discard down to maximum hand size — unless a standing

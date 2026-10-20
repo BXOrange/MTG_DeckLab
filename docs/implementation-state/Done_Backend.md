@@ -1196,6 +1196,8 @@ Tests: `test_revival_trance_deck.py`.
 assignments and queued triggers, expires combat-duration effects, and requests
 that the turn loop skip the current combat's remaining steps. A separately
 scheduled additional combat is preserved; end-of-combat triggers are skipped.
+
+**Combat lasts through the end of combat step (BUG-30, RULE 511.1–511.3).** `_step_end_combat` used to clear attackers/blockers and expire "until end of combat" effects as the step began, so its triggers, priority window and spells saw no combat. It now only sets `GameState.end_combat_cleanup_pending`; `_finish_end_combat` (records the last combat, clears combat, sweeps the `end_of_combat` duration) runs on the transition out of the step at the top of `advance_step`, and defensively at `begin_turn` while the outgoing player is still active. The flag lives on the state, so a snapshot taken inside the window still owes the cleanup. Tests: `tests/test_bug30_end_of_combat_state.py`.
 The authored cast-timing metadata accepts `phase="combat"`.
 Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 
