@@ -36,6 +36,7 @@ active.
 
 from __future__ import annotations
 
+from ..game.phases import FIRST_STRIKE_DAMAGE_STEP
 from ..game.physical_properties import choice_decider as _physical_choice_decider
 
 import json
@@ -1913,7 +1914,9 @@ class GameSession:
         stops = self._stops.get(player.id)
         if stops is None:
             return False
-        return state.current_step not in stops["own" if is_own_turn else "opponent"]
+        # RULE 510.4: the first-strike damage step is a combat damage step, so it shares that stop.
+        step = "combat_damage" if state.current_step == FIRST_STRIKE_DAMAGE_STEP else state.current_step
+        return step not in stops["own" if is_own_turn else "opponent"]
 
     def _set_stops(self, player: Player, action: dict[str, Any]) -> None:
         """VIS-12: replace ``player``'s standing stops. Unknown step names are

@@ -46,7 +46,7 @@ from ..mana_abilities import (
     restriction_predicate_for_cast,
     validate_color_split,
 )
-from ..phases import GamePhase, GameStep, default_turn_sequence
+from ..phases import FIRST_STRIKE_DAMAGE_STEP, GamePhase, GameStep, default_turn_sequence
 from ..rules.opponent_target_mixin import OPPONENT_CHOICE_KINDS
 from ..rules_engine import RulesEngine
 from ..targeting import (
@@ -447,10 +447,30 @@ class TurnLoopMixin:
                 GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)
             )
             self._begin_turn_steps()
+        self._schedule_first_strike_step()
         phase, step = self._turn_steps[self._cursor]
         self._cursor += 1
         self._run_step(phase, step)
         return (phase.name, step.name)
+
+    def _schedule_first_strike_step(self) -> None:
+        """RULE 510.4: if at least one attacking or blocking creature has first
+        strike or double strike as the combat damage step begins, the phase gets
+        a second combat damage step. Splice a distinct ``first_strike_damage``
+        step (its own SBA / trigger / priority window, RULE 510.3 + 117.3) in
+        front of the regular ``combat_damage`` step. The list is the per-turn
+        mutable one snapshots retain, so undo/clone keep the inserted step; the
+        step just before the cursor tells a resumed walk it already ran."""
+        if self._cursor >= len(self._turn_steps):
+            return
+        phase, step = self._turn_steps[self._cursor]
+        if step.name != "combat_damage" or phase.skipped:
+            return
+        if self._cursor and self._turn_steps[self._cursor - 1][1].name == FIRST_STRIKE_DAMAGE_STEP:
+            return
+        if not self._combat_has_first_strikers():
+            return
+        self._turn_steps.insert(self._cursor, (phase, GameStep(FIRST_STRIKE_DAMAGE_STEP, rule="510")))
     def _run_step(self, phase: GamePhase, step: GameStep) -> None:
         self.state.current_phase = phase.name
         self.state.current_step = step.name
@@ -941,10 +961,27 @@ class TurnLoopMixin:
         Damage in a step is gathered first, then applied together so it is
         simultaneous (marked, then one SBA pass — RULE 704.5g).
         """
-        if self._combat_has_first_strikers():
-            self._deal_combat_damage_step(first_strike_step=True)
-            self.rules.check_state_based_actions()
+        if self.state.first_strike_step_combatants is None and self._combat_has_first_strikers():
+            # Step-less callers (a direct `_step_combat_damage()` with no
+            # scheduled first-strike step) still get both damage steps.
+            self._step_first_strike_damage()
         self._deal_combat_damage_step(first_strike_step=False)
+        self.rules.check_state_based_actions()
+
+    def _step_first_strike_damage(self) -> None:
+        """RULE 510.4: the first combat damage step, in which only creatures
+        with first strike or double strike deal combat damage. SBAs follow
+        (RULE 510.3a); the step window then places triggers and gives APNAP
+        priority before the regular step runs."""
+        # Recorded before anything is dealt, as exact (instance, zone visit)
+        # pairs, so the follow-up (RULE 510.4: a creature that gains first
+        # strike afterwards must not deal damage again) can tell who took part.
+        self.state.first_strike_step_combatants = [
+            (c.instance_id, c.zone_incarnation)
+            for c in self._combat_creatures()
+            if self._deals_in_step(c, first_strike_step=True)
+        ]
+        self._deal_combat_damage_step(first_strike_step=True)
         self.rules.check_state_based_actions()
     def _step_end_combat(self) -> None:
         # RULE 511.1: "at end of combat" triggers fire as the step begins and RULE 511.2 gives players priority

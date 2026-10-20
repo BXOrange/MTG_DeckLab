@@ -50,6 +50,7 @@ const STEP_LABELS = {
   begin_combat: t('bd.step.begin_combat'),
   declare_attackers: t('bd.step.declare_attackers'),
   declare_blockers: t('bd.step.declare_blockers'),
+  first_strike_damage: t('bd.step.first_strike_damage'),
   combat_damage: t('bd.step.combat_damage'),
   end_combat: t('bd.step.end_combat'),
   main2: t('bd.step.main2'),

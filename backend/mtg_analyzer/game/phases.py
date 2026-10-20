@@ -13,6 +13,11 @@ from __future__ import annotations
 from typing import Any
 
 
+#: RULE 510.4: the extra combat damage step a combat gets when an attacker or blocker has first strike or
+#: double strike. Not in the default sequence: `GameEngine` splices it in before `combat_damage` on demand.
+FIRST_STRIKE_DAMAGE_STEP = "first_strike_damage"
+
+
 class GameStep:
     """A single step within a phase (RULE 500.1), identified by name.
 

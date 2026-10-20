@@ -104,6 +104,7 @@ class CombatMixin:
         # that hasn't happened yet — reset alongside the per-object flags
         # above (`GameState.declared_blockers_this_combat`'s own docstring).
         self.state.declared_blockers_this_combat.clear()
+        self.state.first_strike_step_combatants = None
     def _enforce_attacks_if_able(self) -> None:
         """RULE 508.1a: a creature under an "attacks each combat if able"
         static must be declared as an attacker if it's able to.
@@ -393,12 +394,17 @@ class CombatMixin:
     def _combat_has_first_strikers(self) -> bool:
         """Whether any attacker or blocker has first or double strike (→ two
         damage steps, RULE 702.7e)."""
-        combatants = list(self.attackers) + [
+        return any(
+            combat.has_first_strike(c) or combat.has_double_strike(c)
+            for c in self._combat_creatures()
+        )
+
+    def _combat_creatures(self) -> list[GameObject]:
+        """Every attacking or blocking creature (RULE 510.4's "attacking or
+        blocking creature")."""
+        return list(self.attackers) + [
             b for b in self.state.battlefield if combat.blocking_attacker_ids(b)
         ]
-        return any(
-            combat.has_first_strike(c) or combat.has_double_strike(c) for c in combatants
-        )
     @staticmethod
     def _deals_in_step(obj: GameObject, first_strike_step: bool) -> bool:
         """Whether ``obj`` deals damage in this combat-damage step.
@@ -846,7 +852,7 @@ class CombatMixin:
     #: RULE 702.49c: an unblocked attacker exists from the declare blockers
     #: step through the end of combat step (BUG-30 keeps combat state until
     #: the end of combat step is left).
-    NINJUTSU_STEPS = ("declare_blockers", "combat_damage", "end_combat")
+    NINJUTSU_STEPS = ("declare_blockers", "first_strike_damage", "combat_damage", "end_combat")
 
     def ninjutsu_unblocked_attackers(self, player: Player) -> list[GameObject]:
         """RULE 702.49a/c: the attackers ``player`` controls that count as

@@ -103,12 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-20 · P1 · Give first-strike damage its own priority window (RULE 510.3–4).**
-  `game/engine/turn_loop_mixin.py:_step_combat_damage` performs both damage steps synchronously;
-  an unblocked 2-power double striker deals four damage before interactive priority returns.
-  Schedule separate steps with SBAs, trigger placement and APNAP priority between them; preserve
-  the step state through choices and undo.
-
 - **BUG-21 · P2 · Retain first-step combat-damage eligibility (RULE 510.4).**
   `game/engine/combat_mixin.py:_deals_in_step` tests current keywords only. An unblocked 2/2
   deals four damage if its first-strike-granting lord dies in the first step. Remember exact

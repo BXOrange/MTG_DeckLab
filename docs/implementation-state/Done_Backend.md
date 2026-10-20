@@ -2544,6 +2544,12 @@ group; the free-cast flag expires with the turn's graveyard permissions.
 ## Combat
 
 
+### Separate first-strike combat damage step (BUG-20, RULE 510.3-510.4)
+
+- **What:** `_step_combat_damage` dealt first-strike and regular damage back to back, so an unblocked 2-power double striker dealt 4 before anyone could respond. `advance_step` now calls `_schedule_first_strike_step`, which splices a `first_strike_damage` step (`phases.FIRST_STRIKE_DAMAGE_STEP`) in front of `combat_damage` when an attacker or blocker has first or double strike as combat damage begins; the per-turn step list is rebuilt each turn and lives in the snapshot, so clone/undo keep the inserted step and a resumed walk never inserts it twice. `_step_first_strike_damage` deals that step and runs SBAs, then the ordinary step window places triggers and gives APNAP priority; without interactive priority (goldfish, bots, `run_turn`) the window drains automatically. A direct `_step_combat_damage()` call with no scheduled first-strike step still deals both. `GameState.first_strike_step_combatants` records every first-step-eligible combatant as `(instance_id, zone_incarnation)` for BUG-21 and is reset by `_clear_combat`. Standing stops treat the new step as `combat_damage`; ninjutsu may be activated in it; the board shows "Erstschlagschaden" / "First-strike damage".
+- **Known limits:** the "Pass" button's next-step label from the declare-blockers step still names `combat_damage` (the first-strike step is inserted only as combat damage begins); the Replay editor's step list doesn't offer the new step.
+- **Tests:** `tests/test_bug20_first_strike_damage_step.py`.
+
 ### Block restrictions relative to an ability's controller (RULE 509.1b)
 
 `unblockable` can forbid only blockers controlled by the effect controller's

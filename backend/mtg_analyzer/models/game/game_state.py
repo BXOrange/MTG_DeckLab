@@ -951,6 +951,10 @@ class GameState:
         self.end_combat_requested: bool = False
         # RULE 511.3: the end of combat step has begun and still owes its remove-from-combat / duration cleanup.
         self.end_combat_cleanup_pending: bool = False
+        #: RULE 510.4: ``None`` while this combat has had no first-strike damage step; once it has, the
+        #: ``(instance_id, zone_incarnation)`` of every attacker/blocker that took part in it (had first or
+        #: double strike as the step began). Plain data, so clone/undo keep it; reset by `_clear_combat`.
+        self.first_strike_step_combatants: Optional[list[tuple[int, int]]] = None
 
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of
