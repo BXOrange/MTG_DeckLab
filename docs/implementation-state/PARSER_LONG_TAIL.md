@@ -342,25 +342,168 @@ version's rows. Hand-authoring alone needs no bump — `content_hash` folds in
 
 ## How the tail gets closed
 
-The remaining ~25k templates are, by construction, not generic. This is an
-*indefinite program*, not a finite batch list, and proceeds two ways:
+### Coverage-maximization plan: shared capabilities and complete-card bundles
 
-1. **Narrow parser extensions** for singleton shapes that still generalize a
-   little — a slightly different targeting scope, a compound filter.
-   Preferred: each still pays off across a small cluster.
-2. **Hand-authoring** genuinely unique cards in `game/card_catalogue/`
-   ([authoring guide](../Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
-   only after confirming no near-miss handler would unlock a cluster.
+**Proposed execution plan; not implemented.** Optimize for unique supported
+cards that parse, bind and execute correctly, across the full cached pool.
+Report Commander separately. Text recognition is an intermediate measure,
+not the objective; permanent support exclusions remain unchanged.
+This extends the atom/composition design in
+[14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md)
+and uses existing primitives before introducing new ones.
 
-Deterministic-first: classification, scaffolding and measurement are pure
-code, no LLM. LLM/subagent effort (Sonnet/Haiku only, file-ownership waves)
-goes only to finalizing a handler's regex/builder semantics and to
-hand-authoring the tail.
+The 2026-10-21 catalogue at parser version 715 examined 35,095 cached records:
+11,952 supported records still had unresolved text. Of those, 3,177 had
+independently parsed effect-bearing abilities and 3,057 had only independently
+parsed keywords. Its 1,582 shared diagnostic phrase groups included 780 with
+no SOLO candidate; 319 groups were shared by cards with parsed effects.
+These are investigation counts, not promised unlocks. They use the all-record
+universe, including inserts; do not mix that denominator with the coverage
+report's card-only universe. The 301 supplemental back-face gap records are
+not additional unique uncovered cards and must not be added to the 11,952.
 
-A few items are deliberate non-goals — the legacy pre-2021 werewolf
-template, silver-border/acorn/un-set cards — excluded from the denominator or
-accepted as permanently unmodeled. Stickers and Attractions are project
-non-goals tracked in [BACKLOG.md](BACKLOG.md) under MEC.
+**1. Make discovery reproducible and context-complete.** Turn the research
+export into a maintained read-only report with frozen SQLite backups, source
+and input fingerprints, parser/registry identity, and separate test caches.
+Preserve exact source text, face, ability/block, occurrence and original
+unclaimed line alongside every derived phrase. Fix `parser_probe.py rank
+--by span`: it currently computes spans but ranks the original lines.
+Keep every failing sentence/connector part, not only the single deletion
+whose removal repairs a line. Use context-aware probes/cache keys for spell,
+trigger, activated ability, static ability, granted ability and prior referents.
+A modal wrapper with a working body is not an extra missing effect; an
+ambiguous wrapper must remain an explicit unresolved dependency even when
+another ability on the card also fails. Include faces not aggregated by the
+current gate, while retaining the existing gate metric separately.
+
+Acceptance: the A+B / B+C / C+D fixture preserves both B and C with zero SOLO;
+every unresolved source occurrence maps to a blocker or an explicit unknown;
+all supported records and relevant faces are accounted for; unique-card
+pair/triple unions and co-occurrence counts reconcile independently.
+Retain a complete original-line graph as a check on atomic decomposition.
+Reports and raw snapshots stay ignored; the maintained exporter, methodology
+and meaningful diagnostic regression tests belong in version control.
+
+**2. Replace phrase frequency with a verified capability/dependency graph.**
+For each shared group, inspect existing handlers, specs, binding and runtime.
+Classify the actual gap as grammar, composition/context, target/amount/filter,
+reference tracking, missing binding, missing engine behavior, or unique card
+logic. For example, `shuffle`, `if you do`, paying energy and casting from
+exile already work in some contexts: their diagnostic frequency does not
+establish a missing primitive. Merge wording variants only when their
+semantics and parameter constraints agree; preserve different meanings of
+identical words. Record prerequisites, alternative implementations and opaque
+residue instead of assuming a fragment equals one independent handler.
+
+Deliverable: for each capability, representative real cards, full remaining
+requirements per card, existing reuse points, uncertainty, acceptance cases
+and estimated effort/risk. Distinguish structural completion candidates,
+unverified upper bounds and observed post-implementation gains. Unknown
+blockers prevent a card from counting as structurally complete.
+
+**3. Choose packages with lookahead, including zero-immediate-yield work.**
+Start investigation with cards having independently parsed effects, then
+keyword-only and other partially recognized cards; retain all other supported
+cards in the graph and final objective. Evaluate single capabilities and
+shared pairs/triples together. For selected capabilities S, predicted gain is
+the number of unique cards whose *entire verified requirement expression*
+can be satisfied by S plus capabilities already implemented. Include the
+transitive prerequisites and their costs. Count each physical card once,
+not once per phrase, face, mode or overlapping package.
+
+For A+B / B+C / C+D, B alone and C alone may yield zero, while B+C completes
+the middle card. Compare the whole package against alternatives. In the real
+catalogue, the diagnostic chain spans Soulcipher Board, Court Hussar and Jar
+of Eyeballs; it is a lead for context investigation, not proof that looking
+at cards or putting them into a hand lacks an implementation.
+
+Within the same correctness/dependency priority, maximize verified structural
+completion candidates per estimated combined effort and risk. Also report
+total shared reach and the completion frontier enabled by prerequisite work;
+never discard a capability solely because SOLO is zero. Expand beyond
+pairs/triples when the graph exposes a larger shared prerequisite package,
+using bounded lookahead with explicit search limits. An exact budgeted
+selection over a manageable verified frontier can benchmark the heuristic;
+no claim of a global optimum follows from a fixed top-N or pair-only search.
+Re-rank after every delivered package; do not add overlapping yields or
+silently prioritize Commander at the expense of the full-pool objective.
+
+**4. Implement small reusable capabilities and their necessary composition.**
+Widen shared grammar, selectors, conditions, amounts and referent propagation
+before adding card-specific rows. Reuse existing effect/binding/engine paths.
+When runtime behavior is absent, deliver its primitive, whitelisted spec,
+binding and parser consumer together. Keep parser/game import and security
+boundaries intact. A package may contain related capabilities that only pay
+off together; each change still needs a concrete real-card justification.
+Do not replace the parser wholesale or loosen the fail-closed gate.
+
+A package's scope names the capabilities, affected forms, required
+prerequisites, representative cards and explicit residue. It must cover the
+whole claimed grammar family, including its modifiers, rather than accept
+unsupported suffixes or let only the easiest example work. Before scheduling,
+check BACKLOG, workingOn, DEFERRED, delivered work and the singleton queue;
+respect ownership and the authorized bounded implementation workflow.
+
+**5. Prove composition as well as atomic recognition.** For every capability,
+test positive forms and near-miss forms that must stay unclaimed. For every
+package, exercise real complete-card parse -> bind -> game behavior, including
+nested/granted effects and relevant faces. Inspect all newly covered names;
+group them by emitted structure and test each distinct structure/parameter
+boundary, not only three conveniently selected cards.
+
+Use a behavior matrix appropriate to the package: spell/activated/triggered
+contexts; source/controller/opponent references; zero/one/many choices;
+optional payment and success/failure; conditional riders and `this way`
+receipts; targets changing zones or becoming illegal; legal surviving targets;
+resumable choices, clone/undo and delayed effects. Verify server validation
+and user-facing offers when target/choice behavior changes. A parsed keyword
+or a whitelisted outer wrapper is not evidence its nested behavior works.
+
+**6. Measure every completed package against the same frozen input.** Bump
+`PARSER_VERSION`, history and version lock for parser changes. Obtain
+independent review and run the backend suite from its documented working
+directory, including `--full-cache` for parser/engine work. Use authoritative
+coverage reports and per-card before/after memberships; inspect every gain
+and loss. A corrected false MODELED claim can lower the number, but requires
+an explicit reproduction/test and explanation. Do not conceal it by changing
+the denominator, support policy or tests.
+
+Report separately: current-gate raw coverage, supported-scope coverage,
+Commander coverage, face-complete structural checks, binding checks and tested
+behavior. Reconcile AUTHORED membership with the real coverage contract.
+Mark behavior evidence by tested case/family rather than inventing a scalar
+"all gameplay verified" percentage. Sync documented/UI coverage only from the
+matching measured universe. A package is delivered only when its stated
+scope and tests pass; unresolved residue stays visible.
+
+**7. Rebuild the frontier and close the remaining tail.** Re-extract blockers
+after every package: one reference/composition fix can remove many previously
+separate-looking phrases, and newly supported bodies can expose deeper gaps.
+Check whether the delivered primitive narrows other open tickets. If all
+currently evaluated singles/pairs have zero gain, inspect shared prerequisites,
+larger bundles and opaque contexts rather than declare the queue exhausted.
+Only route a genuine singleton to hand-authoring after a full-pool comparison
+rules out a reusable shape; authored cards still need binding/gameplay checks.
+If no safe verified work remains within the investigation budget, report the
+precise residue and next investigation instead of broadening exclusions.
+
+### First work packages and decision gates
+
+| Order | Work package | Gate before implementation/delivery |
+| --- | --- | --- |
+| 1 | Maintained diagnostic report, span-ranking repair, context/face/wrapper identity and combination regression fixtures | Reproduce baseline membership and the zero-SOLO chain; no unsupported wrapper or face silently disappears. |
+| 2 | Semantic review of the 319 shared groups on effect-partial cards, then the other shared/opaque groups | Separate existing operations from their missing scope/linkage; produce verified dependency packages and unique-card candidate sets. |
+| 3 | Re-rank candidate capability packages, including MEC-128's same-graveyard targets, exile-cast/land grants, search/dig referents, optional-payment riders and play-event/hand-size combinations | MEC-128 has 11 single-blocker structural candidates; other catalogue counts remain hypotheses until scoped. Its pending block is not permission to skip re-ranking or ownership checks. |
+| 4 | Deliver the best bounded reusable package, then refresh the complete frontier | Full parse/bind/gameplay acceptance, isolated full-cache suite and independently reconciled per-card gains/losses; no fixed unverified batch order. |
+| 5 | Expand to keyword-only cards, larger dependency packages, supplemental faces and verified singletons | Preserve the full-pool objective, explicit exclusions and complete-card semantics. |
+
+The finish criterion for **complete supported-pool modeling** is zero
+unresolved supported cards on a fixed pool, including all relevant faces,
+with binding checks and required behavior-family tests passing. Until then,
+report the remaining grammar, composition, binding, engine and opaque gaps
+separately. A finite plan cannot promise 100% or prove every MTG interaction
+correct from a phrase catalogue alone; maximizing correct complete-card
+coverage is the iterative objective, not maximizing accepted text fragments.
 
 ## The Commander-legal tail sweep (PAR-31…PAR-53)
 

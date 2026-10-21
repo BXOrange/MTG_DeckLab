@@ -44,7 +44,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-159` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-177`**; next free `MEC`: **`MEC-128`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**; next free `BUG`: **`BUG-35`**. A new engine primitive found along the way files
+  > **`PAR-177`**; next free `MEC`: **`MEC-129`**; next free `ENG`: **`ENG-54`**; next free `VIS`: **`VIS-16`**; next free `BUG`: **`BUG-35`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -54,6 +54,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
 ## MEC — Game mechanic
+
+- **MEC-128 · Same-graveyard target groups.** Model fixed-count “exile up to N target cards from a single graveyard” through shared target-group validation and offers; support spell, activated and triggered forms with binding/gameplay tests (Decompose, Scarab Feast, Carrion Beetles; 11 verified single-blocker Commander candidates).
 
 
 
