@@ -103,12 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-23 · P1 · Apply lifelink/deathtouch to noncombat damage (RULE 120.3f/702.2b).**
-  `game/rules/damage_death_mixin.py:_finish_damage` omits both consequences: three damage from a
-  lifelinker gains no life, and one damage from a deathtouch source leaves a 4/4 alive. Finalize
-  source-ability consequences in the shared successful-damage path, without duplicating combat
-  or fight handling; cover prevented damage as well as actual hits. Coordinate with BUG-22.
-
 - **BUG-25 · P1 · Process multiplayer departures immediately (RULE 800.4a).**
   `game/rules/sba_mixin.py` defers departing players' objects/effects through `pending_leave_ids`
   until `begin_turn`; a conceding player's permanents still affect the ongoing turn. Perform the

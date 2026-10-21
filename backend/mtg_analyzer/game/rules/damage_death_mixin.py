@@ -19,6 +19,7 @@ engine is the toolbox that loop drives.
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
@@ -358,7 +359,7 @@ class DamageDeathMixin:
         # RULE 616.1e: a damage event can be suspended inside its replacement pipeline, so the
         # combat step's ledger counts it as outstanding until `_finish_damage` runs.
         batch = self.state.combat_damage_batch
-        counted = bool(combat and batch is not None and not batch["closed"])
+        counted = bool(batch is not None and not batch["closed"])
         if counted:
             batch["pending"] += 1
         self.apply_replacements(event, on_resolved={
@@ -368,10 +369,14 @@ class DamageDeathMixin:
         })
 
     def _finish_damage(self, payload, resolved):
-        """Settle one damage event, then (for combat damage) its share of the step's ledger."""
+        """Settle one damage event: its consequences (RULE 120.3f) now, or via the open batch's ledger."""
         receipt = self._deal_resolved_damage(payload, resolved)
         batch = self.state.combat_damage_batch
         if not payload.get("batch_counted") or batch is None:
+            # BUG-23: lone noncombat damage settles on its own (lifelink gain; deathtouch was marked
+            # in `_deal_resolved_damage`).
+            if receipt is not None:
+                self._settle_damage_receipts([receipt], announce_hits=False)
             return
         if receipt is not None:
             batch["receipts"].append(receipt)
@@ -391,6 +396,23 @@ class DamageDeathMixin:
                     and not self.damage_prevention_is_disabled()):
                 continue
             self.deal_damage(target, amount, source=source, combat=True)
+        self.state.combat_damage_batch["closed"] = True
+        self._settle_combat_damage_batch_if_complete()
+
+    @contextmanager
+    def damage_batch(self):
+        """RULE 120.3f/510.2: damage one spell or ability deals to several recipients is dealt at
+        once, so its lifelink gain is one gain of the summed amount. Joins an already-open ledger
+        (a combat step's) rather than nesting."""
+        if self.state.combat_damage_batch is not None:
+            yield
+            return
+        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False}
+        try:
+            yield
+        except BaseException:
+            self.state.combat_damage_batch = None
+            raise
         self.state.combat_damage_batch["closed"] = True
         self._settle_combat_damage_batch_if_complete()
 
@@ -427,13 +449,14 @@ class DamageDeathMixin:
             receipt["base_power"] = int(getattr(source.card, "power", 0) or 0)
         return receipt
 
-    def _settle_damage_receipts(self, receipts: list[dict[str, Any]]) -> None:
+    def _settle_damage_receipts(self, receipts: list[dict[str, Any]], announce_hits: bool = True) -> None:
         """RULE 120.3f/510.2: apply the consequences of damage that was actually dealt, once.
 
         Lifelink: each controller gains the sum of the lifelink damage dealt (RULE 702.15b), one
         life-gain event per controller. The aggregate "one or more creatures deal combat damage to a
-        player" event fires per (controller, player hit) from successful player hits only. Reusable
-        for noncombat damage (BUG-23) by passing receipts with ``combat`` false.
+        player" event fires per (controller, player hit) from successful player hits only. Noncombat
+        damage (BUG-23) settles through here too; a lone damage event outside any batch
+        (``announce_hits`` false) gains life but announces no aggregate hit.
         """
         gains: dict[str, int] = {}
         player_hits: dict[tuple[Optional[str], Any], dict[str, Any]] = {}
@@ -442,7 +465,7 @@ class DamageDeathMixin:
                 continue
             if r["lifelink"] and r["controller_id"] is not None:
                 gains[r["controller_id"]] = gains.get(r["controller_id"], 0) + r["amount"]
-            if not (r["combat"] and r["is_player"]) or r["source_id"] is None:
+            if not announce_hits or not (r["combat"] and r["is_player"]) or r["source_id"] is None:
                 continue
             entry = player_hits.setdefault((r["controller_id"], r["recipient_id"]), {
                 "amount": 0, "subtypes": set(), "contributor_ids": [], "contributor_amounts": [],
@@ -636,7 +659,8 @@ class DamageDeathMixin:
         damage_receipt = self._damage_receipt(
             source, final_target, final_is_player, final, bool(resolved.get("combat", combat)),
         )
-        if damage_receipt["combat"] and damage_receipt["deathtouch"] and not final_is_player:
+        # RULE 702.2b applies to any damage, combat or not (BUG-23).
+        if damage_receipt["deathtouch"] and not final_is_player:
             final_target.dealt_deathtouch_damage = True
         return damage_receipt
 

@@ -3252,8 +3252,9 @@ class DamageEqualToPowerEffect(GameEffect):
             context.deal_damage(dealer, amount, dealer)
             return
         if self.selector is not None:
-            for recipient in self._selected_recipients(context, dealer):
-                context.deal_damage(recipient, amount, dealer)
+            with context.engine.damage_batch():
+                for recipient in self._selected_recipients(context, dealer):
+                    context.deal_damage(recipient, amount, dealer)
             return
         recipient = next(chosen, None)
         if recipient is None:

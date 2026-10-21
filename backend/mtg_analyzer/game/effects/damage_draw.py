@@ -432,7 +432,7 @@ class DealDamageEffect(GameEffect):
         if operand is not None:
             self._base_amount = self._measured(operand, context, targets)
         try:
-            with context.state.simultaneous():
+            with context.state.simultaneous(), context.engine.damage_batch():
                 self._apply_with_dealer(context, targets)
         finally:
             if operand is not None:
