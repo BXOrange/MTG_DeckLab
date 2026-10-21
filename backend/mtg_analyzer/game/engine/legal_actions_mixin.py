@@ -1530,7 +1530,7 @@ class LegalActionsMixin:
             combined = source.activated_abilities + source.granted_activated_abilities
             for index, ability in enumerate(combined):
                 if (
-                    ability.cost.discard_self or ability.cost.hand_zone
+                    ability.cost.discard_self or ability.cost.hand_zone or ability.cost.exile_self_from_hand
                 ) and self.can_activate(player, source, ability):
                     actions.extend(self._activate_actions_for(player, source, index, ability))
 

@@ -782,9 +782,9 @@ class PayEnergyThenEffect(GameEffect):
 
     ``effects`` are whitelisted descriptor dicts, built into live effects
     lazily at resolution (mirroring `InstallTemporaryPlayerTriggerEffect`);
-    only untargeted follow-ups are modeled today (every real energy card
-    with this rider creates a token / gains life / draws — none needs a
-    freely-chosen target here). If the controller can't afford ``amount``
+    an "If you do" follow-up exposes its target requirements on the
+    enclosing ability and resumes with those selected targets. If the
+    controller can't afford ``amount``
     energy, the payment simply never happens (no choice offered).
     """
 
@@ -811,6 +811,21 @@ class PayEnergyThenEffect(GameEffect):
         self.variable = bool(variable)
 
     @property
+    def target_specs(self) -> list[TargetSpec]:
+        # RULE 603.3d/601.2c: an "If you do" branch announces targets
+        # before the enclosing trigger resolves and offers its payment.
+        from .composition import _build
+
+        if self.target_spec is not None:
+            # Confiscation Coup names its existing spell target again in
+            # the branch; it does not announce a second independent pick.
+            return super().target_specs
+        return super().target_specs + [
+            spec for effect in _build(self.inner_specs, self.source)
+            for spec in effect.target_specs
+        ]
+
+    @property
     def owns_x_sentinel(self) -> bool:
         """A variable payment announces its own X when the choice is answered (ENG-48's `PayCostThenEffect` idiom):
         the branch specs' ``"x"`` is the paid amount, so `RulesEngine._substitute_x` must not fill it first."""
@@ -818,6 +833,20 @@ class PayEnergyThenEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
+        if self.target_spec is None and len(self.target_specs) == 1 and targets:
+            # RULE 608.2b: do not offer payment after its sole target
+            # becomes illegal. Inner effects are constructed after payment.
+            from ..targeting import legal_targets
+
+            legal_ids = {
+                option.get("instance_id", option.get("player_id", option.get("stack_id")))
+                for option in legal_targets(context.state, player.id, self.target_specs[0],
+                                            source=self.source, trigger_event=context.trigger_event)
+            } if player is not None else set()
+            targets = [target for target in (targets or [])
+                       if getattr(target, "instance_id", getattr(target, "id", None)) in legal_ids]
+            if not targets:
+                return
         amount = self.amount
         if self.amount_from_target_mana_value:
             target = next((t for t in (targets or []) if t is not None), None)
@@ -829,6 +858,7 @@ class PayEnergyThenEffect(GameEffect):
             return  # can't pay — the optional payment simply doesn't happen
         context.engine._request_pay_energy_then(
             player, floor, self.inner_specs, self.source, variable=self.variable, targets=targets,
+            trigger_event=context.trigger_event, previous_targets=context.previous_targets,
         )
 
 

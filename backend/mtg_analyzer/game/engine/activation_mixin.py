@@ -144,8 +144,8 @@ class ActivationMixin:
         auto-pick. ``return_choices`` selects the controlled permanents for
         singular subtype or counted return-to-hand costs.
 
-        A ``discard_self`` cost (Channel/Cycling, RULE 702.29/28.2h) is the
-        one shape activated from *hand* instead of the battlefield — the
+        A ``discard_self`` cost (Channel/Cycling, RULE 702.29/28.2h) or
+        ``exile_self_from_hand`` is activated from *hand* — the
         ability still uses the stack like any other (unlike the mana-ability
         shortcut `activate_hand_mana_ability` uses), so it goes through this
         same path with a hand-zone legality check instead.
@@ -162,7 +162,7 @@ class ActivationMixin:
         # split_second_active`'s own docstring), so no exemption is needed.
         if continuous.split_second_active(self.state):
             return False
-        if ability.cost.discard_self:
+        if ability.cost.discard_self or ability.cost.exile_self_from_hand:
             if source not in player.hand or source.owner_id != player.id:
                 return False
         elif ability.cost.hand_zone:
@@ -735,12 +735,7 @@ class ActivationMixin:
                 return False
         if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
             return False
-        if cost.exile_self_from_hand:
-            # This path is for a battlefield permanent's own ability cost
-            # (`can_activate`/`tap_for_mana`'s non-hand-exile branch) — an
-            # "Exile this card from your hand" cost is never payable here,
-            # whatever `source` is; see `activate_hand_mana_ability` for
-            # the actual hand-zone counterpart (Elvish/Simian Spirit Guide).
+        if cost.exile_self_from_hand and (source not in player.hand or source.owner_id != player.id):
             return False
         # A minus loyalty ability can't be activated for more loyalty than the
         # planeswalker has (RULE 606.5c / 118.5).
@@ -1483,7 +1478,7 @@ class ActivationMixin:
                 source.last_cost_exiled_ids.append(obj.instance_id)
                 source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
                 self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
-        if cost.exile_self:
+        if cost.exile_self or cost.exile_self_from_hand:
             # RULE 602.2b: exiled as the cost is paid; the ability still
             # resolves, reading ~'s last-known information (RULE 608.2h).
             self.rules.exile(source)
@@ -1876,10 +1871,19 @@ class ActivationMixin:
                 hand_card_choices=hand_card_choices, return_choices=return_choices,
                 targets=targets or [],
             )
+        if ability.cost.exile_self_from_hand:
+            # RULE 400.7j: the resolving ability can find the new object its own cost exiled.
+            hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+            hideaway_event["cost_exiled_source_incarnation"] = source.zone_incarnation
         if ability.cost.exile_others:
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_exiled_ids"] = list(source.last_cost_exiled_ids)
             hideaway_event["cost_exiled_incarnations"] = dict(source.last_cost_exiled_incarnations)
+        if ability.cost.remove_counters:
+            # RULE 601.2h: preserve this activation's payment independently
+            # of later activations or source changes (Jar of Eyeballs).
+            hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+            hideaway_event["counters_removed_as_cost"] = source.counters_removed_as_cost
         # RULE 107.3c/601.2b: remember the announced X on the ability's own
         # source, mirroring `RulesEngine.cast_spell`'s `obj.x_paid` stamp —
         # every existing X-reading effect (`AddCountersEffect.x_multiplier`,

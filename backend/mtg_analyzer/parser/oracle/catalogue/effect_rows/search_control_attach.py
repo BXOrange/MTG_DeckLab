@@ -175,6 +175,7 @@ _SEARCH_CRITERIA = (
     r"(?P<permanent>permanent )?"
     rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
     r"cards?"
+    r"(?: named (?P<name>~|[a-z][a-z' -]*?))?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
     + _SEARCH_MV_QUALIFIER
 )
@@ -330,6 +331,8 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
 
 def _search_criteria_from_match(m: re.Match[str]) -> dict:
     crit: dict = {}
+    if m.groupdict().get("name"):
+        crit["name"] = m.group("name").strip()
     if m.groupdict().get("permanent"):
         # RULE 110.4: permanent cards have at least one permanent card type.
         crit["type"] = list(PERMANENT_CARD_TYPES)
@@ -376,6 +379,10 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if destination is None:
         return None
     params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
+    # RULE 701.20: revealing a named find is public information before it
+    # enters the hand; the search continuation owns that complete move.
+    if m.groupdict().get("name"):
+        params["reveal"] = bool(re.search(r"\breveal\b", m.group(0)))
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count

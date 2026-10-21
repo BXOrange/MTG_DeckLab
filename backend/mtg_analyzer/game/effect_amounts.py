@@ -558,6 +558,9 @@ def _base(
         return int(getattr(subject, "x_paid", 0) or 0)
 
     if kind == "counters_removed_as_cost":
+        event = getattr(context, "trigger_event", None)
+        if event is not None and event.get("counters_removed_as_cost") is not None:
+            return int(event.get("counters_removed_as_cost"))
         # PAR-67 (Sage of Hours): "Remove all +1/+1 counters from this
         # creature: for each five counters removed this way, take an extra
         # turn after this one." — the removal happened as this ability's own

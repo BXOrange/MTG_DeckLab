@@ -99,6 +99,13 @@ def _add_counters_target_params(
     ``include_optional`` is ``False`` for the one caller
     (`_add_counters_from_trigger_amount`) whose regex has no "up to" group to
     read."""
+    if m.groupdict().get("attached"):
+        # RULE 303.4m: an explicit enchanted host needs no antecedent;
+        # "that creature" only has this meaning under an attached head.
+        if m.group("attached") == "that creature" and not reading.attached_subject:
+            return None
+        params["target_kind"] = "attached_permanent"
+        return [EffectSpec("add_counters", params)]
     if m.groupdict().get("selfref"):
         if reading.group_clause and m.group("selfref").lower() == "it":
             # Under a group trigger a bare "it" is the firing object, not the ability's source
@@ -1192,7 +1199,8 @@ ROWS: list[EffectHandler] = [
             # "+2/+2 counter"), modeled as N +1/+1 counters (see
             # `_counter_kind_and_multiplier`).
             rf"put {COUNT_X} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? on "
-            rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT}))"
+            rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT})|"
+            r"(?P<attached>enchanted (?:creature|artifact|land|enchantment|permanent)|that creature))"
         ),
         _add_counters,
         reading_aware=True,

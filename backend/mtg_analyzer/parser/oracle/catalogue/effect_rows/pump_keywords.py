@@ -16,6 +16,7 @@ from ..subgrammars import (
     resolve_target_kind,
     TARGET,
     target_kind_allowed,
+    target_is_optional,
 )
 from ...normalize import SELF
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
@@ -922,6 +923,28 @@ _GRANT_DURATIONS: dict[str, str] = {
 }
 
 
+def _target_quoted_until_source_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """RULE 611.2a: a quoted grant and the independently bounded self-cast permission."""
+    target = resolve_target_kind(m['target'])
+    if not target_kind_allowed(target, ('creature', 'land', 'artifact', 'enchantment', 'permanent', 'planeswalker')):
+        return None
+    grants = quoted_ability_grant_effects_list(m['inner'])
+    if not grants:
+        return None
+    payloads = [{'type': grant.type, 'params': dict(grant.params)} for grant in grants]
+    effects = [EffectSpec('grant_until', {
+        'target_kind': target,
+        'optional': target_is_optional(m),
+        'creature_filter': resolve_target_creature_state_filter(m['target']),
+        'duration': 'until_source_cast_from_exile',
+        'static': payloads[0],
+        **({'extra_statics': payloads[1:]} if len(payloads) > 1 else {}),
+    })]
+    if m['permission']:
+        effects.append(EffectSpec('grant_conditional_cast_from_exile', {'source_exiled_as_cost': True}))
+    return effects
+
+
 def _source_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
     grants = quoted_ability_grant_effects_list(m['inner'])
@@ -1494,6 +1517,10 @@ ROWS: list[EffectHandler] = [
     # The same grant with any *other* duration (RULE 611) — "…until your next
     # turn", "…until end of combat". Ordered after the end-of-turn row above,
     # which it can't collide with (that duration isn't in `_GRANT_DURATIONS`).
+    EffectHandler('target_quoted_until_source_cast', compile_clause(
+        rf'{TARGET} gains? "(?P<inner>.+)" until (?:this card|~) is cast from exile'
+        r'(?P<permission>\. you may cast (?:this card|~) for as long as it remains exiled)?'
+    ), _target_quoted_until_source_cast),
     EffectHandler('source_quoted_ability', compile_clause(
         r"(?:~|this saga) gains? (?P<quote>[\"'])(?P<inner>.+)(?P=quote)"
         r"(?: (?P<dur>until end of turn|until your next turn|until the end of your next turn|"

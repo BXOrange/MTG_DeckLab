@@ -579,24 +579,27 @@ def _add_mana_per_counter_removed(m: re.Match[str]) -> list[EffectSpec]:
 #: "you may pay {E}{E}. If/When you do, <effect>." (RULE 122, Aether Chaser/
 #: Herder/Inspector/Swooper) — a resolve-time optional energy payment gating
 #: a follow-up. The follow-up is recursively parsed; a follow-up the parser
-#: can't model (e.g. a *targeted* one — Guide of Souls) leaves the whole
-#: clause unclaimed (fail-closed).
+#: can't model leaves the whole clause unclaimed. "If you do" targets are
+#: announced by the enclosing ability; targeted "when you do" needs a
+#: separate RULE 603.12 reflexive trigger and remains fail-closed here.
 _PAY_ENERGY_THEN_RE = compile_clause(
-    r"you may pay (?P<pips>(?:\{e\})+)\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
+    r"you may pay (?P<pips>(?:\{e\})+)\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
 )
 
 
-def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _pay_energy_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
 
     amount = m.group("pips").count("{e}")
-    sub = parse_effect_body(m.group("effect").strip())
+    if len(re.findall(r"\btarget\b", m.group("effect"))) > 1:
+        # Independent target groups need separate continuation groups;
+        # this wrapper currently forwards one announced group only.
+        return None
+    sub = parse_effect_body(m.group("effect").strip(), reading=reading)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
-    if any(s.params.get("target_kind") for s in sub):
-        # A *targeted* follow-up (Guide of Souls' "put counters on target
-        # attacking creature") isn't resolvable through `PayEnergyThen
-        # Effect`'s no-target resolution — fail-closed rather than model it
-        # half-way (the resolve handler runs each sub-effect untargeted).
+    if m.group("link") == "when" and re.search(r"\btarget\b", m.group("effect")):
+        # RULE 603.12: a reflexive target is chosen after payment, unlike
+        # an "if you do" target announced with the enclosing ability.
         return None
     return [EffectSpec("pay_energy_then", {"amount": amount, "effects": [s.to_dict() for s in sub]})]
 
@@ -1653,6 +1656,7 @@ ROWS: list[EffectHandler] = [
         "pay_energy_then",
         _PAY_ENERGY_THEN_RE,
         _pay_energy_then,
+        reading_aware=True,
     ),
     # MEC-18: "you may <sacrifice/discard/pay-mana/pay-life>. when/if you
     # do, <effect>." — the general RULE 603.5 optional-antecedent family.

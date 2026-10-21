@@ -587,6 +587,9 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # RULE 608.2: an optional energy payment suspends this resolution.
+        # Keep source, targets and firing event in clone/undo's state graph.
+        self.pending_energy_payment: Optional[dict[str, Any]] = None
         # Target announcement is a serializable continuation, including its
         # partial groups and firing event, so clone/undo can resume it.
         self.pending_trigger_frame: Optional[dict[str, Any]] = None

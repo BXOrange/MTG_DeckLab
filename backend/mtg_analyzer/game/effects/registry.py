@@ -937,6 +937,7 @@ EffectRegistry.register(
         linked_source=bool(p.get("linked_source", False)),
         cost_override=p.get("cost_override"),
         exiled_this_way=bool(p.get("exiled_this_way", False)),
+        source_exiled_as_cost=bool(p.get("source_exiled_as_cost", False)),
         permanent_only=bool(p.get("permanent_only", False)),
         any_color=bool(p.get("any_color", False)),
         during_resolution=bool(p.get("during_resolution", False)),

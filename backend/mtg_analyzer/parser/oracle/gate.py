@@ -840,10 +840,19 @@ def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
     amount), so it fails closed instead of reading 0."""
+    for effect in spec.effects:
+        amount = effect.params.get("count")
+        if isinstance(amount, dict) and amount.get("kind") == "counters_removed_as_cost":
+            counter = re.escape(str(amount.get("counter", "")))
+            cost = str((spec.cost or {}).get("text", ""))
+            if spec.ability_kind != "activated" or not re.search(
+                rf"\bremove (?:all|\d+|x) {counter} counters? from ~(?:,|$)", cost,
+            ):
+                return False
     if spec.ability_kind != "triggered":
         return True
     return not any(
-        effect.type == "inspect_top_choose" and effect.params.get("count") == "x"
+        effect.type in ("inspect_top_choose", "look_top_select") and effect.params.get("count") == "x"
         for effect in spec.effects
     )
 
@@ -1741,6 +1750,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 params["remember"] = True
 
     for spec in effect_specs:
+        # RULE 701.23a: "a card named Avarax" is a literal named quality,
+        # even though normalization folded the printing's name to "~".
+        # Resolve it while that printing is known, before copied abilities
+        # or name-changing effects can alter their live source.
+        for kind, params in _effect_nodes([spec.effects, spec.modes]):
+            if kind == "search" and isinstance(params.get("criteria"), dict) and params["criteria"].get("name") == "~":
+                params["criteria"] = {**params["criteria"], "name": str(card.name).split("//")[0].strip()}
         if not _that_player_antecedent_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)

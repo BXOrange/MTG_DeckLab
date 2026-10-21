@@ -61,6 +61,8 @@ if TYPE_CHECKING:
 #: ``for_as_long_as``   — RULE 611.2b's condition-bounded form; the condition
 #:                        itself is a `static_conditions` dict in
 #:                        ``duration_data["condition"]``.
+#: ``until_source_cast_from_exile`` — RULE 611.2a, ended by casting the exact
+#:                        exile visit captured when the source paid its cost.
 #: ``rest_of_game``     — never swept (Teferi's Protection-shaped permanence,
 #:                        and what an omitted duration means).
 DURATIONS: frozenset[str] = frozenset(
@@ -71,6 +73,7 @@ DURATIONS: frozenset[str] = frozenset(
         "end_of_your_next_turn",
         "next_end_step",
         "for_as_long_as",
+        "until_source_cast_from_exile",
         "rest_of_game",
     }
 )
@@ -240,6 +243,7 @@ def describe(ability: Any) -> str:
         inner = static_conditions.describe(data.get("condition"))
         return f"bis {inner}" if inner else "bedingt befristet"
     return {
+        "until_source_cast_from_exile": "bis die exilierte Karte gewirkt wird",
         "end_of_turn": "bis Zugende",
         "end_of_combat": "bis Kampfende",
         "your_next_turn": "bis zu deinem nächsten Zug",
@@ -256,3 +260,16 @@ def normalize_duration(duration: Optional[str]) -> str:
     "immediately expired", which would make the effect silently do nothing.
     """
     return duration if duration in DURATIONS else "rest_of_game"
+
+
+def end_on_exile_cast(state, source_id, exile_incarnation):
+    """RULE 611.2a: casting ends this exact exile visit's grant, after costs.
+
+    An unrelated exit leaves the grant intact forever (RULE 400.7); casting
+    a later exile incarnation of the same physical card cannot end it.
+    """
+    state.floating_statics = [ability for ability in state.floating_statics if not (
+        ability.duration == "until_source_cast_from_exile"
+        and ability.duration_data.get("source_id") == source_id
+        and ability.duration_data.get("source_exile_incarnation") == exile_incarnation
+    )]

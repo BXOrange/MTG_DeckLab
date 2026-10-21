@@ -1197,6 +1197,10 @@ _PHASE_TRIGGER_RE = re.compile(
     r"|(?P<step_combat_opp>combat) on each opponent'?s turn"
     rf"|each opponent'?s (?P<step_opp>{_PHASE_STEP_ALT})(?:\s+step)?"
     rf"|each other player'?s (?P<step_other>{_PHASE_STEP_ALT})(?:\s+step)?"
+    # RULE 303.4m / 603.2b: the step belongs to the current controller of
+    # the enchanted host, independently of who controls the Aura.
+    rf"|the (?P<step_attached>{_PHASE_STEP_ALT})(?:\s+step)? of enchanted "
+    r"(?:creature|artifact|land|enchantment|permanent)'?s controller"
     r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -2378,7 +2382,9 @@ _CREATED_ENTERS_ATTACKING_RE = re.compile(
 #: since the ``dest`` alternation only knows the four two-way destinations
 #: real cards actually print.
 _LOOK_TOP_SELECT_RE = re.compile(
-    r"^look at the top (?P<n>\d+) cards? of your library\.\s*"
+    r"^look at the top (?P<n>\d+|x) cards? of your library"
+    r"(?:, where x is the number of (?P<removed>[a-z]+) counters removed this way)?"
+    r"(?:\.\s*|, then\s+)"
     r"put (?P<m>\d+) of (?:them|those cards) into your hand and the (?:rest|other)\s+"
     r"(?P<dest>on the bottom of your library in any order|"
     r"on the bottom of your library in a random order|"
@@ -5936,13 +5942,17 @@ def _parse_effect_body_inner(
 
     look_top_select = _LOOK_TOP_SELECT_RE.match(body)
     if look_top_select is not None:
+        if look_top_select.group("removed") and look_top_select.group("n") != "x":
+            return None
         rest_destination, rest_order = _LOOK_TOP_SELECT_DESTINATIONS[
             look_top_select.group("dest").lower()
         ]
         spec = EffectSpec(
             "look_top_select",
             {
-                "count": int(look_top_select.group("n")),
+                "count": ({"kind": "counters_removed_as_cost", "of": "source", "counter": look_top_select.group("removed")}
+                          if look_top_select.group("removed") else
+                          "x" if look_top_select.group("n") == "x" else int(look_top_select.group("n"))),
                 "select_count": int(look_top_select.group("m")),
                 "rest_destination": rest_destination,
                 "rest_order": rest_order,
@@ -6454,6 +6464,12 @@ def _parse_effect_body_inner(
     )
     if direct is not None:
         return direct
+
+    if re.match(r"you may pay (?:\{e\})+\.\s*(?:if|when) you do\b", body, re.I):
+        # RULE 608.2/603.12: the payment and its continuation are atomic.
+        # A declined wrapper must not fall through to splitting ", then"
+        # and turn an unsupported paid/reflexive payoff into a free effect.
+        return None
 
     timed = _for_as_long_as_counter_specs(body, reading=ClauseReading(referents=reading.referents_of(TARGET)))
     if timed is not None:
@@ -9780,6 +9796,26 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
     return None
 
 
+def _phase_damage_referents(effects: list[EffectSpec]) -> list[EffectSpec]:
+    """RULE 603.2b: a step body's "that player" is the active player.
+
+    Amount wrappers (Festering Wound) can hide damage below ``bind``. Only
+    descend into immediate composition, never future granted abilities.
+    """
+    rewritten = []
+    for effect in effects:
+        params = dict(effect.params)
+        if effect.type == "damage" and params.get("selector") == "event_player":
+            params["selector"] = "active_player"
+        fields = {"seq": ("effects",), "bind": ("effects",), "if_else": ("then", "else")}.get(effect.type, ())
+        for field in fields:
+            if isinstance(params.get(field), list):
+                children = [EffectSpec.from_dict(child) for child in params[field]]
+                params[field] = [child.to_dict() for child in _phase_damage_referents(children)]
+        rewritten.append(EffectSpec(effect.type, params, condition=effect.condition))
+    return rewritten
+
+
 def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     provenance = ctx.provenance
@@ -9794,6 +9830,7 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
             or phase_trig.group("step_combat_opp")
             or phase_trig.group("step_opp")
             or phase_trig.group("step_other")
+            or phase_trig.group("step_attached")
         )
         both_mains = bool(phase_trig.group("step_both_mains"))
         step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
@@ -9808,6 +9845,8 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
             relation = "you"
         elif phase_trig.group("step_opp") or phase_trig.group("step_other") or phase_trig.group("step_combat_opp"):
             relation = "not_you"
+        elif phase_trig.group("step_attached"):
+            relation = "attached_permanent"
         else:
             relation = None
         body, optional = peel_optional(phase_trig.group("body"))
@@ -9872,6 +9911,10 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 phase_active_if = gated
                 phase_self_subject = "~" in gate.group("cond")
                 body = gate.group("rest").strip()
+        phase_reading = ClauseReading(
+            self_subject=phase_self_subject,
+            attached_subject=relation == "attached_permanent",
+        )
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:
@@ -9879,9 +9922,9 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                     "amount": int(them_damage.group("n")), "selector": "active_player",
                 })]
             else:
-                effects = _active_player_phase_body(body) or parse_effect_body(body, reading=ClauseReading(self_subject=phase_self_subject))
+                effects = _active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
         else:
-            effects = _active_player_phase_body(body) or parse_effect_body(body, reading=ClauseReading(self_subject=phase_self_subject))
+            effects = _active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
         if effects is None and phase_active_if is None:
             # RULE 603.4: any other leading "if `<state>`," of a phase trigger is an intervening
             # if too — read through the shared state-predicate vocabulary (`static_condition`)
@@ -9900,10 +9943,11 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 effects = ([EffectSpec("if_else", {
                     "condition": gated, "then": [e.to_dict() for e in active_effects],
                 })] if active_effects is not None else None) or parse_effect_body(
-                    gate.group("rest").strip(), reading=ClauseReading(self_subject="~" in gate.group("cond")),
+                    gate.group("rest").strip(), reading=phase_reading.but(self_subject="~" in gate.group("cond")),
                 )
         if effects is None:
             return Segment(raw=raw)
+        effects = _phase_damage_referents(effects)
         if phase_active_if is not None:
             if len(effects) == 1 and effects[0].condition is None:
                 # An atomic body already has a single resolution boundary.

@@ -1011,6 +1011,7 @@ class CastingResolutionMixin:
         # ``from_hand`` key.
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value if obj.zone is not None else None
+        cast_from_incarnation = obj.zone_incarnation
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         continuous.recompute(self.state)
@@ -1062,6 +1063,7 @@ class CastingResolutionMixin:
                 from_hand=from_hand,
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
+                from_zone_incarnation=cast_from_incarnation,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),
@@ -1123,6 +1125,10 @@ class CastingResolutionMixin:
 
     def _stage_cast_event(self, item, event, deferred):
         from ..targeting import effects_target_specs, partition_targets
+        if event.get("from_exile"):
+            from ..durations import end_on_exile_cast
+            end_on_exile_cast(self.state, event.get("instance_id"), event.get("from_zone_incarnation"))
+            continuous.recompute(self.state)
 
         specs = effects_target_specs(item.effects)
         if any(spec.per_player or spec.any_number for spec in specs):
@@ -1244,6 +1250,7 @@ class CastingResolutionMixin:
             targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value if obj.zone is not None else None
+        cast_from_incarnation = obj.zone_incarnation
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         continuous.recompute(self.state)
@@ -1302,6 +1309,7 @@ class CastingResolutionMixin:
                 from_hand=from_hand,
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
+                from_zone_incarnation=cast_from_incarnation,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),

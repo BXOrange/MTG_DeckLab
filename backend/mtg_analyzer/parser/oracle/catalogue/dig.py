@@ -58,7 +58,8 @@ _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 
 #: "put 2 of them into your hand [and the rest …]" — a pick with no kind restriction.
 _PICK_OF_THEM_RE = re.compile(
-    r"put (?P<up_to>up to )?(?P<n>\d+) of them into your hand(?: and the rest (?P<rest>.+))?"
+    r"put (?P<up_to>up to )?(?P<n>\d+) of them "
+    r"(?P<dest>into your hand|into your graveyard)(?: and the rest (?P<rest>.+))?"
 )
 #: The selection sentence. ``verb`` "reveal" is only valid with its "and put it" half.
 _SELECTION_RE = re.compile(
@@ -240,7 +241,8 @@ def parse_dig(
     rest_text: Optional[str]
     if pick is not None:
         params.update(
-            action="library_to_hand", max_picks=int(pick.group("n")), optional=bool(pick.group("up_to")),
+            action=("library_to_hand" if pick.group("dest") == "into your hand" else "library_to_graveyard"),
+            max_picks=int(pick.group("n")), optional=bool(pick.group("up_to")),
         )
         rest_text = pick.group("rest")
     else:
@@ -272,6 +274,10 @@ def parse_dig(
         rest_dest, tails = _rest_destination(rest_sentence.group("dest")), tails[1:]
     else:
         rest_dest = None
+    if pick is not None and pick.group("dest") == "into your graveyard" and rest_text is None and not tails:
+        # RULE 401.2: looking and choosing one card does not reorder the
+        # unchosen library cards (Soulcipher Board).
+        rest_dest = "library_unchanged"
     if rest_dest is None:
         return None
     params["rest_destination"] = rest_dest

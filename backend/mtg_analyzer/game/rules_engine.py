@@ -336,10 +336,6 @@ class RulesEngine(
         #: choice` (non-serializable), the same split `_pending_name_card`
         #: uses. See `_request_impulsive_look`/`_resume_impulsive_look`.
         self._pending_impulsive_look: Optional[dict[str, Any]] = None
-        #: Backing state for a `pay_energy_then` `pending_choice` (Aether
-        #: Chaser-shaped "you may pay {E}{E}. If you do, …") — see
-        #: `_request_pay_energy_then`/`_resume_pay_energy_then`.
-        self._pending_pay_energy: Optional[dict[str, Any]] = None
         #: A replacement chain awaiting an interactive `replacement_order`
         #: choice (RULE 616.1e/f — 2+ simultaneously-applicable replacement
         #: effects), and the continuation to resume once it's answered.

@@ -130,30 +130,37 @@ def cmd_rank(args):
     cards = load_cards(args.card_db, args.limit)
     rows, counts = scan(cards)
     _print_coverage(counts)
-    if args.by == "span":
-        # PAR-175 M5: lazy -- only the uncovered cards' failed lines are re-segmented (parse_oracle is memoised).
-        by_name = {getattr(card, "name", "") or "": card for card in cards}
-        spans: dict[str, str] = {}
-        for name, covered, unclaimed in rows:
-            if not covered and unclaimed:
-                card = by_name[name]
-                for entry in unclaimed_spans(card, parse_oracle(card)):
-                    spans[entry.line] = entry.span
+    from mtg_analyzer.parser.gap_catalogue import build_catalogue
+    catalogue = build_catalogue(cards, covered=lambda card: is_registered(card.name))
     pattern = re.compile(args.grep, re.IGNORECASE) if args.grep else None
-    template_cards: Counter[str] = Counter()
-    for _name, covered, unclaimed in rows:
-        if covered:
-            continue
-        for template in {abstract_clause(c) for c in unclaimed if c.strip()}:
+    print(f"unresolved accounting: {catalogue.accounting()}")
+    print(f"gap catalogue: {len(catalogue.requirements)} cards / {len(catalogue.occurrences)} unresolved occurrences / "
+          f"{sum(o.opaque for o in catalogue.occurrences)} opaque")
+    if args.joint:
+        ranked, truncated = catalogue.ranking(max_size=args.max_package)
+        print("\njoint hypothetical repairs (unique cards; includes complete prerequisite packages):")
+        shown = 0
+        for package, unlocked in ranked:
+            if pattern and not any(pattern.search(key) for key in package):
+                continue
+            print(f"  {len(unlocked):5d} cards / {len(package):2d} capabilities  " + " + ".join(sorted(package)))
+            shown += 1
+            if shown >= args.top:
+                break
+        if truncated:
+            print("  exploration truncated at candidate budget; full catalogue accounting retained")
+        return
+    groups = {}
+    for occurrence in catalogue.occurrences:
+        templates = occurrence.capabilities if args.by == "span" else {abstract_clause(occurrence.line)}
+        for template in templates:
             if pattern is None or pattern.search(template):
-                template_cards[template] += 1
-
-    ranked = sorted(template_cards.items(), key=lambda kv: (-kv[1], kv[0]))
-    label = f" matching /{args.grep}/" if args.grep else ""
-    unit = "sentence" if args.by == "span" else "line"
-    print(f"\ntop {args.top} unclaimed {unit} templates{label} (cards blocked → template):")
-    for template, n in ranked[: args.top]:
-        print(f"  {n:5d}  {template}")
+                groups.setdefault(template, set()).add(occurrence.card)
+    ranked = sorted(groups.items(), key=lambda row: (-len(row[1]), row[0]))
+    print(f"\ntop {args.top} unclaimed {args.by} templates (unique cards / SOLO → capability):")
+    for template, names in ranked[:args.top]:
+        solo = len(catalogue.unlocked({template})) if args.by == "span" and not template.startswith('opaque:') else 0
+        print(f"  {len(names):5d} / {solo:5d}  {template}")
     if not ranked:
         print("  (none)")
 
@@ -520,6 +527,8 @@ def main() -> None:
     p.add_argument("--grep", default=None, help="only templates matching this regex")
     p.add_argument("--by", choices=("span", "line"), default="span",
                    help="group by the minimal blocking sentence (default) or by the whole unclaimed line")
+    p.add_argument("--joint", action="store_true", help="rank prerequisite-aware repair packages")
+    p.add_argument("--max-package", type=int, default=4, help="connected-union exploration bound; complete card packages are always retained")
     p.set_defaults(func=cmd_rank)
 
     p = sub.add_parser("blocked", help="cards a template blocks, split solo vs also-blocked")

@@ -788,6 +788,12 @@ class GrantUntilEffect(GameEffect):
         ability.duration = durations.normalize_duration(self.duration)
         # "turn" anchors "until the end of your NEXT turn" (RULE 611.2) to the creating turn.
         ability.duration_data = {"player_id": controller_id, "turn": context.state.internal_turn.number}
+        if self.duration == "until_source_cast_from_exile":
+            # RULE 400.7j / 611.2a: track the exile visit created by the cost,
+            # independently of the source's subsequent movements.
+            event = context.trigger_event or {}
+            ability.duration_data["source_id"] = getattr(self.source, "instance_id", None)
+            ability.duration_data["source_exile_incarnation"] = event.get("cost_exiled_source_incarnation")
         if self.condition is not None:
             # RULE 611.2b's condition-bounded duration: the effect *ends*
             # when this stops holding, unlike an ``active_if`` gate, which
@@ -848,6 +854,7 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         permanent_only: bool = False,
         any_color: bool = False,
         during_resolution: bool = False,
+        source_exiled_as_cost: bool = False,
     ) -> None:
         super().__init__(source)
         #: "…you may cast **permanent** spells from among them" (Arvinox) — instants and sorceries get no permission.
@@ -856,6 +863,7 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         #: card's `GameState.mana_wildcard_permission` (RULE 605.1a).
         self.any_color = bool(any_color)
         self.during_resolution = during_resolution
+        self.source_exiled_as_cost = source_exiled_as_cost
         #: Read the cards a preceding `exile` clause moved (`GameContext.exiled_objects`) rather than the library
         #: batch `exile_top_of_library` surfaces on ``created_objects`` (Blue Mage's Cane: a graveyard exile).
         self.exiled_this_way = bool(exiled_this_way)
@@ -870,6 +878,15 @@ class GrantConditionalCastFromExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
+            return
+        if self.source_exiled_as_cost:
+            obj = self.source
+            visit = (context.trigger_event or {}).get("cost_exiled_source_incarnation")
+            if obj is not None and obj.zone == Zone.EXILE and visit is not None and obj.zone_incarnation == visit:
+                # RULE 611.2b: permission lasts only for this uninterrupted exile visit.
+                context.engine._grant_temp_play_permission(obj, player, obj.name, False, None)
+                context.state.temp_play_permission_standing.add(obj.instance_id)
+                context.state.temp_play_spells_only.add(obj.instance_id)
             return
         pool = context.exiled_objects if self.exiled_this_way else getattr(context, "created_objects", [])
         if self.during_resolution:

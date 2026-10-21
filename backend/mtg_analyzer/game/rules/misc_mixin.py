@@ -332,6 +332,7 @@ class MiscSystemsMixin:
     def _request_pay_energy_then(
         self, player: Player, amount: int, effect_specs: list[dict], source: Optional[GameObject],
         variable: bool = False, targets: Optional[list[Any]] = None,
+        trigger_event: Optional[GameEvent] = None, previous_targets: Optional[list[Any]] = None,
     ) -> None:
         """Open the interactive "you may pay {E}×N. If you do, `<effect>`."
         choice (RULE 122, Aether Chaser-shaped) — the resolve-time energy
@@ -340,13 +341,19 @@ class MiscSystemsMixin:
 
         ``variable`` — "you may pay one or more {E}" (Rampaging Aetherhood): ``amount`` is the minimum, the offer is
         one ``pay_x:<n>`` option per affordable amount (largest first) and the paid n binds the branch's ``"x"``."""
-        self._pending_pay_energy = {
+        self.state.pending_energy_payment = {
             "player_id": player.id,
             "amount": int(amount),
             "effect_specs": [dict(d) for d in effect_specs],
             "source": source,
             "variable": bool(variable),
             "targets": list(targets or []),
+            "trigger_event": trigger_event,
+            "previous_targets": list(previous_targets or []),
+            "acting_player_id": self.context.acting_player_id or self.context.resolving_controller_id or player.id,
+            "source_incarnation": (self.context.resolving_source_incarnation
+                                   if self.context.resolving_source_incarnation is not None
+                                   else getattr(source, "zone_incarnation", None)),
         }
         if variable:
             held = int(player.counters.get("energy", 0))
@@ -376,8 +383,8 @@ class MiscSystemsMixin:
         """Answer a pending `pay_energy_then` choice. ``answer == "pay"``
         spends the energy and resolves the follow-up effects; anything else
         (``None``/``"decline"``) does neither. A variable payment answers ``pay_x:<n>``."""
-        pending = self._pending_pay_energy
-        self._pending_pay_energy = None
+        pending = self.state.pending_energy_payment
+        self.state.pending_energy_payment = None
         if pending is None or answer is None:
             return
         player = self.state.player_by_id(pending["player_id"])
@@ -398,7 +405,23 @@ class MiscSystemsMixin:
         if player.counters.get("energy", 0) < amount:
             return  # energy changed since the offer — decline by default
         self.add_player_counters(player, -amount, "energy")
-        self._apply_effect_specs(specs, pending["source"], pending.get("targets") or None)
+        # RULE 608.2: the branch continues the same resolving ability;
+        # its pronouns retain this firing's object across the choice.
+        outer_event = self.context.trigger_event
+        outer_previous = self.context.previous_targets
+        outer_acting = self.context.acting_player_id
+        outer_incarnation = self.context.resolving_source_incarnation
+        self.context.trigger_event = pending.get("trigger_event")
+        self.context.previous_targets = pending.get("targets") or pending.get("previous_targets", [])
+        self.context.acting_player_id = pending.get("acting_player_id")
+        self.context.resolving_source_incarnation = pending.get("source_incarnation")
+        try:
+            self._apply_effect_specs(specs, pending["source"], pending.get("targets") or None)
+        finally:
+            self.context.trigger_event = outer_event
+            self.context.previous_targets = outer_previous
+            self.context.acting_player_id = outer_acting
+            self.context.resolving_source_incarnation = outer_incarnation
 
     def _request_pay_cost_then(
         self,
@@ -3736,7 +3759,7 @@ class MiscSystemsMixin:
             "return_from_graveyard_to_library_top",
             # Diviner of Mist: an untargeted graveyard instant/sorcery pick that is exiled into a free-cast window.
             "free_cast_exile",
-            "library_to_hand", "sacrifice_for_descendants_fury",
+            "library_to_hand", "library_to_graveyard", "sacrifice_for_descendants_fury",
             # A hand pick the owner puts into their own library (Painful/Agonizing Memories, Lost Hours).
             "hand_to_library_top", "hand_to_library_third", "hand_to_library_bottom",
             "turn_face_up",  # Zimone — RULE 708.8 by an effect
@@ -4717,6 +4740,11 @@ class MiscSystemsMixin:
             self._remove_from_current_zone(player, obj)
             obj.zone = Zone.HAND
             player.add_to_zone(obj, Zone.HAND)
+        elif action == "library_to_graveyard":
+            # RULE 400.7 / 603.2: this is a real zone move, so Soulcipher
+            # Board's graveyard-arrival trigger sees the selected card.
+            self._remove_from_current_zone(player, obj)
+            self._move_to_graveyard(obj)
         elif action == "sacrifice_for_descendants_fury":
             # MEC-72 (Descendants' Fury): sacrifice the chosen combat damage dealer
             # and reveal cards until a creature sharing a creature type is revealed.
