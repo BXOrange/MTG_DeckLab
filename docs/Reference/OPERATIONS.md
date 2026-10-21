@@ -65,3 +65,23 @@ or the test setup.
   name and survive payload schema resets and offline reseeding, but not deleting
   the whole cache. An unknown printing name costs one Scryfall lookup. Scripts must
   pass `DEFAULT_DB_PATH` explicitly (`CardDatabase()` alone is in-memory).
+
+## Launcher console
+
+The launcher prints the command menu on every start/restart. Routine HTTP access
+logs are disabled for both servers; frontend errors and backend application logs
+remain visible.
+
+`start.sh` / `start.bat` (`setup/start.py`) accept commands followed by Enter:
+`c` stops the started servers, `r` restarts them with the same options,
+`i` lists currently connected lobby players and multiplayer tables (name, ID,
+status) plus other game WebSocket connections, and `t` lists the currently live
+Python threads in the backend process (not the configured worker limit or child
+processes). Restarting clears in-memory games and connections. Commands also work
+in backend-only mode; frontend-only mode supports stop/restart but has no backend
+status. EOF/detached stdin leaves process supervision running. A child process
+exiting stops its sibling as well.
+
+Status is read from `/api/console-status` using a random per-launch secret passed
+to the backend through `MTG_CONSOLE_TOKEN`; without that secret the endpoint
+returns 404. Direct uvicorn launches do not enable launcher diagnostics.

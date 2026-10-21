@@ -40,6 +40,12 @@ key in backend/mtg_analyzer/config.json; the flag wins over both):
 
 import argparse
 import os
+import json
+import queue
+import secrets
+import sys
+import threading
+import urllib.request
 import signal
 import socket
 import subprocess
@@ -51,6 +57,72 @@ from install import BACKEND_DIR, ROOT, ensure_backend_venv
 
 FRONTEND_DIR = ROOT / "frontend"
 NO_CACHE_SERVER = ROOT / "setup" / "no_cache_server.py"
+
+
+# One input reader survives restarts; EOF leaves process supervision running.
+_COMMANDS = queue.Queue()
+_CONSOLE_TOKEN = secrets.token_urlsafe(32)
+_POLL_SECONDS = 0.2
+_STATUS_TIMEOUT_SECONDS = 3
+
+
+def read_console() -> None:
+    try:
+        for line in sys.stdin:
+            _COMMANDS.put(line.strip().lower())
+    except (OSError, ValueError):
+        pass  # No console (e.g. IDE or detached launch).
+
+
+def print_server_status(command: str, backend_port: int | None) -> None:
+    if backend_port is None:
+        print("Kein Backend gestartet; Spieler-/Backend-Threadstatus nicht verfügbar.")
+        return
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{backend_port}/api/console-status",
+        headers={"X-Console-Token": _CONSOLE_TOKEN},
+    )
+    try:
+        # Local control traffic must not go through environment HTTP proxies.
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
+            request, timeout=_STATUS_TIMEOUT_SECONDS
+        ) as response:
+            status = json.load(response)
+        if command == "t":
+            print(f"Backend: {len(status['threads'])} laufende Python-Threads: "
+                  + ", ".join(status["threads"]))
+        else:
+            print(f"Verbundene Spieler: {len(status['players'])}: "
+                  + (", ".join(status["players"]) or "keine"))
+            print(f"Multiplayer-Spiele: {len(status['games'])}")
+            for game in status["games"]:
+                print(f"  {game['name']} ({game['id']}): {game['status']}")
+            print(f"Weitere Spiel-WebSockets: {status['game_connections']}")
+    except (OSError, ValueError) as exc:
+        print(f"Statusabfrage fehlgeschlagen: {exc}")
+
+
+def supervise(processes, backend_port: int | None) -> str:
+    print(
+        "\nServer-Steuerung — Taste eingeben und Enter drücken:\n"
+        "  c  Server beenden\n"
+        "  r  Server neu starten (laufende Spiele gehen verloren)\n"
+        "  i  Anzahl/Namen verbundener Spieler und Spiele anzeigen\n"
+        "  t  Anzahl/Namen laufender Backend-Threads anzeigen\n",
+        flush=True,
+    )
+    while all(proc.poll() is None for proc in processes):
+        try:
+            command = _COMMANDS.get(timeout=_POLL_SECONDS)
+        except queue.Empty:
+            continue
+        if command in {"c", "r"}:
+            return command
+        if command in {"i", "t"}:
+            print_server_status(command, backend_port)
+        elif command:
+            print("Unbekannter Befehl. Verfügbar: c, r, i, t (jeweils + Enter).")
+    return "c"
 
 
 def run_backend_tests(python) -> None:
@@ -109,6 +181,7 @@ def start_backend(
             "with no authentication."
         )
     env = os.environ.copy()
+    env["MTG_CONSOLE_TOKEN"] = _CONSOLE_TOKEN
     if scryfall_primary:
         # See mtg_analyzer/config.py's SCRYFALL_PRIMARY: switches
         # LazyCardLoader from the default cache-primary loading policy to
@@ -137,6 +210,7 @@ def start_backend(
     cmd = [
         str(python), "-m", "uvicorn", "mtg_analyzer.api.app:app",
         "--port", str(port), "--log-level", str(log_level),
+        "--no-access-log",
     ]
     if host is not None:
         # Omitted entirely (not just left at a default) when the caller
@@ -198,7 +272,7 @@ def start_frontend(python, port: int, open_browser: bool) -> subprocess.Popen:
 def run_servers(
     python, port: int, backend_port: int, open_browser: bool, scryfall_primary: bool = False,
     extra_env=None, log_level: str = "warning", host: str | None = None,
-) -> None:
+) -> str:
     # The backend proxies non-/api//ws requests to the frontend (see
     # api/frontend_proxy.py), so it's the only port a browser needs to
     # reach — tell it exactly where the frontend landed, since --port can
@@ -209,6 +283,7 @@ def run_servers(
         python, backend_port, scryfall_primary=scryfall_primary, extra_env=extra_env, log_level=log_level,
         frontend_origin=f"http://127.0.0.1:{port}", host=host,
     )
+    frontend_proc = None
     try:
         if not wait_for_port("127.0.0.1", backend_port):
             raise RuntimeError(f"Backend API did not become ready on port {backend_port}.")
@@ -225,26 +300,15 @@ def run_servers(
                 raise RuntimeError(f"Frontend server did not become ready on port {port}.")
             webbrowser.open(f"http://localhost:{backend_port}")
 
-        # A plain `except KeyboardInterrupt` only covers Ctrl+C (SIGINT).
-        # Without this, SIGTERM (e.g. a process manager or IDE stop button)
-        # kills this script immediately and leaves the child processes
-        # running as orphans. Route SIGTERM through the same cleanup path.
-        def handle_sigterm(_signum, _frame):
-            raise KeyboardInterrupt
-
-        signal.signal(signal.SIGTERM, handle_sigterm)
-
-        try:
-            frontend_proc.wait()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            _stop(frontend_proc)
-            _stop(backend_proc)
+        return supervise([backend_proc, frontend_proc], backend_port)
     except Exception as exc:
         print(f"Startup failed: {exc}")
         _stop(backend_proc)
         raise
+    finally:
+        if frontend_proc is not None:
+            _stop(frontend_proc)
+        _stop(backend_proc)
 
 
 def main() -> None:
@@ -339,34 +403,39 @@ def main() -> None:
         run_backend_tests(python)
         print()
 
-    if args.backend_only:
-        backend_proc = start_backend(
-            python, args.backend_port, scryfall_primary=args.scryfall_primary,
-            extra_env=worker_env, log_level=log_level, host=args.host,
-        )
-        try:
-            backend_proc.wait()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            _stop(backend_proc)
-        return
+    threading.Thread(target=read_console, name="console-input", daemon=True).start()
 
-    if args.frontend_only:
-        frontend_proc = start_frontend(python, args.port, open_browser=not args.no_browser)
-        try:
-            frontend_proc.wait()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            _stop(frontend_proc)
-        return
+    def handle_sigterm(_signum, _frame):
+        raise KeyboardInterrupt
 
-    run_servers(
-        python, args.port, args.backend_port,
-        open_browser=not args.no_browser, scryfall_primary=args.scryfall_primary,
-        extra_env=worker_env, log_level=log_level, host=args.host,
-    )
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    try:
+        while True:
+            if args.backend_only or args.frontend_only:
+                proc = None
+                try:
+                    if args.backend_only:
+                        proc = start_backend(
+                            python, args.backend_port, scryfall_primary=args.scryfall_primary,
+                            extra_env=worker_env, log_level=log_level, host=args.host,
+                        )
+                    else:
+                        proc = start_frontend(python, args.port, open_browser=not args.no_browser)
+                    action = supervise([proc], args.backend_port if args.backend_only else None)
+                finally:
+                    if proc is not None:
+                        _stop(proc)
+            else:
+                action = run_servers(
+                    python, args.port, args.backend_port,
+                    open_browser=not args.no_browser, scryfall_primary=args.scryfall_primary,
+                    extra_env=worker_env, log_level=log_level, host=args.host,
+                )
+            if action != "r":
+                break
+            print("Server werden neu gestartet ...", flush=True)
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
