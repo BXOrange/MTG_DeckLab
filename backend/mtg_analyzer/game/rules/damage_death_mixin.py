@@ -36,7 +36,7 @@ from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
-from ..combat import has_infect, has_wither, is_protected_from, protection_qualities_cover, toxic_value
+from ..combat import has_deathtouch, has_infect, has_lifelink, has_wither, is_protected_from, protection_qualities_cover, toxic_value
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from ..effects.core import (
@@ -355,12 +355,132 @@ class DamageDeathMixin:
             ),
         )
 
+        # RULE 616.1e: a damage event can be suspended inside its replacement pipeline, so the
+        # combat step's ledger counts it as outstanding until `_finish_damage` runs.
+        batch = self.state.combat_damage_batch
+        counted = bool(combat and batch is not None and not batch["closed"])
+        if counted:
+            batch["pending"] += 1
         self.apply_replacements(event, on_resolved={
             "kind": "damage", "target": target, "source": source,
             "amount": amount, "combat": combat, "fight_receipt": fight_receipt,
+            "batch_counted": counted,
         })
 
     def _finish_damage(self, payload, resolved):
+        """Settle one damage event, then (for combat damage) its share of the step's ledger."""
+        receipt = self._deal_resolved_damage(payload, resolved)
+        batch = self.state.combat_damage_batch
+        if not payload.get("batch_counted") or batch is None:
+            return
+        if receipt is not None:
+            batch["receipts"].append(receipt)
+        batch["pending"] -= 1
+        self._settle_combat_damage_batch_if_complete()
+
+    def deal_combat_damage(self, assignments: list[tuple[Any, int, GameObject]]) -> None:
+        """Deal one combat damage step's (target, amount, source) assignments simultaneously
+        (RULE 510.2), then settle its consequences from the receipts (RULE 120.3f): the ledger is
+        opened, every assignment submitted, then closed -- settling at once unless a damage event is
+        still suspended in a RULE 616.1e ordering choice."""
+        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False}
+        for target, amount, source in assignments:
+            # Protection prevents the damage from a source of the named quality (RULE 702.16c;
+            # `deal_damage` enforces this too). RULE 615.12: unpreventable damage ignores it.
+            if (isinstance(target, GameObject) and combat.is_protected_from(target, source)
+                    and not self.damage_prevention_is_disabled()):
+                continue
+            self.deal_damage(target, amount, source=source, combat=True)
+        self.state.combat_damage_batch["closed"] = True
+        self._settle_combat_damage_batch_if_complete()
+
+    def _settle_combat_damage_batch_if_complete(self) -> None:
+        batch = self.state.combat_damage_batch
+        if batch is None or not batch["closed"] or batch["pending"] > 0:
+            return
+        self.state.combat_damage_batch = None
+        self._settle_damage_receipts(batch["receipts"])
+
+    def _damage_receipt(self, source, recipient, is_player, amount, combat) -> dict[str, Any]:
+        """RULE 120.3: what one damage event actually did -- recipient *after* redirection (RULE
+        616.1c), amount *after* prevention/replacement (RULE 615.1). Flags are read at the moment of
+        dealing, since the source may have left by the time the step is settled."""
+        receipt: dict[str, Any] = {
+            "source_id": source.instance_id if source is not None else None,
+            "controller_id": source.controller_id if source is not None else None,
+            "recipient_id": recipient.id if is_player else recipient.instance_id,
+            "is_player": is_player, "amount": amount, "combat": combat,
+            "lifelink": bool(getattr(source, "card", None) is not None and has_lifelink(source)),
+            "deathtouch": bool(getattr(source, "card", None) is not None and has_deathtouch(source)),
+            "subtypes": [], "base_power": None,
+        }
+        if getattr(source, "card", None) is not None and is_player:
+            # A tribal filter needs the subtype words after the em dash, honouring a layer-4 overwrite.
+            derived = getattr(source, "_derived_subtypes", None)
+            if derived is not None:
+                words = {s.lower() for s in derived}
+            else:
+                words = {s.lower() for s in (getattr(source, "_added_subtypes", None) or set())}
+                words.update(source.card.type_line.lower().partition("\u2014")[2].split())
+            receipt["subtypes"] = sorted(words)
+            # "base power" is the printed/copied value (RULE 707.2), not the derived power.
+            receipt["base_power"] = int(getattr(source.card, "power", 0) or 0)
+        return receipt
+
+    def _settle_damage_receipts(self, receipts: list[dict[str, Any]]) -> None:
+        """RULE 120.3f/510.2: apply the consequences of damage that was actually dealt, once.
+
+        Lifelink: each controller gains the sum of the lifelink damage dealt (RULE 702.15b), one
+        life-gain event per controller. The aggregate "one or more creatures deal combat damage to a
+        player" event fires per (controller, player hit) from successful player hits only. Reusable
+        for noncombat damage (BUG-23) by passing receipts with ``combat`` false.
+        """
+        gains: dict[str, int] = {}
+        player_hits: dict[tuple[Optional[str], Any], dict[str, Any]] = {}
+        for r in receipts:
+            if r["amount"] <= 0:
+                continue
+            if r["lifelink"] and r["controller_id"] is not None:
+                gains[r["controller_id"]] = gains.get(r["controller_id"], 0) + r["amount"]
+            if not (r["combat"] and r["is_player"]) or r["source_id"] is None:
+                continue
+            entry = player_hits.setdefault((r["controller_id"], r["recipient_id"]), {
+                "amount": 0, "subtypes": set(), "contributor_ids": [], "contributor_amounts": [],
+                "base_power_0_amount": 0,
+            })
+            entry["contributor_ids"].append(r["source_id"])
+            entry["contributor_amounts"].append(r["amount"])
+            if r["base_power"] == 0:  # Primo's "the damage dealt" by base-power-0 creatures
+                entry["base_power_0_amount"] += r["amount"]
+            entry["amount"] += r["amount"]
+            entry["subtypes"].update(r["subtypes"])
+        for controller_id, amount in gains.items():
+            self.gain_life(self.state.player_by_id(controller_id), amount)
+        # MEC-104: what each controller dealt to *every* player it hit, so an "...to one or more of
+        # your opponents" trigger fires once for the whole step (`binding.core._contributor_members`).
+        hits_by_controller: dict[Optional[str], list[dict[str, Any]]] = {}
+        for (controller_id, target_id), entry in player_hits.items():
+            hits_by_controller.setdefault(controller_id, []).append({
+                "target_id": target_id, "ids": entry["contributor_ids"],
+                "amounts": entry["contributor_amounts"],
+            })
+        for (controller_id, target_id), entry in player_hits.items():
+            self.state.fire_event(
+                GameEvent(
+                    EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+                    player_id=controller_id,
+                    target_id=target_id,
+                    is_player=True,
+                    amount=entry["amount"],
+                    subtypes=sorted(entry["subtypes"]),
+                    contributor_ids=entry["contributor_ids"],
+                    contributor_amounts=entry["contributor_amounts"],
+                    base_power_0_amount=entry["base_power_0_amount"],
+                    hits=hits_by_controller[controller_id],
+                )
+            )
+
+    def _deal_resolved_damage(self, payload, resolved):
         target, source = payload["target"], payload["source"]
         amount, combat = payload["amount"], payload["combat"]
         is_player = isinstance(target, Player)
@@ -511,6 +631,14 @@ class DamageDeathMixin:
                 receipt["damaged"] = final_target
             if not final_is_player and final_target is target:
                 receipt["dealt"] = final
+        # RULE 702.2b: damage actually dealt by a deathtouch source to a creature is lethal (the SBA
+        # reads this flag); prevented damage never reaches here (RULE 615.1), so it can't set it.
+        damage_receipt = self._damage_receipt(
+            source, final_target, final_is_player, final, bool(resolved.get("combat", combat)),
+        )
+        if damage_receipt["combat"] and damage_receipt["deathtouch"] and not final_is_player:
+            final_target.dealt_deathtouch_damage = True
+        return damage_receipt
 
 
     def lose_life(self, player: Player, amount: int, cause: str = "effect") -> None:

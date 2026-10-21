@@ -578,114 +578,16 @@ class CombatMixin:
     def _apply_combat_damage(
         self, assignments: list[tuple[Any, int, GameObject]]
     ) -> None:
-        """Deal one damage step's gathered assignments, applying protection,
-        deathtouch and lifelink to each."""
-        # MEC-29/RULE 603.1: "whenever one or more creatures you control
-        # [with `<characteristic>`] deal combat damage to a player" is an
-        # aggregate condition over this whole step, not a per-hit one — see
-        # `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s docstring.
-        # Tracked live alongside the ordinary per-hit `DAMAGE` firing below
-        # (every assignment whose ``target`` is a `Player` is by
-        # construction an attacking creature's own damage — RULE 510.1c
-        # blockers only ever strike the attacker(s) they're blocking, never
-        # a player, so no blocker-sourced entry can reach this branch), then
-        # fired once per (contributing controller, player hit) pair after
-        # the loop.
-        # ``subtypes`` per pair is the union of every contributing creature's
-        # own subtypes. A trigger's per-creature qualifiers ("with power 7 or
-        # greater", "Pirates", "with base power 0") are *not* stamped here: the
-        # composed batch head re-reads each of ``contributor_ids`` as its own
-        # per-creature damage event (`binding.core._contributor_members`).
-        player_hits: dict[tuple[Optional[str], Any], dict[str, Any]] = {}
-        for target, amount, source in assignments:
-            # Protection prevents the damage from a source of the named quality
-            # (RULE 702.16c; `rules.deal_damage` enforces this too, so no
-            # damage lands even if a caller skips this check) — checked here
-            # as well so deathtouch/lifelink below don't fire off damage that
-            # never happened. Players carry no protection in this model.
-            # RULE 615.12: unpreventable damage ignores protection's prevention.
-            if (isinstance(target, GameObject) and combat.is_protected_from(target, source)
-                    and not self.rules.damage_prevention_is_disabled()):
-                continue
-            self.rules.deal_damage(target, amount, source=source, combat=True)
-            if amount <= 0:
-                continue
-            # Deathtouch: mark any creature damaged by a deathtouch source for
-            # the SBA to destroy (RULE 702.2b).
-            if isinstance(target, GameObject) and combat.has_deathtouch(source):
-                target.dealt_deathtouch_damage = True
-            # Lifelink: the source's controller gains that much life (702.15b).
-            if combat.has_lifelink(source):
-                self.rules.gain_life(self.state.player_by_id(source.controller_id), amount)
-            if not isinstance(target, GameObject):
-                key = (source.controller_id, target.id)
-                entry = player_hits.setdefault(
-                    key, {
-                        "amount": 0, "subtypes": set(), "contributor_ids": [], "contributor_amounts": [],
-                        "base_power_0_amount": 0,
-                    }
-                )
-                entry["contributor_ids"].append(source.instance_id)
-                entry["contributor_amounts"].append(amount)
-                # "…creatures you control **with base power 0**…" (Primo, the
-                # Unbounded, PAR-60) — "base power" is the printed/copied
-                # value (`Card.power`, RULE 707.2), not the derived
-                # `source.power`. ``base_power_0_amount`` is the combat damage
-                # those creatures dealt to this player this step (Primo's "the
-                # damage dealt"), read by `base0_combat_damage_fractal`.
-                if int(getattr(source.card, "power", 0) or 0) == 0:
-                    entry["base_power_0_amount"] += amount
-                # The actual combat damage total dealt to this player this
-                # step ("…the damage those creatures dealt").
-                entry["amount"] += amount
-                # `GameObject.type_words` is *main* types only ("creature",
-                # "legendary permanent") — a tribal filter needs the actual
-                # subtype words after the em dash, honouring a layer-4
-                # subtype overwrite/add the same way `continuous._has_
-                # subtype` does (its own logic inlined here since that
-                # function tests one subtype at a time, not the whole set;
-                # RULE 702.73 Changeling is the one thing it handles that
-                # this aggregate doesn't — a vanishingly rare combination
-                # with a tribal aggregate payoff).
-                derived = getattr(source, "_derived_subtypes", None)
-                if derived is not None:
-                    entry["subtypes"].update(s.lower() for s in derived)
-                else:
-                    entry["subtypes"].update(
-                        s.lower() for s in (getattr(source, "_added_subtypes", None) or set())
-                    )
-                    entry["subtypes"].update(
-                        source.card.type_line.lower().partition("—")[2].split()
-                    )
-        # MEC-104: what each contributing controller dealt to *every* player it hit this step, so
-        # an "…to one or more of your opponents" trigger fires once for the whole step rather than
-        # once per (controller, player) pair (`binding.core._contributor_members`).
-        hits_by_controller: dict[Optional[str], list[dict[str, Any]]] = {}
-        for (controller_id, target_id), entry in player_hits.items():
-            hits_by_controller.setdefault(controller_id, []).append({
-                "target_id": target_id, "ids": entry["contributor_ids"],
-                "amounts": entry["contributor_amounts"],
-            })
-        for (controller_id, target_id), entry in player_hits.items():
-            self.state.fire_event(
-                GameEvent(
-                    EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
-                    player_id=controller_id,
-                    target_id=target_id,
-                    # The recipient is always a player by construction — set
-                    # so a "target … that player controls" target kind
-                    # (`targeting`) can scope to it (Popular Entertainer).
-                    is_player=True,
-                    amount=entry["amount"],
-                    subtypes=sorted(entry["subtypes"]),
-                    contributor_ids=entry["contributor_ids"],
-                    # Parallel to ``contributor_ids``: what each one dealt this
-                    # player ("the damage those creatures dealt", PAR-119).
-                    contributor_amounts=entry["contributor_amounts"],
-                    base_power_0_amount=entry["base_power_0_amount"],
-                    hits=hits_by_controller[controller_id],
-                )
-            )
+        """Deal one damage step's gathered assignments.
+
+        RULE 120.3f/615.1/616: the *assignments* are only what combat tried to deal. Lifelink
+        gain, the deathtouch mark and the aggregate "one or more creatures deal combat damage to
+        a player" events (MEC-29/MEC-104, RULE 603.1) are derived from damage receipts written by
+        `RulesEngine._finish_damage` -- recipient after redirection, amount after prevention -- and
+        settled once per step by `RulesEngine.settle_damage_receipts`, even if a RULE 616.1e
+        ordering choice suspends part of the step (the ledger lives on ``GameState``).
+        """
+        self.rules.deal_combat_damage(assignments)
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:
         """Turn a stored ``combat_defender`` spec back into the live target.
 

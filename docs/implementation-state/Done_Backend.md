@@ -2551,6 +2551,12 @@ group; the free-cast flag expires with the turn's graveyard permissions.
 - **Regular-step eligibility (BUG-21, RULE 510.4):** `_deals_in_step` read current keywords only, so an unblocked 2/2 whose first strike came from a lord that died in the first step dealt damage again. The regular step now deals with a creature that currently has double strike or whose exact `(instance_id, zone_incarnation)` is not in `first_strike_step_combatants`; with no first-strike step this combat everyone deals. A pure first striker that lost first strike deals nothing more, an ordinary creature that gained first strike still deals, a first striker that gained double strike deals again, and a creature put onto the battlefield attacking after the first step (or one that left and returned, RULE 400.7) is ordinary.
 - **Tests:** `tests/test_bug20_first_strike_damage_step.py`, `tests/test_bug21_first_step_eligibility.py`.
 
+### Combat consequences from completed damage receipts (BUG-22, RULE 120.3f/615.1/702.2b/510.2)
+
+- **What:** `_apply_combat_damage` derived lifelink, deathtouch and the aggregate player-hit event from the *assignments*, so Fog still gave lifelink life and fired "deals combat damage to a player", partial prevention gained too much, and a prevented deathtouch hit killed a creature with old damage. The damage pipeline now yields a receipt per event that actually dealt damage (`_deal_resolved_damage`, wrapped by `_finish_damage`): source, controller, recipient after redirection, amount after prevention/replacement, combat flag, and lifelink/deathtouch read as it is dealt. `RulesEngine.deal_combat_damage` opens `GameState.combat_damage_batch`, submits the step's assignments and closes it; each combat damage event counts as pending until its `_finish_damage` runs, so a RULE 616.1e ordering choice suspends settlement and receipts before and after the pause count exactly once (plain data, clone/undo safe). `_settle_damage_receipts` then gives each controller one life gain for its summed lifelink damage (one event per controller per step) and fires `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` only from hits that reached a player. Combat deathtouch is flagged only when a receipt exists.
+- **Reusable for BUG-23:** `_damage_receipt` and `_settle_damage_receipts` take noncombat receipts too.
+- **Tests:** `tests/test_bug22_combat_damage_receipts.py`.
+
 ### Block restrictions relative to an ability's controller (RULE 509.1b)
 
 `unblockable` can forbid only blockers controlled by the effect controller's

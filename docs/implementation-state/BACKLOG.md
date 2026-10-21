@@ -103,13 +103,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
-- **BUG-22 · P1 · Derive combat consequences from completed damage (RULE 120.3f/615.1/702.2b).**
-  `game/engine/combat_mixin.py:_apply_combat_damage` uses assignments after prevention/replacement:
-  Fog still grants lifelink life and emits aggregate player-hit events; partial prevention grants
-  too much life; a prevented deathtouch hit kills a creature with old marked damage. Use actual
-  completed source/recipient/amount receipts, including redirection and suspended replacement
-  choices, and aggregate only successful hits. Coordinate shared finalization with BUG-23.
-
 - **BUG-23 · P1 · Apply lifelink/deathtouch to noncombat damage (RULE 120.3f/702.2b).**
   `game/rules/damage_death_mixin.py:_finish_damage` omits both consequences: three damage from a
   lifelinker gains no life, and one damage from a deathtouch source leaves a 4/4 alive. Finalize

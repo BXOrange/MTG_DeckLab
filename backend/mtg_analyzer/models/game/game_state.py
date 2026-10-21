@@ -570,6 +570,13 @@ class GameState:
         self.legend_rule_picks: dict[str, int] = {}
         # Only serializable engine continuations use this replacement frame.
         self.replacement_continuation: Optional[dict[str, Any]] = None
+        #: RULE 510.2/120.3f: the combat damage step being dealt. ``receipts`` are the damage events
+        #: that actually dealt damage (source, recipient, amount after prevention/replacement/
+        #: redirection); ``pending`` counts damage events still inside a replacement pipeline (a
+        #: RULE 616.1e ordering choice can suspend one); ``closed`` is set once every assignment has
+        #: been submitted. The step's lifelink gain and aggregate player-hit events are settled
+        #: exactly once, when closed and pending == 0. Plain JSON-able data so clone/undo keep it.
+        self.combat_damage_batch: Optional[dict[str, Any]] = None
 
         #: Ids of players who have left the game (conceded — RULE 104.3a)
         #: but whose objects are still on the board. Concession normally
