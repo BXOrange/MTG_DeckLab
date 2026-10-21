@@ -24,8 +24,14 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
 - Table feed (VIS-4, `services/table_feed.py`): preset emotes plus engine-event
   announcements, no priority passes; `view()` carries the latest 200 entries;
   emotes never advance gameplay or drive bots.
-- `RulesEngine.concede` (RULE 104.3a) defers the RULE 800.4a cleanup to the next
-  turn (`GameState.pending_leave_ids`).
+- Concession and committed player losses apply RULE 800.4a immediately: owned
+  objects leave, control effects end, departed-controller abilities/copies
+  cease, and remaining controlled objects are exiled. Priority passes to the
+  next living seat. Resolved control effects retain their original controller
+  and duration separately from ownership; Aura control is recomputed after
+  removal. Session history holds independent pre-concession snapshots for
+  review/rewind, including terminal games; the live board is cleaned immediately.
+  `GameState.pending_leave_ids` remains empty for snapshot compatibility.
 
 ## Priority (RULE 117)
 

@@ -122,8 +122,20 @@ def test_recruit_empty_library_still_discards_from_hand():
     assert state.pending_choice["kind"] == "recruit"
     eng.resolve_pending_choice(None)  # default: first card
 
-    assert len(p1.graveyard) == 1
-    assert len([o for o in state.battlefield if o.name == "Soldier"]) == 1
+    # Recruit finishes the mandatory discard and creates its token before
+    # the empty-library loss; RULE 800.4a then removes the player's objects.
+    assert sum(e.type == EventType.DISCARD_CARD and e.get("player_id") == p1.id
+               for e in state.event_log) == 1
+    assert sum(e.type == EventType.CREATE_TOKENS and e.get("controller_id") == p1.id
+               and e.get("amount") == 1 for e in state.event_log) == 1
+    assert not any(e.type == EventType.DRAW and e.get("player_id") == p1.id for e in state.event_log)
+    discard_index = next(i for i, e in enumerate(state.event_log) if e.type == EventType.DISCARD_CARD)
+    token_index = next(i for i, e in enumerate(state.event_log) if e.type == EventType.CREATE_TOKENS)
+    loss_index = next(i for i, e in enumerate(state.event_log) if e.type == EventType.PLAYER_LOST)
+    assert discard_index < token_index < loss_index
+    assert p1.has_lost and p1.loss_reason == "draw_from_empty"
+    assert not p1.graveyard and not p1.hand
+    assert not any(o.name == "Soldier" for o in state.battlefield)
 
 
 def test_recruit_via_binder_on_etb():

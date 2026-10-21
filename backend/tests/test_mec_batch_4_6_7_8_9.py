@@ -390,14 +390,14 @@ def test_monarch_and_initiative_pass_to_active_player_on_concede():
     state.initiative_id = "p2"
     engine.rules.concede(p2)
     assert p2.has_lost is True
-    assert "p2" in state.pending_leave_ids
-    # Deferred: not swept yet.
-    assert state.monarch_id == "p2"
+    assert state.pending_leave_ids == []
+    assert state.monarch_id == "p1"
+    assert state.initiative_id == "p1"
 
-    engine.begin_turn()  # rotates past p2 (has_lost), sweeps the departure
+    engine.begin_turn()  # rotates past p2 (has_lost); cleanup already happened
     assert state.active_player.id == "p3"
-    assert state.monarch_id == "p3"
-    assert state.initiative_id == "p3"
+    assert state.monarch_id == "p1"
+    assert state.initiative_id == "p1"
 
 
 def test_designation_untouched_when_holder_stays():
@@ -436,8 +436,8 @@ def test_taking_initiative_via_succession_fires_took_initiative_event():
 
     engine.rules.concede(p2)
     engine.begin_turn()
-    assert state.initiative_id == "p3"
+    assert state.initiative_id == "p1"
 
     took = [e for e in state.event_log if e.type == EventType.TOOK_INITIATIVE]
     assert len(took) == 1
-    assert took[0].get("player_id") == "p3"
+    assert took[0].get("player_id") == "p1"

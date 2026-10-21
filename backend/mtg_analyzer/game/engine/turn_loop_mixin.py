@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from ..control import end_control_effects
+
 import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -229,18 +231,6 @@ class TurnLoopMixin:
                 # (UC3) so a solo game keeps handing turns back to the human.
                 self.state.active_player_index = self.state.next_active_index()
             self._advance_turn_nr()
-        # RULE 800.4a, deferred: a player who conceded during someone else's
-        # turn keeps their board standing until the next turn begins, so the
-        # position the other players were reading doesn't vanish mid-turn
-        # (see `RulesEngine.concede`). Swept here, before the new active
-        # player is settled on, so their permanents are already gone for
-        # every turn-based action of the turn about to start.
-        for player_id in self.state.pending_leave_ids:
-            try:
-                self.rules.remove_player_from_game(self.state.player_by_id(player_id))
-            except KeyError:
-                pass
-        self.state.pending_leave_ids.clear()
         active = self.state.active_player
         active.turns_taken += 1  # RULE 500.1: this begins one more of the player's own turns
         self.state.internal_turn.player_id = active.id
@@ -1074,20 +1064,27 @@ class TurnLoopMixin:
             # OfTurnEffect`) — hand control back to the original controller
             # at the next cleanup, regardless of whose turn it is (matching
             # "until end of turn", not "until your next turn").
-            if obj.control_change_until_eot is not None:
-                obj.controller_id = obj.control_change_until_eot
-                obj.control_change_until_eot = None
+            original_eot = obj.control_change_until_eot
+            ended_control = end_control_effects(obj, lambda record: record["duration"] == "end_of_turn"
+                or (record["duration"] == "end_of_your_next_turn" and durations.owners_next_turn_has_ended(
+                    self.state, record["window"]["player_id"], record["window"]["turn"])))
+            if not ended_control:
+                # Compatibility for manually constructed duration windows.
+                if original_eot is not None:
+                    obj.controller_id = original_eot
+                    obj.control_change_until_eot = None
+                    ended_control = True
+                window = obj.control_change_until_owner_turn
+                if window is not None and durations.owners_next_turn_has_ended(
+                    self.state, window["player_id"], window["turn"],
+                ):
+                    obj.controller_id = window["revert_to"]
+                    obj.control_change_until_owner_turn = None
+                    ended_control = True
+            if ended_control:
                 ended_effects = True
-            # RULE 611.2 "gain control of … until the end of your next turn":
-            # handed back at the cleanup of the *thief's* next turn
-            # (`durations.owners_next_turn_has_ended`), not this turn's.
-            window = obj.control_change_until_owner_turn
-            if window is not None and durations.owners_next_turn_has_ended(
-                self.state, window["player_id"], window["turn"],
-            ):
-                obj.controller_id = window["revert_to"]
-                obj.control_change_until_owner_turn = None
-                ended_effects = True
+                if self.state.player_by_id(obj.controller_id).has_lost:
+                    self.rules.exile(obj)  # RULE 800.4c
             if getattr(obj, "temp_prevent_combat_damage_dealt", False):
                 obj.temp_prevent_combat_damage_dealt = False
             # RULE 701.16a: an unused regeneration shield lasts only "that

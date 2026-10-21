@@ -4,7 +4,7 @@ Reference: mtg_analyzer/services/lobby.py (`MAX_SEATS`), mtg_analyzer/
 services/game_session.py, mtg_analyzer/api/multiplayer.py.
 
 The engine was always written for N players (`GameState.next_active_index`,
-`GameEngine.legal_defenders_for`, the RULE 800.4a deferred-leave sweep) —
+`GameEngine.legal_defenders_for`, the RULE 800.4a immediate departures) —
 the lobby simply refused to open a table bigger than two. These cover the
 seat machinery at a pod's size and the rules consequences that only exist
 with 3+ players: turn order rotating through everyone, an attacker

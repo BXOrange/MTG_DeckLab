@@ -752,6 +752,9 @@ class GameObject:
         #: *original* controller, stamped the moment control changes so
         #: `GameEngine._step_cleanup` can hand it back at the next cleanup;
         #: ``None`` means this object isn't under a temporary control change.
+        # RULE 611.2/800.4a: resolved control effects retain their original controller.
+        self.control_origin: Optional[str] = None
+        self.control_effects: list[dict[str, Any]] = []
         self.control_change_until_eot: Optional[str] = None
         #: "Gain control of target permanent until the end of your next turn." (RULE 611.2; Wyll, Treasure Nabber) --
         #: ``{"revert_to": original controller, "player_id": the thief, "turn": internal turn number it began on}``,
@@ -1591,6 +1594,8 @@ class GameObject:
         self.dealt_deathtouch_damage = False
         self.attached_to = None
         self.last_unattached_from_id = None
+        self.control_origin = None
+        self.control_effects = []
         self.control_change_until_eot = None
         self.control_change_until_owner_turn = None
         self.control_change_while_source = None

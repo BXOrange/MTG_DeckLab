@@ -1,6 +1,8 @@
 """Destruction, life, prevention, sacrifice, and player-resource effects."""
 from __future__ import annotations
 
+from ..control import exchange_control, gain_control
+
 from .core import GameEffect, EffectRegistry
 from ._runtime import install, register
 from .. import continuations
@@ -1478,10 +1480,10 @@ class TripleExchangeEffect(GameEffect):
         you.life, them.life = them.life, you.life
         for obj in context.state.permanents():
             if obj.controller_id == you.id:
-                obj.controller_id = them.id
+                gain_control(context.state, obj, them.id)
                 obj.summoning_sick = True
             elif obj.controller_id == them.id:
-                obj.controller_id = you.id
+                gain_control(context.state, obj, you.id)
                 obj.summoning_sick = True
         context.recompute()
         for zone in (Zone.HAND, Zone.LIBRARY, Zone.GRAVEYARD):
@@ -1537,7 +1539,7 @@ class JuxtaposeEffect(GameEffect):
         theirs = self._greatest(context.state, them.id, want_creature)
         if mine is None or theirs is None:
             return
-        mine.controller_id, theirs.controller_id = theirs.controller_id, mine.controller_id
+        exchange_control(context.state, mine, theirs)
         mine.summoning_sick = True
         theirs.summoning_sick = True
 

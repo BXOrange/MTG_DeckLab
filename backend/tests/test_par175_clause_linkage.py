@@ -11,6 +11,7 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import peel_optional
@@ -129,7 +130,14 @@ def test_loot_with_an_empty_library_draws_nothing_so_discards_nothing():
     keep = GameObject(_card("Kept", "", "Creature — Bear"), owner_id="p1", zone=Zone.HAND)
     p1.hand.append(keep)
     _, p1 = _run_trigger_body(eng, card, "yes", library=0)
-    assert keep in p1.hand and not p1.graveyard
+    # No card was drawn, so the conditional discard must never happen.
+    # The subsequent empty-library loss removes all of that player's objects.
+    assert not any(e.type == EventType.DISCARD_CARD and e.get("player_id") == p1.id
+                   for e in eng.state.event_log)
+    assert not any(e.type == EventType.DRAW and e.get("player_id") == p1.id
+                   for e in eng.state.event_log)
+    assert p1.has_lost and p1.loss_reason == "draw_from_empty"
+    assert keep not in p1.hand and not p1.graveyard
 
 
 def test_exile_two_from_graveyard_is_not_offered_with_only_one_card():

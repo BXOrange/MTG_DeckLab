@@ -1,6 +1,8 @@
 """Exile, control-changing, and related battlefield-to-zone effects."""
 from __future__ import annotations
 
+from ..control import gain_control
+
 from .core import GameEffect
 from ._runtime import install, register
 
@@ -1506,7 +1508,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                         "needs_control": self.while_source == "controlled",
                         "needs_tapped": self.while_source == "tapped",
                     }
-                target.controller_id = controller.id
+                gain_control(context.state, target, controller.id,
+                             duration="while_source" if self.while_source else "permanent",
+                             window=target.control_change_while_source if self.while_source else None)
                 target.summoning_sick = True  # RULE 302.6 under a new controller
             elif self.duration == "end_of_your_next_turn":
                 # RULE 611.2: lasts through the cleanup of the taker's next turn (`durations.py`'s shared clock).
@@ -1516,11 +1520,12 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                     "player_id": controller.id,
                     "turn": context.state.internal_turn.number,
                 }
-                target.controller_id = controller.id
+                gain_control(context.state, target, controller.id, duration=self.duration,
+                             window=target.control_change_until_owner_turn)
             else:
                 if target.control_change_until_eot is None:
                     target.control_change_until_eot = target.controller_id
-                target.controller_id = controller.id
+                gain_control(context.state, target, controller.id, duration="end_of_turn")
         if self.untap:
             context.set_tapped(target, tapped=False)
         if self.haste:
@@ -1670,7 +1675,7 @@ class GainControlBySourceEffect(GameEffect):
             new_controller_id = (context.trigger_event or {}).get("player_id")
             if new_controller_id is None or new_controller_id == self.source.controller_id:
                 return
-            self.source.controller_id = new_controller_id
+            gain_control(context.state, self.source, new_controller_id)
             context.recompute()
             return
         if self.recipient == "activator":
@@ -1680,16 +1685,16 @@ class GainControlBySourceEffect(GameEffect):
             activator_id = getattr(context, "resolving_controller_id", None)
             if activator_id is None or activator_id == self.source.controller_id:
                 return
-            self.source.controller_id = activator_id
+            gain_control(context.state, self.source, activator_id)
             context.recompute()
             return
-        opponents = [p for p in players if p.id != controller.id]
+        opponents = [p for p in players if p.id != controller.id and not p.has_lost]
         if not opponents:
             return
         idx = players.index(controller)
         ordered = players[idx + 1:] + players[:idx]
         recipient = next((p for p in ordered if p in opponents), opponents[0])
-        self.source.controller_id = recipient.id
+        gain_control(context.state, self.source, recipient.id)
         context.recompute()
 
 
@@ -1797,7 +1802,7 @@ class GainControlAttachedEffect(GameEffect):
             recipient = _controller_of(self.source, context)
         if recipient is None or host.controller_id == recipient.id:
             return
-        host.controller_id = recipient.id
+        gain_control(context.state, host, recipient.id)
         context.recompute()
 
 

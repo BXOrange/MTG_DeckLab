@@ -164,7 +164,10 @@ def test_zara_takes_a_creature_from_the_defending_hand_attacking_that_player_and
     engine.resolve_until_stable()
     assert thief.zone == Zone.BATTLEFIELD and thief.controller_id == "p1" and thief.owner_id == "p3"
     assert thief.tapped and thief.attacking and thief.combat_defender["id"] == "p3"
+    # This turn-loop fixture crosses a draw step on its way to the end.
+    _card(state, Zone.LIBRARY, "Draw filler", types="Basic Land — Forest", power=None, toughness=None)
     _advance_to(engine, state, "end")
+    assert not state.player_by_id("p1").has_lost
     assert thief in hand and thief not in state.battlefield  # back to its OWNER's hand
     assert zara in state.battlefield  # not Zara herself
 
@@ -175,7 +178,10 @@ def test_zara_declined_pick_moves_nothing():
     engine.rules.resolve_choice("decline")
     engine.resolve_until_stable()
     assert thief in hand and zara in state.battlefield
+    # This turn-loop fixture crosses a draw step on its way to the end.
+    _card(state, Zone.LIBRARY, "Draw filler", types="Basic Land — Forest", power=None, toughness=None)
     _advance_to(engine, state, "end")
+    assert not state.player_by_id("p1").has_lost
     assert zara in state.battlefield
 
 

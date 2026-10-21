@@ -578,14 +578,7 @@ class GameState:
         #: exactly once, when closed and pending == 0. Plain JSON-able data so clone/undo keep it.
         self.combat_damage_batch: Optional[dict[str, Any]] = None
 
-        #: Ids of players who have left the game (conceded — RULE 104.3a)
-        #: but whose objects are still on the board. Concession normally
-        #: happens at sorcery speed, and yanking a board away mid-turn is
-        #: disorienting for the *other* players in a multiplayer game, so
-        #: `RulesEngine.concede` defers the RULE 800.4a cleanup to the start
-        #: of the next player's turn (`GameEngine.begin_turn` sweeps this).
-        #: With one living player left the game is over anyway and the board
-        #: is simply left standing for the end-of-match review.
+        #: Compatibility with older snapshots; RULE 800.4a departures are immediate.
         self.pending_leave_ids: list[str] = []
         #: A player decision the engine is waiting on (e.g. a library
         #: search) before it can keep resolving — plain JSON-able data

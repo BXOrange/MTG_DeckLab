@@ -102,10 +102,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
-
-- **BUG-25 · P1 · Process multiplayer departures immediately (RULE 800.4a).**
-  `game/rules/sba_mixin.py` defers departing players' objects/effects through `pending_leave_ids`
-  until `begin_turn`; a conceding player's permanents still affect the ongoing turn. Perform the
-  ownership/control/stack departure sequence immediately, including ending control effects and
-  removing abilities controlled by the departed player. Keep review snapshots independent of live
-  rules state; cover concession, loss, stolen objects and priority transfer in a three-player game.

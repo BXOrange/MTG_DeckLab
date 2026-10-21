@@ -261,7 +261,7 @@ def test_last_player_wins_despite_heralds_cannot_win_effect():
 
     assert continuous.player_cant_win(engine.state, p2)
     engine.rules.concede(p1)
-    assert herald in engine.state.battlefield  # table cleanup is deliberately deferred
+    assert herald not in engine.state.battlefield  # RULE 800.4a cleanup is immediate
     assert engine.state.game_over and engine.state.winner_id == p2.id
 
 def test_herald_of_war_grows_when_attacking_and_discounts_angels_and_humans_per_counter():

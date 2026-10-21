@@ -12,6 +12,7 @@ import pytest
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -110,7 +111,11 @@ def test_zero_life_player_and_creature_die_in_the_same_pass():
 
     assert eng.state.player_by_id("p2").has_lost
     assert zero not in eng.state.battlefield
-    assert "ZeroZero" in _graveyard_names(eng, "p2")
+    # The simultaneous death still occurs before the owner's objects leave
+    # the game; its event remains evidence after RULE 800.4a empties the zone.
+    assert any(e.type == EventType.DIES and e.get("instance_id") == zero.instance_id
+               for e in eng.state.event_log)
+    assert eng.state.player_by_id("p2").graveyard == []
 
 
 def test_dies_triggers_for_both_creatures_fire_from_the_same_event():

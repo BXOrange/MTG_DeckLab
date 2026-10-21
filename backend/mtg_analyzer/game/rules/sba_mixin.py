@@ -18,6 +18,8 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+from ..control import end_control_effects
+
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
@@ -193,24 +195,30 @@ class StateBasedActionsMixin:
         to whoever had it before the effect (`GameObject.control_change_while_source`)."""
         reverted = False
         for obj in list(self.state.battlefield):
+            def expired(window):
+                source = self.state.find_object(window["source_id"])
+                alive = (
+                    source is not None and source.zone == Zone.BATTLEFIELD
+                    and source.zone_incarnation == window["incarnation"]
+                    and (not window["needs_control"] or source.controller_id == window["player_id"])
+                    and (not window.get("needs_tapped") or source.tapped)
+                    and not self.state.player_by_id(window["player_id"]).has_lost
+                )
+                if window.get("needs_haunted"):
+                    from ..effects.haunted import is_haunted
+                    alive = alive and is_haunted(self.state, obj)
+                return not alive
+
             window = obj.control_change_while_source
-            if window is None:
-                continue
-            source = self.state.find_object(window["source_id"])
-            alive = (
-                source is not None and source.zone == Zone.BATTLEFIELD
-                and source.zone_incarnation == window["incarnation"]
-                and (not window["needs_control"] or source.controller_id == window["player_id"])
-                and (not window.get("needs_tapped") or source.tapped)  # "for as long as ~ remains tapped"
-            )
-            if window.get("needs_haunted"):
-                from ..effects.haunted import is_haunted
-                alive = is_haunted(self.state, obj)
-            if alive:
-                continue
-            obj.controller_id = window["revert_to"]
-            obj.control_change_while_source = None
-            reverted = True
+            ended = end_control_effects(obj, lambda record: record["duration"] == "while_source"
+                                        and expired(record["window"]))
+            if not ended and window is not None and expired(window):
+                obj.controller_id = window["revert_to"]
+                obj.control_change_while_source = None
+                ended = True
+            if ended and self.state.player_by_id(obj.controller_id).has_lost:
+                self.exile(obj)  # RULE 800.4c: the original controller has departed.
+            reverted = ended or reverted
         if reverted:
             continuous.recompute(self.state)
         return reverted
@@ -764,10 +772,6 @@ class StateBasedActionsMixin:
         if batch["index"] >= len(batch["queue"]):
             self.state.player_loss_batch = None
             self._check_game_over()
-            if not self.state.game_over:
-                for player in self.state.players:
-                    if player.has_lost and player.id not in self.state.pending_leave_ids:
-                        self.state.pending_leave_ids.append(player.id)
             return
         pid, reason = batch["queue"][batch["index"]]
         batch["index"] += 1
@@ -835,10 +839,6 @@ class StateBasedActionsMixin:
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
             self._cancel_conceded_fight(player.id, ending_game=ending_game)
             self._cancel_conceded_loss_recovery(player.id, ending_game=ending_game)
-            # Keep a finished game's board for review; only continuing
-            # multiplayer games owe a RULE 800.4a departure sweep.
-            if not self.state.game_over and player.id not in self.state.pending_leave_ids:
-                self.state.pending_leave_ids.append(player.id)
             return
         self._lose_players([(player.id, reason)])
 
@@ -952,6 +952,8 @@ class StateBasedActionsMixin:
             return
         player.has_lost = True
         player.loss_reason = reason
+        # RULE 800.4a: this is part of leaving, never a deferred SBA/turn action.
+        self.remove_player_from_game(player)
         self.state.fire_event(GameEvent(EventType.PLAYER_LOST, player_id=player.id, reason=reason))
 
     def concede(self, player: Player) -> None:
@@ -959,70 +961,91 @@ class StateBasedActionsMixin:
 
         Conceding is the one thing a player may do at *any* time, without
         holding priority — it is not an action that uses the stack, so
-        unlike every other action here it isn't gated on timing. The
-        RULE 800.4a board cleanup this triggers is deferred by
-        `_player_loses` itself; see its docstring.
+        unlike every other action here it isn't gated on timing. Its
+        RULE 800.4a cleanup happens immediately; session history retains
+        an independent pre-concession position for review and rewind.
         """
         if player.has_lost:
             return
         self._player_loses(player, "conceded")
     def remove_player_from_game(self, player: Player) -> None:
-        """RULE 800.4a: every object a departing player owns leaves the game.
+        """RULE 800.4a: ownership, control effects, cardless stack, then exile."""
+        # Leaving the game is not dying, exile or another ordinary zone move.
+        # An ability already on the stack is independent of its source (113.7a).
+        for obj in list(self.state.battlefield):
+            if obj.owner_id == player.id:
+                self.state.remove_from_battlefield(obj)
+        for holder in self.state.players:
+            for zone in Player.PERSONAL_ZONES:
+                holder.zones[zone][:] = [obj for obj in holder.zones[zone] if obj.owner_id != player.id]
+            holder.emblems[:] = [obj for obj in holder.emblems if obj.owner_id != player.id]
+        owned_spells = [item for item in self.state.stack
+                        if item.obj is not None and item.obj.owner_id == player.id]
+        for item in owned_spells:
+            self._capture_stack_copy_departure(item)
+            self.state.stack.remove(item)
 
-        Their permanents (and anything they control that they don't own —
-        RULE 800.4a hands those back, but with no exchange-of-control
-        modeled at this level the simple reading is used: only *owned*
-        objects go) leave the battlefield, their personal zones empty, and
-        anything of theirs still on the stack ceases to exist. Called by
-        `GameEngine.begin_turn` for each id `_player_loses` parked on
-        `GameState.pending_leave_ids`, not directly by the loss itself.
-
-        RULE 725.4/726.4 (MEC-9): a departing Monarch/Initiative-holder
-        designation passes to the active player rather than simply
-        vanishing — checked here, the one place both this cleanup and the
-        rules text key off "leaves the game". By the time this runs,
-        `GameEngine.begin_turn` has already rotated `active_player_index`
-        past every departing id (`GameState.next_active_index` skips
-        `has_lost`), so `self.state.active_player` is already the correct
-        recipient and is never the player leaving — the "active player is
-        also leaving"/"no active player" fallback in both rules never
-        actually triggers in this engine, but is honoured (designation
-        simply cleared) rather than assumed away.
-        """
-        if self.state.monarch_id == player.id:
-            active = self.state.active_player
-            if active.id != player.id:
-                self.become_monarch(active)
-            else:
-                self.state.monarch_id = None
-        if self.state.initiative_id == player.id:
-            active = self.state.active_player
-            # RULE 726.4 says the active player *takes* the initiative — the
-            # same verb 726.2's "whenever a player takes the initiative, that
-            # player ventures into Undercity" trigger keys off, so this goes
-            # through `take_initiative` (which fires `TOOK_INITIATIVE`)
-            # rather than setting `initiative_id` directly.
-            if active.id != player.id:
-                self.take_initiative(active)
-            else:
-                self.state.initiative_id = None
-        # RULE 800.4a: continuous effects that give the departing player control of an object end, so a permanent
-        # taken "until the end of your next turn" goes back to its previous controller before the owned ones leave.
+        # A stolen object's original controller can differ from its owner
+        # (Bribery); retain that distinction instead of handing it to its owner.
         for obj in self.state.battlefield:
-            window = obj.control_change_until_owner_turn
-            if window is not None and window["player_id"] == player.id:
-                obj.controller_id = window["revert_to"]
+            end_control_effects(obj, lambda record: record["controller_id"] == player.id)
+            if obj.control_change_until_owner_turn is not None and obj.control_change_until_owner_turn["player_id"] == player.id:
                 obj.control_change_until_owner_turn = None
-        for obj in [o for o in self.state.battlefield if o.owner_id == player.id]:
-            self.state.remove_from_battlefield(obj)
+            if obj.control_change_while_source is not None and obj.control_change_while_source["player_id"] == player.id:
+                obj.control_change_while_source = None
+            if not any(record["duration"] == "end_of_turn" for record in obj.control_effects):
+                obj.control_change_until_eot = None
         for item in self.state.stack:
-            if getattr(item.source, "owner_id", None) == player.id:
+            if end_control_effects(item, lambda record: record["controller_id"] == player.id) and item.obj is not None:
+                end_control_effects(item.obj, lambda record: record["controller_id"] == player.id)
+                item.obj.controller_id = item.controller_id
+        # RULE 800.4a also ends control of another player, including waiting windows.
+        self.state.turn_controls[:] = [window for window in self.state.turn_controls if window.controller_id != player.id]
+        word = self.state.word_of_command
+        if word is not None and word.get("controller_id") == player.id:
+            self.state.word_of_command = None
+        self.state.delayed_triggers[:] = [trigger for trigger in self.state.delayed_triggers if trigger.controller_id != player.id]
+        self.pending_triggers[:] = [firing for firing in self.pending_triggers if firing[0].controller_id != player.id]
+        # Removing an Aura or a source-bound grant can expose a prior controller.
+        self._revert_source_bound_control()
+        continuous.recompute(self.state)
+
+        for item in list(self.state.stack):
+            if item.controller_id == player.id and (item.obj is None or item.obj.is_token):
                 self._capture_stack_copy_departure(item)
-        self.state.stack = [
-            item for item in self.state.stack if getattr(item.source, "owner_id", None) != player.id
-        ]
-        for zone in Player.PERSONAL_ZONES:
-            player.zones[zone].clear()
+                self.state.stack.remove(item)
+        # Everything still controlled by a departed player is exiled, including
+        # cards that originally entered under that player's control (Bribery).
+        for obj in list(self.state.battlefield):
+            if self.state.player_by_id(obj.controller_id).has_lost:
+                self.exile(obj)
+        for item in list(self.state.stack):
+            if self.state.player_by_id(item.controller_id).has_lost:
+                self._capture_stack_copy_departure(item)
+                self.state.stack.remove(item)
+                if item.obj is not None:
+                    self.exile(item.obj)
+
+        continuous.recompute(self.state)
+        if self.state.priority_player is player:
+            index = self.state.players.index(player)
+            count = len(self.state.players)
+            self.state.priority_player_index = next(
+                ((index + offset) % count for offset in range(1, count)
+                 if not self.state.players[(index + offset) % count].has_lost), None)
+        self.state.priority_passed.discard(player.id)
+        # RULE 725.4/726.4: a departing active holder passes the designation
+        # to the next living player, while their turn itself continues (800.4j).
+        recipient = next(iter(self.state.living_players_apnap()), None)
+        if self.state.monarch_id == player.id:
+            self.state.monarch_id = None
+            if recipient is not None:
+                self.become_monarch(recipient)
+        if self.state.initiative_id == player.id:
+            self.state.initiative_id = None
+            if recipient is not None:
+                self.take_initiative(recipient)
+
     def player_wins(self, player: Player) -> None:
         """RULE 104.2: ``player`` wins the game outright (Jace, Wielder of
         Mysteries/Laboratory Maniac-shaped alternative win condition) —

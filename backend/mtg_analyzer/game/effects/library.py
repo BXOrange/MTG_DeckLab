@@ -1,6 +1,8 @@
 """Library search, look/exile/cast windows, mana, exchanges, and advanced actions."""
 from __future__ import annotations
 
+from ..control import exchange_control, gain_control
+
 from ...models.cards.card_query import PERMANENT_CARD_TYPES
 from .core import GameEffect
 from ._runtime import install, register
@@ -1254,7 +1256,7 @@ class ExchangeControlEffect(GameEffect):
             and self._cross_target_ok(mine, theirs)
         )
         if exchangeable:
-            mine.controller_id, theirs.controller_id = theirs.controller_id, mine.controller_id
+            exchange_control(context.state, mine, theirs)
             # RULE 302.6: each permanent is newly under its controller's
             # command, so both are summoning sick until that player's next
             # turn — the same treatment `RulesEngine` gives any other
@@ -1338,7 +1340,7 @@ class ExchangeControlThenEnergySacrificeEffect(GameEffect):
         )
         if not exchangeable:
             return
-        mine.controller_id, theirs.controller_id = theirs.controller_id, mine.controller_id
+        exchange_control(context.state, mine, theirs)
         mine.summoning_sick = True
         theirs.summoning_sick = True
         context.recompute()
@@ -1385,7 +1387,7 @@ class ExchangeControlThenCopyTokenEffect(GameEffect):
         exchangeable = a in battlefield and b in battlefield and a.controller_id != b.controller_id
         if not exchangeable:
             return
-        a.controller_id, b.controller_id = b.controller_id, a.controller_id
+        exchange_control(context.state, a, b)
         a.summoning_sick = True
         b.summoning_sick = True
         context.recompute()
@@ -3595,7 +3597,7 @@ class GainControlOfAllCommandersEffect(GameEffect):
             return
         for obj in list(context.state.battlefield):
             if obj.is_commander:
-                obj.controller_id = controller.id
+                gain_control(context.state, obj, controller.id)
                 obj.summoning_sick = True  # RULE 302.6: new controller
         for player in context.state.players:
             for obj in list(player.command):

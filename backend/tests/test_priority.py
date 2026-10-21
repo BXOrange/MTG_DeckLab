@@ -314,8 +314,10 @@ def test_interactive_pass_priority_stops_cleanly_when_a_resolution_ends_the_game
     # multiplayer client would keep showing the active player as still up
     # and their "Passen" button still enabled for a game that already
     # ended, rather than a clean, past-tense game-over board.
-    assert eng.state.priority_player is other
-    assert eng.state.priority_passed == {p1.id, p2.id}
+    # RULE 800.4a transfers the departed priority holder's position and
+    # removes that seat from the pass round even when this loss ends play.
+    assert eng.state.priority_player is p1
+    assert eng.state.priority_passed == {p1.id}
     # A caller that (not knowing the game just ended) asks for one more
     # pass must get a clean, harmless no-op — not a crash, and not a call
     # that keeps advancing a game that is already over.

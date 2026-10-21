@@ -501,7 +501,7 @@ export default [
           ['done', 'WebSocket session binding (/ws/lobby: lobby and board push per seat)'],
           ['done', 'Hidden zones server-side (RULE 400.2: an opponent\'s hand & library)'],
           ['done', 'Shared board, declare-blockers (RULE 509.1a)'],
-          ['done', 'Concede (RULE 104.3a) + game review'],
+          ['done', 'Concession and elimination: immediate object/control cleanup and priority transfer (RULE 104.3a/800.4a); independent snapshots for rewind'],
           ['done', 'Observer mode (public board, no hand cards)'],
           ['done', 'Interactive priority loop (RULE 117.3–4, APNAP order)'],
           ['done', 'Auto-pass countdown on another player\'s turn (server setting, default 20 s, host-overridable per table; interrupt button)'],

@@ -2855,11 +2855,18 @@ def _apply_layer_2_control(state: "GameState", abilities: list) -> None:
         new_controller = ability.params.get("controller") or getattr(
             ability.source, "controller_id", None
         )
-        if new_controller is None:
-            continue
+        if new_controller is None or state.player_by_id(new_controller).has_lost:
+            continue  # RULE 800.4b: departed recipients cannot regain control.
+        timestamp = (ability.timestamp if ability.timestamp is not None
+                     else getattr(ability.source, "timestamp", 0))
         for obj in affected_objects(state, ability):
+            # RULE 613.7: a later resolved grant overrides an older Aura.
+            records = obj.control_effects
+            if records and records[-1]["timestamp"] > timestamp:
+                continue
             if obj.controller_id != new_controller:
-                obj._control_base = obj.controller_id
+                if obj._control_base is None:
+                    obj._control_base = obj.controller_id
                 obj.controller_id = new_controller
                 _trace(obj, 2, _source_name(ability), f"controlled by {new_controller}")
 

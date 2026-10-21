@@ -137,7 +137,10 @@ def test_create_delayed_trigger_effect_arms_and_captures_mana_value():
 
 
 def test_delayed_trigger_fires_through_the_real_step_loop():
-    eng = GameEngine.new_game([("p1", "Alice", [])], starting_life=40, starting_hand=0)
+    # Keep the controller in the game through the draw step; this test is
+    # about delayed-trigger timing, not the empty-library loss SBA.
+    filler = Card(id="draw-filler", name="Forest", type_line="Basic Land — Forest", is_land=True)
+    eng = GameEngine.new_game([("p1", "Alice", [filler])], starting_life=40, starting_hand=0)
     eng.start()  # positioned before turn 1's first step
     p1 = eng.state.player_by_id("p1")
     eng.state.delayed_triggers.append(
@@ -149,6 +152,7 @@ def test_delayed_trigger_fires_through_the_real_step_loop():
         ran = eng.advance_step()
         if ran and ran[1] == "end":
             break
+    assert not p1.has_lost
     assert p1.life == 36, "the delayed 'lose 4 life at end step' fired"
     assert eng.state.delayed_triggers == []
 

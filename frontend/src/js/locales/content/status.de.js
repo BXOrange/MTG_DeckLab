@@ -501,7 +501,7 @@ export default [
           ['done', 'WebSocket-Session-Anbindung (/ws/lobby: Lobby- und Board-Push je Platz)'],
           ['done', 'Verdeckte Zonen serverseitig (Regel 400.2: fremde Hand & Bibliothek)'],
           ['done', 'Gemeinsames Spielfeld, Blocker-Deklaration (Regel 509.1a)'],
-          ['done', 'Aufgeben (Regel 104.3a) + Partie-Auswertung'],
+          ['done', 'Aufgeben und Ausscheiden: sofortige Objekt-/Kontroll-Bereinigung und Prioritätsübergabe (Regel 104.3a/800.4a); unabhängige Snapshots für Rücknahme'],
           ['done', 'Beobachter-Modus (öffentliches Spielfeld, keine Handkarten)'],
           ['done', 'Interaktive Prioritäts-Schleife (Regel 117.3–4, APNAP-Reihenfolge)'],
           ['done', 'Auto-Pass-Countdown auf dem Zug eines anderen Spielers (Servereinstellung, Standard 20 s, pro Tisch vom Host überschreibbar; Unterbrechen-Knopf)'],

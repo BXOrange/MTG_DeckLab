@@ -18,6 +18,8 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+from ..control import gain_control
+
 import re
 from typing import Any, Callable, Optional, Union
 
@@ -4822,12 +4824,12 @@ class MiscSystemsMixin:
             # indefinitely — an SBA pass / the session view recompute
             # picks up the new characteristics (RULE 613.1).
             if obj.controller_id != player.id:
-                obj.controller_id = player.id
+                gain_control(self.state, obj, player.id)
                 continuous.recompute(self.state)
         elif action == "gain_control_and_untap":
             # Turf War: `gain_control`, then the land untaps (RULE 701.26b).
             if obj.controller_id != player.id:
-                obj.controller_id = player.id
+                gain_control(self.state, obj, player.id)
                 continuous.recompute(self.state)
             self.set_tapped(obj, False)
         elif action == "gain_control_for" and control_recipient_id is not None:
@@ -4835,7 +4837,7 @@ class MiscSystemsMixin:
             # player, not the chooser — see `_request_choose_objects`'s own
             # docstring for ``control_recipient_id``.
             if obj.controller_id != control_recipient_id:
-                obj.controller_id = control_recipient_id
+                gain_control(self.state, obj, control_recipient_id)
                 obj.summoning_sick = True
                 continuous.recompute(self.state)
         elif action == "soulbond_pair" and source is not None:
@@ -5464,9 +5466,10 @@ class MiscSystemsMixin:
         item = self._stack_item_for(target)
         if item is None:
             return
-        item.controller_id = new_controller_id
+        if not gain_control(self.state, item, new_controller_id):
+            return
         if item.obj is not None:
-            item.obj.controller_id = new_controller_id
+            gain_control(self.state, item.obj, new_controller_id)
     def end_the_turn(self) -> None:
         """"End the turn." (Day's Undoing/Time Stop-shaped reminder text —
         RULE 500-adjacent, not a printed rule number of its own): "Exile

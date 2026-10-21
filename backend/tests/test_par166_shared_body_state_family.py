@@ -256,7 +256,10 @@ def test_self_cost_reduction_applies_only_after_another_spell_was_cast():
     p1.add_to_zone(focus, Zone.HAND)
     net, _ = continuous.self_cost_reduction_for(focus, eng.state, "p1")
     assert net == 0  # nothing cast yet this turn
+    # Resolve a real draw without eliminating the caster and removing Focus.
+    p1.add_to_zone(GameObject(_card("Draw filler", "Land", ""), "p1", zone=Zone.LIBRARY), Zone.LIBRARY)
     _cast(eng, _card("Other", "Instant", "Draw a card."))
+    assert not p1.has_lost and focus in p1.hand
     net, _ = continuous.self_cost_reduction_for(focus, eng.state, "p1")
     assert net == 2
     # the opponent's spell is not "a spell you've cast"
@@ -265,7 +268,10 @@ def test_self_cost_reduction_applies_only_after_another_spell_was_cast():
     focus2 = GameObject(focus_card, owner_id="p1", zone=Zone.HAND)
     bind_from_catalogue(focus2)
     p1b.add_to_zone(focus2, Zone.HAND)
+    p2b = eng2.state.player_by_id("p2")
+    p2b.add_to_zone(GameObject(_card("Their draw filler", "Land", ""), "p2", zone=Zone.LIBRARY), Zone.LIBRARY)
     _cast(eng2, _card("Theirs", "Instant", "Draw a card."), controller="p2")
+    assert not p2b.has_lost
     net, _ = continuous.self_cost_reduction_for(focus2, eng2.state, "p1")
     assert net == 0
 
