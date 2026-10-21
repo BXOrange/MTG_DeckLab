@@ -1324,6 +1324,19 @@ each selected player separately. Equipment attachments keep their optional
 Equipment slot independent of a mandatory creature target.
 
 
+MEC-128 (PARSER_VERSION 716) adds a shared `same_graveyard` relation for fixed-count
+“exile up to N target cards from a single graveyard”. Casts and activations reject
+mixed graveyards before paying costs; trigger rounds, copied-spell target changes
+and board offers restrict later picks to the selected graveyard. Zero targets,
+partial legality on resolution and exact zone visits retain their existing semantics.
+Plural “from graveyards” remains unrestricted. Coverage comparison: +14 modeled
+cards, no regressions. `tests/test_mec128_same_graveyard.py` covers inline and cached
+cards, spell/activation/trigger execution, clone and retargeted copies; Chromium
+verified the board's filtering function. Validation: 40 ticket tests passed;
+full backend with `--full-cache`: 15,424 passed, 1 skipped, with two socket-bind
+failures caused by the sandbox. The affected proxy module passed all 3 tests
+when rerun outside the sandbox. Commander-legal coverage: +14, no regressions.
+
 ### Structural target frames — `kind` decomposed (ENG-34, `14_` S0b)
 
 - **What:** `TargetSpec.kind` was 59 opaque strings dispatched by **58**

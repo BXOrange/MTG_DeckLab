@@ -4113,3 +4113,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 715: BUG-32 -- typed "this way" count phrases keep "permanent" ("for each permanent card milled this way" no longer counts
      every card); the engine matches the `permanent` / `nonland_permanent` markers via the shared permanent-type list
      (RULE 110.4) in amounts, conditions and the discard / sacrifice event pools.
+
+716: MEC-128 -- fixed-count graveyard exile carries a shared same_graveyard target relation;
+     casts, activations, trigger rounds and target changes enforce one graveyard per group.

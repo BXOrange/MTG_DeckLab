@@ -55,7 +55,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-128 · Same-graveyard target groups.** Model fixed-count “exile up to N target cards from a single graveyard” through shared target-group validation and offers; support spell, activated and triggered forms with binding/gameplay tests (Decompose, Scarab Feast, Carrion Beetles; 11 verified single-blocker Commander candidates).
 
 
 

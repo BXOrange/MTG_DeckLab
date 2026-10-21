@@ -661,15 +661,17 @@ _GRAVEYARD_OTHER = rf"(?:{OTHER_PREFIX})?"
 #: "exile up to twice X target cards from graveyards." (Erebos's Intervention) / "exile X target cards
 #: from graveyards" — several graveyard cards picked from any graveyards at once. The X forms size the
 #: pick by the announced {X} (`TargetSpec.count_selector`, read at announce time); a literal count is
-#: the plain multi-target shape. "a single graveyard" (a same-graveyard constraint) is not this row.
+#: the plain multi-target shape. Fixed counts also support the single-graveyard relation.
 _EXILE_GRAVEYARD_CARDS_MULTI_RE = compile_clause(
     r"exile (?:(?P<x_count>(?P<x_up_to>up to )?(?P<twice>twice )?x )"
-    r"|(?P<up_to>up to )?(?P<count>\d+) )target cards from graveyards"
+    r"|(?P<up_to>up to )?(?P<count>\d+) )target cards from (?P<graveyards>graveyards|a single graveyard)"
 )
 
 
 def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("x_count"):
+        if m.group("graveyards") != "graveyards":
+            return None
         return [EffectSpec("exile", {
             "target_kind": "any_graveyard_card", "count": ANY_NUMBER_TARGET_CAP, "optional": True,
             "count_selector": "source_twice_x_paid" if m.group("twice") else "source_x_paid",
@@ -680,6 +682,8 @@ def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]
     params: dict = {"target_kind": "any_graveyard_card", "count": count}
     if m.group("up_to"):
         params["optional"] = True
+    if m.group("graveyards") == "a single graveyard":
+        params["same_graveyard"] = True
     return [EffectSpec("exile", params)]
 
 

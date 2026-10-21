@@ -67,6 +67,7 @@ class ExileEffect(GameEffect):
         optional: bool = False,
         count: int = 1,
         count_max: Optional[int] = None,
+        same_graveyard: bool = False,
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         remember: bool = False,
@@ -197,6 +198,7 @@ class ExileEffect(GameEffect):
         ):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
+                same_graveyard=same_graveyard,
                 distinct_controllers=distinct_controllers, colors=self.colors,
                 count_selector=count_selector,
                 # "…permanent … with mana value N or less." (MEC-12, Skyclave

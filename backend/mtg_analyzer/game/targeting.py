@@ -680,6 +680,8 @@ class TargetSpec:
     #: offer, and where the "stop early" boundary sits).
     count_max: Optional[int] = None
     any_number: bool = False
+    #: RULE 601.2c: all cards chosen for this occurrence share one graveyard.
+    same_graveyard: bool = False
     total_power_max: Optional[int] = None
     total_mana_value_max: Optional[int] = None
     #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
@@ -2465,6 +2467,11 @@ def resolved_count(
 
 def add_target_budget_metadata(state, spec, entry):
     """The same target-count and aggregate axes for spell and ability UIs."""
+    if spec.same_graveyard:
+        entry['same_graveyard'] = True
+        for option in entry['options']:
+            target = state.find_object(option.get('instance_id'))
+            option['graveyard_owner_id'] = target.owner_id if target else None
     if spec.any_number:
         entry.update(any_number=True, count=0, count_max=len(entry['options']))
     for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
@@ -2478,6 +2485,11 @@ def add_target_budget_metadata(state, spec, entry):
 
 def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
     """RULE 601.2c: all picks for one occurrence of target share its limit."""
+    # RULE 601.2c: a single graveyard is a relation among this group's targets.
+    if spec.same_graveyard and len({
+        getattr(getattr(target, 'obj', target), 'owner_id', None) for target in targets
+    }) > 1:
+        return False
     for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
         if limit is not None and sum(
             getattr(getattr(target, 'obj', target), field, 0) or 0 for target in targets
@@ -2488,7 +2500,7 @@ def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
 
 def budgeted_target_options(state, spec, options, picked=()):
     """Keep choices that fit the remaining aggregate budget of this group."""
-    if spec.total_power_max is None and spec.total_mana_value_max is None:
+    if not spec.same_graveyard and spec.total_power_max is None and spec.total_mana_value_max is None:
         return options
     return [option for option in options if target_group_within_budget(spec,
         [*picked, state.find_object(option.get('instance_id'))])]

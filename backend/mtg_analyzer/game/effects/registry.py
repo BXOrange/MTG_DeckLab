@@ -1113,6 +1113,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
         count_max=p.get("count_max"),
+        same_graveyard=bool(p.get("same_graveyard", False)),
         selector=p.get("selector"),
         filter=p.get("filter"),
         remember=bool(p.get("remember", False)),

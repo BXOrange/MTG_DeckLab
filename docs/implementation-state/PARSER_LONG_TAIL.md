@@ -12,6 +12,15 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 - Implementation workflow: [extend-parser](../../.agents/skills/extend-parser/SKILL.md).
 - Architecture: [atom/composition design](../concepts/14_PARSER_GRAMMAR_DESIGN.md).
 
+## Where coverage stands
+
+Measured on 2026-10-21 at PARSER_VERSION 716: **21,852 / 35,046 cards (62.4%)**,
+including authored cards; 1,305 permanently unsupported records. MEC-128 adds
+14 modeled cards with zero regressions against the pre-change full-pool snapshot.
+Commander-legal coverage: **21,253 / 32,068 (66.3%)**, also +14 / 0 regressions
+against the same frozen pool. The isolated cache measurement uses
+`scripts/coverage_report.py --top 40`.
+
 ## Existing building blocks
 
 These families exist; individual wording, scope and combinations may still fail.

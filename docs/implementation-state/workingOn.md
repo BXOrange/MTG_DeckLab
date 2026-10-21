@@ -42,15 +42,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
-
-## MEC-128 · Same-graveyard target groups
-
-- **Started / last update:** 2026-10-21 / 2026-10-21
-- **Goal of this run:** Fixed-count “exile up to N target cards from a single graveyard”, shared validation/offers and spell/activation/trigger gameplay.
-- **Done (built + tested):** Discovery and independent scope reproduction: 11 supported Commander single-blocker candidates; existing unrestricted exile does not model the shared-graveyard relation.
-- **In progress:** Not implementing: user redirected this run to a full-pool shared-phrase catalogue before code changes. Owner Codex `/root`, run `20261021-pilot-142418`.
-- **Next step:** Implement the shared target relation and literal-count parser sibling; test binding, zero/one/N picks, cross-graveyard rejection, sequential offers, partial target legality and plural-graveyards regression.
-- **Decisions:** One-ticket pilot; no commit/push. X and unrelated bespoke riders outside required scope; do not claim them unless binding/gameplay verified.
-- **Baselines / artefacts:** Ignored `backend/data/ticket-discover-and-grind-runs/20261021-pilot-142418/`; `manifest.json`, `before.json`, `independent-candidate.json`, `discovery/recommendation.md`. Pool/source and test caches isolated separately.
-- **Known failures:** No code changes. Baseline: 14,955 passed, 454 skipped; relative-source-path test failed from repository root and passed on recheck from backend (522 tests). Initial incomplete disposable fixtures were corrected.
-- **Residue:** Implementation, independent tests/measurement and delivery pending.

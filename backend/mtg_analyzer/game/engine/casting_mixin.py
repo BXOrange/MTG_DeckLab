@@ -2316,7 +2316,7 @@ class CastingMixin:
             if (getattr(self.state, "_physical_cast_validation", False)
                     or self.state.resolution_play_choice is not None
                     or (additional is not None and additional.sacrifice_count)
-                    or any(spec.any_number or spec.total_power_max is not None
+                    or any(spec.same_graveyard or spec.any_number or spec.total_power_max is not None
                            or spec.total_mana_value_max is not None for spec in spell_target_specs(obj))):
                 # Announced choices use the ordinary modal target specs
                 # after the selected mode has been applied, not a targetless
@@ -2336,7 +2336,8 @@ class CastingMixin:
                     if spec.any_number:
                         maximum = len(options)
                     if not target_group_within_budget(spec, picks):
-                        raise ValueError("target creatures exceed the total power limit" if spec.total_power_max is not None
+                        raise ValueError("targets exceed the single graveyard limit" if spec.same_graveyard else
+                                         "target creatures exceed the total power limit" if spec.total_power_max is not None
                                          else "target cards exceed the total mana value limit")
                     legal_ids = {option.get("instance_id", option.get("player_id")) for option in options}
                     picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", None)) for pick in picks]

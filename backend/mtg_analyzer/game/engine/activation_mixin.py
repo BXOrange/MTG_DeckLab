@@ -1829,7 +1829,8 @@ class ActivationMixin:
                 if spec.any_number:
                     maximum = len(options)
                 if not target_group_within_budget(spec, picks):
-                    raise ValueError("targets exceed the total power or mana value limit")
+                    raise ValueError("targets exceed the single graveyard limit" if spec.same_graveyard
+                                     else "targets exceed the total power or mana value limit")
                 legal_ids = {o.get("instance_id", o.get("player_id", o.get("stack_id"))) for o in options}
                 picked_ids = [p.get("instance_id", p.get("player_id", p.get("stack_id")))
                               if isinstance(p, dict) else

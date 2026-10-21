@@ -1937,6 +1937,12 @@ export function createGameBoardView(opts = {}) {
       const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
       options = options.filter((o) => !pickedControllers.has(o.controller_id));
     }
+    if (req.same_graveyard) {
+      const owner = castTargeting.owners?.[castTargeting.reqIndex];
+      const picked = castTargeting.groups?.[owner] || [];
+      const first = req.options.find((o) => o.instance_id === picked[0]?.instance_id);
+      if (first) options = options.filter((o) => o.graveyard_owner_id === first.graveyard_owner_id);
+    }
     for (const [field, limit] of [['power', req.total_power_max], ['mana_value', req.total_mana_value_max]]) {
       if (limit == null) continue;
       const owner = castTargeting.owners?.[castTargeting.reqIndex];
