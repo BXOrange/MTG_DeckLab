@@ -638,3 +638,19 @@ def test_proliferation_recognizes_generic_immediate_counter_win_threshold():
     assert b.play(v,[offered(1)])
     v['state']['battlefield'][0]['counters']['charge']=1
     assert b.play(v,[offered(1)]) is None
+
+
+
+def test_smart2_keeps_windows_only_while_it_can_pay_for_them():
+    from mtg_analyzer.services.bot_policies.smart2 import SmartBot2
+    from tests.services.test_smart_bot import view, obj
+    b = SmartBot2('ann')
+    v = view(hand=[obj(1, 'Shock', type_line='Instant', oracle_text='deal 2 damage', castable=False)])
+    v['priority'] = {'interactive': True, 'yields': {}, 'stops': {'ann': {}}}
+    pass_only = [{'type': 'pass_priority'}]
+    assert b.can_pass_turn(v, pass_only)  # instant, but no mana for it
+    v['state']['players'][0]['hand'][0]['castable'] = True
+    assert not b.can_pass_turn(v, pass_only)  # affordable instant
+    v['state']['players'][0]['hand'] = []
+    assert not b.can_pass_turn(v, pass_only + [{'type': 'activate_ability', 'instance_id': 2}])
+    assert b.can_pass_turn(v, pass_only)  # lands/rocks only offer tap_for_mana

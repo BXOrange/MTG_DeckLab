@@ -151,12 +151,22 @@ class SmartBot2(SmartBot):
         ctx = self._context(view)
         if library_trigger(ctx):
             return False
-        # Future windows matter even when no activation is currently legal.
-        # Own visible spells/abilities only; no opponent library/hand access.
-        for obj in ctx.hand + ctx.ours:
-            text = ctx.text(obj)
+        # Future windows matter only while the bot can still pay for them: an
+        # instant it can afford (`castable` is the view's mana-potential
+        # check) or a non-mana ability the server currently offers. Mana
+        # abilities are never offered as `activate_ability`, so lands and
+        # rocks do not count. Own visible information only.
+        if any(a['type'] == 'activate_ability' and not a.get('locked') for a in actions):
+            return False
+        for obj in ctx.hand:
             p = ctx.plan(obj)
-            if (p and 'instant' in p.types) or ':' in text or 'each end step' in text or "each of their turns" in text:
+            instant = (p and 'instant' in p.types) or 'instant' in str(obj.get('type_line', '')).casefold()
+            # A view without the flag (unannotated hand) counts as payable.
+            if obj.get('castable', True) and (instant or 'flash' in ctx.text(obj)):
+                return False
+        for obj in ctx.ours:
+            text = ctx.text(obj)
+            if 'each end step' in text or "each of their turns" in text:
                 return False
         return True
 

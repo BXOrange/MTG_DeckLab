@@ -473,3 +473,45 @@ def test_strategy_supports_two_archetypes():
     assert strat_explicit.archetype == 'voltron'
     assert strat_explicit.philosophies == ('combat',)
 
+
+
+def test_smart_bot_skips_to_end_step_when_out_of_actions():
+    b = bot()
+    v = view()
+    v['priority'] = {'interactive': True, 'yields': {}, 'stops': {'ann': {}}}
+    v['state']['current_step'] = 'main2'
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+    v['state']['current_step'] = 'main1'  # no creatures: no combat to wait for
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+    v['state']['battlefield'] = [obj(1, 'Bear', is_creature=True, tapped=False)]
+    assert b.decide(v, [{'type': 'pass_priority'}]) is None  # may still attack
+    v['state']['battlefield'] = []
+    v['state']['current_step'] = 'main2'
+    v['state']['current_step'] = 'main2'
+    v['priority']['yields'] = {'ann': {'mode': 'end_step'}}
+    assert b.decide(v, [{'type': 'pass_priority'}]) is None
+
+
+def test_smart_bot_sets_own_turn_stops_once_and_ignores_summoning_sick_creatures():
+    b = bot()
+    v = view()
+    v['priority'] = {'interactive': True, 'yields': {}, 'stops': {}}
+    assert b.decide(v, [{'type': 'pass_priority'}])['type'] == 'set_stops'
+    v['priority']['stops'] = {'ann': {'own': [], 'opponent': []}}
+    v['state']['battlefield'] = [obj(1, 'Bear', is_creature=True, tapped=False, summoning_sick=True)]
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+    v['state']['current_step'] = 'declare_attackers'
+    v['state']['battlefield'][0]['summoning_sick'] = False
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+
+
+def test_smart_bot_keeps_windows_only_while_it_can_pay_for_them():
+    b = bot()
+    v = view(hand=[obj(1, 'Shock', type_line='Instant', castable=False)])
+    pass_only = [{'type': 'pass_priority'}]
+    assert b.can_pass_turn(v, pass_only)
+    v['state']['players'][0]['hand'][0]['castable'] = True
+    assert not b.can_pass_turn(v, pass_only)
+    v['state']['players'][0]['hand'] = []
+    assert not b.can_pass_turn(v, pass_only + [{'type': 'activate_ability', 'instance_id': 2}])
+    assert b.can_pass_turn(v, pass_only)

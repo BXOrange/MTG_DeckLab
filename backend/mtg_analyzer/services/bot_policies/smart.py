@@ -30,6 +30,7 @@ class SmartBot(GreedyBot):
     """
 
     kind = 'smart'
+    skips_to_end_step = True
     label = 'Smart Bot'
     description = 'Erkennt Deckstrategie und Farben, entwickelt Commander und WinCons und sucht Combo-Teile.'
 
@@ -296,13 +297,23 @@ class SmartBot(GreedyBot):
                    for s in view['state'].get('stack', []))
 
     def can_pass_turn(self, view, actions):
-        # Off its own turn `play` below only ever acts against something on
-        # the stack (a counter or removal aimed at an opponent's object), and
-        # the server never passes over an opponent's stack item — so with an
-        # empty stack every window is a pass. The one exception is its own
-        # Thassa's Oracle trigger, which is the bot's own stack item and so
-        # would be passed over too.
-        return not self._oracle_trigger(view)
+        # Its own Thassa's Oracle trigger is the bot's own stack item, which
+        # the server would pass over.
+        if self._oracle_trigger(view):
+            return False
+        # Otherwise `play` only ever acts at instant speed against something
+        # on the stack. Windows matter only while it can still pay: an offered
+        # non-mana ability (mana abilities are `tap_for_mana`), or an instant/
+        # flash card in hand that the view's mana potential marks `castable`
+        # (a view without the flag counts as payable).
+        if any(a['type'] == 'activate_ability' and not a.get('locked') for a in actions):
+            return False
+        me = next((p for p in view['state'].get('players', []) if p['id'] == self.player_id), {})
+        for card in me.get('hand') or []:
+            text = f"{card.get('type_line', '')} {card.get('oracle_text', '')}".casefold()
+            if card.get('castable', True) and ('instant' in text or 'flash' in text):
+                return False
+        return True
 
     def play(self, view, actions):
         offered_actions = actions

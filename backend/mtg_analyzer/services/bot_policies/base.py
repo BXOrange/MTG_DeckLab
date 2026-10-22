@@ -8,6 +8,22 @@ from typing import Any, Optional
 
 
 
+#: The only pre-combat step where `play` has had its sorcery-speed window;
+#: arming a yield earlier would skip that window entirely.
+PRE_COMBAT_STEPS = ("main1",)
+
+#: Steps after attackers were (or were not) declared; a bot that did nothing
+#: by then has nothing left before its end step.
+POST_ATTACK_STEPS = ("declare_attackers", "declare_blockers", "combat_damage", "end_combat", "main2")
+
+#: Own-turn windows a bot keeps: its attack declaration and end-step plays.
+BOT_OWN_STOPS = ("declare_attackers", "end")
+
+#: Opponent-turn windows stay as before; "Pass this turn" decides there.
+ALL_STEPS = ("upkeep", "draw", "main1", "begin_combat", "declare_attackers",
+             "declare_blockers", "combat_damage", "end_combat", "main2", "end")
+
+
 class Bot:
     """Base class: the dispatcher, plus the decisions every bot must answer.
 
@@ -97,7 +113,12 @@ class Bot:
         # policy says it would pass every remaining window of this turn.
         if self.wants_turn_yield(view, actions):
             return {"type": "set_yield", "mode": "turn"}
-        return self.play(view, [a for a in actions if a["type"] != "declare_blockers"])
+        if self.wants_own_turn_stops(view):
+            return {"type": "set_stops", "own": list(BOT_OWN_STOPS), "opponent": list(ALL_STEPS)}
+        action = self.play(view, [a for a in actions if a["type"] != "declare_blockers"])
+        if action is None and self.wants_end_step_yield(view, actions):
+            return {"type": "set_yield", "mode": "end_step"}
+        return action
 
     def _offered_choice(self, view, answers, answer):
         """Keep policy decisions inside the server's current choice contract."""
@@ -165,6 +186,53 @@ class Bot:
         if state.get("stack") or state.get("game_over") or view.get("pending_choice"):
             return False
         return self.can_pass_turn(view, actions)
+
+    #: Whether this policy skips its own remaining windows once `play` has
+    #: nothing left to do. Off by default: only policies whose `play` is a
+    #: complete statement of what they want opt in.
+    skips_to_end_step = False
+
+    def wants_end_step_yield(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+        """Own-turn counterpart of `wants_turn_yield`: `play` returned nothing,
+        so arm "Skip to end step" instead of burning one pass per step. Only
+        after combat, or earlier only when it has no untapped creature (attackers
+        offered at declare-attackers must not be swallowed by a yield). The
+        server holds priority at the end step, so end-step instants remain
+        possible, and still stops for any opponent stack item."""
+        priority = view.get("priority") or {}
+        state = view["state"]
+        if not self.skips_to_end_step or not priority.get("interactive") or not self.is_active(view):
+            return False
+        if (priority.get("yields") or {}).get(self.player_id):
+            return False
+        if state.get("stack") or state.get("game_over") or view.get("pending_choice"):
+            return False
+        # Holding an instant or a usable ability means it may still want to act
+        # this turn: then it must not give up its windows.
+        if not self.can_pass_turn(view, actions):
+            return False
+        step = state.get("current_step")
+        if step in POST_ATTACK_STEPS:
+            return True
+        if step not in PRE_COMBAT_STEPS:
+            return False
+        # Before combat: only when no creature could attack, so the yield
+        # cannot swallow the attack declaration.
+        return not any(
+            o.get("controller_id") == self.player_id and o.get("is_creature")
+            and not o.get("tapped") and not o.get("summoning_sick")
+            for o in state.get("battlefield", [])
+        )
+
+    def wants_own_turn_stops(self, view: dict[str, Any]) -> bool:
+        """Whether to replace the default "stop at every step" with the
+        steps a bot can use: attack declaration and the end step (the
+        mains are always kept). Upkeep and draw have nothing to offer, so
+        the server passes them instead of costing a tick each."""
+        priority = view.get("priority") or {}
+        if not self.skips_to_end_step or not priority.get("interactive"):
+            return False
+        return (priority.get("stops") or {}).get(self.player_id) is None
 
     def setup(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> dict[str, Any]:
         """RULE 103.4: no bot mulligans — it keeps whatever it was dealt.
