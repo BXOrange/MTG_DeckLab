@@ -5887,27 +5887,58 @@ def extra_land_plays_for(state: "GameState", player: "Player") -> int:
     return total
 
 
+def _hand_size_setting(state: "GameState", player: "Player") -> tuple[bool, Optional[int]]:
+    """The newest effect that fixes ``player``'s maximum hand size outright.
+
+    Returns ``(found, value)``; ``value`` is ``None`` for "no maximum hand
+    size" and the integer for "your maximum hand size is N" (MEC-129). The
+    two compete on RULE 613.7 timestamp order, newest wins: the later
+    "no maximum" beats an earlier "is two" and vice versa. Relative
+    adjustments (`hand_size_modifier_for`) are not settings and apply on top
+    of whichever one wins.
+    """
+    candidates: list[tuple[int, Optional[int]]] = []
+    # Spirit Water Revival — a resolve-time "…for the rest of the game"
+    # grant, keyed by player id on `GameState` rather than a battlefield
+    # static (RULE 400.7-safe, no duration to track).
+    if player.id in getattr(state, "no_max_hand_size_player_ids", set()):
+        stamps = getattr(state, "no_max_hand_size_stamps", {})
+        candidates.append((stamps.get(player.id, 0), None))
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer not in ("no_max_hand_size", "hand_size_set"):
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            stamp = ability.timestamp if getattr(ability, "timestamp", None) is not None \
+                else getattr(ability.source, "timestamp", 0)
+            value = int(ability.params["amount"]) if ability.layer == "hand_size_set" else None
+            candidates.append((stamp or 0, value))
+    if not candidates:
+        return False, None
+    # ``max`` keeps the first of equal stamps' maxima deterministic enough:
+    # equal stamps only arise for unsourced fixtures, where either is valid.
+    return True, max(candidates, key=lambda c: c[0])[1]
+
+
 def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     """Whether ``player`` is exempt from RULE 402.2's cleanup-step maximum
     hand size right now ("You have no maximum hand size." — A-Wizard Class/
     Body of Knowledge-shaped, or the unscoped "Players have no maximum hand
     size." — Anvil of Bogardan-shaped, ``affects="each_player"``) — consulted
     by `GameEngine._step_cleanup` in place of the flat `MAX_HAND_SIZE`
-    comparison. A resolve-time-granted, durational version of this exemption
-    ("…for the rest of the game") is a different, unmodeled shape (Card-pool
-    Batch 8's writeup).
+    comparison. A newer "your maximum hand size is N" (`hand_size_set`)
+    overrides an older exemption (`_hand_size_setting`).
     """
-    # Spirit Water Revival — a resolve-time "…for the rest of the game"
-    # grant, keyed by player id on `GameState` rather than a battlefield
-    # static (RULE 400.7-safe, no duration to track).
-    if player.id in getattr(state, "no_max_hand_size_player_ids", set()):
-        return True
-    for ability in _battlefield_static_abilities(state):
-        if ability.layer != "no_max_hand_size":
-            continue
-        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
-            return True
-    return False
+    found, value = _hand_size_setting(state, player)
+    return found and value is None
+
+
+def set_maximum_hand_size(state: "GameState", player: "Player") -> Optional[int]:
+    """The N of the winning "your maximum hand size is N" effect (MEC-129,
+    Cecily / Null Profusion), or ``None`` when no such effect wins and the
+    normal seven (`MAX_HAND_SIZE`) applies. RULE 402.2.
+    """
+    found, value = _hand_size_setting(state, player)
+    return value if found else None
 
 
 def hand_size_modifier_for(state: "GameState", player: "Player") -> int:
@@ -6616,7 +6647,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
+     "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",
@@ -6827,6 +6858,9 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "no_max_hand_size":
         who = "each player" if ability.affects == "each_player" else "its controller"
         return f"{who} has no maximum hand size"
+    if ability.layer == "hand_size_set":
+        who = "each player's" if ability.affects == "each_player" else "its controller's"
+        return f"{who} maximum hand size is {int(p.get('amount', 0))}"
     if ability.layer == "hand_size_modifier":
         who = {"each_player": "each player's", "opponents": "each opponent's"}.get(
             ability.affects, "its controller's"

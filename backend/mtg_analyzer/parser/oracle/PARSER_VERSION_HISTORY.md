@@ -4130,3 +4130,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      preserve stack category and revalidate originals. Exact-X copy filtering reads the resolving stack item.
      Shared tap-X costs are admitted through the same pure cost scan used by engine cost parsing; unsupported
      filters remain fail-closed. Counter binding retains newly accepted own-spell scope through resolution.
+720 MEC-129 -- "your maximum hand size is N" (`hand_size_set` static, RULE 402.2) ordered by RULE 613.7 timestamp against
+     the static and rest-of-game "no maximum hand size" grants; relative modifiers apply on top. "Draw cards equal to the
+     number of cards in your hand plus N" reuses the `hand_size` resource amount (Sea Gate Restoration).

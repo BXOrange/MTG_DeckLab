@@ -69,6 +69,21 @@ def _no_max_hand_size_rest_of_game(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("no_max_hand_size_rest_of_game", {})]
 
 
+# MEC-129 (Sea Gate Restoration): "draw cards equal to the number of cards in your hand plus N" — the
+# count is measured when the draw resolves, via the shared ``hand_size`` resource amount plus its
+# ``plus`` modifier (`effect_amounts`).
+_DRAW_HAND_SIZE_PLUS_RE = compile_clause(
+    r"(?:you )?draw cards equal to the number of cards in your hand(?: plus (?P<n>\d+))?"
+)
+
+
+def _draw_hand_size_plus(m: re.Match[str]) -> list[EffectSpec]:
+    amount: dict = {"kind": "resource", "resource": "hand_size", "of": "you"}
+    if m.group("n"):
+        amount["plus"] = int(m.group("n"))
+    return [EffectSpec("draw", {"count": amount})]
+
+
 _CREATE_NAMED_TOKEN_DIE_RESULT_RE = compile_clause(
     r"you create a number of (?P<name>[a-z]+) tokens equal to the result"
 )
@@ -1984,6 +1999,7 @@ ROWS: list[EffectHandler] = [
     # MEC-90: non-pump bodies whose amount is a preceding die-roll result.
     EffectHandler("gain_life_die_result", _GAIN_LIFE_DIE_RESULT_RE, _gain_life_die_result),
     EffectHandler("draw_die_result", _DRAW_DIE_RESULT_RE, _draw_die_result),
+    EffectHandler("draw_hand_size_plus", _DRAW_HAND_SIZE_PLUS_RE, _draw_hand_size_plus),
     EffectHandler(
         "no_max_hand_size_rest_of_game", _NO_MAX_HAND_SIZE_REST_OF_GAME_RE,
         _no_max_hand_size_rest_of_game,

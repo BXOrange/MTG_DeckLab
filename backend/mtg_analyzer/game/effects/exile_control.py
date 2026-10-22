@@ -2524,6 +2524,9 @@ class NoMaxHandSizeRestOfGameEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is not None:
             context.state.no_max_hand_size_player_ids.add(player.id)
+            # RULE 613.7: stamp it so a later "maximum hand size is N" can
+            # override it (`continuous._hand_size_setting`).
+            context.state.no_max_hand_size_stamps[player.id] = context.state.next_timestamp()
 
 
 class GraveyardToLibraryBottomRandomEffect(GameEffect):

@@ -827,6 +827,9 @@ _HAND_SIZE_MODIFIER_RE = re.compile(
     r"(?P<subject>your|each opponent's|each player's) maximum hand size is "
     r"(?P<direction>reduced|increased) by (?P<n>\d+)", re.IGNORECASE
 )
+# "Your maximum hand size is five." (MEC-129, normalized to a digit) — the absolute
+# setter, read by `continuous.set_maximum_hand_size`.
+_HAND_SIZE_SET_RE = re.compile(r"(?P<subject>your) maximum hand size is (?P<n>\d+)", re.IGNORECASE)
 _HAND_SIZE_SUBJECT_AFFECTS = {"your": "you", "each opponent's": "opponents", "each player's": "each_player"}
 
 # "Players skip their untap steps." (RULE 502.3-adjacent, Stasis) — the last
@@ -5614,6 +5617,9 @@ def _static_hand_size_modifier(ctx: StaticContext) -> StaticResult:
         if m.group("direction").lower() == "increased":
             params["increase"] = True
         return [EffectSpec("hand_size_modifier", params)]
+    m = _HAND_SIZE_SET_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("hand_size_set", {"affects": "you", "amount": int(m.group("n"))})]
     return None
 
 

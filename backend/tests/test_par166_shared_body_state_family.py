@@ -106,15 +106,16 @@ def test_life_gained_x_creates_that_many_tokens():
 # --- maximum hand size ---------------------------------------------------------------------------------------------
 
 
-def test_hand_size_modifier_parses_all_three_scopes_and_rejects_a_setter():
+def test_hand_size_modifier_parses_all_three_scopes_and_the_setter_is_its_own_mechanic():
     for text in (
         "Your maximum hand size is reduced by 3.",
         "Each opponent's maximum hand size is reduced by 1.",
         "Your maximum hand size is increased by 1.",
     ):
         assert parse_oracle(_card("H", "Creature — Bear", text)).coverage == MODELED, text
-    # an absolute setter ("is 4") is a different mechanic and must stay unclaimed here
-    assert parse_oracle(_card("H", "Creature — Bear", "Your maximum hand size is 4.")).coverage == UNMODELED
+    # an absolute setter ("is 4") is the separate MEC-129 `hand_size_set`; other scopes stay unclaimed
+    assert parse_oracle(_card("H", "Creature — Bear", "Your maximum hand size is 4.")).coverage == MODELED
+    assert parse_oracle(_card("H", "Creature — Bear", "Each opponent's maximum hand size is 4.")).coverage == UNMODELED
 
 
 def test_hand_size_modifier_applies_to_the_right_player_only():

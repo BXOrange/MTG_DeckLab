@@ -1002,7 +1002,12 @@ class TurnLoopMixin:
         # sibling of that boolean exemption, applied to the flat
         # `MAX_HAND_SIZE` before the excess comparison.
         if not continuous.has_no_maximum_hand_size(self.state, active):
-            effective_max = max(0, MAX_HAND_SIZE + continuous.hand_size_modifier_for(self.state, active))
+            # MEC-129: a winning "your maximum hand size is N" replaces the
+            # seven; relative modifiers then apply on top of it.
+            base_max = continuous.set_maximum_hand_size(self.state, active)
+            if base_max is None:
+                base_max = MAX_HAND_SIZE
+            effective_max = max(0, base_max + continuous.hand_size_modifier_for(self.state, active))
             excess = len(active.hand) - effective_max
             if excess > 0:
                 self.rules.discard_choice(active, excess)

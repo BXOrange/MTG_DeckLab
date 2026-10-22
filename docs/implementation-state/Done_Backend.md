@@ -5401,6 +5401,12 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 - **BUG-8.** With `act_on_chosen` the pick prompt names the act from `rest_action` (`ChoosePlayerObjectsEffect._keep_prompt`: "zurück auf die Hand" / "opfern" / "zerstören") instead of "behalten", so Planar Overlay reads "Plains zurück auf die Hand". Backend choice prompts are plain German strings, not i18n keys, so no locale change.
 - **BUG-9 (code-review cleanups, behaviour-neutral).** The keep path's sacrifice no longer pre-filters "can't be sacrificed" (`_sacrifice_simultaneously`, its only caller's target, filters itself); the victim filter is pinned once instead of per player; `KEEP_BASIC_LAND_TYPES` is gone in favour of `continuous._BASIC_LAND_TYPES`; the parser's "up to N" minimum is `_KEEP_UP_TO_MIN_COUNT`. PARSER_VERSION stays 705 (lock re-pinned).
 
+### MEC-129: absolute maximum hand size (PARSER_VERSION 720)
+
+- **Engine.** New `hand_size_set` static (RULE 402.2), read by `continuous.set_maximum_hand_size`; `_step_cleanup` uses its N in place of `MAX_HAND_SIZE`, with relative `hand_size_modifier` applied on top. "No maximum hand size" and the setter compete in `continuous._hand_size_setting` by RULE 613.7 timestamp (newest wins), including the rest-of-game grant, which now stamps `GameState.no_max_hand_size_stamps`.
+- **Parser.** `_HAND_SIZE_SET_RE` in `static_handlers` (own-controller "your maximum hand size is N" only) and the `draw_hand_size_plus` row (`hand_size` resource amount plus `plus`), which finishes Sea Gate Restoration.
+- **Not in scope.** Duration ("for the rest of the game", Inspired Idea), counter-dependent (Midnight Oil), chosen-player (Cursed Rack) and card-type-count (Winter) values stay unclaimed. Cecily is MODELED; Necrodominance, Null Profusion, Recycle, The Ten Rings and Doctor Octopus keep other unclaimed clauses (play-trigger draw, end-step difference draw, end-step life payment).
+
 ### PAR-120: count vocabulary, departing copy, token CDA, and "instead" overrides (PARSER_VERSION 486–498)
 
 - `parse_count_phrase` composes disjoint exile/graveyard counts as one existing `terms` expression (Crackling Drake, Huskburster Swarm); the adjective in "untapped artifacts, creatures, and lands" applies to every member of Maraxus's type list. The distribution rule is limited to tap state so ambiguous adjective lists still fail closed.

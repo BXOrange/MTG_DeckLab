@@ -5182,6 +5182,14 @@ EffectRegistry.register(
     lambda p: StaticAbility("no_max_hand_size", affects=p.get("affects", "you"), params={}),
 )
 EffectRegistry.register(
+    # "Your maximum hand size is N." (RULE 402.2, MEC-129 — Cecily / Null
+    # Profusion / The Ten Rings): an absolute setter, ordered by timestamp
+    # against `no_max_hand_size` and read by `continuous.
+    # set_maximum_hand_size`; the relative `hand_size_modifier` applies on top.
+    "hand_size_set",
+    lambda p: StaticAbility("hand_size_set", affects=p.get("affects", "you"), params={"amount": int(p.get("amount", 0))}),
+)
+EffectRegistry.register(
     # "Each opponent's maximum hand size is reduced by seven." (RULE 402.2,
     # Jin-Gitaxias, Core Augur, MEC-43) — the numeric sibling of
     # `no_max_hand_size` just above; consulted by `continuous.

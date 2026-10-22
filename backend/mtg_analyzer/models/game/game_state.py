@@ -1130,6 +1130,9 @@ class GameState:
         #: cleared (rest of the game), and RULE 400.7-safe (keyed by the
         #: player, not an object).
         self.no_max_hand_size_player_ids: set[str] = set()
+        #: RULE 613.7 timestamp of each such grant, so a newer "your maximum
+        #: hand size is N" (`hand_size_set`) can override it.
+        self.no_max_hand_size_stamps: dict[str, int] = {}
 
 
 

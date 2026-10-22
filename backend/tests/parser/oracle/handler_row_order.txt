@@ -630,6 +630,7 @@ coin_flip_reflexive
 roll_die
 gain_life_die_result
 draw_die_result
+draw_hand_size_plus
 no_max_hand_size_rest_of_game
 create_named_token_die_result
 create_creature_token_die_result
