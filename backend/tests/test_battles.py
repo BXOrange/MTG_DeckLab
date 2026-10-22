@@ -76,10 +76,145 @@ def test_battle_enters_with_defense_counters_equal_to_printed_defense():
     assert obj.defense == 4
 
 
+def test_cast_kaldheim_cannot_transform_before_its_defense_is_removed():
+    """Exercise casting and catalogue binding, rather than fixture entry."""
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    from mtg_analyzer.services.scryfall_client import card_from_scryfall_data
+
+    card = card_from_scryfall_data({
+        "id": "kaldheim-cast-regression",
+        "name": "Invasion of Kaldheim // Pyre of the World Tree",
+        "layout": "transform",
+        "cmc": 4,
+        "card_faces": [
+            {"name": "Invasion of Kaldheim", "type_line": "Battle — Siege",
+             "mana_cost": "{3}{R}", "defense": "4",
+             "oracle_text": "When this Siege enters, exile all cards from your hand, "
+                            "then draw that many cards. Until the end of your next turn, "
+                            "you may play cards exiled this way."},
+            {"name": "Pyre of the World Tree", "type_line": "Enchantment",
+             "oracle_text": ""},
+        ],
+    })
+    eng = make_engine()
+    obj = GameObject(Card.from_dict(card.to_dict()), owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    player = eng.state.player_by_id("p1")
+    player.hand.append(obj)
+    eng.start()
+    while eng.state.current_phase != "precombat_main":
+        eng.advance_step()
+    player.mana_pool.add("R", 4)
+    eng.cast_spell(player, obj)
+    eng.resolve_until_stable()
+
+    assert obj in eng.state.battlefield
+    assert obj.controller_id == "p1"
+    assert obj.protector_id == "p2"
+    assert obj.defense == 4
+    assert not obj.pending_siege_defeats
+    assert obj.instance_id not in eng.state.free_cast_instance_ids
+
+    eng.rules.deal_damage(obj, 3)
+    eng.resolve_until_stable()
+    assert obj in eng.state.battlefield
+    assert obj.defense == 1
+    eng.rules.deal_damage(obj, 1)
+    eng.resolve_until_stable()
+    assert obj.zone == Zone.EXILE
+    assert obj.name == "Pyre of the World Tree"
+    assert obj.instance_id in eng.state.free_cast_instance_ids
+
+
 def test_a_battle_with_no_printed_defense_seeds_nothing():
     eng = make_engine()
     obj = _enter_battle(eng, battle(defense=None))
     assert "defense" not in obj.counters
+
+
+def test_native_defense_counters_use_entry_counter_replacements():
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+
+    eng = make_engine()
+    doubler = _put(eng, Card(id="doubling", name="Doubling Season", type_line="Enchantment"))
+    bind_from_catalogue(doubler)
+    obj = GameObject(battle(defense=4), owner_id="p1", zone=Zone.HAND)
+    eng.rules._offer_protector_choice(obj, lambda: None)
+    eng.rules._apply_entry_counters(obj)
+    eng.state.add_to_battlefield(obj)
+    assert obj.defense == 8
+
+
+def test_zero_defense_entry_replacement_is_not_undone_by_battlefield_entry():
+    from mtg_analyzer.game.effects.core import ReplacementEffect
+    from mtg_analyzer.models.game.events import EventType
+
+    eng = make_engine()
+    replacement_source = _put(eng, Card(id="replacement", name="Counter replacement", type_line="Enchantment"))
+    replacement_source.replacement_effects.append(ReplacementEffect(
+        EventType.COUNTER, lambda event, context: event.copy_with(amount=0),
+    ))
+    obj = GameObject(battle(defense=1), owner_id="p1", zone=Zone.HAND)
+    eng.rules._offer_protector_choice(obj, lambda: None)
+    eng.rules._apply_entry_counters(obj)
+    eng.state.add_to_battlefield(obj)
+    assert obj.defense == 0
+    eng.rules.check_state_based_actions()
+    assert obj.zone == Zone.GRAVEYARD
+    assert not eng.state.stack
+
+
+def test_entering_without_defense_counters_does_not_trigger_defeat():
+    eng = make_engine()
+    obj = GameObject(battle(defense=4), owner_id="p1", zone=Zone.HAND)
+    # The actual entry result is zero; no defense counter was removed.
+    obj.counters["defense"] = 0
+    eng.rules._offer_protector_choice(obj, lambda: None)
+    eng.state.add_to_battlefield(obj)
+    eng.rules.check_state_based_actions()
+    assert obj.zone == Zone.GRAVEYARD
+    assert not any(item.source is obj for item in eng.state.stack)
+    assert obj.instance_id not in eng.state.free_cast_instance_ids
+
+
+def test_restoring_defense_after_removal_does_not_erase_the_defeat_trigger():
+    eng = make_engine()
+    obj = _enter_battle(eng, battle(defense=1))
+    obj.add_counters("defense", -1)
+    obj.add_counters("defense", 2)
+    eng.rules.check_state_based_actions()
+    assert sum(item.source is obj for item in eng.state.stack) == 1
+
+
+def test_repeated_last_counter_removals_cannot_flip_the_card_twice():
+    eng = make_engine()
+    obj = _enter_battle(eng, battle(defense=1))
+    obj.add_counters("defense", -1)
+    obj.add_counters("defense", 1)
+    obj.add_counters("defense", -1)
+    eng.rules.check_state_based_actions()
+    assert sum(item.source is obj for item in eng.state.stack) == 2
+    eng.rules.resolve_top_of_stack()
+    eng.rules.resolve_top_of_stack()
+    assert obj.zone == Zone.EXILE
+    assert obj.name.endswith("Reverse")
+
+
+def test_old_defeat_trigger_cannot_transform_a_returned_siege():
+    eng = make_engine()
+    obj = _enter_battle(eng, battle(defense=1))
+    obj.add_counters("defense", -1)
+    eng.rules.check_state_based_actions()
+    eng.rules.return_to_hand(obj)
+    eng.state.player_by_id("p1").hand.remove(obj)
+    eng.rules._offer_protector_choice(obj, lambda: None)
+    eng.rules._apply_entry_counters(obj)
+    eng.state.add_to_battlefield(obj)
+    eng.rules.resolve_top_of_stack()
+    assert obj in eng.state.battlefield
+    assert obj.card.is_siege
+    assert obj.defense == 1
+    assert obj.instance_id not in eng.state.free_cast_instance_ids
 
 
 # -- Damage (RULE 310.6) -----------------------------------------------------

@@ -1834,23 +1834,11 @@ class AddCounterMatchingTypeEffect(GameEffect):
 
 
 class ProliferateEffect(GameEffect):
-    """RULE 701.34: give an additional counter of each kind already there to
-    any number of permanents and/or players.
+    """RULE 701.34a: choose recipients, then add every existing counter kind.
 
-    RULE 701.30a's per-permanent/per-player "choose any number" is a real
-    interactive choice this MVP doesn't offer (no counter-proliferation
-    picker exists yet) — auto-applies to *every* permanent/player that
-    already carries at least one counter, the same "auto-choose, no chooser
-    in MVP" simplification `SacrificeEffect`/`GameEngine._sacrifice_
-    candidate` use elsewhere. Player-level counters (poison via `Player.
-    poison`, everything else — rad/energy/experience — via `Player.
-    counters`) proliferate the same way (Vexing Radgull's own "otherwise,
-    proliferate" branch needs exactly this: a player who already has rad
-    counters gets another).
-
-    ``times`` > 1 repeats the whole pass that many times (Contagion Engine's
-    "Proliferate twice."/War of the Spark's "Proliferate three times.") —
-    mirrors `ScryEffect.count`'s param shape.
+    Picks are staged until the selection ends; they are not targets. Repeated
+    proliferation (including Tekuthal) opens an independent selection each time.
+    The complete continuation lives in GameState.pending_choice for clone/undo.
     """
 
     def __init__(self, times: int = 1, source: Optional["GameObject"] = None) -> None:
@@ -1858,30 +1846,133 @@ class ProliferateEffect(GameEffect):
         self.times = times
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .. import continuous  # local: continuous imports effects' siblings
+        from .. import continuous
 
-        # RULE 616: Tekuthal's "proliferate twice instead" replaces the whole action.
-        controller_id = getattr(_controller_of(self.source, context), "id", None)
-        times = self.times * continuous.proliferate_multiplier(context.state, controller_id)
-        # "…permanents you control that had a counter put on them this way" (Ripples of Potential).
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
         context.proliferated_objects = []
-        for _ in range(times):
-            for obj in list(context.state.battlefield):
-                for kind in list(obj.counters.keys()):
-                    if obj.counters.get(kind, 0) > 0:
-                        context.add_counters(obj, 1, kind, source=self.source)
-                        if obj not in context.proliferated_objects:
-                            context.proliferated_objects.append(obj)
-            for player in list(context.state.players):
+        remaining = self.times * continuous.proliferate_multiplier(context.state, controller.id)
+        if remaining > 0:
+            self._offer(context, {
+                "kind": "proliferate", "player_id": controller.id,
+                "source_id": getattr(self.source, "instance_id", None),
+                "source_incarnation": getattr(self.source, "zone_incarnation", None),
+                "remaining": remaining, "picked": [], "proliferated": [],
+            })
+
+    @staticmethod
+    def _offer(context: GameContext, choice: dict) -> None:
+        while choice["remaining"] > 0:
+            options = []
+            for obj in context.state.battlefield:
+                if not obj.phased_out and any(n > 0 for n in obj.counters.values()):
+                    options.append({"id": f"object:{obj.instance_id}", "label": obj.name,
+                                    "instance_id": obj.instance_id, "visit": obj.zone_incarnation})
+            for player in context.state.players:
+                if not player.has_lost and (player.poison > 0 or any(n > 0 for n in player.counters.values())):
+                    options.append({"id": f"player:{player.id}", "label": player.name,
+                                    "player_id": player.id})
+            if options:
+                from uuid import uuid4
+                choice["selection_id"] = uuid4().hex
+                choice["options"] = options + [{"id": "decline", "label": "Auswahl abschließen"}]
+                choice["prompt"] = "Proliferate: Beliebig viele bleibende Karten und Spieler wählen (alle vorhandenen Markenarten)."
+                context.engine.open_choice(choice)
+                return
+            # Proliferating with zero recipients still fires its event.
+            context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=choice["player_id"]))
+            choice["remaining"] -= 1
+        ProliferateEffect._finish(context, choice)
+
+    @staticmethod
+    def resume(context: GameContext, choice: dict, answer: Any) -> None:
+        if isinstance(answer, list):
+            offered = {o["id"]: o for o in choice["options"] if o["id"] != "decline"}
+            if len(set(answer)) != len(answer) or any(i not in offered for i in answer):
+                context.engine.open_choice(choice)
+                raise ValueError("invalid proliferate selection")
+            choice["picked"].extend(offered[i] for i in answer)
+            answer = None  # the whole selection is now confirmed
+        if answer is not None:
+            option = next((o for o in choice["options"] if o["id"] == answer and answer != "decline"), None)
+            if option is None:
+                context.engine.open_choice(choice)
+                raise ValueError("invalid proliferate recipient")
+            choice["picked"].append(option)
+            choice["options"] = [o for o in choice["options"] if o["id"] != answer]
+            if len(choice["options"]) > 1:
+                context.engine.open_choice(choice)
+                return
+        source = context.state.find_object(choice["source_id"]) if choice["source_id"] is not None else None
+        if source is not None and source.zone_incarnation != choice["source_incarnation"]:
+            source = None
+        # RULE 701.34a: all kinds on each chosen recipient, never a subset.
+        queue, receipts = [], []
+        for option in choice["picked"]:
+            if "instance_id" in option:
+                obj = context.state.find_object(option["instance_id"])
+                if obj is None or obj not in context.state.battlefield or obj.phased_out or obj.zone_incarnation != option["visit"]:
+                    continue
+                receipts.append({**option, "before": dict(obj.counters)})
+                kinds = {k for k, n in obj.counters.items() if n > 0}
+            else:
+                player = context.state.player_by_id(option["player_id"])
+                if player.has_lost:
+                    continue
+                kinds = {k for k, n in player.counters.items() if n > 0}
                 if player.poison > 0:
-                    context.add_player_counters(player, 1, "poison", source=self.source)
-                for kind in list(player.counters.keys()):
-                    if player.counters.get(kind, 0) > 0:
-                        context.add_player_counters(player, 1, kind, source=self.source)
-            # Proliferating is an action even if the set of recipients is empty.
-            controller = _controller_of(self.source, context)
-            if controller is not None:
-                context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=controller.id))
+                    kinds.add("poison")
+            queue.extend({**option, "counter_kind": k} for k in sorted(kinds))
+        _ProliferatePlacementEffect(choice, queue, receipts, source).apply(context)
+
+    @staticmethod
+    def _finish(context: GameContext, choice: dict) -> None:
+        context.proliferated_objects = [o for i in choice["proliferated"]
+                                       if (o := context.state.find_object(i)) is not None]
+        # The innermost paused remainder contains riders such as Ripples of
+        # Potential. Preserve this resolution's receipt across its suspension.
+        if context.state.deferred_effects:
+            context.state.deferred_effects[-1]["proliferated_objects"] = list(context.proliferated_objects)
+
+
+class _ProliferatePlacementEffect(GameEffect):
+    """Resume the chosen placements after any RULE 616 ordering question.
+
+    An effect frame, not a closure: clone remaps sources and receipts, and no
+    later proliferation or rider can overwrite a counter replacement choice.
+    """
+    def __init__(self, choice: dict, queue: list, receipts: list, source=None):
+        super().__init__(source)
+        self.choice, self.queue, self.receipts = choice, queue, receipts
+
+    def apply(self, context: GameContext, targets=None) -> None:
+        while self.queue:
+            item = self.queue.pop(0)
+            if "instance_id" in item:
+                obj = context.state.find_object(item["instance_id"])
+                if obj is None or obj.zone_incarnation != item["visit"] or obj not in context.state.battlefield or obj.phased_out:
+                    continue
+                context.add_counters(obj, 1, item["counter_kind"], source=self.source)
+            else:
+                player = context.state.player_by_id(item["player_id"])
+                if not player.has_lost:
+                    context.add_player_counters(player, 1, item["counter_kind"], source=self.source)
+            if context.state.pending_choice:
+                context.state.deferred_effects.append({
+                    "effects": [self], "targets": None, "target_groups": None,
+                })
+                return
+        for receipt in self.receipts:
+            obj = context.state.find_object(receipt["instance_id"])
+            if obj is not None and obj.zone_incarnation == receipt["visit"] and any(
+                    obj.counters.get(k, 0) > n for k, n in receipt["before"].items()):
+                if obj.instance_id not in self.choice["proliferated"]:
+                    self.choice["proliferated"].append(obj.instance_id)
+        context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=self.choice["player_id"]))
+        self.choice["remaining"] -= 1
+        self.choice["picked"] = []
+        ProliferateEffect._offer(context, self.choice)
 
 
 class AddEntryCountersEffect(GameEffect):
@@ -4224,6 +4315,13 @@ class EnterAsCopyReplacement(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_as_copy, not applied
+
+
+class ChooseRiotReplacement(GameEffect):
+    """One independent Riot entry choice (RULE 702.136a/b)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # offered by RulesEngine._offer_enter_choices
 
 
 class ChooseCreatureTypeReplacement(GameEffect):

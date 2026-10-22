@@ -689,6 +689,10 @@ class RulesEngine(
                 self._finish_mill(callback["player_id"], callback["count"], event)
             elif callback["kind"] == "damage":
                 self._finish_damage(callback, event)
+            elif callback["kind"] == "permanent_counters":
+                self._finish_permanent_counters(callback, event)
+            elif callback["kind"] == "player_counters":
+                self._finish_player_counters(callback, event)
             elif callback["kind"] == "life_gain":
                 self._finish_life_gain(callback["player_id"], callback["amount"], event)
             else:

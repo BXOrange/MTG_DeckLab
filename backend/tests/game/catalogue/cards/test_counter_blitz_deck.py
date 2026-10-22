@@ -1,4 +1,6 @@
 """Gameplay regressions for the Counter Blitz (Final Fantasy Commander) deck batch."""
+from tests.proliferate_helpers import choose_all_proliferate
+
 from mtg_analyzer.game import continuous
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import Zone
@@ -299,6 +301,7 @@ def test_tromell_gives_other_nontoken_creatures_an_extra_counter_and_proliferate
     assert bear.counters.get("+1/+1") == 1
     engine.state.player_by_id("p1").mana_pool.add_many({"C": 1})
     activate(engine, tromell, 0)
+    choose_all_proliferate(engine)
     assert bear.counters.get("+1/+1") == 2  # one nontoken creature entered this turn -> proliferate once
 
 

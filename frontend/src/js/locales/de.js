@@ -3,6 +3,10 @@
 // en.js — see its header.
 
 export default {
+  'settings.audio.heading': 'Sound',
+  'settings.audio.enabled': 'Spiel-Sounds',
+  'settings.audio.volume': 'Lautstärke',
+
   'settings.llm.selectModel': 'Modell auswählen …',
   'settings.llm.manualModel': 'Modell-ID manuell eingeben',
   'settings.llm.reloadModels': 'Modelle neu laden',
@@ -889,6 +893,17 @@ export default {
   'bd.measurement.lines': 'Anzahl der Regeltextzeilen',
   'bd.measurement.invalid': 'Gib eine gültige ganze Zahl ab 0 innerhalb des zulässigen Bereichs ein.',
   'bd.measurement.confirm': 'Zeilenzahl bestätigen',
+  'bd.attack.heading': "Angreifer auswählen",
+  'bd.attack.hint': "Wähle Angreifer und ihre Verteidiger. Ausgewählte Angreifer kannst du vor dem Bestätigen wieder abwählen.",
+  'bd.attack.confirm': "Angriff bestätigen ({count})",
+  'bd.attack.clear': "Alle abwählen",
+  'bd.attack.selected': "Ausgewählt",
+  'bd.attack.deselect': "Nicht angreifen",
+  'bd.proliferate.title': 'Proliferate: Karten und Spieler wählen',
+  'bd.proliferate.hint': "Die Empfehlung ist vorausgewählt und frei änderbar. Jede gewählte Karte bzw. jeder Spieler erhält eine weitere Marke jeder vorhandenen Art.",
+  'bd.proliferate.recommend': "Empfehlung übernehmen",
+  'bd.proliferate.clear': "Niemanden wählen",
+  'bd.proliferate.confirm': "Auswahl bestätigen",
   'bd.choice.needed': "Entscheidung nötig",
   'bd.choice.asideShow': "⤢ Entscheidung einblenden",
   'bd.choice.asidePush': "⤡ Zur Seite schieben",

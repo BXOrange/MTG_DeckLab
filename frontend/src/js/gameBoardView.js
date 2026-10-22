@@ -16,6 +16,7 @@
 // you switch back to it).
 
 import { getState } from './state.js';
+import { getGameAudio, gameAudioEvents } from './gameAudio.js';
 import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
 import { getBoardScale, onBoardScaleChange } from './boardScale.js';
@@ -71,7 +72,7 @@ function labelStep(name) {
 // Icon per choice kind — search, cascade and discover share the same
 // "answer one of these options" shape, so one renderer covers them.
 const CHOICE_ICONS = {
-  search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
+  proliferate: '🌱', search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯', opponent_target: '🎯', opponent_chooser: '🧑‍⚖️',
   opponent_sacrifice_chooser: '🧑‍⚖️',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
@@ -84,7 +85,7 @@ const CHOICE_ICONS = {
   reselect_attack: '⚔️', damage_recipient: '🎯',
   meteor_permanent: '☄️',
   // MEC-108: "your choice of a flying counter or a lifelink counter" — at resolution / as it enters.
-  counter_kind: '🏷️', choose_enter_counter: '🏷️',
+  counter_kind: '🏷️', choose_enter_counter: '🏷️', riot: '🏷️',
   // Explorer's Scope's "look at the top card, if it's a land you may put
   // it onto the battlefield tapped" (bug report, 2026-09-04).
   peek_top_land: '🔭',
@@ -143,6 +144,9 @@ export function createGameBoardView(opts = {}) {
   const allowRewind = opts.allowRewind !== false;
   const allowFastForward = opts.allowFastForward !== false;
 
+  const audio = getGameAudio();
+  let audioView = null;
+  let audioSession = null;
   let root = null;
   let sessionId = null;
   let view = null;
@@ -224,6 +228,7 @@ export function createGameBoardView(opts = {}) {
   // the same way; same "push aside" escape hatch, e.g. to check the
   // graveyard or a permanent's text before answering.
   let choiceAside = false;
+  let proliferateDraft = { key: null, ids: new Set() };
   let waitingChoiceAside = false;
   // VIS-14: the same push-aside for the RULE 115 target-picker modal
   // (`castTargetModalHtml`) — while true the board is live and the legal
@@ -232,6 +237,8 @@ export function createGameBoardView(opts = {}) {
   // Attacking creatures whose "choose a defender" submenu is open (2+ legal
   // defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
+  let attackDraft = new Map();
+  let attackDraftKey = null;
   // Opponents whose board is folded away to just its header. Only offered at
   // a table of 3+ (`services/lobby.py` opens up to four seats): three full
   // opponent boards stacked above your own is a lot of scrolling, and most
@@ -884,6 +891,9 @@ export function createGameBoardView(opts = {}) {
 
   function mount(el) {
     root = el;
+    // Resume from a gesture, before awaiting a game action's network reply.
+    root.addEventListener('pointerdown', () => { void audio.unlock(); });
+    root.addEventListener('keydown', () => { void audio.unlock(); });
   }
 
   let chatSending = false;
@@ -1019,6 +1029,11 @@ export function createGameBoardView(opts = {}) {
   }
 
   function applyView(data) {
+    if (audioSession === sessionId) {
+      for (const event of gameAudioEvents(audioView, data)) audio.play(event);
+    } else audio.stop();
+    audioSession = sessionId;
+    audioView = data;
     const prevStack = view?.state?.stack || [];
     const samePriorSessionForStack = sessionId === lastDraftSessionId;
     view = data;
@@ -1174,6 +1189,13 @@ export function createGameBoardView(opts = {}) {
 
   async function act(action) {
     if (!sessionId) return;
+    // Never leave combat with an unsent selection. The first forward click
+    // confirms it; the next click resumes priority/step advancement.
+    if (attackDraft.size && ['advance_step', 'advance_to_decision', 'pass_priority', 'set_yield'].includes(action.type)
+        && !view.state.stack.length) {
+      await submitAttackers();
+      return;
+    }
     await withBusy(async () => {
       const res = transport.sendAction
         ? await transport.sendAction(action)
@@ -1240,6 +1262,7 @@ export function createGameBoardView(opts = {}) {
     const actions = view.legal_actions || [];
     const gameOver = s.game_over;
     const pending = s.pending_choice;
+    syncAttackDraft(actions, s);
 
     // Index the per-object actions so each card can show its own buttons
     // directly underneath it. `legal_actions` is already scoped server-side
@@ -1254,6 +1277,7 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
+    if (pending?.kind !== 'proliferate') proliferateDraft = { key: null, ids: new Set() };
     if (!s.waiting_on_choice) waitingChoiceAside = false;
     if (!castTargeting) castTargetAside = false;
     updateTargetOverlays(s);
@@ -1292,6 +1316,7 @@ export function createGameBoardView(opts = {}) {
           ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
           ${castTargeting ? castTargetModalHtml() : ''}
 
+          ${attackerPanelHtml(actions, s)}
           ${blockerPanelHtml(actions, s)}
 
           ${boardsHtml(live, s, byInstance, pending, seatId)}
@@ -1455,7 +1480,7 @@ export function createGameBoardView(opts = {}) {
     const myTurn = !view.perspective || view.state.active_player_id === actingSeat();
     return `
       <div class="gf-controls gf-rail-controls">
-        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.advance')}</button>
+        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${attackDraft.size ? escapeHtml(t('bd.attack.confirm', { count: attackDraft.size })) : t('bd.ctrl.advance')}</button>
         ${allowFastForward ? `<button id="gf-next-decision" type="button" title="${escapeAttr(t('bd.ctrl.nextDecisionTitle2'))}" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.nextDecision')}</button>` : ''}
         ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>${t('bd.ctrl.passResolveStack')}</button>` : ''}
         ${allowRewind ? `<button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>${t('bd.ctrl.rewind')}</button>` : ''}
@@ -1480,7 +1505,9 @@ export function createGameBoardView(opts = {}) {
 
   /** Whether this client is the one the game is currently waiting on. */
   function hasPriority() {
-    if (!view?.priority) return false;
+    // RULE 117.2e: resolving choices suspend priority, including choices whose
+    // details are hidden from this seat and represented only by a waiting marker.
+    if (!view?.priority || view.state?.pending_choice || view.state?.waiting_on_choice) return false;
     const pid = view.priority.player_id;
     return (
       (!!actingSeat() && pid === actingSeat()) ||
@@ -1512,7 +1539,9 @@ export function createGameBoardView(opts = {}) {
     // than a bare "Pass"; with something on it, passing resolves it.
     const next = view.priority?.next_step;
     const toNext = next ? t(`bd.ctrl.passTo.${next}`) : '';
-    const label = view.state.stack.length > 0
+    const label = attackDraft.size && !view.state.stack.length
+      ? t('bd.attack.confirm', { count: attackDraft.size })
+      : view.state.stack.length > 0
       ? t('bd.ctrl.passResolve')
       : (toNext && toNext !== `bd.ctrl.passTo.${next}` ? toNext : t('bd.ctrl.pass'));
     return `<button type="button" class="primary${extraClass}" data-pass-priority title="${escapeAttr(t('bd.ctrl.passTitle'))}" ${disabled ? 'disabled' : ''}>${label}</button>`;
@@ -1610,6 +1639,45 @@ export function createGameBoardView(opts = {}) {
     return '';
   }
 
+  // RULE 508.1: choose the whole attack before tapping or firing triggers.
+  function syncAttackDraft(actions, state) {
+    const key = JSON.stringify([sessionId, state.internal_turn?.number, state.active_player_id, state.current_step]);
+    if (key !== attackDraftKey || state.current_step !== 'declare_attackers' || state.game_over) {
+      attackDraft.clear();
+      attackMenuOpen.clear();
+      attackDraftKey = key;
+    }
+    const offers = actions.filter(a => a.type === 'attack');
+    for (const [iid, selection] of attackDraft) {
+      const offer = offers.find(a => a.instance_id === iid);
+      const legal = offer && (!selection.defender || (offer.legal_defenders || []).some(d =>
+        JSON.stringify(defenderPayload(d)) === JSON.stringify(selection.defender)));
+      if (!legal) attackDraft.delete(iid);
+    }
+  }
+
+  function attackerPanelHtml(actions, state) {
+    if (view.observer || state.pending_choice || state.stack.length || !actions.some(a => a.type === 'attack')) return '';
+    return `<section class="gf-block-panel">
+      <h4>${t('bd.attack.heading')}</h4>
+      <p class="hint">${t('bd.attack.hint')}</p>
+      <div class="gf-controls">
+        <button type="button" class="primary" data-attack-confirm ${busy || !attackDraft.size ? 'disabled' : ''}>${escapeHtml(t('bd.attack.confirm', { count: attackDraft.size }))}</button>
+        <button type="button" data-attack-clear ${busy || !attackDraft.size ? 'disabled' : ''}>${t('bd.attack.clear')}</button>
+      </div>
+    </section>`;
+  }
+
+  async function submitAttackers() {
+    if (busy || !attackDraft.size) return;
+    const selected = [...attackDraft.values()];
+    const tax = selected.reduce((sum, a) => sum + (a.attack_tax_amount || 0), 0);
+    if (tax && !window.confirm(t('bd.attackTax.confirm', { cost: `{${tax}}` }))) return;
+    await act({ type: 'declare_attackers', declarations: selected.map(a => ({
+      instance_id: a.instance_ids[0], defender: a.defender, pay_attack_tax: true,
+    })) });
+  }
+
   // RULE 509.1a: the defending player assigns blockers. Each offer from
   // `legal_actions` is one creature that could block, with the attackers it
   // may legally be assigned to; the whole block is submitted at once (see
@@ -1688,7 +1756,6 @@ export function createGameBoardView(opts = {}) {
     const isActive = s.active_player_id === p.id;
     const seat = seatStatus(p.id);
     const badges = [
-      isActive ? `<span class="gf-seat-badge gf-seat-active">${t('bd.seat.active')}</span>` : '',
       p.has_lost
         ? `<span class="gf-seat-badge gf-seat-out">${p.loss_reason === 'conceded' ? t('bd.seat.conceded') : t('bd.seat.out')}</span>`
         : '',
@@ -1706,14 +1773,9 @@ export function createGameBoardView(opts = {}) {
     const bannerAttrs = bannerCss
       ? ` style="${escapeAttr(bannerCss)}" title="${escapeAttr(`Banner-Farbe: ${bannerColorLabel(seat.banner_color)}`)}"`
       : '';
-    // RULE 117: whose window it is, and the buttons that end it, right on
-    // the banner of the board you're actually looking at — the toolbar at
-    // the top of the page is off-screen once two boards are drawn. They sit
-    // directly beside the name, which puts life and counters across from it
-    // on the right — the same left-name/right-life shape every other seat's
-    // banner has, instead of the buttons taking that right-hand slot on
-    // your own.
-    const holdsPriority = interactivePriority() && view.priority?.player_id === p.id;
+    // Keep status separate from the fixed action slots on the left.
+    const holdsPriority = interactivePriority() && !s.pending_choice && !s.waiting_on_choice
+      && view.priority?.player_id === p.id;
     const priorityDisabled = busy || !!pending || !hasPriority();
     // "Zurücknehmen (n)" only for this client's own banner, only when the
     // table configured a take-back budget and this seat has some left, and
@@ -1727,8 +1789,8 @@ export function createGameBoardView(opts = {}) {
       : !interactivePriority()
         ? takebackBtn
         : isMe
-          ? `${priorityBadgeHtml(holdsPriority, true, p.name)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${yieldButtonsHtml(busy || !!pending, ' gf-banner-yield')}${takebackBtn}`
-          : `${priorityBadgeHtml(holdsPriority, false, p.name)}${yieldBadgeHtml(p.id)}`;
+          ? `<div class="gf-banner-actions"><span>${yieldButtonsHtml(busy || !!pending, ' gf-banner-yield')}</span>${passButtonHtml(priorityDisabled, ' gf-banner-pass')}</div>${takebackBtn}`
+          : yieldBadgeHtml(p.id);
     // Folding an opponent away is only offered at a pod-sized table — with
     // one opponent there is nothing to scroll past.
     const opponents = s.players.filter((o) => !o.is_dummy && o.id !== seatId).length;
@@ -1737,13 +1799,21 @@ export function createGameBoardView(opts = {}) {
     return `
       <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${folded ? ' gf-board-folded' : ''}" data-player-id="${escapeAttr(p.id)}">
         <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
+          <div class="gf-banner-identity">
           ${
             foldable
               ? `<button type="button" class="gf-board-fold" data-fold-board="${escapeAttr(p.id)}" title="${folded ? escapeAttr(t('bd.fold.expand')) : escapeAttr(t('bd.fold.collapse'))}" aria-expanded="${folded ? 'false' : 'true'}">${folded ? '▸' : '▾'}</button>`
               : ''
           }
           <h3>${escapeHtml(p.name)}${badges}</h3>
-          ${priorityBits ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
+            ${priorityBits ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
+          </div>
+          <div class="gf-banner-center">
+            <div class="gf-banner-status">
+              <span>${isActive ? `<span class="gf-seat-badge gf-seat-active">${t('bd.seat.active')}</span>` : ''}</span>
+              <span>${priorityBadgeHtml(holdsPriority, isMe, p.name)}</span>
+            </div>
+          </div>
           <div class="gf-banner-stats">
             ${manaPoolHtml(p.mana_pool)}
             ${manaPotentialHtml(view.mana_potential?.[p.id])}
@@ -1782,7 +1852,7 @@ export function createGameBoardView(opts = {}) {
                   ${t('bd.bf.statics')}
                 </label>
               </div>
-              ${battlefieldHtml(bf, byInstance, pending)}
+              ${battlefieldHtml(s.battlefield, p.id, byInstance, pending)}
             </div>
 
             ${showStatics ? staticEffectsPanelHtml(view, s) : ''}
@@ -2027,8 +2097,11 @@ export function createGameBoardView(opts = {}) {
   // rather than being fully blocked.
   function pendingChoiceHtml(pending, aside = false) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
-    const heading = pending.prompt || pending.description || t('bd.choice.needed');
-    const body = ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
+    const heading = pending.kind === 'proliferate' ? t('bd.proliferate.title')
+      : pending.prompt || pending.description || t('bd.choice.needed');
+    const body = pending.kind === 'proliferate'
+      ? proliferateChoiceHtml(pending)
+      : ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
       ? physicalMeasurementHtml(pending)
       : pending.kind === 'replacement_order'
       ? replacementOrderHtml(pending)
@@ -2063,6 +2136,32 @@ export function createGameBoardView(opts = {}) {
         </div>
       </div>
     `;
+  }
+
+  function proliferateChoiceHtml(pending) {
+    const options = (pending.options || []).filter(o => o.id !== 'decline');
+    if (proliferateDraft.key !== pending.selection_id) {
+      proliferateDraft = { key: pending.selection_id, ids: new Set(pending.recommended_ids || []) };
+    }
+    const rows = options.map(option => {
+      const player = (view.state.players || []).find(p => p.id === option.player_id);
+      const object = (view.state.battlefield || []).find(o => o.instance_id === option.instance_id);
+      const counters = { ...(player?.counters || object?.counters || {}) };
+      if (player?.poison) counters.poison = player.poison;
+      const marks = Object.entries(counters).filter(([,n]) => n > 0).map(([kind,n]) => `${kind}: ${n} → ${Number(n) + 1}`).join(', ');
+      const owner = object ? playerName(object.controller_id) : playerName(option.player_id);
+      return `<label class="gf-proliferate-option">
+        <input type="checkbox" data-proliferate-option="${escapeAttr(option.id)}" ${proliferateDraft.ids.has(option.id) ? 'checked' : ''} ${busy ? 'disabled' : ''}>
+        <span><strong>${escapeHtml(option.label)}</strong>${object ? ` · ${escapeHtml(owner)}` : ''}<br><small>${escapeHtml(marks)}</small></span>
+      </label>`;
+    }).join('');
+    return `<p>${escapeHtml(t('bd.proliferate.hint'))}</p>
+      <div class="gf-proliferate-options">${rows}</div>
+      <div class="gf-choice-options">
+        <button type="button" data-proliferate-reset ${busy ? 'disabled' : ''}>${t('bd.proliferate.recommend')}</button>
+        <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.proliferate.clear')}</button>
+        <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
+      </div>`;
   }
 
   function measurementValue(text, pending) {
@@ -2450,6 +2549,24 @@ export function createGameBoardView(opts = {}) {
           targets: [...form.querySelector('[data-blind-targets]').selectedOptions].map(o => JSON.parse(o.value))});
       });
     });
+    root.querySelectorAll('[data-proliferate-option]').forEach(el => {
+      el.addEventListener('change', () => {
+        if (el.checked) proliferateDraft.ids.add(el.dataset.proliferateOption);
+        else proliferateDraft.ids.delete(el.dataset.proliferateOption);
+      });
+    });
+    root.querySelector('[data-proliferate-reset]')?.addEventListener('click', () => {
+      proliferateDraft.ids = new Set(view.state.pending_choice.recommended_ids || []);
+      render();
+    });
+    root.querySelector('[data-proliferate-clear]')?.addEventListener('click', () => {
+      proliferateDraft.ids.clear();
+      render();
+    });
+    root.querySelector('[data-proliferate-confirm]')?.addEventListener('click', () => {
+      if (busy) return;
+      act({ type: 'choose', selection_id: proliferateDraft.key, option_ids: [...proliferateDraft.ids] });
+    });
     const measurementForm = root.querySelector('[data-physical-measurement]');
     if (measurementForm) {
       const input = measurementForm.querySelector('[data-measurement-value]');
@@ -2477,14 +2594,12 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
         const action = JSON.parse(el.dataset.action);
-        // RULE 508.1g makes paying an attack tax optional. The board asks at
-        // the declaration click, before the backend's auto-payment path can
-        // consume floating mana; declining simply leaves this creature out
-        // of combat.
-        if (action.attack_tax_amount > 0) {
-          if (!window.confirm(t('bd.attackTax.confirm', { cost: `{${action.attack_tax_amount}}` }))) return;
-          delete action.attack_tax_amount;
-          action.pay_attack_tax = true;
+        if (action.type === 'declare_attackers') {
+          const iid = action.instance_ids[0];
+          attackDraft.set(iid, action);
+          attackMenuOpen.delete(iid);
+          render();
+          return;
         }
         act(action);
       });
@@ -2608,6 +2723,18 @@ export function createGameBoardView(opts = {}) {
       waitingChoiceAside = !waitingChoiceAside;
       render();
     });
+
+    root.querySelectorAll('[data-attack-remove]').forEach(el => {
+      el.addEventListener('click', () => {
+        attackDraft.delete(Number(el.dataset.attackRemove));
+        render();
+      });
+    });
+    root.querySelector('[data-attack-clear]')?.addEventListener('click', () => {
+      attackDraft.clear();
+      render();
+    });
+    root.querySelector('[data-attack-confirm]')?.addEventListener('click', submitAttackers);
 
     // Expand/collapse a creature's "choose a defender" submenu.
     root.querySelectorAll('[data-attack-toggle]').forEach((el) => {
@@ -3049,7 +3176,7 @@ export function createGameBoardView(opts = {}) {
   // enchantments / lands). Attachments (Auras, Equipment — RULE 301/303) are
   // pulled out of the flow and drawn inside a dashed group box around the
   // permanent they're attached to, rather than as loose cards.
-  function battlefieldHtml(objs, byInstance = {}, pending = null) {
+  function battlefieldHtml(objs, controllerId, byInstance = {}, pending = null) {
     if (!objs.length) return `<p class="empty-state">${t('bd.bf.none')}</p>`;
     const imageCache = getState().imageCache;
     const byId = new Map(objs.map((o) => [o.instance_id, o]));
@@ -3063,7 +3190,10 @@ export function createGameBoardView(opts = {}) {
         attachedIds.add(o.instance_id);
       }
     }
-    const top = objs.filter((o) => !attachedIds.has(o.instance_id));
+    // Attachments can be controlled by a different player than their host (RULE 303.4e).
+    // Build the group from the whole battlefield, then place it on the host's board.
+    const top = objs.filter((o) => !attachedIds.has(o.instance_id) && o.controller_id === controllerId);
+    if (!top.length) return `<p class="empty-state">${t('bd.bf.none')}</p>`;
 
     const creatures = top.filter((o) => o.is_creature);
     const lands = top.filter((o) => !o.is_creature && o.is_land);
@@ -3076,7 +3206,10 @@ export function createGameBoardView(opts = {}) {
     // rather than dropping it: only `top`-level hosts were being walked here,
     // so anything attached to an *attachment* never appeared at all.
     const renderAttached = (o) => {
-      const card = objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []);
+      const tile = objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []);
+      const card = o.controller_id !== controllerId
+        ? `<div class="gf-foreign-attachment">${tile}<small>${escapeHtml(t('bd.target.controllerTitle', { name: playerName(o.controller_id) }))}</small></div>`
+        : tile;
       const nested = attachments.get(o.instance_id);
       if (!nested || !nested.length) return card;
       return card + nested.map(renderAttached).join('');
@@ -3473,7 +3606,7 @@ export function createGameBoardView(opts = {}) {
     // printed rotated 180° on the one shared image).
     if (o.flipped) classes.push('flipped');
     if (isSummoningSick) classes.push('summoning-sick');
-    if (o.attacking) classes.push('attacking');
+    if (o.attacking || attackDraft.has(o.instance_id)) classes.push('attacking');
     if (compactView) classes.push('compact-card');
     // RULE 115/601.2c: this object is the chosen target of something
     // currently on the stack — `updateTargetOverlays` (called once per
@@ -3504,7 +3637,9 @@ export function createGameBoardView(opts = {}) {
       ? `<span class="gf-compact-pt${ptChanged ? ' is-changed' : ''}" title="${escapeAttr(`${o.power}/${o.toughness}`)}">${o.power}/${o.toughness}</span>`
       : '';
     const buttons = cardActionButtons(cardActions);
-    const attackBadge = o.attacking
+    const attackBadge = attackDraft.has(o.instance_id)
+      ? `<span class="gf-attacking-badge">⚔️ ${escapeHtml(t('bd.attack.selected'))}${attackDraft.get(o.instance_id).defender_label ? ` → ${escapeHtml(attackDraft.get(o.instance_id).defender_label)}` : ''}</span>`
+      : o.attacking
       ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
       : '';
     // RULE 302.6: only an actually restricted creature gets a badge. Inset in the
@@ -4239,11 +4374,15 @@ export function createGameBoardView(opts = {}) {
   function attackControlHtml(a) {
     const defenders = a.legal_defenders || [];
     const iid = a.instance_id;
+    if (attackDraft.has(iid)) {
+      return `<button type="button" class="gf-card-action" data-attack-remove="${iid}" ${busy ? 'disabled' : ''}>✕ ${t('bd.attack.deselect')}</button>`;
+    }
     const attackAction = (defender, index) => ({
       type: 'declare_attackers', instance_ids: [iid],
       ...(defender ? { defender: defenderPayload(defender) } : {}),
       attack_tax_amount: a.attack_tax_amounts?.[index] || 0,
       name: a.name,
+      defender_label: defender?.label,
     });
     if (defenders.length === 0) {
       return actionButton(
@@ -4660,6 +4799,9 @@ export function createGameBoardView(opts = {}) {
    * otherwise keep ticking against a game this client is no longer in.
    */
   function stop() {
+    audio.stop();
+    audioView = null;
+    audioSession = null;
     stopAutoPass();
     autoPassWindowKey = null;
     sessionId = null;

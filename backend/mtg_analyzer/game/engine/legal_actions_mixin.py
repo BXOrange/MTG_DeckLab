@@ -666,6 +666,14 @@ class LegalActionsMixin:
             # the printed payment alongside this alternative payment.
             action["base_cost"] = payment.mana.raw
             action.pop("cast_from_graveyard", None)
+        # RULE 601.2f / 903.8: advertise the effective mana component of
+        # this offered payment, so ordinary clients need not infer discounts
+        # or commander tax from printed mana value. X remains a parameter.
+        if "effective_cost" not in action and not (free or alt_cost):
+            action["effective_cost"] = self.effective_cast_cost(
+                player, obj, 0, mode=mode, evoke=evoke, warp=warp,
+                surge=surge, entwine=entwine, pay_additional=pay_additional,
+            ).raw
         if teamwork:
             delattr(obj, "_modal_announced_teamwork")
         return action
@@ -880,7 +888,8 @@ class LegalActionsMixin:
             if locked is None:
                 return False
             mana = locked
-        return mana_potential.is_castable_via_potential(self, player, mana)
+        return mana_potential.is_castable_via_potential(self, player, mana,
+            reserved_ids=self._activation_reserved_taps(player, source, ability, minimum_x))
     def _offer_cast(self, actions: list[dict[str, Any]], player: Player, obj: GameObject) -> None:
         """Append the right cast offer(s) for ``obj``: one `_cast_action`
         entry, or one per mode via `_modal_cast_actions` if it's modal (RULE

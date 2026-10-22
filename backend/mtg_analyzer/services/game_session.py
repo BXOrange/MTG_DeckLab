@@ -311,6 +311,7 @@ _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
     "names": [],
     "mana_value": None,
     "mana_cost": "",
+    "oracle_text": "",
     "type_line": "",
     "has_back_face": False,
     "is_creature": False,
@@ -656,6 +657,8 @@ class GameSession:
         self._pending_opening_hand.clear()
         self._priority_window_pending = False
         self._yields.clear()
+        # Plans and repeat guards belong to the restored timeline.
+        self._smart2_memory = {}
 
     @property
     def can_rewind(self) -> bool:
@@ -1067,8 +1070,15 @@ class GameSession:
         # A choice is answered by an option id ("cast"/"hand"/"decline" or
         # a card's instance id). `decline` is shorthand for the decline
         # option; a legacy `instance_id`-only payload still works.
-        if action["type"] == "decline":
-            answer: Any = "decline"
+        if "option_ids" in action:
+            pending = self.engine.state.pending_choice or {}
+            if (pending.get("kind") != "proliferate"
+                    or action.get("selection_id") != pending.get("selection_id")
+                    or not isinstance(action["option_ids"], list)):
+                raise ValueError("invalid or stale proliferate selection")
+            answer: Any = action["option_ids"]
+        elif action["type"] == "decline":
+            answer = "decline"
         else:
             answer = action.get("option_id")
             if answer is None:
@@ -1318,12 +1328,26 @@ class GameSession:
         )
 
     def _dispatch_declare_attackers(self, action: dict[str, Any], active: Player) -> None:
+        if "declarations" in action:
+            picks = action["declarations"]
+            if not isinstance(picks, list) or any(not isinstance(p, dict) for p in picks):
+                raise ValueError("invalid attacker declarations")
+            ids = [int(p["instance_id"]) for p in picks]
+            if len(set(ids)) != len(ids):
+                raise ValueError("duplicate attacker")
+            self.engine.declare_attackers(active, [
+                {"attacker": self._object_by_id(iid),
+                 "defender": self._resolve_defender(pick.get("defender")),
+                 "pay_attack_tax": bool(pick.get("pay_attack_tax", True))}
+                for iid, pick in zip(ids, picks)
+            ])
+            return
         ids = action.get("instance_ids")
         if ids is None and "instance_id" in action:
             ids = [action["instance_id"]]
         # A single declared defender applies to every attacker in this
-        # call (the UI declares one creature per click, each picking its
-        # own defender). None → the engine auto-assigns / bare swing.
+        # legacy call. The board can submit a complete per-defender batch
+        # above. None → the engine auto-assigns / bare swing.
         defender = self._resolve_defender(action.get("defender"))
         declarations = [
             {
@@ -2417,6 +2441,13 @@ class GameSession:
                  "instance_id": action.get("instance_id"), "action": action}
                 for index, action in enumerate(actions)
             ]}
+        if pc and pc.get("kind") == "proliferate":
+            from copy import deepcopy
+            from .smart_bot2.counters import recommended_recipients
+            pc = deepcopy(pc)
+            state_dict["pending_choice"] = pc
+            pc["recommended_ids"] = recommended_recipients(
+                {"state": state_dict, "pending_choice": pc}, pc["player_id"])
         return {
             "session_id": self.id,
             "bot_status": {k: dict(v) for k, v in getattr(self, "_bot_status", {}).items()},
@@ -2425,7 +2456,16 @@ class GameSession:
             "acting_as": acting_as,
             "state": state_dict,
             "legal_actions": actions,
+            # Public actions/life changes only; no drawn-card identities.
+            "turn_facts": {
+                "spells_cast": dict(self.engine.state.spells_cast_this_turn),
+                "life_gained": dict(self.engine.state.life_gained_this_turn),
+                "life_lost": dict(self.engine.state.life_lost_this_turn),
+                "lands_entered": dict(self.engine.state.lands_entered_this_turn),
+            },
             "pending_choice": state_dict.get("pending_choice"),
+            # Policy diagnostics contain own private choices: only this seat.
+            "bot_decision": getattr(self, "_smart2_memory", {}).get(perspective, {}).get("trace") if perspective else None,
             # PLR-6: the caller's own in-progress, not-yet-submitted UI
             # selection (`set_ui_draft`) — never anyone else's, though
             # there's no RULE 400.2 secrecy concern either way, since a

@@ -48,6 +48,13 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
   `legal_actions`) — except RULE 509.1a declare-blockers, which the defender takes
   while the attacker holds priority; "no blocks" is an empty `assignments` list.
 
+- The shared board stages editable attacker picks locally. Confirmation sends
+  `declare_attackers` with `declarations: [{instance_id, defender,
+  pay_attack_tax}]` as one batch, preserving each creature's defender.
+  Legacy `instance_ids` plus a common `defender` remain accepted. Invalid or
+  duplicate batch entries fail before declaration; the session rollback
+  preserves the previous position.
+
 ## Solo bot updates
 
 One action per response: human POSTs return before bots answer; each following GET
@@ -76,6 +83,9 @@ not.
   (`MTG_MULTIPLAYER_DISCONNECT_GRACE`, 90s) with `pass_for_absent_players`, then
   concede. A priority holder silent past `MTG_MULTIPLAYER_IDLE_TIMEOUT` (120s) has
   the socket closed. Both swept once a second by `api/multiplayer_ws.sweep_once`.
+- A resolving choice suspends client priority even when its details are redacted
+  to `waiting_on_choice`. Auto-skip, countdown and manual passing must all wait
+  for the choosing player; the retained priority marker is not an action offer.
 - Client countdown (`gameBoardView.js` `autoPassArmed`/`railTimerHtml`,
   `reactTimerSuppressedHere()`) runs when this client holds priority on another
   player's turn, or with something on the stack, or in passive upkeep/draw/end

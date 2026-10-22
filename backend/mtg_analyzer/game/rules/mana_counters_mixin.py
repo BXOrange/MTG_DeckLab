@@ -642,22 +642,28 @@ class ManaCountersMixin:
             recipient_is_planeswalker=bool(getattr(getattr(obj, "card", None), "is_planeswalker", False)),
         )
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            if continuous.counters_prohibited_for(self.state, obj, resolved.get("kind", kind)):
-                return
-            _place(resolved.get("amount", amount))
-            # "Whenever a -1/-1 counter is put on a creature, …" (Flourishing
-            # Defenses) / "…on a permanent you control, …" (Hardened Scales-
-            # adjacent triggered, not just replacement, consumers) — RULE
-            # 122.5's own trigger family. `apply_replacements` only ever used
-            # this event to compute the final amount; nothing broadcast it,
-            # so `_collect_triggers` (a `state.fire_event` subscriber) could
-            # never see a counter placement at all until now.
-            self.state.fire_event(resolved)
+        self.apply_replacements(event, on_resolved={
+            "kind": "permanent_counters", "instance_id": obj.instance_id,
+            "visit": obj.zone_incarnation, "counter_kind": kind, "amount": amount,
+            "object": obj,  # prospective entrants may not be in a zone yet
+        })
 
-        self.apply_replacements(event, on_resolved=_finish)
+    def _finish_permanent_counters(self, receipt: dict, resolved: Optional[GameEvent]) -> None:
+        if resolved is None:
+            return
+        obj = self.state.find_object(receipt["instance_id"]) or receipt.get("object")
+        if obj is None or obj.zone_incarnation != receipt["visit"]:
+            return  # RULE 400.7: never place counters on a later visit.
+        kind = resolved.get("kind", receipt["counter_kind"])
+        if continuous.counters_prohibited_for(self.state, obj, kind):
+            return
+        amount = resolved.get("amount", receipt["amount"])
+        if kind == "+1/+1":
+            obj.plus_one_counters += amount
+        else:
+            obj.add_counters(kind, amount)
+        self.state.fire_event(resolved)
+
     def add_player_counters(
         self, player: Player, amount: int, kind: str = "poison", source: Optional[GameObject] = None
     ) -> None:
@@ -699,15 +705,18 @@ class ManaCountersMixin:
             recipient_is_creature=False,
         )
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            _place(resolved.get("amount", amount))
-            # See `add_counters`'s matching fix: broadcast so a "whenever a
-            # player gets a poison/energy counter" trigger can actually fire.
+        self.apply_replacements(event, on_resolved={
+            "kind": "player_counters", "player_id": player.id,
+            "counter_kind": kind, "amount": amount,
+        })
+
+    def _finish_player_counters(self, receipt: dict, resolved: Optional[GameEvent]) -> None:
+        if resolved is not None:
+            player = self.state.player_by_id(receipt["player_id"])
+            player.add_counters(resolved.get("kind", receipt["counter_kind"]),
+                                resolved.get("amount", receipt["amount"]))
             self.state.fire_event(resolved)
 
-        self.apply_replacements(event, on_resolved=_finish)
     def _request_counter_kind_choice(
         self, effect: AddCountersEffect, context: GameContext, targets: Optional[list[Any]]
     ) -> None:

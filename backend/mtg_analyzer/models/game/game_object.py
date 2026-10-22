@@ -865,6 +865,9 @@ class GameObject:
         #: RULE 614.12: a before-entry instruction replaced this object's entry (Mox Diamond's "if you
         #: don't, put it into its owner's graveyard") while it was being prepared inside a battlefield
         #: batch; the batch consumes the flag and drops the entrant instead of admitting it.
+        # RULE 702.136: per-entry preparation and a pending lasting haste grant.
+        self.riot_entry_prepared: bool = False
+        self.riot_entry_haste: bool = False
         self.entry_abandoned: bool = False
         #: The `enter_choice_effects` as bound. Entry consumes that queue one instruction at a time, so a
         #: new object (RULE 400.7: blink, reanimation) gets it back from here in `reset_as_new_object`.
@@ -893,13 +896,10 @@ class GameObject:
         #: has no protector. RULE 400.7: a new object picks afresh, so
         #: `reset_as_new_object` clears it.
         self.protector_id: Optional[str] = None
-        #: Whether this Siege's RULE 310.11b "when the last defense counter
-        #: is removed" ability has already fired. A latch, not a state: the
-        #: SBA pass is what notices defense reached 0 (so *every* route
-        #: there is covered, not just damage), and it runs repeatedly until
-        #: nothing changes — without this the same defeat would re-trigger
-        #: on every pass while the first trigger still sat on the stack.
-        self.battle_defeat_triggered: bool = False
+        #: RULE 310.12b: actual removals of the last defense counter waiting
+        #: for trigger placement. Entering at zero is not such an event;
+        #: adding counters again does not undo an ability already triggered.
+        self.pending_siege_defeats: int = 0
         #: A named-mode choice from this object's own "as ~ enters, choose
         #: <Label1> or <Label2>" ability (Struggle for Project Purity's
         #: "choose Brotherhood or Enclave") — a lowercase slug of the chosen
@@ -1478,6 +1478,8 @@ class GameObject:
         if self.enter_choice_template is not None:
             self.enter_choice_effects = list(self.enter_choice_template)
         self.entry_abandoned = False
+        self.riot_entry_prepared = False
+        self.riot_entry_haste = False
         # RULE 708.9: a face-down permanent is revealed as it changes zones,
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).
@@ -1656,7 +1658,7 @@ class GameObject:
         self.chosen_color = None
         self.chosen_colors = []
         self.protector_id = None
-        self.battle_defeat_triggered = False
+        self.pending_siege_defeats = 0
         self.chosen_mode = None
         self.chosen_player_id = None
         self.chosen_permanent_id = None
@@ -2012,7 +2014,14 @@ class GameObject:
         drops the kind entirely (RULE 122.1c: a counter you can't remove
         simply isn't there).
         """
-        total = self.counters.get(kind, 0) + amount
+        previous = self.counters.get(kind, 0)
+        total = previous + amount
+        # RULE 310.12b / 603.2: trigger on removal, not merely on observing
+        # zero later. This covers damage and effects that remove counters.
+        if (kind == "defense" and previous > 0 and total <= 0
+                and self.zone == Zone.BATTLEFIELD and self.is_battle
+                and self.card.is_siege and not self.loses_all_abilities):
+            self.pending_siege_defeats += 1
         if total > 0:
             self.counters[kind] = total
         else:
@@ -2288,6 +2297,7 @@ class GameObject:
             "names": list(self.names),
             "mana_value": self.mana_value,
             "mana_cost": self.mana_cost_string,
+            "oracle_text": self.card.oracle_text or "",
             "owner_id": self.owner_id,
             "controller_id": self.controller_id,
             "zone": self.zone.value if self.zone is not None else None,

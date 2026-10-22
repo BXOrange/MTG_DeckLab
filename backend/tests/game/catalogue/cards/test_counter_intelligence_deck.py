@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from tests.proliferate_helpers import choose_all_proliferate
+
 import pytest
+
+from tests.proliferate_helpers import choose_all_proliferate
 
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -313,6 +317,8 @@ def test_tekuthal_doubles_proliferate():
 
     def proliferate():
         ProliferateEffect(source=rock).apply(GameContext(engine.state, engine.rules))
+        choose_all_proliferate(engine)
+        choose_all_proliferate(engine)
 
     proliferate()
     assert rock.counters["charge"] == 3  # +1 twice, not once
@@ -425,6 +431,8 @@ def test_patrolling_peacemaker_proliferates_when_an_opponent_commits_a_crime():
     crime("p1")  # my own crime: no trigger
     assert rock.counters["charge"] == 1
     crime("p2")  # an opponent's: proliferate
+    choose_all_proliferate(engine)
+    choose_all_proliferate(engine)
     assert rock.counters["charge"] == 2 and peacemaker.counters["+1/+1"] == 3
 
 
@@ -446,6 +454,8 @@ def test_patrolling_peacemaker_proliferates_after_an_opponents_real_targeted_spe
     p2.mana_pool.add_many({"R": 1})
     engine.cast_spell(p2, bolt, targets=[peacemaker])
     engine.resolve_until_stable()
+    choose_all_proliferate(engine)
+    choose_all_proliferate(engine)
     assert rock.counters["charge"] == 2
     assert peacemaker.counters["+1/+1"] == 3
 
@@ -550,6 +560,8 @@ def test_ripples_of_potential_proliferates_then_phases_out_the_chosen_permanents
     p1.mana_pool.add_many({"U": 1, "C": 1})
     engine.cast_spell(p1, p1.hand[0])
     engine.resolve_until_stable()
+    choose_all_proliferate(engine)
+    choose_all_proliferate(engine)
     assert (mine.counters["charge"], kept.counters["+1/+1"], theirs.counters["charge"]) == (2, 2, 2)  # proliferate
 
     choice = engine.state.pending_choice

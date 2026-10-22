@@ -51,6 +51,7 @@ from ..effects.core import (
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseEnterCounterReplacement,
+    ChooseRiotReplacement,
     ChooseNamedModeReplacement,
     ChooseNumberReplacement,
     ChooseOpponentReplacement,
@@ -339,6 +340,8 @@ class CastingResolutionMixin:
     def _apply_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         # RULE 122.6 / 614.12: printed, granted and mana-spend entry counters
         # form one placement; all applicable replacements see the total.
+        from ..riot import apply_entry_haste
+        apply_entry_haste(self.state, obj)
         amounts = {}
         obj._entry_counter_collection = amounts
         try:
@@ -354,6 +357,10 @@ class CastingResolutionMixin:
             # actual result so add_to_battlefield's fixture/default seeding
             # cannot restore counters after the replacement (RULE 614.6).
             obj.counters.setdefault("loyalty", 0)
+        if obj.is_battle:
+            # RULE 310.4b / 614.6: preserve a prevented placement as zero;
+            # the low-level battlefield-entry fallback must not undo it.
+            obj.counters.setdefault("defense", 0)
 
     def _collect_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
@@ -371,6 +378,10 @@ class CastingResolutionMixin:
         # counters in one entry placement, including counter replacements.
         if obj.is_planeswalker and obj.card.loyalty:
             self._add_entry_counters(obj, "loyalty", int(obj.card.loyalty))
+        # RULE 310.4b: native defense is an entry replacement too, so it
+        # participates in the same placement as all other entry counters.
+        if obj.is_battle and obj.card.defense:
+            self._add_entry_counters(obj, "defense", int(obj.card.defense))
         from ..mana_spend_riders import apply_entry_riders
         apply_entry_riders(self, obj)
         # RULE 702.32a Fading N / RULE 702.61a Vanishing N: "this permanent
@@ -2153,6 +2164,7 @@ class CastingResolutionMixin:
                 latest_milled_visits=resumed.get("latest_milled_visits"),
                 counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
                 damaged_this_way=resumed.get("damaged_this_way"),
+                proliferated_objects=resumed.get("proliferated_objects"),
                 previous_selector=resumed.get("previous_selector"),
                 revealed_card=resumed.get("revealed_card"),
                 clash_won=resumed.get("clash_won"),
@@ -2878,6 +2890,12 @@ class CastingResolutionMixin:
         is empty (or was empty to begin with — nothing to choose, nothing
         pauses), same as `_offer_enter_as_copy`'s no-legal-target case.
         """
+        if not obj.enter_choice_effects and not obj.riot_entry_prepared:
+            # RULE 614.12 / 702.136: after copy/characteristic choices, check
+            # the would-be permanent, including Riot granted by existing statics.
+            from ..riot import entry_instances
+            obj.riot_entry_prepared = True
+            obj.enter_choice_effects = [ChooseRiotReplacement() for _ in range(entry_instances(self.state, obj))]
         if not obj.enter_choice_effects:
             continuation()
             return
@@ -2911,7 +2929,11 @@ class CastingResolutionMixin:
             obj.enter_choice_effects = remaining
             self._offer_enter_choices(obj, continuation)
 
-        if isinstance(effect, ChooseCreatureTypeReplacement):
+        if isinstance(effect, ChooseRiotReplacement):
+            kind = "riot"
+            prompt = f"{obj.name}: Riot — +1/+1-Marke oder Haste?"
+            options = [{"id": "counter", "label": "+1/+1-Marke"}, {"id": "haste", "label": "Haste"}]
+        elif isinstance(effect, ChooseCreatureTypeReplacement):
             kind = "choose_creature_type"
             prompt = "Kreaturentyp wählen"
             options = [{"id": t, "label": t} for t in _creature_type_options(self.state, obj.controller_id)]
@@ -2987,13 +3009,46 @@ class CastingResolutionMixin:
         self._pending_enter_choice_obj = obj
         self._pending_enter_choice_effect = effect
         self._pending_enter_choice_continuation = _next
+        if kind == "riot":
+            self.state.pending_riot_entry = obj
         self.open_choice({
             "kind": kind,
             "player_id": obj.controller_id,
             "prompt": prompt,
             "options": options,
             **({"free_text": True} if kind in ("choose_card_name", "choose_number") else {}),
+            **({"entry_effect": bool(self.state.pending_permanent_entry)} if kind == "riot" else {}),
         })
+
+    @continuations.choice("riot", answer=continuations.ANSWER_STR, rule="702.136")
+    def _resume_riot(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        obj = self.state.pending_riot_entry
+        self.state.pending_riot_entry = None
+        if obj is None:
+            raise ValueError("no pending Riot entrant")
+        if answer == "counter":
+            # RULE 122.6: collect the extra counter with all other entry counters,
+            # so Doubling Season sees one combined placement before ETB triggers.
+            obj.entry_bonus_counters["+1/+1"] = obj.entry_bonus_counters.get("+1/+1", 0) + 1
+        else:
+            # Declining Riot's optional counter grants haste, even if another
+            # effect would prohibit counters (RULE 702.136a / 101.2).
+            obj.riot_entry_haste = True
+        if choice.get("entry_effect"):
+            # The state-owned permanent entry resumes after the handler, also
+            # in a cloned/undone position where the old callback is unavailable.
+            obj.enter_choice_effects = obj.enter_choice_effects[1:]
+            self._pending_enter_choice_obj = None
+            self._pending_enter_choice_effect = None
+            self._pending_enter_choice_continuation = None
+        else:
+            continuation = self._pending_enter_choice_continuation
+            self._pending_enter_choice_obj = None
+            self._pending_enter_choice_effect = None
+            self._pending_enter_choice_continuation = None
+            if continuation is not None:
+                continuation()
+
     @continuations.choice(
         "choose_creature_type", "choose_color", "choose_named_mode",
         "choose_basic_land_type", "choose_card_type", "choose_card_name", "choose_number", "choose_opponent_on_enter",

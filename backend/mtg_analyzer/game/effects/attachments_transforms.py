@@ -1275,7 +1275,7 @@ class MeldEffect(GameEffect):
 
 
 class SiegeDefeatedEffect(GameEffect):
-    """A Siege's intrinsic defeat ability (RULE 310.11b): "exile it, then you
+    """A Siege's intrinsic defeat ability (RULE 310.12b): "exile it, then you
     may cast it transformed without paying its mana cost."
 
     Untargeted and always self, like `ExileReturnTransformedEffect` above —
@@ -1283,15 +1283,22 @@ class SiegeDefeatedEffect(GameEffect):
     **exile and stays there**, and its back face becomes castable from
     exile for free. It does *not* come back to the battlefield on its own.
 
-    Never bound from oracle text or the catalogue: RULE 310.11b is
+    Never bound from oracle text or the catalogue: RULE 310.12b is
     intrinsic to the Siege subtype, so `RulesEngine.check_state_based_
-    actions` builds this per firing when a Siege's defense hits 0. That's
+    actions` builds this per recorded removal of the last defense counter. That's
     also why it takes its source at construction rather than relying on a
     bind-time one.
     """
 
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.source_incarnation = source.zone_incarnation if source is not None else None
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is not None:
+        # RULE 400.7: another defeat trigger cannot exile/flip the card
+        # again after this battlefield visit has ended.
+        if (self.source is not None and self.source in context.state.battlefield
+                and self.source.zone_incarnation == self.source_incarnation):
             context.engine.exile_siege_for_transformed_cast(self.source)
 
 

@@ -80,6 +80,11 @@ Buttons appear directly under a card for whatever it can currently do:
 - A locked action shows **🔒** with a reason (e.g. "kein gültiges
   Ziel" — no legal target) instead of a clickable button.
 
+Selected attackers are initially marked as a draft. Use **Do not attack**
+to deselect a creature or **Deselect all** to clear the selection.
+**Confirm attack** declares the remaining attackers together. Until then,
+creatures stay untapped and attack abilities do not trigger.
+
 Rooms show a 🔒/🔓 marker for each door. Casting a half unlocks that door;
 only unlocked halves contribute abilities, names and mana value. During a
 main phase of your turn, with priority and an empty stack, **🚪 Unlock …**

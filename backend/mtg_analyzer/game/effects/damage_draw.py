@@ -2146,12 +2146,7 @@ class RevealRandomHandCardEffect(GameEffect):
 
 
 class PutHandCardsOnTopEffect(GameEffect):
-    """"Put N cards from your hand on top of your library in any order"
-    (Brainstorm's back half — the same loot-shaped template other
-    draw-then-filter cards this pool doesn't need yet would share). See
-    `RulesEngine.put_hand_cards_on_top` for why the missing "any order"
-    choice is inert at this engine's fidelity.
-    """
+    """Choose N hand cards to put on the library in any order (RULE 401.4)."""
 
     def __init__(self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
@@ -2159,7 +2154,7 @@ class PutHandCardsOnTopEffect(GameEffect):
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or context.active_player
+        player = self.player or _controller_of(self.source, context)
         context.put_hand_cards_on_top(player, self.count)
 
 

@@ -124,10 +124,10 @@ class TestRegistry:
         assert SoloOpponent(deckId='deck', kind='goldfish').kind == 'goldfish'
 
     def test_all_bots_are_registered_and_described(self):
-        assert set(BOT_TYPES) == {"goldfish", "greedy", "smart", "ai", "mana_maximizer"}
+        assert set(BOT_TYPES) == {"goldfish", "greedy", "smart", "smart2", "ai", "mana_maximizer"}
         catalogue = bot_catalogue()
         assert catalogue[0]['kind'] == 'smart'
-        assert {b["kind"] for b in catalogue} == {"goldfish", "greedy", "smart", "ai", "mana_maximizer"}
+        assert {b["kind"] for b in catalogue} == {"goldfish", "greedy", "smart", "smart2", "ai", "mana_maximizer"}
         assert all(b["label"] and b["description"] for b in catalogue)
 
     def test_create_bot_rejects_an_unknown_kind(self):

@@ -1,5 +1,5 @@
 // "Einstellungen" tab: live backend connection status, manual connection
-// test, data updates and optional server-wide LLM configuration.
+// test, data updates, game audio and optional server-wide LLM configuration.
 // Everything player-facing (name, multiplayer preferences,
 // uploaded token art / sleeves, favorite decks) lives on the "Profil" tab
 // (profileView.js) — plus the UI language switch (i18n.js), which persists
@@ -22,6 +22,7 @@ import {
   refreshConnectionStatus,
 } from './connectionStatus.js';
 import { t, getLang, setLang, LANGUAGES } from './i18n.js';
+import { getGameAudio } from './gameAudio.js';
 import { getVisualTheme, setVisualTheme, VISUAL_THEMES } from './theme.js';
 
 const STATUS_LABELS = {
@@ -31,6 +32,7 @@ const STATUS_LABELS = {
 };
 
 export function renderConnectionSettingsView(container) {
+  const audio = getGameAudio();
   const langOptions = LANGUAGES.map(
     (l) => `<option value="${l.code}">${l.label}</option>`,
   ).join('');
@@ -70,6 +72,16 @@ export function renderConnectionSettingsView(container) {
         <label for="theme-select">${t('settings.theme')}</label>
         <select id="theme-select">${themeOptions}</select>
         <p class="hint">${t('settings.themeHint')}</p>
+      </div>
+
+      <div class="deck-section">
+        <h3>${t('settings.audio.heading')}</h3>
+        <label class="mp-inline-option">
+          <input id="settings-audio-enabled" type="checkbox" ${audio.enabled ? 'checked' : ''} />
+          ${t('settings.audio.enabled')}
+        </label>
+        <label for="settings-audio-volume">${t('settings.audio.volume')}</label>
+        <input id="settings-audio-volume" type="range" min="0" max="1" step="0.05" value="${audio.volume}" />
       </div>
 
       <div class="deck-section">
@@ -119,6 +131,13 @@ export function renderConnectionSettingsView(container) {
       </section>
     </div>
   `;
+
+  container.querySelector('#settings-audio-enabled').addEventListener('change', (event) => {
+    audio.setEnabled(event.target.checked);
+  });
+  container.querySelector('#settings-audio-volume').addEventListener('input', (event) => {
+    audio.setVolume(event.target.value);
+  });
 
   const statusEl = container.querySelector('#connection-settings-status');
   const testBtn = container.querySelector('#test-connection-btn');

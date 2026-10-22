@@ -10,13 +10,24 @@ Architecture and driver rules for bot seats. Policy detail lives elsewhere:
   reads `session.view(perspective=<own id>)` (RULE 400.2 redaction, so no opponent
   hand or library) and submits only entries of its own `legal_actions` via
   `apply_action(action, actor_id=...)`. **Never read `engine.state` from a bot.**
+- The shared dispatcher canonicalizes policy choice IDs against the current
+  offered actions. Missing or invented answers fall back to an offered base
+  decision; asynchronous waiting, free-text choices and valid Proliferate
+  selections retain their explicit contracts.
 - `Bot.decide` fixes the order: pending choice → mulligan → RULE 509.1a
   declare-blockers (the defender acts while the attacker holds priority) →
   `play()` only if it holds priority. Subclasses override policy only.
 - Policies (`services/bot_policies/`, one class per file; `services/bots.py`
   reexports them and owns the registry and driver): `GoldfishBot`, `GreedyBot`,
-  `ManaMaximizerBot`, `SmartBot`, `AIBot`. `prepare(session)` attaches policy
+  `ManaMaximizerBot`, `SmartBot`, `SmartBot2`, `AIBot`. `prepare(session)` attaches policy
   context before each fresh view.
+- `SmartBot2` uses a separate mechanic/style profile, action utility and
+  bounded combat/timing/choice planning; see [SMART_BOT.md](SMART_BOT.md).
+  Its diagnostic trace is visible only to its own perspective.
+- Smart1/Smart2 Proliferate choices and the human board's editable defaults
+  share public marginal counter utility (`smart_bot2/counters.py`). Neither
+  the recommendation nor an individual staged pick applies counters; the
+  selection finishes before placement. Unknown counter uses remain neutral.
 - `SmartBot` is the default in Solo, Multiplayer and dynamic analysis (also when
   an API request omits the kind); an explicitly chosen policy is preserved.
 - All policies accept offered opening-hand permissions (RULE 103.6) and complete

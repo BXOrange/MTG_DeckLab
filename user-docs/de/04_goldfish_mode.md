@@ -84,6 +84,11 @@ tun kann:
 - Eine gesperrte Aktion zeigt **🔒** mit einem Grund (z. B. "kein
   gültiges Ziel") statt eines klickbaren Buttons.
 
+Ausgewählte Angreifer werden zunächst nur markiert. Mit **Nicht angreifen**
+kannst du eine Kreatur wieder abwählen; **Alle abwählen** leert die Auswahl.
+Erst **Angriff bestätigen** deklariert die verbleibenden Angreifer gemeinsam.
+Bis dahin werden sie weder getappt noch lösen sie Angriffsfähigkeiten aus.
+
 Räume zeigen für jede Tür eine 🔒/🔓-Markierung. Wenn du eine Hälfte wirkst,
 wird diese Tür entriegelt; nur entriegelte Hälften tragen Fähigkeiten, Namen
 und Manawert bei. In einer Hauptphase deines Zuges, mit Priorität und leerem

@@ -828,7 +828,7 @@ def test_permanent_casting_filter_includes_battle_spells(zone):
     eng = _engine()
     player = eng.state.player_by_id("p1")
     battle = Card(id="Battle", name="Battle", type_line="Battle", mana_cost_string="{2}",
-                  converted_mana_cost=2, oracle_text="")
+                  converted_mana_cost=2, oracle_text="", defense=3)
     if zone == "hand":
         obj = _hand(eng, battle)
         _run(eng, "you may cast a permanent spell from your hand without paying its mana cost.")

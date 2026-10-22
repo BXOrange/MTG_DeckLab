@@ -364,6 +364,9 @@ class MiscSystemsMixin:
             options.append({"id": "decline", "label": "Nicht bezahlen"})
             self.open_choice({
                 "kind": "pay_energy_then", "player_id": player.id,
+                "source_id": source.instance_id if source is not None else None,
+                "source_name": source.name if source is not None else None,
+                "energy_cost": int(amount),
                 "prompt": "{E} bezahlen? (beliebig viele)", "options": options,
             })
             return
@@ -371,6 +374,9 @@ class MiscSystemsMixin:
         self.open_choice({
             "kind": "pay_energy_then",
             "player_id": player.id,
+            "source_id": source.instance_id if source is not None else None,
+            "source_name": source.name if source is not None else None,
+            "energy_cost": int(amount),
             "prompt": f"{pips} bezahlen?",
             "options": [
                 {"id": "pay", "label": f"{pips} bezahlen"},
@@ -529,6 +535,9 @@ class MiscSystemsMixin:
         self.open_choice({
             "kind": "pay_cost_then",
             "player_id": player.id,
+            "source_id": source.instance_id if source is not None else None,
+            "source_name": source.name if source is not None else None,
+            "cost_label": cost_label,
             "prompt": prompt or f"{cost_label} bezahlen?",
             "options": [*pay_options, {"id": "decline", "label": "Nein" if not cost_label else "Nicht bezahlen"}],
         })
@@ -2213,11 +2222,6 @@ class MiscSystemsMixin:
         chain. A token's own `enter_as_copy_effects` choice (below) can pause
         the very same way, for the very same reason.
 
-        Known scoped gap: unlike `resolve_top_of_stack`'s `_resolve_
-        permanent_spell`, `enter_choice_effects` (RULE 601.2b "as ~ enters,
-        choose a creature type/color") is bound but never offered here —
-        every real card with that ability in the pool is a cast permanent,
-        never a token, so there's nothing to exercise it against yet.
         """
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
@@ -2267,6 +2271,9 @@ class MiscSystemsMixin:
                     created.append(token)
                     _next(remaining - 1)
 
+                def _after_copy() -> None:
+                    self._offer_enter_choices(token, _continuation)
+
                 if token.enter_as_copy_effects:
                     # RULE 614.1c/614.12: a token can carry its own "you may
                     # have this enter as a copy of target X" replacement —
@@ -2282,9 +2289,9 @@ class MiscSystemsMixin:
                     # choice instead stashes `_continuation` and resumes it
                     # from `_resume_enter_as_copy`, at which point the
                     # remaining tokens in this batch (if any) are built.
-                    self._offer_enter_as_copy(token, _continuation)
+                    self._offer_enter_as_copy(token, _after_copy)
                 else:
-                    _continuation()
+                    _after_copy()
 
             _next(max(0, final_count))
             return created
@@ -4061,7 +4068,9 @@ class MiscSystemsMixin:
             if not pool and count > 0 and else_specs:
                 self._apply_effect_specs(list(else_specs), source)
             return
-        if len(pool) <= count and not optional and (
+        # RULE 401.4: even when all cards must move, their library order is a choice.
+        ordered_library_move = action == "hand_to_library_top" and len(pool) > 1
+        if len(pool) <= count and not optional and not ordered_library_move and (
             not distinct_card_types or _distinct_card_type_assignment([_card_type_words(o) for o in pool])
         ):
             # Forced: every candidate is taken anyway, so asking would be
@@ -4159,6 +4168,10 @@ class MiscSystemsMixin:
             self.enqueue_reflexive_trigger(
                 _substitute_x_specs(list(then_that_many.get("trigger") or []), picked_count), source,
             )
+    @continuations.choice("proliferate", answer=continuations.ANSWER_SELECTION, rule="701.34a")
+    def _resume_proliferate(self, choice: dict[str, Any], answer: Any) -> None:
+        ProliferateEffect.resume(self.context, choice, answer)
+
     def _choose_objects_choice(
         self,
         player: Player,

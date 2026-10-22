@@ -1198,3 +1198,28 @@ def test_casting_an_mdfc_commanders_back_face_still_pays_commander_tax():
     assert eng.commander_tax(p1, obj2) == 2
     # {R} (mv 1) + {2} tax = mv 3.
     assert eng.effective_cast_cost(p1, obj2, face="back").converted_mana_cost == 3
+
+
+def test_offered_back_face_auto_taps_for_its_own_cost():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    p2 = eng.state.player_by_id('p2')
+    mountain = _put(eng, Card(id='Mountain',name='Mountain',type_line='Basic Land — Mountain',is_land=True))
+    obj = _in_hand(eng, _mdfc_damage_back())
+    offers = [a for a in eng.legal_actions(p1) if a.get('instance_id')==obj.instance_id and a.get('face')=='back']
+    assert offers and not p1.mana_pool.total()
+    eng.cast_spell(p1,obj,targets=[p2],face='back')
+    assert mountain.tapped
+    eng.resolve_until_stable()
+    assert obj.name=='Molten Rebuke'
+    assert p2.life==17
+
+
+def test_unaffordable_back_face_does_not_tap_wrong_color_land():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    forest = _put(eng, Card(id='Forest',name='Forest',type_line='Basic Land — Forest',is_land=True))
+    obj = _in_hand(eng, _mdfc_damage_back())
+    with pytest.raises(ValueError,match='cannot cast'):
+        eng.cast_spell(p1,obj,targets=[eng.state.player_by_id('p2')],face='back')
+    assert not forest.tapped

@@ -65,6 +65,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PLR — Player management
 
+
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
   flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until

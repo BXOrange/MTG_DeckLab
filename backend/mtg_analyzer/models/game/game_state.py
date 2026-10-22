@@ -587,6 +587,8 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # RULE 702.136: entrant retained outside public choice data, including token entries.
+        self.pending_riot_entry: Optional[GameObject] = None
         # RULE 608.2: an optional energy payment suspends this resolution.
         # Keep source, targets and firing event in clone/undo's state graph.
         self.pending_energy_payment: Optional[dict[str, Any]] = None

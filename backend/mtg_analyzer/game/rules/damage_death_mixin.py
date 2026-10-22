@@ -1289,6 +1289,20 @@ class DamageDeathMixin:
         counters must not bring them back via Reanimate/Regrowth) before it
         lands anywhere.
         """
+        if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking") and obj.zone in (Zone.GRAVEYARD, Zone.EXILE):
+            from ..riot import entry_instances
+            recipient = controller_id or obj.owner_id
+            if entry_instances(self.state, obj, recipient):
+                # RULE 702.136 / 614.12: direct recursion and blink use the
+                # same state-owned entry batch as simultaneous returns.
+                from ..effects.battlefield_batches import start_zone_return_batch
+                start_zone_return_batch(self, [(obj.instance_id, obj.zone_incarnation)], obj.zone.value, recipient,
+                    entry_options={"tapped": destination != "battlefield",
+                        "attacking": destination == "battlefield_attacking", "transformed": transformed,
+                        "face_down_kind": face_down_kind, "entry_counters": entry_counters,
+                        "typed_entry_counters": typed_entry_counters,
+                        **({"attach_to": (attach_to.instance_id, attach_to.zone_incarnation)} if attach_to else {})})
+                return
         # An explicit attachment is established before the entry event.
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)

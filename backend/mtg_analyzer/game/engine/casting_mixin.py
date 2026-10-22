@@ -1834,6 +1834,13 @@ class CastingMixin:
                 self.rules._end_bestow(obj)
                 raise
         if face in ("back", "fuse"):
+            # RULE 601.2f: the offer includes potential mana for this face,
+            # just like a front-face cast. Top it up before real-pool validation.
+            self._auto_tap_for_cast_if_needed(
+                player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x,
+                buyback=buyback, free=free, alt_cost=alt_cost, targets=targets,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            )
             if not self.can_cast(
                 player, obj, x, face=face, kicked=kicked, buyback=buyback, free=free, alt_cost=alt_cost,
             ):

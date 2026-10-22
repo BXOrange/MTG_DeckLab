@@ -10,6 +10,34 @@ the code lands here (Ctrl+F/grep the exact phrase). Entries written before
 exists; both were merged into `BACKLOG.md`, and those mentions have been
 repointed there.
 
+## Game audio
+
+- Optional synthesized Web Audio effects in the shared board: tap/untap,
+  card-draw paper shuffles, actual turn handoffs, damage impacts, activated
+  abilities, land plays and spell casts. Eight spell
+  type gestures combine with WUBRG motifs or a neutral colourless motif.
+- Organic timbres layer filtered noise, damped material resonances, subtle
+  pitch/timing variation and a short stereo room tail. Tap/untap are dry
+  clicks under 30 ms without reverb; land plays use a soft tabletop contact
+  and low settling resonance, and damage uses a soft low impact. Stop clears room tails.
+- Cast types use distinct rhythmic/material gestures (impact, air flick,
+  swell, chimes, metal strike, fanfare, double hit); colour accents trail
+  quietly and room level is reduced to preserve type identity.
+- Sound controls live only in Settings (enabled/volume), persist in cookies
+  and share one controller across game modes. No previews or lab links in
+  the application; `sound-lab.html` remains a standalone development tool.
+  No downloaded audio assets;
+  gesture-based startup, hidden-tab suppression and bounded voice counts.
+- Confirmed-view mapping suppresses initial loads, duplicate reconnect views
+  and undo. Damage statistics cover combat and noncombat together. Colours
+  currently fall back to mana cost when the payload has no explicit `colors`;
+  colour indicators/Devoid and intermediate taps within batched updates are
+  limitations. See `frontend/README.md` for the API and data contract.
+- Verified by `frontend/tests/test_game_audio.py`: real Chromium board/lab,
+  preferences and event mapping; audible finite offline signals for all
+  eight types × 32 colour subsets and all seven action gestures; draw counts
+  and actual turn changes are distinguished from hand moves/priority passes.
+
 ## Deck Import & Backend Integration
 
 ### Optimistic local parse + server-authoritative deck submit
@@ -385,11 +413,13 @@ repointed there.
 
 ### Per-creature attacker selection (VIS-3)
 
-- **What:** Each attack-eligible card has its own attack button (single click with 0-1 legal defenders, a per-defender menu with 2+ — 3+ player pods, battles, planeswalkers) rather than one aggregate "swing with everybody" control.
-- **Files:** `gameBoardView.js`
+- **What:** Each attack-eligible card has its own attack button (single click with 0-1 legal defenders, a per-defender menu with 2+ — 3+ player pods, battles, planeswalkers) rather than one aggregate "swing with everybody" control. Picks now form an editable local selection: selected cards show “Do not attack”, and “Deselect all” clears the selection. “Confirm attack” submits the remaining attackers and individual defenders as one validated batch; no tapping, taxes or attack triggers occur while editing. Forward/pass confirms a pending selection first. Unchanged view updates preserve it; phase/session changes and invalid offers discard stale picks.
+- **Validation:** 72 focused session/batch tests passed; backend suite: 15,271 passed, 472 opt-in/cache skips. Chromium verified select/deselect, clear, unchanged-view retention, step reset, no early tapping or submission, remaining-attacker batch confirmation, forward confirmation and declined attack tax; no JavaScript errors.
+- **Files:** `gameBoardView.js`, localized board strings/help, `services/game_session.py`, `tests/services/test_attack_selection.py`.
 
 ### Interactive priority UI (RULE 117)
 
+- **Banner layout:** Turn and priority indicators are centered independently of names and stats. Yield/end-step precedes next-phase/pass in reserved equal-width slots; narrow banners move the center group to a separate row.
 - **What:** In a shared game the primary control is "Passen" (not "advance step" — a step ends only when everyone passes); who is active / who holds priority is shown only on each player's own banner now, not as a separate toolbar badge.
 - **Files:** `gameBoardView.js`
 
@@ -415,6 +445,7 @@ repointed there.
 
 ### Skip empty priority windows (automatic)
 
+- **Redacted choices (RULE 117.2e):** both `pending_choice` and `waiting_on_choice` suspend the client priority window. A bot’s hidden search no longer triggers human auto-pass retries that can starve Solo polling. Countdown, pass button and Space remain inactive until the choice completes. Real-browser regression: `frontend/tests/test_waiting_bot_choice.py`.
 - **What:** Windows where `legal_actions` offers literally nothing but `pass_priority` are passed straight through, **unconditionally** (`skipEmptyArmed()`/`syncAutoPass`), chaining through consecutive empty windows one render at a time and stopping at the first window that offers anything real. There is **no manual "⏭ Nächste Aktion" button** on the shared board — it was removed once the skip went always-on (`skipToActionButtonHtml`, the `data-skip-empty` handler, the dead `skipBurstArmed` flag, the `bd.ctrl.nextAction`/`bd.ctrl.skipEmptyTitle2` keys and `.gf-banner-skip` CSS are all gone): it only ever did what the automatic skip already does, and never passed a window that had a real action. (Goldfisch's `#gf-next-decision` is unrelated — a server-side fast-forward over whole *steps*, solo only.)
 - **Files:** `gameBoardView.js`, `styles/main.css`, `locales/{en,de}.js`
 - **Bug fixed:** Could spam the server with redundant `pass_priority` calls fast enough to break the UI, because the multiplayer transport returns no fresh data from `act()` (it waits for the socket push) so the priority-window key could stay unchanged across renders while a pass was still in flight; fixed with a `skipAttemptedForKey` latch capping it to one attempt per window, verified via a headless JS-engine harness since there's no browser test runner.
@@ -433,6 +464,7 @@ repointed there.
 
 ### Attachment targeting bug fix
 
+- **Cross-player display (RULE 303.4e):** attachment groups use the entire battlefield, so an Aura such as Betrayal appears beside the opposing creature it enchants. Foreign-controlled attachments name their controller and retain their own actions; nested attachments render once. Real-browser regression: `frontend/tests/test_cross_player_attachments.py`.
 - **What:** Equip/Fortify/Reconfigure were legal onto *any* creature/land, including an opponent's, though RULE 702.6a/702.67a/702.151a all say "you control" — a backend-only fix (targeting.py, rules_engine.py) at both offer-time and resolution-time.
 - **Files:** `game/targeting.py`, `game/rules_engine.py`
 - **Bug fixed:** Nothing had ever checked the "you control" qualifier on these three attachment abilities' legal targets.

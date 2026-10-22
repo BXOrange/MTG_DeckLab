@@ -452,24 +452,23 @@ class StateBasedActionsMixin:
         ]
 
     def _sba_collect_siege_defeat(self) -> list[SbaAction]:
-        """RULE 310.11b: a Siege's intrinsic "when the last defense counter
-        is removed from this permanent, exile it, then you may cast it
-        transformed without paying its mana cost". A *triggered* ability,
-        not an SBA — but noticing the transition is what an SBA pass is
-        for, and doing it here (rather than in `deal_damage`) means every
-        route to zero defense is covered, not just damage. Placed straight
-        on the stack like `check_ward`/`check_rampage` rather than through
-        the RULE 603.3 queue, since it's built per firing; the latch stops
-        the next pass from re-firing it while it's still on the stack.
+        """RULE 310.12b: place Siege abilities recorded when the last
+        defense counter was actually removed. Merely entering at zero must
+        never create this trigger. Consume each recorded removal once.
         """
         return [
             SbaAction(obj, lambda obj=obj: self._fire_siege_defeat(obj))
             for obj in self.state.permanents()
-            if obj.card.is_siege and obj.card.defense and obj.defense <= 0 and not obj.battle_defeat_triggered
+            if obj.pending_siege_defeats
         ]
 
     def _fire_siege_defeat(self, obj: GameObject) -> None:
-        obj.battle_defeat_triggered = True
+        pending = obj.pending_siege_defeats
+        obj.pending_siege_defeats = 0
+        for _ in range(pending):
+            self._place_siege_defeat_trigger(obj)
+
+    def _place_siege_defeat_trigger(self, obj: GameObject) -> None:
         self._place_trigger(
             TriggeredAbility(
                 trigger_event=EventType.BATTLE_DEFEATED,
@@ -497,13 +496,12 @@ class StateBasedActionsMixin:
         into its owner's graveyard — the exact shape of the Saga check
         below, and the reason a defeated Siege survives long enough for its
         own 310.11b trigger (`_sba_collect_siege_defeat`) to exile it instead.
-        Only battles with a printed defense are subject (mirroring the
-        loyalty check above: a battle that never had defense counters was
-        never at "0 defense" in the 310.4c sense).
+        A battle that entered without defense counters is also at zero;
+        it goes to the graveyard without triggering defeat (RULE 310.4c).
         """
         return [
             self._departure(obj) for obj in self.state.permanents()
-            if obj.is_battle and obj.card.defense and obj.defense <= 0
+            if obj.is_battle and obj.defense <= 0
             and obj.instance_id not in defeated_ids
             and not any(item.source is obj for item in self.state.stack)
         ]

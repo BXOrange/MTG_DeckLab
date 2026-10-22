@@ -1356,6 +1356,7 @@ def _apply_effects_partitioned(
     objects_exiled_this_way: int = 0,
     counters_removed_this_way: int = 0,
     damaged_this_way: Optional[list[Any]] = None,
+    proliferated_objects: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
     revealed_card: Optional[Any] = None,
     clash_won: Optional[bool] = None,
@@ -1448,6 +1449,8 @@ def _apply_effects_partitioned(
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
     outer_counters_removed = getattr(context, "counters_removed_this_way", 0)
+    outer_proliferated = getattr(context, "proliferated_objects", [])
+    context.proliferated_objects = list(proliferated_objects or [])
     outer_damaged_this_way = getattr(context, "damaged_this_way", [])
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_revealed_card = getattr(context, "revealed_card", None)
@@ -1626,6 +1629,7 @@ def _apply_effects_partitioned(
                         "objects_exiled_this_way": context.objects_exiled_this_way,
                         "counters_removed_this_way": context.counters_removed_this_way,
                         "damaged_this_way": list(context.damaged_this_way),
+                        "proliferated_objects": list(context.proliferated_objects),
                         "previous_selector": context.previous_selector,
                         "revealed_card": context.revealed_card,
                         "clash_won": context.clash_won,
@@ -1659,6 +1663,7 @@ def _apply_effects_partitioned(
         context.permanents_destroyed_this_way = outer_permanents_destroyed
         context.objects_exiled_this_way = outer_objects_exiled
         context.counters_removed_this_way = outer_counters_removed
+        context.proliferated_objects = outer_proliferated
         context.damaged_this_way = outer_damaged_this_way
         context.previous_selector = outer_previous_selector
         context.revealed_card = outer_revealed_card

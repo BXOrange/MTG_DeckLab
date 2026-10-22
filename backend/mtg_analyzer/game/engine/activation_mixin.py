@@ -1680,6 +1680,25 @@ class ActivationMixin:
             # printed constant — see `ActivationCost.loyalty_is_x`.
             source.add_counters("loyalty", -x if cost.loyalty_is_x else cost.loyalty)
             source.activated_loyalty_this_turn = True
+    def _activation_reserved_taps(self, player, source, ability, x=0, tap_choices=None):
+        """RULE 118.3: the same tap cannot pay mana and a nonmana cost."""
+        cost = ability.cost
+        reserved = {source.instance_id} if cost.taps_self else set()
+        if cost.tap_attached:
+            host = self._attached_host(source)
+            if host is not None:
+                reserved.add(host.instance_id)
+        selected = []
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            count = x if count == TAP_OTHERS_X else count
+            selected = self._resolve_tap_others(player, source, count, subtype, tap_choices,
+                                               exclude_source=cost.taps_self) or []
+        elif cost.crew_power:
+            selected = self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []
+        reserved.update(o.instance_id for o in selected)
+        return reserved
+
     def _auto_tap_for_activation_if_needed(
         self,
         player: Player,
@@ -1725,7 +1744,8 @@ class ActivationMixin:
                 return
             mana = locked
         try:
-            self.auto_tap_for(player, cost=mana)
+            self.auto_tap_for(player, cost=mana,
+                              reserved_ids=self._activation_reserved_taps(player, source, ability, x, tap_choices))
         except ValueError:
             pass
     def _resolve_activation_mode(

@@ -224,6 +224,7 @@ mana or breaking creature-only payment. `extra_etb_counter` supports
 
 ### Mana-Potenzial: auto-tap execution (`find_tap_plan`, `GameEngine.auto_tap_for`)
 
+- Successful plans drop redundant sources by replaying proposed removals against the current pool, including converter activation costs and reserved resources. This prevents excess taps while waiting for a missing colour; regressions cover multicolour costs, floating mana and actual spell casting (`tests/test_auto_tap_redundant_sources.py`).
 - **What:** A DFS-based planner seeded from the real current pool, with a bounded fixed-point retry (so a converter needing another source's output still resolves) and a no…
 - **Files:** `game/mana_potential.py`, `game/engine/mana_mixin.py`
 
@@ -660,6 +661,7 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 
 ### Library search and the general pending-choice mechanism (RULE 701.19)
 
+- **Hand-to-library selection (RULE 401.4):** `put_hand_cards_on_top` uses the shared mandatory object chooser, retaining selection and library order even when every available card must be returned. The effect uses its resolving controller, including on opponents’ turns. The last selected card becomes the library top. Regression coverage: `tests/test_brainstorm_choice.py` and the Brainstorm cube regression.
 - **Complete search/dig sequences (PAR-180, v717–718):** named-card criteria resolve normalized self-names to the literal printing, preserve reveal/hand/shuffle and use existing criteria OR for alternative names (Bogbrew Witch). Look/pick/rest accepts comma-connected instructions, explicit remaining-card order and a graveyard selection that leaves unchosen library cards untouched. Each activation snapshots the counters actually removed; “remove all” uses the existing all-counter sentinel. `tests/test_par180_library_composition.py` has 26 regressions for all six assigned cards and Soulcipher's back face, actual choices/declines, empty and short pools, zero-counter costs, two stacked Jar activations, invalid pool members, clone and ordering. Independent review found and corrected the named-alternative overclaim before closure.
 - **Targeted stack-copy grammar (PAR-181, v719):** Force of Rowan, Adric, League Guildmage and Resonance Technician compose the shared spell/ability copy effects with the “you may choose new targets” rider, spell kinds, controller scopes, exact mana value and copy count. Ability copies keep their stack category and revalidate the original; Adric copies once while Gogo-style copies use the announced X, and exact-X filtering reads the resolving stack item. Shared tap-X costs go through the existing cost scan (unknown filters stay unmodeled). Normal board actions offer originals for every affordable X before announcement, lock when none is legal, and request exactly X tap choices. Retarget choices survive clone/undo and copies get new stack identities. `tests/test_par181_targeted_stack_copy.py`; coverage 21,941/35,046, Commander 21,340/32,068, +18/−0 versus v718.
 - **Validation:** corrected v718 complete backend suite including `--full-cache`: **15,555 passed, 1 skipped**, no errors (2026-10-22). Ledger-backed coverage: 21,923/35,046 (62.6%), Commander 21,324/32,068 (66.5%); +71 covered cards and zero verdict regressions against v716 across the completed parser tickets.
@@ -3255,10 +3257,13 @@ Gameplay regressions are in
 - **What:** "~ enters the battlefield with N/X `<counter-type>` counters on it." parses (`entry_counters_condition`/`entry_counters`, mirroring the tapped-entry split) and…
 - **Files:** `parser/oracle/catalogue/counters.py`, `game/ability_catalogue.py`, `game/rules_engine.py`
 
-### Bare "proliferate" recognition (RULE 701.30)
+### Proliferate recognition and recipient selection (RULE 701.34)
 
 - **What:** `ProliferateEffect` already existed and was registered but had no oracle-text handler at all; one handler for bare "proliferate." closes it, including multi-sen…
-- **Files:** `parser/oracle/catalogue/handlers.py`
+- **Recipient selection:** Proliferation now stages any number of permanents/players, including zero, before adding one of every existing counter kind. Repeated actions and Tekuthal receive independent selections. Counter replacement ordering suspends the remaining placements; state-owned replacement receipts and deferred follow-up receipts survive clone/undo. Ripples of Potential sees only actual recipients. No parser-version or coverage verdict change.
+- **Strategy and UI:** Smart1/Smart2 share public-state marginal counter utility; Smart2 scores the selectable gain instead of automatic collateral. Human players receive the same recommendation as editable checkboxes showing all before/after counts. A single atomic confirmation validates option IDs and selection identity; suggestions never apply automatically. Resource, harmful, mixed, neutral, countdown, Saga and Battle cases are covered; unknown prose remains heuristic.
+- **Validation:** Full backend including `--full-cache`: 15,735 passed, one skipped. Latest policy/selection tests: 110 passed; targeted composition/catalogue/continuation regressions: 837 passed. Chromium verified editable defaults, draft retention, reset/clear, atomic confirmation and fresh repeated selections without JavaScript errors. Coverage remeasured read-only: 21,945/35,046, parser version 721 unchanged.
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/counters_tokens.py`, `game/continuations.py`, counter replacement/deferred resolution, `services/smart_bot2/counters.py`, both Smart policies and `services/game_session.py`; shared board UI, localized help/status; `tests/test_proliferate_selection.py`, `tests/services/test_smart_bot2.py` and existing catalogue regressions.
 
 ### Kicked-conditional entry counters
 
@@ -3476,7 +3481,7 @@ of their reminder text or catalogue entry.
 
 - **What:** The whole card type from scratch: defense as counters rather than a separate stat (seeded on entry alongside planeswalker loyalty), a third `"battle"` defender…
 - **Files:** `models/card.py`, `models/game_object.py`, `game/rules_engine.py`, `game/game_engine.py`
-- **Why:** Defeat (RULE 310.11b) is noticed by the SBA pass rather than at any single counter-removal site, so every route to zero defense (combat, burn, anything) reaches…
+- **Entry and defeat:** Native defense counters participate in the shared entry-counter placement and its replacements (RULE 310.4b); an entry result of zero is preserved. Defeat records removal of the last defense counter (RULE 310.12b), rather than inferring it from zero defense during an SBA pass. A Siege entering at zero goes to the graveyard without a transformed-cast permission. Replenishing counters does not cancel a recorded trigger; repeated removals trigger separately, and resolution checks the source's battlefield incarnation so the card cannot flip twice after leaving (RULE 400.7). Regression coverage: `tests/test_battles.py`.
 
 ### Saga chapter abilities (RULE 714.2d)
 
@@ -4354,6 +4359,7 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 
 ### Bot base class — fixed decision order, policy hooks
 
+- **Choice contract:** the shared dispatcher canonicalizes policy answers to current offered IDs and object identities. An invented or missing answer falls back to an offered base decision, while asynchronous waiting, free text and valid atomic Proliferate selections retain their contracts. `tests/services/test_bot_choice_contract.py` covers invalid policies and Smart1/Smart2 completing Kodama’s combat-damage search through the ordinary session API with redacted libraries.
 - Opening-hand permissions (RULE 103.6) are accepted by every bot policy. Gemstone Caverns' mandatory hand-card exile completes through legal choice offers; Smart/AI preserve higher-value cards and combo pieces. AI handles pregame choices without an LLM call. Regression coverage exercises all five policies through Solo polling and verifies human choices remain visible and unanswered by bots.
 - **What:** `Bot.decide()` fixes the order a seat must handle things in (pending choice, then setup/mulligan, then RULE 509.1a declare-blockers, then `play()` only if holdi…
 - **Files:** `services/bots.py`
@@ -4380,6 +4386,14 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 - **Files:** `services/bots.py`, `services/bot_strategy.py`, `services/game_session.py`; reference and upstream research in `docs/Reference/SMART_BOT.md`.
 - **Mana and entry choices (BUG-3):** the engine offers `cast_spell` only when auto-tap can pay, and auto-tap never spends sacrifice/hand-exile sources (Lotus Petal, Treasures, Spirit Guides), although the view's mana potential counts them — so a commander/combo permanent payable only with them (Kinnan with Springs + Petal) was never offered and Smart Bot, unlike Greedy, had no manual-tap fallback. `SmartBot._unlock_tap` now puts the scarcest missing colour into the pool first (once per card and turn; commander tax from the new public `commander_casts` on the player view, RULE 903.8). Also fixed: shock lands were always declined (now paid when something is castable and life > `SHOCK_LIFE_FLOOR`), "reveal a card" lands always reveal, Mox Diamond is cast only with a spare land and discards the least-needed one, the mulligan counts cheap mana rocks as sources, lands no longer carry the `tutor` role (a fetch land earned +30), and a land's own mana ability is no longer activated as a candidate. A fetch-land crack deliberately stays ahead of spells: the fetched land is what makes them payable. Detector campaign (bot vs bot, end of main 2 with a payable piece/commander still uncast): Kinnan 7/258 → 1/270 bot turns, M-K 4/139 → 0; mulligans roughly halved; K'rrik, Rocco and Wretched Ranks unchanged at 0.
 - **Tests:** `tests/services/test_smart_bot.py` (13 new, 10 red against the previous code).
+
+### SmartBot 2: mechanic/style-based decisions (PLR-15)
+
+- **What:** Replaced the flat philosophy bonus layer with independent, view-only action/choice/combat/timing decisions. A separate versioned profile uses the existing archetype catalogue, typal evidence, quantity-normalized style dimensions and printed face priors. Names identify cards/Spellbook ingredients, never action bonuses. Utility compares actual costs, spent cards, targets, sacrifice output, reservations, bounded continuations and passing; combat preserves useful combo attacks and distinguishes public damage channels. Library-depletion recipes execute both named-card and duplicate-name variants without named strategy switches; complex unknown prose remains assembly evidence.
+- **Boundary and lifecycle:** Own-hand/public-zone inputs only, offline read-only combo snapshots, separate profile/memory keys and a perspective-only decision trace. Rebuild preserves memory; restart/rewind/takeback clear timeline guards. Other policies and the default selection remain unchanged.
+- **Client/engine consistency:** Exposed public Oracle text (scrubbed for hidden exile), turn facts and effective cast costs. Back/fuse casting now tops up its own cost before validation. Mana plans and automatic activation payment reserve nonmana tap/crew commitments instead of spending the same resource twice (RULE 118.3/602.2b); positive and refusal regressions cover both fixes. No parser coverage verdict changed.
+- **Validation:** Full backend plus full-cache run: 15,682 passed, one skipped; final Smart2 suite: 67 passed, including real combat/three-player wins, both library lines, resource untap, source/name/reprint invariance, private-state invariance, memory restoration and read-only snapshot use. Grouped paired fixtures and all resolvable saved lists were measured with explicit censoring/error accounting; [validation report](../Reference/SMART_BOT_2_VALIDATION.md) records sample size, timing and limits rather than claiming a universal win rate.
+- **Files:** `services/smart_bot2/`, `services/bot_policies/smart2.py`, `scripts/benchmark_smart_bot2.py`, `tests/services/test_smart_bot2.py`; [policy reference](../Reference/SMART_BOT.md).
 
 ### Individual bot policies and AI Bot
 

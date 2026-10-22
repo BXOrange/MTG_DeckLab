@@ -782,20 +782,11 @@ class DrawDiscardMixin:
         )
 
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:
-        """Put up to ``count`` cards from ``player``'s hand on top of their
-        library, "in any order" (RULE 701 — Brainstorm's "then put two cards
-        from your hand on top of your library"). Auto-picks off the back of
-        hand — no chooser in this MVP, the same idiom `discard` above uses;
-        the actual *order* among the returned cards isn't anything this
-        engine's library model exposes a distinction for, so the missing
-        choice is inert either way.
-        """
-        for _ in range(count):
-            if not player.hand:
-                break
-            obj = player.hand.pop()
-            obj.zone = Zone.LIBRARY
-            player.library.append(obj)  # top of deck is the list end
+        """Choose hand cards and their library order (RULE 401.4)."""
+        self._request_choose_objects(
+            player, list(player.hand), "hand_to_library_top", count=count,
+            prompt="Lege Handkarten auf die Bibliothek (die zuletzt gewählte Karte liegt ganz oben)",
+        )
     def put_hand_card_on_bottom_then_draw(self, player: Player) -> None:
         """"You may put a card from your hand on the bottom of your library.
         If you do, draw a card." (Volcanic Spite) — a pure card exchange

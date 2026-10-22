@@ -168,6 +168,20 @@ Auswahl und der Schaltfläche **🤖 Hinzufügen**:
   beliebige Combo-Sequenzen sind nicht garantiert. Auch unter **Solo gegen Bots**
   auswählbar.
 
+- **Smart Bot 2** — berücksichtigt zusätzlich den Spielstil und die aktuelle
+  Spielsituation. Vergleicht Aktionen samt Kosten, Zielen, Opfer-Ertrag und
+  Timing; wichtige Combo-Kreaturen dürfen sinnvoll angreifen. Plant begrenzte
+  Aktionsfolgen und beherrscht weitere Gewinnmuster. Auch diese Variante kann
+  komplexe Karten und Combos falsch einschätzen. Der bisherige Smart Bot bleibt
+  separat auswählbar und ist weiterhin die Standardauswahl.
+
+Bei **Proliferate** öffnet sich eine Mehrfachauswahl für bleibende Karten und
+Spieler mit Marken. Die Smart-Bot-2-Empfehlung ist vorausgewählt; du kannst jede
+Checkbox ändern, niemanden wählen oder die Empfehlung wiederherstellen. Erst
+**Auswahl bestätigen** verteilt die Marken. Jede gewählte Karte bzw. jeder
+Spieler erhält eine weitere Marke **jeder** vorhandenen Art – auch bei gemischten
+positiven und negativen Marken. Bei mehrfacher Proliferation wählst du jedes Mal neu.
+
 Ein Bot sitzt danach wie jeder andere in der Platzliste (mit 🤖 markiert).
 Zwei Dinge macht der Host für ihn, weil ein Bot keine eigene Ansicht hat:
 
@@ -345,6 +359,13 @@ bei Bedarf abbrechen oder anpassen kannst.
 - **Spielerwerte**: Gift (Regel 704.5c), Energie-/Erfahrungs-/
   Strahlungsmarken, der Eine Ring, Monarch/Initiative und Embleme stehen
   neben den Lebenspunkten in der Kopfzeile des jeweiligen Spielers.
+
+### Angreifen
+
+Wähle im Angreifer-Schritt die Kreaturen und bei Bedarf ihre Verteidiger.
+**Nicht angreifen** wählt eine markierte Kreatur wieder ab; **Alle abwählen**
+leert die Auswahl. Erst **Angriff bestätigen** deklariert die verbleibenden
+Angreifer gemeinsam, tappt sie und löst Angriffsfähigkeiten aus.
 
 ### Blocken
 

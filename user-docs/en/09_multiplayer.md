@@ -163,6 +163,20 @@ and a **🤖 Hinzufügen** (add) button:
   priorities; arbitrary combo execution is not guaranteed. Also available in
   **Solo gegen Bots**.
 
+- **Smart Bot 2** — also considers play style and the current position.
+  Compares actions with their costs, targets, sacrifice returns and timing;
+  combo creatures can make useful attacks. Plans bounded action sequences and
+  handles additional winning patterns. Complex cards and combos can still
+  exceed its heuristics. The original Smart Bot remains separately selectable
+  and remains the default.
+
+**Proliferate** opens a multiple-selection dialog for permanents and players
+with counters. Smart Bot 2 recommendations are preselected; you can change any
+checkbox, select nobody, or restore the recommendation. Counters are placed
+only after **Confirm selection**. Each chosen permanent or player gets one
+more counter of **every** kind already present, including mixed beneficial
+and harmful kinds. Repeated proliferation opens a fresh selection each time.
+
 A bot then sits in the seat list like anyone else (marked 🤖). Two things
 the host does *for* it, since a bot has no screen of its own:
 
@@ -336,6 +350,13 @@ you can cancel or adjust the current window if needed.
 - **Player values**: poison (RULE 704.5c), energy/experience/rad counters,
   the Ring, Monarch/Initiative and emblems sit next to the life total in
   each player's header.
+
+### Attacking
+
+During the declare attackers step, select creatures and their defenders.
+**Do not attack** deselects a marked creature; **Deselect all** clears the
+selection. Only **Confirm attack** declares the remaining attackers together,
+taps them and triggers attack abilities.
 
 ### Blocking
 

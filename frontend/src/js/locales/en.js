@@ -10,6 +10,10 @@
 //     into several keys around the tags at the call site.
 
 export default {
+  'settings.audio.heading': 'Sound',
+  'settings.audio.enabled': 'Game sounds',
+  'settings.audio.volume': 'Volume',
+
   'settings.llm.selectModel': 'Select a model …',
   'settings.llm.manualModel': 'Enter model ID manually',
   'settings.llm.reloadModels': 'Reload models',
@@ -896,6 +900,17 @@ export default {
   'bd.measurement.lines': 'Number of rules-text lines',
   'bd.measurement.invalid': 'Enter a valid whole number from 0 within the allowed range.',
   'bd.measurement.confirm': 'Confirm line count',
+  'bd.attack.heading': "Choose attackers",
+  'bd.attack.hint': "Choose attackers and their defenders. Selected attackers can be deselected before confirming.",
+  'bd.attack.confirm': "Confirm attack ({count})",
+  'bd.attack.clear': "Deselect all",
+  'bd.attack.selected': "Selected",
+  'bd.attack.deselect': "Do not attack",
+  'bd.proliferate.title': 'Proliferate: choose permanents and players',
+  'bd.proliferate.hint': "The recommendation is preselected and editable. Each selected permanent or player gets one more counter of every kind already present.",
+  'bd.proliferate.recommend': "Use recommendation",
+  'bd.proliferate.clear': "Select nobody",
+  'bd.proliferate.confirm': "Confirm selection",
   'bd.choice.needed': "Decision needed",
   'bd.choice.asideShow': "⤢ Show decision",
   'bd.choice.asidePush': "⤡ Push aside",

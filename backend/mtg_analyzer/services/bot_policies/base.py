@@ -72,7 +72,10 @@ class Bot:
         # so it has to be answered before anything is even considered.
         answers = [a for a in actions if a["type"] in ("choose", "decline")]
         if answers:
-            return self.answer_choice(view, answers)
+            answer = self.answer_choice(view, answers)
+            if answer is None and self.waiting:
+                return None
+            return self._offered_choice(view, answers, answer)
         if not view["setup"]["complete"]:
             keep = next((a for a in actions if a["type"] == "keep_hand"), None)
             return self.setup(view, actions) if keep is not None else None
@@ -95,6 +98,41 @@ class Bot:
         if self.wants_turn_yield(view, actions):
             return {"type": "set_yield", "mode": "turn"}
         return self.play(view, [a for a in actions if a["type"] != "declare_blockers"])
+
+    def _offered_choice(self, view, answers, answer):
+        """Keep policy decisions inside the server's current choice contract."""
+        if isinstance(answer, dict):
+            if answer.get("type") == "decline":
+                offered = next((a for a in answers if a["type"] == "decline"), None)
+                if offered is not None:
+                    return dict(offered)
+            elif answer.get("type") == "choose":
+                pending = view.get("pending_choice") or {}
+                if "option_ids" in answer:
+                    # Atomic Proliferate picks are parameterized, but every member
+                    # must still come from the offered set for this selection.
+                    ids = answer["option_ids"]
+                    offered_ids = {a.get("option_id") for a in answers if a["type"] == "choose"}
+                    if (pending.get("kind") == "proliferate"
+                            and answer.get("selection_id") == pending.get("selection_id")
+                            and isinstance(ids, list) and all(isinstance(i, str) for i in ids)
+                            and len(set(ids)) == len(ids) and set(ids) <= offered_ids):
+                        return answer
+                else:
+                    option_id = answer.get("option_id", answer.get("instance_id"))
+                    for offered in answers:
+                        if offered["type"] != "choose":
+                            continue
+                        if offered.get("free_text"):
+                            return answer
+                        if option_id is not None and str(option_id) == str(offered.get("option_id")):
+                            return dict(offered)
+        # A policy may rank options; it cannot invent a new option or pass
+        # instead of answering a mandatory choice. Keep a visible diagnostic
+        # and use the base policy on the same, still-untried offers.
+        self.action_feedback.append({"action": answer, "reason": "Bot choice was not offered"})
+        self.action_feedback[:] = self.action_feedback[-3:]
+        return Bot.answer_choice(self, view, answers)
 
     # -- Policy hooks --------------------------------------------------
 

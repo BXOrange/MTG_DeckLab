@@ -65,6 +65,16 @@ the card's implementation and tests; shipped narrative in
   cards, using the shared model vocabulary; conditional or granted text
   does not become a printed CDA.
 
+- Proliferate (RULE 701.34a) stages recipient IDs/zone visits in its own
+  `pending_choice`. Individual option IDs remain valid for bots; clients may
+  atomically submit `choose` with `option_ids` and the matching `selection_id`.
+  The empty list is legal. Each repeat has a fresh selection identity.
+  Counter replacement continuations use state-owned receipts, and a deferred
+  placement effect finishes ordering before another proliferation or rider.
+  The perspective view adds `recommended_ids` from the same public counter
+  utility used by Smart2; this annotation never mutates the pending engine
+  choice or applies counters.
+
 - Aggregate target limits share power and mana-value axes across casting,
   activation, trigger choices, copied targets and board metadata. Any-number
   trigger groups use their legal pool, with no fixed target cap. Partial

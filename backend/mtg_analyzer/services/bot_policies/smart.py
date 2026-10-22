@@ -177,6 +177,11 @@ class SmartBot(GreedyBot):
     def answer_choice(self, view, answers):
         kind = (view.get('pending_choice') or {}).get('kind', '')
         choices = [a for a in answers if a['type'] == 'choose']
+        if kind == 'proliferate':
+            from ..smart_bot2.context import Context
+            from ..smart_bot2.counters import proliferate_choice
+            decline = next((a for a in answers if a['type'] == 'decline'), None)
+            return proliferate_choice(Context(view, self.player_id, self.strategy), choices, decline) if choices else decline
         # RULE 614.1 enters-tapped options: a shock land is paid for when the
         # mana is needed this turn, a "reveal a card" land always reveals
         # (free), and Mox Diamond discards the land it needs least (a Mox

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeckLab – Sound-Labor</title>
+<style>
+body { color: #e8eef6; background: #111923; font: 16px system-ui; max-width: 800px; margin: 3rem auto; padding: 1rem; }
+fieldset { border: 1px solid #526277; border-radius: 10px; margin: 1rem 0; padding: 1rem; }
+button, select { font: inherit; padding: .6rem; margin: .3rem; } label { display: inline-block; margin: .4rem; }
+button { cursor: pointer; } #status { min-height: 1.5em; }
+</style>
+<h1>Sound-Labor</h1>
+<p>Kurze, synthetische Spielklänge. Kartentyp und Farben lassen sich frei kombinieren.</p>
+<label>Lautstärke <input id="volume" type="range" min="0" max="1" step=".05" value=".3"></label>
+<button id="mute">Stumm</button>
+<fieldset><legend>Kartenaktionen</legend>
+<button data-kind="tap">Tappen</button><button data-kind="untap">Enttappen</button>
+<button data-kind="damage">Schaden (6)</button>
+</fieldset>
+<fieldset><legend>Magie</legend>
+<label>Kartentyp <select id="type">
+<option>Creature</option><option>Instant</option><option>Sorcery</option><option>Enchantment</option><option>Artifact</option><option>Artifact Creature</option><option>Planeswalker</option><option>Battle</option>
+</select></label>
+<p>Beim Casten bestimmt der Kartentyp den Hauptklang und Rhythmus; Farben ergänzen einen leisen Nachklang. Zum Vergleichen denselben Farbmix wählen und „Spell casten“ drücken.</p>
+<div id="colors">
+<label><input type="checkbox" value="W"> Weiß · Glocken</label>
+<label><input type="checkbox" value="U"> Blau · fließende Töne</label>
+<label><input type="checkbox" value="B"> Schwarz · dunkles Pulsieren</label>
+<label><input type="checkbox" value="R"> Rot · Knistern</label>
+<label><input type="checkbox" value="G"> Grün · warme Holztöne</label>
+</div>
+<p>Keine Farbe gewählt: farbloser, metallisch-kristalliner Klang. Mehrere Farben verbinden ihre Motive.</p>
+<button data-kind="activate">Fähigkeit aktivieren</button><button data-kind="cast">Spell casten</button>
+</fieldset>
+<p id="status" role="status"></p>
+<script type="module">
+import { createGameAudio } from './src/js/gameAudio.js';
+const audio = createGameAudio();
+const volume = document.querySelector('#volume');
+volume.value = audio.volume;
+volume.addEventListener('input', () => audio.setVolume(volume.value));
+document.querySelector('#mute').addEventListener('click', () => {
+  audio.setEnabled(false);
+  document.querySelector('#status').textContent = 'Stumm. Eine Hörprobe aktiviert den Ton wieder.';
+});
+for (const button of document.querySelectorAll('[data-kind]')) {
+  button.addEventListener('click', async () => {
+    audio.setEnabled(true);
+    if (!await audio.unlock()) {
+      document.querySelector('#status').textContent = 'Audio konnte im Browser nicht gestartet werden.';
+      return;
+    }
+    audio.stop();
+    const colors = [...document.querySelectorAll('#colors input:checked')].map((el) => el.value);
+    audio.play({ kind: button.dataset.kind, amount: 6, card: { colors, type_line: document.querySelector('#type').value } });
+    document.querySelector('#status').textContent = `${button.textContent}${button.dataset.kind === 'cast' ? ` · ${document.querySelector('#type').value}` : ''} · ${colors.join(' / ') || 'farblos'}`;
+  });
+}
+</script>
+</html>
