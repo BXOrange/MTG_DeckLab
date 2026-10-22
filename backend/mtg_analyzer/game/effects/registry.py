@@ -1415,6 +1415,11 @@ EffectRegistry.register(
     "no_max_hand_size_rest_of_game", lambda p: NoMaxHandSizeRestOfGameEffect()
 )
 EffectRegistry.register(
+    # "Until end of turn, ~ loses "<replacement ability>"." (MEC-130, Glittering Lion/Lynx).
+    # ``replacement`` is a `ReplacementRegistry` name; ends in the cleanup step.
+    "lose_own_replacement", lambda p: LoseOwnReplacementEffect(str(p.get("replacement", "")))
+)
+EffectRegistry.register(
     "graveyard_to_library_bottom_random",  # Endurance
     lambda p: GraveyardToLibraryBottomRandomEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),

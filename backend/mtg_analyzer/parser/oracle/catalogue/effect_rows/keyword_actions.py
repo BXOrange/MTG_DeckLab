@@ -84,6 +84,24 @@ def _draw_hand_size_plus(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {"count": amount})]
 
 
+# MEC-130 (Glittering Lion/Lynx): "until end of turn, ~ loses "<its own ability>"". Only quoted
+# abilities that a registered replacement type can stand for are claimed (fail-closed table).
+_LOSES_OWN_REPLACEMENT_QUOTED = {
+    "prevent all damage that would be dealt to ~.": "prevent_damage",
+    "prevent all damage that would be dealt to ~": "prevent_damage",
+}
+_LOSES_OWN_REPLACEMENT_RE = compile_clause(
+    r"until end of turn, ~ loses \"(?P<ability>[^\"]+)\""
+)
+
+
+def _loses_own_replacement(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    replacement = _LOSES_OWN_REPLACEMENT_QUOTED.get(m.group("ability").strip().lower())
+    if replacement is None:
+        return None
+    return [EffectSpec("lose_own_replacement", {"replacement": replacement})]
+
+
 _CREATE_NAMED_TOKEN_DIE_RESULT_RE = compile_clause(
     r"you create a number of (?P<name>[a-z]+) tokens equal to the result"
 )
@@ -2000,6 +2018,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("gain_life_die_result", _GAIN_LIFE_DIE_RESULT_RE, _gain_life_die_result),
     EffectHandler("draw_die_result", _DRAW_DIE_RESULT_RE, _draw_die_result),
     EffectHandler("draw_hand_size_plus", _DRAW_HAND_SIZE_PLUS_RE, _draw_hand_size_plus),
+    EffectHandler("loses_own_replacement", _LOSES_OWN_REPLACEMENT_RE, _loses_own_replacement),
     EffectHandler(
         "no_max_hand_size_rest_of_game", _NO_MAX_HAND_SIZE_REST_OF_GAME_RE,
         _no_max_hand_size_rest_of_game,

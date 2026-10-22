@@ -61,7 +61,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-130 · Any player may activate.** `any player may activate this ability` (Glittering Lion, Glittering Lynx): an activated ability usable by every player at their own priority, with the cost paid and the effect resolved for the activating player; engine primitive plus oracle handler plus PARSER_VERSION bump.
+-No Tickets-
 
 ## PLR — Player management
 

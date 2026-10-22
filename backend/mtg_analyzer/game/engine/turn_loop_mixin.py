@@ -1023,6 +1023,9 @@ class TurnLoopMixin:
         ended_effects = False
         for obj in self.state.permanents():
             obj.damage_marked = 0
+            for replacement in obj.replacement_effects:
+                if getattr(replacement, "suppressed", False):  # MEC-130 "loses <ability> until end of turn"
+                    replacement.suppressed = False
             if (obj.temp_power or obj.temp_toughness or obj.temp_keywords
                     or obj.temp_removed_keywords
                     or obj.temp_parametric_keywords):

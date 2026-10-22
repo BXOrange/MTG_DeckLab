@@ -2106,8 +2106,15 @@ class ReplacementEffect(GameEffect):
         self.replacement_fn = replacement_fn
         self.condition = condition
         self.description = description
+        #: The whitelisted `ReplacementRegistry` name this was bound from (set by the binder);
+        #: lets "~ loses '<that ability>'" find the replacement it names (MEC-130).
+        self.spec_type: Optional[str] = None
+        #: Switched off until end of turn by `LoseOwnReplacementEffect`; cleared in the cleanup step.
+        self.suppressed = False
 
     def can_replace(self, event: GameEvent, context: GameContext) -> bool:
+        if self.suppressed:
+            return False
         if event.type != self.event_type:
             return False
         if self.condition is not None and not self.condition(event, context):

@@ -5407,6 +5407,12 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 - **Parser.** `_HAND_SIZE_SET_RE` in `static_handlers` (own-controller "your maximum hand size is N" only) and the `draw_hand_size_plus` row (`hand_size` resource amount plus `plus`), which finishes Sea Gate Restoration.
 - **Not in scope.** Duration ("for the rest of the game", Inspired Idea), counter-dependent (Midnight Oil), chosen-player (Cursed Rack) and card-type-count (Winter) values stay unclaimed. Cecily is MODELED; Necrodominance, Null Profusion, Recycle, The Ten Rings and Doctor Octopus keep other unclaimed clauses (play-trigger draw, end-step difference draw, end-step life payment).
 
+### MEC-130: any player may activate, ability loss until end of turn (PARSER_VERSION 721)
+
+- **Finding.** "Any player may activate this ability" already existed (`ActivationCost.any_player_may_activate`, MEC-30, parsed by `segmenter`); the real gap was the effect "until end of turn, ~ loses `<its own ability>`".
+- **Engine.** `ReplacementEffect` now records the registered `spec_type` it was bound from and a `suppressed` flag that `can_replace` honours; `LoseOwnReplacementEffect` (`lose_own_replacement`) switches off the source's matching replacements and the cleanup step (RULE 514.2) switches them back on. The flag lives on the effect object, so a re-entered permanent rebinds fresh (RULE 400.7).
+- **Parser.** `loses_own_replacement` row with a fail-closed table of quoted abilities a registered replacement can stand for; today only "prevent all damage that would be dealt to ~". Other quoted-ability losses stay unclaimed. Glittering Lion and Lynx are MODELED and execute-tested with an opponent activating.
+
 ### PAR-120: count vocabulary, departing copy, token CDA, and "instead" overrides (PARSER_VERSION 486–498)
 
 - `parse_count_phrase` composes disjoint exile/graveyard counts as one existing `terms` expression (Crackling Drake, Huskburster Swarm); the adjective in "untapped artifacts, creatures, and lands" applies to every member of Maraxus's type list. The distribution rule is limited to tap state so ambiguous adjective lists still fail closed.

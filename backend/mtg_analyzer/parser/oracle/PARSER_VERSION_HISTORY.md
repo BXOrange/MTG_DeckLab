@@ -4133,3 +4133,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 720 MEC-129 -- "your maximum hand size is N" (`hand_size_set` static, RULE 402.2) ordered by RULE 613.7 timestamp against
      the static and rest-of-game "no maximum hand size" grants; relative modifiers apply on top. "Draw cards equal to the
      number of cards in your hand plus N" reuses the `hand_size` resource amount (Sea Gate Restoration).
+721 MEC-130 -- "until end of turn, ~ loses "<its own replacement ability>"" (`lose_own_replacement`, RULE 613.1f/514.2)
+     via a fail-closed quoted-text table; the existing `any_player_may_activate` cost handles "any player may activate this
+     ability" (Glittering Lion/Lynx). Replacement effects now carry their `spec_type` and a `suppressed` flag.

@@ -976,7 +976,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "grant_search_prohibited", "granted_alt_cast_cost",
     "graveyard_cast_permission", "graveyard_library_cast_prohibition",
     "graveyard_library_entry_prohibition", "hand_size_modifier", "hand_size_set",
-    "ignore_legend_rule", "no_max_hand_size", "no_max_hand_size_rest_of_game",
+    "ignore_legend_rule", "no_max_hand_size", "no_max_hand_size_rest_of_game", "lose_own_replacement",
     "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "player_cast_restriction", "pt_cda",
     "self_graveyard_or_exile_cast_permission", "set_max_life_total",
     "sorcery_speed_only", "top_library_permission", "trigger_prohibition", "proliferate_twice", "pip_life_option", "lands_enter_untapped",

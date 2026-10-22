@@ -2529,6 +2529,26 @@ class NoMaxHandSizeRestOfGameEffect(GameEffect):
             context.state.no_max_hand_size_stamps[player.id] = context.state.next_timestamp()
 
 
+class LoseOwnReplacementEffect(GameEffect):
+    """"Until end of turn, ~ loses "<replacement ability>"." (Glittering Lion/Lynx's "prevent all
+    damage that would be dealt to this creature") — RULE 613.1f layer-6 ability removal, scoped to
+    the one named replacement of the source. The matching `ReplacementEffect`s (by the registered
+    ``spec_type`` the binder stamped) are switched off by ``suppressed`` and switched back on in
+    the cleanup step with the other "until end of turn" effects (RULE 514.2). Keeping the flag on
+    the effect object makes it vanish with the permanent (RULE 400.7: a new object rebinds)."""
+
+    def __init__(self, replacement: str, source: Any = None) -> None:
+        super().__init__(source)
+        self.replacement = replacement
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        for effect in self.source.replacement_effects:
+            if getattr(effect, "spec_type", None) == self.replacement:
+                effect.suppressed = True
+
+
 class GraveyardToLibraryBottomRandomEffect(GameEffect):
     """"Up to one target player puts all the cards from their graveyard on
     the bottom of their library in a random order." (Endurance-shaped) —

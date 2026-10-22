@@ -197,6 +197,7 @@ def build_replacements(
         active_if = params.pop("active_if", None)
         effect = ReplacementRegistry.create(spec.type, params)
         effect.source = source
+        effect.spec_type = spec.type
         if active_if is not None:
             inner_condition = effect.condition
             controller_id = getattr(source, "controller_id", None)
