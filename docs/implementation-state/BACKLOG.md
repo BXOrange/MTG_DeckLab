@@ -32,17 +32,36 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
+-No Tickets-
 
 ## PAR — Parser
 
-
+- **PAR-183 · Day/night trigger heads.** `whenever day becomes night or night becomes day` (+ day/night-conditioned bodies): 10 open cards, 6 sole-blocker (Brimstone Vandal, Firmament Sage, Gavony Dawnguard, Obsessive Astronomer, Sunrise Cavalier, Sunstreak Phoenix). Engine state exists; add the event head and bind it.
+- **PAR-184 · Crime trigger head.** `whenever you commit a crime` with once-per-turn rider: 16 open, 11 sole-blocker (At Knifepoint, Bandit's Haul, Blood Hustler, Deepmuck Desperado, Forsaken Miner, Freestrider Lookout, Hardbristle Bandit, Marauding Sphinx, Rattleback Apothecary, Raven of Fell Omens, Vadmir). Check the existing crime event before adding one.
+- **PAR-185 · Land animation riders.** `~ becomes a N/N … creature until end of turn. it's still a land.` and `they're still lands`: 68 open cards (21 with other parsed effects), 5 sole-blocker manlands (Faerie Conclave, Forbidding Watchtower, Ghitu Encampment, Hostile Desert, Restless Ridgeline); Zendikon/Awaken families included.
+- **PAR-186 · Regeneration riders on destroy.** `destroy that creature/it. it can't be regenerated`, `they can't be regenerated`: 29 + 17 open, 0 sole-blocker; measure the joint package (Dripping Dead, Spinal Graft, Befoul, Crumble, Detonate, …).
+- **PAR-187 · Reveal-hand family.** `target opponent/player reveals their hand`, `you choose a nonland card from it`, `that player discards that card`: 53 + 15 open, 0 sole-blocker; the choose-and-act continuation is the missing link (Castigate, Agonizing Remorse, Collective Brutality, Appetite for Brains, …).
+- **PAR-188 · Self-power pump amount.** `where x is its power` / `where x is ~'s power`: 12 + 13 open, all 12 sole-blocker (Chameleon Colossus, Dying Wish, Electrostatic Pummeler, Elenda's Hierophant, Faerie Bladecrafter, Feral Animist, Heroes' Bane, Murder Investigation, Spotter Thopter, Tarox Bladewing, Ukkima, Yew Spirit).
+- **PAR-189 · Defender and combat-damage riders.** `~ can attack this turn as though it didn't have defender` (12 open, 11 sole-blocker: Mirror Wall, Dark Maze, Glade Watcher, Hightide Hermit, Krotiq Nestguard, …) and `if you do, ~ assigns no combat damage this turn` (12 open, 7 sole-blocker: Laccolith cycle, Ophidian, Dwarven Vigilantes, Farrel's Zealot).
+- **PAR-190 · Tribute follow-ups.** `if tribute wasn't paid, …`: 10 open, all sole-blocker (Fanatic of Xenagos, Nessian Demolok, Nessian Wilds Ravager, Oracle of Bones, Ornitharch, Pharagax Giant, Shrike Harpy, Siren of the Fanged Coast, Snake of the Golden Grove, Thunder Brute).
+- **PAR-191 · Counter target activated ability.** 5 open, all sole-blocker (Azorius Guildmage, Bind, Rimewind Cryomancer, Squelch, Voidmage Husher); ability-on-stack counter target.
+- **PAR-192 · Opening-hand reveal permissions.** `you may reveal this card from your opening hand. if you do, at the beginning of the first upkeep, …`: 8 open (Chancellor cycle, Devourer of Destiny, Providence, Sphinx of Foresight).
+- **PAR-193 · Dragon aura return clause.** `when a creature with mana value 6 or greater enters, you may return this card from your graveyard to the battlefield attached to that creature`: 6 open, all sole-blocker (Dragon Breath, Fangs, Scales, Shadow, Wings, Smoke Shroud).
+- **PAR-194 · Rune auras.** `as long as enchanted permanent is an equipment, it has "equipped creature has …"`: 5 open, all sole-blocker (Rune of Flight, Might, Mortality, Speed, Sustenance).
+- **PAR-195 · Time-counter exile rules.** `whenever a time counter is removed from this card while it's exiled` (6 open, 5 sole-blocker: Aeon Chronicler, Benalish Commander, Detritivore, Dinosaurs on a Spaceship, Fungal Behemoth) and `put a time counter on ~` (9 open).
+- **PAR-196 · Depletion and ki counter rules.** `~ doesn't untap during your untap step if it has a depletion counter on it` (Land Cap, Lava Tubes, River Delta, Timberline Ridge, Veldt) and `if there are N or more ki counters on ~, you may flip it` (Budoka Pupil, Callow Jushi, Cunning Bandit, Faithful Squire, Hired Muscle); 10 sole-blocker cards.
+- **PAR-197 · Predefined tokens: Lander, Eldrazi Spawn.** `create a Lander token` (11 open, 7 sole-blocker) and the Eldrazi Spawn token with its mana ability (10 open, 6 sole-blocker: Chittering Dispatcher, Eldrazi Repurposer, Emrakul's Messenger, Glaring Fleshraker, Propagator Drone, Skittering Precursor).
+- **PAR-198 · "Instead" modifiers.** Kicker/condition `… instead` replacement sentences: 16 open, 14 sole-blocker (Desolation Angel/Giant, Ether Well, Feed the Clan, Fight with Fire, Grizzly Fate, Mysteries of the Deep, Predator's Howl, Ray of Enfeeblement, Ritual of Hope, Take the Fall, We Say Thee Nay!).
+- **PAR-199 · Duration-bound exile.** `exile target … until ~ leaves the battlefield`: 10 open, 5 sole-blocker (Annex Sentry, Glass Casket, Grasping Giant, Seam Rip, Solitary Cell); verify what blocks the existing O-ring grammar.
+- **PAR-200 · Shuffle graveyard into library.** `target player shuffles their graveyard into their library`: 8 open, all sole-blocker (Blessed Respite, Clear the Mind, Cranial Archive, Learn from the Past, Primal Command, Quest for Ancient Secrets, Reminisce, Thran Foundry).
+- **PAR-201 · Opponent gains control of ~.** `target opponent gains control of ~`: 6 open, 5 sole-blocker (Avarice Amulet, Humble Defector, Jinxed Idol, Jinxed Ring, Measure of Wickedness).
+- **PAR-202 · End-of-combat trigger head.** `at end of combat` (with intervening-if): 14 open, 5 with other parsed effects (Clockwork cycle, Daredevil Dragster, Dread Wight, Greater Werewolf, Heat Stroke, Kjeldoran Frostbeast, …).
+- **PAR-203 · Named choices on resolution.** `choose a creature type` (23 open, 2 sole-blocker), `choose a color` (18), `choose a card name` (17); measure which already-existing choice primitive each lacks.
+- **PAR-204 · Optional-payment "if you do" chains.** `you may pay <cost>` (70 open) and `if you do` / `if you don't` (155 / 25 open, 19 / 1 sole-blocker): re-measure after PAR-175/178 and split by antecedent type.
 
 ## MEC — Game mechanic
 
-
-
-
-
+-No Tickets-
 
 ## PLR — Player management
 
@@ -87,3 +106,5 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
+
+-No Tickets-
