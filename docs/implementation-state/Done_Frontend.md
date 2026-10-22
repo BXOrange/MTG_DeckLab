@@ -185,6 +185,11 @@ repointed there.
 - **What:** Jace tokens expose `is_planeswalker`, loyalty counters and both loyalty actions through the existing shared board path used by Goldfish, Replay, Solo and Multiplayer. The board already renders the loyalty badge and action buttons for tokens; no token-specific rendering branch is required. Engine-Status lists Empower Jace in both German and English.
 - **Validation:** `tests/test_empower_jace.py` verifies shared session payloads and legal actions, actual loyalty activation, and Replay export/import. Art uses the existing token-library and uploaded-token fallback in `gameBoardView.js`.
 
+### PAR-181: X-dependent copy originals and tap-X costs on the shared board
+
+- **What:** When an ability's target requirement carries `mana_value_from_x`, `gameBoardView.js` filters the offered originals to the announced X, and a tap cost with `count: 'x'` requests exactly X tap selections and submits once they are chosen (League Guildmage, Resonance Technician).
+- **Validation:** Real Chromium run against a live `GameSession` (X=2 offers only the MV2 original; Resonance asks for exactly two artifacts; the sent action carries `x` and `tap_choices`; no page errors). Engine-Status coverage line updated to v719.
+
 ### Goldfisch mode wired to the real engine
 
 - **What:** The "Goldfisch" tab picks a saved deck (only a legal one enables Start), posts to `POST /api/game/goldfish`, and renders/drives the server's authoritative `GameState` via validated actions from `legal_actions`, plus Zurücknehmen (rewind) and Neu starten.

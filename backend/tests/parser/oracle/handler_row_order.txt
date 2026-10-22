@@ -331,7 +331,7 @@ gain_control_eot_per_opponent
 gain_control_mass_eot
 gain_control_group
 trigger_copy_spell
-copy_your_instant_or_sorcery
+targeted_stack_copy
 grant_flashback_each
 target_graveyard_cast
 grant_flashback_target

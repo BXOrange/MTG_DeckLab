@@ -39,6 +39,7 @@ from ..costs import (
     RETURN_SELF_TO_HAND,
     SACRIFICE_COUNT_X,
     SACRIFICE_COUNT_ANY,
+    TAP_OTHERS_X,
     ActivationCost,
     parse_activation_cost,
 )
@@ -167,7 +168,8 @@ class LegalActionsMixin:
         )
         # ENG-49: "Sacrifice X lands" announces X too (Copper-Leaf Angel).
         sacrifice_x = bool(ability.cost.sacrifice_count) and ability.cost.sacrifice_count[0] == SACRIFICE_COUNT_X
-        if mana.has_variable or remove_counters_x or sacrifice_x or ability.cost.pay_energy == PAY_ENERGY_X:
+        tap_x = bool(ability.cost.tap_others) and ability.cost.tap_others[0] == TAP_OTHERS_X
+        if mana.has_variable or remove_counters_x or sacrifice_x or tap_x or ability.cost.pay_energy == PAY_ENERGY_X:
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)

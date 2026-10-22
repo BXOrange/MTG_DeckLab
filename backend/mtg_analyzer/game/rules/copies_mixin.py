@@ -457,6 +457,7 @@ class CopiesMixin:
             # (Ashling the Pilgrim's ruling: Rings of Brighthearth's copy counts).
             ability_key=item.ability_key,
             trigger_event=item.trigger_event,
+            category=item.category,
         )
         copy_item.source_zone_incarnation = item.source_zone_incarnation
         if new_targets is None:

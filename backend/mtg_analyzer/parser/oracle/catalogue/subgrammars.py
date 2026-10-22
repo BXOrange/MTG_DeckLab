@@ -1059,11 +1059,13 @@ _SPELL_TARGET_BODY = (
     r"(?:(?P<noncreature>noncreature)\s+)?"
     rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
+    # Controller and mana-value restrictions compose in either printed order.
+    r"(?P<scope> (?:you control|you don'?t control|an opponent controls|your opponents control))?"
     # "…with mana value X" (Spell Blast / Spell Burst) is the spell's announced {X} — the sentinel is
     # read back at target-offer time (`targeting.legal_targets`).
     r"(?:\s+with mana value (?P<mv>\d+|x))?"
     # PAR-128: the controller scope slot — "counter target spell **you don't control**".
-    r"(?P<scope> (?:you don'?t control|an opponent controls|your opponents control))?"
+    r"(?P<scope_after> (?:you control|you don'?t control|an opponent controls|your opponents control))?"
 )
 #: The same phrase captured under a ``target`` group, for embedding inline in
 #: a handler regex the way `TARGET` is (e.g. ``counter {SPELL_TARGET}``).
@@ -1098,8 +1100,11 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         filt["subtype_any"] = subtypes
     if m.group("mv"):
         filt["mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
-    if m.group("scope"):
-        filt["target_kind"] = "spell_you_dont_control"
+    if m.group("scope") and m.group("scope_after"):
+        return None
+    scope = m.group("scope") or m.group("scope_after")
+    if scope:
+        filt["target_kind"] = "spell_you_control" if scope.strip() == "you control" else "spell_you_dont_control"
     return filt
 
 

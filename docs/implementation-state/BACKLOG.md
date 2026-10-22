@@ -35,12 +35,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-181 · Targeted stack-copy grammar and retargeting riders.** Compose
-  existing spell/ability-copy effects with “you may choose new targets” for
-  Force of Rowan, Adric, Mathematical Genius, League Guildmage and Resonance
-  Technician. Preserve spell/ability kinds, controller filters, announced-X
-  mana-value bounds and stack identity. Acceptance: legal/illegal originals,
-  retained/rechosen targets and paid-X/tapped-artifact counts in actual gameplay.
 
 
 ## MEC — Game mechanic

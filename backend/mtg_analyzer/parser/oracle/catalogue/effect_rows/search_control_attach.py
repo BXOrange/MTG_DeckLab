@@ -9,6 +9,8 @@ from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
 from ..clause_primitives import split_keywords_with_parametric
 from ..subgrammars import (
+    SPELL_TARGET,
+    resolve_spell_filter,
     resolve_color_word,
     resolve_target_creature_state_filter,
     resolve_target_kind,
@@ -1047,21 +1049,34 @@ _TRIGGER_COPY_SPELL_RE = compile_clause(
     r"that player copies it and may choose new targets for the copy(?: until end of turn)?"
 )
 
-#: "Copy target instant or sorcery spell you control. You may choose new
-#: targets for the copy." (Dual Casting).  The controller qualifier is a
-#: target-legality restriction, not merely a note about who controls the
-#: resulting copy, so it uses the dedicated ``spell_you_control`` target
-#: kind rather than the broader `copy_spell` default.
-_COPY_YOUR_INSTANT_OR_SORCERY_RE = compile_clause(
-    r"copy target instant or sorcery spell you control\.?"
-    r"(?:\s*you may choose new targets for the copy\.?)?"
+#: Targeted stack copies compose the shared spell-target grammar, copy
+#: count and optional retargeting rider (RULE 707.10c). The sibling ability
+#: target keeps stack identity; its fixed count differs from Gogo's X.
+_TARGETED_STACK_COPY_RE = compile_clause(
+    rf"copy (?:(?P<ability>target activated or triggered ability)(?P<ability_scope> you control)?|{SPELL_TARGET})"
+    r"(?: (?P<copy_count>twice|x times|\d+ times))?\.?"
+    r"(?:\s*(?P<retarget>you may choose new targets for (?:the|that) cop(?:y|ies))\.?)?"
 )
 
 
-def _copy_your_instant_or_sorcery(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("copy_spell", {
-        "card_types": ["instant", "sorcery"], "target_kind": "spell_you_control",
-    })]
+def _targeted_stack_copy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count_text = m.group("copy_count")
+    count = 1 if count_text is None else 2 if count_text == "twice" else (
+        "x" if count_text == "x times" else int(count_text.split()[0])
+    )
+    params = {"count": count, "choose_new_targets": bool(m.group("retarget"))}
+    if m.group("ability"):
+        params["target_kind"] = "ability_you_control" if m.group("ability_scope") else "ability"
+        return [EffectSpec("copy_target_ability", params)]
+    filt = resolve_spell_filter(m.group("target"))
+    if filt is None:
+        return None
+    params["target_kind"] = filt.pop("target_kind", "spell")
+    if "card_types" in filt:
+        params["card_types"] = filt.pop("card_types")
+    if filt:
+        params["spell_filter"] = filt
+    return [EffectSpec("copy_spell", params)]
 
 
 #: "Each instant and sorcery card in your graveyard gains flashback until
@@ -1830,9 +1845,9 @@ ROWS: list[EffectHandler] = [
         _trigger_copy_spell,
     ),
     EffectHandler(
-        "copy_your_instant_or_sorcery",
-        _COPY_YOUR_INSTANT_OR_SORCERY_RE,
-        _copy_your_instant_or_sorcery,
+        "targeted_stack_copy",
+        _TARGETED_STACK_COPY_RE,
+        _targeted_stack_copy,
     ),
     # "Each instant and sorcery card in your graveyard gains flashback until
     # end of turn. The flashback cost is equal to its mana cost." (Past in

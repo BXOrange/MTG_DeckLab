@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
+from .catalogue.cost_text import scan_cost_text
 from .catalogue.keywords import parse_keywords
 from .catalogue.kicker_mana import kicker_x_mana_restriction_condition
 from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail
@@ -80,7 +81,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "718"
+PARSER_VERSION = "719"
 
 
 def parser_source_hash() -> str:
@@ -797,11 +798,15 @@ _TAP_X_COST_RE = re.compile(r"\btap x untapped\b")
 
 
 def _tap_x_cost_ok(spec: AbilitySpec) -> bool:
-    """"Tap X untapped artifacts you control" as a cost has no engine form yet: the cost parser reads the
-    X as a count of 1 (`costs.py`'s ``tap_others``), so an ability carrying it would run for a single
-    tap whatever its X. Fails closed until X-sized tap costs exist."""
+    """RULE 602.2b: admit X-sized tap costs only when the shared cost
+    grammar recognizes the entire cost and its TAP_OTHERS_X component."""
     cost = spec.cost if isinstance(spec.cost, dict) else None
-    return not (cost and _TAP_X_COST_RE.search(str(cost.get("text", "")).lower()))
+    text = str((cost or {}).get("text", "")).lower()
+    if not _TAP_X_COST_RE.search(text):
+        return True
+    scan = scan_cost_text(text)
+    tapped = scan.hits.get("tap_others")
+    return scan.leftover is None and tapped is not None and tapped.group("n").lower() == "x"
 
 
 _TRAILING_WINDOW_CONDITION_RE = re.compile(r"\byou may (?:play|cast)\b[^.]*\bif\b", re.IGNORECASE)

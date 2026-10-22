@@ -121,7 +121,7 @@ class CounterSpellEffect(GameEffect):
         if target_from_trigger_event is None:
             # "counter target spell **you don't control**" (Counterflux, PAR-128): the
             # controller-scoped ``spell_you_dont_control`` pool.
-            kind = target_kind if target_kind in ("spell", "spell_you_dont_control", "spell_or_ability") else "spell"
+            kind = target_kind if target_kind in ("spell", "spell_you_control", "spell_you_dont_control", "spell_or_ability") else "spell"
             self.target_spec = TargetSpec(
                 kind=kind, spell_filter=spell_filter or None, count=self.count, optional=bool(optional),
             )
@@ -171,6 +171,14 @@ class CounterSpellEffect(GameEffect):
             self._counter_one(context, target, unless_pays, on_pay)
 
     def _counter_one(self, context: GameContext, target: Any, unless_pays: Optional[str], on_pay: Optional[list]) -> None:
+        if self.target_spec is not None and self.target_spec.kind == "spell_you_control":
+            # RULE 608.2b: the newly admitted own-spell scope must still
+            # hold when control of the original changes in response.
+            item = context.engine._stack_item_for(target)
+            controller = _controller_of(self.source, context)
+            if (item is None or item.kind != "spell" or controller is None
+                    or item.controller_id != controller.id):
+                return
         if target is not None and getattr(target, "kind", None) == "ability":
             # "counter target spell, activated ability, or triggered ability" (Disallow): the picked
             # stack item is an ability, which has no card to put anywhere (RULE 701.5b).
@@ -226,17 +234,20 @@ class CopyTargetAbilityEffect(GameEffect):
     """"Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry) —
     RULE 707.10, the *targeted* sibling of `CopyAbilityEffect` above (which copies "that ability", the one
     that fired a trigger). The target is an ability item on the stack (``TargetSpec(kind="ability_you_control")``,
-    named by `StackItem.stack_id`); only one the effect's controller controls is copyable. ``X`` is the
+    named by `StackItem.stack_id`); controller scope is carried by the target kind. ``count`` is fixed
+    for Adric and defaults to Gogo's historical ``"x"``. ``X`` is the
     spell/ability's own announced {X} (the resolving stack item), independent of later activations.
     Gogo's minimum X is enforced by its activation cost.
 
     Target changes are optional and complete before any copy enters the stack.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False,
+                 count: Any = "x", target_kind: str = "ability_you_control") -> None:
         super().__init__(source)
         self.choose_new_targets = choose_new_targets
-        self.target_spec = TargetSpec(kind="ability_you_control")
+        self.count = count
+        self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not targets:
@@ -245,11 +256,13 @@ class CopyTargetAbilityEffect(GameEffect):
         stack_id = target.get("stack_id") if isinstance(target, dict) else getattr(target, "stack_id", None)
         item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
         controller_id = getattr(_controller_of(self.source, context), "id", None)
-        if item is None or item.kind != "ability" or controller_id is None or item.controller_id != controller_id:
+        if (item is None or item.kind != "ability" or controller_id is None
+                or self.target_spec.kind == "ability_you_control" and item.controller_id != controller_id):
             return  # RULE 608.2b: the ability left the stack, or isn't one you control
         resolving = context.resolving_stack_item
         announced_x = resolving.x if resolving is not None else getattr(self.source, "x_paid", 0)
-        for _ in range(max(0, int(announced_x or 0))):
+        count = announced_x if self.count == "x" else self.count
+        for _ in range(max(0, int(count or 0))):
             context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets, defer_choice=True)
         context.engine._advance_copy_targets()
 
@@ -267,6 +280,8 @@ class CopySpellEffect(GameEffect):
     targets for the copy" is a legal-but-optional refinement (RULE 707.10c);
     the controller chooses through state-owned target rounds before any
     copy is put on the stack, retaining any unchanged targets.
+    ``spell_filter`` composes the shared type, colour and exact mana-value
+    restrictions; its ``"x"`` mana value is this resolving item's X.
     """
 
     def __init__(
@@ -283,6 +298,7 @@ class CopySpellEffect(GameEffect):
         count_from_trigger_event: Optional[str] = None,
         max_mana_value: Optional[int] = None,
         choose_new_targets: bool = False,
+        spell_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.choose_new_targets = bool(choose_new_targets)
@@ -298,7 +314,7 @@ class CopySpellEffect(GameEffect):
         self.count_from_trigger_event = count_from_trigger_event
         self.spell_from_trigger_event = spell_from_trigger_event
         self.controller_from_trigger_event = controller_from_trigger_event
-        spell_filter: dict[str, Any] = {}
+        spell_filter = dict(spell_filter or {})
         if card_types:
             spell_filter["card_types"] = list(card_types)
         if max_mana_value is not None:
@@ -358,8 +374,28 @@ class CopySpellEffect(GameEffect):
         n = self._copies(context, controller_id)
         if n <= 0:
             return
+        # RULE 608.2b/107.3c: a stack original must still satisfy its kind,
+        # controller and mana-value requirements. X belongs to this stack
+        # item, independent of later activations of the source permanent.
+        from dataclasses import replace
+        from ..targeting import legal_targets
+
+        spec = self.target_spec
+        if spec.spell_filter and spec.spell_filter.get("mana_value") == "x":
+            resolving = context.resolving_stack_item
+            announced_x = resolving.x if resolving is not None else getattr(self.source, "x_paid", 0)
+            spec = replace(spec, spell_filter={**spec.spell_filter, "mana_value": int(announced_x or 0)})
+        legal_ids = {
+            ("spell", option["instance_id"]) if "instance_id" in option
+            else ("ability", option.get("stack_id"))
+            for option in legal_targets(context.state, controller_id, spec, source=self.source)
+        }
         for target in targets:
             item = context.engine._stack_item_for(target)
+            identity = (("spell", item.obj.instance_id) if item is not None and item.obj is not None
+                        else ("ability", getattr(item, "stack_id", None)))
+            if item is None or identity not in legal_ids:
+                continue
             if self.target_spec.kind == "spell_or_ability" and item is not None and item.kind == "ability":
                 for _ in range(n):
                     context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets, defer_choice=True)

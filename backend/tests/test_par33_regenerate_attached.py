@@ -106,7 +106,8 @@ def test_dual_casting_quoted_spell_copy_keeps_its_controller_restriction():
     assert grant.type == "grant_activated_ability"
     assert grant.params["grant_effects"] == [{
         "type": "copy_spell",
-        "params": {"card_types": ["instant", "sorcery"], "target_kind": "spell_you_control"},
+        "params": {"card_types": ["instant", "sorcery"], "target_kind": "spell_you_control",
+                   "count": 1, "choose_new_targets": True},
     }]
 
 

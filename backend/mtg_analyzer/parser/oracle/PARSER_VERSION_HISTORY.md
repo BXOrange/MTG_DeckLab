@@ -4125,3 +4125,8 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 718: PAR-180 verification -- named search alternatives reuse criteria OR, retaining all other restrictions
      on each branch. Bogbrew Witch offers Festering Newt and Bubbling Cauldron as separate legal finds,
      rather than treating their joined phrase as one literal card name. Both choices execute in regressions.
+719: PAR-181 -- targeted stack-copy grammar composes shared spell kinds, controller scopes, exact mana value,
+     copy count and retargeting riders. Ability copies distinguish fixed Adric count from announced Gogo X,
+     preserve stack category and revalidate originals. Exact-X copy filtering reads the resolving stack item.
+     Shared tap-X costs are admitted through the same pure cost scan used by engine cost parsing; unsupported
+     filters remain fail-closed. Counter binding retains newly accepted own-spell scope through resolution.

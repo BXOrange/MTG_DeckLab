@@ -593,7 +593,10 @@ export function createGameBoardView(opts = {}) {
     const owners = [];
     let excludePicked = false;
     let excludeControllers = false;
-    for (const [reqIndex, req] of requirements.entries()) {
+    for (const [reqIndex, originalReq] of requirements.entries()) {
+      const req = originalReq.mana_value_from_x
+        ? { ...originalReq, options: (originalReq.options || []).filter((option) => Number(option.mana_value) === Number(x)) }
+        : originalReq;
       const minimum = req.count_from_x ? x * req.count_from_x : (req.count ?? 1);
       const total = req.any_number ? (req.count_max || 0) : (req.count_max || minimum);
       if (total > 1) excludePicked = true;
@@ -2983,15 +2986,15 @@ export function createGameBoardView(opts = {}) {
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp);
     if (!payload.tap_choices && action?.tap_cost) {
-      const { count, options } = action.tap_cost;
+      const { options } = action.tap_cost;
+      const count = action.tap_cost.count === 'x' ? x : action.tap_cost.count;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({
           label: 'zu tappende bleibende Karte', options, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
       };
-      persistCastTargetingDraft();
-      render();
+      finishCastIfReady();
       return;
     }
     if (!payload.return_choices && action?.return_cost) {

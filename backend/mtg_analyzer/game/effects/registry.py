@@ -818,6 +818,7 @@ EffectRegistry.register(
 EffectRegistry.register(
     "copy_spell",
     lambda p: CopySpellEffect(
+        spell_filter=p.get("spell_filter"),
         choose_new_targets=bool(p.get("choose_new_targets", False)),
         card_types=p.get("card_types"),
         count=p.get("count", 1),
@@ -841,7 +842,8 @@ EffectRegistry.register(
 EffectRegistry.register(
     # "Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry)
     "copy_target_ability",
-    lambda p: CopyTargetAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False))),
+    lambda p: CopyTargetAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False)),
+                                    count=p.get("count", "x"), target_kind=p.get("target_kind", "ability_you_control")),
 )
 EffectRegistry.register(
     "copy_self_spell",

@@ -16,6 +16,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+from dataclasses import replace
 import re
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -361,17 +362,38 @@ class ActivationMixin:
                 if blocked is not None:
                     out.append(blocked)
                 continue
+            mana_value_from_x = bool(spec.spell_filter and spec.spell_filter.get("mana_value") == "x")
+            offered_spec = spec
+            if mana_value_from_x:
+                # RULE 602.2b/601.2b-c: the UI announces X before targets.
+                # Offer the union across payable X, retaining every other
+                # restriction; filtering at source.x_paid (or only max X)
+                # would hide legal lower-X originals before announcement.
+                offered_spec = replace(spec, spell_filter={
+                    key: value for key, value in spec.spell_filter.items() if key != "mana_value"
+                })
+            options = legal_targets(self.state, player.id, offered_spec, source=source)
+            if mana_value_from_x:
+                max_x = self._max_x_for_activation_cost(player, source, ability.cost)
+                values = {item.obj.instance_id: item.obj.mana_value for item in self.state.stack
+                          if item.kind == "spell" and item.obj is not None}
+                options = [{**option, "mana_value": values[option["instance_id"]]}
+                           for option in options
+                           if option.get("instance_id") in values
+                           and ability.cost.minimum_x <= values[option["instance_id"]] <= max_x]
             entry = {
                 "kind": spec.kind,
                 "optional": spec.optional,
                 # RULE 601.2c — see `targeting.resolved_count`.
                 "count": resolved_count(spec, self.state, player.id, source),
                 "label": spec.label(),
-                "options": legal_targets(self.state, player.id, spec, source=source),
+                "options": options,
                 "distinct_controllers": spec.distinct_controllers,
                 "distinct_from_others": spec.distinct_from_others,
                 "polarity": spec.polarity,
             }
+            if mana_value_from_x:
+                entry["mana_value_from_x"] = True
             add_target_budget_metadata(self.state, spec, entry)
             # ENG-30: "N or M target X" range — see `TargetSpec.count_max`.
             if spec.count_max is not None:
