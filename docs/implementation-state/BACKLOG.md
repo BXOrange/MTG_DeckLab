@@ -35,36 +35,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-177 · Context-aware gap catalogue and joint-fix ranking.** Fix
-  `parser_probe.py rank --by span`; maintain the full-pool phrase/card graph
-  with face/block/context identity, explicit opaque blockers and shared
-  capabilities across trigger/body roles. Rank prerequisite-aware combinations,
-  retaining zero-SOLO groups. Acceptance: A+B/B+C/C+D regression, complete
-  unresolved-line accounting, correct modal-wrapper handling and unique-card
-  counts for singles, pairs/triples and larger prerequisite packages.
-
-- **PAR-178 · Optional-payment continuations: referents and announced targets.**
-  Extend the existing energy-payment/body composition for Aetherstream Leopard,
-  Hexgold Slith, Conduit Goblin, Consul's Shieldguard and Eddytrail Hawk.
-  Preserve the firing object through the payment choice and announce targeted
-  payoffs correctly. Acceptance: pay/decline/insufficient energy, source versus
-  selected target, target legality and clone/undo; reuse existing payment effects.
-
-- **PAR-179 · Exiled-source land grants and casting permission.** Compose
-  exile-from-hand costs, quoted land mana abilities, “until this card is cast
-  from exile” and “for as long as it remains exiled” for Glamorous Outlaw,
-  Rakish Revelers, Shattered Seraph, Masked Bandits and Emrakul, the Exigent Doom.
-  Preserve independent grant/permission lifetimes and exact card references;
-  test casting, other zone exits/re-entry and clone/undo. Spara's Adjudicators
-  shares this shape but retains a separate attack/block restriction gap.
-
-- **PAR-180 · Library selection and follow-up composition.** Reuse search/dig
-  selections for named-card reveal/hand/shuffle sequences (Avarax, Embermage
-  Goblin, Growth-Chamber Guardian) and look/pick/rest sequences (Court Hussar,
-  Soulcipher Board, Jar of Eyeballs). Preserve selected-pool references,
-  chosen/remaining counts, order and removed-counter X across choices;
-  validate the complete sequences and relevant faces, not detached “shuffle”.
-
 - **PAR-181 · Targeted stack-copy grammar and retargeting riders.** Compose
   existing spell/ability-copy effects with “you may choose new targets” for
   Force of Rowan, Adric, Mathematical Genius, League Guildmage and Resonance
@@ -72,14 +42,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   mana-value bounds and stack identity. Acceptance: legal/illegal originals,
   retained/rechosen targets and paid-X/tapped-artifact counts in actual gameplay.
 
-- **PAR-182 · Attached-host upkeep heads and body references.** Support
-  “at the beginning of the upkeep of enchanted creature's controller” with
-  attached-creature counter bodies (Unstable Mutation, Essence Flare; catalogue:
-  19 shared-head candidates, not 19 guaranteed unlocks).
-  Reuse step events and attachment references; test controller changes,
-  unrelated players' upkeeps, detached sources and resolving counter effects.
-  Size the full shared head family; catalogue matches are candidates, not
-  guaranteed complete-card gains.
 
 ## MEC — Game mechanic
 

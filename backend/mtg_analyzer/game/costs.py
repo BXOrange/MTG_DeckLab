@@ -1185,7 +1185,8 @@ def _parse_text(text: str) -> ActivationCost:
     counters = hits.get("remove_counters")
     if counters:
         amount_word = counters.group(1).strip().lower()
-        count = REMOVE_COUNTERS_X if amount_word == "x" else _word_to_int(amount_word)
+        count = (REMOVE_COUNTERS_ALL if amount_word == "all" else
+                 REMOVE_COUNTERS_X if amount_word == "x" else _word_to_int(amount_word))
         # ENG-51: no kind named ("remove a counter from ~") — any kind pays.
         kind = (counters.group(2) or REMOVE_COUNTERS_ANY_KIND).lower()
         cost.remove_counters = (kind, count)

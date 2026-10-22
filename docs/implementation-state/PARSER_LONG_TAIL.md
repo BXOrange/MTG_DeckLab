@@ -14,12 +14,12 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-21 at PARSER_VERSION 716: **21,852 / 35,046 cards (62.4%)**,
-including authored cards; 1,305 permanently unsupported records. MEC-128 adds
-14 modeled cards with zero regressions against the pre-change full-pool snapshot.
-Commander-legal coverage: **21,253 / 32,068 (66.3%)**, also +14 / 0 regressions
-against the same frozen pool. The isolated cache measurement uses
-`scripts/coverage_report.py --top 40`.
+Measured on 2026-10-22 at PARSER_VERSION 718: **21,923 / 35,046 cards (62.6%)**,
+including authored cards; 1,305 permanently unsupported records.
+Commander-legal coverage: **21,324 / 32,068 (66.5%)**.
+The full-pool probe comparison against v716 reports **+71 / 0 regressions**.
+Measurements use the ledger-backed `scripts/coverage_report.py --top 40`
+and its `--commander-legal-only` scope.
 
 ## Existing building blocks
 

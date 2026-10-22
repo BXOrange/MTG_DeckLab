@@ -4116,3 +4116,12 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 716: MEC-128 -- fixed-count graveyard exile carries a shared same_graveyard target relation;
      casts, activations, trigger rounds and target changes enforce one graveyard per group.
+
+717: PAR-178/179/180/182 -- optional energy continuations preserve referents, targets and clone/undo state;
+     hand-exile activations compose independently bounded quoted grants and casting permissions;
+     named-card searches and complete library selections preserve pools, order and removed-counter X;
+     attached-host step heads and counter recipients reuse existing engine primitives.
+     PAR-177 adds a read-only context-aware gap graph and joint ranking without changing gate verdicts.
+718: PAR-180 verification -- named search alternatives reuse criteria OR, retaining all other restrictions
+     on each branch. Bogbrew Witch offers Festering Newt and Bubbling Cauldron as separate legal finds,
+     rather than treating their joined phrase as one literal card name. Both choices execute in regressions.

@@ -660,6 +660,9 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 
 ### Library search and the general pending-choice mechanism (RULE 701.19)
 
+- **Complete search/dig sequences (PAR-180, v717–718):** named-card criteria resolve normalized self-names to the literal printing, preserve reveal/hand/shuffle and use existing criteria OR for alternative names (Bogbrew Witch). Look/pick/rest accepts comma-connected instructions, explicit remaining-card order and a graveyard selection that leaves unchosen library cards untouched. Each activation snapshots the counters actually removed; “remove all” uses the existing all-counter sentinel. `tests/test_par180_library_composition.py` has 26 regressions for all six assigned cards and Soulcipher's back face, actual choices/declines, empty and short pools, zero-counter costs, two stacked Jar activations, invalid pool members, clone and ordering. Independent review found and corrected the named-alternative overclaim before closure.
+- **Validation:** corrected v718 complete backend suite including `--full-cache`: **15,555 passed, 1 skipped**, no errors (2026-10-22). Ledger-backed coverage: 21,923/35,046 (62.6%), Commander 21,324/32,068 (66.5%); +71 covered cards and zero verdict regressions against v716 across the completed parser tickets.
+
 - **What:** `SearchLibraryEffect` (type-restricted) plus `RulesEngine.request_search`/`resolve_search_choice` established the general `state.pending_choice` pattern: a JSON…
 - **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
@@ -1894,6 +1897,8 @@ Copies use the existing spell-copy primitive and do not count as casts.
 - **Files:** `parser/oracle/catalogue/handlers.py`
 
 ### Attached-Permanent & "Deals Combat Damage to a Player" Trigger Families
+
+- **Attached-host step heads and counter bodies (PAR-182, v717):** shared step grammar uses the current enchanted host's controller and existing untargeted counter recipients. Immediate phase-damage compositions use the active player, including Festering Wound's amount wrapper, without rewriting future granted triggers. `tests/test_par182_attached_upkeep.py` covers controller changes, unrelated upkeeps, detach/reattach, source departure and departed hosts. The measured host-head family contains 30 cards: 14 parser gains, two authored and 14 with separate body gaps; explicit enchanted-counter recipients add another 13 gains. 44 focused regressions passed.
 
 - **What:** A new `{"subject": "attached_permanent"/"self_or_attached_permanent"}` trigger subject ("whenever equipped/enchanted creature `<verb>`", live-checked off the so…
 - **Files:** `game/binding/core.py`
@@ -3203,6 +3208,8 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 
 ### Standing Exile-Cast Permission (Lukka's +1)
 
+- **Hand-exiled source grants (PAR-179, v717):** ordinary stack activations can exile their source from hand as a cost. The resolving ability preserves that exact exile visit. Existing quoted grants and casting permissions have independent lifetimes: the land can pay for casting before its grant ends; unrelated source exits leave the grant intact, while permission never revives on re-entry. Compound quotes announce one target. `tests/test_par179_exiled_source_grants.py` verifies five real cards, actual casts, independent visits, target fizzle, cleanup, clone and session rewind; Spara retains its separate restriction gap. 113 focused/compatibility regressions passed.
+
 - **What:** `GameState.exile_cast_condition` + `GameEngine._has_conditional_exile_permission` — a standing, never-turn-swept exile-cast grant (unlike every existing `temp_p…
 - **Files:** `models/game_state.py`, `game/engine/casting_mixin.py`, `game/static_conditions.py`.
 
@@ -3319,6 +3326,8 @@ Gameplay regressions are in
 - **Files:** `game/costs.py`
 
 ### Energy Resolve-Time Optional Payment
+
+- **Referents and announced targets (PAR-178, v717):** the existing energy-payment wrapper preserves `ClauseReading` and announces “if you do” targets before payment. Its state-owned continuation retains the firing event, selected targets, controller and source incarnation through clone/undo. Atomic decline prevents unsupported payment branches from becoming free effects; targeted reflexive “when you do” and independent target groups remain fail-closed. Confiscation Coup retains one target announcement. `tests/test_par178_energy_continuations.py` covers all five assigned cards and the actual firing object in group triggers; 78 focused/adjacent regressions passed.
 
 - **What:** "You may pay {E}{E}.
 - **Files:** `game/effects/core.py`, `game/rules_engine.py`
@@ -5704,6 +5713,9 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 - **One clause-reading context (PAR-173):** the five threaded subject flags (`self_subject`, `previous_subject`, `group_subject`, `previous_selector`, `attached_subject`) and the `_GROUP_CLAUSE` ContextVar are one frozen `ClauseReading` (leaf `catalogue/clause_reading.py`): `but`/`only`/`unattached` derive variants, `entered()` computes `group_clause` once in `match_clause`, rows declare eligibility with `EffectHandler.requires: ClauseReading` (`satisfies`), and the 14 builders that re-enter the table take `(m, reading)` via `reading_aware`. ~320 segmenter call sites, ~100 row declarations and 52 test files migrated; no compatibility shims. `tests/parser/oracle/test_clause_reading_guard.py` (AST, empty allowlist) fails on any flag parameter/keyword, `*_only` gate or `contextvars` import in `parser/`. Fingerprint byte-identical, PARSER_VERSION 707. PAR-175's referent environment is meant to be one more `ClauseReading` field.
 
 ### Clause linkage across a sequence (PAR-175, PARSER_VERSION 708–712)
+
+- **Context-aware gap research (PAR-177):** `parser/gap_catalogue.py` retains card/face/block/context identity and accounts for every unresolved occurrence, including modal collateral and opaque blockers. `parser_probe.py rank --by span` uses the graph; `--joint` ranks conjunctive repair packages, retains zero-SOLO groups and counts unique cards. Complete prerequisite packages survive the exploration bound. Fifteen regressions cover the A+B/B+C/C+D chain, larger packages, modal wrappers and face identity; the full-pool joint audit reports no missing or extra occurrences. This is read-only diagnostic data and does not change gate verdicts.
+- **Validation for PAR-177/178/179/182:** complete backend suite including `--full-cache`: **15,553 passed, 1 skipped**, no failures (2026-10-22, parser v717). Independent ticket and compatibility regressions also passed. Coverage measurements and their current totals live in `PARSER_LONG_TAIL.md`.
 
 - **What:** `ClauseReading` (PAR-173) carries a referent environment: `referents` is a tuple of `Referent(kind, noun, group)` (kinds `TARGET`, `SELECTOR`, `CREATED`, `COUNTERED`), `previous_subject`/`previous_selector` are views of it, and `segmenter.produces(specs)` is the single "what this clause leaves for the next" function the sequencing loop carries forward. Consumers built on it: (M1) "you may X. If you do, Y." after a trigger or activated head stays one `optional` with `if_you_do_from`, and `IfYouDoEffect` runs Y only if X changed the game (`game_fingerprint`; a search counts as done; the yes/no is skipped when X cannot be done in full), restricted to antecedent types the fingerprint observes (`spec.IF_YOU_DO_ANTECEDENT_TYPES`); (M3) `it/they has|gain(s) "<ability>"` after a creating clause grants to the created tokens (`referent="created"` on `grant_until`/`pump`, read from `created_objects`; delayed sacrifice/exile/destroy of "it/them" captures the tokens); (M4a) "if that spell is countered this way, exile it / put it on top of its owner's library / into its owner's hand instead" folds into the preceding counter as `CounterSpellEffect.destination`, unless-pays branches included; (M4b) one typed handle over the exiled/destroyed/milled/discarded/sacrificed "this way" pools (`THIS_WAY_POOLS`, `this_way_count`/`this_way_sum`, the `this_way_pool` condition) read by "for each <filter> <verb>ed this way" and "if a <filter> was <verb>ed this way"; (M5) report-only residue: `gate.unclaimed_spans` / `processing_list.unclaimed_work_units` compute, on demand, the minimal sentence or connector part that keeps a line unclaimed, and `parser_probe.py rank --by span` groups the to-do list by it. Spans never change a verdict and are not part of `parse_oracle` (computed inside it they cost +44% cold parse time).
 - **Bugs fixed on the way (wrong-but-MODELED):** 16 "may … if you do" cards ran Y even when X did nothing (Marauding Looter, Creeping Chill, Tidal Terror, Magitek Scythe, …); Salt Road Skirmish's haste and end-step sacrifice hit the destroyed creature instead of the Warriors; with both a group-subject trigger and an earlier pick, "untap that creature" now reads the earlier pick (`tap_previous_subject` first, `tap_group_subject` its declared fallback). `parser_probe.py clause` works again after PAR-173.

@@ -364,6 +364,11 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     if color:
         crit["color"] = color
     crit.update(_search_mv_qualifier_from_match(m))
+    name = crit.get("name")
+    if name and " or " in name:
+        # RULE 201.2: each alternative is a literal English name. Reuse
+        # criteria OR and retain every other restriction on each branch.
+        return {"or": [{**crit, "name": part.strip()} for part in name.split(" or ")]}
     return crit
 
 
