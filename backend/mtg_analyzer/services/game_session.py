@@ -2641,7 +2641,8 @@ class GameSessionManager:
         # read from live libraries. Bots never receive draw order or opponents' decks.
         session._bot_decklists = {
             str(seat['player_id']): {'cards': sorted(seat['library'], key=lambda card: card.id),
-                                    'commanders': sorted(seat.get('commanders') or [], key=lambda card: card.id)}
+                                    'commanders': sorted(seat.get('commanders') or [], key=lambda card: card.id),
+                                    'archetypes': tuple(seat.get('archetypes') or ())}
             for seat in seats
         }
         self._sessions[session.id] = session

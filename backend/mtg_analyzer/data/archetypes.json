@@ -4,8 +4,20 @@
     "label": "Aristocrats",
     "description": "Kreaturen sterben absichtlich (Opfern, Angriffe ins Leere) und jeder Tod wird in Werte umgemünzt – Lebensverlust beim Gegner, Karten, Mana oder Token.",
     "signal_cards": {
-      "core": ["Blood Artist", "Zulaport Cutthroat", "Cruel Celebrant", "Judith, the Scourge Diva", "Mayhem Devil"],
-      "support": ["Viscera Seer", "Ashnod's Altar", "Phyrexian Altar", "Carrion Feeder", "Yawgmoth, Thran Physician"]
+      "core": [
+        "Blood Artist",
+        "Zulaport Cutthroat",
+        "Cruel Celebrant",
+        "Judith, the Scourge Diva",
+        "Mayhem Devil"
+      ],
+      "support": [
+        "Viscera Seer",
+        "Ashnod's Altar",
+        "Phyrexian Altar",
+        "Carrion Feeder",
+        "Yawgmoth, Thran Physician"
+      ]
     },
     "synergy_patterns": [
       "sacrifice a creature",
@@ -14,16 +26,35 @@
       "whenever .*is put into a graveyard from the battlefield",
       "each opponent loses 1 life"
     ],
-    "win_condition_cards": ["Blood Artist", "Zulaport Cutthroat", "Cruel Celebrant", "Purphoros, God of the Forge"],
-    "score_threshold": 24
+    "win_condition_cards": [
+      "Blood Artist",
+      "Zulaport Cutthroat",
+      "Cruel Celebrant",
+      "Purphoros, God of the Forge"
+    ],
+    "score_threshold": 24,
+    "philosophy": "graveyard",
+    "philosophy_label": "Friedhof & Opfer"
   },
   {
     "id": "stax",
     "label": "Stax",
     "description": "Verlangsamt oder sperrt die Ressourcen aller Spieler (Mana, Untappen, Land-Drops), meist um selbst asymmetrisch davon zu profitieren.",
     "signal_cards": {
-      "core": ["Winter Orb", "Static Orb", "Smokestack", "Stasis", "Armageddon"],
-      "support": ["Sphere of Resistance", "Thorn of Amethyst", "Trinisphere", "Rule of Law", "Aven Mindcensor"]
+      "core": [
+        "Winter Orb",
+        "Static Orb",
+        "Smokestack",
+        "Stasis",
+        "Armageddon"
+      ],
+      "support": [
+        "Sphere of Resistance",
+        "Thorn of Amethyst",
+        "Trinisphere",
+        "Rule of Law",
+        "Aven Mindcensor"
+      ]
     },
     "synergy_patterns": [
       "players can't",
@@ -32,16 +63,32 @@
       "costs \\{1\\} more to cast",
       "an additional cost of"
     ],
-    "win_condition_cards": ["Smokestack", "Winter Orb"],
-    "score_threshold": 22
+    "win_condition_cards": [
+      "Smokestack",
+      "Winter Orb"
+    ],
+    "score_threshold": 22,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
   },
   {
     "id": "spellslinger",
     "label": "Spellslinger",
     "description": "Baut um Hexereien und Spontanzauber herum – Kopieren, Wertsteigerung pro gewirktem Zauber, günstige Interaktion als eigentliche Gewinnquelle.",
     "signal_cards": {
-      "core": ["Young Pyromancer", "Guttersnipe", "Kess, Dissident Mage", "Melek, Izzet Paragon", "Talrand, Sky Summoner"],
-      "support": ["Electrodominance", "Reverberate", "Increasing Vengeance", "Archmage Emeritus"]
+      "core": [
+        "Young Pyromancer",
+        "Guttersnipe",
+        "Kess, Dissident Mage",
+        "Melek, Izzet Paragon",
+        "Talrand, Sky Summoner"
+      ],
+      "support": [
+        "Electrodominance",
+        "Reverberate",
+        "Increasing Vengeance",
+        "Archmage Emeritus"
+      ]
     },
     "synergy_patterns": [
       "whenever you cast an instant or sorcery spell",
@@ -49,16 +96,34 @@
       "whenever you cast a noncreature spell",
       "whenever you cast an instant or sorcery spell for the first time"
     ],
-    "win_condition_cards": ["Guttersnipe", "Talrand, Sky Summoner", "Kess, Dissident Mage"],
-    "score_threshold": 20
+    "win_condition_cards": [
+      "Guttersnipe",
+      "Talrand, Sky Summoner",
+      "Kess, Dissident Mage"
+    ],
+    "score_threshold": 20,
+    "philosophy": "spells",
+    "philosophy_label": "Zaubersprüche & Kaskade"
   },
   {
     "id": "voltron",
     "label": "Voltron",
     "description": "Rüstet einen einzelnen Anführer (meist den Commander) mit Auren/Ausrüstung so weit auf, dass er allein das Spiel per Kampfschaden beendet.",
     "signal_cards": {
-      "core": ["Uril, the Miststalker", "Kaldra Compleat", "Colossus Hammer", "Rafiq of the Many", "Sigarda, Host of Herons"],
-      "support": ["Lightning Greaves", "Swiftfoot Boots", "Sword of Fire and Ice", "Whispersilk Cloak", "Steel of the Godhead"]
+      "core": [
+        "Uril, the Miststalker",
+        "Kaldra Compleat",
+        "Colossus Hammer",
+        "Rafiq of the Many",
+        "Sigarda, Host of Herons"
+      ],
+      "support": [
+        "Lightning Greaves",
+        "Swiftfoot Boots",
+        "Sword of Fire and Ice",
+        "Whispersilk Cloak",
+        "Steel of the Godhead"
+      ]
     },
     "synergy_patterns": [
       "equipped creature gets",
@@ -66,16 +131,33 @@
       "equip \\{",
       "whenever equipped creature deals combat damage to a player"
     ],
-    "win_condition_cards": ["Colossus Hammer", "Kaldra Compleat", "Sword of Fire and Ice"],
-    "score_threshold": 20
+    "win_condition_cards": [
+      "Colossus Hammer",
+      "Kaldra Compleat",
+      "Sword of Fire and Ice"
+    ],
+    "score_threshold": 20,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
   },
   {
     "id": "group-hug",
     "label": "Group Hug",
     "description": "Gibt allen Spielern zusätzliche Karten, Mana oder Land-Drops – baut auf einem asymmetrischen Endgame- oder Politik-Vorteil auf, statt Ressourcen zu horten.",
     "signal_cards": {
-      "core": ["Howling Mine", "Temple Bell", "Font of Mythos", "Minds Eye", "Dictate of Kruphix"],
-      "support": ["Fountain of Renewal", "Rites of Flourishing", "Alms Collector", "Collective Voyage"]
+      "core": [
+        "Howling Mine",
+        "Temple Bell",
+        "Font of Mythos",
+        "Minds Eye",
+        "Dictate of Kruphix"
+      ],
+      "support": [
+        "Fountain of Renewal",
+        "Rites of Flourishing",
+        "Alms Collector",
+        "Collective Voyage"
+      ]
     },
     "synergy_patterns": [
       "each player draws a card",
@@ -83,80 +165,158 @@
       "each player untaps",
       "each player who doesn't may"
     ],
-    "win_condition_cards": ["Dictate of Kruphix", "Minds Eye"],
-    "score_threshold": 16
+    "win_condition_cards": [
+      "Dictate of Kruphix",
+      "Minds Eye"
+    ],
+    "score_threshold": 16,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
   },
   {
     "id": "pillowfort",
     "label": "Pillowfort",
     "description": "Macht das eigene Angreifen unattraktiv oder teuer für andere – Steuern auf Angriffe, Umlenkung, Abschreckung – statt Kreaturen direkt zu blocken.",
     "signal_cards": {
-      "core": ["Ghostly Prison", "Propaganda", "Sphere of Safety", "Norn's Annex", "Crawlspace"],
-      "support": ["Moat", "Silent Arbiter", "Lure", "Kismet"]
+      "core": [
+        "Ghostly Prison",
+        "Propaganda",
+        "Sphere of Safety",
+        "Norn's Annex",
+        "Crawlspace"
+      ],
+      "support": [
+        "Moat",
+        "Silent Arbiter",
+        "Lure",
+        "Kismet"
+      ]
     },
     "synergy_patterns": [
       "creatures can't attack you( or a planeswalker you control)? unless",
       "attacking creatures get",
       "unless its controller pays"
     ],
-    "win_condition_cards": ["Sphere of Safety"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "Sphere of Safety"
+    ],
+    "score_threshold": 18,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
   },
   {
     "id": "reanimator",
     "label": "Reanimator",
     "description": "Wirft eigene große Kreaturen früh in den Friedhof und holt sie günstig zurück auf das Feld, statt sie regulär zu bezahlen.",
     "signal_cards": {
-      "core": ["Reanimate", "Animate Dead", "Necromancy", "Victimize", "Living Death"],
-      "support": ["Entomb", "Buried Alive", "Fauna Shaman", "Stitcher's Supplier"]
+      "core": [
+        "Reanimate",
+        "Animate Dead",
+        "Necromancy",
+        "Victimize",
+        "Living Death"
+      ],
+      "support": [
+        "Entomb",
+        "Buried Alive",
+        "Fauna Shaman",
+        "Stitcher's Supplier"
+      ]
     },
     "synergy_patterns": [
       "return target creature card from (a|your) graveyard to the battlefield",
       "put target creature card from a graveyard onto the battlefield",
       "you may cast .* from your graveyard"
     ],
-    "win_condition_cards": ["Reanimate", "Living Death", "Animate Dead"],
-    "score_threshold": 20
+    "win_condition_cards": [
+      "Reanimate",
+      "Living Death",
+      "Animate Dead"
+    ],
+    "score_threshold": 20,
+    "philosophy": "graveyard",
+    "philosophy_label": "Friedhof & Opfer"
   },
   {
     "id": "tokens",
     "label": "Tokens",
     "description": "Erzeugt viele kleine Kreaturen-Token statt weniger großer Bedrohungen – gewinnt über die Breite des Boards.",
     "signal_cards": {
-      "core": ["Anointed Procession", "Doubling Season", "Parallel Lives", "Krenko, Mob Boss", "Divine Visitation"],
-      "support": ["Secure the Wastes", "Bitterblossom", "Mondrak, Glory Dominus"]
+      "core": [
+        "Anointed Procession",
+        "Doubling Season",
+        "Parallel Lives",
+        "Krenko, Mob Boss",
+        "Divine Visitation"
+      ],
+      "support": [
+        "Secure the Wastes",
+        "Bitterblossom",
+        "Mondrak, Glory Dominus"
+      ]
     },
     "synergy_patterns": [
       "create[s]? .*token",
       "create a 1/1",
       "whenever you create one or more tokens"
     ],
-    "win_condition_cards": ["Craterhoof Behemoth", "Divine Visitation"],
-    "score_threshold": 22
+    "win_condition_cards": [
+      "Craterhoof Behemoth",
+      "Divine Visitation"
+    ],
+    "score_threshold": 22,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
   },
   {
     "id": "plus1-counters",
     "label": "+1/+1-Zähler",
     "description": "Verteilt und verdoppelt +1/+1-Zähler auf eigenen Kreaturen als zentralen Wachstumsmechanismus.",
     "signal_cards": {
-      "core": ["Hardened Scales", "Doubling Season", "Kalonian Hydra", "The Ozolith", "Vorinclex, Monstrous Raider"],
-      "support": ["Corpsejack Menace", "Winding Constrictor", "Icon of Ancestry"]
+      "core": [
+        "Hardened Scales",
+        "Doubling Season",
+        "Kalonian Hydra",
+        "The Ozolith",
+        "Vorinclex, Monstrous Raider"
+      ],
+      "support": [
+        "Corpsejack Menace",
+        "Winding Constrictor",
+        "Icon of Ancestry"
+      ]
     },
     "synergy_patterns": [
       "\\+1/\\+1 counter",
       "proliferate",
       "double the number of .* counters"
     ],
-    "win_condition_cards": ["Kalonian Hydra", "Vorinclex, Monstrous Raider"],
-    "score_threshold": 20
+    "win_condition_cards": [
+      "Kalonian Hydra",
+      "Vorinclex, Monstrous Raider"
+    ],
+    "score_threshold": 20,
+    "philosophy": "counters",
+    "philosophy_label": "Marken & Skalierung"
   },
   {
     "id": "combo",
     "label": "Combo",
     "description": "Enthält bekannte zwei- bis dreiteilige Kombinationen, die das Spiel abrupt beenden oder eine unendliche Ressource erzeugen, statt sich auf ein breites Board zu verlassen.",
     "signal_cards": {
-      "core": ["Thassa's Oracle", "Demonic Consultation", "Isochron Scepter", "Dramatic Reversal", "Kiki-Jiki, Mirror Breaker"],
-      "support": ["Basalt Monolith", "Rings of Brighthearth", "Deadeye Navigator", "Peregrine Drake"]
+      "core": [
+        "Thassa's Oracle",
+        "Demonic Consultation",
+        "Isochron Scepter",
+        "Dramatic Reversal",
+        "Kiki-Jiki, Mirror Breaker"
+      ],
+      "support": [
+        "Basalt Monolith",
+        "Rings of Brighthearth",
+        "Deadeye Navigator",
+        "Peregrine Drake"
+      ]
     },
     "synergy_patterns": [
       "untap target artifact",
@@ -164,193 +324,1778 @@
       "whenever you cast a spell, copy it",
       "you win the game"
     ],
-    "win_condition_cards": ["Thassa's Oracle", "Kiki-Jiki, Mirror Breaker"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "Thassa's Oracle",
+      "Kiki-Jiki, Mirror Breaker"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
   },
   {
     "id": "superfriends",
     "label": "Superfriends",
     "description": "Spielt möglichst viele Planeswalker gleichzeitig und schützt sie gegenseitig – die Loyalitätsfähigkeiten sind der eigentliche Plan.",
     "signal_cards": {
-      "core": ["The Chain Veil", "Oath of Teferi", "Doubling Season", "The Immortal Sun"],
-      "support": ["Deepglow Skin", "Vanquisher's Banner", "Mind's Dilation"]
+      "core": [
+        "The Chain Veil",
+        "Oath of Teferi",
+        "Doubling Season",
+        "The Immortal Sun"
+      ],
+      "support": [
+        "Deepglow Skin",
+        "Vanquisher's Banner",
+        "Mind's Dilation"
+      ]
     },
     "synergy_patterns": [
       "loyalty abilit",
       "planeswalkers you control",
       "proliferate"
     ],
-    "win_condition_cards": ["The Chain Veil"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "The Chain Veil"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
   },
   {
     "id": "enchantress",
     "label": "Enchantress",
     "description": "Zieht Karten dafür, dass eigene Zauberer Verzauberungen ins Spiel bringen – ein stetiger Kartenvorteil-Motor als Fundament.",
     "signal_cards": {
-      "core": ["Argothian Enchantress", "Setessan Champion", "Sythis, Harvest's Hand", "Enchantress's Presence", "Eidolon of Blossoms"],
-      "support": ["Estrid, the Masked", "Calix, Destiny's Hand", "Kenrith's Transformation"]
+      "core": [
+        "Argothian Enchantress",
+        "Setessan Champion",
+        "Sythis, Harvest's Hand",
+        "Enchantress's Presence",
+        "Eidolon of Blossoms"
+      ],
+      "support": [
+        "Estrid, the Masked",
+        "Calix, Destiny's Hand",
+        "Kenrith's Transformation"
+      ]
     },
     "synergy_patterns": [
       "whenever an enchantment enters the battlefield under your control",
       "constellation"
     ],
-    "win_condition_cards": ["Sythis, Harvest's Hand", "Setessan Champion"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "Sythis, Harvest's Hand",
+      "Setessan Champion"
+    ],
+    "score_threshold": 18,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
   },
   {
     "id": "artifacts-matter",
     "label": "Artefakte",
     "description": "Baut um eine hohe Artefaktdichte herum – Kostenreduktion, Zählen von Artefakten und das Verwerten/Wiederverwenden von Artefakten.",
     "signal_cards": {
-      "core": ["Urza, Lord High Artificer", "Padeem, Consul of Innovation", "Etherium Sculptor", "Foundry Inspector", "Goblin Welder"],
-      "support": ["Mycosynth Lattice", "Tezzeret the Seeker", "Hangarback Walker"]
+      "core": [
+        "Urza, Lord High Artificer",
+        "Padeem, Consul of Innovation",
+        "Etherium Sculptor",
+        "Foundry Inspector",
+        "Goblin Welder"
+      ],
+      "support": [
+        "Mycosynth Lattice",
+        "Tezzeret the Seeker",
+        "Hangarback Walker"
+      ]
     },
     "synergy_patterns": [
       "whenever an artifact enters the battlefield under your control",
       "artifacts you control",
       "metalcraft"
     ],
-    "win_condition_cards": ["Urza, Lord High Artificer", "Mycosynth Lattice"],
-    "score_threshold": 20
+    "win_condition_cards": [
+      "Urza, Lord High Artificer",
+      "Mycosynth Lattice"
+    ],
+    "score_threshold": 20,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
   },
   {
     "id": "storm",
     "label": "Storm",
     "description": "Sammelt in einer Runde möglichst viele günstige, wieder-freispielende Zauber, um am Ende einen Storm-Zauber für den sofortigen Sieg zu kopieren.",
     "signal_cards": {
-      "core": ["Grapeshot", "Tendrils of Agony", "Aetherflux Reservoir", "Jeskai Ascendancy", "Storm-Kiln Artist"],
-      "support": ["Dark Ritual", "Manamorphose", "Past in Flames"]
+      "core": [
+        "Grapeshot",
+        "Tendrils of Agony",
+        "Aetherflux Reservoir",
+        "Jeskai Ascendancy",
+        "Storm-Kiln Artist"
+      ],
+      "support": [
+        "Dark Ritual",
+        "Manamorphose",
+        "Past in Flames"
+      ]
     },
     "synergy_patterns": [
       "storm \\(",
       "storm count",
       "copy this spell for each spell cast before it"
     ],
-    "win_condition_cards": ["Grapeshot", "Tendrils of Agony", "Aetherflux Reservoir"],
-    "score_threshold": 16
+    "win_condition_cards": [
+      "Grapeshot",
+      "Tendrils of Agony",
+      "Aetherflux Reservoir"
+    ],
+    "score_threshold": 16,
+    "philosophy": "spells",
+    "philosophy_label": "Zaubersprüche & Kaskade"
   },
   {
     "id": "landfall",
     "label": "Landfall",
     "description": "Belohnt das wiederholte Ausspielen/Zurückholen von Ländern in einer Runde mit wachsenden Effekten.",
     "signal_cards": {
-      "core": ["Lotus Cobra", "Tireless Tracker", "Avenger of Zendikar", "Rampaging Baloths", "Scute Swarm"],
-      "support": ["Crucible of Worlds", "Ramunap Excavator", "Exploration"]
+      "core": [
+        "Lotus Cobra",
+        "Tireless Tracker",
+        "Avenger of Zendikar",
+        "Rampaging Baloths",
+        "Scute Swarm"
+      ],
+      "support": [
+        "Crucible of Worlds",
+        "Ramunap Excavator",
+        "Exploration"
+      ]
     },
     "synergy_patterns": [
       "landfall",
       "whenever a land enters the battlefield under your control"
     ],
-    "win_condition_cards": ["Avenger of Zendikar", "Rampaging Baloths"],
-    "score_threshold": 20
+    "win_condition_cards": [
+      "Avenger of Zendikar",
+      "Rampaging Baloths"
+    ],
+    "score_threshold": 20,
+    "philosophy": "lands",
+    "philosophy_label": "Länder & Ramp"
   },
   {
     "id": "blink",
     "label": "Blink/Flicker",
     "description": "Schickt eigene Kreaturen wiederholt kurz ins Exil und zurück, um ihre \"Kommt-ins-Spiel\"-Effekte mehrfach auszulösen.",
     "signal_cards": {
-      "core": ["Restoration Angel", "Brago, King Eternal", "Roon of the Hidden Realm", "Yarok, the Desecrated", "Ghostly Flicker"],
-      "support": ["Ephemerate", "Momentary Blink", "Conjurer's Closet"]
+      "core": [
+        "Restoration Angel",
+        "Brago, King Eternal",
+        "Roon of the Hidden Realm",
+        "Yarok, the Desecrated",
+        "Ghostly Flicker"
+      ],
+      "support": [
+        "Ephemerate",
+        "Momentary Blink",
+        "Conjurer's Closet"
+      ]
     },
     "synergy_patterns": [
       "exile target creature you control, then return( that card)? to the battlefield",
       "whenever .*enters the battlefield"
     ],
-    "win_condition_cards": ["Brago, King Eternal", "Yarok, the Desecrated"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "Brago, King Eternal",
+      "Yarok, the Desecrated"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
   },
   {
     "id": "wheels",
     "label": "Wheels",
     "description": "Lässt wiederholt die ganze Hand abwerfen und neu ziehen – profitiert asymmetrisch davon, während es Gegner unter Kartennachteil setzt.",
     "signal_cards": {
-      "core": ["Wheel of Fortune", "Windfall", "Notion Thief", "Narset, Parter of Veils", "Nekusar, the Mindrazer"],
-      "support": ["Forced Fruition", "Molten Psyche", "Sudden Impact"]
+      "core": [
+        "Wheel of Fortune",
+        "Windfall",
+        "Notion Thief",
+        "Narset, Parter of Veils",
+        "Nekusar, the Mindrazer"
+      ],
+      "support": [
+        "Forced Fruition",
+        "Molten Psyche",
+        "Sudden Impact"
+      ]
     },
     "synergy_patterns": [
       "each player discards (their|his or her) hand,? (and )?then draws",
       "whenever an opponent draws a card"
     ],
-    "win_condition_cards": ["Nekusar, the Mindrazer", "Notion Thief"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "Nekusar, the Mindrazer",
+      "Notion Thief"
+    ],
+    "score_threshold": 18,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
   },
   {
     "id": "mill",
     "label": "Mill",
     "description": "Zwingt Gegner dazu, ihre Bibliothek zu verlieren, statt sie über Lebenspunkte oder Kampf zu besiegen.",
     "signal_cards": {
-      "core": ["Bruvac the Grandiloquent", "Traumatize", "Sphinx's Tutelage", "Jace, Memory Adept", "Fraying Sanity"],
-      "support": ["Mesmeric Orb", "Glimpse the Unthinkable", "Maddening Cacophony"]
+      "core": [
+        "Bruvac the Grandiloquent",
+        "Traumatize",
+        "Sphinx's Tutelage",
+        "Jace, Memory Adept",
+        "Fraying Sanity"
+      ],
+      "support": [
+        "Mesmeric Orb",
+        "Glimpse the Unthinkable",
+        "Maddening Cacophony"
+      ]
     },
     "synergy_patterns": [
       "mills? [a-z0-9]+ cards?",
       "puts? the top .*cards? of .*library into .*graveyard"
     ],
-    "win_condition_cards": ["Traumatize", "Sphinx's Tutelage"],
-    "score_threshold": 16
+    "win_condition_cards": [
+      "Traumatize",
+      "Sphinx's Tutelage"
+    ],
+    "score_threshold": 16,
+    "philosophy": "graveyard",
+    "philosophy_label": "Friedhof & Opfer"
   },
   {
     "id": "burn",
     "label": "Burn / Direktschaden",
     "description": "Zielt auf Lebenspunkte statt Kreaturen – direkter, oft nicht verhinderbarer Schaden an Spielern als primärer Plan.",
     "signal_cards": {
-      "core": ["Furnace of Rath", "Fiery Emancipation", "Purphoros, God of the Forge", "Impact Tremors", "Dictate of the Twin Gods"],
-      "support": ["Torbran, Thane of Red Fell", "Skullcrack", "Curse of the Pierced Heart"]
+      "core": [
+        "Furnace of Rath",
+        "Fiery Emancipation",
+        "Purphoros, God of the Forge",
+        "Impact Tremors",
+        "Dictate of the Twin Gods"
+      ],
+      "support": [
+        "Torbran, Thane of Red Fell",
+        "Skullcrack",
+        "Curse of the Pierced Heart"
+      ]
     },
     "synergy_patterns": [
       "deals? .*damage to (each|target) (player|opponent)",
       "damage can't be prevented"
     ],
-    "win_condition_cards": ["Purphoros, God of the Forge", "Fiery Emancipation"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "Purphoros, God of the Forge",
+      "Fiery Emancipation"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
   },
   {
     "id": "lifegain",
     "label": "Lifegain",
     "description": "Sammelt Lebenspunkte als Ressource und wandelt sie über eigene Payoffs in Kartenvorteil oder Schaden um.",
     "signal_cards": {
-      "core": ["Soul Warden", "Aetherflux Reservoir", "Vito, Thorn of the Dusk Rose", "Trostani Discordant", "Well of Lost Dreams"],
-      "support": ["Heliod, Sun-Crowned", "Rhox Faithmender", "Beacon of Immortality"]
+      "core": [
+        "Soul Warden",
+        "Aetherflux Reservoir",
+        "Vito, Thorn of the Dusk Rose",
+        "Trostani Discordant",
+        "Well of Lost Dreams"
+      ],
+      "support": [
+        "Heliod, Sun-Crowned",
+        "Rhox Faithmender",
+        "Beacon of Immortality"
+      ]
     },
     "synergy_patterns": [
       "whenever you gain life",
       "you gain life equal to",
       "gain 1 life"
     ],
-    "win_condition_cards": ["Vito, Thorn of the Dusk Rose", "Aetherflux Reservoir"],
-    "score_threshold": 18
+    "win_condition_cards": [
+      "Vito, Thorn of the Dusk Rose",
+      "Aetherflux Reservoir"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
   },
   {
     "id": "ramp",
     "label": "Ramp / Big Mana",
     "description": "Beschleunigt die eigene Manaentwicklung stark, um überdurchschnittlich große Bedrohungen deutlich früher zu spielen.",
     "signal_cards": {
-      "core": ["Cultivate", "Kodama's Reach", "Rampant Growth", "Nyxbloom Ancient", "Zendikar Resurgent"],
-      "support": ["Sol Ring", "Burgeoning", "Skyshroud Claim"]
+      "core": [
+        "Cultivate",
+        "Kodama's Reach",
+        "Rampant Growth",
+        "Nyxbloom Ancient",
+        "Zendikar Resurgent"
+      ],
+      "support": [
+        "Sol Ring",
+        "Burgeoning",
+        "Skyshroud Claim"
+      ]
     },
     "synergy_patterns": [
       "search your library for a( basic)? land card",
       "you may spend mana as though it were mana of any (color|type)",
       "double(s)? (the amount of|that much) mana"
     ],
-    "win_condition_cards": ["Craterhoof Behemoth", "Nyxbloom Ancient"],
-    "score_threshold": 22
+    "win_condition_cards": [
+      "Craterhoof Behemoth",
+      "Nyxbloom Ancient"
+    ],
+    "score_threshold": 22,
+    "philosophy": "lands",
+    "philosophy_label": "Länder & Ramp"
   },
   {
     "id": "control",
     "label": "Control",
     "description": "Hält das Board mit Entfernung und Konter klein und stabilisiert die eigene Position, bevor ein einzelner, effizienter Sieger das Spiel beendet.",
     "signal_cards": {
-      "core": ["Cyclonic Rift", "Toxic Deluge", "Farewell", "Rhystic Study", "Consecrated Sphinx"],
-      "support": ["Counterspell", "Swords to Plowshares", "Cryptic Command"]
+      "core": [
+        "Cyclonic Rift",
+        "Toxic Deluge",
+        "Farewell",
+        "Rhystic Study",
+        "Consecrated Sphinx"
+      ],
+      "support": [
+        "Counterspell",
+        "Swords to Plowshares",
+        "Cryptic Command"
+      ]
     },
     "synergy_patterns": [
       "counter target spell",
       "destroy all creatures",
       "each player sacrifices"
     ],
-    "win_condition_cards": ["Cyclonic Rift", "Consecrated Sphinx"],
-    "score_threshold": 20
+    "win_condition_cards": [
+      "Cyclonic Rift",
+      "Consecrated Sphinx"
+    ],
+    "score_threshold": 20,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "poison",
+    "label": "Poison / Infect",
+    "description": "Gewinnt über 10 Giftmarken (Infect, Toxic, Corrupted) statt 40 Lebenspunkten, oft beschleunigt durch Proliferate (Wucherung).",
+    "signal_cards": {
+      "core": [
+        "Triumph of the Hordes",
+        "Skithiryx, the Blight Dragon",
+        "Fynn, the Fangbearer",
+        "Venerated Rotpriest",
+        "Glistener Elf",
+        "Atraxa, Praetors' Voice"
+      ],
+      "support": [
+        "Blighted Agent",
+        "Phyresis",
+        "Grafted Exoskeleton",
+        "Infectious Bite",
+        "Bloated Contaminator",
+        "Contagion Engine"
+      ]
+    },
+    "synergy_patterns": [
+      "infect",
+      "toxic [0-9]+",
+      "poison counter",
+      "corrupted",
+      "proliferate"
+    ],
+    "win_condition_cards": [
+      "Triumph of the Hordes",
+      "Skithiryx, the Blight Dragon",
+      "Fynn, the Fangbearer",
+      "Grafted Exoskeleton"
+    ],
+    "score_threshold": 18,
+    "philosophy": "counters",
+    "philosophy_label": "Marken & Skalierung"
+  },
+  {
+    "id": "group-slug",
+    "label": "Group Slug",
+    "description": "Verteilt unbarmherzig Schaden oder Lebensverlust für alltägliche Spielaktionen (Länder tappen, Karten ziehen, Sprüche wirken) an alle Spieler gleichermaßen.",
+    "signal_cards": {
+      "core": [
+        "Mogis, God of Slaughter",
+        "Zo-Zu the Punisher",
+        "Manabarbs",
+        "Havoc Festival",
+        "Yurlok of Scorch Thrash",
+        "Nekusar, the Mindrazer"
+      ],
+      "support": [
+        "Sulfuric Vortex",
+        "Spellshock",
+        "Harsh Mentor",
+        "Rampaging Ferocidon",
+        "Painful Quandary",
+        "Torbran, Thane of Red Fell"
+      ]
+    },
+    "synergy_patterns": [
+      "whenever a player",
+      "whenever an opponent casts",
+      "whenever a land is tapped",
+      "each player loses [0-9]+ life",
+      "players can't gain life"
+    ],
+    "win_condition_cards": [
+      "Havoc Festival",
+      "Manabarbs",
+      "Painful Quandary",
+      "Mogis, God of Slaughter"
+    ],
+    "score_threshold": 18,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "polymorph",
+    "label": "Polymorph",
+    "description": "Erzeugt billige Token oder schwache Kreaturen, um sie mit Zerstörungs- oder Exil-Effekten gezielt in spielbeendende Großkreaturen aus der eigenen Bibliothek zu transformieren.",
+    "signal_cards": {
+      "core": [
+        "Polymorph",
+        "Transmogrify",
+        "Indomitable Creativity",
+        "Lukka, Coppercoat Outcast",
+        "Reality Scramble",
+        "Fire Prophecy"
+      ],
+      "support": [
+        "Divergent Transformations",
+        "Reweave",
+        "Proteus Staff",
+        "Krenko's Command",
+        "Dragon Fodder",
+        "Hard Evidence"
+      ]
+    },
+    "synergy_patterns": [
+      "reveal cards from (the top of )?your library until you reveal a creature card",
+      "destroy target creature.*it can't be regenerated.*its controller reveals cards",
+      "exile target creature you control.*reveal cards"
+    ],
+    "win_condition_cards": [
+      "Blightsteel Colossus",
+      "Hullbreaker Horror",
+      "Toxrill, the Corrosive",
+      "Jin-Gitaxias, Core Augur"
+    ],
+    "score_threshold": 16,
+    "philosophy": "spells",
+    "philosophy_label": "Zaubersprüche & Kaskade"
+  },
+  {
+    "id": "stompy",
+    "label": "Stompy",
+    "description": "Basiert auf massiven Kreaturen mit hoher Stärke/Widerstandskraft (oft Stärke 4+), Trampelschaden und Vorteilen basierend auf der Stärke eigener Kreaturen.",
+    "signal_cards": {
+      "core": [
+        "Ghalta, Primal Hunger",
+        "Goreclaw, Terror of Qal Sisma",
+        "Surrak and Goreclaw",
+        "Garruk's Uprising",
+        "Elemental Bond"
+      ],
+      "support": [
+        "Selvala, Heart of the Wilds",
+        "Kogla, the Titan Ape",
+        "The Great Henge",
+        "Rishkar's Expertise",
+        "Tribute to the World Tree",
+        "Quartzwood Crasher"
+      ]
+    },
+    "synergy_patterns": [
+      "power 4 or greater",
+      "power 5 or greater",
+      "power 6 or greater",
+      "trample",
+      "greater than its base power",
+      "equal to the greatest power"
+    ],
+    "win_condition_cards": [
+      "Ghalta, Primal Hunger",
+      "Craterhoof Behemoth",
+      "Apex Altisaur",
+      "Finale of Devastation"
+    ],
+    "score_threshold": 20,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
+  },
+  {
+    "id": "aggro",
+    "label": "Aggro / Weenies",
+    "description": "Setzt von Zug 1 an auf schnelle, aggressive Angreifer, Eile und frühe Angriffs-Trigger, um Gegner unter Druck zu setzen, bevor sie sich stabilisieren können.",
+    "signal_cards": {
+      "core": [
+        "Adeline, Resplendent Cathar",
+        "Winota, Joiner of Forces",
+        "Thalia, Guardian of Thraben",
+        "Hero of Bladehold",
+        "Karlach, Fury of Avernus"
+      ],
+      "support": [
+        "Esper Sentinel",
+        "Ragavan, Nimble Pilferer",
+        "Serra Ascendant",
+        "Leonin Warleader",
+        "Usher of the Fallen",
+        "Solphim, Mayhem Dominus"
+      ]
+    },
+    "synergy_patterns": [
+      "whenever (this creature|you) attack",
+      "creatures you control get \\+[0-9]/\\+[0-9]",
+      "haste",
+      "battle cry",
+      "melee",
+      "attacks each combat if able"
+    ],
+    "win_condition_cards": [
+      "Winota, Joiner of Forces",
+      "Adeline, Resplendent Cathar",
+      "Shared Animosity",
+      "Coat of Arms"
+    ],
+    "score_threshold": 20,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
+  },
+  {
+    "id": "theft",
+    "label": "Theft / Steal",
+    "description": "Stiehlt Sprüche oder bleibende Karten der Gegner aus Bibliothek, Friedhof oder Spielfeld und nutzt deren eigene Ressourcen gegen sie.",
+    "signal_cards": {
+      "core": [
+        "Gonti, Lord of Luxury",
+        "Villainous Wealth",
+        "Etali, Primal Storm",
+        "Etali, Primal Conqueror",
+        "Thieving Skydiver",
+        "Tivit, Seller of Secrets"
+      ],
+      "support": [
+        "Bribery",
+        "Agent of Treachery",
+        "Hostage Taker",
+        "Dauthi Voidwalker",
+        "Robber of the Rich",
+        "Xanathar, Guild Kingpin"
+      ]
+    },
+    "synergy_patterns": [
+      "you may cast (that card|those cards|spells) without paying",
+      "cards your opponents own",
+      "exile.*from (target|an) opponent's library",
+      "gain control of target"
+    ],
+    "win_condition_cards": [
+      "Villainous Wealth",
+      "Etali, Primal Conqueror",
+      "Agent of Treachery"
+    ],
+    "score_threshold": 18,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "extra-turns",
+    "label": "Extra Turns",
+    "description": "Kettet zusätzliche Züge aneinander (Time Warp, Nexus of Fate), um das Spiel ohne gegnerische Interaktion zu gewinnen.",
+    "signal_cards": {
+      "core": [
+        "Time Warp",
+        "Temporal Manipulation",
+        "Expropriate",
+        "Nexus of Fate",
+        "Capture of Jingzhou",
+        "Narset, Enlightened Master"
+      ],
+      "support": [
+        "Karn's Temporal Sundering",
+        "Alrund's Epiphany",
+        "Beacon of Tomorrows",
+        "Walk the Aeons",
+        "Part the Waterveil"
+      ]
+    },
+    "synergy_patterns": [
+      "take an extra turn after this one",
+      "takes an extra turn"
+    ],
+    "win_condition_cards": [
+      "Expropriate",
+      "Nexus of Fate",
+      "Time Warp"
+    ],
+    "score_threshold": 16,
+    "philosophy": "spells",
+    "philosophy_label": "Zaubersprüche & Kaskade"
+  },
+  {
+    "id": "chaos",
+    "label": "Chaos / Coin Flip",
+    "description": "Hebt planbare Spielregeln durch Zufallseffekte, Münzwürfe, Würfeln oder zufällige Zauberauswahl aus den Angeln.",
+    "signal_cards": {
+      "core": [
+        "Okaun, Eye of Chaos",
+        "Zndrsplt, Eye of Wisdom",
+        "Possibility Storm",
+        "Warp World",
+        "Krark, the Thumbless",
+        "Yusri, Fortune's Flame"
+      ],
+      "support": [
+        "Chance Encounter",
+        "Frenetic Efreet",
+        "Chaos Warp",
+        "Thieves' Auction",
+        "Scrambleverse",
+        "Tavern Scoundrel"
+      ]
+    },
+    "synergy_patterns": [
+      "flip a coin",
+      "roll a d20",
+      "roll a six-sided die",
+      "exile.*until they exile.*card that shares a card type.*cast it without paying"
+    ],
+    "win_condition_cards": [
+      "Chance Encounter",
+      "Okaun, Eye of Chaos"
+    ],
+    "score_threshold": 16,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
+  },
+  {
+    "id": "vehicles",
+    "label": "Vehicles",
+    "description": "Basiert auf Fahrzeug-Artefakten (Vehicles), die durch Bemannen (Crew) zu kampfstarken Kreaturen werden, kombiniert mit Piloten- und Artefakt-Synergien.",
+    "signal_cards": {
+      "core": [
+        "Shorikai, Genesis Engine",
+        "Kotori, Pilot Prodigy",
+        "Smuggler's Copter",
+        "Parhelion II",
+        "Greasefang, Okiba Boss",
+        "Peacewalker Colossus"
+      ],
+      "support": [
+        "Depala, Pilot Exemplar",
+        "Cultivator's Caravan",
+        "Weatherlight",
+        "Reckless Crew",
+        "Astor, Bearer of Blades",
+        "Armed and Armored"
+      ]
+    },
+    "synergy_patterns": [
+      "crew [0-9]+",
+      "vehicle",
+      "pilot token",
+      "whenever a vehicle you control attacks"
+    ],
+    "win_condition_cards": [
+      "Parhelion II",
+      "Shorikai, Genesis Engine",
+      "Mechtitan Core"
+    ],
+    "score_threshold": 18,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
+  },
+  {
+    "id": "energy",
+    "label": "Energy",
+    "description": "Sammelt Energie-Marken ({E}) als alternative Ressource für Kartenvorteil, Kreaturen-Pump oder Spielzüge.",
+    "signal_cards": {
+      "core": [
+        "Aetherworks Marvel",
+        "Satya, Aetherflux Genius",
+        "Gonti, Aether Heart",
+        "Saheeli, the Sun's Brilliance",
+        "Lightning Runner"
+      ],
+      "support": [
+        "Aethersphere Harvester",
+        "Aethergeode Miner",
+        "Attune with Aether",
+        "Rogue Refiner",
+        "Whirler Virtuoso",
+        "Aetherstorm Roc"
+      ]
+    },
+    "synergy_patterns": [
+      "pay \\{e\\}",
+      "get \\{e\\}",
+      "you get \\{e\\}",
+      "energy counter"
+    ],
+    "win_condition_cards": [
+      "Aetherworks Marvel",
+      "Lightning Runner",
+      "Aetherwind Basker"
+    ],
+    "score_threshold": 16,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
+  },
+  {
+    "id": "cascade",
+    "label": "Cascade / Discover",
+    "description": "Spielt unvorhersehbare Zaubersprüche kostenlos direkt aus der Bibliothek über Kaskade (Cascade) oder Aufdecken (Discover).",
+    "signal_cards": {
+      "core": [
+        "The First Sliver",
+        "Maelstrom Wanderer",
+        "Averna, the Chaos Bloom",
+        "Yidris, Maelstrom Wielder",
+        "Zhulodok, Void Gorger"
+      ],
+      "support": [
+        "Bloodbraid Elf",
+        "Shardless Agent",
+        "Imoti, Celebrant of Bounty",
+        "Apex Devastator",
+        "Geode Rager"
+      ]
+    },
+    "synergy_patterns": [
+      "cascade",
+      "discover [0-9]+",
+      "exile cards from the top of your library until you exile.*with lesser mana value.*cast.*without paying"
+    ],
+    "win_condition_cards": [
+      "Apex Devastator",
+      "Maelstrom Wanderer",
+      "The First Sliver"
+    ],
+    "score_threshold": 16,
+    "philosophy": "spells",
+    "philosophy_label": "Zaubersprüche & Kaskade"
+  },
+  {
+    "id": "clones",
+    "label": "Clones / Copy",
+    "description": "Erzeugt Kopien von starken bleibenden Karten oder Zaubersprüchen auf dem Spielfeld (Clone, Sakashima, Miirym), um deren Effekte exponentiell zu vervielfachen.",
+    "signal_cards": {
+      "core": [
+        "Sakashima of a Thousand Faces",
+        "Miirym, Sentinel Wyrm",
+        "Spark Double",
+        "Clever Impersonator",
+        "Phantasmal Image",
+        "Orvar, the All-Form"
+      ],
+      "support": [
+        "Phyrexian Metamorph",
+        "Rite of Replication",
+        "Auton Soldier",
+        "Irenicus's Vile Duplication",
+        "Mirrorhall Mimic"
+      ]
+    },
+    "synergy_patterns": [
+      "copy of target",
+      "create a token that's a copy",
+      "enters the battlefield as a copy",
+      "as a copy of"
+    ],
+    "win_condition_cards": [
+      "Rite of Replication",
+      "Miirym, Sentinel Wyrm",
+      "Spark Double"
+    ],
+    "score_threshold": 18,
+    "philosophy": "spells",
+    "philosophy_label": "Zaubersprüche & Kaskade"
+  },
+  {
+    "id": "treasure",
+    "label": "Treasure",
+    "description": "Erzeugt und opfert Schatz-Artefakt-Token (Treasure) für explosives Mana, Artefakt-Opfer-Trigger und alternative Siegbedingungen.",
+    "signal_cards": {
+      "core": [
+        "Prosper, Tome-Bound",
+        "Dockside Extortionist",
+        "Smothering Tithe",
+        "Magda, Brazen Outlaw",
+        "Revel in Riches",
+        "Korvold, Fae-Cursed King"
+      ],
+      "support": [
+        "Xorn",
+        "Goldspan Dragon",
+        "Pitiless Plunderer",
+        "Professional Face-Breaker",
+        "Deadly Dispute",
+        "Academy Manufactor"
+      ]
+    },
+    "synergy_patterns": [
+      "create (?:a|two|three|[0-9]+)? ?treasure tokens?",
+      "whenever you sacrifice a treasure",
+      "sacrifice [0-9]+ treasures"
+    ],
+    "win_condition_cards": [
+      "Revel in Riches",
+      "Hellkite Tyrant",
+      "Marionette Master",
+      "Mirkwood Bats"
+    ],
+    "score_threshold": 18,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
+  },
+  {
+    "id": "food",
+    "label": "Food",
+    "description": "Basiert auf Speise-Artefakt-Token (Food), die für Lebenspunkte, Kartenvorteil, Reanimation oder Drain-Effekte konsumiert werden.",
+    "signal_cards": {
+      "core": [
+        "Sam, Loyal Attendant",
+        "Frodo, Adventurous Hobbit",
+        "Peregrin Took",
+        "Gyome, Master Chef",
+        "Pippin, Warden of Isengard",
+        "Ygra, Eater of All"
+      ],
+      "support": [
+        "Academy Manufactor",
+        "Experimental Confectioner",
+        "Gilded Goose",
+        "Trail of Crumbs",
+        "Witch's Oven",
+        "Tireless Provisioner"
+      ]
+    },
+    "synergy_patterns": [
+      "create (?:a|two|three|[0-9]+)? ?food tokens?",
+      "whenever you sacrifice a food",
+      "sacrifice [0-9]+ foods?"
+    ],
+    "win_condition_cards": [
+      "Feasting Hobbit",
+      "Experimental Confectioner",
+      "Mirkwood Bats",
+      "Nadier's Nightblade"
+    ],
+    "score_threshold": 18,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
+  },
+  {
+    "id": "clues",
+    "label": "Clues / Investigate",
+    "description": "Generiert Hinweis-Artefakt-Token (Clues) über Nachforschungen (Investigate), um kontinuierlich Karten zu ziehen und Artefakt-Opfer-Effekte auszulösen.",
+    "signal_cards": {
+      "core": [
+        "Lonis, Cryptozoologist",
+        "Morska, Undersea Sleuth",
+        "Tireless Tracker",
+        "Tamiyo's Journal",
+        "Bribers' Purse",
+        "Wernog, Rider's Chaplain"
+      ],
+      "support": [
+        "Investigate",
+        "Academy Manufactor",
+        "Erdwal Illuminator",
+        "Ongoing Investigation",
+        "Ulvenwald Mysteries",
+        "Dovin's Acuity"
+      ]
+    },
+    "synergy_patterns": [
+      "investigate",
+      "create (?:a|two|three|[0-9]+)? ?clue tokens?",
+      "whenever you sacrifice a clue"
+    ],
+    "win_condition_cards": [
+      "Cyberdrive Awakener",
+      "Rise and Shine",
+      "Mechanized Production",
+      "Nadier's Nightblade"
+    ],
+    "score_threshold": 18,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
+  },
+  {
+    "id": "equipment",
+    "label": "Equipment",
+    "description": "Konzentriert sich speziell auf Ausrüstungen (Equipment), reduzierte Ausrüstungskosten, Cheating ins Spiel und Krieger-/Träger-Boni.",
+    "signal_cards": {
+      "core": [
+        "Puresteel Paladin",
+        "Ardenn, Intrepid Archaeologist",
+        "Nahiri, Forged in Fury",
+        "Syr Gwyn, Hero of Ashvale",
+        "Stoneforge Mystic",
+        "Hammer of Nazahn"
+      ],
+      "support": [
+        "Colossus Hammer",
+        "Sword of Feast and Famine",
+        "Sword of Fire and Ice",
+        "Open the Armory",
+        "Sram, Senior Edificer",
+        "Fighter Class"
+      ]
+    },
+    "synergy_patterns": [
+      "equip (?:cost|\\{)",
+      "equipped creature",
+      "whenever a creature you control becomes equipped",
+      "attach target equipment"
+    ],
+    "win_condition_cards": [
+      "Colossus Hammer",
+      "Kaldra Compleat",
+      "Blackblade Reforged",
+      "Embercleave"
+    ],
+    "score_threshold": 20,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
+  },
+  {
+    "id": "auras",
+    "label": "Auras",
+    "description": "Stärkt eigene Kreaturen oder neutralisiert gegnerische Bedrohungen gezielt mit Auren-Verzauberungen, oft kombiniert mit Draw-Engines.",
+    "signal_cards": {
+      "core": [
+        "Light-Paws, Emperor's Voice",
+        "Killian, Decisive Mentor",
+        "Eriette of the Charmed Apple",
+        "Ellivere of the Wild Court",
+        "Sram, Senior Edificer",
+        "Bruna, Light of Alabaster"
+      ],
+      "support": [
+        "All That Glitters",
+        "Ethereal Armor",
+        "Ancestral Mask",
+        "Sage's Reverie",
+        "Mantle of the Ancients",
+        "Danitha Capashen, Paragon"
+      ]
+    },
+    "synergy_patterns": [
+      "enchanted creature",
+      "whenever you cast an aura",
+      "aura card from your graveyard",
+      "search your library for an aura"
+    ],
+    "win_condition_cards": [
+      "All That Glitters",
+      "Ancestral Mask",
+      "Ethereal Armor",
+      "Eldrazi Conscription"
+    ],
+    "score_threshold": 18,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
+  },
+  {
+    "id": "goad",
+    "label": "Goad / Forced Combat",
+    "description": "Zwingt gegnerische Kreaturen, in jeder Kampfphase andere Mitspieler anzugreifen, und schützt sich selbst vor Angriffen.",
+    "signal_cards": {
+      "core": [
+        "Baeloth Barrityl, Entertainer",
+        "Kardur, Doomscourge",
+        "Marisi, Breaker of the Coil",
+        "Firkraag, Cunning Instigator",
+        "The Rani",
+        "Nelly Borca, Impulsive Accuser"
+      ],
+      "support": [
+        "Disrupt Decorum",
+        "Geode Rager",
+        "Bothii, the Untouchable",
+        "Spectacular Showdown",
+        "Agitator Ant",
+        "Life of the Party"
+      ]
+    },
+    "synergy_patterns": [
+      "goad target",
+      "goad each",
+      "attacks each combat if able and attacks a player other than you",
+      "creatures your opponents control attack each combat if able"
+    ],
+    "win_condition_cards": [
+      "Disrupt Decorum",
+      "Kardur, Doomscourge",
+      "Insurrection",
+      "Taunt from the Rampart"
+    ],
+    "score_threshold": 16,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "hatebears",
+    "label": "Hatebears",
+    "description": "Verwendet kleine, effiziente Kreaturen mit Stör- und Steuer-Effekten (Taxes, Verlangsamung, Suchverbote), um gegnerische Spielpläne abzuwürgen.",
+    "signal_cards": {
+      "core": [
+        "Thalia, Guardian of Thraben",
+        "Grand Arbiter Augustin IV",
+        "Aven Mindcensor",
+        "Drannith Magistrate",
+        "Collector Ouphe",
+        "Archon of Emeria"
+      ],
+      "support": [
+        "Containment Priest",
+        "Spirit of the Labyrinth",
+        "Hushbringer",
+        "Gaddock Teeg",
+        "Strict Proctor",
+        "Yasharn, Implacable Earth"
+      ]
+    },
+    "synergy_patterns": [
+      "spells.*cost \\{1\\} more to cast",
+      "players can't cast spells from",
+      "opponents can't search libraries",
+      "activated abilities of.*can't be activated",
+      "enters the battlefield tapped"
+    ],
+    "win_condition_cards": [
+      "Elesh Norn, Grand Cenobite",
+      "Linvala, Keeper of Silence",
+      "Winota, Joiner of Forces"
+    ],
+    "score_threshold": 20,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "pod",
+    "label": "Pod / Tool-Box",
+    "description": "Opfert eigene Kreaturen in einer Mana-Kurven-Kette (Pod-Chain), um direkt passende Antworten oder Wincons aus der Bibliothek zu suchen.",
+    "signal_cards": {
+      "core": [
+        "Birthing Pod",
+        "Prime Speaker Vannifar",
+        "Pyre of Heroes",
+        "Yisan, the Wanderer Bard",
+        "Rocco, Cabaretti Caterer",
+        "Fiend Artisan"
+      ],
+      "support": [
+        "Eldritch Evolution",
+        "Chord of Calling",
+        "Neoform",
+        "Corridor Monitor",
+        "Felidar Guardian",
+        "Karmic Guide"
+      ]
+    },
+    "synergy_patterns": [
+      "search your library for a creature card with mana value equal to 1 plus",
+      "search your library for a creature card with converted mana cost equal to",
+      "sacrifice a creature.*search your library for a creature"
+    ],
+    "win_condition_cards": [
+      "Craterhoof Behemoth",
+      "Kiki-Jiki, Mirror Breaker",
+      "Protean Hulk"
+    ],
+    "score_threshold": 16,
+    "philosophy": "graveyard",
+    "philosophy_label": "Friedhof & Opfer"
+  },
+  {
+    "id": "morph",
+    "label": "Morph / Face-Down",
+    "description": "Spielt verdeckte 2/2-Kreaturen (Morph, Megamorph, Disguise, Manifest) und deckt sie überraschend auf, um Effekte und Kampfvorteile auszulösen.",
+    "signal_cards": {
+      "core": [
+        "Kadena, Slinking Sorcerer",
+        "Zimone, Mystery Unraveler",
+        "Yarus, Roar of the Old Gods",
+        "Kaust, Eyes of the Glade",
+        "Ixidor, Reality Sculptor",
+        "Animar, Soul of Elements"
+      ],
+      "support": [
+        "Trail of Mystery",
+        "Secret Plans",
+        "Scroll of Fate",
+        "Den Protector",
+        "Deathmist Raptor",
+        "Brine Elemental"
+      ]
+    },
+    "synergy_patterns": [
+      "morph",
+      "megamorph",
+      "disguise",
+      "manifest",
+      "turned face up",
+      "face-down creature"
+    ],
+    "win_condition_cards": [
+      "Brine Elemental",
+      "Bane of the Living",
+      "Yarus, Roar of the Old Gods"
+    ],
+    "score_threshold": 16,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
+  },
+  {
+    "id": "cycling",
+    "label": "Cycling",
+    "description": "Wirft Karten mit Umwandlung (Cycling) für wenig Mana ab, um die Hand frisch zu halten und Umwandlungs-Trigger (Token, Schaden, Reanimation) auszulösen.",
+    "signal_cards": {
+      "core": [
+        "Gavi, Nest Warden",
+        "Zur the Enchanter",
+        "Astral Slide",
+        "Astral Drift",
+        "Fluctuator",
+        "Drake Haven"
+      ],
+      "support": [
+        "Faith of the Devoted",
+        "Archfiend of Ifnir",
+        "Decree of Justice",
+        "Cast Out",
+        "New Perspectives",
+        "Nimble Obstructionist"
+      ]
+    },
+    "synergy_patterns": [
+      "cycling \\{",
+      "whenever you cycle (?:or discard )?a card",
+      "whenever you cycle another card"
+    ],
+    "win_condition_cards": [
+      "Archfiend of Ifnir",
+      "Decree of Justice",
+      "Faith of the Devoted",
+      "Zenith Flare"
+    ],
+    "score_threshold": 16,
+    "philosophy": "graveyard",
+    "philosophy_label": "Friedhof & Opfer"
+  },
+  {
+    "id": "madness",
+    "label": "Madness / Discard",
+    "description": "Nutzt gezieltes Abwerfen eigener Karten, um sie über Wahnsinn (Madness) spottbillig zu wirken und Friedhofs-Trigger zu zünden.",
+    "signal_cards": {
+      "core": [
+        "Anje Falkenrath",
+        "Chainer, Nightmare Adept",
+        "Asmoranomardicadaistinaculdacar",
+        "The Underworld Cookbook",
+        "Shadow of the Grave",
+        "Squee, Goblin Nabob"
+      ],
+      "support": [
+        "Faithless Looting",
+        "Big Game Hunter",
+        "From Under the Floorboards",
+        "Gravebreak Vampires",
+        "Terminal Agony",
+        "Containment Construct"
+      ]
+    },
+    "synergy_patterns": [
+      "madness (?:\\{|[0-9])",
+      "whenever you discard a card",
+      "discard a card: "
+    ],
+    "win_condition_cards": [
+      "From Under the Floorboards",
+      "Shadow of the Grave",
+      "Anje's Ravager"
+    ],
+    "score_threshold": 16,
+    "philosophy": "graveyard",
+    "philosophy_label": "Friedhof & Opfer"
+  },
+  {
+    "id": "extra-combats",
+    "label": "Extra Combats",
+    "description": "Kettet zusätzliche Angriffsphasen aneinander, enttappt Angreifer und multipliziert Angriffs-Trigger für verheerenden Kampfschaden.",
+    "signal_cards": {
+      "core": [
+        "Isshin, Two Heavens as One",
+        "Moraug, Fury of Akoum",
+        "Karlach, Fury of Avernus",
+        "Combat Celebrant",
+        "Aggravated Assault",
+        "Aurelia, the Warleader"
+      ],
+      "support": [
+        "Port Razer",
+        "Relentless Assault",
+        "World at War",
+        "Savage Beating",
+        "Scourge of the Throne",
+        "Godo, Bandit Warlord"
+      ]
+    },
+    "synergy_patterns": [
+      "additional combat phase",
+      "untap all creatures that attacked this turn.*after this (?:phase|step)",
+      "after this main phase, there is an additional combat phase"
+    ],
+    "win_condition_cards": [
+      "Aggravated Assault",
+      "Aurelia, the Warleader",
+      "Moraug, Fury of Akoum",
+      "Combat Celebrant"
+    ],
+    "score_threshold": 16,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
+  },
+  {
+    "id": "sagas",
+    "label": "Sagas / Historic",
+    "description": "Spielt kapitelbasierte Saga-Verzauberungen, manipuliert Sagamarken (Lore Counters), liest Kapitel voraus und reanimiert Sagas wiederholt.",
+    "signal_cards": {
+      "core": [
+        "Tom Bombadil",
+        "Narci, Fable Singer",
+        "Ghen, Arcanum Weaver",
+        "The Kami War",
+        "Kiora Bests the Sea God",
+        "The Eldest Reborn"
+      ],
+      "support": [
+        "Power Conduit",
+        "Clockspinning",
+        "Hex Parasite",
+        "Scholar of New Horizons",
+        "Historian's Boon",
+        "Chisei, Heart of Oceans"
+      ]
+    },
+    "synergy_patterns": [
+      "saga",
+      "lore counter",
+      "read ahead",
+      "chapter [ivx]+"
+    ],
+    "win_condition_cards": [
+      "Kiora Bests the Sea God",
+      "The Kami War",
+      "Historian's Boon"
+    ],
+    "score_threshold": 16,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
+  },
+  {
+    "id": "legendary-matters",
+    "label": "Legendary Matters",
+    "description": "Konzentriert sich voll auf legendäre bleibende Karten (Legends / Historic), profitiert von Legend-Rabatten und legendären Kaskaden.",
+    "signal_cards": {
+      "core": [
+        "Jodah, the Unifier",
+        "Captain Sisay",
+        "Shanid, Sleepers' Scourge",
+        "Reki, the History of Kamigawa",
+        "Kethis, the Hidden Hand",
+        "Dihada, Binder of Wills"
+      ],
+      "support": [
+        "Heroes' Podium",
+        "Primevals' Glorious Rebirth",
+        "Urza's Ruinous Blast",
+        "Relic of Legends",
+        "Plaza of Heroes",
+        "Arvad the Cursed"
+      ]
+    },
+    "synergy_patterns": [
+      "legendary spell",
+      "legendary creature",
+      "historic spell",
+      "whenever you cast a legendary",
+      "legendary permanents you control"
+    ],
+    "win_condition_cards": [
+      "Jodah, the Unifier",
+      "Primevals' Glorious Rebirth",
+      "Heroes' Podium"
+    ],
+    "score_threshold": 20,
+    "philosophy": "combo",
+    "philosophy_label": "Combo & Synergie"
+  },
+  {
+    "id": "dungeon",
+    "label": "Dungeon / Initiative",
+    "description": "Durchschreitet Dungeons (Gewölbe) und übernimmt die Initiative, um wiederholt Raum-Boni, Karten und Kreaturen-Reanimation einzustreichen.",
+    "signal_cards": {
+      "core": [
+        "Sefris of the Hidden Ways",
+        "Hama Pashar, Ruin Seeker",
+        "Rilsa Gael, Rogue Cutthroat",
+        "Dungeon Delver",
+        "Nadaar, Selfless Paladin",
+        "White Plume Adventurer"
+      ],
+      "support": [
+        "Acererak the Archlich",
+        "Ravenloft Adventurer",
+        "Passageway Seer",
+        "Tomb of Horrors Adventurer",
+        "Seasoned Dungeoneer",
+        "Radiant Solar"
+      ]
+    },
+    "synergy_patterns": [
+      "venture into the dungeon",
+      "take the initiative",
+      "whenever you complete a dungeon"
+    ],
+    "win_condition_cards": [
+      "Acererak the Archlich",
+      "Radiant Solar",
+      "Rilsa Gael, Rogue Cutthroat"
+    ],
+    "score_threshold": 16,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "monarch",
+    "label": "Monarch",
+    "description": "Führt den Monarchen-Titel ins Spiel ein, verteidigt die Krone mit Schutzeffekten und profitiert von automatischem End-Step-Kartenziehen.",
+    "signal_cards": {
+      "core": [
+        "Queen Marchesa",
+        "Jared Carthalion, True Heir",
+        "Aragorn, King of Gondor",
+        "Court of Grace",
+        "Palace Jailer",
+        "Archon of Coronation"
+      ],
+      "support": [
+        "Court of Cunning",
+        "Court of Ire",
+        "Emberwilde Captain",
+        "Custodi Lich",
+        "Marchesa's Decree",
+        "Champions of Minas Tirith"
+      ]
+    },
+    "synergy_patterns": [
+      "you become the monarch",
+      "as long as you're the monarch",
+      "at the beginning of your upkeep, if you're the monarch"
+    ],
+    "win_condition_cards": [
+      "Aragorn, King of Gondor",
+      "Court of Grace",
+      "Court of Cunning"
+    ],
+    "score_threshold": 16,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "graveyard-recursion",
+    "label": "Graveyard Recursion / Dredge",
+    "description": "Füllt den eigenen Friedhof durch Ausgraben (Dredge) oder Selbst-Mill und nutzt den Friedhof als erweiterte Handkarte für endlose Wiederverwertung.",
+    "signal_cards": {
+      "core": [
+        "Muldrotha, the Gravetide",
+        "Life from the Loam",
+        "Underworld Breach",
+        "Golgari Grave-Troll",
+        "Stitcher's Supplier",
+        "Six"
+      ],
+      "support": [
+        "Dakmor Salvage",
+        "Hermit Druid",
+        "Perpetual Timepiece",
+        "Grave Troll",
+        "Syr Konrad, the Grim",
+        "Splinterfright"
+      ]
+    },
+    "synergy_patterns": [
+      "dredge [0-9]+",
+      "mill [0-9]+ cards",
+      "you may play lands and cast spells from your graveyard",
+      "each card in your graveyard has escape"
+    ],
+    "win_condition_cards": [
+      "Underworld Breach",
+      "Syr Konrad, the Grim",
+      "Living Death",
+      "Thassa's Oracle"
+    ],
+    "score_threshold": 18,
+    "philosophy": "graveyard",
+    "philosophy_label": "Friedhof & Opfer"
+  },
+  {
+    "id": "land-destruction",
+    "label": "Land Destruction / MLD",
+    "description": "Zerstört gegnerische oder alle Länder (Mass Land Destruction), während man selbst über Planeswalker, Artefakte oder Friedhofsreanimation im Spiel bleibt.",
+    "signal_cards": {
+      "core": [
+        "Armageddon",
+        "Ravages of War",
+        "Ruination",
+        "Jokulhaups",
+        "Numot, the Devastator",
+        "Lord Windgrace"
+      ],
+      "support": [
+        "Obliterate",
+        "Boom // Bust",
+        "Strip Mine",
+        "Wasteland",
+        "Crucible of Worlds",
+        "Fall of the Thran"
+      ]
+    },
+    "synergy_patterns": [
+      "destroy all lands",
+      "destroy target land",
+      "each player sacrifices all lands"
+    ],
+    "win_condition_cards": [
+      "Armageddon",
+      "Jokulhaups",
+      "Ruination"
+    ],
+    "score_threshold": 16,
+    "philosophy": "lands",
+    "philosophy_label": "Länder & Ramp"
+  },
+  {
+    "id": "mutate",
+    "label": "Mutate",
+    "description": "Stapelt Nichtmensch-Kreaturen über Mutation (Mutate) aufeinander, um alle bisherigen Fähigkeiten bei jeder neuen Mutation erneut kaskadenartig auszulösen.",
+    "signal_cards": {
+      "core": [
+        "Otrimi, the Ever-Playful",
+        "Illuna, Apex of Wishes",
+        "Vadrok, Apex of Thunder",
+        "Snapdax, Apex of Hunt",
+        "Nethroi, Apex of Death",
+        "Brokkos, Apex of Forever"
+      ],
+      "support": [
+        "Auspicious Starrix",
+        "Boneyard Lurker",
+        "Gemrazer",
+        "Dirge Bat",
+        "Sea-Dasher Octopus",
+        "Pollywog Symbiote"
+      ]
+    },
+    "synergy_patterns": [
+      "mutate (?:\\{|[0-9])",
+      "whenever this creature mutates"
+    ],
+    "win_condition_cards": [
+      "Auspicious Starrix",
+      "Nethroi, Apex of Death",
+      "Illuna, Apex of Wishes"
+    ],
+    "score_threshold": 16,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
+  },
+  {
+    "id": "flash",
+    "label": "Flash / Draw-Go",
+    "description": "Spielt fast ausschließlich im gegnerischen Zug mit Aufblitzen (Flash) und Spontanzaubern, hält Mana für Konter offen und enttappt Länder vor dem eigenen Zug.",
+    "signal_cards": {
+      "core": [
+        "Rashmi, Eternities Crafter",
+        "Yeva, Nature's Herald",
+        "Nymris, Oona's Trickster",
+        "Wilderness Reclamation",
+        "Seedborn Muse",
+        "Teferi, Mage of Zhalfir"
+      ],
+      "support": [
+        "Leyline of Anticipation",
+        "Vedalken Orrery",
+        "Wavebreak Hippocamp",
+        "Rewind",
+        "Unwind",
+        "Slitherwisp"
+      ]
+    },
+    "synergy_patterns": [
+      "you may cast.*as though they had flash",
+      "cast your first spell during each opponent's turn",
+      "untap all (?:lands|permanents) you control during each (?:other )?player's untap step"
+    ],
+    "win_condition_cards": [
+      "Seedborn Muse",
+      "Hullbreaker Horror",
+      "Wilderness Reclamation"
+    ],
+    "score_threshold": 18,
+    "philosophy": "control",
+    "philosophy_label": "Kontrolle & Störung"
+  },
+  {
+    "id": "spells-matter-cantrips",
+    "label": "Cantrips / Magecraft",
+    "description": "Kettet 1-Mana-Zaubersprüche (Cantrips) aneinander, generiert Mana und Spielmarken pro Zauber und triggert Magiekunst (Magecraft).",
+    "signal_cards": {
+      "core": [
+        "Veyran, Voice of Duality",
+        "Archmage Emeritus",
+        "Storm-Kiln Artist",
+        "Birgi, God of Storytelling",
+        "Niv-Mizzet, Parun",
+        "Aria of Flame"
+      ],
+      "support": [
+        "Ponder",
+        "Preordain",
+        "Brainstorm",
+        "Gitaxian Probe",
+        "Opt",
+        "Serum Visions"
+      ]
+    },
+    "synergy_patterns": [
+      "magecraft",
+      "whenever you cast or copy an instant or sorcery",
+      "whenever you cast an instant or sorcery spell, draw"
+    ],
+    "win_condition_cards": [
+      "Aria of Flame",
+      "Niv-Mizzet, Parun",
+      "Sentinel Tower",
+      "Aetherflux Reservoir"
+    ],
+    "score_threshold": 18,
+    "philosophy": "spells",
+    "philosophy_label": "Zaubersprüche & Kaskade"
+  },
+  {
+    "id": "proliferate",
+    "label": "Proliferate / Counter-Engine",
+    "description": "Verbreitet und verdoppelt alle Arten von Marken (+1/+1, Gift, Loyalität, Ladungsmarken) exponentiell über Wuchern (Proliferate).",
+    "signal_cards": {
+      "core": [
+        "Atraxa, Praetors' Voice",
+        "Tekuthal, Inquiry Dominus",
+        "Roalesk, Apex Hybrid",
+        "Ezuri, Stalker of Spheres",
+        "Contagion Engine",
+        "Flux Channeler"
+      ],
+      "support": [
+        "Inexorable Tide",
+        "Karn's Bastion",
+        "Evolution Sage",
+        "Staff of Compleation",
+        "Thrummingbird",
+        "Grateful Apparition"
+      ]
+    },
+    "synergy_patterns": [
+      "proliferate",
+      "whenever a land enters the battlefield under your control, proliferate",
+      "whenever you cast a noncreature spell, proliferate"
+    ],
+    "win_condition_cards": [
+      "Contagion Engine",
+      "Inexorable Tide",
+      "Tekuthal, Inquiry Dominus"
+    ],
+    "score_threshold": 18,
+    "philosophy": "counters",
+    "philosophy_label": "Marken & Skalierung"
+  },
+  {
+    "id": "flying",
+    "label": "Flying Matters",
+    "description": "Basiert auf einer Flotte fliegender Kreaturen, die Bodentruppen unblockiert überfliegen und durch Flieger-Hymnen massiv verstärkt werden.",
+    "signal_cards": {
+      "core": [
+        "Kangee, Sky Warden",
+        "Inniaz, the Gale Force",
+        "Sephara, Sky's Blade",
+        "Favorable Winds",
+        "Empyrean Eagle",
+        "Kangee, Aerie Keeper"
+      ],
+      "support": [
+        "Pride of the Clouds",
+        "Gravitational Shift",
+        "Watcher of the Spheres",
+        "Cartographer's Hawk",
+        "Bident of Thassa",
+        "Stolen by the Fae"
+      ]
+    },
+    "synergy_patterns": [
+      "creatures with flying get",
+      "creatures you control with flying",
+      "whenever a creature with flying you control deals combat damage"
+    ],
+    "win_condition_cards": [
+      "Sephara, Sky's Blade",
+      "Gravitational Shift",
+      "True Conviction"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
+  },
+  {
+    "id": "defender",
+    "label": "Defender / Toughness",
+    "description": "Verwandelt Mauern und Verteidiger mit riesiger Widerstandskraft (Toughness) in Angreifer, die Schaden basierend auf Widerstandskraft austeilen.",
+    "signal_cards": {
+      "core": [
+        "Arcades, the Strategist",
+        "Phenax, God of Deception",
+        "Doran, the Siege Tower",
+        "High Alert",
+        "Wall of Blossoms",
+        "Wall of Omens"
+      ],
+      "support": [
+        "Overgrown Battlement",
+        "Axebane Guardian",
+        "Tower Defense",
+        "Slagwurm Armor",
+        "Tetsuko Umezawa, Fugitive",
+        "Stalwart Shield-Bearers"
+      ]
+    },
+    "synergy_patterns": [
+      "defender",
+      "assigns combat damage equal to its toughness rather than its power",
+      "each creature you control with defender can attack as though it didn't have defender"
+    ],
+    "win_condition_cards": [
+      "Tower Defense",
+      "Arcades, the Strategist",
+      "Phenax, God of Deception"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
+  },
+  {
+    "id": "deathtouch",
+    "label": "Deathtouch Matters",
+    "description": "Nutzt günstige Kreaturen mit Todesberührung (Deathtouch), um Angriffe abzublocken, gegnerische Boards im Kampf abzutauschen und Giftmarken zu verteilen.",
+    "signal_cards": {
+      "core": [
+        "Fynn, the Fangbearer",
+        "Ohran Frostfang",
+        "Hooded Blightfang",
+        "Toshiro Umezawa",
+        "Glissa, the Traitor",
+        "Vraska, Swarm's Eminence"
+      ],
+      "support": [
+        "Bow of Nylea",
+        "Zagras, Thief of Heartbeats",
+        "Narnam Renegade",
+        "Vampire Nighthawk",
+        "Saryth, the Viper's Fang",
+        "Ambush Viper"
+      ]
+    },
+    "synergy_patterns": [
+      "deathtouch",
+      "creatures you control with deathtouch",
+      "whenever a creature with deathtouch you control deals combat damage to a player"
+    ],
+    "win_condition_cards": [
+      "Fynn, the Fangbearer",
+      "Ohran Frostfang",
+      "Hooded Blightfang"
+    ],
+    "score_threshold": 18,
+    "philosophy": "combat",
+    "philosophy_label": "Kampf & Aggro"
+  },
+  {
+    "id": "snow",
+    "label": "Snow Matters",
+    "description": "Spielt verschneite Länder (Snow-Covered Lands) und schneebasierte Sprüche, um exklusive Boni, verschneite Beschleunigung und Frost-Zauber zu entfesseln.",
+    "signal_cards": {
+      "core": [
+        "Jorn, God of Winter",
+        "Marit Lage's Slumber",
+        "Dead of Winter",
+        "Blood on the Snow",
+        "Boreal Druid",
+        "Ohran Frostfang"
+      ],
+      "support": [
+        "Sculptor of Winter",
+        "Spirit of the Aldergard",
+        "Glacial Revelation",
+        "Ice-Fang Coatl",
+        "Blizzard Strix",
+        "Graven Lore"
+      ]
+    },
+    "synergy_patterns": [
+      "snow permanent",
+      "snow land",
+      "snow spell",
+      "pay \\{s\\}"
+    ],
+    "win_condition_cards": [
+      "Marit Lage's Slumber",
+      "Blood on the Snow",
+      "Dead of Winter"
+    ],
+    "score_threshold": 16,
+    "philosophy": "resources",
+    "philosophy_label": "Ressourcen & Artefakte"
   }
 ]

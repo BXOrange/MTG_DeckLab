@@ -101,10 +101,11 @@ def start(
                  "errors": errors},
             )
         random.shuffle(library)
-        seats.append(
-            {"player_id": player_id, "name": name, "library": library, "commanders": commanders, "sideboard": sideboard}
-        )
         deck = decks.get_deck(deck_id)
+        seats.append(
+            {"player_id": player_id, "name": name, "library": library, "commanders": commanders, "sideboard": sideboard,
+             "archetypes": getattr(deck, "archetypes", None)}
+        )
         identity = getattr(deck, "color_identity", None)
         if identity is not None:
             banner_colors[player_id] = normalize_banner_color("".join(identity))

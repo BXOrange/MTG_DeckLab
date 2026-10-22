@@ -148,3 +148,22 @@ class TestDetectTypalSignals:
 
     def test_no_creatures_returns_empty(self):
         assert detect_typal_signals([make_card("Sol Ring")]) == []
+
+    def test_new_archetypes_detection(self):
+        # Poison/Infect detection
+        poison_cards = [
+            make_card("Skithiryx, the Blight Dragon"),
+            make_card("Glistener Elf"),
+            make_card("Infectious Spore", oracle_text="Toxic 2. Proliferate when this dies.")
+        ]
+        poison_scores = score_archetypes(poison_cards)
+        assert poison_scores[0].id == "poison"
+
+        # Stompy detection
+        stompy_cards = [
+            make_card("Ghalta, Primal Hunger"),
+            make_card("Goreclaw, Terror of Qal Sisma"),
+            make_card("Big Dino", oracle_text="Creatures you control with power 4 or greater have trample.")
+        ]
+        stompy_scores = score_archetypes(stompy_cards)
+        assert stompy_scores[0].id == "stompy"

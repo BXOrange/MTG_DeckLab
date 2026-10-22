@@ -47,7 +47,8 @@ class SmartBot(GreedyBot):
         if self.player_id not in profiles:
             deck = getattr(session, '_bot_decklists', {}).get(self.player_id)
             if deck:
-                profiles[self.player_id] = build_strategy(deck['cards'], deck['commanders'])
+                profiles[self.player_id] = build_strategy(deck['cards'], deck['commanders'],
+                                                          archetypes=deck.get('archetypes'))
                 session._bot_strategies = profiles
         if self.player_id in profiles:
             self.strategy = profiles[self.player_id]
@@ -130,13 +131,17 @@ class SmartBot(GreedyBot):
         lands = sum(o.get('is_land', False) for o in view['state'].get('battlefield', [])
                     if o.get('controller_id') == self.player_id)
         if 'ramp' in plan.roles:
-            value += max(0, 28 - 4 * lands) + (8 if self.strategy.archetype == 'ramp' else 0)
+            value += max(0, 28 - 4 * lands) + (8 if ('ramp' in self.strategy.archetypes or self.strategy.archetype == 'ramp') else 0)
         if 'draw' in plan.roles:
             value += 18 if len(self._mine(view).get('hand', [])) <= 3 else 8
         if 'tutor' in plan.roles and self.strategy.combos:
             value += 30
-        if 'creature' in plan.types and self.strategy.archetype == 'aggro':
+        if 'creature' in plan.types and ('aggro' in self.strategy.archetypes or self.strategy.archetype == 'aggro'):
             value += 15
+        if 'stompy' in plan.roles and ('stompy' in self.strategy.archetypes or self.strategy.archetype == 'stompy'):
+            value += 16
+        if 'poison' in plan.roles and ('poison' in self.strategy.archetypes or self.strategy.archetype == 'poison'):
+            value += 18
         return value
 
     def setup(self, view, actions):

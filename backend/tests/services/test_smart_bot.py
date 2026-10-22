@@ -455,3 +455,21 @@ def test_cost_requirements_and_public_commander_casts():
     assert cost_requirements('{G/U}{C}') == (Counter({'C': 1}), 1)
     player = Player('ann'); player.commander_casts[7] = 2
     assert player.to_dict()['commander_casts'] == {'7': 2}
+
+
+def test_strategy_supports_two_archetypes():
+    # Deck with tokens and lifegain cards (each with at least 3 occurrences to hit weight >= 3)
+    token_cards = [spell(f'TokenMaker{i}', text='Create two 1/1 green Saproling creature tokens.') for i in range(3)]
+    lifegain_cards = [spell(f'LifeGainer{i}', text='Whenever you gain life, gain 2 life.') for i in range(3)]
+    strat = build_strategy(token_cards + lifegain_cards, [], [])
+    assert len(strat.archetypes) == 2
+    assert strat.archetype == strat.archetypes[0]
+    assert set(strat.archetypes) == {'tokens', 'lifegain'}
+    assert set(strat.philosophies) == {'resources', 'combo'}
+
+    # Explicit archetypes passed
+    strat_explicit = build_strategy(token_cards, [], [], archetypes=['voltron', 'stompy'])
+    assert strat_explicit.archetypes == ('voltron', 'stompy')
+    assert strat_explicit.archetype == 'voltron'
+    assert strat_explicit.philosophies == ('combat',)
+

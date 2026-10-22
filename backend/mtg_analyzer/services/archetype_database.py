@@ -54,7 +54,7 @@ DEFAULT_ARCHETYPES_PATH = Path(__file__).resolve().parent.parent / "data" / "arc
 #: Every field an entry must carry — a malformed/incomplete entry is a data
 #: error in the catalogue, not something to silently serve half of.
 _REQUIRED_FIELDS = frozenset(
-    {"id", "label", "description", "signal_cards", "synergy_patterns", "win_condition_cards", "score_threshold"}
+    {"id", "label", "description", "signal_cards", "synergy_patterns", "win_condition_cards", "score_threshold", "philosophy", "philosophy_label"}
 )
 
 
