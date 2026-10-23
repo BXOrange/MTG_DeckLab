@@ -6024,6 +6024,7 @@ Reusable support includes additional token batches under replacement effects (Ch
 
 ### The land-animate family — Kamahl, Heart of Krosa and Ashaya, Soul of the Wild (MEC-12)
 
+- **Shared animation grammar (PAR-185 milestone, v726):** Land-retention riders preserve prior types/subtypes (RULE 205.1b). Shared self, prior-object, optional and multi-land subjects compose colors, creature types, keywords and quoted abilities; enchanted-land statics and activations reuse the same layer machinery. Resolving mass effects lock their recipients (611.2c), and self grants retain exact battlefield visits. Source-bound durations cannot begin after the original source leaves (611.2b/400.7). Executed regressions cover quoted activation and cleanup, Aura hosts, late entrants, retained artifact/land types and source blink; tests live in `test_par185_land_animation_riders.py`. Quantity and counter-bound/group variants remain active under PAR-185.
 - **What:** Two cards making a permanent's card type cross the land/creature line in opposite directions — neither reachable by the oracle-text parser (both fully hand-auth…
 - **Files:** `models/game_object.py` (`is_land` fix), `game/continuous.py` (`affected_objects`'s new `nontoken_creatures_you_control` scope), `game/ability_catalogue.py`.
 

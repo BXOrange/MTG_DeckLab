@@ -684,8 +684,11 @@ animate_quoted_cda
 animate_self
 animate_self_leading_eot
 animate_previous
+animate_self_pronoun
+animate_multi
 animate_target
 animate_target_base_pt_order
+animate_all_lands
 animate_target_leading_eot
 goad
 goad_multi_target

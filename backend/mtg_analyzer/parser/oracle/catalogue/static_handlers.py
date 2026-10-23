@@ -6920,6 +6920,59 @@ def _static_hand_cycling_grant(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: PAR-185: "enchanted land is a 4/2 red Beast creature with trample. It's still a land." (Zendikon cycle, Awaken the
+#: Ancient) / "Forests you control are 1/1 green Elf creatures that are still lands." (Ambush Commander) — RULE 205.1b:
+#: a layer-4 `type_change` that *adds* creature (and subtypes) with a base P/T, a layer-5 colour set and a layer-6 keyword
+#: grant. The retention rider keeps prior types and subtypes (RULE 205.1b), as modeled by additive type changes.
+_ANIMATED_LAND_STATIC_RE = re.compile(
+    r"(?:enchanted (?P<attached>land|plains|island|swamp|mountain|forest) is|"
+    r"(?P<group>plains|islands|swamps|mountains|forests) you control are) (?:an? )?"
+    r"(?P<p>\d+)/(?P<t>\d+) (?P<words>[a-z]+(?: [a-z]+)*?) creatures?"
+    r"(?: with (?P<kw>[a-z]+(?:, [a-z]+)*(?:,? and [a-z]+)?))?"
+    r"(?:\. it'?s still a land| that'?s still a land| that are still lands)?\.?",
+    re.IGNORECASE,
+)
+_ANIMATED_LAND_GROUP_AFFECTS = {
+    "plains": "plains", "islands": "island", "swamps": "swamp", "mountains": "mountain", "forests": "forest",
+}
+
+
+def _static_animated_land(ctx: StaticContext) -> StaticResult:
+    m = _ANIMATED_LAND_STATIC_RE.fullmatch(ctx.text.strip())
+    if m is None:
+        return None
+    # The group form's reminder is the "that are still lands" relative clause, the attached form's a sentence.
+    if (m.group("group") is None) == (m.group("attached") is None):
+        return None
+    words = m.group("words").lower().split()
+    colors: list[str] = []
+    while words and words[0] in COLOR_LETTERS and words[0] != "colorless":
+        colors.append(COLOR_LETTERS[words.pop(0)])
+        if words and words[0] == "and":
+            words.pop(0)
+    type_params = type_addition_params(" ".join(words)) if words else {}
+    if type_params is None:
+        return DECLINE
+    type_params = {
+        **type_params,
+        "add_types": ["creature", *type_params.get("add_types", [])],
+        "power": int(m.group("p")), "toughness": int(m.group("t")),
+    }
+    affects = (
+        "attached_permanent" if m.group("attached")
+        else f"lands_you_control_of_type_{_ANIMATED_LAND_GROUP_AFFECTS[m.group('group').lower()]}"
+    )
+    specs = [EffectSpec("type_change", {"affects": affects, **type_params})]
+    if colors:
+        specs.append(EffectSpec("color", {"affects": affects, "colors": colors, "set": True}))
+    if m.group("kw"):
+        keywords = _flag_keywords(m.group("kw").replace(", and ", ", ").replace(" and ", ", "))
+        if keywords is None:
+            return DECLINE
+        specs.append(EffectSpec("grant_keyword", {"affects": affects, "keywords": keywords}))
+    return specs
+
+
 STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("fixed_base", _static_fixed_base),
     StaticMatcher("match", _static_match),
@@ -7002,6 +7055,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("opponents_enter_tapped", _static_opponents_enter_tapped),
     StaticMatcher("all_enter_tapped", _static_all_enter_tapped),
     StaticMatcher("type_overwrite", _static_type_overwrite),
+    StaticMatcher("animated_land", _static_animated_land),
     StaticMatcher("land_is_basic_type", _static_land_is_basic_type),
     StaticMatcher("attached_anthem_protection", _static_attached_anthem_protection),
     StaticMatcher("group_anthem_protection", _static_group_anthem_protection),

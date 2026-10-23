@@ -79,6 +79,7 @@ trigger_prohibition
 opponents_enter_tapped
 all_enter_tapped
 type_overwrite
+animated_land
 land_is_basic_type
 attached_anthem_protection
 group_anthem_protection

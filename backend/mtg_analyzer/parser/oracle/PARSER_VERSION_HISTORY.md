@@ -4144,3 +4144,13 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 723 PAR-184 -- player-event grammar recognizes committing a crime (RULE 700.13), including opponent/player
      actor scopes, shared turn restrictions and existing once-per-turn trigger riders. Binds the existing
      CRIME_COMMITTED player event; graveyard pay-then-return bodies reuse their existing zone permission.
+724 PAR-185 -- land-animation riders: "it's still a land" / "that's still a land" reminders on the self, target and
+     leading-duration animate rows (prior types are retained, RULE 205.1b), the full RULE 205.3m creature-subtype
+     vocabulary for animate qualifiers, the "enchanted land is a N/N ... creature" / "<land type>s you control are"
+     static (layer 4 type_change + layer 5 colour + layer 6 keywords) and the locked-group "all lands (you control)
+     become N/N creatures until end of turn" row.
+725 PAR-185 -- shared animation axes: optional causative subjects, source and plural pronouns, multi-land
+     targets, hyphenated creature types, all-creature-type and quoted-ability grants, source-bounded duration,
+     and activated enchanted-land subjects. Self animations explicitly retain the source incarnation.
+726 PAR-185 -- restrict causative normalization to numeric creature animation so unrelated "become no longer
+     suspected" remains owned by its existing handler (Deadly Complication).

@@ -36,7 +36,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-185 · Land animation riders.** `~ becomes a N/N … creature until end of turn. it's still a land.` and `they're still lands`: 68 open cards (21 with other parsed effects), 5 sole-blocker manlands (Faerie Conclave, Forbidding Watchtower, Ghitu Encampment, Hostile Desert, Restless Ridgeline); Zendikon/Awaken families included.
+- **PAR-185 · Land animation riders.** Remaining: measured X/X sizes, per-land counter durations and animation group/qualifier variants (residue in `workingOn.md`).
 - **PAR-186 · Regeneration riders on destroy.** `destroy that creature/it. it can't be regenerated`, `they can't be regenerated`: 29 + 17 open, 0 sole-blocker; measure the joint package (Dripping Dead, Spinal Graft, Befoul, Crumble, Detonate, …).
 - **PAR-187 · Reveal-hand family.** `target opponent/player reveals their hand`, `you choose a nonland card from it`, `that player discards that card`: 53 + 15 open, 0 sole-blocker; the choose-and-act continuation is the missing link (Castigate, Agonizing Remorse, Collective Brutality, Appetite for Brains, …).
 - **PAR-188 · Self-power pump amount.** `where x is its power` / `where x is ~'s power`: 12 + 13 open, all 12 sole-blocker (Chameleon Colossus, Dying Wish, Electrostatic Pummeler, Elenda's Hierophant, Faerie Bladecrafter, Feral Animist, Heroes' Bane, Murder Investigation, Spotter Thopter, Tarox Bladewing, Ukkima, Yew Spirit).
@@ -106,4 +106,4 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## BUG — Bugs
 
--No Tickets-
+- **BUG-35 · Ward payment lost on clone/undo.** Clone a game after a normal Ward trigger opens its payment choice, then decline: the targeted spell resolves instead of being countered (RULE 702.21a). `RulesEngine._pending_ward_item`, `_pending_ward_cost` and `_pending_ward_caster_id` are absent from cloned `GameState`; the choice itself survives. Move the resumable Ward payment state into state-owned data and preserve the correct stack item, caster and resolved cost across clone/undo. Validate pay/decline after the prompt and isolation from the original game; reproduction does not require animation.

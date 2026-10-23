@@ -14,10 +14,10 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-23 at PARSER_VERSION 723: **21,972 / 35,046 cards (62.7%)**,
+Measured on 2026-10-23 at PARSER_VERSION 726: **22,043 / 35,046 cards (62.9%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **21,371 / 32,068 (66.6%)**.
-The full-pool probe comparison against v722 reports **+12 / 0 regressions**.
+Commander-legal coverage: **21,442 / 32,068 (66.9%)**.
+The full-pool probe comparison against v724 reports **+26 / 0 regressions**.
 Measurements use the ledger-backed `scripts/coverage_report.py --top 40`
 and its `--commander-legal-only` scope.
 

@@ -5791,6 +5791,12 @@ def _parse_effect_body_inner(
     # cycling trio, Painsmith, …): "have … get" is only how the optional wording carries the verb — the effect is
     # "target creature gets -2/-2", which every pump / keyword-grant row already reads.
     body = _MAY_HAVE_TARGET_GET_RE.sub(r"\g<1>\g<2> \g<3>s ", body)
+    # RULE 608.2c: optional causative animation uses the same subject and
+    # verb as ordinary animation; leave "you may" for the optional wrapper.
+    body = re.sub(
+        r"\b(you may )?have (it|target land(?: you control)?) become (?=an? \d+/\d+ )",
+        r"\1\2 becomes ", body, flags=re.IGNORECASE,
+    )
 
     # "destroy target nonbasic land you don't control and target nonbasic land you don't control." (Volcanic Offering):
     # one verb over two target phrases is two destroy instructions, in printed order (RULE 115.1).  One sentence only:

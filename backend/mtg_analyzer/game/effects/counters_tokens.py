@@ -693,6 +693,14 @@ class GrantUntilEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .. import durations  # local: durations imports effects' siblings
 
+        if (self.condition and self.condition.get("kind") == "source_on_battlefield"
+                and self.condition.get("of", "source") == "source"):
+            # RULE 611.2b / 400.7: a duration tied to the original source
+            # cannot start after that source left and became a new object.
+            expected = context.resolving_source_incarnation
+            if self.source is None or (expected is not None and self.source.zone_incarnation != expected):
+                return
+
         payloads = [self.static, *self.extra_statics]
         if not any(
             p.get("type") and EffectRegistry.is_registered(str(p.get("type")))

@@ -181,11 +181,13 @@ MULTI_TARGET_SCOPE_TAIL = r" (?:your opponents control|an opponent controls|you 
 #: "…each of up to 2 target creatures **you control**" — the plural mirror of the singular
 #: `<kind>_you_control` pools (`targeting.TARGET_FRAMES`' ``SCOPE_YOU``).
 MULTI_TARGET_YOU_KINDS: dict[str, str] = {
+    "land": "land_you_control",
     "creature": "creature_you_control", "permanent": "permanent_you_control",
     "nonland_permanent": "nonland_permanent_you_control",
     "creature_or_planeswalker": "targetable_creature_or_planeswalker_you_control",
 }
 _MULTI_TARGET_SCOPED_KINDS: dict[str, str] = {
+    "target lands": "land",
     r"target creatures and/or planeswalkers": "creature_or_planeswalker",
     r"target creatures": "creature",
     r"target nonland permanents": "nonland_permanent",
