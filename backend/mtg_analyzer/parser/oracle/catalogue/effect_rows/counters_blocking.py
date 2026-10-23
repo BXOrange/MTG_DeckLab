@@ -551,7 +551,7 @@ def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params: dict = {
         "count": count_of(m.group("n")),
-        "kind": counter_sign(m.group("ckind")),
+        "kind": (counter_sign(m.group("ckind")) if m.group("ckind")[0] in "+-−" else m.group("ckind")),
         "target_kind": mt["target_kind"],
         "target_count": mt["count"],
     }
@@ -1280,7 +1280,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "add_counters_multi_target",
         compile_clause(
-            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on each of "
+            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1|{NAMED_COUNTER_KIND}) counters? on each of "
             rf"{MULTI_TARGET_QUANTIFIER_X}(?:other )?(?P<target>{MULTI_TARGET_ALT})"
         ),
         _add_counters_multi_target,

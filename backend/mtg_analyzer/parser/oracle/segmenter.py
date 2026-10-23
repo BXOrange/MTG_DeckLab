@@ -4648,7 +4648,7 @@ _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_
 #: amount term rather than "the number of …": read by `count_phrase.parse_amount_phrase` like the aggregates.
 _WHERE_X_AMOUNT_RE = re.compile(
     rf"^(?P<rest>.+?),?\s+where x is (?P<phrase>(?:\d+ plus )?(?:{SACRIFICED_TERM}"
-    r"|the amount of life you (?:gained|lost) this turn"
+    r"|~'s (?:power|toughness|mana value)|the amount of life you (?:gained|lost) this turn"
     r"|the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) [^.]+?))$", re.IGNORECASE
 )
 #: RULE 107.2: "where x is half the number of <phrase>, rounded up/down" -- the count of `_WHERE_X_RE` halved.
@@ -4796,6 +4796,14 @@ def _where_x_specs(
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    # Keep the animation's type-retention sentence inside its own body;
+    # the quantity still measures once for the whole grant (RULE 611.2d).
+    retained = re.fullmatch(
+        r"(?P<head>.+), where x is (?P<quantity>[^.]+)\. (?P<rider>it'?s still a land|they'?re still lands)",
+        text, re.I | re.S,
+    )
+    if retained:
+        text = f"{retained['head']}. {retained['rider']}, where x is {retained['quantity']}"
     halved = _WHERE_X_HALF_COUNT_RE.match(text)
     if halved is not None and divide_by is None:
         # RULE 107.2: "where x is half the number of <phrase>, rounded up/down" is the count with a rounded halving.
@@ -4865,8 +4873,13 @@ def _where_x_specs(
         recipient = (m.groupdict().get("pre") or "") + (m.group("tail") or "")
         rest = f"{m.group('verb')} x {m.group('noun')}{recipient}"
     if aggregate is not None:
-        term = parse_amount_phrase(m.group("phrase"))
-        amount = None if term is None else {"kind": "count_selector", "selector": term}
+        source_characteristic = re.fullmatch(r"~'s (power|toughness|mana value)", m.group("phrase"))
+        if source_characteristic:
+            amount = {"kind": "characteristic", "of": "source",
+                      "characteristic": source_characteristic[1].replace(" ", "_")}
+        else:
+            term = parse_amount_phrase(m.group("phrase"))
+            amount = None if term is None else {"kind": "count_selector", "selector": term}
     else:
         phrase = m.group("phrase")
         # "…the number of cards in your hand **minus 4**" (Ivory Tower): a negative X counts as 0
@@ -4903,6 +4916,15 @@ def _bind_x_specs(
     )
     if not inner or (len(inner) != 1 and not several):
         return None
+    if amount.get("kind") == "characteristic" and amount.get("of") == "source":
+        # RULE 107.1b: a measured modifier uses zero for a negative result;
+        # setting base P/T is the explicit exception and keeps its sign.
+        sets_pt = all(
+            spec.type == "grant_until" and spec.params.get("static", {}).get("type") == "type_change"
+            for spec in inner
+        )
+        if not sets_pt:
+            amount = {**amount, "minimum": 0}
     effects: list[dict[str, Any]] = []
     bound_any = False
     for spec in inner:
@@ -4913,6 +4935,11 @@ def _bind_x_specs(
             return None
         holders = [k for k in _X_PARAM_KEYS if params.get(k) in ("x", "-x")]
         nested = False
+        if spec.type == "grant_until":
+            for key in ("static", "extra_statics"):
+                if key in params:
+                    params[key], replaced = _replace_x(params[key])
+                    nested = nested or replaced
         if not holders and isinstance(params.get("then_effects"), list):
             # An X inside the effects that follow a pick ("return a creature card … with X counters on it").
             params["then_effects"], nested = _replace_x(params["then_effects"])
@@ -5791,6 +5818,12 @@ def _parse_effect_body_inner(
     # cycling trio, Painsmith, …): "have … get" is only how the optional wording carries the verb — the effect is
     # "target creature gets -2/-2", which every pump / keyword-grant row already reads.
     body = _MAY_HAVE_TARGET_GET_RE.sub(r"\g<1>\g<2> \g<3>s ", body)
+    # Choosing explicit targets here is the announcement's ordinary group;
+    # the counter placement acts on every member (RULE 115.1a).
+    body = re.sub(
+        r"choose (?P<targets>any number of target [^.]+?) and put (?P<counter>an? [a-z]+ counter) on each of them",
+        r"put \g<counter> on each of \g<targets>", body, flags=re.I,
+    )
     # RULE 608.2c: optional causative animation uses the same subject and
     # verb as ordinary animation; leave "you may" for the optional wrapper.
     body = re.sub(
@@ -9764,6 +9797,14 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
             if activation_tail.group("once"):
                 tail_markers.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
             effect_text = effect_text[:activation_tail.start()].strip()
+        nonzero_x = re.search(r"\.\s*x can'?t be 0\.?$", effect_text, re.I)
+        if nonzero_x is not None:
+            # RULE 107.3a: the printed restriction applies to the announced
+            # value, and uses the activation cost's existing minimum.
+            if "{x}" not in act.group("cost").lower():
+                return Segment(raw=raw)
+            effect_text = effect_text[:nonzero_x.start()].strip()
+            cost_dict["minimum_x"] = 1
         if re.search(r"\b(?:exile|sacrifice) ~(?:,|$)", raw.split(":", 1)[0].strip(), re.I):
             # RULE 608.2h: with ~ paid as the cost, "it had N counters on it"
             # is ~'s last-known count, captured for its departed visit

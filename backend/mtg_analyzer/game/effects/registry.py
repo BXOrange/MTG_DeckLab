@@ -5595,6 +5595,7 @@ EffectRegistry.register(
         self_subject=bool(p.get("self_subject", False)),
         extra_statics=p.get("extra_statics"),
         lock_group=bool(p.get("lock_group", False)),
+        group_controller=p.get("group_controller"),
         creature_filter=p.get("creature_filter"),
     ),
 )

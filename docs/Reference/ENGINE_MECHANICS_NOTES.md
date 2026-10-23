@@ -12,6 +12,8 @@ the card's implementation and tests; shipped narrative in
   incarnations, so leaving and re-entering a zone breaks the link.
   `zone_visit_counters` preserves counter LKI for departed source visits;
   resolving amounts and conditions use it only after that source visit ends.
+  Source characteristic amounts use `zone_visit_characteristics` for the departed
+  battlefield visit (RULE 608.2h), never a later incarnation of that physical card.
   Live source identity remains unchanged for selectors such as "other".
 - Aura/Equipment trigger predicates resolve their source by instance ID from the
   *current* state. Snapshot callbacks retain Python closures, so a captured

@@ -36,10 +36,9 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-185 · Land animation riders.** Remaining: measured X/X sizes, per-land counter durations and animation group/qualifier variants (residue in `workingOn.md`).
 - **PAR-186 · Regeneration riders on destroy.** `destroy that creature/it. it can't be regenerated`, `they can't be regenerated`: 29 + 17 open, 0 sole-blocker; measure the joint package (Dripping Dead, Spinal Graft, Befoul, Crumble, Detonate, …).
 - **PAR-187 · Reveal-hand family.** `target opponent/player reveals their hand`, `you choose a nonland card from it`, `that player discards that card`: 53 + 15 open, 0 sole-blocker; the choose-and-act continuation is the missing link (Castigate, Agonizing Remorse, Collective Brutality, Appetite for Brains, …).
-- **PAR-188 · Self-power pump amount.** `where x is its power` / `where x is ~'s power`: 12 + 13 open, all 12 sole-blocker (Chameleon Colossus, Dying Wish, Electrostatic Pummeler, Elenda's Hierophant, Faerie Bladecrafter, Feral Animist, Heroes' Bane, Murder Investigation, Spotter Thopter, Tarox Bladewing, Ukkima, Yew Spirit).
+- **PAR-188 · Self-power pump amount.** Contextual `where x is its power` for self, dying and targeted subjects; compose remaining explicit-source power bodies with existing characteristic/LKI binding (Chameleon Colossus, Dying Wish, Electrostatic Pummeler, Elenda's Hierophant, Faerie Bladecrafter, Feral Animist, Heroes' Bane, Murder Investigation, Spotter Thopter, Tarox Bladewing, Ukkima, Yew Spirit).
 - **PAR-189 · Defender and combat-damage riders.** `~ can attack this turn as though it didn't have defender` (12 open, 11 sole-blocker: Mirror Wall, Dark Maze, Glade Watcher, Hightide Hermit, Krotiq Nestguard, …) and `if you do, ~ assigns no combat damage this turn` (12 open, 7 sole-blocker: Laccolith cycle, Ophidian, Dwarven Vigilantes, Farrel's Zealot).
 - **PAR-190 · Tribute follow-ups.** `if tribute wasn't paid, …`: 10 open, all sole-blocker (Fanatic of Xenagos, Nessian Demolok, Nessian Wilds Ravager, Oracle of Bones, Ornitharch, Pharagax Giant, Shrike Harpy, Siren of the Fanged Coast, Snake of the Golden Grove, Thunder Brute).
 - **PAR-191 · Counter target activated ability.** 5 open, all sole-blocker (Azorius Guildmage, Bind, Rimewind Cryomancer, Squelch, Voidmage Husher); ability-on-stack counter target.
@@ -55,7 +54,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **PAR-201 · Opponent gains control of ~.** `target opponent gains control of ~`: 6 open, 5 sole-blocker (Avarice Amulet, Humble Defector, Jinxed Idol, Jinxed Ring, Measure of Wickedness).
 - **PAR-202 · End-of-combat trigger head.** `at end of combat` (with intervening-if): 14 open, 5 with other parsed effects (Clockwork cycle, Daredevil Dragster, Dread Wight, Greater Werewolf, Heat Stroke, Kjeldoran Frostbeast, …).
 - **PAR-203 · Named choices on resolution.** `choose a creature type` (23 open, 2 sole-blocker), `choose a color` (18), `choose a card name` (17); measure which already-existing choice primitive each lacks.
-- **PAR-204 · Optional-payment "if you do" chains.** `you may pay <cost>` (70 open) and `if you do` / `if you don't` (155 / 25 open, 19 / 1 sole-blocker): re-measure after PAR-175/178 and split by antecedent type.
+- **PAR-204 · Optional-payment "if you do" chains.** Compose `you may pay <cost>` and `if you do` / `if you don't` by antecedent type, including targeted counter placement before animation (Cyclone Sire, Noyan Dar, Wall of Resurgence); preserve announced targets and verify outcome gating through choices and clone.
 
 ## MEC — Game mechanic
 

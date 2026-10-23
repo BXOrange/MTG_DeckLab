@@ -42,15 +42,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
-
-## PAR-185 · Land animation riders
-
-- **Started / last update:** 2026-10-23 / 2026-10-23 15:34
-- **Goal of this run:** finish shared land-animation grammar and lifetimes, then continue by dependency rather than coverage.
-- **Done (built + tested):** v726 supports retention riders, source/plural pronouns, optional causative forms, multi-land targets, quoted abilities, all creature types, enchanted-land statics/activations and source-bound duration. Self grants lock their battlefield visit; old source-bound grants cannot start after source blink. Runtime tests cover granted activation/expiry, locked groups, attachment and source visits.
-- **In progress:** further animation quantities, selectors and per-land durations are being implemented only in isolated `.tmp_par185_next`; original source is the verified v726 milestone.
-- **Next step:** commit v726 milestone; reconcile isolated baseline with that commit, inspect/integrate its next delta, then run the complete full-cache suite on the final stable implementation before closing PAR-185. BUG-35 is the verified logical follow-on for Ward prompt cloning; PAR-188/PAR-204 share quantity/optional-antecedent grammar.
-- **Decisions:** retention uses RULE 205.1b; resolving groups lock exact visits (611.2c), standing groups remain dynamic. Unsupported inner abilities and unrelated clauses remain fail-closed. Optional targeted counter antecedents belong to PAR-204.
-- **Baselines / artefacts:** `%TEMP%/par185_base.json` is v723. `.tmp_par185_v724.json` plus `.tmp_par185_v726_diff.txt` prove v724→v726 +26 / -0. Ledger v726: 22,043/35,046 (62.9%); Commander 21,442/32,068 (66.9%). Status/strategy numbers synced.
-- **Known failures / verification:** baseline `tests/services/test_bots.py` times out at its ninth test (also recorded on clean HEAD); excluded from broad run. Full-cache run: 15,822 passed, 1 skipped, 3 failures solely from old exact IR pins; pins updated for intentional `self_subject=True`, both complete affected files independently rerun: 94 passed. Independent final parser contracts: 347 passed; final animation/duration/version tests: 89 passed. No remaining failures in those reruns; final complete run is still required for closure.
-- **Residue:** integrate and verify measured X/X, per-object awakening-counter duration, standing/global/target-player groups, legendary/ward and permanent-self variants. Independent blockers: Vitu-Ghazi name setter, searched-batch references, Genju graveyard/inner-ability grammar, certain enters-tapped clauses and Koth's untap subtype target. BUG-35 reproduces with ordinary Ward, independently of animation.

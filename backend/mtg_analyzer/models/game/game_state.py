@@ -1167,6 +1167,9 @@ class GameState:
         # RULE 608.2h: source counters survive as LKI for that departed
         # visit, independently of the physical card's subsequent visits.
         self.zone_visit_counters: dict[tuple[int, int], dict[str, int]] = {}
+        # RULE 608.2h / 400.7: characteristic measurements of an old source
+        # use its last battlefield visit even after the physical card returns.
+        self.zone_visit_characteristics: dict[tuple[int, int], dict[str, int]] = {}
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
         self.copiable_stack_recipes: dict[int, StackItem] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []
@@ -1707,6 +1710,11 @@ class GameState:
             if departed is not None:
                 self.zone_visit_counters[(departed.instance_id, departed.zone_incarnation)] = dict(
                     event.get('counters', departed.counters))
+                self.zone_visit_characteristics[(departed.instance_id, departed.zone_incarnation)] = {
+                    "power": int(event.get("power", departed.power) or 0),
+                    "toughness": int(event.get("toughness", departed.toughness) or 0),
+                    "mana_value": int(departed.mana_value or 0),
+                }
                 host = self.find_object(departed.attached_to)
                 relationship = ((host.instance_id, host.zone_incarnation)
                                 if host is not None else None)

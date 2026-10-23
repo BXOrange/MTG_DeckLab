@@ -4154,3 +4154,12 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      and activated enchanted-land subjects. Self animations explicitly retain the source incarnation.
 726 PAR-185 -- restrict causative normalization to numeric creature animation so unrelated "become no longer
      suspected" remains owned by its existing handler (Deadly Complication).
+727 PAR-185 -- complete shared animation axes: X dimensions capture measured quantities once (including signed
+     source P/T settings), named multi-target counters and independently expiring counter-bound grants,
+     permanent/next-turn durations, global/basic-land-type groups and target-player locked groups, legendary
+     supertypes and Ward grants. Uses the existing minimum-X activation restriction for paid-X animations.
+728 PAR-185 -- keep newly widened non-retaining type/subtype replacement forms fail-closed (205.1a/b), and
+     capture source characteristics by exact battlefield visit for resolution-time quantities after death,
+     flicker and clone (608.2h/400.7). Preserve signed P/T settings and clamp negative modifier results separately.
+729 PAR-185 -- require supported type retention for the source-pronoun animation row added in v726; remove
+     false MODELED claims for enchantment-to-creature transformations whose old type must be replaced (205.1a).

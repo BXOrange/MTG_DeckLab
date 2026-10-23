@@ -651,6 +651,7 @@ class GrantUntilEffect(GameEffect):
         self_subject: bool = False,
         extra_statics: Optional[list[dict[str, Any]]] = None,
         lock_group: bool = False,
+        group_controller: Optional[str] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
@@ -662,6 +663,7 @@ class GrantUntilEffect(GameEffect):
         #: must not reach a creature that enters later. Resolve the static's own
         #: ``affects`` selector once, here, instead of re-reading it every recompute.
         self.lock_group = lock_group
+        self.group_controller = group_controller if group_controller == "target_player" else None
         #: Additional `EffectSpec`-shaped static payloads applied to the
         #: **same** chosen targets under the same duration/condition as
         #: ``static`` — "target land … becomes a 5/5 green Plant Boar
@@ -712,7 +714,17 @@ class GrantUntilEffect(GameEffect):
         controller_id = controller.id if controller is not None else None
         # Chosen targets are resolved once and shared by every payload.
         chosen_ids: Optional[list[int]] = None
-        if self.target_spec is not None or self.previous_subject or self.self_subject:
+        if self.group_controller == "target_player":
+            from ...models.game.player import Player
+            # RULE 611.2c: target the player, then capture that player's
+            # qualifying objects once; the player is not an affected object.
+            selected = next((t for t in targets or [] if isinstance(t, Player)), None)
+            if selected is None:
+                return
+            chosen_ids = self._locked_group_ids(context, selected.id, payloads)
+            if not chosen_ids:
+                return
+        elif self.target_spec is not None or self.previous_subject or self.self_subject:
             if self.self_subject:
                 # RULE 400.7: a resolving self grant cannot migrate to a
                 # later visit of the source that left before resolution.
@@ -737,7 +749,13 @@ class GrantUntilEffect(GameEffect):
                 return
 
         for payload in payloads:
-            self._park_static(context, durations, payload, controller_id, chosen_ids)
+            # RULE 611.2b: an affected-object condition ends separately for
+            # each member of a multi-object grant, never for the whole group.
+            if chosen_ids and self.condition and self.condition.get("of") == "affected":
+                for chosen_id in chosen_ids:
+                    self._park_static(context, durations, payload, controller_id, [chosen_id])
+            else:
+                self._park_static(context, durations, payload, controller_id, chosen_ids)
         # A new continuous effect changes derived characteristics immediately
         # (RULE 613.1) — the caller's SBA pass would get there anyway, but a
         # grant whose effect isn't visible until then reads as a bug.

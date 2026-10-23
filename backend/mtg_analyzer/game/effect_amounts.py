@@ -524,6 +524,13 @@ def _base(
         characteristic = str(amount.get("characteristic", ""))
         if characteristic not in CHARACTERISTICS:
             return 0
+        expected_source = getattr(context, "resolving_source_incarnation", None)
+        if (amount.get("of") == "source" and source is not None and expected_source is not None
+                and getattr(source, "zone_incarnation", None) != expected_source):
+            # RULE 608.2h: the resolving ability still names the original
+            # source, not a newer visit of the same physical card.
+            snapshot = context.state.zone_visit_characteristics.get((source.instance_id, expected_source), {})
+            return int(snapshot.get(characteristic, 0))
         if str(amount.get("of")) == "trigger_subject" and characteristic in ("power", "toughness"):
             # RULE 400.7: for a dies/leaves trigger the subject is gone by now, so its firing
             # event's snapshot of ``power``/``toughness`` beats a stale re-lookup.

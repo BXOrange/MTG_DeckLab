@@ -2995,7 +2995,7 @@ def _attached_type_addition(m: "re.Match[str]") -> Optional[list[EffectSpec]]:
             "power": int(m.group("p")), "toughness": int(m.group("t")), "affects": "attached_permanent",
         }))
     if m.group("kw"):
-        resolved = _flag_keywords_and_ward(m.group("kw"))
+        resolved = flag_keywords_and_ward(m.group("kw"))
         if resolved is None:
             return None
         keywords, ward_cost = resolved
@@ -4428,7 +4428,7 @@ def _flag_keywords(text: str) -> Optional[list[str]]:
     return slugs or None
 
 
-def _flag_keywords_and_ward(text: str) -> Optional[tuple[list[str], Optional[str]]]:
+def flag_keywords_and_ward(text: str) -> Optional[tuple[list[str], Optional[str]]]:
     """`_flag_keywords`'s sibling for callers whose own outer regex has
     widened its keyword-list character class to admit Ward's ``{cost}``
     (RULE 702.21b, PAR-65) — a keyword `_flag_keywords` itself must keep
@@ -4464,6 +4464,9 @@ def _flag_keywords_and_ward(text: str) -> Optional[tuple[list[str], Optional[str
     if not keywords and ward_cost is None:
         return None
     return (keywords, ward_cost)
+
+# Compatibility for existing callers/tests of the original private helper.
+_flag_keywords_and_ward = flag_keywords_and_ward
 
 
 #: "~ gets +N/+N [and has <keywords>]" / "~ has <keywords>" — the **self**
@@ -6062,7 +6065,7 @@ def _static_attached_anthem(ctx: StaticContext) -> StaticResult:
                                    "affects": "attached_permanent"})
         ]
         if m.group("kw"):  # "… and has <keywords>" tail
-            resolved = _flag_keywords_and_ward(m.group("kw"))
+            resolved = flag_keywords_and_ward(m.group("kw"))
             if resolved is None:
                 return DECLINE  # e.g. a granted landwalk — fail-closed, whole clause
             keywords, ward_cost = resolved
@@ -6088,7 +6091,7 @@ def _static_attached_grant(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _ATTACHED_GRANT_RE.fullmatch(text)
     if m is not None:
-        resolved = _flag_keywords_and_ward(m.group("kw"))
+        resolved = flag_keywords_and_ward(m.group("kw"))
         if resolved is None:
             return DECLINE
         keywords, ward_cost = resolved
@@ -6774,7 +6777,7 @@ def _static_anthem(ctx: StaticContext) -> StaticResult:
                        {"power": int(m.group("p")), "toughness": int(m.group("t")), **params})
         ]
         if m.group("kw"):  # "… and have <keywords>" tail
-            resolved = _flag_keywords_and_ward(m.group("kw"))
+            resolved = flag_keywords_and_ward(m.group("kw"))
             if resolved is None:
                 return DECLINE  # e.g. a granted landwalk — fail-closed, whole clause
             keywords, ward_cost = resolved
@@ -6865,7 +6868,7 @@ def _static_multi_permanent_type_grant(ctx: StaticContext) -> StaticResult:
         card_types = _multi_permanent_type_list(m.group("body"))
         if card_types is None:
             return DECLINE
-        resolved = _flag_keywords_and_ward(m.group("kw"))
+        resolved = flag_keywords_and_ward(m.group("kw"))
         if resolved is None:
             return DECLINE
         keywords, ward_cost = resolved
@@ -6896,7 +6899,7 @@ def _static_grant(ctx: StaticContext) -> StaticResult:
             if word is None:
                 return DECLINE
             scope_params = _permanent_scope_params(word, m)
-        resolved = _flag_keywords_and_ward(m.group("kw"))
+        resolved = flag_keywords_and_ward(m.group("kw"))
         if resolved is None:
             return DECLINE
         keywords, ward_cost = resolved
@@ -6926,10 +6929,10 @@ def _static_hand_cycling_grant(ctx: StaticContext) -> StaticResult:
 #: grant. The retention rider keeps prior types and subtypes (RULE 205.1b), as modeled by additive type changes.
 _ANIMATED_LAND_STATIC_RE = re.compile(
     r"(?:enchanted (?P<attached>land|plains|island|swamp|mountain|forest) is|"
-    r"(?P<group>plains|islands|swamps|mountains|forests) you control are) (?:an? )?"
-    r"(?P<p>\d+)/(?P<t>\d+) (?P<words>[a-z]+(?: [a-z]+)*?) creatures?"
-    r"(?: with (?P<kw>[a-z]+(?:, [a-z]+)*(?:,? and [a-z]+)?))?"
-    r"(?:\. it'?s still a land| that'?s still a land| that are still lands)?\.?",
+    r"(?P<all>all )?(?P<group>lands|plains|islands|swamps|mountains|forests)(?P<you_control> you control)? are) (?:an? )?"
+    r"(?P<p>\d+)/(?P<t>\d+) (?P<words>(?:[a-z-]+ )*?)creatures?"
+    r"(?: with (?P<kw>[a-z0-9{}, ]+?))?"
+    r"(?:\. it'?s still a land| that'?s still a land| that are still lands|\. they'?re still lands)?\.?",
     re.IGNORECASE,
 )
 _ANIMATED_LAND_GROUP_AFFECTS = {
@@ -6958,18 +6961,26 @@ def _static_animated_land(ctx: StaticContext) -> StaticResult:
         "add_types": ["creature", *type_params.get("add_types", [])],
         "power": int(m.group("p")), "toughness": int(m.group("t")),
     }
-    affects = (
-        "attached_permanent" if m.group("attached")
-        else f"lands_you_control_of_type_{_ANIMATED_LAND_GROUP_AFFECTS[m.group('group').lower()]}"
-    )
+    if m.group("attached"):
+        affects = "attached_permanent"
+    else:
+        group = m.group("group").lower()
+        subtype = _ANIMATED_LAND_GROUP_AFFECTS.get(group)
+        if m.group("you_control"):
+            affects = f"lands_you_control_of_type_{subtype}" if subtype else "lands_you_control"
+        else:
+            affects = ({"zone": "battlefield", "of": "any", "filter": {"card_type": "land", "subtype": subtype}}
+                       if subtype else "all_lands")
     specs = [EffectSpec("type_change", {"affects": affects, **type_params})]
     if colors:
         specs.append(EffectSpec("color", {"affects": affects, "colors": colors, "set": True}))
     if m.group("kw"):
-        keywords = _flag_keywords(m.group("kw").replace(", and ", ", ").replace(" and ", ", "))
-        if keywords is None:
+        resolved = flag_keywords_and_ward(m.group("kw"))
+        if resolved is None:
             return DECLINE
-        specs.append(EffectSpec("grant_keyword", {"affects": affects, "keywords": keywords}))
+        keywords, ward_cost = resolved
+        specs.append(EffectSpec("grant_keyword", {"affects": affects, "keywords": keywords,
+                                **({"ward_cost": ward_cost} if ward_cost else {})}))
     return specs
 
 
