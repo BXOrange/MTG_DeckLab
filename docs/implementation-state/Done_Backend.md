@@ -3673,6 +3673,7 @@ sacrifice for exactly those tokens. The trigger remains after its source leaves.
 
 ### M2 Ward (RULE 702.21)
 
+- **Clone/undo payment continuation (BUG-35):** an open Ward payment keeps its exact stack item, payer and already-resolved cost in `GameState`, so restoring a snapshot preserves both pay and decline. Resumption consumes the descriptor and rejects a departed or replacement stack item before charging or countering. Regression coverage includes isolated clones, resolved X costs, multiple Ward triggers and actual session rewind (`tests/game/engine/test_ward_clone.py`).
 - **What:** Ward pushes a real `StackItem` (a genuine ability the target's controller controls, RULE 603.3a) above the spell/ability that triggered it, so both players get…
 - **Files:** `game/rules_engine.py`, `game/costs.py`, `parser/oracle/catalogue/keywords.py`
 - **Why:** Built directly rather than through the generic trigger pipeline because a bind-once `effects` list can't carry per-firing data (which stack item, which caster).

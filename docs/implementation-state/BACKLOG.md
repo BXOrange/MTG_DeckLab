@@ -104,5 +104,3 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
-
-- **BUG-35 · Ward payment lost on clone/undo.** Clone a game after a normal Ward trigger opens its payment choice, then decline: the targeted spell resolves instead of being countered (RULE 702.21a). `RulesEngine._pending_ward_item`, `_pending_ward_cost` and `_pending_ward_caster_id` are absent from cloned `GameState`; the choice itself survives. Move the resumable Ward payment state into state-owned data and preserve the correct stack item, caster and resolved cost across clone/undo. Validate pay/decline after the prompt and isolation from the original game; reproduction does not require animation.

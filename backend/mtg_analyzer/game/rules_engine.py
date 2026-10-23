@@ -412,16 +412,6 @@ class RulesEngine(
         #: `_resume_counter_unless_pays`.
         self._pending_counter_target: Any = None
         self._pending_counter_cost: Optional[ManaCost] = None
-        #: RULE 702.21 (ward): the item awaiting a `ward` pay-or-be-countered
-        #: choice, whose player must decide (the *caster*, unlike
-        #: `counter_unless_pays` where it's the target's controller), and
-        #: the `ActivationCost` currently being asked about. A ward ability
-        #: is a genuine `StackItem` of its own (`check_ward` pushes one per
-        #: warded target, on top of the triggering item), so — unlike
-        #: `counter_unless_pays` — multiple simultaneous wards need no queue
-        #: here: the stack itself sequences them one resolution at a time
-        #: (RULE 702.21c). Populated only while a ward choice is pending;
-        #: see `resolve_ward_effect`/`_resume_ward`.
         #: The "sacrifice ~ unless you pay `<cost>`" choice currently awaiting
         #: an answer (`_request_sacrifice_unless_pay`/
         #: `_resume_sacrifice_unless_pay`) — the permanent at stake,
@@ -442,9 +432,6 @@ class RulesEngine(
         #: only one can be pending at a time, same as every other
         #: `pending_choice`.
         self._pending_opening_hand_obj: Optional[GameObject] = None
-        self._pending_ward_item: Optional[StackItem] = None
-        self._pending_ward_caster_id: Optional[str] = None
-        self._pending_ward_cost: Optional[ActivationCost] = None
         #: The permanent/player awaiting a `remove_counters_amount`/
         #: `remove_counters_kind` choice (RULE 122 — "remove up to N
         #: counters from target permanent"), and how many are still left to

@@ -587,6 +587,9 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # RULE 702.21a/b: retain the exact stack item, caster and resolved cost
+        # while Ward asks for payment. Deepcopy shares the cloned stack's item.
+        self.pending_ward: Optional[dict[str, Any]] = None
         # RULE 702.136: entrant retained outside public choice data, including token entries.
         self.pending_riot_entry: Optional[GameObject] = None
         # RULE 701.68 / 601.2b: the creature the player picked to pay a "Blight N" *cost* (payment can't pause

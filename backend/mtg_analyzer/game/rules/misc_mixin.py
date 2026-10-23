@@ -5866,9 +5866,7 @@ class MiscSystemsMixin:
             # shortcut `counter_unless_pays` uses.
             self.counter_spell(item, countered_by=ability_controller_id)
             return
-        self._pending_ward_item = item
-        self._pending_ward_caster_id = caster_id
-        self._pending_ward_cost = cost
+        self.state.pending_ward = {"item": item, "caster_id": caster_id, "cost": cost}
         cost_label = cost.label()
         self.open_choice({
             "kind": "ward", "countered_by": ability_controller_id,
@@ -6093,12 +6091,15 @@ class MiscSystemsMixin:
         becomes the new top of the stack and resolves next through the
         ordinary stack loop — no extra bookkeeping needed here.
         """
-        item = self._pending_ward_item
-        cost = self._pending_ward_cost
-        caster_id = self._pending_ward_caster_id
-        self._pending_ward_item = None
-        self._pending_ward_cost = None
-        self._pending_ward_caster_id = None
+        pending = self.state.pending_ward
+        self.state.pending_ward = None
+        if pending is None:
+            return
+        item, cost, caster_id = pending["item"], pending["cost"], pending["caster_id"]
+        # RULE 702.21a: a departed item cannot be countered or require payment.
+        # Check the exact StackItem, even if its object is reused on the stack.
+        if self._stack_item_for(item) is None:
+            return
         if answer == "pay" and cost is not None and caster_id:
             try:
                 caster = self.state.player_by_id(caster_id)

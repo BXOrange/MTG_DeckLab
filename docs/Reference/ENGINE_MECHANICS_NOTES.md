@@ -140,6 +140,10 @@ the card's implementation and tests; shipped narrative in
 
 ## Costs and choices
 
+- Open Ward payments retain their exact `StackItem`, payer and resolved cost in
+  `GameState.pending_ward` (RULE 702.21a/b). Clone/undo preserves that identity;
+  resumption consumes the descriptor and checks stack membership before payment
+  or countering. X is fixed when Ward resolves, before the payment prompt.
 - Outside-game cards (RULE 400.11) live in `Player.sideboard`, outside all
   zones and generic object/target pools. A live `sideboard_cast_permission`
   admits owned nonland cards through ordinary casting; successful commitment
