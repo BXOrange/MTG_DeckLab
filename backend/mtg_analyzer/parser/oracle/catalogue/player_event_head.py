@@ -47,6 +47,8 @@ _VERBS: dict[str, str] = {
     "give a gift": "GIFT_GIVEN", "gives a gift": "GIFT_GIVEN",
     # RULE 709.5i (MEC-111): "whenever you fully unlock a Room" — a Room got its second unlocked designation.
     "fully unlock a room": "ROOM_FULLY_UNLOCKED", "fully unlocks a room": "ROOM_FULLY_UNLOCKED",
+    # RULE 700.13: targeting an opponent or their objects fires this existing player event.
+    "commit a crime": "CRIME_COMMITTED", "commits a crime": "CRIME_COMMITTED",
 }
 _COMPOUND_VERBS: dict[str, list[str]] = {
     "scry or surveil": ["SCRY", "SURVEIL"],

@@ -4141,3 +4141,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      Day/night changes transform all mismatched permanents and emit exactly one global event; initial establishment
      does not fire transition triggers. Reuses graveyard pay-then-return for Sunstreak Phoenix and tap/untap choice
      for nonland permanents. Activation timing tails stay outside conditional branches.
+723 PAR-184 -- player-event grammar recognizes committing a crime (RULE 700.13), including opponent/player
+     actor scopes, shared turn restrictions and existing once-per-turn trigger riders. Binds the existing
+     CRIME_COMMITTED player event; graveyard pay-then-return bodies reuse their existing zone permission.

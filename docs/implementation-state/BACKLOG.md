@@ -36,7 +36,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-184 · Crime trigger head.** `whenever you commit a crime` with once-per-turn rider: 16 open, 11 sole-blocker (At Knifepoint, Bandit's Haul, Blood Hustler, Deepmuck Desperado, Forsaken Miner, Freestrider Lookout, Hardbristle Bandit, Marauding Sphinx, Rattleback Apothecary, Raven of Fell Omens, Vadmir). Check the existing crime event before adding one.
 - **PAR-185 · Land animation riders.** `~ becomes a N/N … creature until end of turn. it's still a land.` and `they're still lands`: 68 open cards (21 with other parsed effects), 5 sole-blocker manlands (Faerie Conclave, Forbidding Watchtower, Ghitu Encampment, Hostile Desert, Restless Ridgeline); Zendikon/Awaken families included.
 - **PAR-186 · Regeneration riders on destroy.** `destroy that creature/it. it can't be regenerated`, `they can't be regenerated`: 29 + 17 open, 0 sole-blocker; measure the joint package (Dripping Dead, Spinal Graft, Befoul, Crumble, Detonate, …).
 - **PAR-187 · Reveal-hand family.** `target opponent/player reveals their hand`, `you choose a nonland card from it`, `that player discards that card`: 53 + 15 open, 0 sole-blocker; the choose-and-act continuation is the missing link (Castigate, Agonizing Remorse, Collective Brutality, Appetite for Brains, …).

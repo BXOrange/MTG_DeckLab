@@ -4759,6 +4759,8 @@ focused phase/continuation/ISA/parser-lock tests also passed, including the twel
 
 ### PAR-119 (attack / block / player-event axes) and two wrong-but-modeled fixes (PARSER_VERSION 456)
 
+- **PAR-184 — crime trigger heads (PARSER_VERSION 723):** The shared player-event grammar recognizes "you commit a crime" and the corresponding player/opponent conjugation, using the existing `CRIME_COMMITTED` event (RULE 700.13). Binding scopes the actor by `player_id`; existing turn qualifiers, once-per-turn limits and optional-payment graveyard returns compose without new effects. Parse and gameplay regressions cover announcement timing, noncrimes, opponent actions, controller changes, next-turn limits and Forsaken Miner's paid/declined return (`test_par184_crime_triggers.py`). Full-pool comparison: 12 newly modeled cards, no regressions; unrelated effect-body gaps remain fail-closed. Validation: 15,854 passed, 1 skipped with `--full-cache --timeout=90` on Windows.
+
 - **PAR-158 — coordinated event heads (PARSER_VERSION 658):** The shared trigger-head
   decomposition restores elided object subjects across supported event verbs and accepts
   comma-separated event lists. Each event retains its own targeting/damage filters;
