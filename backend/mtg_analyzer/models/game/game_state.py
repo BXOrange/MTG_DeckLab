@@ -589,6 +589,9 @@ class GameState:
         self.pending_choice: Optional[dict[str, Any]] = None
         # RULE 702.136: entrant retained outside public choice data, including token entries.
         self.pending_riot_entry: Optional[GameObject] = None
+        # RULE 701.68 / 601.2b: the creature the player picked to pay a "Blight N" *cost* (payment can't pause
+        # for a chooser). Set by the session for the duration of one cast/activation, then cleared.
+        self.blight_cost_choice: Optional[int] = None
         # RULE 608.2: an optional energy payment suspends this resolution.
         # Keep source, targets and firing event in clone/undo's state graph.
         self.pending_energy_payment: Optional[dict[str, Any]] = None

@@ -522,10 +522,22 @@ class SmartBot(GreedyBot):
     def _attack(self, view, attacks):
         objects = {o['instance_id']: o for o in view['state'].get('battlefield', [])}
         best = None
+        battle_best = None
         for defender in attacks[0].get('legal_defenders') or []:
-            if defender.get('kind') != 'player':
+            if defender.get('kind') == 'battle':
+                # RULE 310.8b: only the bot's own battle is worth attacking (flipping a Siege);
+                # its protector's creatures are the ones that can block it.
+                battle = objects.get(defender.get('instance_id'), {})
+                if battle.get('controller_id') != self.player_id:
+                    continue
+                defending_id, life = battle.get('protector_id'), battle.get('defense') or 0
+            elif defender.get('kind') == 'player':
+                defending_id = defender['id']
+                life = next((p.get('life', 40) for p in view['state'].get('players', [])
+                             if p['id'] == defender['id']), 40)
+            else:
                 continue
-            blockers = [o for o in objects.values() if o.get('controller_id') == defender['id']
+            blockers = [o for o in objects.values() if o.get('controller_id') == defending_id
                         and o.get('is_creature') and not o.get('tapped') and not o.get('phased_out')]
             chosen = []
             for offer in attacks:
@@ -542,11 +554,16 @@ class SmartBot(GreedyBot):
                 if not relevant or (safe and len(relevant) <= 1) or 'Indestructible' in keywords:
                     chosen.append(offer['instance_id'])
             damage = sum(objects.get(i, {}).get('power') or 0 for i in chosen)
-            life = next((p.get('life', 40) for p in view['state'].get('players', [])
-                         if p['id'] == defender['id']), 40)
             attack_value = (damage >= life, damage, -life)
-            if chosen and (best is None or attack_value > best[0]):
+            if not chosen:
+                continue
+            if defender.get('kind') == 'battle':
+                if battle_best is None or attack_value > battle_best[0]:
+                    battle_best = (attack_value, chosen, defender)
+            elif best is None or attack_value > best[0]:
                 best = (attack_value, chosen, defender)
+        # Players first; creatures still offered after that declaration go at the battle.
+        best = best or battle_best
         if best:
             return {'type': 'attack', 'instance_ids': best[1], 'defender': best[2]}
         return None

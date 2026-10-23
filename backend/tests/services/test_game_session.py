@@ -5,6 +5,7 @@ mtg_analyzer/services/game_session.py.
 """
 
 import pytest
+from types import SimpleNamespace
 
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.mana.mana_cost import ManaCost
@@ -1093,3 +1094,11 @@ def test_next_decision_stops_for_cleanup_discard_and_can_rewind_choice():
     session.apply_action({"type": "choose", "instance_id": chosen})
     session.apply_action({"type": "advance_to_decision"})
     assert session.engine.state.internal_turn.number == 2
+
+
+def test_resolve_defender_accepts_a_battle():
+    # RULE 310.5: the board sends {"kind": "battle"} for a Siege; it used to be rejected as unknown.
+    session = GameSession.__new__(GameSession)
+    session._object_by_id = lambda iid: SimpleNamespace(instance_id=iid, name="Siege")
+    assert session._resolve_defender({"kind": "battle", "instance_id": 7}) == {
+        "kind": "battle", "instance_id": 7, "label": "Siege"}

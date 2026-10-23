@@ -176,8 +176,14 @@ def attack(ctx, offers):
     for defender in sorted(defenders.values(), key=stable):
         pid = defender.get('id')
         player = next((p for p in ctx.opponents if p['id'] == pid), {})
-        permanent = ctx.by_id.get(pid, {})
-        pool = [b for b in ctx.theirs if b.get('controller_id') == (pid if player else permanent.get('controller_id'))
+        # Planeswalkers and battles are keyed by instance_id, players by id.
+        permanent = {} if pid is not None else ctx.by_id.get(defender.get('instance_id'), {})
+        if permanent.get('is_battle') and permanent.get('controller_id') != ctx.me.get('id'):
+            continue  # RULE 310.8b: only flipping our own Siege is worth the attack
+        # RULE 310.8b: a battle is defended by its protector, a planeswalker by its controller.
+        defending_id = pid if player else (permanent.get('protector_id') if permanent.get('is_battle')
+                                           else permanent.get('controller_id'))
+        pool = [b for b in ctx.theirs if b.get('controller_id') == defending_id
                 and b.get('is_creature') and not b.get('tapped')]
         for package in packages[:MAX_COMBAT_PACKAGES]:
             chosen = [a for a in package if defender in legal[a['instance_id']].get('legal_defenders', [])]

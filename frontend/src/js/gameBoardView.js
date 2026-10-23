@@ -1168,7 +1168,7 @@ export function createGameBoardView(opts = {}) {
       );
       if (action) {
         const expanded = expandMultiTargetRequirements(action.targets || [], ct.x || 0);
-        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice || ct.isReturnChoice
+        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice || ct.isReturnChoice || ct.isBlightChoice
           ? Array.isArray(ct.requirements)
           : expanded.requirements.length === (ct.requirements || []).length;
         if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
@@ -2062,7 +2062,7 @@ export function createGameBoardView(opts = {}) {
   function pickablesForBoard() {
     const out = [];
     if (castTargeting && castTargetAside && !castTargeting.isTapChoice
-        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice && !castTargeting.isReturnChoice) {
+        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice && !castTargeting.isReturnChoice && !castTargeting.isBlightChoice) {
       for (const o of castTargetOptions()) {
         const payload = { instance_id: castTargeting.instanceId, target: targetOptionPayload(o), controller_id: o.controller_id ?? null };
         out.push({ instanceId: o.instance_id, playerId: o.player_id, activate: () => pickCastTarget(payload) });
@@ -3090,9 +3090,11 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     const ct = castTargeting;
-    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice } = ct;
+    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice } = ct;
     let payload;
-    if (isReturnChoice) {
+    if (isBlightChoice) {
+      payload = { ...send, blight_choice: targets[0].instance_id };
+    } else if (isReturnChoice) {
       payload = { ...send, return_choices: targets.map((t) => t.instance_id) };
     } else if (isSacrificeCountChoice) {
       payload = { ...send, sacrifice_choices: targets.map((t) => t.instance_id) };
@@ -3131,6 +3133,16 @@ export function createGameBoardView(opts = {}) {
           label: t('bd.return.costCard'), options, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isReturnChoice: true,
+      };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    // RULE 701.68: which creature pays a "Blight N" cost is the player's choice (one candidate needs no prompt).
+    if (payload.blight_choice == null && action?.blight_cost?.options?.length > 1) {
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: [{ label: t('bd.blight.costCreature'), options: action.blight_cost.options, optional: false }],
+        reqIndex: 0, targets: [], excludePicked: true, isBlightChoice: true,
       };
       persistCastTargetingDraft();
       render();
@@ -4322,8 +4334,8 @@ export function createGameBoardView(opts = {}) {
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice;
-    const modalGlyph = castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice || castTargeting.isBlightChoice;
+    const modalGlyph = castTargeting.isBlightChoice ? '🥀' : castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,

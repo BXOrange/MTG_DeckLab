@@ -922,10 +922,12 @@ class ManaCountersMixin:
         SBA all apply.
 
         ``interactive=False`` (PAR-29 — "Blight N" paid as a *cost*, where
-        payment is synchronous and can't pause for a chooser): auto-pick the
-        creature with the highest toughness, then highest power — the
-        least-self-harm pick, the same "auto-pick to minimise loss"
-        documented simplification `collect_evidence` uses.
+        payment is synchronous and can't pause for a chooser): the creature
+        the player offered up front (`GameState.blight_cost_choice`, from the
+        action's ``blight_cost`` pool), else the creature with the highest
+        toughness, then highest power — the least-self-harm pick, the same
+        "auto-pick to minimise loss" documented simplification
+        `collect_evidence` uses.
         """
         if amount <= 0:
             return
@@ -940,7 +942,8 @@ class ManaCountersMixin:
             self.add_counters(creatures[0], amount, "-1/-1", source=source)
             return
         if not interactive:
-            victim = max(
+            # RULE 601.2b / 602.2b: the player's own pick pays the cost; auto-pick only when none was made.
+            victim = next((o for o in creatures if o.instance_id == self.state.blight_cost_choice), None) or max(
                 creatures,
                 key=lambda o: (getattr(o, "toughness", 0) or 0, getattr(o, "power", 0) or 0),
             )

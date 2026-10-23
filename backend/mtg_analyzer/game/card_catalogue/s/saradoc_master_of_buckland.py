@@ -11,12 +11,12 @@ def _saradoc_master_of_buckland() -> list[AbilitySpec]:
     Tap two other untapped Halflings you control: Saradoc gets +2/+0 and
     gains lifelink until end of turn.
 
-    Simplified: the power-2-or-less filter isn't checked (a live per-
-    firing power qualifier on a group-ETB condition isn't modeled yet) —
-    widened to any nontoken creature entering; the tap cost's pool isn't
-    narrowed to exclude Saradoc herself (`costs.ActivationCost.tap_others`
-    has no self-exclusion flag), so she could in principle pay her own
-    cost. Both are documented over-generosities, not a functional break.
+    The group half carries ``nontoken`` (RULE 111.9) and ``max_power``: without
+    them the Halfling token this trigger creates re-triggers it forever
+    (every token entering is "another creature you control"). Simplified: the
+    tap cost's pool isn't narrowed to exclude Saradoc herself
+    (`costs.ActivationCost.tap_others` has no self-exclusion flag), so she
+    could in principle pay her own cost — a documented over-generosity.
     """
     return [
         AbilitySpec(
@@ -27,7 +27,10 @@ def _saradoc_master_of_buckland() -> list[AbilitySpec]:
             })],
             trigger={
                 "event": EventType.ENTERS_BATTLEFIELD,
-                "condition": {"subject": "self_or_group", "type": "creature", "controller": "you", "other": True},
+                "condition": {
+                    "subject": "self_or_group", "type": "creature", "controller": "you", "other": True,
+                    "nontoken": True, "max_power": 2,
+                },
             },
         ),
         AbilitySpec(

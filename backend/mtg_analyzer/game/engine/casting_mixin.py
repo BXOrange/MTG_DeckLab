@@ -218,6 +218,10 @@ class CastingMixin:
         face (e.g. for `legal_actions`) without committing to it.
         """
         if face == "back":
+            if obj.card.is_transforming:
+                # RULE 712.2 / 310.1: a transforming DFC (a Battle's Siege flip side included) is cast
+                # and played front face up only; its back is reached by transforming, never from a zone.
+                return None
             return obj.card.back_face()
         if face == "fuse":
             return obj.card.fuse_face()

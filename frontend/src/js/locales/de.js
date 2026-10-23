@@ -1042,6 +1042,7 @@ export default {
   'bd.reorder.hintTriggers': "Per Drag &amp; Drop in die gewünschte Reihenfolge bringen — die oberste Fähigkeit kommt zuerst auf den Stack und wird daher zuletzt aufgelöst.",
   'bd.common.confirm': "Bestätigen",
   'bd.return.costCard': 'Welche Karte auf die Hand zurück?',
+  'bd.blight.costCreature': 'Welche Kreatur bekommt die −1/−1-Marken?',
   'bd.sacrifice.permanent': "zu opferndes Permanent",
   'bd.badge.sagaTitle': "Sagen-Kapitel (Regel 714)",
   'bd.badge.roomTitle': "Raum — seine zwei Türen (Regel 709.5)",

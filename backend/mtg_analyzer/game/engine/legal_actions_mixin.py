@@ -100,6 +100,15 @@ class LegalActionsMixin:
             for attacker, defender, subtype in bars
         )
 
+    def _blight_cost_choice(self, player: Player, amount: int) -> dict[str, Any]:
+        """RULE 701.68 + 601.2b/602.2b: the creatures a "Blight N" cost may put its -1/-1 counters on, so the UI
+        can prompt instead of `RulesEngine.blight` auto-picking."""
+        return {"count": 1, "amount": amount, "options": [
+            {"instance_id": obj.instance_id, "name": obj.name}
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id and obj.is_creature
+        ]}
+
     def legal_defenders_for(self, player: Player) -> list[dict[str, Any]]:
         """Who ``player``'s creatures may attack (RULE 508.1a).
 
@@ -213,6 +222,8 @@ class LegalActionsMixin:
             # the player's own choice — offer the pool so the UI can prompt
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
             action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
+        if ability.cost.blight:
+            action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)
         return action
     def _activate_actions_for(
         self, player: Player, source: GameObject, index: int, ability: ActivatedAbility
@@ -615,6 +626,8 @@ class LegalActionsMixin:
                     }
                     if count == SACRIFICE_COUNT_ANY:
                         action["sacrifice_count_cost"]["count_max"] = len(pool)
+                if paying_additional and additional_cost.blight:
+                    action["blight_cost"] = self._blight_cost_choice(player, additional_cost.blight)
                 discard_n = getattr(additional_cost, "discard", 0)
                 if discard_n == DISCARD_X:
                     # The client supplies the announced X alongside the cast;

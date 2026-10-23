@@ -654,3 +654,16 @@ def test_smart2_keeps_windows_only_while_it_can_pay_for_them():
     v['state']['players'][0]['hand'] = []
     assert not b.can_pass_turn(v, pass_only + [{'type': 'activate_ability', 'instance_id': 2}])
     assert b.can_pass_turn(v, pass_only)  # lands/rocks only offer tap_for_mana
+
+
+def test_attacks_own_battle_but_not_an_opponents():
+    # RULE 310.8b: the Siege's controller attacks it; report 20261022T213932 (battle never attacked).
+    a = bear('Raider')
+    b = policy([a])
+    siege = lambda iid, owner: obj(iid, 'Siege', owner=owner, is_battle=True, protector_id='bob', defense=5)
+    defender = {'kind': 'battle', 'instance_id': 7}
+    offer = [{'type': 'attack', 'instance_id': 1, 'legal_defenders': [defender]}]
+    v = view(board=[object_for(a, 1), siege(7, 'ann')])
+    assert b._attack(v, offer) == {'type': 'attack', 'instance_ids': [1], 'defender': defender}
+    v = view(board=[object_for(a, 1), siege(7, 'cy')])
+    assert b._attack(v, offer) is None

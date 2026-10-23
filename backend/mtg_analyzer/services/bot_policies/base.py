@@ -286,6 +286,8 @@ class Bot:
             # RULE 704.5j: keep the copy worth most (counters raise its visible power/toughness).
             return max((a for a in answers if a["type"] == "choose"),
                        key=lambda a: self._option_worth(view, a), default=answers[0])
+        if kind == "blight" and answers:
+            return self.pick_blight_creature(view, answers)
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
         # RULE 103.6: use offered opening-hand permissions, including
@@ -296,6 +298,23 @@ class Bot:
                 return hit
         decline = next((a for a in answers if a["type"] == "decline"), None)
         return decline or answers[0]
+
+    def pick_blight_creature(
+        self, view: dict[str, Any], answers: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """RULE 701.68: the creature this bot puts its own -1/-1 counters on -- the one it can least miss.
+
+        Prefers a creature that survives the counters, then the lowest `_option_worth`, so tokens and spent bodies
+        are blighted before the board's best creature (the generic fallback took whatever was offered first)."""
+        amount = int((view.get("pending_choice") or {}).get("amount") or 1)
+        choices = [a for a in answers if a["type"] == "choose"] or answers
+
+        def cost(answer: dict[str, Any]) -> tuple[int, int]:
+            obj = self._visible_object(view, answer) or {}
+            dies = int((obj.get("toughness") or 0) <= amount)
+            return dies, self._option_worth(view, answer)
+
+        return min(choices, key=cost)
 
     def _option_worth(self, view: dict[str, Any], answer: dict[str, Any]) -> int:
         """A crude "how much is this permanent worth" for choosing among offered targets: power + toughness + mana

@@ -1049,6 +1049,7 @@ export default {
   'bd.reorder.hintTriggers': "Drag & drop into the desired order — the topmost ability goes on the stack first and therefore resolves last.",
   'bd.common.confirm': "Confirm",
   'bd.return.costCard': 'Which card should return to hand?',
+  'bd.blight.costCreature': 'Which creature gets the -1/-1 counters?',
   'bd.sacrifice.permanent': "permanent to sacrifice",
   'bd.badge.sagaTitle': "Saga chapter (RULE 714)",
   'bd.badge.roomTitle': "Room — its two doors (RULE 709.5)",

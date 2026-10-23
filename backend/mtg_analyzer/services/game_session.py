@@ -1059,12 +1059,17 @@ class GameSession:
             outside_id = None
         outside = (kind == "cast_spell" and actor is not None and actor.id != active.id
                    and any(obj.instance_id == outside_id for obj in active.sideboard))
+        # RULE 701.68: the player's pick for a "Blight N" cost lives on the state only while this action pays it.
+        blight_choice = action.get("blight_choice") if kind in ("cast_spell", "activate_ability") else None
+        self.engine.state.blight_cost_choice = int(blight_choice) if blight_choice is not None else None
         try:
             handler(self, action, active)
         except (ValueError, KeyError, TypeError, GameActionError) as exc:
             if outside:
                 raise _BlindSideboardCastError("Sideboard casting announcement is not legal") from None
             raise
+        finally:
+            self.engine.state.blight_cost_choice = None
 
     def _dispatch_choose(self, action: dict[str, Any], active: Player) -> None:
         # A choice is answered by an option id ("cast"/"hand"/"decline" or
@@ -2096,7 +2101,7 @@ class GameSession:
     def _resolve_defender(self, defender: Any) -> Optional[dict[str, Any]]:
         """Validate a declared combat defender spec from the wire (RULE 508.1a).
 
-        Accepts the ``{"kind": "player"|"planeswalker", ...}`` shape the UI
+        Accepts the ``{"kind": "player"|"planeswalker"|"battle", ...}`` shape the UI
         sends (mirroring `GameEngine.legal_defenders_for`), or None for a
         bare swing. The engine re-validates it against the legal set; this
         only sanity-checks the payload shape and confirms the referenced
@@ -2110,9 +2115,9 @@ class GameSession:
         if kind == "player":
             player = self.engine.state.player_by_id(str(defender["id"]))
             return {"kind": "player", "id": player.id, "label": player.name}
-        if kind == "planeswalker":
+        if kind in ("planeswalker", "battle"):  # RULE 508.1a / 310.5: both are attacked as permanents
             obj = self._object_by_id(defender["instance_id"])
-            return {"kind": "planeswalker", "instance_id": obj.instance_id, "label": obj.name}
+            return {"kind": kind, "instance_id": obj.instance_id, "label": obj.name}
         raise GameActionError(f"unknown defender kind: {kind!r}")
 
     @staticmethod

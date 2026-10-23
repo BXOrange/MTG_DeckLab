@@ -515,3 +515,31 @@ def test_smart_bot_keeps_windows_only_while_it_can_pay_for_them():
     v['state']['players'][0]['hand'] = []
     assert not b.can_pass_turn(v, pass_only + [{'type': 'activate_ability', 'instance_id': 2}])
     assert b.can_pass_turn(v, pass_only)
+
+
+def test_attacks_own_battle_when_no_player_attack_is_safe():
+    b = bot()
+    defender = {'kind': 'battle', 'instance_id': 7}
+    v = view(board=[obj(2, 'Bear', is_creature=True, power=2, toughness=2),
+                    obj(7, 'Siege', is_battle=True, protector_id='bob', defense=5)])
+    offers = [{'type': 'attack', 'instance_id': 2, 'legal_defenders': [defender]}]
+    assert b.play(v, offers) == {'type': 'attack', 'instance_ids': [2], 'defender': defender}
+
+
+def _blight_view(amount=1):
+    v = view(board=[obj(1, 'Best', is_creature=True, power=5, toughness=5, mana_value=5),
+                    obj(2, 'Token', is_creature=True, power=1, toughness=1, mana_value=0),
+                    obj(3, 'Mid', is_creature=True, power=2, toughness=3, mana_value=3)])
+    v['pending_choice'] = {'kind': 'blight', 'amount': amount}
+    return v
+
+
+def test_bots_blight_the_creature_they_miss_least_not_the_first_offered():
+    answers = [{'type': 'choose', 'instance_id': i} for i in (1, 2, 3)]
+    # The 1/1 token would die; the cheapest creature that survives is blighted, in any offer order.
+    assert SmartBot('ann').answer_choice(_blight_view(), answers)['instance_id'] == 3
+    assert SmartBot('ann').answer_choice(_blight_view(), answers[::-1])['instance_id'] == 3
+    # With only a dying choice left among the cheap ones, the board's best body still survives and is not spared.
+    v = _blight_view()
+    v['state']['battlefield'][2]['toughness'] = 1
+    assert SmartBot('ann').answer_choice(v, answers)['instance_id'] == 1
