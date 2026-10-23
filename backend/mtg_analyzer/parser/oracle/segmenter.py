@@ -5602,6 +5602,9 @@ def _parse_effect_body_unstamped(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
+    designation = re.fullmatch(r"it becomes (?P<designation>day|night)\.?", body.strip())
+    if designation is not None:
+        return [EffectSpec("set_day_night", {"designation": designation.group("designation")})]
     flicker_sequence = flicker_sequence_specs(body, reading=ClauseReading(self_subject=reading.self_subject)) or linked_pool_return_specs(body) or source_return_specs(body)
     if flicker_sequence is not None:
         return flicker_sequence
@@ -9722,6 +9725,12 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
                             "active_if": active_if,
                         }
         tail_markers: list[EffectSpec] = []
+        # RULE 602.5d: activation timing qualifies the whole ability, even
+        # when the effect body ends in an otherwise branch.
+        sorcery_tail = re.search(r"\.\s*activate only as a sorcery\.?$", effect_text, re.I)
+        if sorcery_tail is not None:
+            effect_text = effect_text[:sorcery_tail.start()].strip()
+            tail_markers.extend(parse_effect_body("activate only as a sorcery") or [])
         # RULE 602.2: "Any player may activate this ability [but only as a
         # sorcery]" (Fan Favorite, Feral Hydra, Excavation, the Flailing cycle) —
         # `ActivationCost.any_player_may_activate`, the primitive Mercenaries and
@@ -10185,7 +10194,23 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
         multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
         attached_multi = _ATTACHED_MULTI_EVENT_RE.match(cond_text.strip())
         defender_most_life = False
-        if atk_lands is not None:
+        day_night = re.fullmatch(
+            r"(?P<first>day becomes night|night becomes day)(?: or (?P<second>day becomes night|night becomes day))?",
+            cond_text.strip(),
+        )
+        if day_night is not None:
+            # RULE 731.1a: this is a global designation, with no object subject.
+            event = "DAY_NIGHT_CHANGED"
+            condition = {"subject": "global"}
+            if day_night.group("second") != {
+                "day becomes night": "night becomes day",
+                "night becomes day": "day becomes night",
+            }[day_night.group("first")]:
+                head_trigger = {"filter": {
+                    "previous": day_night.group("first").split()[0],
+                    "current": day_night.group("first").split()[-1],
+                }}
+        elif atk_lands is not None:
             event: "str | list[str]" = "ATTACKS"
             condition: Optional[dict[str, Any]] = {"subject": "self"}
             defender_lands_min = int(atk_lands.group("n"))

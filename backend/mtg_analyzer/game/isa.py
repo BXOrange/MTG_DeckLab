@@ -238,6 +238,8 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("end_the_turn", "724", ROLE_AGENT),
         _ins("end_combat_phase", "724.2", ROLE_AGENT),
         _ins("skip_step", "500.8", ROLE_AGENT, ROLE_PATIENT),
+        _ins("set_day_night", "731.1", ROLE_PATIENT,
+             note="the game gains the day or night designation"),
         _ins("create_continuous_effect", "611", ROLE_PATIENT, ROLE_DURATION,
              note="a resolving instruction creating a RULE 611 continuous "
                   "effect (pump, an until-end-of-turn keyword grant). NOT a "
@@ -447,6 +449,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "look_reorder_top": "scry",
     "search": "search",
     "set_life": "set_life",
+    "set_day_night": "set_day_night",
     "shuffle": "shuffle",
     "skip_step": "skip_step",
     "surveil": "surveil",

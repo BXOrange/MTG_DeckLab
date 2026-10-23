@@ -28,6 +28,8 @@ class EventType:
     TURN_END = "TURN_END"
     # RULE 603.8: internal opportunity to notice a state-trigger condition.
     STATE_CHECK = "STATE_CHECK"
+    # RULE 731.1a: only actual day/night transitions, never the initial designation.
+    DAY_NIGHT_CHANGED = "DAY_NIGHT_CHANGED"
     UNTAP = "UNTAP"
     #: A permanent transitions untapped → tapped (RULE 701.21b) — fired once
     #: per genuine transition (not a no-op re-tap), and *not* for a permanent

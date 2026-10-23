@@ -359,6 +359,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # The pre-daybound Innistrad werewolf day/night check — "no spells
         # were cast last turn" (``max`` 0) and "a player cast 2 or more
         # spells last turn" (``min`` 2) are one quantity at two thresholds.
+        "day_night",  # RULE 731.1, + ``designation``
         "spells_cast_last_turn",  # + ``min``/``max``
         "spells_cast_this_turn",  # + ``min``/``max``, controller-scoped
         "cards_played_from_exile_this_turn",  # + ``min``/``max``, controller-scoped (Visions of Phyrexia)
@@ -1099,6 +1100,8 @@ def condition_holds(
         # such grant needs is the same quantity's other bound, rather than a
         # second key.
         return _within(int(getattr(state, "combats_this_turn", 0) or 0), condition)
+    if kind == "day_night":
+        return condition.get("designation") in {"day", "night"} and state.day_night == condition["designation"]
     if kind == "spells_cast_last_turn":
         # The pre-daybound werewolf day/night check (RULE 603.4), reading
         # `GameState._last_turn_spell_count` — the same field

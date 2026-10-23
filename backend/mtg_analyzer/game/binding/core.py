@@ -651,6 +651,10 @@ def _subject_condition(
     instance_id = condition.get("instance_id_override", getattr(source, "instance_id", None))
     event_key = _subject_event_key(trigger)
 
+    if subject == "global":
+        # RULE 731.1a: designation transitions do not name a permanent.
+        return lambda event, context: True
+
     if subject == "you":
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(
             trigger.get("event"), "controller_id"

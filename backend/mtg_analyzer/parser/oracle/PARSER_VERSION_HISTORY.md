@@ -4136,3 +4136,8 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 721 MEC-130 -- "until end of turn, ~ loses "<its own replacement ability>"" (`lose_own_replacement`, RULE 613.1f/514.2)
      via a fail-closed quoted-text table; the existing `any_player_may_activate` cost handles "any player may activate this
      ability" (Glittering Lion/Lynx). Replacement effects now carry their `spec_type` and a `suppressed` flag.
+722 PAR-183 -- global day/night transition heads (including single-direction filters), shared day/night state
+     predicates for costs and effect bodies, and resolving designation instructions (RULE 731.1/731.1a).
+     Day/night changes transform all mismatched permanents and emit exactly one global event; initial establishment
+     does not fire transition triggers. Reuses graveyard pay-then-return for Sunstreak Phoenix and tap/untap choice
+     for nonland permanents. Activation timing tails stay outside conditional branches.

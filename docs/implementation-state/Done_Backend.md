@@ -3529,6 +3529,8 @@ of their reminder text or catalogue entry.
 
 ### DFC transform + day/night (RULE 712.8, 731, 702.145)
 
+- **Designation transitions and shared conditions (PAR-183, PARSER_VERSION 722):** `RulesEngine.set_day_night` is the shared operation for untap checks and resolving designation instructions. It emits one global `DAY_NIGHT_CHANGED` event for an actual day↔night transition; initial establishment and unchanged designations do not fire transition triggers. Exact trigger heads support both directions together or individually. A shared designation predicate handles conditional costs and resolving bodies, including replacement branches. All mismatched DFCs transform in one scan; nontransformable permanents cannot block later objects. Existing tap/untap choices now accept nonland permanents, and activation timing restrictions remain outside conditional effect branches.
+- **Validation:** `tests/test_par183_day_night.py` covers transition firing, graveyard paid returns, conditional targets/power, resolution-time designation checks, cast discounts, real toggle activation and nontransformable objects. Full suite including `--full-cache`: **15,830 passed, 1 skipped**. Full-pool comparison with v721: **+14 covered, 0 regressed**; authoritative coverage **21,964 / 35,051 (62.7%)**, Commander-legal **21,359 / 32,068 (66.6%)**.
 - **What:** `RulesEngine.transform_permanent` actually flips a permanent's face and rebinds catalogue-derived abilities (`GameObject.transform()` alone never did); a new "t…
 - **Files:** `game/rules_engine.py`, `services/game_session.py`, `services/replay.py`
 

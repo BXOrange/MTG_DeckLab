@@ -1,7 +1,7 @@
 """Built-in effect factories and parser-facing registration wiring."""
 from __future__ import annotations
 
-from .core import EffectRegistry
+from .core import EffectRegistry, SetDayNightEffect
 from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalEndStepEffect
 from .linked_pool_riders import EFFECT_FACTORIES as _LINKED_POOL_FACTORIES
@@ -117,6 +117,7 @@ EffectRegistry.register(
         step=p.get("step", "draw"), target_kind=p.get("target_kind"), selector=p.get("selector"),
     ),
 )
+EffectRegistry.register("set_day_night", lambda p: SetDayNightEffect(p.get("designation", "")))
 EffectRegistry.register("establish_day_on_entry", lambda p: EstablishDayOnEntryEffect())
 EffectRegistry.register(
     # "…its controller may draw a card if its power is greater than each

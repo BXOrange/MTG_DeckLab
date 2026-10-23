@@ -2585,27 +2585,37 @@ class MiscSystemsMixin:
             return
         count = self.state._last_turn_spell_count
         if self.state.day_night == "day" and count == 0:
-            self.state.day_night = "night"
+            designation = "night"
         elif self.state.day_night == "night" and count >= 2:
-            self.state.day_night = "day"
+            designation = "day"
         else:
             return
+        self.set_day_night(designation)
+
+    def set_day_night(self, designation: str) -> None:
+        """RULE 731.1/731.1a: establish a designation or change the existing one."""
+        if designation not in {"day", "night"}:
+            return
+        previous = self.state.day_night
+        self.state.day_night = designation
+        if previous in {"day", "night"} and previous != designation:
+            self.state.fire_event(GameEvent(
+                EventType.DAY_NIGHT_CHANGED, previous=previous, current=designation,
+            ))
+        # RULE 702.145: every mismatched permanent transforms immediately.
         self._transform_mismatched_daynight_permanents()
+
     def _transform_mismatched_daynight_permanents(self) -> bool:
         """Flip any permanent whose daybound/nightbound keyword (RULE
         702.145b/e) no longer matches the current day/night designation.
         Returns whether anything changed."""
-        if self.state.day_night == "night":
-            for obj in self.state.permanents():
-                if combat.has(obj, "daybound"):
-                    self.transform_permanent(obj)
-                    return True
-        elif self.state.day_night == "day":
-            for obj in self.state.permanents():
-                if combat.has(obj, "nightbound"):
-                    self.transform_permanent(obj)
-                    return True
-        return False
+        keyword = {"night": "daybound", "day": "nightbound"}.get(self.state.day_night)
+        changed = False
+        if keyword is not None:
+            for obj in list(self.state.permanents()):
+                if combat.has(obj, keyword):
+                    changed = self.transform_permanent(obj) or changed
+        return changed
     def _check_day_night(self) -> bool:
         """RULE 702.145c/d/f/g: establish/maintain the day/night designation
         "any time" a player controls a (mis)matched daybound/nightbound

@@ -225,7 +225,7 @@ def if_you_do_antecedent_ok(effects: list[dict]) -> bool:
 #: ``conditions``/``condition`` are the ``all``/``not`` combinators' operands
 #: and recurse instead of matching a type here.
 _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
-    "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
+    "designation": str, "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
     "counter": str, "selector": (str, dict), "name": str, "keyword": str,
     "op": str, "step": str,  # ``during_step`` (Misleading Signpost)
     "phase": str,  # ``during_phase`` (PAR-176)

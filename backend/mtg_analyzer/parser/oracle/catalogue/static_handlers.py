@@ -3567,6 +3567,9 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    # RULE 731.1: shared by conditional effect bodies and standing abilities.
+    (re.compile(r"it(?:'s| is) (?P<designation>day|night)", re.I),
+     lambda m: {"kind": "day_night", "designation": m.group("designation").lower()}),
     # PAR-124 (Spellchain Scatter): "if this spell wasn't/was kicked, …" —
     # `static_conditions.py`'s own ``"kicked"`` kind (RULE 702.33b) already
     # reads `GameObject.kicker_count`, built for the amount-override family
