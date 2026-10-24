@@ -322,3 +322,34 @@ def test_interactive_pass_priority_stops_cleanly_when_a_resolution_ends_the_game
     # pass must get a clean, harmless no-op — not a crash, and not a call
     # that keeps advancing a game that is already over.
     assert eng.pass_priority(p1) is False
+
+
+def test_interactive_choice_mid_resolution_returns_priority_to_active_player():
+    """Bug report (Solo vs. Bots): a spell paused on a choice while another
+    spell sat beneath it. Answering the choice resolved the lower spell with
+    nobody passing and left priority with the non-active player, with both
+    seats still marked as passed — so the next pass ended the main phase
+    before the active player could act (RULE 117.3b)."""
+    eng = make_engine()
+    eng.interactive_priority = True
+    eng.begin_turn()
+    eng.state.current_step = "main2"
+    p1 = eng.state.active_player
+    p2 = eng.state.player_by_id("p2")
+    bolt = _hand_card(p1, instant("Bolt", cost="{R}"))
+    scry = _bound_hand_card(p1, Card(
+        id="Opt", name="Opt", type_line="Instant", mana_cost_string="{U}",
+        converted_mana_cost=1, is_instant=True, oracle_text="Scry 1.",
+    ))
+    p1.mana_pool.add_many({"R": 1, "U": 1})
+    eng.cast_spell(p1, bolt)
+    eng.cast_spell(p1, scry)
+    eng.pass_priority(p1)
+    eng.pass_priority(p2)  # Opt resolves and pauses on its scry choice
+    assert eng.state.pending_choice and eng.state.pending_choice["kind"] == "scry"
+
+    eng.resolve_pending_choice("decline")
+
+    assert len(eng.state.stack) == 1  # Bolt still waits for the table to pass
+    assert eng.state.priority_player is p1
+    assert eng.state.priority_passed == set()

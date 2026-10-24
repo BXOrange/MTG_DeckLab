@@ -1448,7 +1448,27 @@ class TurnLoopMixin:
             return
         if cleanup_discard and not self.state.pending_choice:
             self._step_cleanup()
+        if self.interactive_priority and self.state.priority_player is not None:
+            return self._finish_resolution_interactive()
         self.resolve_until_stable()
+
+    def _finish_resolution_interactive(self) -> None:
+        """Finish the object whose resolution just paused on a choice, nothing more.
+
+        RULE 117.3b: once it has resolved, the active player receives priority
+        and every pass so far is void. Objects still on the stack wait for the
+        table to pass again (RULE 608.1), and a pass recorded before the choice
+        must not let the step end without the active player ever acting.
+        """
+        while not self.state.pending_choice and self.rules.resume_deferred_effects():
+            pass
+        self.rules.check_state_based_actions()
+        if self.state.game_over or self.state.pending_choice or self.state.player_loss_batch:
+            return
+        self.rules.put_triggers_on_stack()
+        if self.state.pending_choice or self.state.game_over:
+            return
+        self.give_priority(self.state.active_player)
     def _finish_miracle_reveal_instructions(self) -> None:
         """Finish the drawing instruction, retaining Miracle's response window."""
         while not self.state.pending_choice and self.rules.resume_deferred_effects():
