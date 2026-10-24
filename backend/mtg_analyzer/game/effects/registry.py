@@ -820,7 +820,7 @@ EffectRegistry.register(
     # "Counter target activated or triggered ability." (RULE 701.5b —
     # Stifle/Trickbind, ENG-26) — the ability-item sibling of ``"counter"``.
     "counter_ability",
-    lambda p: CounterAbilityEffect(target=p.get("target")),
+    lambda p: CounterAbilityEffect(target=p.get("target"), target_kind=p.get("target_kind", "ability")),
 )
 EffectRegistry.register(
     "copy_spell",

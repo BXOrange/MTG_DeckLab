@@ -1095,11 +1095,11 @@ ROWS: list[EffectHandler] = [
         compile_clause(r"counter target spell, activated ability, or triggered ability"),
         lambda m: [EffectSpec("counter", {"target_kind": "spell_or_ability"})],
     ),
-    # "counter target activated or triggered ability." (Stifle, Trickbind, a Sublime Epiphany mode) — RULE 701.5b.
+    # RULE 701.6a / 602.1: Stifle's broad ability category and Bind's activated-only subset.
     EffectHandler(
         "counter_activated_or_triggered_ability",
-        compile_clause(r"counter target activated or triggered ability"),
-        lambda m: [EffectSpec("counter_ability", {})],
+        compile_clause(r"counter target activated(?P<triggered> or triggered)? ability"),
+        lambda m: [EffectSpec("counter_ability", {} if m.group("triggered") else {"target_kind": "activated_ability"})],
     ),
     # "counter target instant spell, sorcery spell, activated ability, or triggered ability." (Sister of Silence) — the
     # same union with the spell half narrowed to the two card types.

@@ -190,10 +190,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Trickbind-shaped, ENG-26) — the stack-item-identity sibling of
         # ``"spell"``: an ability `StackItem` has no `.obj` a target
         # descriptor could key off (see `StackItem.stack_id`'s own
-        # docstring), so this kind is keyed by that instead. Not narrowed to
-        # just triggered or just activated — no printed card needs that
-        # split yet, and every real template says "activated or triggered".
-        "ability", "ability_you_control",
+        # docstring), so these kinds are keyed by that instead. RULE 602.1
+        # activated-only counters narrow the stack item's category.
+        "ability", "ability_you_control", "activated_ability",
         # "target spell or ability" (Deflecting Swat's real printed
         # wording) — the union of ``"spell"`` and ``"ability"`` above, both
         # option shapes side by side in one list.
@@ -764,6 +763,7 @@ class TargetSpec:
                 "Spieler, dem diese Karte in diesem Zug Kampfschaden zugefügt hat",
             "spell": "Zauberspruch",
             "ability": "aktivierte oder ausgelöste Fähigkeit",
+            "activated_ability": "aktivierte Fähigkeit",
             "ability_you_control": "aktivierte oder ausgelöste Fähigkeit, die du kontrollierst",
             "spell_or_ability": "Zauberspruch oder Fähigkeit",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
@@ -1827,6 +1827,8 @@ def target_meets_restrictions(
     if _announce_relative(spec):
         return True
     offered = legal_targets(state, controller_id, spec, source, trigger_event)
+    if getattr(target, "stack_id", None) is not None:
+        return any(option.get("stack_id") == target.stack_id for option in offered)
     if isinstance(target, Player):
         return any(option.get("player_id") == target.id for option in offered)
     return any(option.get("instance_id") == target.instance_id for option in offered)
@@ -2376,7 +2378,7 @@ def _legal_targets_for(
             {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
             for item in items
         ]
-    if kind in ("ability", "ability_you_control", "spell_or_ability"):
+    if kind in ("ability", "ability_you_control", "activated_ability", "spell_or_ability"):
         # `.obj` is `None` for an ability item, so this is keyed by
         # `StackItem.stack_id` instead — see that field's own docstring
         # (ENG-26). ``item.source is None`` is the rare hand-built ability
@@ -2388,6 +2390,7 @@ def _legal_targets_for(
             for item in state.stack
             if item.kind == "ability" and item.source is not None
             and (kind != "ability_you_control" or item.controller_id == controller_id)
+            and (kind != "activated_ability" or item.category == "activated_ability")
         ]
         if kind == "spell_or_ability":
             # "target spell or ability" (Deflecting Swat) — the plain

@@ -2270,7 +2270,9 @@ class CastingResolutionMixin:
             # Stack targets are StackItems, unlike battlefield/graveyard
             # targets. A zone move cannot leave an untargeted rider alive.
             if isinstance(target, StackItem):
-                return target in self.state.stack
+                return target in self.state.stack and (
+                    spec.kind != "activated_ability" or meets(spec, target)
+                )
             if isinstance(target, Player):
                 if target not in self.state.living_players():
                     return False

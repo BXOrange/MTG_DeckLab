@@ -204,28 +204,33 @@ class CounterSpellEffect(GameEffect):
 
 
 class CounterAbilityEffect(GameEffect):
-    """Counter target activated or triggered ability (RULE 701.5b — Stifle/
+    """Counter target activated or triggered ability (RULE 701.6a — Stifle/
     Trickbind, ENG-26).
 
     The stack-item-identity sibling of `CounterSpellEffect`: an ability
     `StackItem` has no `GameObject` of its own (`.obj` is `None`), so
     ``target_spec`` uses `targeting.py`'s ``"ability"`` kind
     (`StackItem.stack_id`-keyed) rather than ``"spell"``
-    (`GameObject.instance_id`-keyed). No ``unless_pays``/type-filter
-    params — no printed card needing either has reached this yet; add
-    them the same way `CounterSpellEffect` carries its own if one does.
+    (`GameObject.instance_id`-keyed). PAR-191's ``activated_ability`` kind
+    narrows the same operation to RULE 602.1 abilities (Bind/Squelch).
     """
 
-    def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, target: Any = None, source: Optional["GameObject"] = None,
+                 target_kind: str = "ability") -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind="ability")
+        self.target_spec = TargetSpec(kind=target_kind)
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
+        if self.target_spec.kind == "activated_ability":
+            # RULE 608.2b / 602.1: narrow the resolving stack item as well as its offer.
+            item = context.engine._stack_item_for(target)
+            if item is None or item.kind != "ability" or item.category != "activated_ability":
+                return
         if target is not None:
             context.counter_ability(target)
 

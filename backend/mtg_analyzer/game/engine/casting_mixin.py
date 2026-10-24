@@ -2328,7 +2328,8 @@ class CastingMixin:
                     or self.state.resolution_play_choice is not None
                     or (additional is not None and additional.sacrifice_count)
                     or any(spec.same_graveyard or spec.any_number or spec.total_power_max is not None
-                           or spec.total_mana_value_max is not None for spec in spell_target_specs(obj))):
+                           or spec.total_mana_value_max is not None or spec.kind == "activated_ability"
+                           for spec in spell_target_specs(obj))):
                 # Announced choices use the ordinary modal target specs
                 # after the selected mode has been applied, not a targetless
                 # cast_without_paying shortcut (RULE 601.2c).
@@ -2350,8 +2351,9 @@ class CastingMixin:
                         raise ValueError("targets exceed the single graveyard limit" if spec.same_graveyard else
                                          "target creatures exceed the total power limit" if spec.total_power_max is not None
                                          else "target cards exceed the total mana value limit")
-                    legal_ids = {option.get("instance_id", option.get("player_id")) for option in options}
-                    picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", None)) for pick in picks]
+                    # RULE 601.2c: ability targets use stack identities, not card identities.
+                    legal_ids = {option.get("instance_id", option.get("player_id", option.get("stack_id"))) for option in options}
+                    picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", getattr(pick, "stack_id", None))) for pick in picks]
                     if not minimum <= len(picks) <= maximum or len(set(picked_ids)) != len(picked_ids) or any(pid not in legal_ids for pid in picked_ids):
                         raise ValueError("illegal targets for the spell")
             # RULE 903.8: record this command-zone cast so the next one is

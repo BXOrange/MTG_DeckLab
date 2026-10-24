@@ -1765,6 +1765,11 @@ class TriggerCollectionMixin:
                 choice_options.append(
                     {"id": str(opt["instance_id"]), "label": opt["name"], "instance_id": opt["instance_id"]}
                 )
+            elif "stack_id" in opt:
+                # RULE 603.3d / 115.1: ability targets name an exact stack item,
+                # separately from a spell/permanent's possibly equal numeric id.
+                choice_options.append({"id": f"stack:{opt['stack_id']}", "label": opt["name"],
+                                       "stack_id": opt["stack_id"]})
             else:
                 choice_options.append({"id": opt["player_id"], "label": opt["name"]})
         decline = ability.optional if allow_decline is None else allow_decline
@@ -1910,6 +1915,8 @@ class TriggerCollectionMixin:
             return None
         if "instance_id" in match:
             return self.state.find_object(match["instance_id"])
+        if "stack_id" in match:
+            return next((item for item in self.state.stack if item.stack_id == match["stack_id"]), None)
         try:
             return self.state.player_by_id(match["id"])
         except KeyError:

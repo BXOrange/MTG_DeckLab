@@ -4189,3 +4189,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 737 PAR-200 -- whole-graveyard shuffle subject axis supports target player,
      with ordinary announced targets and resumable simultaneous graveyard exits.
+
+739 PAR-191 -- the shared ability-counter row recognizes activated-only counters,
+     preserving broad activated-or-triggered counters and executable stack identity/category targeting.

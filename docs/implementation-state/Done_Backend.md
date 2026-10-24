@@ -883,6 +883,8 @@ introduce no second answer protocol.
 
 ### Counter-Family Parser Additions (Spells)
 
+- **Activated-only ability counters (PAR-191, v739):** Shared counter grammar and effects distinguish activated stack abilities from triggered abilities and spells. Physical casts validate stack IDs; triggered-target choices serialize namespaced stack identities, including Husher entry choices, clones and stale targets. Stack-category revalidation preserves draw-rider fizzling and broad Stifle behavior; source departure/control changes do not change an ability's identity. Mana abilities resolve immediately and are absent from the target list. `test_par191_activated_ability_counter.py` exercises actual casts, activation offers, entry choices and compatibility. Regular suite: 15,658 passed, 486 skipped; the sole remaining target-frame classification assertion was corrected without runtime changes and independently rechecked with the family (335 passed). Full-cache tests are deferred until all PAR tickets complete, per user instruction. Probe versus v738: +6 card names, zero regressions; ledger22,212/35,051 (63.4%), Commander21,606/32,068 (67.4%). Independent artifact-source, unless-payment and mixed-spell-union clauses remain fail-closed.
+
 - **What:** Spell target filters (noncreature/card-type list/mana-value on `TargetSpec.spell_filter`), "unless its controller pays `{…}`" via a `counter_unless_pays` intera…
 - **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`
 

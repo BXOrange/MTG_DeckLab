@@ -46,8 +46,9 @@ IRREDUCIBLE_KINDS = frozenset({
     # reads combat assignments (`source.blocking` / `source.additional_blocking`
     # or, conversely, blockers that name the source)
     "creature_source_is_blocking", "creature_blocking_source",
-    # the stack, not the battlefield
-    "spell", "spell_you_control", "spell_you_dont_control", "ability", "ability_you_control", "spell_or_ability",
+    # the stack, not the battlefield; activated-only targets also inspect
+    # the stack item's RULE 602.1 category rather than a permanent frame.
+    "spell", "spell_you_control", "spell_you_dont_control", "ability", "ability_you_control", "activated_ability", "spell_or_ability",
     "spell_or_creature", "spell_or_nonland_permanent_you_dont_control",
     # the stack, the battlefield and every graveyard at once (Endless Detour) — no single zone for a frame to read
     "spell_nonland_permanent_or_graveyard_card",
