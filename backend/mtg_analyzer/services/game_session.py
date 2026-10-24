@@ -358,12 +358,25 @@ def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[st
                     obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
 
 
+def _resolution_visible_hand_ids(state, perspective: Optional[str]) -> set[int]:
+    """RULE 701.20 / 400.7: reveal only the original hand's exact visits."""
+    choice = state.pending_choice or {}
+    if not choice.get("hand_visibility"):
+        return set()
+    if choice["hand_visibility"] != "public" and perspective != _physical_choice_decider(state, choice):
+        return set()
+    visits = choice.get("visible_hand_visits") or {}
+    return {obj.instance_id for player in state.players for obj in player.hand
+            if visits.get(str(obj.instance_id)) == obj.zone_incarnation}
+
+
 def _redact_hidden_zones(
     state_dict: dict[str, Any],
     perspective: Optional[str],
     top_library_visible: Optional[dict[str, bool]] = None,
     also_visible_hand_ids: Optional[set[str]] = None,
     choice_decider_id: Optional[str] = None,
+    resolution_visible_hand_ids: Optional[set[int]] = None,
 ) -> None:
     """Strip every player's hidden zones from a serialized state, in place.
 
@@ -396,7 +409,8 @@ def _redact_hidden_zones(
             player.get("id") == perspective or player.get("id") in reveal_hands
         )
         if not own and player.get("id") not in reveal_hands:
-            player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")]
+            player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")
+                              or obj.get("instance_id") in (resolution_visible_hand_ids or set())]
         # A library is hidden even from its owner (they don't know their own
         # draw order); only a card an effect actually reveals is kept.
         top_visible = own and (top_library_visible or {}).get(player.get("id"))
@@ -2436,6 +2450,7 @@ class GameSession:
                 state_dict, perspective, top_visible,
                 also_visible_hand_ids=reveal_hands,
                 choice_decider_id=choice_decider,
+                resolution_visible_hand_ids=_resolution_visible_hand_ids(self.engine.state, perspective),
             )
         actions = self.legal_actions(perspective)
         pc = state_dict.get("pending_choice")
@@ -2596,7 +2611,8 @@ class GameSession:
         view = self.view()
         from ..game.emblem_permissions import publicly_revealed_hand_ids
         _redact_hidden_zones(view["state"], perspective=None,
-                             also_visible_hand_ids=publicly_revealed_hand_ids(self.engine.state))
+                             also_visible_hand_ids=publicly_revealed_hand_ids(self.engine.state),
+                             resolution_visible_hand_ids=_resolution_visible_hand_ids(self.engine.state, None))
         view["perspective"] = None
         view["observer"] = True
         view["legal_actions"] = []

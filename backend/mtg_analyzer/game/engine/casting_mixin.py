@@ -18,6 +18,7 @@ from __future__ import annotations
 from .. import physical_properties
 
 import itertools
+import re
 import inspect
 import copy
 from functools import wraps
@@ -449,7 +450,46 @@ class CastingMixin:
         param = (getattr(obj, "parametric_keywords", None) or {}).get("escalate")
         if not param or not param.get("cost"):
             return None
-        return ManaCost.parse(str(param["cost"]))
+        raw = str(param["cost"])
+        return ManaCost.parse(raw) if raw.lstrip().startswith("{") else None
+
+    @staticmethod
+    def _escalate_discard_count(obj: GameObject, mode: Any) -> int:
+        """RULE 702.120a: discard costs are paid once per additional mode."""
+        if not isinstance(mode, (list, tuple)):
+            return 0
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("escalate") or {}
+        raw = str(param.get("cost", ""))
+        if re.fullmatch(r"discard (?:a|one|\d+) cards?", raw.strip(), re.I) is None:
+            return 0
+        return parse_activation_cost(raw).discard * max(0, len(mode) - 1)
+
+    def _additional_cost_with_escalate(self, obj: GameObject, mode: Any, x: int,
+                                      cost: Optional["ActivationCost"], pay_additional: bool) -> Optional["ActivationCost"]:
+        """RULE 601.2f/702.120a: combine mandatory Escalate with other cast costs.
+
+        One selection pays the whole discard count, so the same card cannot
+        satisfy an existing additional cost and an Escalate payment twice.
+        """
+        extra = self._escalate_discard_count(obj, mode)
+        if not extra:
+            return cost
+        if getattr(obj, "additional_cast_cost_optional", False) and not pay_additional:
+            cost = None
+        elif cost is not None and cost.either_alt is not None and pay_additional:
+            cost = cost.either_alt
+        elif cost is not None and cost.sacrifice_or_mana and not pay_additional:
+            cost = None
+        combined = copy.copy(cost) if cost is not None else ActivationCost()
+        combined.either_alt = None
+        combined.sacrifice_or_mana = False
+        if combined.discard != DISCARD_HAND:
+            combined.discard = (x if combined.discard == DISCARD_X else combined.discard) + extra
+        # "Discard your hand" can be paid after the individual Escalate
+        # discards. The combined payment discards every remaining hand card;
+        # can_cast separately validates the chosen Escalate cards first.
+        return combined
+
     @staticmethod
     def _escalate_tap_count(obj: GameObject, mode: Any) -> int:
         """RULE 702.120 Escalate—"Tap an untapped creature you control": how many creatures a chosen mode *combination* taps
@@ -1167,10 +1207,15 @@ class CastingMixin:
             return False  # Kotis: not enough *other* cards in the graveyard to exile as the cost
         if not self._can_pay_cast_life_tax(player, obj, targets):
             return False
+        combined_additional = self._additional_cost_with_escalate(obj, mode, x, additional_cost, pay_additional)
+        extra_discards = self._escalate_discard_count(obj, mode)
+        if (extra_discards and combined_additional is not None and combined_additional.discard == DISCARD_HAND
+                and self._resolve_discard_cost(player, extra_discards, discard_choices, exclude=obj) is None):
+            return False
         return self._can_pay_additional_cast_cost(
-            player, obj, additional_cost, x,
+            player, obj, combined_additional, x,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-            pay_additional=pay_additional,
+            pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
         )
     def _resolve_graveyard_cast_exile(self, player, spell, count, chosen_ids):
         """RULE 601.2h: distinct other graveyard cards paying a cast permission."""
@@ -2546,9 +2591,10 @@ class CastingMixin:
             with self.state.simultaneous():  # RULE 601.2h: one payment, one event (603.2c)
                 self._pay_cast_life_tax(player, obj, targets)
                 self._pay_additional_cast_cost(
-                    player, obj, getattr(obj, "additional_cast_cost", None), x,
+                    player, obj, self._additional_cost_with_escalate(
+                        obj, mode, x, getattr(obj, "additional_cast_cost", None), pay_additional), x,
                     sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, discard_choices=discard_choices,
-                    pay_additional=pay_additional,
+                    pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
                 )
                 if graveyard_victim is not None:
                     # RULE 601.2h: this mandatory permission cost is independent

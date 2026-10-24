@@ -4192,3 +4192,7 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 739 PAR-191 -- the shared ability-counter row recognizes activated-only counters,
      preserving broad activated-or-triggered counters and executable stack identity/category targeting.
+
+740 PAR-187 -- shared reveal/look-hand choice supports general characteristic filters,
+     minimum mana value, exile and an independent graveyard alternative. Preserve
+     exact hand/source exile visits and executable discard Escalate keyword costs.

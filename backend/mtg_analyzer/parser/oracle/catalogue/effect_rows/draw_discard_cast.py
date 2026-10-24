@@ -819,24 +819,43 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
     "a creature or planeswalker card": {"card_types": ["creature", "planeswalker"]},
     "an artifact or creature card": {"card_types": ["artifact", "creature"]},
 }
+# RULE 701.20 / 701.9: reveal/look, select a filtered card, then act on it.
+# The type-list grammar composes all supported printed card types rather than
+# growing one handler per Duress/Despise/Collective Brutality variant.
 _HAND_DISRUPTION_RE = compile_clause(
-    rf"(?P<target>target opponent|target player) reveals their hand(?:\. |, )"
-    rf"you choose (?P<filter>{'|'.join(re.escape(k) for k in _HAND_DISRUPTION_FILTERS)}) "
-    rf"from it(?: with mana value (?P<mv>\d+) or less)?"
-    # PAR-128: the comma spelling ("…, you choose … from it, then that player
-    # discards that card", Devour Intellect / River's Grasp) reads the same.
-    r"(?:\. |, then )that player discards that card(?:\. you lose (?P<life>\d+) life)?"
+    r"(?:(?P<target>target opponent|target player) reveals their hand"
+    r"|look at (?P<look>target opponent|target player)'s hand)"
+    r"(?:\. |, | and )you (?P<may>may )?choose (?P<filter>an? [a-z ,]*?card) "
+    r"from it(?: with mana value (?P<mv>\d+) or (?P<cmp>less|greater))?"
+    r"(?P<graveyard> or a card from their graveyard)?"
+    r"(?:\. |, then | and )(?P<action>that player discards that card|exile (?:that card|it))"
+    r"(?:\. you lose (?P<life>\d+) life)?"
 )
 
 
 def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    if resolve_target_kind(m.group("target")) != "player":
+    target = m.group("target") or m.group("look")
+    if resolve_target_kind(target) != "player":
         return None
-    # PAR-128: "target opponent" is an opponent, not any player.
-    kind = "opponent" if m.group("target") == "target opponent" else "player"
-    params: dict = {"target_kind": kind, **_HAND_DISRUPTION_FILTERS[m.group("filter")]}
+    filt = m.group("filter")
+    if filt in _HAND_DISRUPTION_FILTERS:
+        filters = _HAND_DISRUPTION_FILTERS[filt]
+    else:
+        phrase = parse_object_phrase(re.sub(r"^an? ", "", filt))
+        if phrase is None or phrase[1] is not None:
+            return None
+        filters = {"card_filter": phrase[0]}
+    params: dict = {"target_kind": "opponent" if target == "target opponent" else "player", **filters}
     if m.group("mv"):
-        params["max_mana_value"] = int(m.group("mv"))
+        params["min_mana_value" if m.group("cmp") == "greater" else "max_mana_value"] = int(m.group("mv"))
+    if m.group("graveyard"):
+        params["include_graveyard"] = True
+    if m.group("action").startswith("exile"):
+        params["destination"] = "exile"
+    if m.group("may"):
+        params["optional"] = True
+    if m.group("look"):
+        params["reveal"] = False
     specs = [EffectSpec("reveal_hand_choose_discard", params)]
     if m.group("life"):
         specs.append(EffectSpec("lose_life", {"amount": int(m.group("life"))}))
@@ -870,6 +889,8 @@ def _hand_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("reveal") and destination != "library_third":
         return None  # the plain reveal-and-discard form is `hand_disruption_discard`'s
     params: dict = {"target_kind": "opponent" if target == "target opponent" else "player"}
+    if m.group("look"):
+        params["reveal"] = False
     if m.group("rfilter"):
         params.update(_HAND_PICK_FILTERS[m.group("rfilter")])
     if m.group("n"):

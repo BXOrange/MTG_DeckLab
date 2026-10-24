@@ -120,24 +120,29 @@ def test_the_caster_not_the_revealed_players_hand_owner_makes_the_choice():
     assert other_card in p2.hand  # the un-chosen candidate stays put
 
 
-def test_no_matching_cards_means_no_choice_opens():
+def test_no_matching_cards_still_reveals_the_hand():
     engine, state, p1, p2 = _rules()
     _hand_card(p2, "Forest", type_line="Land")
     ctx = GameContext(state, engine)
 
     RevealHandChooseDiscardEffect(exclude_land=True).apply(ctx, targets=[p2])
 
+    assert state.pending_choice["kind"] == "look_hand"
+    assert state.pending_choice["hand_visibility"] == "public"
+    engine.resolve_choice("decline")
     assert state.pending_choice is None
 
 
-def test_a_forced_choice_with_exactly_one_candidate_resolves_without_a_prompt():
+def test_a_forced_single_candidate_still_has_a_reveal_window():
     engine, state, p1, p2 = _rules()
     only = _hand_card(p2, "Bolt", type_line="Instant")
     ctx = GameContext(state, engine)
 
     RevealHandChooseDiscardEffect().apply(ctx, targets=[p2])
 
-    assert state.pending_choice is None  # single candidate: no real decision
+    assert state.pending_choice["hand_visibility"] == "public"
+    engine.resolve_choice(only.instance_id)
+    assert state.pending_choice is None
     assert only in p2.graveyard
 
 

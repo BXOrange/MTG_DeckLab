@@ -3953,6 +3953,7 @@ class MiscSystemsMixin:
         distinct_card_types: bool = False,
         total_power_budget: Optional[int] = None,
         minimum_card_types: int = 0,
+        force_choice: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -4080,7 +4081,7 @@ class MiscSystemsMixin:
             return
         # RULE 401.4: even when all cards must move, their library order is a choice.
         ordered_library_move = action == "hand_to_library_top" and len(pool) > 1
-        if len(pool) <= count and not optional and not ordered_library_move and (
+        if len(pool) <= count and not optional and not force_choice and not ordered_library_move and (
             not distinct_card_types or _distinct_card_type_assignment([_card_type_words(o) for o in pool])
         ):
             # Forced: every candidate is taken anyway, so asking would be
@@ -4443,6 +4444,9 @@ class MiscSystemsMixin:
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["source_incarnation"] = choice.get("source_incarnation")
         next_choice["selection_visits"] = choice.get("selection_visits")
+        for key in ("hand_visibility", "visible_hand_visits"):
+            if key in choice:
+                next_choice[key] = choice[key]
         next_choice["commander_taken"] = commander_taken
         next_choice["picked_measure"] = picked_measure
         next_choice["picked_card_types"] = [sorted(types) for types in picked_card_types]

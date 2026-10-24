@@ -644,6 +644,23 @@ class LegalActionsMixin:
                         ],
                     }
 
+        escalate_discards = self._escalate_discard_count(obj, mode)
+        if escalate_discards:
+            # RULE 702.120a/601.2h: choose distinct own cards for all
+            # additional discard costs, excluding the spell itself.
+            ordinary = action.get("discard_cost", {}).get("count", 0)
+            action["discard_cost"] = {
+                "count": ordinary + escalate_discards,
+                "options": [{"instance_id": card.instance_id, "name": card.name}
+                            for card in self._discard_cost_pool(player, exclude=obj)],
+            }
+            combined = self._additional_cost_with_escalate(
+                obj, mode, 0, getattr(obj, "additional_cast_cost", None), pay_additional)
+            if (len(action["discard_cost"]["options"]) < action["discard_cost"]["count"]
+                    or not self._can_pay_additional_cast_cost(player, obj, combined, 0, pay_additional=True)):
+                action["locked"] = True
+                action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+
         if help_pay:
             # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
             # a *reduction* of the printed cost paid with a non-mana

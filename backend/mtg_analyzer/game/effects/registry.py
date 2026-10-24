@@ -434,7 +434,12 @@ EffectRegistry.register(
         exclude_land=bool(p.get("exclude_land", False)),
         exclude_creature=bool(p.get("exclude_creature", False)),
         card_types=p.get("card_types"),
+        card_filter=p.get("card_filter"),
         max_mana_value=p.get("max_mana_value"),
+        min_mana_value=p.get("min_mana_value"),
+        include_graveyard=bool(p.get("include_graveyard", False)),
+        reveal=bool(p.get("reveal", True)),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
         optional=bool(p.get("optional", False)),
         else_specs=p.get("else_specs"),
         count=p.get("count", 1),
@@ -1340,7 +1345,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "return_linked_exile",
-    lambda p: ReturnLinkedExileEffect(destination=p.get("destination", "battlefield")),
+    lambda p: ReturnLinkedExileEffect(destination=p.get("destination", "battlefield"), tracked=bool(p.get("tracked", False))),
 )
 EffectRegistry.register(
     # "You may behold a(n) <type>. If you do, untap that land." (Elven

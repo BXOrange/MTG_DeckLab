@@ -81,7 +81,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "739"
+PARSER_VERSION = "740"
 
 
 def parser_source_hash() -> str:
@@ -1746,6 +1746,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         for kind, params in nodes:
             if kind == "exile" and not params.get("selector"):
                 params["remember"] = True
+        # RULE 607.2a / 400.7: hand selections use exact source/card exile
+        # visits, since the source may leave before the ETB choice resolves.
+        if any(kind == "reveal_hand_choose_discard" and params.get("destination") == "exile"
+               for kind, params in nodes):
+            for kind, params in nodes:
+                if kind == "reveal_hand_choose_discard" and params.get("destination") == "exile":
+                    params["track_exiled_with"] = True
+                elif kind == "return_linked_exile":
+                    params["tracked"] = True
 
     # Linkage also survives a conditional/composite wrapper around either
     # half (Promise of Tomorrow), rather than depending on a flat body.

@@ -1940,37 +1940,17 @@ class DrawMillIfDiscardedEffect(GameEffect):
 
 #: `RevealHandChooseDiscardEffect.destination` → the `choose_objects` action that moves each pick.
 _HAND_PICK_ACTIONS: dict[str, str] = {
-    "discard": "discard", "library_top": "hand_to_library_top", "library_third": "hand_to_library_third",
+    "discard": "discard", "exile": "exile", "library_top": "hand_to_library_top", "library_third": "hand_to_library_third",
 }
 
 
 class RevealHandChooseDiscardEffect(GameEffect):
-    """RULE 119/701.8's iconic hand-disruption template — "Target opponent
-    reveals their hand. You choose a `<filter>` card from it. That player
-    discards that card." (Duress/Thoughtseize/Coercion/Distress-shaped,
-    one of the most repeated templates in the cache).
+    """RULE 701.20 / 701.9: expose a hand and let the controller choose a card.
 
-    "Reveals their hand" isn't a separate step to model (RULE 701.13's
-    reveal is a zero-effect visibility action, and this engine has no
-    client-visibility layer to update mid-resolution anyway) — the real
-    behaviour is that the *chooser* is this effect's controller (the
-    caster), not the revealed hand's owner, over that owner's *actual*
-    cards. That's exactly `RulesEngine._request_choose_objects`'s shape
-    (Tevesh Szat's sacrifice, Cloudstone Curio's bounce, …), just sourced
-    from a hand instead of the battlefield, with its pre-existing
-    ``action="discard"`` (`_apply_chosen_object` already resolves that
-    against the *object's own owner*, regardless of who's choosing).
-
-    ``exclude_land``/``exclude_creature`` are RULE 601.2c "non-X" card-type
-    exclusions (composing — Duress's "noncreature, nonland" sets both);
-    ``card_types`` is the inclusive opposite ("a creature or planeswalker
-    card" — Despise-shaped). No filter at all (Coercion's bare "a card")
-    leaves both unset and ``card_types`` `None`.
-
-    ``max_mana_value`` (MEC-43 round 2, Inquisition of Kozilek — "…a
-    nonland card from it with mana value 3 or less…") narrows the
-    candidate pool further, same "card's own printed `converted_mana_cost`"
-    read every other mana-value filter in this file uses.
+    Selection belongs to the spell's controller; discard/exile belongs to the
+    selected card's owner. Hand filters do not constrain an independently
+    worded graveyard alternative (Agonizing Remorse). Resolution visibility is
+    attached to the pending choice and snapshots exact hand-zone visits.
     """
 
     def __init__(
@@ -1981,7 +1961,12 @@ class RevealHandChooseDiscardEffect(GameEffect):
         exclude_land: bool = False,
         exclude_creature: bool = False,
         card_types: Optional[list[str]] = None,
+        card_filter: Optional[dict[str, Any]] = None,
         max_mana_value: Optional[int] = None,
+        min_mana_value: Optional[int] = None,
+        include_graveyard: bool = False,
+        reveal: bool = True,
+        track_exiled_with: bool = False,
         optional: bool = False,
         else_specs: Optional[list[dict[str, Any]]] = None,
         count: Any = 1,
@@ -2003,7 +1988,12 @@ class RevealHandChooseDiscardEffect(GameEffect):
         self.exclude_land = exclude_land
         self.exclude_creature = exclude_creature
         self.card_types = card_types
+        self.card_filter = card_filter
         self.max_mana_value = max_mana_value
+        self.min_mana_value = min_mana_value
+        self.include_graveyard = include_graveyard
+        self.reveal = reveal
+        self.track_exiled_with = track_exiled_with
         #: "You **may** choose a creature or battle card from it. … If you
         #: don't, incubate 3." (Traumatic Revelation) — the chooser may
         #: decline, and ``else_specs`` (serialized `EffectSpec` dicts) then
@@ -2016,24 +2006,21 @@ class RevealHandChooseDiscardEffect(GameEffect):
 
     def _matches(self, obj: "GameObject") -> bool:
         card = obj.card
+        if self.card_filter:
+            from ..combat import matches_object_filter
+            if not matches_object_filter(obj, self.card_filter):
+                return False
         if self.exclude_land and obj.is_land:
             return False
         if self.exclude_creature and obj.is_creature:
             return False
         if self.card_types:
-            checks = {
-                "creature": obj.is_creature,
-                "planeswalker": bool(getattr(obj, "is_planeswalker", False)),
-                "artifact": obj.is_artifact,
-                "instant": bool(card.is_instant),
-                "sorcery": bool(card.is_sorcery),
-                "enchantment": obj.is_enchantment,
-                # "a creature or battle card" (Traumatic Revelation).
-                "battle": obj.is_battle,
-            }
-            if not any(checks.get(t, False) for t in self.card_types):
+            from ...models.cards.card_query import card_type_words
+            if not set(self.card_types) & card_type_words(card):
                 return False
         if self.max_mana_value is not None and (card.converted_mana_cost or 0) > self.max_mana_value:
+            return False
+        if self.min_mana_value is not None and (card.converted_mana_cost or 0) < self.min_mana_value:
             return False
         return True
 
@@ -2046,16 +2033,33 @@ class RevealHandChooseDiscardEffect(GameEffect):
         if caster is None:
             return
         candidates = [obj for obj in revealed_player.hand if self._matches(obj)]
+        if self.include_graveyard:
+            candidates.extend(revealed_player.graveyard)
         count = max(0, int(self.count)) if not isinstance(self.count, str) else 0
         if count == 0:
             return  # "choose X cards" with X = 0
-        # An empty pool still opens the (empty) choice: its "if you don't" else-branch (Traumatic Revelation) runs.
         count = max(1, min(count, len(candidates)))
-        context.choose_objects(
-            caster, candidates, _HAND_PICK_ACTIONS[self.destination], count=count, source=self.source,
-            optional=self.optional or self.up_to,
-            else_specs=self.else_specs or None,
-        )
+        if not candidates and revealed_player.hand:
+            # RULE 701.20 / 608.2c: acknowledge the full hand before an
+            # impossible choice's else-branch or the spell's next instruction.
+            context.look_at_hand(caster, revealed_player, source=self.source)
+            choice = context.state.pending_choice
+            choice["hand_else_specs"] = self.else_specs
+            choice["source_id"] = getattr(self.source, "instance_id", None)
+            choice["effect_controller_id"] = caster.id
+        else:
+            context.engine._request_choose_objects(
+                caster, candidates, _HAND_PICK_ACTIONS[self.destination], count=count, source=self.source,
+                optional=self.optional or self.up_to,
+                else_specs=self.else_specs or None, force_choice=True,
+                track_exiled_with=self.track_exiled_with,
+            )
+        choice = context.state.pending_choice
+        if choice is not None and choice.get("kind") in {"choose_objects", "look_hand"}:
+            choice["hand_visibility"] = "public" if self.reveal else "private"
+            choice["visible_hand_visits"] = {str(obj.instance_id): obj.zone_incarnation for obj in revealed_player.hand}
+            choice["selection_visits"] = {str(obj.instance_id): obj.zone_incarnation for obj in candidates}
+
 
 
 class RevealAnyNumberHandCardsEffect(GameEffect):

@@ -737,7 +737,14 @@ class DrawDiscardMixin:
 
     @continuations.choice("look_hand", answer=continuations.ANSWER_STR, rule="400.2")
     def _resume_look_hand(self, choice: dict[str, Any], answer: Optional[str]) -> None:
-        """Looking changes nothing; the answer only closes the window."""
+        """Close a look window before its impossible-selection follow-up."""
+        if choice.get("hand_else_specs"):
+            outer = self.context.resolving_controller_id
+            self.context.resolving_controller_id = choice.get("effect_controller_id")
+            try:
+                self._apply_effect_specs(choice["hand_else_specs"], self._object_by_instance_id(choice.get("source_id")))
+            finally:
+                self.context.resolving_controller_id = outer
 
     def exile_hand_choice(
         self,

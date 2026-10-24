@@ -93,6 +93,9 @@ def test_traumatic_revelation_else_branch_incubates_when_no_card_chosen():
     bind_from_catalogue(src)
     effects = build_effects(specs_for(src.card)[0].effects, src)
     effects[0].apply(GameContext(st, eng.rules), [p2])
+    # The revealed non-matching hand must be seen before the else-branch.
+    assert st.pending_choice["kind"] == "look_hand"
+    eng.resolve_pending_choice("decline")
 
     toks = _tokens(st)
     assert len(toks) == 1 and toks[0].name == "Incubator"

@@ -1191,6 +1191,7 @@ Tests: `test_revival_trance_deck.py`.
 
 - **What:** Duress/Thoughtseize-shaped — the caster (not the hand's owner) chooses which revealed card gets discarded, reusing the existing `request_choose_objects` chooser…
 - **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
+- **PAR-187 (v740):** shared reveal/look-hand choose-and-act. The hand is always shown first (public reveal / private look), even with no or one eligible card (forced/no-eligible acknowledgement); every original hand visit survives clone/undo. Filters: type lists, minimum MV, general characteristics; destinations: discard, exile, or an independent hand-or-graveyard alternative; discard Escalate costs executable. Castigate, Agonizing Remorse, Collective Brutality, Appetite for Brains. Files: `game/effects/damage_draw.py`, `exile_control.py`, `game/engine/casting_mixin.py`, `legal_actions_mixin.py`, `services/game_session.py`, `parser/oracle/catalogue/effect_rows/draw_discard_cast.py`. Coverage 22,212 -> 22,238 (63.4%).
 
 ### `RevealTopConditionalToHandEffect`
 

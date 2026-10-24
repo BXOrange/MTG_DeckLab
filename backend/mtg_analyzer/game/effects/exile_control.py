@@ -2091,13 +2091,26 @@ class ReturnLinkedExileEffect(GameEffect):
     """
 
     def __init__(
-        self, destination: str = "battlefield", source: Optional["GameObject"] = None
+        self, destination: str = "battlefield", source: Optional["GameObject"] = None, tracked: bool = False
     ) -> None:
         super().__init__(source)
         self.destination = destination
+        self.tracked = tracked
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
+            return
+        if self.tracked:
+            # RULE 607.2a / 400.7: separate leave/entry triggers retain
+            # their own source visit, not a later incarnation's exiled card.
+            incarnation = context.resolving_source_incarnation
+            if incarnation is None:
+                incarnation = self.source.zone_incarnation
+            visits = context.state.linked_exile_visits.pop((self.source.instance_id, incarnation), [])
+            for iid, visit in visits:
+                obj = context.state.find_object(iid)
+                if obj is not None and obj.zone == Zone.EXILE and obj.zone_incarnation == visit:
+                    context.return_from_graveyard(obj, self.destination)
             return
         linked_id = getattr(self.source, "linked_exile_id", None)
         linked_ids = list(getattr(self.source, "linked_exile_ids", None) or [])

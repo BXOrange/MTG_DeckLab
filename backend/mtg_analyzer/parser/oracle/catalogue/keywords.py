@@ -647,6 +647,12 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
                 # one shared convention rather than raw clause text.
                 clause = groups["controller"].strip().lower()
                 param["controller"] = "you" if clause == "you control" else "not_you"
+    if kdef.slug == "escalate":
+        # RULE 702.120: preserve the executable nonmana discard cost;
+        # the ordinary COST extractor only sees mana symbols.
+        fallback = re.search(r"(?:^|\n)escalate\s*[—–-]\s*(?P<cost>discard (?:a|\d+) cards?)\.?(?=\s*(?:\(|\n|$))", text, re.I)
+        if fallback:
+            param["cost"] = fallback.group("cost").lower()
     if kdef.slug == "ward" and "cost" not in param:
         fallback = _WARD_TEXT_COST_RE.search(text)
         if fallback:
