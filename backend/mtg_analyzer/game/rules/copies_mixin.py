@@ -798,6 +798,7 @@ class CopiesMixin:
             GameEvent(
                 EventType.TURNED_FACE_UP,
                 instance_id=obj.instance_id,
+                    instance_zone_incarnation=obj.zone_incarnation,
                 controller_id=obj.controller_id,
                 object=obj.name,
                 card_id=obj.card.id,

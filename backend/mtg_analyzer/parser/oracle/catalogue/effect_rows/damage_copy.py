@@ -134,7 +134,7 @@ def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: target of this effect's own.
 _DAMAGE_TO_SUBJECT_CONTROLLER_RE = compile_clause(
     rf"{SELF_SUBJECT_PREFIX}(?:also )?deals? "
-    r"(?P<n>\d+) damage to (?:that|the) (?:creature|permanent)'?s controller"
+    r"(?P<n>\d+|x) damage to (?:that|the) (?:creature|permanent|artifact|land|enchantment)'?s controller"
 )
 
 
@@ -208,7 +208,7 @@ def _damage_to_attacked(m: re.Match[str]) -> list[EffectSpec]:
 
 def _damage_to_prev_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "recipient_subject": "previous_subject_controller",
+        "amount": count_or_x_of(m.group("n")), "recipient_subject": "previous_subject_controller",
     })]
 
 
@@ -227,7 +227,7 @@ def _damage_to_prev_object(m: re.Match[str]) -> list[EffectSpec]:
 
 def _damage_to_trigger_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "recipient_subject": "trigger_subject_controller",
+        "amount": count_or_x_of(m.group("n")), "recipient_subject": "trigger_subject_controller",
     })]
 
 

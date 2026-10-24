@@ -97,6 +97,7 @@ class DestroyEffect(GameEffect):
         color: Optional[str] = None,
         colors: Optional[list[str]] = None,
         max_mana_value: Optional[int] = None,
+        exact_mana_value: Optional[int | str] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         distinct_controllers: bool = False,
         exclude_created: bool = False,
@@ -108,9 +109,14 @@ class DestroyEffect(GameEffect):
         source_only: bool = False,
         source_incarnation: Optional[int] = None,
         previous_subject: bool = False,
+        trigger_related: bool = False,
+        related_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.trigger_related = trigger_related
+        self.related_filter = related_filter or {}
         self.target = target
+        self.attached_subject = target_kind == "attached_permanent"
         #: "Target opponent chooses a creature they control. Destroy **that creature**." (Imperial Edict) -- RULE 608.2c's
         #: referent: the object a preceding choose-step stamped as `GameContext.previous_targets`, with no RULE 115
         #: target of its own.
@@ -158,11 +164,12 @@ class DestroyEffect(GameEffect):
             if self.group_player in ("player", "opponent"):
                 self.target_spec = TargetSpec(kind=self.group_player)
         elif (self.selector is None and target_from_trigger_event is None and not self.source_only
-              and not self.previous_subject):
+              and not self.previous_subject and not self.trigger_related and target_kind != "attached_permanent"):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, color=color,
                 colors=self.colors,
-                max_mana_value=max_mana_value, min_mana_value=min_mana_value, creature_filter=creature_filter,
+                max_mana_value=max_mana_value, min_mana_value=min_mana_value, exact_mana_value=exact_mana_value,
+                creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers, count_selector=count_selector,
             )
 
@@ -170,6 +177,27 @@ class DestroyEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.trigger_related:
+            from ...game.combat import matches_object_filter
+
+            event = context.trigger_event or {}
+            related = event.get("destruction_related")
+            if related is None:
+                related = [
+                    [iid, obj.zone_incarnation] for iid in event.get("related_ids") or []
+                    if (obj := context.state.find_object(iid)) is not None
+                    and matches_object_filter(obj, self.related_filter, reference=self.source, state=context.state)
+                ]
+            for iid, incarnation in related:
+                obj = context.state.find_object(iid)
+                if obj is not None and obj.zone == Zone.BATTLEFIELD and obj.zone_incarnation == incarnation:
+                    context.destroy(obj, can_be_regenerated=self.can_be_regenerated)
+            return
+        if self.attached_subject:
+            host = context.state.find_object(getattr(self.source, "attached_to", None))
+            if host is not None and host.zone == Zone.BATTLEFIELD:
+                context.destroy(host, can_be_regenerated=self.can_be_regenerated)
+            return
         if self.previous_subject:
             for referent in list(context.previous_targets):
                 if referent.zone == Zone.BATTLEFIELD:

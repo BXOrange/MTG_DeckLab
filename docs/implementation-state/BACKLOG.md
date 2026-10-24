@@ -36,7 +36,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-186 · Regeneration riders on destroy.** `destroy that creature/it. it can't be regenerated`, `they can't be regenerated`: 29 + 17 open, 0 sole-blocker; measure the joint package (Dripping Dead, Spinal Graft, Befoul, Crumble, Detonate, …).
 - **PAR-187 · Reveal-hand family.** `target opponent/player reveals their hand`, `you choose a nonland card from it`, `that player discards that card`: 53 + 15 open, 0 sole-blocker; the choose-and-act continuation is the missing link (Castigate, Agonizing Remorse, Collective Brutality, Appetite for Brains, …).
 - **PAR-190 · Tribute follow-ups.** `if tribute wasn't paid, …`: 10 open, all sole-blocker (Fanatic of Xenagos, Nessian Demolok, Nessian Wilds Ravager, Oracle of Bones, Ornitharch, Pharagax Giant, Shrike Harpy, Siren of the Fanged Coast, Snake of the Golden Grove, Thunder Brute).
 - **PAR-191 · Counter target activated ability.** 5 open, all sole-blocker (Azorius Guildmage, Bind, Rimewind Cryomancer, Squelch, Voidmage Husher); ability-on-stack counter target.

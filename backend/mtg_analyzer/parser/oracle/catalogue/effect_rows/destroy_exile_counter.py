@@ -115,6 +115,19 @@ _FLIP_SELF_RE = compile_clause(rf"flip {re.escape(SELF)}")
 _DESTROY_SELF_RE = compile_clause(rf"destroy {re.escape(SELF)}")
 
 
+def _destroy_pronoun(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 608.2c: a bound object pronoun introduces no new RULE 115 target.
+    if reading.previous_subject:
+        params = {"previous_subject": True}
+    elif reading.attached_subject:
+        params = {"target_kind": "attached_permanent"}
+    elif reading.self_subject and m.group("object") == "it":
+        params = {"source_only": True}
+    else:
+        return None
+    return [EffectSpec("destroy", params)]
+
+
 #: "destroy target Equipment" (Manriki-Gusari).  Equipment is an artifact
 #: subtype rather than a card type, so it deliberately is not part of the
 #: broad ``TARGET`` grammar used by the ordinary destroy row.  The targeting
@@ -165,14 +178,16 @@ def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # honours `max_mana_value`, so this was a plain oversight, not a missing
     # engine primitive.
     kind = resolve_target_kind(m.group("target"))
-    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent")):
+    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS)):
         return None
-    return [EffectSpec("destroy", {"target_kind": kind, _mana_value_bound_key(m): int(m.group("mv"))})]
+    value = m.group("mv")
+    return [EffectSpec("destroy", {"target_kind": kind, **optional_param(m), _mana_value_bound_key(m): "x" if value == "x" else int(value)})]
 
 
 def _mana_value_bound_key(m: re.Match[str]) -> str:
     """"…with mana value N or less" is a ceiling, "…or greater" a floor (`TargetSpec.max_/min_mana_value`)."""
-    return "min_mana_value" if m.group("cmp") == "greater" else "max_mana_value"
+    return ("exact_mana_value" if not m.group("cmp") else
+            "min_mana_value" if m.group("cmp") == "greater" else "max_mana_value")
 
 
 def _exile_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -245,7 +260,7 @@ _NEG_CREATURE_FILTER_WORDS: dict[str, tuple[str, str]] = {
     "artifact": ("without_card_type", "artifact"),
 }
 _DESTROY_NON_CREATURE_RE = compile_clause(
-    rf"destroy target (?P<tapped>tapped )?non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
+    rf"destroy target (?P<land_or>land or )?(?P<tapped>tapped )?non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
     rf"(?:, non(?P<second_neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)}))? creature"
     rf"(?P<that_player>{THAT_PLAYER_TAIL})?"
     r"(?P<no_regen>\. it can'?t be regenerated)?"
@@ -257,6 +272,10 @@ def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # PAR-130: "… that player controls" (Tooth Collector-shaped heads) —
     # `gate._that_player_antecedent_ok` checks the trigger names that player.
     kind = "creature_that_player_controls" if m.group("that_player") else "creature"
+    if m.group("land_or"):
+        if m.group("that_player"):
+            return None
+        kind = "permanent"
     params: dict = {"target_kind": kind, "creature_filter": {key: value}}
     if m.group("tapped"):
         # PAR-165 (Stone Catapult): "tapped" composes with the negation, the same `tapped` filter key
@@ -271,6 +290,10 @@ def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if second_key == key:
             return None
         params["creature_filter"][second_key] = second_value
+    if m.group("land_or"):
+        params["creature_filter"] = {"any_of": [
+            {"card_type": "land"}, {"card_type": "creature", **params["creature_filter"]},
+        ]}
     if m.group("no_regen"):
         params["can_be_regenerated"] = False
     return [EffectSpec("destroy", params)]
@@ -913,7 +936,7 @@ ROWS: list[EffectHandler] = [
     # below (see `_destroy_mv`'s docstring for why it's safe to try first).
     EffectHandler(
         "destroy_mv",
-        compile_clause(rf"destroy {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)"),
+        compile_clause(rf"destroy {TARGET} with mana value (?P<mv>\d+|x)(?: or (?P<cmp>less|greater))?"),
         _destroy_mv,
     ),
     # "exile target permanent with mana value 4 or greater" — the exile sibling of `destroy_mv`.
@@ -977,6 +1000,10 @@ ROWS: list[EffectHandler] = [
     # "…, destroy ~." (Sandals of Abdallah's "when that creature dies this turn") — the ability's own source.
     EffectHandler(
         "destroy_self", _DESTROY_SELF_RE, lambda m: [EffectSpec("destroy", {"source_only": True})],
+    ),
+    EffectHandler(
+        "destroy_pronoun", compile_clause(r"destroy (?P<object>it|that creature|that permanent|that artifact|that land)"),
+        _destroy_pronoun, reading_aware=True,
     ),
     EffectHandler(
         "destroy_equipment",

@@ -581,6 +581,8 @@ class DealDamageEffect(GameEffect):
                         context.deal_damage(player, self._amount_for(None, context), self.source)
                     return
             controller_id = getattr(obj, "controller_id", None)
+            # RULE 608.2h: a permanent this resolution destroyed is back under its owner; read its last-known controller.
+            controller_id = (context.destroyed_controllers.get(getattr(obj, "instance_id", None)) or controller_id)
             if controller_id is not None:
                 try:
                     player = context.state.player_by_id(controller_id)

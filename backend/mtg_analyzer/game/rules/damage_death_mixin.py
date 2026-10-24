@@ -312,6 +312,7 @@ class DamageDeathMixin:
             amount=amount,
             is_player=is_player,
             target_id=target_id,
+            target_zone_incarnation=getattr(target, "zone_incarnation", None),
             # RULE 603.1 recipient-scoped "a creature you control is dealt
             # damage" (MEC-11, Rite of Passage-shaped) — the mirror of
             # ``source_controller_id`` below, for a `"group"` condition

@@ -1247,12 +1247,14 @@ class CombatMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.BLOCKS,
+                    instance_zone_incarnation=blocker.zone_incarnation,
                     blocker=blocker.name,
                     player_id=player.id,  # RULE 509.1b: the blocker's controller
                     instance_id=blocker.instance_id,
                     object_types=sorted(blocker.type_words),
                     # "…blocks a creature with flying" — the attacker on the other side.
                     related_ids=[attacker.instance_id],
+                    related_incarnations={attacker.instance_id: attacker.zone_incarnation},
                 )
             )
 
@@ -1268,6 +1270,10 @@ class CombatMixin:
                     blocker_count=blocker_count,
                     # "…becomes blocked by a creature with flying" — the blockers.
                     related_ids=list(attacker.blocked_by),
+                    related_incarnations={
+                        iid: obj.zone_incarnation for iid in attacker.blocked_by
+                        if (obj := self.state.find_object(iid)) is not None
+                    },
                 )
             )
             # RULE 702.23: Rampage's own per-firing dynamic pump — see

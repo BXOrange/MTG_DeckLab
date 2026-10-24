@@ -3688,6 +3688,7 @@ sacrifice for exactly those tokens. The trigger remains after its source leaves.
 
 - **What:** A new pre-emptive `EventType.DESTROY`, fired by `RulesEngine.destroy` and run through the existing replacement machinery, lets a regeneration shield (a `Replace…
 - **Files:** `game/rules_engine.py`, `game/effects/core.py`, `models/events.py`
+- **Destruction-scoped no-regeneration riders (PAR-186, v738):** "It/They/That creature can't be regenerated" binds only to the immediately preceding destroy sentence (RULE 701.19c); a shared verb over several objects flags all of them, any intervening or non-destroy antecedent fails closed. Composes with exact-mana-value and optional targets, group-trigger "destroy it", damage-recipient, blocker (captured at firing, RULE 603.2) and attached-host referents (exact zone visits, RULE 400.7). `GameContext.destroyed_controllers` keeps a destroyed permanent's last-known controller (RULE 608.2h) so Crumble/Detonate tails hit a stolen artifact's controller, not its owner. Tests: `test_par186_regeneration_riders.py`. Validation: full backend `--full-cache` **16,113 passed, 1 skipped**; probe vs v737 **+36, zero regressions**; ledger **22,206/35,051 (63.4%)**, Commander **21,601/32,068 (67.4%)**.
 
 ### Phasing (RULE 702.26)
 

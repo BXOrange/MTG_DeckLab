@@ -200,6 +200,7 @@ destroy_color_adj
 destroy_equipment_attached_to_it
 flip_self
 destroy_self
+destroy_pronoun
 destroy_equipment
 destroy_multi_target
 regenerate_another_target

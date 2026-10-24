@@ -143,6 +143,9 @@ class GameContext:
         #: names for a per-object follow-up ("for each creature destroyed this way, its controller creates …").
         #: Unlike `moved_objects` it is only destruction.
         self.destroyed_objects: list[Any] = []
+        #: RULE 608.2h: instance_id -> controller a destroyed permanent had on the battlefield (the graveyard
+        #: copy is back under its owner), for "that artifact's controller" riders.
+        self.destroyed_controllers: dict[Any, Optional[str]] = {}
         #: MEC-28: the `continuous.group_selector_objects` name the last
         #: mass-*selector* effect of this same resolution acted on (RULE
         #: 601.2c, untargeted — "untap all attacking creatures. **They**
@@ -381,6 +384,7 @@ class GameContext:
 
     def destroy(self, target: "GameObject", can_be_regenerated: bool = True) -> None:
         was_on_battlefield = target in self.state.battlefield
+        last_controller = target.controller_id
         self.engine.destroy(target, can_be_regenerated=can_be_regenerated)
         # `self.permanents_destroyed_this_way`'s own bookkeeping — only an
         # *actual* destruction (not a regeneration shield/indestructible
@@ -391,6 +395,7 @@ class GameContext:
             # destroyed is one of the "moved this way" pools a later clause may read.
             self.moved_objects.append(target)
             self.destroyed_objects.append(target)
+            self.destroyed_controllers[target.instance_id] = last_controller
 
     def regenerate(self, target: "GameObject") -> None:
         self.engine.regenerate(target)

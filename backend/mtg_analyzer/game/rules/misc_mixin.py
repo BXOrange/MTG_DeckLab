@@ -5732,6 +5732,7 @@ class MiscSystemsMixin:
             self.state.fire_event(GameEvent(
                 EventType.BECOMES_TARGET,
                 instance_id=instance_id,
+                instance_zone_incarnation=getattr(target, "zone_incarnation", None),
                 target_controller_id=target_controller_id,
                 is_player=is_player,
                 controller_id=item.controller_id,

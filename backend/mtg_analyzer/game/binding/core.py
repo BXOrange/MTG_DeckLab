@@ -3320,6 +3320,29 @@ def bind_ability(
                 def capture_event(firing_event, context, head=spec.trigger["attackers_declared"], src=source):
                     return capture_attackers(firing_event, context, head, src)
 
+            from ..effects.life_sacrifice import DestroyEffect
+
+            related_destroy = next((effect for effect in own_effects if getattr(effect, "trigger_related", False)
+                                    and isinstance(effect, DestroyEffect)), None)
+            if related_destroy is not None:
+                previous_capture = capture_event
+
+                def capture_event(firing_event, context, prior=previous_capture,
+                                  filt=related_destroy.related_filter, src=source):
+                    # RULE 603.2/608.2h: the head's quality is tested when it fires; changing colors
+                    # afterwards cannot exchange the blockers that "that creature" names.
+                    from ..combat import matches_object_filter
+
+                    captured = prior(firing_event, context) if prior else firing_event
+                    related = []
+                    for iid in firing_event.get("related_ids") or []:
+                        obj = context.state.find_object(iid)
+                        if obj is not None and matches_object_filter(obj, filt, reference=src, state=context.state):
+                            related.append([iid, obj.zone_incarnation])
+                    result = captured.copy_with(destruction_related=related)
+                    result.turn = firing_event.turn
+                    return result
+
             return TriggeredAbility(
                 trigger_event=event,
                 capture_event=capture_event,

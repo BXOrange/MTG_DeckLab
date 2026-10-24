@@ -233,7 +233,7 @@ def _its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
 #: already does by hand for "its controller gains life equal to its
 #: power", generalized here into an ordinary parser row.
 _ITS_CONTROLLER_GAINS_LIFE_EQ_MV_RE = compile_clause(
-    r"its controller gains life equal to its mana value"
+    r"(?:its|that (?:creature|permanent|artifact|land|enchantment)'s) controller gains life equal to its mana value"
 )
 _ITS_CONTROLLER_MILLS_EQ_POWER_RE = compile_clause(
     r"its controller mills cards equal to that creature'?s power"

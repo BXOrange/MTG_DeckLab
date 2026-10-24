@@ -495,6 +495,7 @@ EffectRegistry.register(
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
         color=p.get("color"),
         colors=p.get("colors"),
+        exact_mana_value=p.get("exact_mana_value"),
         max_mana_value=p.get("max_mana_value"),
         min_mana_value=p.get("min_mana_value"),
         creature_filter=p.get("creature_filter"),
@@ -505,6 +506,7 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         source_only=bool(p.get("source_only", False)), source_incarnation=p.get("source_incarnation"),
         previous_subject=bool(p.get("previous_subject", False)),
+        trigger_related=bool(p.get("trigger_related", False)), related_filter=p.get("related_filter"),
     ),
 )
 EffectRegistry.register(

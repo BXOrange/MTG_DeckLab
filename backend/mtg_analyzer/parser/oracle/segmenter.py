@@ -2238,7 +2238,7 @@ _CHOOSE_TARGET_IF_SUSPECTED_RE = re.compile(
 #: genuinely different, free-standing prevent-regeneration effect and must
 #: NOT match here.
 _NO_REGEN_SENTENCE_RE = re.compile(
-    r"^(?P<before>.+?)\.\s*(?:it|they) can'?t be regenerated"
+    r"^(?P<before>.+?)\.\s*(?:it|they|that creature|the creature) can'?t be regenerated"
     r"(?:\.\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -6194,42 +6194,54 @@ def _parse_effect_body_inner(
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:
-        before_specs = parse_effect_body(
-            no_regen.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
-        )
-        if before_specs is None:
+        # RULE 701.19c: the rider qualifies only the immediately preceding destruction,
+        # never an earlier independent sentence or a later destruction this turn.
+        before_text = no_regen.group("before")
+        if '"' in before_text:
+            return None
+        boundary = before_text.rfind(". ")
+        prefix = before_text[:boundary] if boundary >= 0 else ""
+        immediate = before_text[boundary + 2:] if boundary >= 0 else before_text
+        before_specs = parse_effect_body(before_text, reading=reading)
+        if not before_specs:
+            return None
+        immediate_specs = parse_effect_body(immediate, reading=reading)
+        def _is_destroy(spec: EffectSpec) -> bool:
+            # A group trigger's "destroy it" sits in the firing-object wrapper's body.
+            if spec.type == "trigger_subject_referent":
+                wrapped = spec.params.get("effects")
+                return bool(wrapped) and wrapped[-1].get("type") == "destroy"
+            return spec.type == "destroy"
+
+        def _is_marker(spec: EffectSpec) -> bool:
+            # The bare firing-object marker a group trigger puts before "destroy it".
+            return spec.type == "trigger_subject_referent" and not spec.params.get("effects")
+
+        immediate_specs = [spec for spec in immediate_specs if not _is_marker(spec)]
+        if not immediate_specs or not all(_is_destroy(spec) for spec in immediate_specs):
+            return None
+        # A shared verb over several objects produces several adjacent destroy nodes.
+        # Reject any intervening effect instead of searching backwards across it.
+        end = len(before_specs)
+        start = end
+        while start > end - len(immediate_specs) and _is_destroy(before_specs[start - 1]):
+            start -= 1
+        if start == end:
             return None
         plural_regen = bool(re.search(r"\.\s*they can'?t be regenerated", body, re.IGNORECASE))
-        plural_flagged = False
-        for i in range(len(before_specs) - 1, -1, -1):
-            if before_specs[i].type == "destroy":
-                flagged = dict(before_specs[i].params)
-                flagged["can_be_regenerated"] = False
-                before_specs[i] = EffectSpec(
-                    before_specs[i].type, flagged, condition=before_specs[i].condition
-                )
-                if plural_regen:
-                    plural_flagged = True
-                    continue  # "They can't be regenerated." covers every creature the sentence before destroyed
-                break
-            wrapped = before_specs[i].params.get("effects") if (
-                before_specs[i].type == "trigger_subject_referent") else None
-            if wrapped and wrapped[-1].get("type") == "destroy":
-                # "destroy it. It can't be regenerated." under a group trigger: the destroy sits in
-                # the firing-object wrapper's body.
-                nested = dict(wrapped[-1])
-                nested["params"] = {**(nested.get("params") or {}), "can_be_regenerated": False}
-                before_specs[i] = EffectSpec(
-                    before_specs[i].type, {**before_specs[i].params, "effects": [*wrapped[:-1], nested]},
-                    condition=before_specs[i].condition,
-                )
-                break
-        else:
-            if not plural_flagged:
-                return None  # nothing to deny regeneration to — fail closed
+        if not plural_regen:
+            start = end - 1
+        def _deny_regeneration(spec: EffectSpec) -> EffectSpec:
+            if spec.type == "trigger_subject_referent":
+                *head, last = spec.params["effects"]
+                nested = {**last, "params": {**(last.get("params") or {}), "can_be_regenerated": False}}
+                return EffectSpec(spec.type, {**spec.params, "effects": [*head, nested]}, condition=spec.condition)
+            return EffectSpec(spec.type, {**spec.params, "can_be_regenerated": False}, condition=spec.condition)
+
+        before_specs = [_deny_regeneration(spec) if i >= start else spec for i, spec in enumerate(before_specs)]
         return _with_after_tail(
             before_specs, no_regen.group("after"),
-            reading=ClauseReading(previous_subject=announces_creature_target(before_specs), group_subject=reading.group_subject),
+            reading=reading.but(previous_subject=announces_creature_target(before_specs)),
         )
 
     regen_exile = _REGEN_EXILE_RIDER_RE.match(body.strip())
@@ -10621,11 +10633,40 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 ),
                 attached_subject=(condition or {}).get("subject") == "attached_permanent",
             )
+            recipient_destroy = (
+                composed_head and event == "DAMAGE"
+                and (condition or {}).get("subject") in ("self", "attached_permanent")
+                and head_trigger.get("filter", {}).get("is_player") is False
+                and re.fullmatch(
+                    r"destroy (?:that creature|it)(?:\. (?:it|the creature|that creature) can't be regenerated)?\.?", body,
+                ) is not None
+            )
+            block_destroy = (
+                event in ("BLOCKS", "BECOMES_BLOCKED") and bool(head_trigger.get("related_filter"))
+                and (condition or {}).get("subject") == "self"
+                and re.fullmatch(r"destroy (?:it|that creature)(?:\. it can't be regenerated)?\.?", body) is not None
+            )
+            attached_destroy = (
+                (condition or {}).get("subject") == "attached_permanent"
+                and event == "BECOMES_TARGET"
+                and re.fullmatch(r"destroy (?:it|that creature)(?:\. it can't be regenerated)?\.?", body) is not None
+            )
+            if recipient_destroy or attached_destroy or block_destroy:
+                body_reading = ClauseReading(previous_subject=True)
             effects = (
                 _event_player_body(body)
                 if isinstance(event, str) and event in _ATTACKING_PLAYER_EVENTS
                 and (condition or {}).get("subject") == "player" else None
             ) or parse_effect_body(body, reading=body_reading)
+            if (recipient_destroy or attached_destroy) and effects is not None:
+                effects = [EffectSpec("trigger_subject_referent", {
+                    "event_key": "target_id" if recipient_destroy else "instance_id",
+                }), *effects]
+            if block_destroy and effects is not None:
+                effects = [EffectSpec(e.type, {
+                    **{k: v for k, v in e.params.items() if k != "previous_subject"},
+                    "trigger_related": True, "related_filter": dict(head_trigger["related_filter"]),
+                }, condition=e.condition) for e in effects]
             count_amount = _HEAD_COUNT_AMOUNTS.get(event) if isinstance(event, str) else None
             if effects is None and count_amount is not None and _THAT_MANY_RE.search(body):
                 # "put that many +1/+1 counters on ~" off a counting head: the body read
@@ -10645,6 +10686,18 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             effects = _retarget_that_player_to_damaged(effects)
             if effects is None:
                 return Segment(raw=raw)
+        if (condition or {}).get("subject") == "attached_permanent":
+            # RULE 603.3: "destroy it" names the firing host, even if the Aura moves before resolution.
+            effects = [
+                EffectSpec("trigger_subject_referent", {
+                    "event_key": GROUP_SUBJECT_KEY_SENTINEL,
+                    "effects": [{"type": "destroy", "params": {
+                        **{k: v for k, v in e.params.items() if k != "target_kind"}, "previous_subject": True,
+                    }}],
+                }, condition=e.condition)
+                if e.type == "destroy" and e.params.get("target_kind") == "attached_permanent" else e
+                for e in effects
+            ]
         stamped = _stamp_group_pronoun(condition, body, effects)
         if stamped is None:
             return Segment(raw=raw)

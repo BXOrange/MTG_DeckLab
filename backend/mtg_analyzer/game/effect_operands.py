@@ -127,6 +127,10 @@ def _derive(context: "GameContext", subject: Any, derivation: str) -> Any:
         # rather than an object shouldn't silently become nobody.
         return subject
     key = "controller_id" if derivation == "controller" else "owner_id"
+    if derivation == "controller":
+        last_known = (getattr(context, "destroyed_controllers", {}) or {}).get(getattr(subject, "instance_id", None))
+        if last_known is not None:
+            return _player_by_id(context, last_known)
     return _player_by_id(context, getattr(subject, key, None))
 
 

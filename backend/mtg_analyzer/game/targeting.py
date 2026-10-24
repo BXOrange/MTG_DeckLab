@@ -1482,8 +1482,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "creature_or_planeswalker", SCOPE_YOU, exclude_source=False),
     "artifact_creature_or_land_you_control": TargetFrame(
         "artifact_creature_or_land", SCOPE_YOU, exclude_source=False),
-    "artifact_or_enchantment": TargetFrame("artifact_or_enchantment"),
-    "artifact_or_creature": TargetFrame("artifact_or_creature"),
+    "artifact_or_enchantment": TargetFrame("artifact_or_enchantment", apply_max_mana_value=True),
+    "artifact_or_creature": TargetFrame("artifact_or_creature", apply_max_mana_value=True),
     "artifact_or_creature_you_control": TargetFrame(
         "artifact_or_creature", SCOPE_YOU),
     "artifact_creature_or_enchantment": TargetFrame(

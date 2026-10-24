@@ -563,6 +563,7 @@ class ManaCountersMixin:
                     object=obj.name,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
+                    instance_zone_incarnation=obj.zone_incarnation,
                     reason=reason,
                 )
             )
