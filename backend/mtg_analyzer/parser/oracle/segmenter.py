@@ -5844,6 +5844,30 @@ def _parse_effect_body_inner(
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+    # RULE 608.2c: a coordinated permission inherits the source subject.
+    permission_tail = re.fullmatch(
+        r"(?P<before>~ [^.]+) and (?P<permission>can attack this turn as though it didn't have defender)", body,
+    )
+    if permission_tail is not None:
+        before = parse_effect_body(permission_tail.group("before"), reading=reading)
+        after = parse_effect_body("~ " + permission_tail.group("permission"), reading=reading)
+        return before + after if before and after else None
+    # RULE 608.2c: choosing the antecedent also chooses its combat-assignment rider.
+    # Parse both operands with the same referent reading; targets belong to the
+    # ability announcement even though applying the antecedent is optional.
+    combat_rider = re.fullmatch(
+        r"you may (?P<before>.+)\.\s*if you do, (?P<after>.+assigns no combat damage this turn)",
+        body, re.I | re.S,
+    )
+    if combat_rider is not None:
+        after = parse_effect_body(combat_rider.group("after"), reading=reading)
+        if after is None or len(after) != 1 or after[0].type != "assign_no_combat_damage":
+            return None
+        before_text = re.sub(r"^(?:choose to )?have (?=(?:it|~) deals? )", "", combat_rider.group("before"))
+        before = parse_effect_body(before_text, reading=reading)
+        if not before:
+            return match_clause(body, reading=reading)
+        return [EffectSpec("optional", {"effects": [s.to_dict() for s in before + after]})]
     # Preserve the existing hand-cheat package before placement-tail folding.
     # Its choice already owns haste and the delayed sacrifice (MEC-73).
     if "that creature gains haste until end of turn" in body:
@@ -10938,6 +10962,9 @@ _IF_YOU_DO_SENTENCE_RE = re.compile(r"\.\s+(?:if|when) you do\b", re.I)
 def peel_optional(body: str) -> tuple[str, bool]:
     """Strip a leading "you may " and report whether it was present (RULE 601.2)."""
     body = body.strip()
+    # RULE 608.2c: keep the optional action and its assignment rider atomic.
+    if re.fullmatch(r"you may .+\.\s*if you do, .+assigns no combat damage this turn\.?", body, re.I | re.S):
+        return body, False
     if _MAY_HAVE_TARGET_GET_RE.match(body):
         # RULE 603.5/603.3d: targets are required when the trigger is put on
         # the stack; only applying the pump is optional on resolution.

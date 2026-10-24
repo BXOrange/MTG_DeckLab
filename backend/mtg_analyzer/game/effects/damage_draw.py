@@ -11,20 +11,9 @@ install(globals())
 
 
 class PreventCombatDamageDealtEffect(GameEffect):
-    """Prevent all combat damage the named creature would deal this turn
-    (RULE 615) — Loafing Giant's own "prevent all combat damage ~ would
-    deal this turn", and RULE 510.1e's "assigns no combat damage this turn"
-    is a rules-distinct but observably identical shape (Gaze of Pain,
-    MEC-99), since `deal_damage`'s own check for this flag returns before
-    any `DAMAGE` event fires either way.
+    """RULE 615: prevent combat damage the source/referent would deal this turn.
 
-    ``subject`` is `effect_conditions`'s referent vocabulary, defaulting to
-    ``None`` (the effect's own source, Loafing Giant's printed "~"); MEC-99
-    adds the group-subject reading — "**it** assigns no combat damage this
-    turn." where "it" is whichever creature matched this ability's own
-    RULE 603.1 group trigger, not the ability's source (a temporary
-    triggered ability granted by a sorcery has no combat-relevant source of
-    its own to flag).
+    Assignment prohibitions use AssignNoCombatDamageEffect instead.
     """
 
     def __init__(
@@ -41,6 +30,18 @@ class PreventCombatDamageDealtEffect(GameEffect):
             obj = effect_conditions.subject_of(self.subject, context, self.source, targets)
         if obj is not None:
             obj.temp_prevent_combat_damage_dealt = True
+
+class AssignNoCombatDamageEffect(PreventCombatDamageDealtEffect):
+    """RULE 510.1: suppress assignment independently of prevention effects."""
+
+    def apply(self, context, targets=None) -> None:
+        obj = self.source
+        if self.subject:
+            from .. import effect_conditions
+            obj = effect_conditions.subject_of(self.subject, context, self.source, targets)
+        if obj is not None:
+            obj.temp_assign_no_combat_damage = True
+
 
 #: PAR-128: RULE 109.5's "each other creature" — every creature but this
 #: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s

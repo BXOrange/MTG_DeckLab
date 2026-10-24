@@ -536,6 +536,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "cast_target_elemental_from_graveyard_free": "cast",
     "cheat_creature_from_hand": "move_object",
     "combat_restriction_this_turn": "create_continuous_effect",
+    # RULE 611 / 510.1: a resolving turn-scoped combat-assignment restriction.
+    "assign_no_combat_damage": "create_continuous_effect",
     "copy_ability": "copy_object",
     "copy_target_ability": "copy_object",
     "counter_ability": "counter",

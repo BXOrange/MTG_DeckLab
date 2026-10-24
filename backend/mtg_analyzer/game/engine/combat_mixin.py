@@ -428,8 +428,10 @@ class CombatMixin:
     def _deal_combat_damage_step(self, first_strike_step: bool) -> None:
         # (target, amount, source) gathered before anything is dealt.
         assignments: list[tuple[Any, int, GameObject]] = []
+        # RULE 510.1: prohibited sources assign nothing, even if damage cannot be prevented.
         for attacker in self.attackers:
-            if not self._deals_in_step(attacker, first_strike_step):
+            if (getattr(attacker, "temp_assign_no_combat_damage", False)
+                    or not self._deals_in_step(attacker, first_strike_step)):
                 continue
             power = (
                 attacker.toughness or 0
@@ -456,7 +458,8 @@ class CombatMixin:
         # Blockers strike the attacker(s) they're blocking (RULE 510.1c).
         for blocker in self.state.battlefield:
             attacker_ids = combat.blocking_attacker_ids(blocker)
-            if not attacker_ids or not self._deals_in_step(blocker, first_strike_step):
+            if (not attacker_ids or getattr(blocker, "temp_assign_no_combat_damage", False)
+                    or not self._deals_in_step(blocker, first_strike_step)):
                 continue
             power = (
                 blocker.toughness or 0

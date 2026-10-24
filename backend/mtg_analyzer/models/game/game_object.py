@@ -1321,6 +1321,8 @@ class GameObject:
         #: a resolve-time RULE 509.1a restriction on the *blocker* rather
         #: than an evasion grant on the attacker, read directly by
         #: `GameEngine.can_block` and cleared at cleanup (RULE 514.2).
+        # RULE 510.1: assignment restriction, independent of damage prevention.
+        self.temp_assign_no_combat_damage: bool = False
         self.temp_cant_block: bool = False
         #: RULE 701.16 / "can't be regenerated this turn" (Gravebind, Incinerate's rider) —
         #: `RulesEngine.destroy` skips the regeneration replacement pass; cleared at cleanup.
@@ -1674,6 +1676,7 @@ class GameObject:
         self.temp_effects = []
         self.temp_unblockable = False
         self.temp_pt_switch_count = 0
+        self.temp_assign_no_combat_damage = False
         self.temp_cant_block = False
         self.temp_cant_be_regenerated = False
         self.temp_deny_regen_to_damaged = False

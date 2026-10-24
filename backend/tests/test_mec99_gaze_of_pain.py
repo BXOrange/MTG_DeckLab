@@ -59,7 +59,7 @@ def test_gaze_of_pain_is_modeled():
         "params": {"dealer_kind": "trigger_subject", "target_kind": "creature"},
     }
     assert prevent == {
-        "type": "prevent_combat_damage_dealt",
+        "type": "assign_no_combat_damage",
         "params": {"subject": "trigger_subject"},
     }
 
@@ -210,7 +210,7 @@ def test_accepting_deals_damage_and_suppresses_the_real_combat_damage():
     engine.resolve_until_stable()
 
     assert victim.damage_marked == 3  # Raider's power
-    assert getattr(attacker, "temp_prevent_combat_damage_dealt", False) is True
+    assert attacker.temp_assign_no_combat_damage is True
 
     attacker.combat_defender = {"kind": "player", "id": "p2"}
     life = p2.life

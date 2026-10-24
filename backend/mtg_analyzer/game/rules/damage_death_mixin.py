@@ -273,11 +273,8 @@ class DamageDeathMixin:
         fight_receipt: Optional[dict] = None,
     ) -> None:
         is_player = isinstance(target, Player)
-        # RULE 615/510.1e: a source-scoped prevention effect (Loafing Giant),
-        # or a creature that assigns no combat damage this turn (Gaze of
-        # Pain, MEC-99), stops all combat damage this object would deal,
-        # irrespective of recipient — a one-shot ability the creature deals
-        # separately (`combat=False`) is unaffected either way.
+        # RULE 615: source-scoped prevention (Loafing Giant) affects only
+        # combat damage. Assignment restrictions are checked in combat itself.
         if combat and source is not None and getattr(source, "temp_prevent_combat_damage_dealt", False):
             return
         # RULE 702.16c: protection prevents *all* damage from a source of the

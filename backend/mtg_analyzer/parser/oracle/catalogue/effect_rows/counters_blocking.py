@@ -1115,7 +1115,22 @@ def _must_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+# RULE 702.3b / 609.4: a resolving permission leaves defender in place.
+_DEFENDER_ATTACK_TURN_RE = compile_clause(
+    r"(?P<subject>~|it) can attack this turn as though it didn't have defender"
+)
+
+
+def _defender_attack_turn(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if m.group("subject") == "it" and not reading.self_subject:
+        return None
+    return [EffectSpec("combat_restriction_this_turn", {
+        "restriction": {"kind": "attacks_as_though_no_defender"},
+    })]
+
+
 ROWS: list[EffectHandler] = [
+    EffectHandler("defender_attack_this_turn", _DEFENDER_ATTACK_TURN_RE, _defender_attack_turn, reading_aware=True),
     # MEC-27: "put x +1/+1 counters on target creature, where x is the
     # number of Elves you control." — tried before the plain `add_counters`
     # row below since "x" never matches that row's `{COUNT}` (digit/"a"/"an"

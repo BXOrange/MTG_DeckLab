@@ -1796,7 +1796,30 @@ def _amass_untyped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _AMASS_UNTYPED_RE = compile_clause(rf"amass {NUMBER}")
 
 
+# RULE 510.1: this is an assignment prohibition, not damage prevention.
+_ASSIGN_NO_COMBAT_DAMAGE_RE = compile_clause(
+    r"(?P<subject>~|it|that creature|the first creature|the attacking creature) assigns no combat damage this turn"
+)
+
+
+def _assign_no_combat_damage(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    subject = m.group("subject")
+    params = {}
+    if subject != "~":
+        if reading.group_subject:
+            params["subject"] = "trigger_subject"
+        elif reading.attached_subject:
+            # The trigger names the firing host, including after detachment.
+            params["subject"] = "trigger_subject"
+        elif reading.previous_subject:
+            params["subject"] = "previous_target"
+        elif not reading.self_subject or subject not in {"it", "that creature"}:
+            return None
+    return [EffectSpec("assign_no_combat_damage", params)]
+
+
 ROWS: list[EffectHandler] = [
+    EffectHandler("assign_no_combat_damage", _ASSIGN_NO_COMBAT_DAMAGE_RE, _assign_no_combat_damage, reading_aware=True),
     # RULE 701.47/48 Amass "<Type> N" — "amass Orcs 1"/"amass Zombies 2".
     # Tried before the untyped row below since a real type word always
     # parses here first (the untyped row's bare NUMBER can never see it —

@@ -391,6 +391,8 @@ ability's controller when the source changes zones or has another owner.
 
 ### Conditional defender permission (RULE 702.3b / 508.4)
 
+- **Resolving permissions and assignment riders (PAR-189, v734):** Shared grammar models turn-scoped defender attack permission, coordinated pumps and optional actions followed by “assigns no combat damage this turn”. Defender remains on the creature; the permission expires in cleanup. Assignment restrictions apply before attacker/blocker damage assignment in both strike steps, independently of prevention, and retain the firing creature through Aura triggers, pending choices and clones. New zone visits clear the restriction. Gaze of Pain uses the same assignment semantics. Unsupported independent antecedents, defending-player operands and durations remain fail-closed. `tests/test_par189_combat_riders.py` and the Gaze regressions exercise accepted/declined choices, announced targets, Aura hosts, cleanup, clone, blink and unpreventable damage. Full backend suite with `--full-cache`: **16,043 passed, 1 skipped**. Measured full-pool verdict delta: **+25 / −0** against v732; ledger coverage **22,130/35,051 (63.1%)**, Commander **21,525/32,068 (67.1%)**.
+
 `attacks_as_though_no_defender` supports a defender kind and a combat
 condition. Attack offers, declaration validation and goad checks apply the
 same permission to the actual defender. Removing defender independently

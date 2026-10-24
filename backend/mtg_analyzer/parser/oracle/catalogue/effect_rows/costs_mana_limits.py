@@ -1048,7 +1048,7 @@ def _may_have_it_deal_damage_equal_to_power(m: re.Match[str]) -> Optional[list[E
                 "dealer_kind": "trigger_subject", "target_kind": recipient,
                 **optional_param(m),
             }).to_dict(),
-            EffectSpec("prevent_combat_damage_dealt", {"subject": "trigger_subject"}).to_dict(),
+            EffectSpec("assign_no_combat_damage", {"subject": "trigger_subject"}).to_dict(),
         ],
     })]
 

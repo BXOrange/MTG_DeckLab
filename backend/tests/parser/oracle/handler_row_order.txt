@@ -1,3 +1,4 @@
+assign_no_combat_damage
 amass
 empower_jace
 amass_untyped
@@ -434,6 +435,7 @@ activate_only_if
 activate_only_compound
 win_game
 win_if_empty_library
+defender_attack_this_turn
 add_counters_devotion
 add_counters_suspected_target
 add_counters_ring_bearer

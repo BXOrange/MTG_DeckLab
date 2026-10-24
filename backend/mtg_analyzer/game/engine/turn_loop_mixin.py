@@ -1093,6 +1093,8 @@ class TurnLoopMixin:
                 ended_effects = True
                 if self.state.player_by_id(obj.controller_id).has_lost:
                     self.rules.exile(obj)  # RULE 800.4c
+            # RULE 514.2: turn-scoped assignment restrictions expire in cleanup.
+            obj.temp_assign_no_combat_damage = False
             if getattr(obj, "temp_prevent_combat_damage_dealt", False):
                 obj.temp_prevent_combat_damage_dealt = False
             # RULE 701.16a: an unused regeneration shield lasts only "that

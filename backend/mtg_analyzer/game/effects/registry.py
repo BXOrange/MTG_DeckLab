@@ -572,6 +572,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "assign_no_combat_damage",
+    lambda p: AssignNoCombatDamageEffect(subject=p.get("subject")),
+)
+EffectRegistry.register(
     "prevent_combat_damage_dealt",
     lambda p: PreventCombatDamageDealtEffect(subject=p.get("subject")),
 )
