@@ -4186,3 +4186,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 736 PAR-197 -- keep quoted native token abilities that name the creating card fail-closed;
      its normalized self-name cannot be rebound as the token name (Sound the Call).
+
+737 PAR-200 -- whole-graveyard shuffle subject axis supports target player,
+     with ordinary announced targets and resumable simultaneous graveyard exits.

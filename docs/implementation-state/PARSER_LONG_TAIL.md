@@ -14,13 +14,13 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-24 at PARSER_VERSION 736: **22,159 / 35,051 cards (63.2%)**,
+Measured on 2026-10-24 at PARSER_VERSION 737: **22,168 / 35,051 cards (63.2%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **21,554 / 32,068 (67.2%)**.
-The full-pool probe comparison against v734 reports **29 new supported cards and
-zero regressions**, from predefined Lander creation and native quoted fixed-symbol
-mana abilities on created tokens, including Eldrazi Spawn/Scion and Human Monk.
-Unknown quoted riders and original-card name references remain fail-closed.
+Commander-legal coverage: **21,563 / 32,068 (67.2%)**.
+The full-pool probe comparison against v736 reports **9 new supported cards and
+zero regressions**, from whole-graveyard shuffles with an announced player target
+and the existing each-player wrapper. Source-owner/controller forms retain their
+scope; commander choices resume the shared simultaneous departure batch.
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py --top 40`

@@ -771,11 +771,15 @@ def _exile_instead_of_leaving(m: re.Match[str]) -> list[EffectSpec]:
 
 #: PAR-139: "its owner shuffles their graveyard into their library" — the tail of "When ~ is put into a graveyard
 #: from anywhere, …" (Emrakul, the Aeons Torn; Ulamog, the Infinite Gyre). "Its" is the ability's own source.
-_OWNER_SHUFFLES_GRAVEYARD_RE = compile_clause(r"its owner shuffles their graveyard into their library")
+#: PAR-200 widens the subject axis to an announced target player (Reminisce, Thran Foundry).
+_OWNER_SHUFFLES_GRAVEYARD_RE = compile_clause(r"(?P<subject>its owner|target player) shuffles their graveyard into their library")
 
 
-def _owner_shuffles_graveyard(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("shuffle_graveyard_into_library", {"owner_of_source": True})]
+def _owner_shuffles_graveyard(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if m.group("subject") == "its owner" and not reading.self_subject:
+        return None
+    params = {"target_kind": "player"} if m.group("subject") == "target player" else {"owner_of_source": True}
+    return [EffectSpec("shuffle_graveyard_into_library", params)]
 
 
 #: PAR-136: "Return that card to the battlefield under its owner's control at the beginning of the next end
@@ -1315,7 +1319,7 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         "owner_shuffles_graveyard", _OWNER_SHUFFLES_GRAVEYARD_RE, _owner_shuffles_graveyard,
-        requires=ClauseReading(self_subject=True),
+        reading_aware=True,
     ),
     EffectHandler(
         "delayed_return_battlefield_previous", _DELAYED_RETURN_BATTLEFIELD_RE,

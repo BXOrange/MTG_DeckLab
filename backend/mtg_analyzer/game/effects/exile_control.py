@@ -2431,7 +2431,7 @@ class FinishGraveyardShuffleEffect(GameEffect):
 
 
 class ShuffleGraveyardIntoLibraryEffect(GameEffect):
-    """"Shuffle your graveyard into your library." (RULE 701.20) — the
+    """"Shuffle your graveyard into your library." (RULE 701.24) — the
     graveyard-only sibling of `RulesEngine.shuffle_hand_and_graveyard_
     into_library`'s "hand AND graveyard" wheel template; reused wherever
     only the graveyard moves (Paradigm Shift).
@@ -2442,12 +2442,17 @@ class ShuffleGraveyardIntoLibraryEffect(GameEffect):
     is stale once it is in a graveyard.
     """
 
-    def __init__(self, owner_of_source: bool = False, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, owner_of_source: bool = False, source: Optional["GameObject"] = None,
+                 target_kind: Optional[str] = None) -> None:
         super().__init__(source)
         self.owner_of_source = owner_of_source
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.owner_of_source and self.source is not None:
+        if self.target_spec is not None:
+            # RULE 115/608.2b: the player is announced and revalidated by the stack.
+            player = targets[0] if targets else None
+        elif self.owner_of_source and self.source is not None:
             player = context.state.player_by_id(self.source.owner_id)
         else:
             player = _controller_of(self.source, context)

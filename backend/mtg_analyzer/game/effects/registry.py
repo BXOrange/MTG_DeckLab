@@ -1406,7 +1406,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "shuffle_graveyard_into_library",
-    lambda p: ShuffleGraveyardIntoLibraryEffect(owner_of_source=bool(p.get("owner_of_source", False))),
+    lambda p: ShuffleGraveyardIntoLibraryEffect(
+        owner_of_source=bool(p.get("owner_of_source", False)), target_kind=p.get("target_kind"),
+    ),
 )
 EffectRegistry.register(
     # "Target player shuffles up to three target cards from their graveyard
