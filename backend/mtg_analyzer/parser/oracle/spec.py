@@ -284,6 +284,7 @@ RETIRED_EFFECT_PARAMS: dict[str, str] = {
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "property": str,
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
+    "event_key": str,  # exact trigger subject field, resolved by the trigger binder
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,

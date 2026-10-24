@@ -4163,3 +4163,12 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      flicker and clone (608.2h/400.7). Preserve signed P/T settings and clamp negative modifier results separately.
 729 PAR-185 -- require supported type retention for the source-pronoun animation row added in v726; remove
      false MODELED claims for enchantment-to-creature transformations whose old type must be replaced (205.1a).
+730 PAR-188 -- bind contextual self/trigger/attached-host characteristics once across X-valued effect bodies,
+     including death tokens/drains, self pumps/counters, and library choices. Preserve explicit source versus
+     prior-target and named-trigger referents; read exact-visit LKI and clamp negative calculated quantities.
+     Compose explicit-source counter riders, optional pumps and inline search quantities. Attached damage
+     reads the actual firing host and its exact departed source characteristics, including temporary keywords.
+731 PAR-188 -- optional causative targeted pumps announce required targets before their resolution-time choice;
+     source-based quantity selectors reuse exact-visit source LKI, including the legacy dynamic-pump path.
+732 PAR-188 -- targeted creature characteristic pumps also floor a negative calculated X at zero, preserving
+     positive quantities, power-only/symmetric axes, and the separate signed base-P/T setting exception.

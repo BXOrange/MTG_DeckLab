@@ -68,7 +68,7 @@ def test_target_own_power_parses_as_bind_over_pump():
         "target creature gets +x/+0 until end of turn, where x is its power."
     ) == [EffectSpec("bind", {
         "name": "px",
-        "amount": {"kind": "characteristic", "characteristic": "power", "of": "target"},
+        "amount": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
         "effects": [{"type": "pump", "params": {
             "power": "$px", "toughness": 0, "target_kind": "creature",
         }}],
@@ -81,7 +81,7 @@ def test_thats_creatures_power_phrase_parses():
         "creature's power."
     ) == [EffectSpec("bind", {
         "name": "px",
-        "amount": {"kind": "characteristic", "characteristic": "power", "of": "target"},
+        "amount": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
         "effects": [{"type": "pump", "params": {
             "power": "$px", "toughness": "$px", "target_kind": "creature",
         }}],

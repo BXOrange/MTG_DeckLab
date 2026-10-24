@@ -14,6 +14,10 @@ the card's implementation and tests; shipped narrative in
   resolving amounts and conditions use it only after that source visit ends.
   Source characteristic amounts use `zone_visit_characteristics` for the departed
   battlefield visit (RULE 608.2h), never a later incarnation of that physical card.
+  `zone_visit_sources` preserves departed damage-source characteristics, including
+  temporary keywords, through clone and token removal. Contextual trigger amounts
+  use a binder-resolved event field and its captured zone visit, distinguishing
+  the damage dealer from the damaged permanent.
   Live source identity remains unchanged for selectors such as "other".
 - Aura/Equipment trigger predicates resolve their source by instance ID from the
   *current* state. Snapshot callbacks retain Python closures, so a captured

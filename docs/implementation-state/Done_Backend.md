@@ -4469,6 +4469,7 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 
 ### The composition axis (ENG-37, `14_` S3)
 
+- **Contextual characteristic quantities (PAR-188, v732):** self, firing-object, attached-host and previous-target power/toughness quantities bind once across pumps, counters, tokens, drains and library choices. Explicit-source bodies compose optional target pumps, counter/haste riders and inline search definitions; mandatory targets and Ward precede the optional resolution choice. Numeric and damage-source LKI retain the exact departed visit through blink, clone and token removal, including temporary lifelink/deathtouch. Calculated negative quantities use zero while base P/T settings remain signed. Ambiguous antecedents, independently unsupported bodies and measurements belonging to future triggers stay fail-closed. Gameplay and adversarial regressions: `tests/test_par188_contextual_power.py`.
 - **What:** `game/effects/composition.py` — `seq`, `if_else`, `optional`,
 - **Files:** `game/effects/composition.py`, `game/effect_amounts.py`,
 

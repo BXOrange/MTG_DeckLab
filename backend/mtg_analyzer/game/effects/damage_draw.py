@@ -465,12 +465,26 @@ class DealDamageEffect(GameEffect):
                 self.source = original
             return
         if self.dealer_event_key is None:
-            self._apply_from(context, targets)
+            expected = getattr(context, "resolving_source_incarnation", None)
+            original = self.source
+            if (original is not None and expected is not None
+                    and original.zone_incarnation != expected):
+                self.source = context.state.zone_visit_sources.get((original.instance_id, expected), original)
+            try:
+                self._apply_from(context, targets)
+            finally:
+                self.source = original
             return
         # PAR-123: under a group trigger "it deals N damage" names the object that fired the
         # trigger, not this ability's source (Dragon Tempest) — deal from it for this resolution
         # only, since one effect instance serves every future firing of the ability.
-        dealer = context.state.find_object((context.trigger_event or {}).get(self.dealer_event_key))
+        dealer_id = (context.trigger_event or {}).get(self.dealer_event_key)
+        dealer = context.state.find_object(dealer_id)
+        expected = ((context.trigger_event or {}).get("subject_zone_incarnations") or {}).get(self.dealer_event_key)
+        if expected is not None and (dealer is None or dealer.zone_incarnation != expected):
+            # RULE 608.2h/702.15c: use the firing object's departed source
+            # characteristics, including temporary abilities it had then.
+            dealer = context.state.zone_visit_sources.get((dealer_id, expected), dealer)
         if dealer is None:
             return
         original = self.source

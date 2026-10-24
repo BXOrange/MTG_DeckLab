@@ -4796,6 +4796,11 @@ def _where_x_specs(
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    inline_source = re.fullmatch(
+        r"(?P<head>.+), where x is (?P<phrase>~'s (?:power|toughness|mana value)), (?P<tail>.+)", text,
+    )
+    if inline_source:
+        text = f"{inline_source['head']}, {inline_source['tail']}, where x is {inline_source['phrase']}"
     # Keep the animation's type-retention sentence inside its own body;
     # the quantity still measures once for the whole grant (RULE 611.2d).
     retained = re.fullmatch(
@@ -4855,7 +4860,7 @@ def _where_x_specs(
             return _where_x_specs(
                 f"{mid.group('head')}. {mid.group('tail')}, where x is {mid.group('phrase')}",
                 reading=reading.unattached(),
-                several=several,
+                several=True,
             )
         if m is not None:
             return None  # a sentence break inside the phrase that is not this shape: not an X definition
@@ -4949,11 +4954,14 @@ def _bind_x_specs(
         if isinstance(params.get('extra_counters'), dict):
             params['extra_counters'], counter_x = _replace_x(params['extra_counters'])
             nested = nested or counter_x
-        if several and not (holders or nested):
+        if isinstance(params.get('effects'), list):
+            params['effects'], effect_x = _replace_x(params['effects'])
+            nested = nested or effect_x
+        if several and not bound_any and not (holders or nested):
             # "put a +1/+1 counter on ~, then create X tokens, where X is the number of
             # counters on ~" (Anim Pakal) measures *after* the first effect; a bind
-            # measures once, before all of them. Only a sentence whose every effect
-            # takes the X is one shared measurement.
+            # measures once, before all of them. A non-X tail after the first
+            # measured instruction is safe; an earlier non-X effect is not.
             return None
         for key in holders:
             params[key] = "-$n" if key in negated else "$n"
@@ -4973,7 +4981,7 @@ def _bind_x_specs(
 #: X bound to that object's characteristic (`effect_amounts`' ``characteristic``), the same shape
 #: `_where_x_specs` gives a counted quantity.
 _REFERENT_WHAT = r"(?P<what>power|toughness|mana value)"
-_REFERENT_POSSESSIVE = rf"(?:its|that {PRONOUN_NOUN_ALT}'s)"
+_REFERENT_POSSESSIVE = rf"(?P<possessive>its|that {PRONOUN_NOUN_ALT}'s)"
 _WHERE_X_CHARACTERISTIC_RE = re.compile(
     rf"^(?P<rest>.+?),?\s+where x is {_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$", re.IGNORECASE
 )
@@ -5018,9 +5026,16 @@ def _referent_characteristic_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """See `_REFERENT_WHAT`; ``None`` unless the body reads as one X-taking effect."""
-    if reading.self_subject or not (reading.group_subject or reading.previous_subject):
+    if not (reading.self_subject or reading.group_subject or reading.previous_subject or reading.attached_subject):
         return None
     text = body.strip().rstrip(".").strip()
+    mid = _WHERE_X_MID_BODY_RE.match(text)
+    if mid is not None and re.fullmatch(
+        rf"{_REFERENT_POSSESSIVE} {_REFERENT_WHAT}", mid.group("phrase"), re.I,
+    ):
+        # The library-selection body reads the same X in a later sentence.
+        # Move only its definition, preserving the body and its reading.
+        text = f"{mid.group('head')}. {mid.group('tail')}, where x is {mid.group('phrase')}"
     m = _WHERE_X_CHARACTERISTIC_RE.match(text)
     if m is not None:
         rest = m.group("rest")
@@ -5041,26 +5056,47 @@ def _referent_characteristic_specs(
         # A third-person verb with no subject of its own ("…, then gains life equal to that
         # creature's toughness") acts for whoever the clause before it named — not necessarily "you".
         return None
+    explicit_source = bool(re.match(r"~ (?:gets?|deals?)\b", rest) or re.match(r"put x .+ counters? on ~(?!\w)", rest))
+    if m.group("possessive") != "its":
+        if not (reading.previous_subject or reading.group_subject):
+            return None  # a self trigger establishes no "that creature/artifact" antecedent
+        referent = "previous_target" if reading.previous_subject else "trigger_subject"
+    else:
+        referent = ("source" if explicit_source else "previous_target" if reading.previous_subject else
+                    "source" if reading.self_subject else "trigger_subject")
     amount = {
         "kind": "characteristic", "characteristic": _CHARACTERISTIC_NAMES[m.group("what").lower()],
-        "of": "trigger_subject" if reading.group_subject and not reading.previous_subject else "previous_target",
+        "of": referent,
     }
+    if referent == "trigger_subject":
+        amount["event_key"] = GROUP_SUBJECT_KEY_SENTINEL
     inner = parse_effect_body(
-        rest.strip(), reading=ClauseReading(self_subject=False, group_subject=reading.group_subject, referents=reading.referents),
+        rest.strip(), reading=reading.unattached(),
     )
     if not inner:
         return None
+    if not all(spec.type == "grant_until" and spec.params.get("static", {}).get("type") == "type_change"
+               for spec in inner):
+        # RULE 107.1b: preserve signed base P/T settings, while calculated
+        # modifier/count/life results use zero instead of a negative value.
+        amount["minimum"] = 0
     effects: list[dict[str, Any]] = []
     bound_any = False
     for spec in inner:
+        if spec.type in ("create_turn_trigger", "create_delayed_trigger"):
+            return None  # the future trigger measures its characteristic when it resolves
         data, replaced = _replace_x(spec.to_dict())
-        if replaced and spec.type == "trigger_subject_referent":
-            pass
+        if (len(inner) > 1 and not bound_any and not replaced
+                and not (spec.type == "trigger_subject_referent" and not spec.params.get("effects"))):
+            return None  # an earlier non-X instruction may change the measured characteristic
         bound_any = bound_any or replaced
         effects.append(data)
     if not bound_any:
         return None
-    return [EffectSpec("bind", {"name": "n", "amount": amount, "effects": effects})]
+    bound = EffectSpec("bind", {"name": "n", "amount": amount, "effects": effects})
+    if reading.attached_subject and _IT_DEALS_RE.search(rest) and _deals_damage(bound):
+        bound = _stamp_damage_dealer(bound)
+    return [bound]
 
 
 #: PAR-128: the player-subject slot. "each player mills 3 cards", "each opponent gains 10
@@ -6576,6 +6612,13 @@ def _parse_effect_body_inner(
     # connector split below would hand the tail to `<B>` alone and leave `<A>`'s X as
     # the (unpaid) spell X (Tendrils of Corruption dealt 0 damage and gained the life).
     one_x_text = body.strip().rstrip(".").strip()
+    # RULE 608.2h: a pronoun-defined X scopes all of this sentence, before
+    # splitting a drain into separate life-loss and life-gain instructions.
+    contextual_x = _WHERE_X_CHARACTERISTIC_RE.match(one_x_text)
+    if contextual_x is not None and "." not in contextual_x.group("rest"):
+        shared_characteristic = _referent_characteristic_specs(body, reading=reading)
+        if shared_characteristic is not None:
+            return shared_characteristic
     one_x = (_WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
              or _WHERE_X_DIE_RE.match(one_x_text) or _WHERE_X_HALF_COUNT_RE.match(one_x_text))
     if one_x is not None and "." not in one_x.group("rest") and re.search(
@@ -6816,7 +6859,7 @@ def _parse_effect_body_inner(
         return where_x
 
     referent_x = _referent_characteristic_specs(
-        body, reading=reading.unattached(),
+        body, reading=reading,
     )
     if referent_x is not None:
         return referent_x
@@ -10895,6 +10938,10 @@ _IF_YOU_DO_SENTENCE_RE = re.compile(r"\.\s+(?:if|when) you do\b", re.I)
 def peel_optional(body: str) -> tuple[str, bool]:
     """Strip a leading "you may " and report whether it was present (RULE 601.2)."""
     body = body.strip()
+    if _MAY_HAVE_TARGET_GET_RE.match(body):
+        # RULE 603.5/603.3d: targets are required when the trigger is put on
+        # the stack; only applying the pump is optional on resolution.
+        return body, False
     if _PAY_ENERGY_THEN_PEEL_GUARD_RE.match(body):
         return body, False
     # PAR-152 (Jocasta): "…, if this card is in your graveyard, you may return it to the battlefield tapped and

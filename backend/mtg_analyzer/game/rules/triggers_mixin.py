@@ -204,6 +204,15 @@ class TriggerCollectionMixin:
             captured = copy.copy(captured)
             captured.data = dict(captured.data)
             captured.data["source_zone_incarnation"] = getattr(obj, "zone_incarnation", None)
+            # RULE 608.2h: a contextual quantity may name either side of a
+            # damage event. Preserve those object visits before any prompt.
+            visits = dict(captured.get("subject_zone_incarnations") or {})
+            for field in ("instance_id", "source_id", "target_id"):
+                subject = self.state.find_object(captured.get(field))
+                if subject is not None:
+                    visits[field] = (captured.get("zone_incarnation", subject.zone_incarnation)
+                                     if field == "instance_id" else subject.zone_incarnation)
+            captured.data["subject_zone_incarnations"] = visits
             if recipe_id is not None:
                 captured.data["copiable_stack_id"] = recipe_id
             firing_ability = ability

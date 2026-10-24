@@ -1173,6 +1173,9 @@ class GameState:
         # RULE 608.2h / 400.7: characteristic measurements of an old source
         # use its last battlefield visit even after the physical card returns.
         self.zone_visit_characteristics: dict[tuple[int, int], dict[str, int]] = {}
+        # RULE 608.2h/702.15c: damage by a departed object uses its old
+        # characteristics (including granted lifelink), not a returned visit.
+        self.zone_visit_sources: dict[tuple[int, int], GameObject] = {}
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
         self.copiable_stack_recipes: dict[int, StackItem] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []
@@ -1718,6 +1721,13 @@ class GameState:
                     "toughness": int(event.get("toughness", departed.toughness) or 0),
                     "mana_value": int(departed.mana_value or 0),
                 }
+                snapshot = copy.copy(departed)
+                # Keep the printed card and bound behavior references; only
+                # characteristic containers must survive reset/recomputation.
+                for name, value in vars(departed).items():
+                    if isinstance(value, (dict, list, set)):
+                        setattr(snapshot, name, copy.copy(value))
+                self.zone_visit_sources[(departed.instance_id, departed.zone_incarnation)] = snapshot
                 host = self.find_object(departed.attached_to)
                 relationship = ((host.instance_id, host.zone_incarnation)
                                 if host is not None else None)

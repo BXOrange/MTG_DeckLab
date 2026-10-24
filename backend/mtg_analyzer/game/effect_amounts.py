@@ -299,9 +299,11 @@ def _base(
         incarnation = getattr(context, 'resolving_source_incarnation', None)
         if (reference is not None and incarnation is not None
                 and incarnation != getattr(source, 'zone_incarnation', None)):
-            from copy import copy
-            reference = copy(source)
-            reference.counters = effect_conditions.source_counters(context, source)
+            reference = context.state.zone_visit_sources.get((source.instance_id, incarnation))
+            if reference is None:
+                from copy import copy
+                reference = copy(source)
+                reference.counters = effect_conditions.source_counters(context, source)
         if amount.get("reference") and amount["reference"] != "self":
             # PAR-123: "for each creature blocking **it**" / "for each **other** attacking creature that
             # shares a creature type with **it**" — the counted-against object is the one a pronoun
@@ -524,6 +526,18 @@ def _base(
         characteristic = str(amount.get("characteristic", ""))
         if characteristic not in CHARACTERISTICS:
             return 0
+        event_key = amount.get("event_key")
+        if amount.get("of") == "trigger_subject" and isinstance(event_key, str):
+            event = getattr(context, "trigger_event", None) or {}
+            subject_id = event.get(event_key)
+            subject = context.state.find_object(subject_id)
+            expected_visit = (event.get("subject_zone_incarnations") or {}).get(event_key)
+            if (expected_visit is not None
+                    and (subject is None or subject.zone_incarnation != expected_visit)):
+                # RULE 608.2h/400.7: the firing object is the exact old visit,
+                # even if its physical card has returned before resolution.
+                snapshot = context.state.zone_visit_characteristics.get((subject_id, expected_visit), {})
+                return int(snapshot.get(characteristic, 0))
         expected_source = getattr(context, "resolving_source_incarnation", None)
         if (amount.get("of") == "source" and source is not None and expected_source is not None
                 and getattr(source, "zone_incarnation", None) != expected_source):

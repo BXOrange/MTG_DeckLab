@@ -503,8 +503,10 @@ def _pump_target_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: effect's pump applies, Drain Life's proven `bind` pattern) and the most
 #: recent `RollDieEffect` total.
 _PUMP_X_REFERENT_AMOUNTS: dict[str, dict] = {
-    "its power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
-    "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
+    # RULE 107.1b: a negative calculated pump magnitude is zero; this is
+    # distinct from setting base P/T, which preserves signed values.
+    "its power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
+    "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
     "the result": {"kind": "die_result"},
 }
 _PUMP_TARGET_X_AMOUNT_RE = compile_clause(
