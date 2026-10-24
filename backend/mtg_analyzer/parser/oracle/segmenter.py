@@ -1635,6 +1635,10 @@ _LOYALTY_LINE_RE = re.compile(
 #: line is *claimed* here (covered) but contributes no spec.
 _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
 
+#: RULE 605.1a: unlike the legacy prefix recognizer, this validates the whole
+#: fixed-symbol mana body before it can become a quoted token ability.
+_FIXED_MANA_EFFECT_RE = re.compile(r"add (?:\{[wubrgc]\})+\.?", re.I)
+
 #: "For each color among permanents you control, add one mana of that
 #: color." (Bloom Tender/Faeburrow Elder-shaped) — doesn't start with "add"
 #: (that's mid-sentence, after the "for each" clause), so `_MANA_EFFECT_RE`
@@ -3414,6 +3418,8 @@ class Segment:
     #: True when the line is a pure keyword line (claimed elsewhere, by the
     #: keyword catalogue) — it contributes no effect spec here but *is* covered.
     keyword_line: bool = False
+    #: RULE 605: native mana abilities are auto-bound from oracle text, without IR.
+    mana_ability: bool = False
     #: Further abilities the same printed line produces. Empty for almost
     #: every line: one printed line is one ability. The exception is RULE
     #: 700.2's *compact* inline modal on an activated ability ("Enchanted
@@ -3422,6 +3428,19 @@ class Segment:
     #: abilities sharing a cost: choosing which one to activate **is** the
     #: printed choice, so no mode-selection machinery is needed for it.
     extra_specs: list[AbilitySpec] = field(default_factory=list)
+
+    @property
+    def native_oracle_text(self) -> str:
+        """RULE 111.3: reconstruct native mana text for the raw-text binder.
+
+        The mana model reads printed ``Add {C}.`` with its original casing
+        and period; token creation starts from normalized, lower-case text.
+        """
+        if not self.mana_ability:
+            return self.raw
+        text = re.sub(r"\badd\b", "Add", self.raw, flags=re.I)
+        text = re.sub(r"\{[wubrgc]\}", lambda match: match.group().upper(), text, flags=re.I)
+        return text.rstrip(" .") + "."
 
 
 #: RULE 700.2's compact inline modal, in the one printed shape that is
@@ -3814,8 +3833,8 @@ def _created_tokens_have_cda_specs(body: str) -> Optional[list[EffectSpec]]:
 
 
 _CREATED_TOKENS_HAVE_ABILITY_RE = re.compile(
-    r'^(?P<create>(?:you )?create [^.]+ creature tokens)\.\s*'
-    r'(?:they|those tokens) have "(?P<ability>[^"]+)"$', re.I | re.S,
+    r'^(?P<create>(?:you )?create [^.]+ creature tokens?)\.\s*'
+    r'(?:it has|(?:they|those tokens) have) "(?P<ability>[^"]+)"$', re.I | re.S,
 )
 
 
@@ -3824,16 +3843,20 @@ def _created_tokens_have_ability_specs(body: str) -> Optional[list[EffectSpec]]:
     match = _CREATED_TOKENS_HAVE_ABILITY_RE.fullmatch(body)
     if match is None:
         return None
+    # RULE 201.5: a folded name of the creating card cannot become the
+    # token's own self-reference (Sound the Call). Retain fail-closed scope.
+    if re.search(r"\bnamed ~", match.group("ability"), re.I):
+        return None
     created = parse_effect_body(match.group("create"))
     ability = segment_line(match.group("ability"), allow_spell_effect=False, provenance=ParserProvenance())
     if (not created or len(created) != 1 or created[0].type != "create_token"
-            or not ability.claimed or ability.spec is None):
+            or not ability.claimed or (ability.spec is None and not ability.mana_ability)):
         return None
     # Preserve the token's own Oracle text. create_token binds this text on
     # each new object, so self references and controllers belong to the token.
     params = dict(created[0].params)
     params["oracle_text"] = "\n".join(filter(None, (
-        params.get("oracle_text"), match.group("ability"),
+        params.get("oracle_text"), ability.native_oracle_text,
     )))
     return [EffectSpec("create_token", params)]
 
@@ -9771,7 +9794,8 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
                 # neither scale its sacrifice nor its amount, so stays unclaimed.
                 return Segment(raw=raw)
             # Mana ability — covered by the engine's mana model, no spec here.
-            return Segment(raw=raw, claimed=True)
+            return Segment(raw=raw, claimed=True,
+                           mana_ability=_FIXED_MANA_EFFECT_RE.fullmatch(effect_text) is not None)
         cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}
         # Throne of Eldraine-shaped colour-lock on this ability's own cost —
         # a trailing "Spend only mana of the chosen color to activate this

@@ -517,6 +517,8 @@ and simultaneous decline effects while retaining APNAP choice order.
 
 ### Quoted abilities on created tokens (PARSER_VERSION 598)
 
+- **Predefined tokens and native mana (PAR-197, v736):** Curated Lander and Eldrazi Spawn definitions preserve real types and abilities. Inline and singular/plural quoted-token grammar retains fully recognized fixed-symbol mana abilities as native Oracle text for binding, with executable costs, correct casing and punctuation. Unsupported trailing instructions and folded references to the creating card's name fail closed. Pawn of Ulamog and Awakening Zone now create functional mana-producing Spawn; Horizon Explorer reuses the shared Lander definition. Runtime tests cover immediate Spawn sacrifice, tap-mana summoning sickness, life payment and Lander's full cost/basic-only search/tapped-entry/shuffle sequence; `test_par175_clause_linkage.py` retains the existing Scion regressions. Validation: full backend suite with `--full-cache` **16,065 passed, 1 skipped**. Full-pool comparison against v734: **+29 supported, zero regressions**; ledger coverage **22,159/35,051 (63.2%)**, Commander **21,554/32,068 (67.2%)**. Independent alternate-cost, delayed-count and original-card-name mechanics remain unmodeled.
+
 The parser attaches a fully supported quoted ability in “They/Those tokens
 have …” to each created token's Oracle text (RULE 111.3). Each token receives
 its own bound ability; unsupported or partially claimed quotes fail closed.

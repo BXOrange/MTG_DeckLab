@@ -351,14 +351,12 @@ def _cast_parsed(eng, card, targets=()):
     return mana_abilities_for
 
 
-def test_a_quoted_ability_given_to_a_created_token_is_a_created_only_grant():
+def test_a_quoted_native_ability_is_printed_on_the_created_token():
     from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
     specs = parse_effect_body(f"create a 1/1 colorless eldrazi scion creature token. {SCION_ABILITY}")
-    assert [s.type for s in specs] == ["create_token", "grant_until"]
-    grant = specs[1].params
-    assert grant["referent"] == "created" and grant["static"]["type"] == "grant_mana_ability"
-    assert grant["static"]["params"]["granted_mana_cost"] == "sacrifice ~"
+    assert [s.type for s in specs] == ["create_token"]
+    assert specs[0].params["oracle_text"] == "sacrifice ~: Add {C}."
     # No creating clause before it: the pronoun has no antecedent, so nothing is claimed.
     assert parse_effect_body(f"draw a card. {SCION_ABILITY}") is None
     assert parse_effect_body(SCION_ABILITY) is None

@@ -16,6 +16,7 @@ def _pawn_of_ulamog() -> list[AbilitySpec]:
             [EffectSpec("create_token", {
                 "count": 1, "token_name": "Eldrazi Spawn", "power": 0, "toughness": 1,
                 "colors": [], "subtypes": ["Eldrazi", "Spawn"],
+                "oracle_text": "Sacrifice this token: Add {C}.",
             })],
             trigger={
                 "event": EventType.DIES,

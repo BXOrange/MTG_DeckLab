@@ -4177,3 +4177,12 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      referents, announced targets, cleanup, blink and cloned pending choices.
 734 PAR-189 -- attached-trigger assignment riders name the firing host through trigger_subject,
      preserving the referent through optional resolution and avoiding an unsupported condition operand.
+
+735 PAR-197 -- predefined Lander catalogue/creation and inline/singular/plural quoted
+     fixed-symbol native token mana abilities. Fully validated mana bodies retain canonical
+     raw Oracle casing and punctuation for the engine mana binder; unknown quoted riders
+     remain fail-closed. Existing Pawn of Ulamog/Awakening Zone Spawn and Horizon Explorer
+     Lander catalogue creators preserve their actual token abilities.
+
+736 PAR-197 -- keep quoted native token abilities that name the creating card fail-closed;
+     its normalized self-name cannot be rebound as the token name (Sound the Call).

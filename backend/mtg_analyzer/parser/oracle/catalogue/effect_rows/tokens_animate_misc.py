@@ -196,14 +196,17 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         params["token_name"] = tname.strip().title()
     token_ab = m.groupdict().get("token_ab")
     if token_ab:
+        # RULE 201.5: a creating card's folded name is not the token's name.
+        if re.search(r"\bnamed ~", token_ab, re.I):
+            return None
 
         # RULE 111.3: this is the token's own printed ability, not an
         # ability re-granted to another object. Validate its native scope.
         ability = segment_line(token_ab.rstrip(" ,.;"), allow_spell_effect=False,
                                provenance=ParserProvenance())
-        if not ability.claimed or ability.spec is None:
+        if not ability.claimed or (ability.spec is None and not ability.mana_ability):
             return None  # an ability nothing models would leave the token silently without it
-        params["oracle_text"] = "\n".join(filter(None, (params.get("oracle_text"), token_ab.rstrip(" ,.;"))))
+        params["oracle_text"] = "\n".join(filter(None, (params.get("oracle_text"), ability.native_oracle_text)))
     return params
 
 
