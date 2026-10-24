@@ -85,7 +85,7 @@ const CHOICE_ICONS = {
   reselect_attack: '⚔️', damage_recipient: '🎯',
   meteor_permanent: '☄️',
   // MEC-108: "your choice of a flying counter or a lifelink counter" — at resolution / as it enters.
-  counter_kind: '🏷️', choose_enter_counter: '🏷️', riot: '🏷️',
+  counter_kind: '🏷️', choose_enter_counter: '🏷️', riot: '🏷️', tribute: '🏷️', tribute_opponent: '👥',
   // Explorer's Scope's "look at the top card, if it's a land you may put
   // it onto the battlefield tapped" (bug report, 2026-09-04).
   peek_top_land: '🔭',

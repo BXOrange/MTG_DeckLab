@@ -36,7 +36,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-190 · Tribute follow-ups.** `if tribute wasn't paid, …`: 10 open, all sole-blocker (Fanatic of Xenagos, Nessian Demolok, Nessian Wilds Ravager, Oracle of Bones, Ornitharch, Pharagax Giant, Shrike Harpy, Siren of the Fanged Coast, Snake of the Golden Grove, Thunder Brute).
 - **PAR-192 · Opening-hand reveal permissions.** `you may reveal this card from your opening hand. if you do, at the beginning of the first upkeep, …`: 8 open (Chancellor cycle, Devourer of Destiny, Providence, Sphinx of Foresight).
 - **PAR-193 · Dragon aura return clause.** `when a creature with mana value 6 or greater enters, you may return this card from your graveyard to the battlefield attached to that creature`: 6 open, all sole-blocker (Dragon Breath, Fangs, Scales, Shadow, Wings, Smoke Shroud).
 - **PAR-194 · Rune auras.** `as long as enchanted permanent is an equipment, it has "equipped creature has …"`: 5 open, all sole-blocker (Rune of Flight, Might, Mortality, Speed, Sustenance).

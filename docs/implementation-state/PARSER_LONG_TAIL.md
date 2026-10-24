@@ -14,9 +14,9 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-24 at PARSER_VERSION 739: **22,212 / 35,051 cards (63.4%)**,
+Measured on 2026-10-25 at PARSER_VERSION 741: **22,248 / 35,051 cards (63.5%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **21,606 / 32,068 (67.4%)**.
+Commander-legal coverage: **21,642 / 32,068 (67.5%)**.
 The full-pool probe comparison against v738 reports **6 new supported card names and
 zero regressions**, from activated-only ability counters with stack-category targeting.
 The probe's raw pool includes 35,100 card names; the ledger report uses its

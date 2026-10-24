@@ -756,6 +756,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),
     "source_was_cast": _flag("was_cast"),
+    "tribute_paid": _flag("tribute_paid"),  # RULE 702.104b (PAR-190)
     "source_was_cast_from_hand": _flag("was_cast_from_hand"),  # RULE 601.2/400.1 (PAR-120)
     "source_was_foretold": _flag("foretold"),
     "cast_via_escape": _flag("cast_via_escape"),

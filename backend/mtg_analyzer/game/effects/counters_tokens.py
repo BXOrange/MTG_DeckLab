@@ -4350,6 +4350,18 @@ class ChooseRiotReplacement(GameEffect):
         return None  # offered by RulesEngine._offer_enter_choices
 
 
+class ChooseTributeReplacement(GameEffect):
+    """Tribute N (RULE 702.104a): "As this creature enters, an opponent of your choice may put N +1/+1 counters
+    on it." Offered by `RulesEngine._offer_enter_choices` before entry, like Riot's `ChooseRiotReplacement`."""
+
+    def __init__(self, n: int = 1) -> None:
+        super().__init__(None)
+        self.n = max(1, int(n))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # offered by RulesEngine._offer_enter_choices
+
+
 class ChooseCreatureTypeReplacement(GameEffect):
     """"As ~ enters, choose a creature type." (RULE 601.2b-style
     characteristic-defining choice made as part of entering — not a

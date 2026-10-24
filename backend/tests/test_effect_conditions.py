@@ -59,6 +59,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "kicked_at_least": [2],
     "bargained": [True],
     "gift_promised": [True, False],
+    "tribute_paid": [True, False],  # PAR-190, RULE 702.104b
     "madness_cost_paid": [True, False],  # PAR-139, RULE 702.35
     "blitz_cost_paid": [True, False],  # RULE 702.152
     "surge_cost_paid": [True, False],  # RULE 702.117
@@ -252,6 +253,7 @@ class TestTheCollapseIsReal:
             "cast_during_your_main_phase",  # PAR-120, Addendum
             "previous_target_is_suspected", "teamwork_paid", "gift_promised",
             "madness_cost_paid",  # PAR-139
+            "tribute_paid",  # PAR-190, RULE 702.104b
             "blitz_cost_paid",  # RULE 702.152
             "surge_cost_paid",  # RULE 702.117
             # RULE 701.60c's `is_suspected` flag read off two more referents,

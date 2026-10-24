@@ -868,6 +868,9 @@ class GameObject:
         # RULE 702.136: per-entry preparation and a pending lasting haste grant.
         self.riot_entry_prepared: bool = False
         self.riot_entry_haste: bool = False
+        #: RULE 702.104b: whether an opponent paid this permanent's Tribute as it entered ("if tribute wasn't
+        #: paid"). Stamped by the tribute choice; reset with the new object (RULE 400.7).
+        self.tribute_paid: bool = False
         self.entry_abandoned: bool = False
         #: The `enter_choice_effects` as bound. Entry consumes that queue one instruction at a time, so a
         #: new object (RULE 400.7: blink, reanimation) gets it back from here in `reset_as_new_object`.
@@ -1482,6 +1485,7 @@ class GameObject:
         self.entry_abandoned = False
         self.riot_entry_prepared = False
         self.riot_entry_haste = False
+        self.tribute_paid = False
         # RULE 708.9: a face-down permanent is revealed as it changes zones,
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).

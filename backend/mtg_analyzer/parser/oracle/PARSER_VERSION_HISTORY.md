@@ -4196,3 +4196,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 740 PAR-187 -- shared reveal/look-hand choice supports general characteristic filters,
      minimum mana value, exile and an independent graveyard alternative. Preserve
      exact hand/source exile visits and executable discard Escalate keyword costs.
+
+741 PAR-190 -- "if tribute wasn't paid" / "tribute was paid" intervening-if gates read GameObject.tribute_paid,
+     stamped by the opponent's as-enters Tribute N choice (engine: ChooseTributeReplacement).

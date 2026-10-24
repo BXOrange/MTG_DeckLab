@@ -52,6 +52,7 @@ from ..effects.core import (
     ChooseCreatureTypeReplacement,
     ChooseEnterCounterReplacement,
     ChooseRiotReplacement,
+    ChooseTributeReplacement,
     ChooseNamedModeReplacement,
     ChooseNumberReplacement,
     ChooseOpponentReplacement,
@@ -2931,6 +2932,9 @@ class CastingResolutionMixin:
             obj.enter_choice_effects = remaining
             self._offer_enter_choices(obj, continuation)
 
+        if isinstance(effect, ChooseTributeReplacement):
+            self._offer_tribute(obj, effect, _next)
+            return
         if isinstance(effect, ChooseRiotReplacement):
             kind = "riot"
             prompt = f"{obj.name}: Riot — +1/+1-Marke oder Haste?"
@@ -3021,6 +3025,76 @@ class CastingResolutionMixin:
             **({"free_text": True} if kind in ("choose_card_name", "choose_number") else {}),
             **({"entry_effect": bool(self.state.pending_permanent_entry)} if kind == "riot" else {}),
         })
+
+    def _offer_tribute(self, obj: GameObject, effect: ChooseTributeReplacement, resume: Callable[[], None]) -> None:
+        """RULE 702.104a Tribute N: "an opponent of your choice may put N +1/+1 counters on it" as it enters.
+
+        With several opponents the controller picks one first (`tribute_opponent`); the chosen opponent then
+        answers `tribute`. Without a living opponent there is nobody to pay, so tribute simply isn't paid."""
+        opponents = [p for p in self.state.living_players() if p.id != obj.controller_id]
+        if not opponents:
+            resume()
+            return
+        self._pending_enter_choice_obj = obj
+        self._pending_enter_choice_effect = effect
+        self._pending_enter_choice_continuation = resume
+        self.state.pending_tribute_entry = obj
+        entry_effect = bool(self.state.pending_permanent_entry)
+        if len(opponents) == 1:
+            self._open_tribute_payment(obj, effect.n, opponents[0].id, entry_effect)
+            return
+        self.open_choice({
+            "kind": "tribute_opponent",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: Tribute {effect.n} — Gegner wählen",
+            "options": [{"id": p.id, "label": p.name} for p in opponents],
+            "tribute_n": effect.n,
+            "entry_effect": entry_effect,
+        })
+
+    def _open_tribute_payment(self, obj: GameObject, n: int, opponent_id: str, entry_effect: bool) -> None:
+        self.open_choice({
+            "kind": "tribute",
+            "player_id": opponent_id,
+            "prompt": f"{obj.name}: Tribute {n} — {n}× +1/+1-Marke darauf legen?",
+            "options": [{"id": "pay", "label": f"{n}× +1/+1-Marke"}, {"id": "decline", "label": "Nein"}],
+            "tribute_n": n,
+            "entry_effect": entry_effect,
+        })
+
+    @continuations.choice("tribute_opponent", answer=continuations.ANSWER_STR, rule="702.104a")
+    def _resume_tribute_opponent(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        obj = self.state.pending_tribute_entry
+        if obj is None:
+            raise ValueError("no pending Tribute entrant")
+        valid = [str(o["id"]) for o in choice["options"]]
+        picked = str(answer) if answer is not None and str(answer) in valid else valid[0]
+        self._open_tribute_payment(obj, int(choice["tribute_n"]), picked, bool(choice.get("entry_effect")))
+
+    @continuations.choice("tribute", answer=continuations.ANSWER_STR, rule="702.104a")
+    def _resume_tribute(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        obj = self.state.pending_tribute_entry
+        self.state.pending_tribute_entry = None
+        if obj is None:
+            raise ValueError("no pending Tribute entrant")
+        if answer == "pay":
+            # RULE 702.104b: tribute was paid once the opponent chose the counters, even if a replacement
+            # later prevents them. RULE 122.6: they join the other entry counters in one placement.
+            obj.tribute_paid = True
+            n = int(choice["tribute_n"])
+            obj.entry_bonus_counters["+1/+1"] = obj.entry_bonus_counters.get("+1/+1", 0) + n
+        if choice.get("entry_effect"):
+            obj.enter_choice_effects = obj.enter_choice_effects[1:]
+            self._pending_enter_choice_obj = None
+            self._pending_enter_choice_effect = None
+            self._pending_enter_choice_continuation = None
+        else:
+            continuation = self._pending_enter_choice_continuation
+            self._pending_enter_choice_obj = None
+            self._pending_enter_choice_effect = None
+            self._pending_enter_choice_continuation = None
+            if continuation is not None:
+                continuation()
 
     @continuations.choice("riot", answer=continuations.ANSWER_STR, rule="702.136")
     def _resume_riot(self, choice: dict[str, Any], answer: Optional[str]) -> None:

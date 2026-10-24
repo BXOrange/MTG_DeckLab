@@ -59,6 +59,7 @@ from ..effects.core import (
     ChooseNamedModeReplacement,
     ChooseNumberReplacement,
     ChooseOpponentReplacement,
+    ChooseTributeReplacement,
     ConditionalEffect,
     EffectRegistry,
     EmbalmEternalizeEffect,
@@ -4766,6 +4767,10 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                 obj.activated_abilities.append(keyword_ability)
             obj.triggered_abilities.extend(_keyword_triggered_abilities(obj, spec))
             _attach_affinity_static(obj, spec)
+            if str((spec.keyword or {}).get("name") or "") == "tribute" and (spec.keyword or {}).get("n"):
+                # RULE 702.104a Tribute N: an as-enters opponent choice (`RulesEngine._offer_tribute`).
+                obj.enter_choice_effects.append(ChooseTributeReplacement(int(spec.keyword["n"])))
+                obj.enter_choice_template = list(obj.enter_choice_effects)
             if str((spec.keyword or {}).get("name") or "") == "ninjutsu":
                 # RULE 702.49a Ninjutsu: "[cost], Reveal this card from your
                 # hand, Return an unblocked attacker you control to hand: Put

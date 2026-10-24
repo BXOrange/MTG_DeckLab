@@ -3590,6 +3590,12 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "not", "condition": {"kind": "flag", "flag": "gift_promised"}}),
     (re.compile(r"the gift was promised", re.I),
      lambda m: {"kind": "flag", "flag": "gift_promised"}),
+    # PAR-190 / RULE 702.104b: "if tribute wasn't paid" — `GameObject.tribute_paid`, stamped by the opponent's
+    # as-enters Tribute choice (`RulesEngine._offer_tribute`).
+    (re.compile(r"tribute wasn'?t paid", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "flag", "flag": "tribute_paid"}}),
+    (re.compile(r"tribute was paid", re.I),
+     lambda m: {"kind": "flag", "flag": "tribute_paid"}),
     # PAR-139 / RULE 702.35: "(if) its / this spell's madness cost was paid" — `GameObject.madness_cost_paid`.
     (re.compile(r"(?:its|this spell'?s) madness cost was paid", re.I),
      lambda m: {"kind": "flag", "flag": "madness_cost_paid"}),

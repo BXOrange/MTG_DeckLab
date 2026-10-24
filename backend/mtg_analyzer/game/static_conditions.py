@@ -462,6 +462,7 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         # an unrelated counter-amount gate; this is its first boolean-
         # condition route.
         "was_cast_from_hand",
+        "tribute_paid",  # RULE 702.104b — "if tribute wasn't paid"
     }
 )
 
