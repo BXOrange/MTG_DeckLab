@@ -199,11 +199,19 @@ def _mana_value_bound_key(m: re.Match[str]) -> str:
 
 
 def _exile_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    # "exile target permanent with mana value 4 or greater" (Despark, Kin-Tree Severance) / "…or less".
-    kind = resolve_target_kind(m.group("target"))
-    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent")):
+    # RULE 115.1: a mana-value bound composes with type and controller scope.
+    phrase = m.group("target") + (m.group("tail_scope") or "")
+    kind = resolve_target_kind(phrase)
+    if not target_kind_allowed(kind, (
+        "creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS,
+        "artifact_or_creature", "artifact_creature_or_enchantment",
+    )):
         return None
-    return [EffectSpec("exile", {"target_kind": kind, _mana_value_bound_key(m): int(m.group("mv"))})]
+    params = {"target_kind": kind, **optional_param(m), _mana_value_bound_key(m): int(m.group("mv"))}
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("exile", params)]
 
 
 def _quality_filter_builder(effect_type: str):
@@ -741,7 +749,8 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # Imperfect) is a real `targeting.legal_targets` kind (RULE 115.1c),
     # just never previously reachable from the plain exile handler.
     if not target_kind_allowed(kind, (
-        "creature", "attacking_or_blocking_creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS
+        "creature", "attacking_or_blocking_creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS,
+        "artifact_creature_or_enchantment",
     )):
         return None
     params: dict = {"target_kind": kind, **optional_param(m)}
@@ -950,7 +959,7 @@ ROWS: list[EffectHandler] = [
     # "exile target permanent with mana value 4 or greater" — the exile sibling of `destroy_mv`.
     EffectHandler(
         "exile_mv",
-        compile_clause(rf"exile {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)"),
+        compile_clause(rf"exile {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)(?P<tail_scope> an opponent controls| you don\'t control| you control)?"),
         _exile_mv,
     ),
     # "destroy target creature with power 4 or greater" / "…with flying"

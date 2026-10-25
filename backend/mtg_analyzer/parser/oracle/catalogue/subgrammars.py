@@ -759,6 +759,7 @@ SCOPED_TARGET_BASE: dict[str, str] = {
     "targetable_creature_or_planeswalker_you_control": "creature_or_planeswalker",
     "another_creature_or_planeswalker_you_control": "creature_or_planeswalker",
     "creature_you_control": "creature",
+    "creature_defending_player_controls": "creature",
     "other_creature_you_control": "creature",
     "permanent_you_control": "permanent",
     "nonland_permanent_you_control": "nonland_permanent",

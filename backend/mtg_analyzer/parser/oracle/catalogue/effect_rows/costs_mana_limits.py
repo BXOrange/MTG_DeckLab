@@ -1186,35 +1186,22 @@ def _transform(m: re.Match[str]) -> list[EffectSpec]:
 #: The engine returns the exiled incarnation immediately after departure;
 #: old two-ability wording retains an ordinary separate return trigger.
 _EXILE_UNTIL_LEAVES_RE = compile_clause(
-    rf"exile {TARGET}(?P<opp_ctrl> an opponent controls| defending player controls)? "
+    r"(?P<head>exile (?:target .+?|up to .+?|another target .+?|other target .+?|that creature|it)) "
     r"until ~ leaves the battlefield"
 )
-_EXILE_UNTIL_LEAVES_OPP_KINDS: dict[str, str] = {
-    "creature": "creature_you_dont_control",
-    "permanent": "permanent_you_dont_control",
-    "artifact": "artifact_you_dont_control",
-    "nonland_permanent": "nonland_permanent_you_dont_control",
-    "artifact_creature_or_enchantment": "artifact_creature_or_enchantment_you_dont_control",
-}
 
 
-def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind is None:
+def _exile_until_leaves(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 610.3: duration is independent of the target's type, qualities,
+    # mana-value bound and controller. Let the existing exile grammar read
+    # those axes rather than duplicating its target vocabulary here.
+    effects = parse_effect_body(m.group("head"), reading=reading)
+    if effects is None or len(effects) != 1 or effects[0].type != "exile":
         return None
-    if (m.group("opp_ctrl") or "").strip() == "an opponent controls":
-        kind = _EXILE_UNTIL_LEAVES_OPP_KINDS.get(kind, kind)
-    params: dict = {
-        "target_kind": kind,
-        "until_source_leaves": True,
-        **optional_param(m),
-    }
-    # See `_destroy`'s own comment: "exile target tapped creature an
-    # opponent controls until ~ leaves" (Seal Away-shaped) needs it too.
-    state_filter = resolve_target_creature_state_filter(m.group("target"))
-    if state_filter:
-        params["creature_filter"] = state_filter
-    return [EffectSpec("exile", params)]
+    effect = effects[0]
+    if effect.params.get("target_kind") is None:
+        return None
+    return [EffectSpec("exile", {**effect.params, "until_source_leaves": True}, condition=effect.condition)]
 
 
 #: "return it/~ to the battlefield transformed under its owner's control"
@@ -1809,14 +1796,12 @@ ROWS: list[EffectHandler] = [
         compile_clause(rf"(?:transform|convert) (?:{re.escape(SELF)}|it|this permanent|this creature)"),
         _transform,
     ),
-    # "exile <TARGET> [an opponent controls] until ~ leaves the
-    # battlefield." (O-Ring / Banisher Priest / Fiend Hunter) — the
-    # companion LEAVES_BATTLEFIELD return ability is synthesized by the
-    # segmenter off the ``until_source_leaves`` param.
+    # RULE 610.3: modern duration-bound exile returns immediately when the
+    # source leaves; old two-ability O-Ring wording keeps its own trigger.
     EffectHandler(
         "exile_until_leaves",
         _EXILE_UNTIL_LEAVES_RE,
-        _exile_until_leaves,
+        _exile_until_leaves, reading_aware=True,
     ),
     # "return it/~ to the battlefield transformed under its owner's
     # control" (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — a dies

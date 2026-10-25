@@ -4202,3 +4202,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 742 PAR-196 -- conditional self untap restrictions reuse state predicates; source-bound
      "flip it" resolves optional ki-counter flips with intervening-if checks and exact source visits.
+
+746 PAR-199 -- duration-bound exile reuses shared target/mana-value/referent grammar;
+     per-blocker source heads use BLOCKS, and damage referents retain their exact visits.

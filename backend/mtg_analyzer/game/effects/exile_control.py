@@ -312,6 +312,21 @@ class ExileEffect(GameEffect):
             )
             obj_id = (event or {}).get(key)
             target = context.state.find_object(obj_id) if obj_id is not None else None
+            # RULE 400.7: a trigger's creature referent is the captured visit,
+            # including the damage source Hixus exiles, not a blinked return.
+            incarnation_key = {
+                "instance_id": "instance_zone_incarnation",
+                "source_id": "source_zone_incarnation",
+                "target_id": "target_zone_incarnation",
+            }.get(key)
+            visits = (event or {}).get("subject_zone_incarnations") or {}
+            incarnation = visits.get(key)
+            if incarnation is None and incarnation_key and key != "source_id":
+                incarnation = (event or {}).get(incarnation_key)
+            if (target is not None and incarnation is not None and target.zone_incarnation != incarnation
+                    and (event or {}).get("graveyard_incarnation") is None):
+                context.previous_targets = []
+                return
             if (event or {}).get("graveyard_incarnation") is not None:
                 if (target is None or target.zone != Zone.GRAVEYARD
                         or target.zone_incarnation != event.get("graveyard_incarnation")):

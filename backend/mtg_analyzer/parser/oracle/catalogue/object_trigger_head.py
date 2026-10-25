@@ -494,6 +494,13 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
         return None
     if parsed[1] is not None:  # whose creature it is is not modelled
         return None
+    if m.group("blocked") and subject == "~":
+        # RULE 509.3d: "becomes blocked by a creature" triggers separately
+        # for each blocker. BLOCKS names that blocker and fires per relation;
+        # the aggregate BECOMES_BLOCKED event instead names the attacker.
+        return ObjectHead("BLOCKS", {"subject": "group", "filter": {
+            **parsed[0], "blocking_source": True,
+        }}, {})
     if m.group("both"):
         events: "str | list[str]" = ["BLOCKS", "BECOMES_BLOCKED"]
     else:

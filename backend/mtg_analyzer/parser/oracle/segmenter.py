@@ -6206,6 +6206,8 @@ def _parse_effect_body_inner(
         if not before_specs:
             return None
         immediate_specs = parse_effect_body(immediate, reading=reading)
+        if immediate_specs is None:
+            return None  # A trailing conditional may require the earlier cost's antecedent.
         def _is_destroy(spec: EffectSpec) -> bool:
             # A group trigger's "destroy it" sits in the firing-object wrapper's body.
             if spec.type == "trigger_subject_referent":
@@ -7816,8 +7818,18 @@ def _stamp_group_pronoun_once(
         return None  # "equipped creature becomes blocked, it deals …": "it" isn't the source
     if subject not in ("group", "self_or_group"):
         return effects
+    # A handler may already identify an explicit trigger referent even when
+    # a leading condition names the source (Hixus). Unlike an ambiguous bare
+    # "it", this reference still names the firing creature (RULE 603.1).
+    effects = [EffectSpec(e.type, {**e.params, "trigger_event_key": GROUP_SUBJECT_KEY_SENTINEL},
+                          condition=e.condition)
+               if e.params.get("target_kind") == "trigger_subject" and not e.params.get("trigger_event_key")
+               else e for e in effects]
     lowered = body.lower()
-    if _stamped_dealer_any(effects) and _pronoun_continues_source(lowered):
+    # A leading state condition does not introduce an action's new referent.
+    # "If ~ entered this turn, exile that creature" still names the dealer.
+    referent_body = re.sub(r"^if [^,]+,\s*", "", lowered)
+    if _stamped_dealer_any(effects) and _pronoun_continues_source(referent_body):
         return None  # "put a counter on ~. it gains haste": that "it" is the source, not the firing object
     if _BARE_PRONOUN_RE.search(lowered) is None or _EXPLICIT_SOURCE_RE.search(lowered):
         return effects

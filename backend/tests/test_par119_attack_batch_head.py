@@ -320,7 +320,6 @@ BASILISK = "Whenever ~ blocks or becomes blocked by a non-Wall creature, destroy
     "cond, events, related",
     [
         ("~ blocks a creature with flying", "BLOCKS", {"card_type": "creature", "keyword": "flying"}),
-        ("~ becomes blocked by an artifact creature", "BECOMES_BLOCKED", {"card_type_all": ["artifact", "creature"]}),
         ("~ blocks or becomes blocked by a non-wall creature", ["BLOCKS", "BECOMES_BLOCKED"],
          {"without_subtype": "wall", "card_type": "creature"}),
         ("~ blocks a creature", "BLOCKS", None),
@@ -330,6 +329,15 @@ def test_the_block_relation_grammar(cond, events, related):
     head = parse_object_trigger_head(cond)
     assert head is not None and head.event == events
     assert head.trigger.get("related_filter") == related
+
+
+def test_becomes_blocked_by_head_uses_each_blocker_as_its_subject():
+    head = parse_object_trigger_head("~ becomes blocked by an artifact creature")
+    assert head.event == "BLOCKS"
+    assert head.condition == {"subject": "group", "filter": {
+        "card_type_all": ["artifact", "creature"], "blocking_source": True,
+    }}
+    assert head.trigger == {}
 
 
 @pytest.mark.parametrize(
