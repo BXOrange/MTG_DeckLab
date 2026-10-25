@@ -1347,8 +1347,12 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
         extra_counters: Optional[dict[str, Any]] = None,
         attach_to_previous: bool = False,
         face_choice: bool = False,
+        attach_to_trigger_subject: bool = False,
     ):
         super().__init__(source)
+        #: "…to the battlefield attached to that creature" (Dragon Breath, Smoke Shroud) — the host is the
+        #: object named by the firing trigger event, resolved when this resolves.
+        self.attach_to_trigger_subject = bool(attach_to_trigger_subject)
         #: "…return this card from your graveyard to the battlefield **face up or face down**." (Deathmist Raptor) —
         #: the controller picks (`RulesEngine._request_return_face_choice`); a card with no morph can only return
         #: face up, so no question is asked for it.
@@ -1375,6 +1379,13 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
                     or self.source.hideaway_incarnation != self.source_incarnation
                     or not context.engine._attachment_legal(self.source, host, False)):
                 return  # RULE 303.4i / 603.7c: an invalid or new host prevents entry.
+        if self.attach_to_trigger_subject:
+            host = context.state.find_object((context.trigger_event or {}).get("instance_id"))
+            # RULE 303.4i: an Aura put onto the battlefield attached to an object that is gone or that
+            # it cannot enchant stays in the graveyard.
+            if (host is None or host is self.source or host.zone != Zone.BATTLEFIELD
+                    or not context.engine._attachment_legal(self.source, host, False)):
+                return
         destination = "battlefield_tapped" if self.tapped else "battlefield"
         controller_id = (context.resolving_controller_id or self.source.controller_id) if host is not None else None
         from .. import face_down  # function-scoped: face_down is imported by the rules mixins above this package

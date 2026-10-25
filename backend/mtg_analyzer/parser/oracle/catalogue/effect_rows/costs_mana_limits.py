@@ -1239,6 +1239,9 @@ _RETURN_SELF_FROM_GRAVEYARD_RE = compile_clause(
     # "…with 2 +1/+1 counters on it" (Retrofitted Transmogrant, Phoenix Chick) — the enters-with rider
     # the targeted row already reads, same counter vocabulary.
     rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+    # "…attached to that creature" (Dragon Breath cycle, Smoke Shroud, PAR-193): the host is the
+    # creature whose entering fired the trigger.
+    r"(?P<attached> attached to that creature)?"
     r"|(?P<hand>your hand))"
 )
 
@@ -1249,6 +1252,10 @@ def _return_self_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("atk") and not m.group("tapped"):
         return None
     params: dict = {"tapped": bool(m.group("tapped"))}
+    if m.group("attached"):
+        if m.group("tapped") or m.group("atk") or m.group("ewc_kind"):
+            return None
+        params["attach_to_trigger_subject"] = True
     if m.group("atk"):
         params["attacking"] = True
     if m.group("ewc_kind"):

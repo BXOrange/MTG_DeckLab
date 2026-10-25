@@ -3608,6 +3608,7 @@ EffectRegistry.register(
         extra_counters=p.get("extra_counters"),
         attach_to_previous=bool(p.get("attach_to_previous", False)),
         face_choice=bool(p.get("face_choice", False)),
+        attach_to_trigger_subject=bool(p.get("attach_to_trigger_subject", False)),
     ),
 )
 EffectRegistry.register(

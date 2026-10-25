@@ -4209,3 +4209,7 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 747 PAR-201 -- source-control transfers announce and recheck a targeted opponent,
      retain source visits and resolving controllers through optional payments, and
      remove the transferred source from combat only when control actually changes.
+
+748 PAR-193 -- "return this card from your graveyard to the battlefield attached to
+     that creature" (Dragon Breath cycle, Smoke Shroud) reads as return_self_from_graveyard
+     with attach_to_trigger_subject; the host is the creature of the entering event.

@@ -37,7 +37,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 ## PAR — Parser
 
 - **PAR-192 · Opening-hand reveal permissions.** `you may reveal this card from your opening hand. if you do, at the beginning of the first upkeep, …`: 8 open (Chancellor cycle, Devourer of Destiny, Providence, Sphinx of Foresight).
-- **PAR-193 · Dragon aura return clause.** `when a creature with mana value 6 or greater enters, you may return this card from your graveyard to the battlefield attached to that creature`: 6 open, all sole-blocker (Dragon Breath, Fangs, Scales, Shadow, Wings, Smoke Shroud).
 - **PAR-194 · Rune auras.** `as long as enchanted permanent is an equipment, it has "equipped creature has …"`: 5 open, all sole-blocker (Rune of Flight, Might, Mortality, Speed, Sustenance).
 - **PAR-195 · Time-counter exile rules.** `whenever a time counter is removed from this card while it's exiled` (6 open, 5 sole-blocker: Aeon Chronicler, Benalish Commander, Detritivore, Dinosaurs on a Spaceship, Fungal Behemoth) and `put a time counter on ~` (9 open).
 - **PAR-198 · "Instead" modifiers.** Kicker/condition `… instead` replacement sentences: 16 open, 14 sole-blocker (Desolation Angel/Giant, Ether Well, Feed the Clan, Fight with Fire, Grizzly Fate, Mysteries of the Deep, Predator's Howl, Ray of Enfeeblement, Ritual of Hope, Take the Fall, We Say Thee Nay!).
