@@ -409,7 +409,9 @@ def _redact_hidden_zones(
             player.get("id") == perspective or player.get("id") in reveal_hands
         )
         if not own and player.get("id") not in reveal_hands:
+            opening_revealed = {obj["instance_id"] for obj in state_dict.get("opening_hand_revealed", [])}
             player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")
+                              or obj.get("instance_id") in opening_revealed
                               or obj.get("instance_id") in (resolution_visible_hand_ids or set())]
         # A library is hidden even from its owner (they don't know their own
         # draw order); only a card an effect actually reveals is kept.
@@ -602,12 +604,6 @@ class GameSession:
         #: answered: the scries are queued rather than opened at once because
         #: `GameState` holds exactly one `pending_choice` at a time.
         self._pending_scries: list[str] = []
-        #: RULE 103.6: every ``(player_id, instance_id)`` opening-hand card
-        #: still owed its "begin the game somewhere else?" choice
-        #: (`game/card_registry.pregame_setup_permission`), in turn
-        #: order — same queued-one-at-a-time shape as `_pending_scries`,
-        #: and resolved *before* it (RULE 103.6 precedes Vancouver's scry).
-        self._pending_opening_hand: list[tuple[str, int]] = []
         #: Whether the first RULE 117 priority window is still owed because a
         #: setup-time choice (a Vancouver scry) was open when setup finished.
         self._priority_window_pending = False
@@ -659,16 +655,11 @@ class GameSession:
         self.engine = GameEngine(state.clone())
         self.engine.interactive_priority = self.interactive_priority
         self.engine.resume_at(cursor)
-        # The Vancouver scry queue and the deferred first priority window
-        # are *session* state the restored `GameState` knows nothing about,
-        # and both exist only across the setup handoff. Dropping them is the
-        # honest reconciliation: the scry that was owed belonged to the
-        # position being undone. (Undoing a `keep_hand` at all is already a
-        # half-supported corner — `_setup_pending` isn't restored either —
-        # so this keeps `vancouver` exactly as good as `london` there, no
-        # worse.)
+        # Opening-hand actions and revealed visits follow the restored
+        # GameState. The older Vancouver scry queue is still session state;
+        # drop its deferred flags as before (undoing keep_hand itself also
+        # predates complete setup-state restoration).
         self._pending_scries.clear()
-        self._pending_opening_hand.clear()
         self._priority_window_pending = False
         self._yields.clear()
         # Plans and repeat guards belong to the restored timeline.
@@ -677,6 +668,15 @@ class GameSession:
     @property
     def can_rewind(self) -> bool:
         return bool(self._history)
+
+    @property
+    def _pending_opening_hand(self) -> list[tuple[str, int, int]]:
+        """RULE 103.6: the setup queue follows the cloned game position."""
+        return self.engine.state.opening_hand_queue
+
+    @_pending_opening_hand.setter
+    def _pending_opening_hand(self, value: list[tuple[str, int, int]]) -> None:
+        self.engine.state.opening_hand_queue = value
 
     @property
     def _setup_complete(self) -> bool:
@@ -1813,9 +1813,10 @@ class GameSession:
         starting_id = state.starting_player_id
         if starting_id is None and state.players:
             starting_id = state.players[state.active_player_index].id
+        starting_index = next((i for i, player in enumerate(state.players) if player.id == starting_id), state.active_player_index)
         self._pending_opening_hand = [
-            (p.id, obj.instance_id)
-            for p in state.players
+            (p.id, obj.instance_id, obj.zone_incarnation)
+            for p in (state.players[starting_index:] + state.players[:starting_index])
             if not p.is_dummy
             for obj in list(p.hand)
             if (permission := card_registry.pregame_setup_permission(obj.card)) is not None
@@ -1827,12 +1828,19 @@ class GameSession:
         """Open the next queued opening-hand-battlefield choice, if any."""
         state = self.engine.state
         while self._pending_opening_hand and not state.pending_choice:
-            player_id, instance_id = self._pending_opening_hand.pop(0)
+            player_id, instance_id, incarnation = self._pending_opening_hand[0]
             player = state.player_by_id(player_id)
-            obj = next((o for o in player.hand if o.instance_id == instance_id), None)
+            obj = next((o for o in player.hand if o.instance_id == instance_id and o.zone_incarnation == incarnation), None)
             if obj is None:
+                self._pending_opening_hand.pop(0)
                 continue  # left the hand some other way already
-            self.engine.rules.offer_opening_hand_battlefield_choice(player, obj)
+            # RULE 103.6: each player may take their actions in any order.
+            # Keep the legacy two-option surface when only one card remains.
+            cards = [candidate for pid, iid, visit in self._pending_opening_hand if pid == player_id
+                     for candidate in player.hand if candidate.instance_id == iid and candidate.zone_incarnation == visit]
+            self.engine.rules.offer_opening_hand_battlefield_choice(player, obj, alternatives=cards)
+            if not state.pending_choice:
+                self._pending_opening_hand.pop(0)
 
     def _start_vancouver_scries(self) -> None:
         """Queue the ``vancouver`` scry-1 for every seat that mulliganed.
@@ -1877,6 +1885,11 @@ class GameSession:
             return
         if self._priority_window_pending:
             self._priority_window_pending = False
+            self._advance_to_priority_window()
+        elif (self.interactive_priority and self._setup_complete
+              and (self.engine.state.internal_turn.number == 0 or not self.engine.state.current_step)):
+            # A restored pregame choice has no session-local deferred flag;
+            # the remaining queue and pending choice are restored in state.
             self._advance_to_priority_window()
 
     # -- Interactive priority (RULE 117, multiplayer only) --------------

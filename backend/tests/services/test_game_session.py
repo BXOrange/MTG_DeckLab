@@ -466,10 +466,12 @@ class TestOpeningHandBattlefieldPermission:
         session = self._start([leyline_card("Test Leyline A"), leyline_card("Test Leyline B")])
         view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
         assert view["pending_choice"]["kind"] == "opening_hand_battlefield"
-        first_prompt = view["pending_choice"]["prompt"]
+        first_label = view["pending_choice"]["options"][0]["label"]
         view = session.apply_action({"type": "choose", "option_id": "battlefield"})
         assert view["pending_choice"]["kind"] == "opening_hand_battlefield"
-        assert view["pending_choice"]["prompt"] != first_prompt
+        # RULE 103.6: the menu lets the owner pick an order; its generic
+        # public waiting prompt must not reveal an unchosen hand card.
+        assert first_label not in {option["label"] for option in view["pending_choice"]["options"]}
         view = session.apply_action({"type": "decline"})
         assert view["pending_choice"] is None
         # One was put on the battlefield, the other stayed in hand — which

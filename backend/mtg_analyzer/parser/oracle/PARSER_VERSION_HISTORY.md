@@ -4213,3 +4213,10 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 748 PAR-193 -- "return this card from your graveyard to the battlefield attached to
      that creature" (Dragon Breath cycle, Smoke Shroud) reads as return_self_from_graveyard
      with attach_to_trigger_subject; the host is the creature of the entering event.
+
+750 PAR-192 -- opening-hand reveal permissions share supported effect bodies and
+     exact first-step/per-opponent first-cast timing; generic life setters,
+     optional top-library keep/exile-rest and colored-permanent exile compose.
+
+751 PAR-192 -- opening-hand body parsing re-enters through shared clause hooks,
+     preserving the acyclic parser import graph without function-scoped imports.

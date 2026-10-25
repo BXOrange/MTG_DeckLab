@@ -139,6 +139,7 @@ sacrifice_edict
 target_player_edict
 sacrifice_controller
 discard_and_sacrifice_triple
+set_own_life
 gain_life
 gain_life_equal_devotion
 gain_life_lost_this_way

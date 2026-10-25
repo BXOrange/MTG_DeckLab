@@ -3288,8 +3288,8 @@ class SearchMixin:
         self, player: Player, rest_ids: list[int], destination: str
     ) -> None:
         """Handle remaining unpicked cards from a bounded top-N inspect
-        (MEC-72). Move them to ``destination`` ("library_bottom_random" or
-        "graveyard")."""
+        (MEC-72). Move them to ``destination`` (including exile) without
+        involving any cards outside that inspected group."""
         objs: list[GameObject] = []
         for iid in rest_ids:
             found = self._object_by_instance_id(iid)
@@ -3316,6 +3316,11 @@ class SearchMixin:
                 treasure = default_token_database().get_token("Treasure")
                 if treasure is not None:
                     self.create_token(player.id, treasure, count=len(objs))
+        elif destination == "exile":
+            # RULE 406.1: only the unchosen members of this inspected pool
+            # are exiled; choosing no card exiles the entire bounded group.
+            for obj in objs:
+                self.exile(obj)
         elif destination == "hand":
             # PAR-148: "reveal the top card … otherwise, put that card into your hand" (Hans Eriksson, Skyward Eye
             # Prophets) — the unpicked revealed card goes to its owner's hand.

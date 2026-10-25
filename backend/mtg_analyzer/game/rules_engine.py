@@ -425,13 +425,6 @@ class RulesEngine(
         #: destruction sibling of `_pending_sacrifice_unless_pay` above (a
         #: regeneration shield can still save this one).
         self._pending_destroy_unless_pay: Optional[dict[str, Any]] = None
-        #: RULE 103.6: the opening-hand card awaiting a "begin the game
-        #: somewhere else" answer (`offer_opening_hand_battlefield_choice`/
-        #: `_resume_opening_hand_battlefield` — battlefield or
-        #: graveyard, per its own `PregameSetupPermission.destination`) —
-        #: only one can be pending at a time, same as every other
-        #: `pending_choice`.
-        self._pending_opening_hand_obj: Optional[GameObject] = None
         #: The permanent/player awaiting a `remove_counters_amount`/
         #: `remove_counters_kind` choice (RULE 122 — "remove up to N
         #: counters from target permanent"), and how many are still left to

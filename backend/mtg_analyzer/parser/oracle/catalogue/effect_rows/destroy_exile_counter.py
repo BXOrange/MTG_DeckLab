@@ -11,6 +11,7 @@ from ..static_handlers import quoted_ability_grant_effects, static_effect_specs
 from ..subgrammars import (
     all_permanent_type_selector,
     CANT_BE_COUNTERED_RE,
+    COLOR_LETTERS,
     COLOR_WORD_ALT,
     IF_COLOR_SUFFIX,
     PERMANENT_TYPE_WORDS,
@@ -154,15 +155,22 @@ def _destroy_equipment(m: re.Match[str]) -> list[EffectSpec]:
 #: (Celestial Purge) — `TargetSpec.colors`' OR narrowing, the
 #: `_pump_target_two_color` / `_destroy_color_adj` sibling. The shared
 #: `TARGET` macro's fixed rows have no colour slot, so a dedicated row.
+#: The same color restriction reads "that's 1 or more colors" as any of
+#: the five colors (Devourer of Destiny), independent of the noun or scope.
 _EXILE_TARGET_TWO_COLOR_RE = compile_clause(
-    rf"exile target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) "
+    rf"exile target (?:(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) )?"
     rf"(?P<noun>creature|permanent)(?P<yc> (?:you don't control|an opponent controls))?"
     rf"(?P<that_player>{THAT_PLAYER_TAIL})?"
+    r"(?P<colored> that'?s 1 or more colors)?"
 )
 
 
 def _exile_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    colors = two_color_letters(m)
+    # RULE 105.2: one or more colors is any WUBRG color, never color identity.
+    # Require exactly one color reading, so bare/unrepresented counts decline.
+    if bool(m.group("c1")) == bool(m.group("colored")):
+        return None
+    colors = list(COLOR_LETTERS.values()) if m.group("colored") else two_color_letters(m)
     if colors is None:
         return None
     noun = m.group("noun")

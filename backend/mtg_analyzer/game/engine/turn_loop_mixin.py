@@ -178,6 +178,8 @@ class TurnLoopMixin:
             state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
+        # RULE 103.6b: a manually begun first turn also closes setup reveals.
+        self.state.opening_hand_revealed.clear()
         # RULE 511.3: an end of combat step left without `advance_step` still owes its cleanup, settled while
         # the outgoing player is still active (its "last combat" record belongs to them, not the next player).
         self._finish_end_combat()
@@ -462,6 +464,9 @@ class TurnLoopMixin:
             return
         self._turn_steps.insert(self._cursor, (phase, GameStep(FIRST_STRIKE_DAMAGE_STEP, rule="510")))
     def _run_step(self, phase: GamePhase, step: GameStep) -> None:
+        # RULE 103.6b: session builders prepare turn one before mulligans;
+        # its first actual step ends the public opening-hand reveal window.
+        self.state.opening_hand_revealed.clear()
         self.state.current_phase = phase.name
         self.state.current_step = step.name
         if step.name == "draw":

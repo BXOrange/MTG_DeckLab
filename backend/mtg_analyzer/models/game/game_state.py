@@ -842,6 +842,11 @@ class GameState:
         #: (they fire once). Plain board state — deep-copies with `clone`.
         self.delayed_triggers: list["DelayedTrigger"] = []
 
+        # RULE 103.6: remaining pregame actions and publicly revealed hand
+        # visits belong to the position, so clone/undo can resume them.
+        self.opening_hand_queue: list[tuple[str, int, int]] = []
+        self.opening_hand_revealed: list[tuple[str, int, int]] = []
+
         #: Recurring, bounded-duration player-scoped triggers (Nuka-Nuke
         #: Launcher's "until the end of defending player's next turn, that
         #: player gets rad counters whenever they cast a spell") — see
@@ -1994,6 +1999,10 @@ class GameState:
             ),
             "planar_deck_count": len(self.planar_deck),
             "pending_choice": self.pending_choice,
+            "opening_hand_revealed": [
+                obj.to_dict() for player in self.players for obj in player.hand
+                if (player.id, obj.instance_id, obj.zone_incarnation) in self.opening_hand_revealed
+            ],
             "clash_revealed": [
                 obj.to_dict() for iid in self.clash_revealed
                 if (obj := self.find_object(iid)) is not None

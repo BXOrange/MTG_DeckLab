@@ -11,8 +11,8 @@ The four axes, each parsed on its own so a card recombining known values needs n
 * **what may be taken** — a `models.cards.card_query` criteria dict built from the noun phrase
   (`parse_criteria`: types and subtypes, colours, "nonland", "permanent", "historic", a mana-value
   bound, "{X} in its mana cost"), and *how many* (a / up to N / any number of / all);
-* **where it goes** — hand or battlefield;
-* **where the rest goes** — bottom of the library, graveyard, or shuffled back in.
+* **where it goes** — hand, battlefield, graveyard or back on top;
+* **where the rest goes** — bottom of the library, graveyard, exile, or shuffled back in.
 
 The builder emits one ``inspect_top_choose`` (`InspectTopChooseEffect`). Sentences after the dig
 are ordinary clauses handed back to the caller's ``match_tail`` (a token, a life gain), except
@@ -56,10 +56,11 @@ _X_COST_QUAL = "with {x} in its mana cost"
 #: A bare "x" (an announced-X magnitude), as opposed to the "{x}" mana symbol of `_X_COST_QUAL`.
 _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 
-#: "put 2 of them into your hand [and the rest …]" — a pick with no kind restriction.
+#: A numbered pick with no kind restriction, optionally returned to the top.
 _PICK_OF_THEM_RE = re.compile(
-    r"put (?P<up_to>up to )?(?P<n>\d+) of them "
-    r"(?P<dest>into your hand|into your graveyard)(?: and the rest (?P<rest>.+))?"
+    r"(?P<may>you may )?put (?P<up_to>up to )?(?P<n>\d+) of (?:them|those cards) "
+    r"(?P<dest>into your hand|into your graveyard|(?:back )?on top of your library)"
+    r"(?: and the rest (?P<rest>.+))?"
 )
 #: The selection sentence. ``verb`` "reveal" is only valid with its "and put it" half.
 _SELECTION_RE = re.compile(
@@ -86,6 +87,9 @@ _SENTENCE_SPLIT_RE = re.compile(r"\.\s+")
 
 _ACTION_BY_DEST = {
     "into your hand": "library_to_hand",
+    "into your graveyard": "library_to_graveyard",
+    "on top of your library": "library_top",
+    "back on top of your library": "library_top",
     "onto the battlefield": "library_to_battlefield",
     "onto the battlefield tapped": "library_to_battlefield_tapped",
     # PAR-148 (RULE 508.4)
@@ -241,8 +245,8 @@ def parse_dig(
     rest_text: Optional[str]
     if pick is not None:
         params.update(
-            action=("library_to_hand" if pick.group("dest") == "into your hand" else "library_to_graveyard"),
-            max_picks=int(pick.group("n")), optional=bool(pick.group("up_to")),
+            action=_ACTION_BY_DEST[pick.group("dest")],
+            max_picks=int(pick.group("n")), optional=bool(pick.group("up_to") or pick.group("may")),
         )
         rest_text = pick.group("rest")
     else:
@@ -270,8 +274,11 @@ def parse_dig(
         rest_dest = _rest_destination(rest_text)
     elif tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
         rest_dest, tails = "library_shuffled", tails[1:]
+    elif tails and tails[0] == "exile the rest":
+        rest_dest, tails = "exile", tails[1:]
     elif tails and (rest_sentence := _REST_SENTENCE_RE.fullmatch(tails[0])) is not None:
-        rest_dest, tails = _rest_destination(rest_sentence.group("dest")), tails[1:]
+        rest_text = rest_sentence.group("dest")
+        rest_dest, tails = _rest_destination(rest_text), tails[1:]
     else:
         rest_dest = None
     if pick is not None and pick.group("dest") == "into your graveyard" and rest_text is None and not tails:
@@ -295,4 +302,16 @@ def parse_dig(
         if effects is None:
             return None
         specs.extend(effects)
+    if (pick is not None and params["action"] == "library_to_hand"
+            and rest_text == "on the bottom of your library in any order"):
+        # RULE 401.4: an ordered bottom pile is the player's choice, not a
+        # random permutation. The existing fixed-count hand dig owns that
+        # two-stage selection and ordering continuation (Prophetic Bolt).
+        if "else_effects" in params:
+            return None
+        return [EffectSpec("look_top_select", {
+            "count": count, "select_count": params["max_picks"],
+            "select_optional": params["optional"],
+            "rest_destination": "library_bottom", "rest_order": "any",
+        }), *specs]
     return [EffectSpec("inspect_top_choose", params), *specs]

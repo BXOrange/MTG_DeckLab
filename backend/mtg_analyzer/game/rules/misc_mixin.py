@@ -2093,40 +2093,38 @@ class MiscSystemsMixin:
         target = self.state.find_object(target_id)
         if target is not None and target in self.state.battlefield:
             self.set_tapped(target, tapped=(answer == "tap"))
-    def offer_opening_hand_battlefield_choice(self, player: Player, obj: GameObject) -> None:
-        """RULE 103.6: a card printing a pregame setup permission
-        (`game/card_registry.pregame_setup_permission`) offers
-        ``player`` the choice for one such card still in their opening
-        hand — RULE 103.6a's plain "you may begin the game with it on the
-        battlefield." (the Leyline cycle), or one of the two conditional/
-        costed shapes the same module also recognises (Gemstone Caverns'
-        "...and you're not the starting player...with a luck counter on
-        it. If you do, exile a card from your hand."; Buried Ogre's
-        "...in your graveyard. If you do, you lose N life."). `services/
-        game_session.py` walks every seat's qualifying cards one at a
-        time once the whole table has kept — and, for the conditional
-        shape, only once it has confirmed the "not the starting player"
-        condition holds, so an unmet condition is never even offered —
-        the same queued-`pending_choice` shape Vancouver's post-keep
-        scry uses (`_open_next_vancouver_scry`).
+    def offer_opening_hand_battlefield_choice(
+        self, player: Player, obj: GameObject, alternatives: Optional[list[GameObject]] = None,
+    ) -> None:
+        """RULE 103.6: offer this player's remaining pregame actions in any order.
+
+        Card identities and visits live in pending_choice, so a fresh engine
+        restored from clone/undo can answer without a transient engine pointer.
+        The generic prompt does not disclose an unchosen hand card to opponents.
         """
-        permission = card_registry.pregame_setup_permission(obj.card)
-        assert permission is not None  # game_session only queues qualifying cards
-        self._pending_opening_hand_obj = obj
-        if permission.destination == "battlefield":
-            prompt = f"{obj.name}: mit ihr auf dem Schlachtfeld statt in der Hand beginnen?"
-            accept_label = "Auf das Schlachtfeld legen"
-        else:
-            prompt = f"{obj.name}: mit ihr im Friedhof statt in der Hand beginnen?"
-            accept_label = "In den Friedhof legen"
+        cards = alternatives if alternatives is not None else [obj]
+        offered = []
+        options = []
+        labels = {"battlefield": "Auf das Schlachtfeld legen", "graveyard": "In den Friedhof legen",
+                  "reveal": "Vorzeigen"}
+        for card in cards:
+            permission = card_registry.pregame_setup_permission(card.card)
+            if permission is None:
+                continue
+            visit = (player.id, card.instance_id, card.zone_incarnation)
+            if visit in self.state.opening_hand_revealed:
+                continue  # RULE 103.6b: each card may be revealed only once.
+            option = permission.destination if not offered else f"{permission.destination}:{card.instance_id}"
+            offered.append({"option_id": option, "instance_id": card.instance_id,
+                            "incarnation": card.zone_incarnation})
+            options.append({"id": option, "label": f"{card.name}: {labels[permission.destination]}"})
+        if not options:
+            return
         self.open_choice({
-            "kind": "opening_hand_battlefield",
-            "player_id": player.id,
-            "prompt": prompt,
-            "options": [
-                {"id": permission.destination, "label": accept_label},
-                {"id": "decline", "label": "In der Hand behalten"},
-            ],
+            "kind": "opening_hand_battlefield", "player_id": player.id,
+            "prompt": "Aktion aus der Starthand wählen",
+            "cards": offered,
+            "options": options + [{"id": "decline", "label": "Keine weitere Aktion"}],
         })
     @continuations.choice(
         "opening_hand_battlefield",
@@ -2134,33 +2132,36 @@ class MiscSystemsMixin:
         rule="103.6",
     )
     def _resume_opening_hand_battlefield(self, choice: dict[str, Any], answer: Optional[str]) -> None:
-        """Answer a pending `opening_hand_battlefield` `pending_choice`
-        (RULE 103.6). Accepting — ``answer`` equal to the permission's own
-        `PregameSetupPermission.destination`, "battlefield" or "graveyard"
-        — moves the card there straight from the opening hand (a
-        battlefield entry is untapped, summoning sick, the same default a
-        search-to-battlefield hit gets; a graveyard one fires no zone-
-        change event of its own, since it isn't a discard, a death, or a
-        mill, and nothing can be on the battlefield yet with a trigger
-        that would care) and applies whatever the clause promises along
-        with it: RULE 614.1-style entry counters first (Gemstone Caverns'
-        luck counter — the same direct `GameObject.add_counters` call
-        `_apply_entry_counters` uses, not routed through replacement
-        doubling), then the mandatory "if you do" tail — `lose_life`, or
-        an interactive `exile` `choose_objects` pick, since *which* hand
-        card is exiled is the player's choice (RULE 601.2c); nothing
-        happens if the hand is already empty. Anything else (including the
-        card having somehow already left hand) leaves it untouched."""
-        obj = self._pending_opening_hand_obj
-        self._pending_opening_hand_obj = None
-        if obj is None:
-            return
-        permission = card_registry.pregame_setup_permission(obj.card)
-        if permission is None or answer != permission.destination:
-            return
+        """RULE 103.6: perform the selected action for its exact opening-hand visit.
+
+        Battlefield/graveyard actions retain their entry counters and mandatory
+        tails. Revealing leaves the card in hand and creates its independent
+        delayed payoff. Declining finishes this player's remaining actions.
+        """
         player = self.state.player_by_id(choice["player_id"])
-        if obj not in player.hand:
-            return  # defensive: shouldn't happen, nothing else touches hands here
+        candidates = choice.get("cards") or []
+        chosen = next((entry for entry in candidates if entry["option_id"] == answer), None)
+        if chosen is None:
+            if answer in (None, "decline"):
+                self.state.opening_hand_queue[:] = [entry for entry in self.state.opening_hand_queue
+                                                    if entry[0] != player.id]
+            return
+        self.state.opening_hand_queue[:] = [entry for entry in self.state.opening_hand_queue
+                                           if not (entry[0] == player.id and entry[1] == chosen["instance_id"])]
+        obj = next((card for card in player.hand if card.instance_id == chosen["instance_id"]
+                    and card.zone_incarnation == chosen["incarnation"]), None)
+        if obj is None:
+            return  # RULE 400.7: an old permission does not act on a returned card.
+        permission = card_registry.pregame_setup_permission(obj.card)
+        if permission is None:
+            return
+        if permission.destination == "reveal":
+            visit = (player.id, obj.instance_id, obj.zone_incarnation)
+            if visit in self.state.opening_hand_revealed:
+                return
+            self.state.opening_hand_revealed.append(visit)
+            self._arm_opening_hand_reveal(player, obj, permission)
+            return
         player.remove_from_zone(obj, Zone.HAND)
         if permission.destination == "battlefield":
             obj.zone = Zone.BATTLEFIELD
@@ -2187,6 +2188,32 @@ class MiscSystemsMixin:
                 player, list(player.hand), "exile", count=1,
                 prompt="Wähle eine Karte aus deiner Hand zum Exilieren",
             )
+    def _arm_opening_hand_reveal(self, player: Player, obj: GameObject, permission: Any) -> None:
+        """RULE 103.6b/603.7: arm the delayed body independently of the revealed card's zone."""
+        from ..binding.core import build_effects
+        from ..effects.core import TriggeredAbility
+        from ...models.game.game_state import TurnScopedTrigger
+
+        if permission.reveal_event is not None:
+            # Each opponent's first cast is an independent one-shot event.
+            # None install_turn reuses the existing across-turn subscription.
+            for opponent in self.state.players:
+                if opponent.id == player.id or opponent.has_lost:
+                    continue
+                ability = TriggeredAbility(
+                    trigger_event=permission.reveal_event,
+                    effects=build_effects(list(permission.reveal_effects), obj),
+                    condition=lambda event, context, pid=opponent.id: event.get("player_id") == pid,
+                    controller_id=player.id, source=obj, description=obj.name,
+                )
+                self.state.turn_scoped_triggers.append(TurnScopedTrigger(ability, None, once=True))
+        else:
+            self.state.delayed_triggers.append(DelayedTrigger(
+                controller_id=player.id, step=permission.reveal_step,
+                effects=build_effects(list(permission.reveal_effects), obj),
+                scope=permission.reveal_scope, description=obj.name,
+            ))
+
     def create_token(
         self,
         controller_id: str,

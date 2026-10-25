@@ -4101,6 +4101,8 @@ undo. Skipped phases do not fire their beginning triggers.
 
 ### Leyline's opening-hand battlefield permission (PLR-11, RULE 103.6a)
 
+- **Opening-hand reveals (PAR-192, v751; RULE 103.6b):** All eight reveal cards use the existing post-mulligan setup flow. Players choose their opening-hand actions in any order; exact card visits, remaining offers and revealed cards survive clone and undo. Opponents see only revealed cards until the first actual turn step. Delayed payoffs retain their original controller independently of the source's zone, with separate first-global-upkeep, first-own-upkeep, first-main-phase and per-opponent first-cast timing. Annex's shared counter adapter tracks the exact spell visit and supports payment after clone. Providence life-setting, Devourer colored-permanent targeting and optional bounded keep/exile-rest reuse existing effects; ordered bottom remainders reuse the existing selection/order continuation. `tests/test_par192_opening_reveal.py` and `test_par192_bodies.py` execute every ticket card and the five incidental dig gains, including actual multiplayer setup, mixed Caverns/Ogre actions, bots, privacy, stale visits and payment choices. Regular suite: **15,928 passed, 486 skipped**. Full-pool probe against v748: **+13 supported, zero regressions**; coverage **22,311/35,051 (63.7%)**, Commander **21,705/32,068 (67.7%)**. Full-cache tests remain deferred until all PAR tickets are handled.
+
 - **What:** "If this card is in your opening hand, you may begin the game with it on the battlefield." — a pregame setup permission, not a static/resolve-time effect, so it…
 - **Files:** `parser/oracle/catalogue/opening_hand.py`, `services/game_session.py`, `game/rules/misc_mixin.py`
 

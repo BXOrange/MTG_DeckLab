@@ -724,6 +724,13 @@ def _lose_life_spell_mv_that_player(m: re.Match[str]) -> list[EffectSpec]:
 
 
 ROWS: list[EffectHandler] = [
+    # RULE 119.5: setting a life total causes the necessary gain or loss;
+    # "your" names the resolving controller and announces no player target.
+    EffectHandler(
+        "set_own_life",
+        compile_clause(r"your life total becomes (?P<n>\d+)"),
+        lambda m: [EffectSpec("set_life", {"amount": int(m.group("n")), "target_kind": None})],
+    ),
     # "you gain 3 life" / "gain 5 life" / "target player gains 3 life" /
     # "you gain x life" (an {X}-cost spell/ability's own announced X).
     EffectHandler(

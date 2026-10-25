@@ -47,6 +47,7 @@ from .catalogue.opening_hand import (
     opening_hand_battlefield_conditional_permission_line,
     opening_hand_battlefield_permission_line,
     opening_hand_graveyard_permission_line,
+    opening_hand_reveal_permission_line,
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
 from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
@@ -81,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "748"
+PARSER_VERSION = "751"
 
 
 def parser_source_hash() -> str:
@@ -1211,6 +1212,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if opening_hand_battlefield_conditional_permission_line(line):
             return
         if opening_hand_graveyard_permission_line(line):
+            return
+        if opening_hand_reveal_permission_line(line) is not None:
             return
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga

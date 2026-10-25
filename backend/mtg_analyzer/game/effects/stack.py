@@ -873,9 +873,15 @@ class CounterUnlessPayEffect(GameEffect):
         if event is not None:
             stack_id = event.get("stack_id")
             item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
+            if item is None and getattr(event, "type", None) == EventType.SPELL_CAST:
+                # RULE 603.1/400.7: a cast trigger names the physical spell
+                # and its stack visit, rather than a BECOMES_TARGET stack id.
+                item = next((i for i in context.state.stack if i.obj is not None
+                             and i.obj.instance_id == event.get("instance_id")
+                             and i.obj.zone_incarnation == event.get("zone_incarnation")), None)
             if item is None:
                 return  # the targeting spell/ability already left the stack
-            caster_id = event.get("controller_id")
+            caster_id = event.get("controller_id") or event.get("player_id")
             if caster_id is None:
                 return
         else:
@@ -883,7 +889,7 @@ class CounterUnlessPayEffect(GameEffect):
             if item is None or getattr(item, "obj", None) is None:
                 return
             caster_id = item.obj.controller_id
-        ability_controller_id = self.source.controller_id if self.source is not None else None
+        ability_controller_id = context.resolving_controller_id or (self.source.controller_id if self.source is not None else None)
         context.engine.resolve_ward_effect(
             item,
             caster_id,
