@@ -518,6 +518,10 @@ class MiscSystemsMixin:
             "x_color": x_color,
             # RULE 109.5: the "if you do" effects belong to whoever the body was run as.
             "acting_player_id": self.context.acting_player_id or self.context.resolving_controller_id,
+            # RULE 400.7: resumed branches still refer to the original source visit.
+            "source_incarnation": (self.context.resolving_source_incarnation
+                                   if self.context.resolving_source_incarnation is not None
+                                   else getattr(source, "zone_incarnation", None)),
             "revealed_card": self.context.revealed_card,
         }
         cost_label = cost.label()
@@ -628,6 +632,8 @@ class MiscSystemsMixin:
         self.context.acting_player_id = pending.get("acting_player_id")
         outer_event = self.context.trigger_event
         self.context.trigger_event = pending.get("then_trigger_event") or outer_event
+        outer_incarnation = self.context.resolving_source_incarnation
+        self.context.resolving_source_incarnation = pending.get("source_incarnation")
         outer_revealed = self.context.revealed_card
         self.context.revealed_card = pending.get("revealed_card")
         try:
@@ -644,6 +650,7 @@ class MiscSystemsMixin:
             self.context.acting_player_id = outer_acting
             self.context.trigger_event = outer_event
             self.context.revealed_card = outer_revealed
+            self.context.resolving_source_incarnation = outer_incarnation
 
     def _finish_paid_cost_then(self, pending: dict[str, Any]) -> None:
         """The paid half of a `pay_cost_then`: the "if you do" effects, then the reflexive trigger."""

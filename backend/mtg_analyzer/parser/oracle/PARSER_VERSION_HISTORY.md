@@ -4205,3 +4205,7 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 746 PAR-199 -- duration-bound exile reuses shared target/mana-value/referent grammar;
      per-blocker source heads use BLOCKS, and damage referents retain their exact visits.
+
+747 PAR-201 -- source-control transfers announce and recheck a targeted opponent,
+     retain source visits and resolving controllers through optional payments, and
+     remove the transferred source from combat only when control actually changes.

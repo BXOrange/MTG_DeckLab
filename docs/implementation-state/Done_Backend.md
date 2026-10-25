@@ -3119,6 +3119,8 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 
 ### `ActivationCost.only_during_your_turn` + `GainControlBySourceEffect` (Wishclaw Talisman) (Casting & Costs)
 
+- **Targeted opponent transfers (PAR-201, v747):** The source-control effect announces and rechecks an opponent player target, retaining the resolving ability's controller even after a control change. Source visits, recipient targets and acting players survive payment choices and clone; returned sources and departed or protected recipients cannot receive stale transfers. Actual control changes remove the permanent from combat. The five named cards plus Goblin Cadets, Sleeper Agent and Treacherous Pit-Dweller are fully modeled; Custody Battle and Mindslaver Toolkit retain independent unsupported wrappers. `tests/test_par201_source_control.py` executes all eight cards and multiplayer, optional-payment, clone, blink, hexproof, sacrifice and undying paths. Regular suite: **15,857 passed, 486 skipped**; full-cache deferred until all PAR tickets handled. Probe against v746: **+8 supported, zero regressions**. Authoritative coverage **22,292/35,051 (63.6%)**, Commander **21,686/32,068 (67.6%)**.
+
 - **What:** `only_during_your_turn` (RULE 602.5d's wider sibling of `sorcery_speed_only` — legal at instant speed on your own turn only) plus `GainControlBySourceEffect` ("…
 - **Files:** `game/costs.py`, `game/effects/core.py`, `game/ability_catalogue.py`
 - **Why:** With no real "choose an opponent" chooser for a player (only `request_choose_objects` for `GameObject` candidates exists), the *next* opponent in seating order…

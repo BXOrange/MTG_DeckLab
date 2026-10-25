@@ -1657,10 +1657,10 @@ class GainControlBySourceEffect(GameEffect):
     as a drawback, rather than the caster grabbing something). Unlike
     `GainControlUntilEndOfTurnEffect` (temporary, a chosen *target*, control
     moves *to* the ability's controller), this is indefinite, always the
-    source itself, moves control *away* from the controller, and isn't a
-    RULE 115 target at all — the printed line never says "target opponent".
+    source itself. ``recipient="target_opponent"`` announces a RULE 115
+    player target (Humble Defector); the permanent itself is never targeted.
 
-    ``recipient="opponent"`` is the only kind today. With exactly one
+    ``recipient="opponent"`` is untargeted. With exactly one
     opponent (the common 1v1 goldfish/Replay case) the pick is unambiguous;
     with 2+ (multiplayer), this auto-picks the next player after the
     current controller in seating order — no "choose an opponent" chooser
@@ -1677,15 +1677,38 @@ class GainControlBySourceEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.recipient = recipient
-        self.target_spec = None
+        self.target_spec = TargetSpec(kind="opponent") if recipient == "target_opponent" else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is None:
+        # RULE 400.7: the ability only hands away its source's original
+        # battlefield visit, including after a suspended optional sequence.
+        if self.source is None or self.source.zone != Zone.BATTLEFIELD:
+            return
+        incarnation = context.resolving_source_incarnation
+        if incarnation is not None and self.source.zone_incarnation != incarnation:
             return
         controller = _controller_of(self.source, context)
         if controller is None:
             return
         players = context.state.players
+        if self.recipient == "target_opponent":
+            from ..targeting import legal_targets
+
+            target = targets[0] if targets else None
+            target_id = getattr(target, "id", None)
+            # RULE 115 / 608.2b: use the resolving ability's controller,
+            # independent of who controls the permanent now. Revalidate
+            # player protection and whether the recipient is still playing.
+            options = legal_targets(context.state, controller.id, self.target_spec, self.source)
+            if target_id is None or target_id not in {option.get("player_id") for option in options}:
+                return
+            previous_controller = self.source.controller_id
+            if gain_control(context.state, self.source, target_id):
+                if previous_controller != target_id:
+                    # RULE 506.4: changing control removes a permanent from combat.
+                    TapEffect._remove_from_combat(context, self.source)
+                context.recompute()
+            return
         if self.recipient == "event_player":
             # "…that player draws three cards and gains control of ~." (Coveted Jewel) — the player the firing
             # event names (the unblocked attacker's controller), whoever that opponent is.

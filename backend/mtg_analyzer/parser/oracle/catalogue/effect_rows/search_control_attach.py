@@ -748,12 +748,17 @@ def _search_exile_rest(m: re.Match[str]) -> list[EffectSpec]:
 #: "An opponent gains control of ~." (Wishclaw Talisman-shaped — RULE
 #: 701.10-adjacent; `game/effects/core.py`'s `GainControlBySourceEffect`).
 _GAIN_CONTROL_BY_OPPONENT_RE = compile_clause(
-    rf"an opponent gains control of {SELF_SUBJECT}"
+    rf"(?P<recipient>an|target) opponent gains control of (?P<subject>{SELF_SUBJECT})"
 )
 
 
-def _gain_control_by_opponent(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_control_by_source", {"recipient": "opponent"})]
+def _gain_control_by_opponent(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 608.2c: a bare "it" must refer to this ability's source, not a
+    # previously selected creature or the object of a group trigger.
+    if m.group("subject") == "it" and not reading.self_subject:
+        return None
+    recipient = "target_opponent" if m.group("recipient") == "target" else "opponent"
+    return [EffectSpec("gain_control_by_source", {"recipient": recipient})]
 
 
 #: RULE 108.4-adjacent "threaten" effect — "Gain control of target creature
@@ -1791,6 +1796,7 @@ ROWS: list[EffectHandler] = [
         "gain_control_by_opponent",
         _GAIN_CONTROL_BY_OPPONENT_RE,
         _gain_control_by_opponent,
+        reading_aware=True,
     ),
     # "gain control of target creature [with mana value N or less] until
     # end of turn" (Act of Treason/Claim the Firstborn-shaped threaten
