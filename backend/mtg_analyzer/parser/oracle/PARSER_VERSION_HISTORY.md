@@ -4199,3 +4199,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 741 PAR-190 -- "if tribute wasn't paid" / "tribute was paid" intervening-if gates read GameObject.tribute_paid,
      stamped by the opponent's as-enters Tribute N choice (engine: ChooseTributeReplacement).
+
+742 PAR-196 -- conditional self untap restrictions reuse state predicates; source-bound
+     "flip it" resolves optional ki-counter flips with intervening-if checks and exact source visits.

@@ -1166,7 +1166,12 @@ class FlipEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         src = self.source
-        if src is None or (self.source_incarnation is not None and src.zone_incarnation != self.source_incarnation):
+        # RULE 400.7: ordinary triggered flips and resumed optional flips must
+        # refer to the same battlefield visit as the resolving ability too.
+        incarnation = self.source_incarnation
+        if incarnation is None:
+            incarnation = context.resolving_source_incarnation
+        if src is None or (incarnation is not None and src.zone_incarnation != incarnation):
             return
         context.engine._flip_permanent(src)
 

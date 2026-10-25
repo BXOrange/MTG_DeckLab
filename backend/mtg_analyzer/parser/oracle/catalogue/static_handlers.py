@@ -926,7 +926,7 @@ _RADIATION_LIFE_GAIN_RE = re.compile(
 # so this must match the folded form, not the literal "this <type>" text
 # that normalize never leaves in place.
 _NO_UNTAP_RE = re.compile(
-    r"~ doesn'?t untap during your untap step", re.IGNORECASE
+    r"~ doesn'?t untap during your untap step(?: if (?P<cond>.+))?", re.IGNORECASE
 )
 
 # "~ isn't a creature." (RULE 613.7f, always printed wrapped in a RULE 613.6
@@ -5777,8 +5777,17 @@ def _static_no_untap_optional(ctx: StaticContext) -> StaticResult:
 
 def _static_no_untap(ctx: StaticContext) -> StaticResult:
     text = ctx.text
-    if _NO_UNTAP_RE.fullmatch(text):
-        return [EffectSpec("no_untap", {"affects": "self"})]
+    m = _NO_UNTAP_RE.fullmatch(text)
+    if m is not None:
+        params = {"affects": "self"}
+        if m.group("cond"):
+            # RULE 502.3: depletion lands keep their ordinary untap restriction
+            # only while its condition holds; reuse the shared state grammar.
+            condition = static_condition(m.group("cond"))
+            if condition is None:
+                return DECLINE
+            params["active_if"] = condition
+        return [EffectSpec("no_untap", params)]
     return None
 
 

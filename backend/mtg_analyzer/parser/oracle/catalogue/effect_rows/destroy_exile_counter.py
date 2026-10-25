@@ -108,7 +108,15 @@ def _destroy_equipment_attached_to_it(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: "flip ~" (RULE 710, the Kamigawa flip cards) — the source flips itself.
-_FLIP_SELF_RE = compile_clause(rf"flip {re.escape(SELF)}")
+_FLIP_SELF_RE = compile_clause(rf"flip (?P<subject>{re.escape(SELF)}|it)")
+
+
+def _flip_self(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 608.2c: a condition naming the source supplies the antecedent of
+    # "flip it" on the ki-counter cycle; other pronoun readings must decline.
+    if m.group("subject") == "it" and not reading.self_subject:
+        return None
+    return [EffectSpec("flip", {"source_only": True})]
 
 
 #: "destroy ~" — the source destroys itself (Sandals of Abdallah, PAR-154); no RULE 115 target.
@@ -996,7 +1004,7 @@ ROWS: list[EffectHandler] = [
         _destroy_equipment_attached_to_it,
     ),
     # "…, flip ~." (Initiate of Blood and the other Kamigawa flip cards).
-    EffectHandler("flip_self", _FLIP_SELF_RE, lambda m: [EffectSpec("flip", {"source_only": True})]),
+    EffectHandler("flip_self", _FLIP_SELF_RE, _flip_self, reading_aware=True),
     # "…, destroy ~." (Sandals of Abdallah's "when that creature dies this turn") — the ability's own source.
     EffectHandler(
         "destroy_self", _DESTROY_SELF_RE, lambda m: [EffectSpec("destroy", {"source_only": True})],
