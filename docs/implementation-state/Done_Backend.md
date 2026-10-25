@@ -2331,6 +2331,8 @@ The same predicate can gate sacrifice-dependent resolving sequences.
 
 ### Layer-6 Grant of a Static Ability — MEC-55
 
+- **Rune Auras (PAR-194, v753):** All five Runes grant their enchanted Equipment the appropriate keyword/P/T static, sourced on that Equipment and affecting its equipped creature. Direct-creature and non-Equipment clauses remain distinct. Nested layer-6 effects join the shared timestamp/dependency worklist; granted statics follow the later host/grant timestamp and disappear when removed. New attachment targets refresh timestamps; the same host does not. Later keyword grants survive earlier removals without reviving removed printed or granted trigger instances. Attachment SBAs also catch a host removed by direct exile while preserving existing graveyard-Aura paths. Earlier-layer attached type/color grants remain fail closed. `tests/test_par194_rune_auras.py` executes cast/draw/equip, the Colossus Hammer rules example, ability/type/control changes, removal, clone, idempotence and exact keyword-instance triggers. Regular suite: **15,964 passed, 486 skipped**. Full-pool probe against v751: **+5 supported, zero regressions**; coverage **22,316/35,051 (63.7%)**, Commander **21,710/32,068 (67.7%)**. Full-cache deferred until all PAR tickets are handled.
+
 - **What:** "X have '`<static ability>`'" where the quoted body is itself a *static* — an anthem / lord (Inspiring Leader: "Commander creatures you own have 'Creature token…
 - **Files:** `models/game_object.py`, `game/continuous.py` (`_apply_layer_6_ability`, `_battlefield_static_abilities`, `recompute` re-gather), `game/effects/core.py` (`grant_static_ability` registry), `parser/oracle/catalogue/static_handlers.py`, `tests/test_mec55_granted_static_ability.py`
 

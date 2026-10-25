@@ -2432,6 +2432,13 @@ def quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
     return specs[0] if specs and len(specs) == 1 else None
 
 
+#: A newly granted attachment-relative static can begin applying in layer 6
+#: (keywords) or layer 7 (P/T modifiers), which the continuous engine projects
+#: after creating the ability. Earlier-layer type/color changes would need a
+#: different layer dependency mechanism and must remain unclaimed here.
+_GRANTED_ATTACHMENT_STATIC_TYPES = frozenset({"grant_keyword", "anthem"})
+
+
 def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
     """Recursively parse a quoted granted-ability body into one or more
     grant `EffectSpec`s, or ``None`` if it isn't a plain self-scoped trigger
@@ -2659,20 +2666,16 @@ def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
         })]
 
     if spec.ability_kind == "static":
-        # MEC-55: "X have '<static ability>'" — an anthem / lord / keyword
-        # grant, re-granted per affected object. The inner static's own
-        # `affects` must be controller-relative (a group selector — "creature
-        # tokens you control get +2/+2", Inspiring Leader); a `self` /
-        # `attached_permanent` inner scope would be meaningless once
-        # regranted, so fail closed.
-        inner_scopes = {e.params.get("affects") for e in spec.effects}
-        # ``self`` is meaningful here: layer 6 re-sources the nested static
-        # on each granted-to object, so "this creature has hexproof while
-        # untapped" (Giant's Amulet) refers to that host.  Only
-        # ``attached_permanent`` remains ambiguous after re-granting.
-        if not spec.effects or "attached_permanent" in inner_scopes:
+        # RULE 113.7: the recipient is the source of its granted static.
+        # Both self and attached scopes therefore resolve from that object:
+        # a Rune grants its enchanted Equipment an ability affecting the
+        # Equipment's equipped creature, not the Aura's own attachment.
+        if not spec.effects:
             return None
         if any(e.params.get("affects") is None for e in spec.effects):
+            return None
+        if any(e.params.get("affects") == "attached_permanent"
+               and e.type not in _GRANTED_ATTACHMENT_STATIC_TYPES for e in spec.effects):
             return None
         return [EffectSpec("grant_static_ability", {
             "static_specs": [{"type": e.type, "params": e.params} for e in spec.effects],

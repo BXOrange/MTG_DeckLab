@@ -4220,3 +4220,9 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 751 PAR-192 -- opening-hand body parsing re-enters through shared clause hooks,
      preserving the acyclic parser import graph without function-scoped imports.
+
+752 PAR-194 -- quoted attached statics re-source on their recipient; conditional
+     Equipment grants preserve nested attachment context and layer timestamps.
+
+753 PAR-194 -- attached quoted-static grants fail closed outside supported
+     keyword and P/T-modifier effect types; earlier-layer type/color grants remain unmodeled.

@@ -1527,7 +1527,12 @@ class CastingResolutionMixin:
         {1}", Luxior)."""
         if not self._attachment_legal(obj, target, check_control, allow_planeswalker):
             return False
-        obj.attached_to = target.id if isinstance(target, Player) else target.instance_id
+        attached_to = target.id if isinstance(target, Player) else target.instance_id
+        if obj.attached_to != attached_to:
+            # RULE 613.7e / 701.3c: becoming attached gives the attachment
+            # a new timestamp; attaching to its current host changes nothing.
+            obj.timestamp = self.state.next_timestamp()
+        obj.attached_to = attached_to
         return True
 
     def _begin_bestow(self, obj: GameObject) -> None:
@@ -1581,8 +1586,9 @@ class CastingResolutionMixin:
                 self._move_to_graveyard(attached)
     def _illegal_attachment_actions(self) -> list:
         """RULE 704.5m/n: the SBA actions for every permanent whose attachment has become
-        illegal since it was attached, with its *host* still on the battlefield (a host that
-        leaves is `_detach_attachments_from`'s job).
+        illegal since it was attached. The ordinary departure helper may
+        already have detached it; zone moves that do not use that helper
+        are still caught by this same RULE 704.5m/n scan.
 
         Checked against the same `_attachment_legal` an initial attach uses, so any new legality
         rule added there (protection, quality, control) is re-validated here for free. Returns
@@ -1604,13 +1610,23 @@ class CastingResolutionMixin:
                 ))
                 continue
             host = self._object_by_instance_id(host_id)
-            if host is None or host not in self.state.battlefield or host.phased_out:
-                # Host leaving the battlefield is `_detach_attachments_from`'s
-                # job; a phased-out host (RULE 702.26g/`PhaseOutAllYouControl
-                # Effect`) took `attached` phased-out with it, so `attached`
-                # is already absent from `self.state.permanents()` in the
-                # normal case — this guards the same-host-different-
-                # controller edge no shipped card reaches yet.
+            if host is None or host not in self.state.battlefield:
+                quality = str(((attached.parametric_keywords or {}).get("enchant") or {}).get(
+                    "quality", ""
+                )).strip().lower()
+                if (host is not None and host.zone == Zone.GRAVEYARD
+                        and quality.endswith("card in a graveyard")):
+                    continue  # RULE 303.4: this Aura's enchant quality names a card there.
+                # RULE 704.5m/n: an attachment cannot remain on an object
+                # that has left, including a direct exile zone move.
+                found.append(SbaAction(
+                    attached, lambda a=attached: self._unattach_illegal(a),
+                    departs=not getattr(attached, "bestowed", False)
+                    and self._attachment_kind(attached) == "enchant",
+                ))
+                continue
+            if host.phased_out:
+                # RULE 702.26g: phasing does not unattach the relationship.
                 continue
             if self._attachment_legal(attached, host, check_control=False):
                 continue

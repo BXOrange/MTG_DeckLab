@@ -253,10 +253,9 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # the parser catalogue bound onto the object (`intrinsic_keywords`, RULE
     # 702), and any granted by a layer-6 static ability (RULE 613.7f) — so both
     # a card's own flying and an anthem that hands out flying flow into combat.
-    # A layer-6 "loses <keyword>" static ability (`removed_keywords`,
-    # Colossus Hammer) is subtracted last, after the union — RULE 613.7f
-    # ability-removal applies regardless of which of the three sources
-    # granted the keyword in the first place.
+    # Layer-6 removals suppress printed instances and remove earlier grants
+    # during recompute. Later grants remain (Rune of Flight on Colossus
+    # Hammer, RULE 613.7a), so they must not be vetoed by that suppression.
     # RULE 613.7f / 613.7: a "loses all abilities" static ability (Humility, Dress
     # Down) strips the printed keywords and every grant with an *earlier*
     # timestamp; `continuous._apply_layer_6_ability` applies it in timestamp
@@ -267,20 +266,17 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     if getattr(obj, "loses_all_abilities", False):
         return (
             frozenset(getattr(obj, "granted_keywords", set()) or set())
-            - frozenset(getattr(obj, "removed_keywords", set()) or set())
             - frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
         )
     return (
-        ((keywords_of(obj.card) if getattr(obj, "card", None) is not None else frozenset())
+        (((keywords_of(obj.card) if getattr(obj, "card", None) is not None else frozenset())
          - frozenset(getattr(obj, "suppressed_keywords", None) or ()))
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
         | (frozenset({"haste"}) if getattr(obj, "granted_haste_sacrifice", False)
-           and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset())
+           and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset()))
+        - frozenset(getattr(obj, "removed_keywords", set()) or set())
         | frozenset(getattr(obj, "granted_keywords", set()) or set())
-    ) - (
-        frozenset(getattr(obj, "removed_keywords", set()) or set())
-        | frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
-    )
+    ) - frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
 
 
 def _creature_subtypes(obj: "GameObject") -> set[str]:
@@ -317,6 +313,9 @@ def keyword_instances(obj: "GameObject", keyword: str) -> int:
         printed = int((getattr(obj, "intrinsic_keyword_instances", None) or {}).get(keyword, 1))
     else:
         printed = int(keyword in keywords_of(obj.card))
+    if (getattr(obj, "loses_all_abilities", False)
+            or keyword in getattr(obj, "removed_keywords", ())):
+        printed = 0
     granted = int((getattr(obj, "_granted_keyword_instances", None) or {}).get(keyword, 0))
     return max(1, printed + granted)
 

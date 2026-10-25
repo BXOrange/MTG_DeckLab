@@ -63,8 +63,12 @@ the card's implementation and tests; shipped narrative in
 ## Resolution
 
 - Source-granted quoted abilities use the same duration and exact-object
-  grant statics as other grants. Nested quoted statics retain dynamic
-  controller-relative groups. Granted mana choices accept arbitrary printed
+  grant statics as other grants. Nested quoted statics resolve controller-relative
+  groups and supported attachment scopes from the recipient. Nested layer-6
+  effects join the same timestamp/dependency worklist; granted static effects
+  use the later host/grant timestamp and cease when their ability is removed.
+  Attachment changes update timestamps; reattaching to the current host does not.
+  Granted mana choices accept arbitrary printed
   pip alternatives; searches share the rules-backed subtype vocabulary
   and intersect it with any additional card-type restriction. Printed
   Changeling and unconditional all-creature-type CDAs apply to searched

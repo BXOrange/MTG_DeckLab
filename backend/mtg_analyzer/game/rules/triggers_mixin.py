@@ -266,6 +266,8 @@ class TriggerCollectionMixin:
             # Archdruid) sits alongside the object's own intrinsic abilities;
             # both fire through the same check/place pipeline.
             for index, ability in enumerate(obj.triggered_abilities + obj.granted_triggered_abilities):
+                if getattr(ability, "keyword_name", None) in obj.removed_keywords:
+                    continue  # RULE 613.7: this printed instance was removed.
                 if getattr(ability, "functions_from_graveyard", False):
                     # RULE 113.6k: an ability that returns its own source from the graveyard
                     # functions only there (`_collect_graveyard_function_triggers`) -- a

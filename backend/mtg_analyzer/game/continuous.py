@@ -3134,6 +3134,8 @@ def _grant_flag_keyword_triggers(state: "GameState", obj: "GameObject", keywords
             from .binding.core import _KEYWORD_TRIGGERED_BUILDERS  # local: avoid an import cycle
 
             built = _KEYWORD_TRIGGERED_BUILDERS[keyword](obj, AbilitySpec("keyword", keyword={"name": keyword}), None)
+            for triggered in built:
+                triggered.granted_keyword = keyword
             state._granted_ability_cache[key] = built
         obj._granted_triggered_abilities.extend(built)
 
@@ -3146,10 +3148,7 @@ def _layer_6_dependency_order(state: "GameState", abilities: list):
     application (a generator: the caller applies each yielded effect before the
     next is chosen). A loop of mutual removals falls back to timestamp (613.8b)."""
     pending = _in_layer(abilities, "ability")
-    removals = [a for a in pending if a.params.get("lose_all_abilities")]
-    if not removals:
-        yield from pending
-        return
+    known = {id(ability) for ability in pending}
     while pending:
         chosen = pending[0]
         live = [r for r in pending if r.params.get("lose_all_abilities")]
@@ -3166,6 +3165,18 @@ def _layer_6_dependency_order(state: "GameState", abilities: list):
                 break
         pending.remove(chosen)
         yield chosen
+        # RULE 613.8c: an applied grant can create another effect in this
+        # layer. Insert it into the same timestamp/dependency worklist,
+        # rather than applying every nested grant after ability removal.
+        newly_granted = [
+            ability for obj in state.battlefield
+            for ability in getattr(obj, "_granted_static_abilities", ())
+            if isinstance(ability, StaticAbility) and ability.layer == "ability"
+            and id(ability) not in known
+        ]
+        known.update(id(ability) for ability in newly_granted)
+        if newly_granted:
+            pending = _in_layer([*pending, *newly_granted], "ability")
 
 
 def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
@@ -3240,6 +3251,9 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 }
                 obj._removed_keywords.clear()
                 obj._granted_parametric_keywords.clear()
+                # RULE 613.7: this removes static abilities granted earlier
+                # in the layer; a later grant may create them again.
+                obj._granted_static_abilities.clear()
                 _trace(obj, 6, _source_name(ability), "loses all abilities")
             if keywords:
                 obj._granted_keywords.update(keywords)
@@ -3265,6 +3279,16 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     state._granted_ability_cache[key] = built
                 obj._granted_triggered_abilities.extend(built)
             if remove_keywords:
+                # RULE 613.7: remove earlier grants now, while retaining
+                # suppression of printed instances. A later grant can add
+                # that keyword back without restoring the printed instance.
+                obj._granted_keywords.difference_update(remove_keywords)
+                for keyword in remove_keywords:
+                    obj._granted_keyword_instances.pop(keyword, None)
+                obj._granted_triggered_abilities[:] = [
+                    triggered for triggered in obj._granted_triggered_abilities
+                    if getattr(triggered, "granted_keyword", None) not in remove_keywords
+                ]
                 obj._removed_keywords.update(remove_keywords)
                 _trace(obj, 6, _source_name(ability), "loses " + ", ".join(remove_keywords))
             if protections:
@@ -3467,6 +3491,13 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                             )
                         granted_static.source = obj
                         state._granted_ability_cache[key] = granted_static
+                    if isinstance(granted_static, StaticAbility):
+                        # RULE 613.7a/e: a granted static's effect receives
+                        # the later of its host's and granting effect's
+                        # timestamps, including after either is reattached.
+                        grant_timestamp = (ability.timestamp if ability.timestamp is not None
+                                           else getattr(ability.source, "timestamp", 0))
+                        granted_static.timestamp = max(obj.timestamp, grant_timestamp)
                     if isinstance(granted_static, ReplacementEffect):
                         obj._granted_replacement_effects.append(granted_static)
                     else:
@@ -4055,23 +4086,10 @@ def recompute(state: "GameState") -> None:
     _apply_borrowed_activated_abilities(state, abilities)
     # MEC-55: layer 6 may have populated `_granted_static_abilities` on
     # affected objects ("X have '<anthem/lord>'" — Inspiring Leader). Re-
-    # gather so those nested statics reach layers 7+ in this same pass; an
-    # ability-*layer* granted static (a granted keyword/lord) still settles
-    # on the next recompute (always ≤1 SBA-loop lag).
+    # gather so those nested statics reach layers 7+ in this same pass.
+    # Layer-6 nested statics already joined its dynamic dependency worklist.
     if any(getattr(o, "_granted_static_abilities", None) for o in state.battlefield):
         abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
-        # A nested static can itself live in layer 6 (for example Giant's
-        # Amulet grants its host the self-scoped static "has hexproof while
-        # untapped"). Apply that newly materialized level once in the same
-        # recompute, without replaying the outer grants and duplicating their
-        # triggered/activated ability objects.
-        nested_ability_statics = [
-            ab for obj in state.battlefield
-            for ab in getattr(obj, "_granted_static_abilities", ())
-            if isinstance(ab, StaticAbility) and ab.layer == "ability"
-        ]
-        if nested_ability_statics:
-            _apply_layer_6_ability(state, nested_ability_statics)
     # RULE 613.6: statics whose source lost its abilities in layer 6 never
     # begin applying in layers 7+.
     abilities = _drop_statics_removed_in_layer_6(state, abilities)

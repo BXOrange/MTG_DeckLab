@@ -4595,6 +4595,10 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     abilities: list[TriggeredAbility] = []
     for _ in range(max(1, int(keyword.get("instances") or 1))):
         abilities.extend(builder(obj, spec, keyword.get("n")))
+    for ability in abilities:
+        # RULE 613.7: removing a printed keyword suppresses its triggered
+        # abilities even if a later effect grants a new instance of it.
+        ability.keyword_name = name
     return abilities
 
 
