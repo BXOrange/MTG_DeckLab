@@ -177,6 +177,8 @@ class EventType:
     #: the exiled card; no permanent exists to see it, so the trigger is
     #: collected off that id (`_collect_last_time_counter_triggers`).
     LAST_TIME_COUNTER_REMOVED = "LAST_TIME_COUNTER_REMOVED"
+    #: One actual counter removed; kind, zone and zone_incarnation are snapshots.
+    COUNTER_REMOVED = "COUNTER_REMOVED"
     #: A single card was put into a graveyard by milling, including lands.
     #: This is deliberately separate from the older nonland-only
     #: ``MILL_CARD`` compatibility event and from aggregate ``CARDS_MILLED``.

@@ -103,7 +103,7 @@ def _reserved_literals_read_by_the_engine() -> set[str]:
 
 #: Kinds `game/` reads that a generic ``add_counters`` bump feeds *completely*: the P/T pair, the two
 #: replacement counters the engine enforces, and `charge` (`mana_abilities` reads the count itself).
-_GENERICALLY_FED = {"stun", "shield", "charge"}
+_GENERICALLY_FED = {"stun", "shield", "charge", "time"}
 #: `counters.get("kind")`/`["count"]` read an *ability spec's* own "counters" dict, not a permanent's.
 _SPEC_KEYS = {"kind", "count"}
 

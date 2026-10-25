@@ -224,8 +224,11 @@ def test_veiling_oddity_trigger_fires_only_when_the_last_counter_comes_off():
     assert odd.counters["time"] == 1 and eng.rules.put_triggers_on_stack() == 0
 
     eng.rules.remove_suspend_time_counter(odd)
-    assert eng.rules.put_triggers_on_stack() == 1
-    eng.rules.resolve_top_of_stack()
+    assert eng.rules.put_triggers_on_stack() == 2
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    eng.resolve_pending_choice("decline")
+    eng.resolve_until_stable()
     assert mine.temp_unblockable and theirs.temp_unblockable
 
 
@@ -236,6 +239,9 @@ def test_veiling_oddity_trigger_through_the_real_upkeep_removal():
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep"))
     eng.resolve_until_stable()
     assert odd.counters.get("time", 0) == 0
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    eng.resolve_pending_choice("decline")
+    eng.resolve_until_stable()
     assert mine.temp_unblockable
 
 
@@ -245,8 +251,11 @@ def test_riftmarked_knight_makes_a_knight_with_protection_from_white_when_suspen
     eng = _fresh_engine()
     knight = _suspended(eng, "Riftmarked Knight", 1)
     eng.rules.remove_suspend_time_counter(knight)
-    assert eng.rules.put_triggers_on_stack() == 1
-    eng.rules.resolve_top_of_stack()
+    assert eng.rules.put_triggers_on_stack() == 2
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    eng.resolve_pending_choice("decline")
+    eng.resolve_until_stable()
     tokens = [o for o in eng.state.battlefield if o.controller_id == "p1" and o.is_token]
     assert len(tokens) == 1
     token = tokens[0]

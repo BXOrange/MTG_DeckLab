@@ -7,6 +7,7 @@ pick, per-owner sweep of the other exiled cards). Executed against the real engi
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -97,8 +98,10 @@ def test_granted_suspend_card_loses_a_counter_each_upkeep_then_casts_free():
         eng.resolve_until_stable()
         assert card.counters.get("time", 0) == expected
     # the last counter is gone: the free cast (with haste) is offered from exile
-    assert card.instance_id in eng.state.free_cast_instance_ids and card.granted_suspend_haste
-    eng.cast_spell(p1, card)
+    assert card.instance_id in eng.state.free_cast_instance_ids
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    assert not card.granted_suspend_haste
+    eng.play_resolution_card(p1, card)
     eng.resolve_until_stable()
     assert card in eng.state.battlefield and not p1.mana_pool.total()
 
@@ -179,6 +182,7 @@ def test_alaundo_last_counter_removed_opens_free_cast_with_haste():
     alaundo = _put(eng, _db_card("Alaundo the Seer"), "p1", Zone.BATTLEFIELD)
     older = _put(eng, _creature("Older", 1), "p1", Zone.EXILE)
     older.add_counters("time", 1)
+    older.granted_suspend = True
     for obj in list(p1.hand):
         p1.hand.remove(obj)
     keep = _put(eng, _creature("Keep", 3), "p1", Zone.HAND)
@@ -187,7 +191,11 @@ def test_alaundo_last_counter_removed_opens_free_cast_with_haste():
     eng.resolve_pending_choice(str(keep.instance_id))
     eng.resolve_until_stable()
     assert older.counters.get("time", 0) == 0
-    assert older.instance_id in eng.state.free_cast_instance_ids and older.granted_suspend_haste
+    assert older.instance_id in eng.state.free_cast_instance_ids
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    eng.play_resolution_card(p1, older)
+    eng.resolve_until_stable()
+    assert older in eng.state.battlefield and combat.has(older, "haste")
     assert keep.counters.get("time") == 3 and keep.instance_id not in eng.state.free_cast_instance_ids
 
 

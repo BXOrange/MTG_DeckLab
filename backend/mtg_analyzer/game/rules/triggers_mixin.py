@@ -70,6 +70,7 @@ from ..effects.core import (
     StaticAbility,
     StaticEffect,
     SuspendUpkeepEffect,
+    SuspendCastEffect,
     TakeInitiativeEffect,
     TriggeredAbility,
     UndyingPersistReturnEffect,
@@ -120,7 +121,8 @@ def _has_suspend(obj: GameObject) -> bool:
     below so either source is treated identically."""
     if getattr(obj, "granted_suspend", False):
         return True
-    return bool((getattr(obj, "parametric_keywords", None) or {}).get("suspend"))
+    return ("suspend" in (getattr(obj, "parametric_keywords", None) or {})
+            or "suspend" in (getattr(obj, "intrinsic_keywords", None) or set()))
 
 
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
@@ -216,7 +218,8 @@ class TriggerCollectionMixin:
             if recipe_id is not None:
                 captured.data["copiable_stack_id"] = recipe_id
             firing_ability = ability
-            controller_id = getattr(obj, "controller_id", None)
+            controller_id = (obj.owner_id if getattr(obj, "zone", None) == Zone.EXILE
+                             else getattr(obj, "controller_id", None))
             if controller_id is not None and controller_id != ability.controller_id:
                 # RULE 603.3a: the source's controller at triggering time
                 # owns this firing. Keep earlier queued firings independent
@@ -710,7 +713,10 @@ class TriggerCollectionMixin:
             ):
                 continue  # RULE 800.4a: a departed player's effects leave with them.
             if entry.ability.check_trigger(event, self.context):
-                self.pending_triggers.append((entry.ability, event))
+                if entry.bound_zone is not None:
+                    self._queue_firing(entry.ability, event, bound)
+                else:
+                    self.pending_triggers.append((entry.ability, event))
                 if entry.once:
                     continue
             if entry.bound_object_id is not None:
@@ -1072,7 +1078,7 @@ class TriggerCollectionMixin:
                         "you may cast it without paying its mana cost."
                     ),
                 )
-                self.pending_triggers.append((ability, event))
+                self._queue_firing(ability, event, obj)
     def _collect_last_time_counter_triggers(self, event: GameEvent) -> None:
         """RULE 702.62a: "When the last time counter is removed from this card
         while it's exiled, …" (Riftmarked Knight, Veiling Oddity) — a trigger
@@ -1081,18 +1087,24 @@ class TriggerCollectionMixin:
         card's ``instance_id`` (`RulesEngine.remove_suspend_time_counter`), so
         this looks the card up directly, exactly like
         `_collect_self_cast_triggers` does for a spell on the stack."""
-        if event.type != EventType.LAST_TIME_COUNTER_REMOVED:
+        if event.type not in (EventType.LAST_TIME_COUNTER_REMOVED, EventType.COUNTER_REMOVED):
             return
         obj = self.state.find_object(event.get("instance_id"))
-        if obj is None:
+        if (obj is None or obj.zone != Zone.EXILE or event.get("zone") != Zone.EXILE.value
+                or event.get("zone_incarnation") != obj.zone_incarnation):
             return
         for ability in obj.triggered_abilities + obj.granted_triggered_abilities:
-            if (
-                isinstance(ability, TriggeredAbility)
-                and ability.trigger_event == EventType.LAST_TIME_COUNTER_REMOVED
-                and ability.check_trigger(event, self.context)
-            ):
-                self.pending_triggers.append((ability, event))
+            if (isinstance(ability, TriggeredAbility)
+                    and ability.trigger_event == event.type
+                    and ability.check_trigger(event, self.context)):
+                self._queue_firing(ability, event, obj)
+        if event.type == EventType.LAST_TIME_COUNTER_REMOVED and _has_suspend(obj):
+            ability = TriggeredAbility(
+                trigger_event=event.type, effects=[SuspendCastEffect(source=obj)],
+                controller_id=obj.owner_id, source=obj,
+                description="Suspend: you may cast this card without paying its mana cost.",
+            )
+            self._queue_firing(ability, event, obj)
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
 

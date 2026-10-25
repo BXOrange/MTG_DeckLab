@@ -628,6 +628,15 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
     if forced_quality:
         param["quality"] = forced_quality
         return param
+    if kdef.slug == "suspend":
+        variable = re.search(
+            rf"suspend\s+X\s*[—–-]\s*(?P<cost>{_COST_RUN})(?P<nonzero>\.\s*X can(?:not|'t) be 0\.?)?",
+            text, re.I,
+        )
+        if variable:
+            return {"name": "suspend", "n": "X",
+                    "cost": re.sub(r"\s+", "", variable.group("cost")),
+                    "min_x": 1 if variable.group("nonzero") else 0}
     if kdef.is_parametric and kdef.regex is not None:
         match = kdef.regex.search(text)
         if match:

@@ -364,6 +364,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)), nonland=bool(p.get("nonland", False)),
         time_counters_from_mana_value=bool(p.get("time_counters_from_mana_value", False)),
         grant_suspend=bool(p.get("grant_suspend", False)),
+        grant_suspend_cast=bool(p.get("grant_suspend_cast", False)),
         sweep_time_counters=bool(p.get("sweep_time_counters", False)),
         then_opponent=bool(p.get("then_opponent", False)), player_id=p.get("player_id"),
     ),
@@ -372,7 +373,8 @@ EffectRegistry.register(
     # PAR-118: the stamp half of "exile a card from your hand with a number of time counters on it equal to its
     # mana value. If it doesn't have suspend, it gains suspend." — see `TimeCountersOnExiledEffect`.
     "time_counters_on_exiled",
-    lambda p: TimeCountersOnExiledEffect(grant_suspend=bool(p.get("grant_suspend", False))),
+    lambda p: TimeCountersOnExiledEffect(grant_suspend=bool(p.get("grant_suspend", False)),
+                                        grant_suspend_cast=bool(p.get("grant_suspend_cast", False))),
 )
 EffectRegistry.register(
     # PAR-118: Alaundo the Seer's "remove a time counter from each other card you own in exile".

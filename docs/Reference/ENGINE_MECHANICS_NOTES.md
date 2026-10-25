@@ -6,6 +6,8 @@ the card's implementation and tests; shipped narrative in
 
 ## Identity and snapshots
 
+- Counter-removal events capture the affected zone visit and occur only for actual removals. Suspend last-counter casts and ordinary removal payoffs resolve as separate triggers. Resolution play choices retain exact exile visits through JSON snapshots. Suspend haste is a timestamped continuous grant until control loss; explicit end-of-turn cast grants use their own duration.
+
 - Objects keep a stable `instance_id` plus a monotonic `zone_incarnation` that
   identifies one zone stay (RULE 400.7). Remembered/linked references (exile until
   departure, delayed graveyard returns, cast-cost IDs, event snapshots) compare

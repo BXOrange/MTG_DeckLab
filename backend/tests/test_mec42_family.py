@@ -573,15 +573,17 @@ def test_delay_suspended_creature_counts_down_and_casts_free_with_haste():
     _fire_upkeep(eng, "p2")
     assert victim.counters.get("time", 0) == 0, "last counter removed"
     assert victim.instance_id in state.free_cast_instance_ids, "free-cast window opened"
-    assert victim.granted_suspend_haste is True
+    assert victim.granted_suspend_haste is False
+    assert state.pending_choice["kind"] == "play_during_resolution"
 
     state.current_step = "main1"
     assert eng.can_cast(p2, victim)
-    eng.cast_spell(p2, victim)
+    eng.play_resolution_card(p2, victim)
     eng.resolve_until_stable()
 
     assert victim in state.battlefield
-    assert "haste" in victim.temp_keywords
+    from mtg_analyzer.game.combat import has
+    assert has(victim, "haste")
     assert victim.granted_suspend_haste is False, "consumed once at resolution"
 
 

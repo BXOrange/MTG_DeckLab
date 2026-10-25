@@ -614,9 +614,8 @@ def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: * ``alaundo``  — "… and put a number of time counters on it equal to its mana value. It gains "When the last time
 #:   counter is removed from this card, if it's exiled, you may cast it without paying its mana cost. If you cast a
 #:   creature spell this way, it gains haste until end of turn." Then remove a time counter from each other card you
-#:   own in exile." The granted trigger is exactly the free-cast window `RulesEngine.remove_suspend_time_counter`
-#:   opens for any exiled card whose last time counter goes (haste for a creature included), so the grant needs no
-#:   separate object state — the quoted text is recognised, not re-interpreted.
+#:   own in exile." The quoted cast ability is granted for that exact exile visit;
+#:   counter removal queues it separately from other removal payoffs.
 _EXILE_HAND_TIME_RE = compile_clause(
     # Both multi-sentence cards open "Draw N card(s), then …": the draw rides in front so the window that sees the
     # later sentences (the sentence split would otherwise strand them) starts at the draw.
@@ -649,7 +648,7 @@ def _exile_hand_time_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("opponent"):
         params.update(grant_suspend=True, then_opponent=True)
     if m.group("alaundo"):
-        params["sweep_time_counters"] = True
+        params.update(sweep_time_counters=True, grant_suspend_cast=True)
     return draw + [EffectSpec("exile_hand_card", params)]
 
 

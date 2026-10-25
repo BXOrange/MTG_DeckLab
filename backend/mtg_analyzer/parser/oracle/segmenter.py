@@ -10204,6 +10204,21 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 optional=optional, raw_text=raw, parser=provenance)
             return Segment(raw=raw, spec=spec, claimed=True)
 
+        counter_removed = re.fullmatch(
+            r"a (?P<kind>time) counter is removed from (?:~|this card) while it'?s exiled",
+            cond_text.strip(), re.IGNORECASE,
+        )
+        if counter_removed:
+            body, optional = peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, reading=ClauseReading(self_subject=True))
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec("triggered", effects=effects,
+                trigger={"event": "COUNTER_REMOVED", "condition": {"subject": "self"},
+                         "filter": {"kind": counter_removed.group("kind").lower(), "zone": "exile"}},
+                optional=optional, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
         if _LAST_TIME_COUNTER_REMOVED_COND_RE.match(cond_text.strip()):
             # RULE 702.62a: a suspended card's own trigger, fired from exile.
             body, optional = peel_optional(trig.group("body"))

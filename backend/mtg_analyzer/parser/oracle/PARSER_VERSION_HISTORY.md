@@ -4226,3 +4226,9 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 
 753 PAR-194 -- attached quoted-static grants fail closed outside supported
      keyword and P/T-modifier effect types; earlier-layer type/color grants remain unmodeled.
+
+754 PAR-195 -- time-counter removal triggers qualify the exact exile event; time
+     placement uses generic counters. Alaundo's quoted last-counter cast grant
+     is explicit and bound to the exile visit; Suspend casts via its resolving trigger.
+     Suspend-only X metadata preserves the printed nonzero restriction and feeds
+     chosen-X special-action costs, counters, legal offers and session dispatch.

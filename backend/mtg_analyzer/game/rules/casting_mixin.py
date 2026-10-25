@@ -2640,13 +2640,24 @@ class CastingResolutionMixin:
                 if obj in self.state.permanents():
                     self.put_into_graveyard(obj)
             if obj.granted_suspend_haste:
-                # RULE 702.62a: "If you cast a creature spell this way, it
-                # gains haste…" — stamped by `SuspendUpkeepEffect` when the
-                # free-cast window opened, consumed once here exactly like
-                # `cast_via_evoke` above.
+                # RULE 702.62a: intrinsic Suspend lasts until control is
+                # lost; Alaundo's quoted ability instead lasts this turn.
+                haste_grant = obj.granted_suspend_haste
                 obj.granted_suspend_haste = False
                 if obj in self.state.permanents():
-                    obj.temp_keywords.add("haste")
+                    duration = "end_of_turn" if haste_grant["duration"] == "end_of_turn" else "for_as_long_as"
+                    ability = StaticAbility("ability", affects="objects", source=obj,
+                        params={"keywords": ["haste"], "object_incarnations": {obj.instance_id: obj.zone_incarnation}},
+                        duration=duration,
+                        duration_data={"player_id": haste_grant["player_id"], "condition": {
+                            "kind": "all", "conditions": [
+                                {"kind": "zone_visit", "zone": "battlefield", "incarnation": obj.zone_incarnation},
+                                {"kind": "source_controlled_by_you"},
+                            ],
+                        }})
+                    ability.object_ids = [obj.instance_id]
+                    ability.timestamp = haste_grant["timestamp"]
+                    self.state.floating_statics.append(ability)
             if getattr(obj, "cast_via_dash", False):
                 # RULE 702.109c/d (PAR-26): a creature cast for its dash
                 # cost gains haste and is returned to its owner's hand at

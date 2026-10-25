@@ -1306,7 +1306,7 @@ class GameSession:
 
     def _dispatch_suspend(self, action: dict[str, Any], active: Player) -> None:
         """RULE 702.62a's hand-zone special action; it does not use the stack."""
-        self.engine.suspend(active, self._object(action))
+        self.engine.suspend(active, self._object(action), x=int(action.get("x", 0)))
 
     def _dispatch_unlock_door(self, action: dict[str, Any], active: Player) -> None:
         """RULE 709.5e: pay a Room half's mana cost to unlock it; a special action, so no stack."""

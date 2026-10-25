@@ -1091,20 +1091,23 @@ class LegalActionsMixin:
                     "type": "foretell", "instance_id": obj.instance_id,
                     "name": obj.name, "cost_label": "{2}", "auto_tap": True,
                 })
-            if self.can_suspend(player, obj):
+            if self.can_suspend(player, obj, assume_mana_available=True):
                 params = self._suspend_params(obj) or {}
-                actions.append({
+                action = {
                     "type": "suspend", "instance_id": obj.instance_id,
                     "name": obj.name, "cost_label": str(params.get("cost", "")),
-                    "time_counters": int(params.get("n", 0)),
-                })
-            elif self.can_suspend(player, obj, assume_mana_available=True):
-                params = self._suspend_params(obj) or {}
-                actions.append({
-                    "type": "suspend", "instance_id": obj.instance_id,
-                    "name": obj.name, "cost_label": str(params.get("cost", "")),
-                    "time_counters": int(params.get("n", 0)), "auto_tap": True,
-                })
+                }
+                if params.get("n") == "X":
+                    max_x = self.max_affordable_suspend_x(player, obj)
+                    if max_x >= int(params.get("min_x", 0)):
+                        action.update(has_x=True, min_x=int(params.get("min_x", 0)), max_x=max_x,
+                                      time_counters="X", auto_tap=True)
+                        actions.append(action)
+                else:
+                    action["time_counters"] = int(params.get("n", 0))
+                    if not self.can_suspend(player, obj):
+                        action["auto_tap"] = True
+                    actions.append(action)
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE
             # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —

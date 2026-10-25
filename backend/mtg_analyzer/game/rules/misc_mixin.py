@@ -3395,27 +3395,15 @@ class MiscSystemsMixin:
                     obj.add_counters("time", 1)
         self.check_state_based_actions()
     def remove_suspend_time_counter(self, obj: GameObject) -> bool:
-        """RULE 702.62a: take one time counter off a suspended card in exile.
+        """Remove one time counter in exile and queue its triggered abilities.
 
-        When that was the last one, the free-cast window opens (with RULE
-        702.62a's haste rider for a creature) and
-        `EventType.LAST_TIME_COUNTER_REMOVED` fires, so a card's own "When the
-        last time counter is removed from this card while it's exiled, …"
-        (Riftmarked Knight, Veiling Oddity) triggers alongside the cast. Shared
-        by the upkeep trigger (`SuspendUpkeepEffect`) and time travel above.
-        Returns whether the last counter came off.
+        RULE 702.62a: Suspend's cast permission is a separate last-counter
+        trigger, so no permission exists before that ability resolves.
         """
-        obj.add_counters("time", -1)
-        if obj.counters.get("time", 0) > 0:
+        if obj.zone != Zone.EXILE or obj.counters.get("time", 0) <= 0:
             return False
-        if getattr(obj.card, "is_creature", False):
-            obj.granted_suspend_haste = True
-        self.grant_free_cast_window_from_exile(obj)
-        self.state.fire_event(GameEvent(
-            EventType.LAST_TIME_COUNTER_REMOVED,
-            instance_id=obj.instance_id, controller_id=obj.owner_id,
-        ))
-        return True
+        self.add_counters(obj, -1, "time")
+        return obj.counters.get("time", 0) == 0
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""
@@ -5558,6 +5546,9 @@ class MiscSystemsMixin:
         if not gain_control(self.state, item, new_controller_id):
             return
         if item.obj is not None:
+            if (item.obj.controller_id != new_controller_id and item.obj.granted_suspend_haste
+                    and item.obj.granted_suspend_haste.get("duration") == "until_control_lost"):
+                item.obj.granted_suspend_haste = False
             gain_control(self.state, item.obj, new_controller_id)
     def end_the_turn(self) -> None:
         """"End the turn." (Day's Undoing/Time Stop-shaped reminder text —

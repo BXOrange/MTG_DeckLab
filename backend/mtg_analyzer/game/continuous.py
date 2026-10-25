@@ -6917,7 +6917,8 @@ def _doubler_kind(obj: Any) -> str:
 
     if isinstance(obj, Emblem):
         return "emblem"
-    return "spell" if getattr(obj, "zone", None) == Zone.STACK else "permanent"
+    zone = getattr(obj, "zone", None)
+    return "spell" if zone == Zone.STACK else "permanent" if zone == Zone.BATTLEFIELD else "card"
 
 
 def _doubler_side_matches(
@@ -6929,6 +6930,8 @@ def _doubler_side_matches(
     kind = _doubler_kind(obj)
     if kind == "emblem":
         return bool(side.get("emblem")) and obj.owner_id == doubler.controller_id
+    if kind == "card":
+        return False
     if side.get("emblem") or bool(side.get("spell")) != (kind == "spell"):
         return False
     if side.get("self"):

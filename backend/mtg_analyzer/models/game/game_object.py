@@ -469,18 +469,13 @@ class GameObject:
         #: suspend, it gains suspend.") — `_has_suspend` (`game/rules/
         #: triggers_mixin.py`) reads this alongside `parametric_keywords`'s
         #: own printed "suspend" entry so `_collect_suspend_triggers` treats
-        #: either source identically. Never reset per-cast like
-        #: `cast_via_evoke` above — once granted it's a standing
-        #: characteristic of the object for as long as it exists, mirroring
-        #: `has_rebound`.
+        #: either source identically. A zone change ends this granted ability
+        #: (RULE 400.7); it does not belong to a later visit of the same card.
         self.granted_suspend: bool = False
-        #: RULE 702.62a's third ability ("If you cast a creature spell this
-        #: way, it gains haste…"): stamped by `SuspendUpkeepEffect` right
-        #: before it opens the free-cast window (`grant_free_cast_window_
-        #: from_exile`), consumed by `RulesEngine._resolve_permanent_spell`
-        #: exactly like `cast_via_evoke` above — set, read once at
-        #: resolution, cleared.
-        self.granted_suspend_haste: bool = False
+        #: A last-counter cast's haste rider, armed only after accepting
+        #: the cast. Consumed at entry into a duration-bounded grant:
+        #: intrinsic Suspend ends on control loss; Alaundo ends at cleanup.
+        self.granted_suspend_haste: dict[str, Any] | bool = False
         #: Lurrus of the Dream-Den-shaped: the turn number this spell was
         #: cast via a standing graveyard-cast permission
         #: (`game/graveyard_cast.py`), or ``None`` if it wasn't. Consulted
@@ -1572,6 +1567,7 @@ class GameObject:
         self.cast_from_zone = None
         self.greatest_creature_power_as_cast = 0
         self.granted_suspend_haste = False
+        self.granted_suspend = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False
         self.tapped = False
@@ -1741,6 +1737,9 @@ class GameObject:
     def zone(self, value: Zone) -> None:
         if value != self._zone:
             self.zone_incarnation += 1
+            self.granted_suspend = False
+            if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
+                self.granted_suspend_haste = False
             # RULE 400.7: the spell-specific graveyard replacement ends on departure.
             self.cast_graveyard_exile_replacement = False
             # RULE 400.7 / 702.185b: Warp designation belongs to this exile visit.

@@ -920,16 +920,16 @@ def counter_sign(token: str) -> str:
 #: (PAR-135) — a closed list of the tracker words printed so far kept missing the next set's.
 #:
 #: What is *not* open is the small set whose name the engine itself keys off, where a generic
-#: `obj.counters[kind]` bump would half-model: the subsystem counters (`time` vanishing/
-#: suspend, `age` cumulative upkeep, `fade` fading, `level` leveler, `loyalty` planeswalker,
+#: `obj.counters[kind]` bump would half-model: the subsystem counters (`age` cumulative upkeep, `fade` fading, `level` leveler, `loyalty` planeswalker,
 #: `lore` Saga, `defense` battle), the player counters (`rad`, `energy`, `experience`,
 #: `poison`) and the RULE 122.1b keyword counters no layer reader exists for (`decayed`,
 #: `exalted`). `stun` (RULE 122.1c, `set_tapped`) and `shield` (RULE 122.1c,
 #: `deal_damage`/`destroy`) carry replacement effects, and both are engine-enforced now, so
-#: they are ordinary members. A test (`test_par135_named_counters.py`) scans `game/` for
+#: they are ordinary members. `time` also uses the shared counter primitive now that
+#: actual removals notify exile abilities and Suspend's separate cast trigger. A test (`test_par135_named_counters.py`) scans `game/` for
 #: counter-kind literals so a *new* reader can't slip in unreserved.
 RESERVED_COUNTER_KINDS: tuple[str, ...] = (
-    "time", "age", "fade", "level", "loyalty", "lore", "defense",
+    "age", "fade", "level", "loyalty", "lore", "defense",
     "rad", "energy", "experience", "poison", "decayed", "exalted", "finality", "ticket",
 )
 #: Multi-word RULE 122.1b keyword kinds first, so "first strike" isn't read as kind "first".

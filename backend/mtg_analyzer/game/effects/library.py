@@ -2460,36 +2460,37 @@ class RemoveCounterOrSacrificeEffect(GameEffect):
 
 
 class SuspendUpkeepEffect(GameEffect):
-    """RULE 702.62a's 2nd+3rd Suspend abilities, combined the same way
-    Vanishing's own upkeep pair already is (`RemoveCounterOrSacrificeEffect`
-    above): "At the beginning of your upkeep, if this card is suspended,
-    remove a time counter from it," then "When the last time counter is
-    removed from this card, if it's exiled, you may play it without paying
-    its mana cost if able."
-
-    Unlike Vanishing, ``source`` here is never a permanent — a suspended
-    card sits in exile the whole time (RULE 702.62b), so there's nothing to
-    sacrifice at zero; instead the free-cast window opens exactly the way
-    Rebound's own delayed half does (`ReboundFreeCastWindowEffect` →
-    `RulesEngine.grant_free_cast_window_from_exile`), including that
-    primitive's documented same-turn-only simplification for the "you may"
-    choice. `granted_suspend_haste` arms RULE 702.62a's trailing "if you
-    cast a creature spell this way, it gains haste" clause, consumed once
-    at resolution by `RulesEngine._resolve_permanent_spell` exactly like
-    `cast_via_evoke`.
-
-    Collected fresh each owner's-upkeep by `_collect_suspend_triggers`
-    (`game/rules/triggers_mixin.py`) rather than bound once at load time —
-    a card can become suspended mid-game with no printed Suspend at all
-    (Delay's granted suspend), so there's no permanent `TriggeredAbility`
-    to have pre-attached one to.
-    """
+    """RULE 702.62a: Suspend's upkeep ability removes one counter."""
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         obj = self.source
         if obj is None or obj.zone != Zone.EXILE or obj.counters.get("time", 0) <= 0:
             return
+        incarnation = context.resolving_source_incarnation
+        if incarnation is not None and obj.zone_incarnation != incarnation:
+            return
         context.engine.remove_suspend_time_counter(obj)
+
+
+class SuspendCastEffect(GameEffect):
+    """RULE 702.62a: the last-counter ability offers a cast at resolution."""
+
+    def __init__(self, source=None, *, haste_duration="until_control_lost"):
+        super().__init__(source)
+        self.haste_duration = haste_duration
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = self.source
+        if obj is None or obj.zone != Zone.EXILE:
+            return
+        incarnation = context.resolving_source_incarnation
+        if incarnation is not None and obj.zone_incarnation != incarnation:
+            return
+        player = context.state.player_by_id(obj.owner_id)
+        context.engine._request_resolution_play(
+            player, [obj], only_spells=True,
+            cast_rider="suspend_haste" if self.haste_duration == "until_control_lost" else "haste_until_eot",
+        )
 
 
 def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "ActivationCost":

@@ -2770,6 +2770,13 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    root.querySelectorAll('[data-suspend-x]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const iid = Number(el.dataset.suspendX);
+        act({ type: 'suspend', instance_id: iid, x: readX(iid, 'suspend') });
+      });
+    });
+
     root.querySelectorAll('[data-tap-x]').forEach((el) => {
       el.addEventListener('click', () => {
         const { iid, ability_index, option_index } = JSON.parse(el.dataset.tapX);
@@ -4067,6 +4074,19 @@ export function createGameBoardView(opts = {}) {
             })
           )
         );
+      } else if (a.type === 'suspend') {
+        const label = `⏳ Suspend (${escapeHtml(a.cost_label || '')})`;
+        if (a.has_x) {
+          // Suspend announces its own X, independently of casting this card.
+          buttons.push(`
+            <div class="gf-cast-x">
+              <input type="number" min="${escapeAttr(a.min_x)}" max="${escapeAttr(a.max_x)}" value="${escapeAttr(a.max_x)}" aria-label="Suspend X" data-x-input="${escapeAttr(xKey(a.instance_id, 'suspend'))}" />
+              <button type="button" class="gf-card-action" data-suspend-x="${escapeAttr(a.instance_id)}">${label} (X)</button>
+            </div>
+          `);
+        } else {
+          buttons.push(actionButton({ type: 'suspend', instance_id: a.instance_id }, label));
+        }
       } else if (a.type === 'activate_ability' && a.locked) {
         const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(

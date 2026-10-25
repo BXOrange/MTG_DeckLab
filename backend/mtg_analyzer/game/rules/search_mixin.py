@@ -202,6 +202,7 @@ class SearchMixin:
                                for obj in cards},
             "bottom_remaining": list(bottom_remaining or []),
             "instance_ids": [obj.instance_id for obj in cards],
+            "zone_incarnations": {str(obj.instance_id): obj.zone_incarnation for obj in cards},
             "options": [{"id": "decline", "label": "Decline"}],
             "prior_free": [obj.instance_id for obj in cards
                            if obj.instance_id in self.state.free_cast_instance_ids],
@@ -221,6 +222,13 @@ class SearchMixin:
         choice = self.state.resolution_play_choice
         if choice is None:
             return
+        if played_id is not None and choice.get("cast_rider") in {"suspend_haste", "haste_until_eot"}:
+            played = self.state.find_object(played_id)
+            if played is not None and played.card.is_creature:
+                played.granted_suspend_haste = {
+                    "duration": "until_control_lost" if choice["cast_rider"] == "suspend_haste" else "end_of_turn",
+                    "player_id": choice["player_id"], "timestamp": self.state.next_timestamp(),
+                }
         if choice.get("miracle"):
             for iid in choice["instance_ids"]:
                 obj = self.state.find_object(iid)

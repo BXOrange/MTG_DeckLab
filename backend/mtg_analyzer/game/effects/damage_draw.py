@@ -1690,6 +1690,7 @@ class ExileHandCardEffect(GameEffect):
         nonland: bool = False,
         time_counters_from_mana_value: bool = False,
         grant_suspend: bool = False,
+        grant_suspend_cast: bool = False,
         sweep_time_counters: bool = False,
         then_opponent: bool = False,
         player_id: Optional[str] = None,
@@ -1710,6 +1711,7 @@ class ExileHandCardEffect(GameEffect):
         self.nonland = bool(nonland)
         self.time_counters_from_mana_value = bool(time_counters_from_mana_value)
         self.grant_suspend = bool(grant_suspend)
+        self.grant_suspend_cast = bool(grant_suspend_cast)
         self.sweep_time_counters = bool(sweep_time_counters)
         self.then_opponent = bool(then_opponent)
         #: The chained opponent half's actor (set on the continuation spec, never by the parser).
@@ -1723,7 +1725,7 @@ class ExileHandCardEffect(GameEffect):
         params: dict[str, Any] = {
             "count": self.count, "zone": self.zone, "optional": self.optional, "nonland": self.nonland,
             "time_counters_from_mana_value": self.time_counters_from_mana_value,
-            "grant_suspend": self.grant_suspend,
+            "grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast,
         }
         params.update(override)
         return params
@@ -1747,7 +1749,7 @@ class ExileHandCardEffect(GameEffect):
             chain.append({"type": "exile_hand_card", "params": self._own_params(player_id=opponent.id)})
         then_specs: list[dict[str, Any]] = []
         if self.time_counters_from_mana_value:
-            then_specs.append({"type": "time_counters_on_exiled", "params": {"grant_suspend": self.grant_suspend}})
+            then_specs.append({"type": "time_counters_on_exiled", "params": {"grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast}})
         if self.sweep_time_counters:
             then_specs.append({"type": "remove_time_counters_from_exile", "params": {"exclude_previous": True}})
         else_specs: list[dict[str, Any]] = []
@@ -1768,9 +1770,11 @@ class TimeCountersOnExiledEffect(GameEffect):
     `_collect_suspend_triggers`). The mana value is the card's own — a card
     in exile has X = 0 (RULE 202.3e), so a hand card needs no special case."""
 
-    def __init__(self, grant_suspend: bool = False, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, grant_suspend: bool = False, grant_suspend_cast: bool = False,
+                 source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
         self.grant_suspend = bool(grant_suspend)
+        self.grant_suspend_cast = bool(grant_suspend_cast)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..rules.triggers_mixin import _has_suspend  # function-scoped: effects must not import rules at load
@@ -1781,16 +1785,28 @@ class TimeCountersOnExiledEffect(GameEffect):
             obj.add_counters("time", int(obj.mana_value or 0))
             if self.grant_suspend and not _has_suspend(obj):
                 obj.granted_suspend = True
+            if self.grant_suspend_cast:
+                from ...models.game.game_state import TurnScopedTrigger
+
+                instance_id = obj.instance_id
+                ability = TriggeredAbility(
+                    trigger_event=EventType.LAST_TIME_COUNTER_REMOVED,
+                    effects=[SuspendCastEffect(source=obj, haste_duration="end_of_turn")], controller_id=obj.owner_id,
+                    condition=lambda event, ctx, iid=instance_id: event.get("instance_id") == iid,
+                    source=obj, description="You may cast this card without paying its mana cost.",
+                )
+                context.state.turn_scoped_triggers.append(TurnScopedTrigger(
+                    ability, install_turn=None, once=False, bound_object_id=instance_id,
+                    bound_incarnation=obj.zone_incarnation, bound_zone="exile",
+                ))
 
 
 class RemoveTimeCountersFromExileEffect(GameEffect):
     """Alaundo the Seer's "Then remove a time counter from each other card you
     own in exile." (RULE 122.1 / 702.62a): one time counter comes off every
     card the controller owns in exile that has one, through
-    `RulesEngine.remove_suspend_time_counter` so the last one opens the
-    "when the last time counter is removed … you may cast it without paying
-    its mana cost" window (the very trigger Alaundo grants its exiled cards,
-    which that primitive already is, haste for creatures included).
+    `RulesEngine.remove_suspend_time_counter` so removal triggers and any
+    granted last-counter cast ability fire through the ordinary stack.
     ``exclude_previous`` leaves out the card the clause before just exiled."""
 
     def __init__(self, exclude_previous: bool = False, source: Optional["GameObject"] = None) -> None:

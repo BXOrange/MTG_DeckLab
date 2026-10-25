@@ -291,13 +291,14 @@ class CastingMixin:
         if not isinstance(params, dict) or params.get("cost") is None:
             return None
         try:
-            if int(params.get("n", 0)) < 0:
+            if params.get("n") != "X" and int(params.get("n", 0)) < 0:
                 return None
         except (TypeError, ValueError):
             return None
         return params
 
-    def can_suspend(self, player: Player, obj: GameObject, *, assume_mana_available: bool = False) -> bool:
+    def can_suspend(self, player: Player, obj: GameObject, *, x: Optional[int] = None,
+                    assume_mana_available: bool = False) -> bool:
         """RULE 702.62a: may ``player`` suspend this hand card now?"""
         params = self._suspend_params(obj)
         if obj not in player.hand or player is not self.state.active_player or params is None:
@@ -309,10 +310,24 @@ class CastingMixin:
         sorcery_speed = not (card.is_instant or combat.has(obj, "flash"))
         if sorcery_speed and (not self._in_main_phase() or bool(self.state.stack)):
             return False
-        cost = ManaCost.parse(str(params["cost"]))
+        chosen_x = int(params.get("min_x", 0)) if x is None else x
+        if params.get("n") == "X" and (not isinstance(chosen_x, int) or isinstance(chosen_x, bool)
+                or chosen_x < int(params.get("min_x", 0))):
+            return False
+        cost = ManaCost.parse(str(params["cost"])).with_x(chosen_x)
         return assume_mana_available or player.mana_pool.can_pay(cost, life_available=player.life)
 
-    def suspend(self, player: Player, obj: GameObject) -> None:
+    def max_affordable_suspend_x(self, player: Player, obj: GameObject) -> int:
+        params = self._suspend_params(obj) or {}
+        bound = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
+        for chosen in range(bound, int(params.get("min_x", 0)) - 1, -1):
+            if self.can_suspend(player, obj, x=chosen, assume_mana_available=True):
+                cost = ManaCost.parse(str(params["cost"])).with_x(chosen)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    return chosen
+        return -1
+
+    def suspend(self, player: Player, obj: GameObject, *, x: int = 0) -> None:
         """Pay Suspend's alternate cost and exile the card with time counters.
 
         This is a special action, so it never uses the stack (RULE 116.2f).
@@ -320,21 +335,21 @@ class CastingMixin:
         these counters; no separate marker is necessary for a printed
         Suspend card.
         """
-        if not self.can_suspend(player, obj):
-            if self.can_suspend(player, obj, assume_mana_available=True):
+        if not self.can_suspend(player, obj, x=x):
+            if self.can_suspend(player, obj, x=x, assume_mana_available=True):
                 try:
                     params = self._suspend_params(obj)
                     assert params is not None
-                    self.auto_tap_for(player, cost=ManaCost.parse(str(params["cost"])))
+                    self.auto_tap_for(player, cost=ManaCost.parse(str(params["cost"])).with_x(x))
                 except ValueError:
                     pass
-        if not self.can_suspend(player, obj):
+        if not self.can_suspend(player, obj, x=x):
             raise ValueError(f"{player.id} cannot suspend {obj.name} now")
         params = self._suspend_params(obj)
         assert params is not None
-        player.mana_pool.pay(ManaCost.parse(str(params["cost"])), life_available=player.life)
+        player.mana_pool.pay(ManaCost.parse(str(params["cost"])).with_x(x), life_available=player.life)
         self.rules.exile(obj)
-        obj.add_counters("time", int(params["n"]))
+        obj.add_counters("time", x if params["n"] == "X" else int(params["n"]))
 
     def foretell(self, player: Player, obj: GameObject) -> None:
         """Pay {2}, then exile a hand card face down (no stack involved)."""
