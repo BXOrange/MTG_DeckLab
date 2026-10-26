@@ -148,7 +148,9 @@ class _CompositeEffect(GameEffect):
         if not specs:
             return False
         return _apply_effects_partitioned(
-            _build(specs, self.source),
+            _build(effect_conditions.pin_source_reference(
+                specs, self.source, context.resolving_source_incarnation,
+            ), self.source),
             context,
             targets,
             None,

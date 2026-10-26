@@ -15,6 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+import copy
 import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -674,8 +675,12 @@ class LegalActionsMixin:
             )
             action["effective_cost"] = reduced.raw
 
+        from ..damage_division import requirements as division_requirements
         with self._mode_effects_applied(obj, mode):
             requirements = requirements_with_targets(self.state, player.id, obj)
+            divisions = division_requirements(getattr(obj, "spell_effects", []))
+        if divisions:
+            action["damage_divisions"] = divisions
         if requirements:
             action["requires_target"] = True
             action["targets"] = requirements
@@ -704,6 +709,32 @@ class LegalActionsMixin:
                 player, obj, 0, mode=mode, evoke=evoke, warp=warp,
                 surge=surge, entwine=entwine, pay_additional=pay_additional,
             ).raw
+        if action.get("has_kicker") and not hasattr(obj, "_modal_announced_kicked"):
+            # RULE 601.2b/c/d: preview the announced kicker before the
+            # client chooses targets or divides damage for that branch.
+            obj._modal_announced_kicked = 1
+            try:
+                with self._mode_effects_applied(obj, mode):
+                    kicked_targets = requirements_with_targets(self.state, player.id, obj)
+                    kicked_divisions = division_requirements(getattr(obj, "spell_effects", []))
+                if kicked_targets != requirements or kicked_divisions != divisions:
+                    variant = copy.deepcopy(action)
+                    variant.pop("locked", None)
+                    variant.pop("lock_reason", None)
+                    variant["kicked"] = 1
+                    variant["targets"] = kicked_targets
+                    variant["requires_target"] = bool(kicked_targets)
+                    variant["damage_divisions"] = kicked_divisions
+                    cost = self.effective_cast_cost(player, obj, 0, kicked=1, mode=mode,
+                        evoke=evoke, warp=warp, surge=surge, entwine=entwine,
+                        pay_additional=pay_additional)
+                    variant["cost_label"] = variant["effective_cost"] = cost.raw
+                    if not all_requirements_satisfiable(kicked_targets) or action.get("max_kicker", 0) < 1:
+                        variant["locked"] = True
+                        variant["lock_reason"] = "Kicker-Kosten oder Ziele nicht verfügbar"
+                    action["kicker_variant"] = variant
+            finally:
+                delattr(obj, "_modal_announced_kicked")
         if teamwork:
             delattr(obj, "_modal_announced_teamwork")
         return action

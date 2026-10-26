@@ -1255,6 +1255,7 @@ class GameSession:
                 else self.engine.cast_spell)
         cast(
             active, self._object(action), targets, x, face=face, mode=mode,
+            damage_divisions=action.get("damage_divisions"),
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
             sacrifice_choice=sacrifice_choice,
             sacrifice_choices=(None if action.get("sacrifice_choices") is None else [int(i) for i in action["sacrifice_choices"]]),

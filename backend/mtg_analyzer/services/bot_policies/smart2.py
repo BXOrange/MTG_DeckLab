@@ -96,7 +96,8 @@ class SmartBot2(SmartBot):
             # our only permanent. Preserve the server's group partition.
             ctx = self._context(view)
             for i, requirement in enumerate(action.get('targets') or []):
-                if requirement.get('optional'):
+                divided = any(d['requirement_index'] == i for d in action.get('damage_divisions') or [])
+                if requirement.get('optional') and not divided:
                     groups[i] = [o for o in groups[i] if target_value(ctx, o,
                                     ctx.effect_text(action), requirement.get('polarity')) > 0]
             return groups
@@ -104,6 +105,7 @@ class SmartBot2(SmartBot):
             self._target_action = {}
 
     def _fill_in(self, view, action):
+        action = self.announcement_offer(action)
         ctx = self._context(view)
         built = fill_costs(ctx, action)
         if built is None:
@@ -122,7 +124,7 @@ class SmartBot2(SmartBot):
         # X is intentionally selected by candidate generation, including 0.
         if action.get('has_x'):
             built['x'] = int(action.get('x', action.get('min_x', 0)) or 0)
-        return built
+        return built if self.fill_damage_divisions(action, built) else None
 
     def setup(self, view, actions):
         # Existing bounded source-aware London handling now uses Smart2's
@@ -182,12 +184,13 @@ class SmartBot2(SmartBot):
             values |= {int(number(ctx.obj(o).get('toughness'))) for r in action.get('targets', [])
                        for o in r.get('options', [])[:MAX_TARGET_OPTIONS]}
             variants = [{**action, 'x': x} for x in sorted(values) if low <= x <= high]
-        if action.get('has_kicker') and not action.get('kicker_has_x'):
+        if action.get('has_kicker') and not action.get('kicker_has_x') and not action.get('kicked'):
             # Offered max_kicker is authoritative. Single kicker has no max
             # in some offers; its affordability is not assumed in that case.
             maximum = int(action.get('max_kicker', 0) or 0)
             if maximum:
-                variants += [{**v, 'kicked': 1} for v in variants]
+                variants += [self.announcement_offer({**v, 'kicked': 1}) for v in variants
+                             if not (v.get('kicker_variant') or {}).get('locked')]
         return variants
 
     def _record(self, ctx, candidates, selected):
@@ -200,6 +203,10 @@ class SmartBot2(SmartBot):
                            for v, a, terms, status in top]}
 
     def play(self, view, actions):
+        # A kicked branch can have legal targets even when the base is locked.
+        actions = [*actions, *(a['kicker_variant'] for a in actions
+                              if isinstance(a.get('kicker_variant'), dict)
+                              and not a['kicker_variant'].get('locked'))]
         ctx = self._context(view)
         attacks = [a for a in actions if a['type'] == 'attack' and not a.get('locked')]
         if attacks:

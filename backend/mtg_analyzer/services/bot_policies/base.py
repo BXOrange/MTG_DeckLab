@@ -406,6 +406,46 @@ class Bot:
 
     # -- Targeting (RULE 115) ------------------------------------------
 
+    @staticmethod
+    def announcement_offer(action: dict[str, Any]) -> dict[str, Any]:
+        """Use the server's target requirements for the chosen kicker branch."""
+        variant = action.get("kicker_variant")
+        if action.get("kicked") and isinstance(variant, dict):
+            selected = {**action, **variant, "kicked": action["kicked"]}
+            if not variant.get("locked"):
+                selected.pop("locked", None)
+                selected.pop("lock_reason", None)
+            return selected
+        return action
+
+    @staticmethod
+    def fill_damage_divisions(action: dict[str, Any], built: dict[str, Any]) -> bool:
+        """RULE 601.2d: announce a deterministic positive split per target group."""
+        built.pop("damage_divisions", None)
+        divisions = action.get("damage_divisions") or []
+        if not divisions:
+            return True
+        groups = built.get("target_groups")
+        if groups is None:
+            groups = [built.get("targets") or []]
+        allocations = {}
+        for division in divisions:
+            index = int(division["requirement_index"])
+            if index >= len(groups):
+                return False
+            count = len(groups[index])
+            total = int(division["total"])
+            minimum = int(division.get("min_each", 1))
+            if count * minimum > total:
+                return False
+            if count:
+                each, remainder = divmod(total, count)
+                allocations[str(index)] = [each + (i < remainder) for i in range(count)]
+            else:
+                allocations[str(index)] = []
+        built["damage_divisions"] = allocations
+        return True
+
     def rank_targets(
         self,
         view: dict[str, Any],
@@ -459,11 +499,18 @@ class Bot:
         """One list of picks per offered requirement, in printed order."""
         requirements = action.get("targets") or []
         groups: list[list[dict[str, Any]]] = []
-        for requirement in requirements:
+        for index, requirement in enumerate(requirements):
             count = max(1, int(requirement.get("count", 1) or 1))
             ranked = self.rank_targets(
                 view, requirement.get("options") or [], requirement.get("polarity")
             )
+            division = next((d for d in action.get("damage_divisions") or []
+                             if d["requirement_index"] == index), None)
+            if division is not None:
+                count = min(count, int(division["total"]) // int(division.get("min_each", 1)))
+                if requirement.get("optional"):
+                    ranked = [o for o in ranked if o.get("player_id") != self.player_id
+                              and not self.controls(view, o.get("instance_id"))]
             if requirement.get("distinct_from_others"):
                 # RULE 109.5's "another target creature" (Pit Fight): the
                 # other half of the same clause already took one, and this

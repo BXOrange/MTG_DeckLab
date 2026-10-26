@@ -257,6 +257,7 @@ class GreedyBot(Bot):
         self, view: dict[str, Any], action: dict[str, Any]
     ) -> Optional[dict[str, Any]]:
         """Turn an offer into a complete action, or None if it can't be."""
+        action = self.announcement_offer(action)
         built = dict(action)
         built.pop("targets", None)
         built.pop("legal_defenders", None)
@@ -277,7 +278,7 @@ class GreedyBot(Bot):
             if x <= 0 and action["type"] == "cast_spell":
                 return None  # an X spell for 0 is a card thrown away
             built["x"] = x
-        return built
+        return built if self.fill_damage_divisions(action, built) else None
 
     def rank_targets(
         self,

@@ -896,6 +896,11 @@ class CastingResolutionMixin:
             cost = self.mana_cost_of(obj.card)
             if cost.has_variable:
                 cost = cost.with_x(x)
+        from ..damage_division import prepare as prepare_damage_divisions
+        announced_effects = prepare_damage_divisions(
+            self._effects_for_spell(obj), targets, target_groups,
+            getattr(obj, "_announced_damage_divisions", None),
+        )
         # RULE 702.88b Rebound: cast from hand arms the "exile instead of
         # graveyard, then reopen a free-cast window next upkeep" behaviour
         # `resolve_top_of_stack` checks for below — recast later from that
@@ -1048,7 +1053,7 @@ class CastingResolutionMixin:
         item = StackItem(
             kind="spell",
             controller_id=player.id,
-            effects=self._effects_for_spell(obj),
+            effects=announced_effects,
             obj=obj,
             description=obj.name,
             targets=targets,
@@ -1669,7 +1674,7 @@ class CastingResolutionMixin:
         game object's own ``static_effects`` list is used as a hook so
         tests/fixtures can attach behavior without a parser yet.
         """
-        return list(getattr(obj, "spell_effects", []))
+        return list(getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])))
     @staticmethod
     def _substitute_x(effects: list[Any], x: int) -> None:
         """Replace the ``"x"``/``"-x"`` sentinel amount/count/power/

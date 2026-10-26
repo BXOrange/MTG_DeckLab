@@ -36,7 +36,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-198 · "Instead" modifiers.** Kicker/condition `… instead` replacement sentences: 16 open, 14 sole-blocker (Desolation Angel/Giant, Ether Well, Feed the Clan, Fight with Fire, Grizzly Fate, Mysteries of the Deep, Predator's Howl, Ray of Enfeeblement, Ritual of Hope, Take the Fall, We Say Thee Nay!).
 - **PAR-202 · End-of-combat trigger head.** `at end of combat` (with intervening-if): 14 open, 5 with other parsed effects (Clockwork cycle, Daredevil Dragster, Dread Wight, Greater Werewolf, Heat Stroke, Kjeldoran Frostbeast, …).
 - **PAR-203 · Named choices on resolution.** `choose a creature type` (23 open, 2 sole-blocker), `choose a color` (18), `choose a card name` (17); measure which already-existing choice primitive each lacks.
 - **PAR-204 · Optional-payment "if you do" chains.** Compose `you may pay <cost>` and `if you do` / `if you don't` by antecedent type, including targeted counter placement before animation (Cyclone Sire, Noyan Dar, Wall of Resurgence); preserve announced targets and verify outcome gating through choices and clone.

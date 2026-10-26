@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "754"
+PARSER_VERSION = "759"
 
 
 def parser_source_hash() -> str:
@@ -606,6 +606,16 @@ def _restore_printed_token_names(specs: list[AbilitySpec], raw: str) -> None:
         restore(spec.modes)
 
 
+# PAR-64 / Raid amount overrides keep their specialised row; the generic
+# "instead" paragraph merge below must not pre-empt it.
+_RAID_OVERRIDE_RE = re.compile(
+    r"(?:if you attacked this turn, instead )?~ deals (?P<n>\d+) damage"
+    r"(?: to that (?:permanent|player)(?: or player)?)?(?P<unpreventable> and the damage can'?t be prevented)?"
+    r"(?: instead if you attacked this turn)?\.?",
+    re.I,
+)
+
+
 def parse_oracle(card: Any) -> ParseResult:
     """Memoized entry point — see `_parse_oracle_uncached` for the real work.
 
@@ -980,6 +990,23 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         raw = _SPELL_RIDER_PARAGRAPH_RE.sub(r" \g<rider>", raw)
     normalized = normalize(raw, getattr(card, "name", None), getattr(card, "keywords", None))
     normalized = reordered_fight_text(normalized)
+    if _is_spell(card):
+        # RULE 614.6: an ability-word paragraph ending in "instead"
+        # replaces the preceding spell instruction rather than adding one.
+        paragraphs = []
+        for line in normalized.splitlines():
+            if (paragraphs and "instead" in line and "would" not in line
+                    and _RAID_OVERRIDE_RE.fullmatch(line) is None
+                    and (line.startswith("if ") or " instead if " in line)):
+                previous = segment_line(paragraphs[-1], allow_spell_effect=True, provenance=provenance)
+                if previous.spec is not None and previous.spec.ability_kind == "spell_effect":
+                    combined = paragraphs[-1] + " " + line
+                    candidate = segment_line(combined, allow_spell_effect=True, provenance=provenance)
+                    if candidate.claimed:
+                        paragraphs[-1] = combined
+                        continue
+            paragraphs.append(line)
+        normalized = "\n".join(paragraphs)
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)
 
@@ -1076,13 +1103,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # preceding damage instruction, not independent damage effects. Both
         # printed orders exist (Firecannon Blast / Arrow Storm). Keep the
         # prior target and attach the override to that same effect.
-        raid_override = re.fullmatch(
-            r"(?:if you attacked this turn, instead )?~ deals (?P<n>\d+) damage"
-            r"(?: to that (?:permanent|player)(?: or player)?)?(?P<unpreventable> and the damage can'?t be prevented)?"
-            r"(?: instead if you attacked this turn)?\.?",
-            line,
-            re.I,
-        )
+        raid_override = _RAID_OVERRIDE_RE.fullmatch(line)
         if raid_override is not None and effect_specs:
             previous = effect_specs[-1]
             damages = [effect for effect in previous.effects if effect.type == "damage"]

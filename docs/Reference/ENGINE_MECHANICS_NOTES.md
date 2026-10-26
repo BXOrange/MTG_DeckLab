@@ -150,6 +150,8 @@ the card's implementation and tests; shipped narrative in
 
 ## Costs and choices
 
+- Announced kicker conditions use the pending cast choice before target selection and the persisted kicker count afterward. Cast offers may provide a complete `kicker_variant` with distinct requirements. `damage_divisions` maps requirement indices to positive integer shares in target order; validate before paying, preserve shares on the private stack effects and their bound specs, and never redistribute shares when a target becomes illegal. Lazy composite branches pin source references to the resolving source visit.
+
 - Open Ward payments retain their exact `StackItem`, payer and resolved cost in
   `GameState.pending_ward` (RULE 702.21a/b). Clone/undo preserves that identity;
   resumption consumes the descriptor and checks stack membership before payment

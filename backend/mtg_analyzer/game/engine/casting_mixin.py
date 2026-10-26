@@ -1766,6 +1766,7 @@ class CastingMixin:
         kicker_x: int = 0,
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
+        damage_divisions: Optional[dict[str, list[int]]] = None,
         free: bool = False,
         alt_cost: bool = False,
         mutate: bool = False,
@@ -1935,6 +1936,7 @@ class CastingMixin:
         # conditional modal header can depend on the *announced* Kicker.
         # Keep that prospective value only for this validation/resolution
         # window; the successful cast later persists `kicker_count` normally.
+        obj._announced_damage_divisions = damage_divisions
         obj._modal_announced_kicked = kicked
         obj._modal_announced_teamwork = teamwork
         # Snapshot non-cost conditional modal headers at the choice point.
@@ -1950,6 +1952,9 @@ class CastingMixin:
                 pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices,
             )
         finally:
+            if hasattr(obj, "_announced_division_effects"):
+                delattr(obj, "_announced_division_effects")
+            delattr(obj, "_announced_damage_divisions")
             delattr(obj, "_modal_announced_kicked")
             delattr(obj, "_modal_announced_teamwork")
             delattr(obj, "_modal_override_condition_met")
@@ -2416,6 +2421,11 @@ class CastingMixin:
                     picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", getattr(pick, "stack_id", None))) for pick in picks]
                     if not minimum <= len(picks) <= maximum or len(set(picked_ids)) != len(picked_ids) or any(pid not in legal_ids for pid in picked_ids):
                         raise ValueError("illegal targets for the spell")
+            from ..damage_division import prepare as prepare_damage_divisions
+            obj._announced_division_effects = prepare_damage_divisions(
+                list(getattr(obj, "spell_effects", [])), targets, target_groups,
+                getattr(obj, "_announced_damage_divisions", None),
+            )
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.

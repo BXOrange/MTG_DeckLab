@@ -2577,6 +2577,7 @@ class PumpEffect(GameEffect):
         unblockable: bool = False,
         source: Optional["GameObject"] = None,
         count: int = 1,
+        any_number: bool = False,
         count_max: Optional[int] = None,
         optional: bool = False,
         count_selector: Optional[str] = None,
@@ -2721,7 +2722,7 @@ class PumpEffect(GameEffect):
             # own N>=2 mode uses (as opposed to a *divided* pool), since a
             # pump spell's whole point is every chosen creature getting the
             # stated boost independently.
-            self.target_spec = TargetSpec(
+            self.target_spec = TargetSpec(any_number=any_number,
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 count_selector=count_selector,
                 creature_filter=creature_filter, colors=self.colors,
@@ -2950,8 +2951,8 @@ class PumpEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
         elif self.target_spec is not None:
-            if self.target_spec.effective_count != 1:
-                chosen = _chosen_targets(targets, self.target_spec.effective_count)
+            if self.target_spec.any_number or self.target_spec.effective_count != 1:
+                chosen = _chosen_targets(targets, len(targets or []) if self.target_spec.any_number else self.target_spec.effective_count)
                 for obj in chosen:
                     self._pump_one(obj)
                 if chosen:

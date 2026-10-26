@@ -76,6 +76,8 @@ class DealDamageEffect(GameEffect):
         group_player: Optional[str] = None,
         group_and_players: Optional[str] = None,
         divided: bool = False,
+        division: Optional[list[int]] = None,
+        division_required: bool = False,
         distinct_from_others: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
@@ -283,8 +285,9 @@ class DealDamageEffect(GameEffect):
         # deals twice X … instead" (RULE 107.3) — the pool doubles once the
         # resolved amount reaches that threshold.
         self.divided = divided
+        self.division_required = bool(division_required)
         self.double_at = double_at
-        self.division: Optional[list[int]] = None
+        self.division: Optional[list[int]] = list(division) if division is not None else None
         self.target_spec = None
         if self.group is not None and self.group_player in ("player", "opponent"):
             self.target_spec = TargetSpec(kind=self.group_player)

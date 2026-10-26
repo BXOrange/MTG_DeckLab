@@ -582,6 +582,15 @@ def _evaluate(
     if not condition:
         return True
     kind = condition.get("kind")
+    if kind == "kicked" and "of" not in condition and source is not None:
+        # RULE 608.2h: a kicked ETB ability retains its source visit's
+        # cast choices after that permanent has left the battlefield.
+        visit = getattr(context, "resolving_source_incarnation", None)
+        if visit is not None and visit != source.zone_incarnation:
+            original = context.state.zone_visit_sources.get((source.instance_id, visit))
+            if original is not None:
+                return static_conditions.condition_holds(condition, context.state, original,
+                    _controller_id(source, context))
     if kind in ("power", "toughness", "mana_value") and "x" in (condition.get("min"), condition.get("max")):
         # "…if its toughness is X or less" (Welcome to the Fold, PAR-139): X is the resolving spell's own
         # announced X (`GameObject.x_paid`), bound here because a condition dict is not an effect attribute
@@ -664,7 +673,7 @@ def condition_state(
 
 
 #: Flags the *cast itself* decides, so they are already known when targets are announced.
-ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid"})
+ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid"})
 
 
 def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optional[bool]:
@@ -683,7 +692,13 @@ def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optiona
     if kind == "not":
         inner = announced_state(structured.get("condition"), source)
         return None if inner is None else not inner
+    if kind == "kicked" and "of" not in structured:
+        count = int(getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0)) or 0)
+        return ((structured.get("min") is None or count >= structured["min"])
+                and (structured.get("max") is None or count <= structured["max"]))
     if kind == "flag" and structured.get("flag") in ANNOUNCED_FLAGS and "of" not in structured:
+        if structured["flag"] == "teamwork_paid":
+            return bool(getattr(source, "_modal_announced_teamwork", getattr(source, "teamwork_paid", False)))
         return bool(getattr(source, structured["flag"], False))
     return None
 

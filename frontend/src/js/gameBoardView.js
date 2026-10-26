@@ -630,7 +630,7 @@ export function createGameBoardView(opts = {}) {
 
   function dragActionsForInstance(instanceId) {
     if (!latestByInstance || !latestByInstance[instanceId]) return [];
-    return latestByInstance[instanceId].filter(isPlayableCardAction);
+    return latestByInstance[instanceId].filter(isPlayableCardAction).map((action) => selectedKickerAction(action)).filter((action) => !action.locked);
   }
 
   function dragTargetsForActions(actions) {
@@ -749,7 +749,7 @@ export function createGameBoardView(opts = {}) {
       const req = expanded.requirements[i];
       if (!Array.isArray(req.options)) continue;
       for (const option of req.options) {
-        if (String(option.instance_id) === String(selectedOption.instance_id) || String(option.player_id) === String(selectedOption.player_id)) {
+        if (selectedOption.player_id != null ? option.player_id === selectedOption.player_id : option.instance_id === selectedOption.instance_id) {
           return expanded.owners[i];
         }
       }
@@ -757,7 +757,12 @@ export function createGameBoardView(opts = {}) {
     return 0;
   }
 
+  function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face)) {
+    return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
+  }
+
   function prepareCastTargeting(action, selectedOption = null) {
+    action = selectedKickerAction(action);
     const requirements = action.targets || [];
     const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz));
     const send = {
@@ -776,8 +781,8 @@ export function createGameBoardView(opts = {}) {
     if (action.evoke) send.evoke = true;
     if (action.surge) send.surge = true;
     if (action.blitz != null) send.blitz = action.blitz;
-    if (action.has_kicker) {
-      send.kicker = readKicker(action.instance_id, action.face);
+    if (action.has_kicker || action.kicked) {
+      send.kicked = readKicker(action.instance_id, action.face);
       if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
     }
     if (action.pay_additional) send.pay_additional = true;
@@ -785,6 +790,8 @@ export function createGameBoardView(opts = {}) {
     if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
     castTargeting = {
       instanceId: action.instance_id,
+      damageDivisions: action.damage_divisions,
+      divisionRequirements: requirements,
       requirements: expanded.requirements,
       owners: expanded.owners,
       reqIndex: 0,
@@ -797,8 +804,9 @@ export function createGameBoardView(opts = {}) {
     };
     if (selectedOption) {
       const owner = requirementOwnerIndexForOption(action, selectedOption);
-      castTargeting.targets.push(selectedOption);
-      castTargeting.groups[owner].push(selectedOption);
+      const target = targetOptionPayload(selectedOption);
+      castTargeting.targets.push(target);
+      castTargeting.groups[owner].push(target);
       castTargeting.reqIndex = 1;
     }
     finishCastIfReady();
@@ -826,7 +834,7 @@ export function createGameBoardView(opts = {}) {
     const option = findTargetOptionForAction(action, target.instanceId, target.playerId);
     if (!option) return;
 
-    if (action.targets && action.targets.length <= 1) {
+    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant) {
       const send = {
         type: action.type,
         instance_id: action.instance_id,
@@ -842,7 +850,7 @@ export function createGameBoardView(opts = {}) {
       if (action.surge) send.surge = true;
       if (action.blitz != null) send.blitz = action.blitz;
       if (action.has_kicker) {
-        send.kicker = readKicker(action.instance_id, action.face);
+        send.kicked = readKicker(action.instance_id, action.face);
         if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
       }
       if (action.pay_additional) send.pay_additional = true;
@@ -1162,16 +1170,20 @@ export function createGameBoardView(opts = {}) {
       if (restored.size) blockDraft = restored;
     } else if (draft.kind === 'cast' && draft.castTargeting?.send) {
       const ct = draft.castTargeting;
-      const action = findTargetableAction(
+      let action = findTargetableAction(
         ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode,
         ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge, ct.send.blitz, ct.send.alt_cost, ct.send.warp,
       );
       if (action) {
+        action = selectedKickerAction(action, ct.send.kicked);
         const expanded = expandMultiTargetRequirements(action.targets || [], ct.x || 0);
         const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice || ct.isReturnChoice || ct.isBlightChoice
           ? Array.isArray(ct.requirements)
           : expanded.requirements.length === (ct.requirements || []).length;
-        if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
+        if (sameShape && Number.isInteger(ct.reqIndex)) {
+          castTargeting = ct;
+          render();
+        }
       }
     }
   }
@@ -2811,13 +2823,19 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.castTargetStart);
         const iid = Number(info.iid);
-        const action = findTargetableAction(
+        let action = findTargetableAction(
           iid, info.type, info.ability_index, info.face, info.mode,
           info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp,
         );
         if (!action) return;
-        const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
         const kicked = action.has_kicker ? readKicker(iid, info.face) : 0;
+        action = selectedKickerAction(action, kicked);
+        if (action.locked) {
+          setStatus(action.lock_reason || t('bd.cast.noValidTarget'), 'error');
+          render();
+          return;
+        }
+        const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
         const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
@@ -2831,11 +2849,44 @@ export function createGameBoardView(opts = {}) {
         } = expandMultiTargetRequirements(action.targets || [], x);
         castTargeting = {
           instanceId: iid, requirements, owners, reqIndex: 0, targets: [], x, send,
+          damageDivisions: action.damage_divisions, divisionRequirements: action.targets,
           groups: Array.from({ length: groupCount }, () => []),
           excludePicked, excludeControllers,
         };
         finishCastIfReady();
       });
+    });
+
+    root.querySelectorAll('[data-damage-requirement]').forEach((input) => {
+      input.addEventListener('input', () => {
+        if (!castTargeting) return;
+        const index = input.dataset.damageRequirement;
+        const inputs = [...root.querySelectorAll(`[data-damage-requirement="${index}"]`)];
+        (castTargeting.damageDraft ||= {})[index] = inputs.map((field) => field.value);
+        persistCastTargetingDraft();
+      });
+    });
+
+    root.querySelector('[data-damage-confirm]')?.addEventListener('click', () => {
+      const ct = castTargeting;
+      if (!ct) return;
+      const allocations = {};
+      let valid = true;
+      for (const division of ct.damageDivisions || []) {
+        const index = division.requirement_index;
+        const inputs = [...root.querySelectorAll(`[data-damage-requirement="${index}"]`)];
+        const values = inputs.map((input) => input.value === '' ? NaN : Number(input.value));
+        if (values.length !== (ct.groups?.[index] || []).length
+            || values.some((value) => !Number.isInteger(value) || value < division.min_each)
+            || (values.length > 0 && values.reduce((sum, value) => sum + value, 0) !== division.total)) valid = false;
+        allocations[index] = values;
+      }
+      if (!valid) {
+        root.querySelector('[data-damage-error]').textContent = 'Bitte den gesamten Schaden in ganzen Zahlen auf alle gewählten Ziele verteilen.';
+        return;
+      }
+      ct.allocatedDamage = allocations;
+      finishCastIfReady();
     });
 
     root.querySelectorAll('[data-cast-target-pick]').forEach((el) => {
@@ -3096,6 +3147,11 @@ export function createGameBoardView(opts = {}) {
       render();
       return;
     }
+    if (castTargeting.damageDivisions?.length && !castTargeting.allocatedDamage) {
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
     const ct = castTargeting;
     const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice } = ct;
     let payload;
@@ -3116,11 +3172,13 @@ export function createGameBoardView(opts = {}) {
     } else if (isDiscardChoice) {
       payload = { ...send, discard_choices: targets.map((t) => t.instance_id) };
     } else {
-      payload = { ...send, targets, x, ...((groups || []).length > 1 ? { target_groups: groups } : {}) };
+      payload = { ...send, targets, x, ...((groups || []).length > 1 ? { target_groups: groups } : {}),
+        ...(ct.allocatedDamage ? { damage_divisions: ct.allocatedDamage } : {}) };
     }
-    const action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
+    let action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp);
+    if (action) action = selectedKickerAction(action, send.kicked);
     if (!payload.tap_choices && action?.tap_cost) {
       const { options } = action.tap_cost;
       const count = action.tap_cost.count === 'x' ? x : action.tap_cost.count;
@@ -4023,12 +4081,12 @@ export function createGameBoardView(opts = {}) {
             t('bd.cast.playLand', { face: faceHint(a) })
           )
         );
-      } else if (a.type === 'cast_spell' && a.locked) {
+      } else if (a.type === 'cast_spell' && a.locked && (!a.kicker_variant || a.kicker_variant.locked)) {
         const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
         );
-      } else if (a.type === 'cast_spell' && (a.requires_target || a.graveyard_exile_cost || a.sacrifice_count_cost)) {
+      } else if (a.type === 'cast_spell' && (a.requires_target || a.kicker_variant || a.damage_divisions?.length || a.graveyard_exile_cost || a.sacrifice_count_cost)) {
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'cast_spell' && a.discard_cost) {
         // "As an additional cost to cast this spell, discard N cards" (RULE
@@ -4341,11 +4399,35 @@ export function createGameBoardView(opts = {}) {
       ? t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') })
       : `${t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) })}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
-    return `<div class="gf-cast-targets">${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+    const lockedHint = a.locked ? `<span class="hint">Ohne Kicker: ${escapeHtml(a.lock_reason || t('bd.cast.noValidTarget'))}</span>` : '';
+    return `<div class="gf-cast-targets">${lockedHint}${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+  }
+
+  function damageDivisionModalHtml() {
+    const ct = castTargeting;
+    const rows = ct.damageDivisions.map((division) => {
+      const index = division.requirement_index;
+      const requirement = ct.divisionRequirements?.[index];
+      const targets = ct.groups?.[index] || [];
+      const fields = targets.map((target, row) => {
+        const option = requirement?.options?.find((candidate) => target.player_id != null
+          ? candidate.player_id === target.player_id : candidate.instance_id === target.instance_id);
+        return `<label>${escapeHtml(option?.name || `Ziel ${row + 1}`)}
+          <input type="number" min="${escapeAttr(division.min_each)}" max="${escapeAttr(division.total)}" step="1" value="${escapeAttr(ct.damageDraft?.[index]?.[row] ?? division.min_each)}" data-damage-requirement="${escapeAttr(index)}" />
+        </label>`;
+      }).join('');
+      return `<fieldset><legend>${escapeHtml(requirement?.label || 'Schaden verteilen')} — insgesamt ${escapeHtml(division.total)}</legend>${fields}</fieldset>`;
+    }).join('');
+    return `<div class="gf-modal-overlay"><div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
+      <h4>Schaden verteilen</h4>${rows}<p data-damage-error role="alert"></p>
+      <div class="gf-modal-foot"><button type="button" data-damage-confirm>Bestätigen</button>
+        <button type="button" data-cast-target-cancel="${escapeAttr(ct.instanceId)}">✕ Abbrechen</button></div>
+    </div></div>`;
   }
 
   function castTargetModalHtml() {
     if (!castTargeting) return '';
+    if (castTargeting.reqIndex >= castTargeting.requirements.length && castTargeting.damageDivisions?.length) return damageDivisionModalHtml();
     const iid = castTargeting.instanceId;
     const total = castTargeting.requirements.length;
     const idx = castTargeting.reqIndex;

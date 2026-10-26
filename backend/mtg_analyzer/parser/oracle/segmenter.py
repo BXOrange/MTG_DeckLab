@@ -3889,8 +3889,8 @@ _OVERRIDE_TARGET_RE = re.compile(
     # value 3 or less from your graveyard" (Doctor Jane Foster). First, so
     # "target creature" doesn't claim its head.
     r"\btarget (?:[a-z ]*?(?P<card>card)(?: with [^,.]+?)? from your graveyard"
-    r"|(?P<noun>creature|player|opponent|permanent)"
-    r"(?P<scope> you control| an opponent controls| you don't control)?\b)", re.I,
+    r"|(?P<noun>creature(?: or planeswalker)?|player(?: or planeswalker)?|opponent|permanent|spell)"
+    r"(?P<scope> you control| an opponent controls| you don't control)?\b)|\b(?P<any>any target)\b", re.I,
 )
 
 
@@ -3902,7 +3902,20 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     With exactly one target in the base the rewrite is unambiguous; with
     none or several the text is returned unchanged and fails to match.
     """
-    rewritten = re.sub(r"^(?:she|he|it)\b", "~", replacement_text.strip(), flags=re.I)
+    rewritten = replacement_text.strip()
+    if re.match(r"^(?:she|he|it)\b", rewritten, re.I):
+        subject = "~" if re.match(r"~ deals?\b", base_text, re.I) else None
+        matches = list(_OVERRIDE_TARGET_RE.finditer(base_text))
+        target = matches[0] if len(matches) == 1 else None
+        if subject is None and target is not None:
+            subject = target.group(0)
+        if subject is not None:
+            rewritten = re.sub(r"^(?:she|he|it)\b", subject, rewritten, flags=re.I)
+    # Inside an optional replacement the pronoun still names that target.
+    matches = list(_OVERRIDE_TARGET_RE.finditer(base_text))
+    target = matches[0] if len(matches) == 1 else None
+    if target is not None:
+        rewritten = re.sub(r"^you may put it\b", "you may put " + target.group(0), rewritten, flags=re.I)
     # PAR-139 (madness overrides): "instead create X of those tokens" names the base's own tokens, and
     # "divided … among those permanents and/or players" the base's own "any number of targets".
     base_tokens = re.search(r"\bcreate \d+ (?P<phrase>.+? tokens?)\b", base_text, flags=re.I)
@@ -3920,8 +3933,12 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     targets = list(_OVERRIDE_TARGET_RE.finditer(base_text))
     if len(targets) != 1:
         return rewritten
-    noun = (targets[0].group("noun") or targets[0].group("card")).lower()
-    that = "player" if noun in ("player", "opponent") else noun
+    noun = (targets[0].group("noun") or targets[0].group("card") or "permanent or player").lower()
+    that = ("player" if noun in ("player", "opponent") else "permanent" if " or planeswalker" in noun
+            else noun)
+    # A replacement's object pronoun names the one already announced
+    # recipient; its source pronoun was handled independently above.
+    rewritten = re.sub(r"\bto it\b", "to " + targets[0].group(0).lower(), rewritten, flags=re.I)
     # Only the first mention is the announced target; a later "that player"
     # in the same sentence stays a back-reference to it (Devour Intellect).
     return re.sub(rf"\bthat {that}\b", targets[0].group(0).lower(), rewritten,
@@ -3931,7 +3948,7 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
 #: Params that narrow *which* objects are legal targets or how many — two
 #: branches announcing one requirement must agree on all of them.
 _TARGET_SHAPE_KEYS: frozenset[str] = frozenset({
-    "count_max", "optional", "max_mana_value", "min_mana_value", "mana_value",
+    "count_max", "optional", "any_number", "max_mana_value", "min_mana_value", "mana_value",
     "color", "colors", "spell_filter", "creature_filter", "filter", "target_filter",
     "max_power", "exclude_self", "another",
 })
@@ -3946,6 +3963,9 @@ def _target_signature(specs: list["EffectSpec"]) -> list[tuple[str, Any]]:
     """What a branch announces (RULE 601.2c), or ``[]`` when it targets nothing."""
     signature: list[tuple[str, Any]] = []
     for spec in specs:
+        if spec.type == "optional":
+            signature.extend(_target_signature([EffectSpec(child["type"], child.get("params", {}), condition=child.get("condition")) for child in spec.params.get("effects", [])]))
+            continue
         if not _names_a_target(spec):
             continue
         keys = set(TARGET_PARAM_KEYS | _TARGET_SHAPE_KEYS)
@@ -4007,13 +4027,35 @@ def _instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -
     announces one requirement for whichever branch runs.
     """
     match = _INSTEAD_OVERRIDE_RE.fullmatch(body)
+    suffix = re.fullmatch(r"(?P<base>[^.]+)\.\s*(?P<replacement>[^.]+?) instead if (?P<cond>[^.]+)\.?", body, re.I | re.S)
+    if match is None and suffix is not None:
+        return _instead_override_specs(
+            f"{suffix.group('base')}. if {suffix.group('cond')}, {suffix.group('replacement')} instead.",
+            reading=reading,
+        )
     if match is None:
         return None
-    ordinal = re.fullmatch(_RESOLUTION_TIME, match.group("cond"), re.I)
+    condition_text = match.group("cond")
+    if (re.fullmatch(r"it was(?:n'?t)? kicked", condition_text, re.I)
+            and not _OVERRIDE_TARGET_RE.search(match.group("base"))):
+        # An untargeted ETB instruction's "it" is its source. Bare "it"
+        # after a target-spell instruction could instead name that spell.
+        condition_text = re.sub(r"^it\b", "this spell", condition_text, flags=re.I)
+    ordinal = re.fullmatch(_RESOLUTION_TIME, condition_text, re.I)
     condition = (_resolution_count_condition(ordinal) if ordinal is not None
-                 else static_condition(match.group("cond")))
+                 else static_condition(condition_text))
     if condition is None:
         return None
+    # The unreplaced instruction never runs, so its target is this
+    # instruction's current target, not a previous completed effect.
+    def current_target(value):
+        if isinstance(value, dict):
+            return {key: ("target" if key == "of" and child == "previous_target" else current_target(child))
+                    for key, child in value.items()}
+        if isinstance(value, list):
+            return [current_target(child) for child in value]
+        return value
+    condition = current_target(condition)
     base_text = match.group("base")
     replacement_text = match.group("replacement") or match.group("leading")
     # "If a creature died this turn, A. If seven or more died, instead B."
@@ -4044,6 +4086,13 @@ def _instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -
             _target_signature(base) != _target_signature(replacement)
             or (_target_signature(base) and (len(base) != 1 or len(replacement) != 1))):
         return None
+    if _is_announced_condition(condition):
+        for spec in replacement:
+            if spec.type == "damage" and spec.params.get("divided"):
+                spec.params["division_required"] = True
+    if len(replacement) == 1 and replacement[0].type == "optional":
+        # Declining an optional replacement performs the original event.
+        replacement[0].params["else_effects"] = [spec.to_dict() for spec in base]
     return [EffectSpec("if_else", {
         "condition": condition,
         "then": [spec.to_dict() for spec in replacement],
@@ -4053,13 +4102,15 @@ def _instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -
 
 #: Flags the cast itself decides before targets are chosen — the parser-side mirror of
 #: `game/effect_conditions.ANNOUNCED_FLAGS` (this package must not import `game/`).
-_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid"})
+_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid"})
 
 
 def _is_announced_condition(condition: Optional[dict[str, Any]]) -> bool:
     """Whether ``condition`` is a (possibly negated) flag the cast already settled (RULE 601.2b)."""
     while condition and condition.get("kind") == "not":
         condition = condition.get("condition")
+    if condition and condition.get("kind") == "kicked" and "of" not in condition:
+        return True
     return bool(condition and condition.get("kind") == "flag"
                 and condition.get("flag") in _ANNOUNCED_FLAGS and "of" not in condition)
 
@@ -9981,7 +10032,7 @@ def _phase_damage_referents(effects: list[EffectSpec]) -> list[EffectSpec]:
         fields = {"seq": ("effects",), "bind": ("effects",), "if_else": ("then", "else")}.get(effect.type, ())
         for field in fields:
             if isinstance(params.get(field), list):
-                children = [EffectSpec.from_dict(child) for child in params[field]]
+                children = [EffectSpec(child["type"], child.get("params", {}), condition=child.get("condition")) for child in params[field]]
                 params[field] = [child.to_dict() for child in _phase_damage_referents(children)]
         rewritten.append(EffectSpec(effect.type, params, condition=effect.condition))
     return rewritten

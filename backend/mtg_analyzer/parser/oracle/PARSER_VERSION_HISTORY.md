@@ -4232,3 +4232,18 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      is explicit and bound to the exile visit; Suspend casts via its resolving trigger.
      Suspend-only X metadata preserves the printed nonzero restriction and feeds
      chosen-X special-action costs, counters, legal offers and session dispatch.
+
+757 PAR-198 -- conditional instead-if suffixes and successfully composed spell
+     paragraphs replace the original instruction. Kicker chooses its target
+     branch at announcement; current-target/optional replacement referents
+     preserve targeting and decline fallback. Announced divided-damage
+     branches require explicit allocations; any-number keyword pumps use
+     dynamic legal target counts. Bare ambiguous kicked pronouns stay closed.
+
+758 PAR-198 -- replacement referents preserve full creature/planeswalker
+     target unions and controller scopes, any-target permanent/player aliases,
+     and damage object pronouns. Existing library and prevention effects
+     handle the branches without changing the announced recipient.
+759 PAR-198 -- the generic "instead" paragraph merge in the gate skips the
+     established PAR-64 Raid amount-override paragraphs, so Firecannon Blast /
+     Arrow Storm keep their specialised amount_if_raid shape.

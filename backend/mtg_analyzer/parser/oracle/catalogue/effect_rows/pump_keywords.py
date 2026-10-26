@@ -1222,6 +1222,9 @@ def _multi_target_pump_params(m: re.Match[str]) -> Optional[dict]:
     params = multi_target_params(m)
     if params is None:
         return None
+    if m.groupdict().get("any_number"):
+        params["any_number"] = True
+        params["count"] = 1
     if params.get("count_selector"):
         selector = _multi_target_x_selector(m)
         if selector is None:
