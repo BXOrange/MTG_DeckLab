@@ -85,6 +85,10 @@ SORCERY_SPEED_MARKER = "sorcery_speed_marker"
 #: `SORCERY_SPEED_MARKER` shape).
 X_SPEND_COLOR_MARKER = "x_spend_color_marker"
 
+#: MEC-131: "X can't be greater than the number of snow lands you control." — a spell line bounding the announced X by
+#: a count selector (`GameObject.x_cap_selector`, read by `GameEngine.can_cast`).
+X_CAP_MARKER = "x_cap_marker"
+
 
 #: RULE 602.5d's *other* timing restriction: "Activate only during your
 #: turn." (Wishclaw Talisman-shaped) — deliberately left unclaimed above

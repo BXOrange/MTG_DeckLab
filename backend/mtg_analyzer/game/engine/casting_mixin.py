@@ -787,6 +787,11 @@ class CastingMixin:
             return False
         if player.id in self.state.no_more_spells_this_turn:
             return False  # Conduit of Worlds: "you can't cast additional spells this turn"
+        x_cap_selector = getattr(obj, "x_cap_selector", None)
+        if x_cap_selector is not None and x > continuous.count_selector(self.state, player.id, x_cap_selector, obj):
+            # RULE 107.3: "X can't be greater than the number of snow lands you control" (Winter's Chill) bounds the
+            # value the caster may announce, read when the spell is cast (RULE 601.2b).
+            return False
         taps = self._escalate_tap_count(obj, mode)
         if taps and len(self._escalate_tap_candidates(player)) < taps:
             return False  # Collective Effort: not enough untapped creatures to pay the Escalate cost

@@ -277,6 +277,13 @@ class DamageDeathMixin:
         # combat damage. Assignment restrictions are checked in combat itself.
         if combat and source is not None and getattr(source, "temp_prevent_combat_damage_dealt", False):
             return
+        # RULE 615 / 615.12: "prevent all combat damage that would be dealt to and dealt by that creature this combat"
+        # (Winter's Chill) — a per-object flag on either side of the damage, dropped when combat ends.
+        if combat and not self.damage_prevention_is_disabled() and any(
+            getattr(obj, "prevent_combat_damage_this_combat", False)
+            for obj in (source, None if is_player else target)
+        ):
+            return
         # RULE 702.16c: protection prevents *all* damage from a source of the
         # stated quality, not just combat damage — a burn spell from a
         # protected colour fizzles here same as a blocked attacker would.

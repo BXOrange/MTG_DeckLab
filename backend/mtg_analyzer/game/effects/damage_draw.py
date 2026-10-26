@@ -31,6 +31,18 @@ class PreventCombatDamageDealtEffect(GameEffect):
         if obj is not None:
             obj.temp_prevent_combat_damage_dealt = True
 
+class PreventCombatDamageToAndByEffect(GameEffect):
+    """RULE 615: "Prevent all combat damage that would be dealt to and dealt by that creature this combat."
+    (Winter's Chill, MEC-131) — the creature is the iteration item / the earlier clause's pick, flagged until the combat
+    ends (`RulesEngine.deal_damage` reads the flag, `GameEngine._clear_combat` drops it)."""
+
+    def apply(self, context, targets=None) -> None:
+        subject = (list(targets or []) or list(context.previous_targets))[:1]
+        for obj in subject:
+            if hasattr(obj, "instance_id"):
+                obj.prevent_combat_damage_this_combat = True
+
+
 class AssignNoCombatDamageEffect(PreventCombatDamageDealtEffect):
     """RULE 510.1: suppress assignment independently of prevention effects."""
 

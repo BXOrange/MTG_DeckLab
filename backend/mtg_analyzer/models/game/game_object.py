@@ -727,6 +727,9 @@ class GameObject:
         #: a state-based action regardless of how little damage it took.
         #: Transient — cleared with the rest of combat state at end-of-combat.
         self.dealt_deathtouch_damage: bool = False
+        #: RULE 615 "prevent all combat damage that would be dealt to and dealt by that creature this combat"
+        #: (Winter's Chill, MEC-131): cleared with the rest of combat state (`GameEngine._clear_combat`).
+        self.prevent_combat_damage_this_combat: bool = False
 
         #: The permanent this object is attached to (RULE 301.5 Equipment /
         #: RULE 303.4 Aura): the host's ``instance_id``, or None if not
@@ -1596,6 +1599,7 @@ class GameObject:
         self.additional_blocking = []
         self.blocked_by = []
         self.dealt_deathtouch_damage = False
+        self.prevent_combat_damage_this_combat = False
         self.attached_to = None
         self.last_unattached_from_id = None
         self.control_origin = None

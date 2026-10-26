@@ -39,7 +39,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-131 · Delayed riders with their own target.** "… at end of combat" delayed effects whose target is announced with the ability and rechecked when the delayed trigger fires (RULE 603.7c): Silent Assassin, Dwarven Sea Clan, Winter's Chill (also needs its snow-land X cap and pay-{1}-or-{2} choice).
 
 ## PLR — Player management
 

@@ -429,6 +429,7 @@ trigger_once_per_turn
 action_once_per_turn
 sorcery_speed
 x_spend_color
+x_cap
 only_during_your_turn
 only_before_attackers
 only_during_your_turn_once
@@ -770,8 +771,10 @@ damage_target_and_controller_party
 damage_target_party
 burakos_attack_party
 delayed_return_host_and_self_end_of_combat
+delayed_damage_previous_end_of_combat
 delayed_related_end_of_combat
 delayed_damage_related_end_of_combat
+delayed_target_destroy_end_of_combat
 delayed_destroy_self_and_blocked_end_of_combat
 delayed_comma_body_end_of_combat
 gain_control_group_while_source

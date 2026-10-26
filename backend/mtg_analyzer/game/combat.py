@@ -695,6 +695,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # PAR-109: "creatures you control that are enchanted/equipped" — a permanent is enchanted/equipped
         # while an Aura/Equipment is attached to it; needs ``state`` (a scan of the battlefield).
         "enchanted", "equipped",
+        # "target creature whose controller controls an Island" (Dwarven Sea Clan, MEC-131): the object's
+        # *controller* controls a land with this subtype (RULE 305.6 basic land types are land subtypes).
+        "controller_controls_land_subtype",
     }
 )
 
@@ -1095,6 +1098,17 @@ def matches_object_filter(
             return False
         entered = getattr(obj, "turn_entered", None) == state.internal_turn.number
         if entered != bool(entered_this_turn):
+            return False
+    # "…whose controller controls an Island" (Dwarven Sea Clan) — RULE 305.6: a land with the Island subtype. Read at
+    # check time (target legality on announcement and again on resolution, RULE 608.2b); needs ``state``.
+    controller_land = filt.get("controller_controls_land_subtype")
+    if controller_land is not None:
+        if state is None:
+            return False
+        if not any(
+            land.controller_id == obj.controller_id and land.is_land and _has_subtype(land, str(controller_land))
+            for land in state.permanents()
+        ):
             return False
     # PAR-109: "…that are **enchanted**/**equipped**" (Fencer's Magemark, Hexgold Hoverwings) — an Aura (RULE
     # 303.4) / Equipment (RULE 301.5) on the battlefield is attached to this permanent.

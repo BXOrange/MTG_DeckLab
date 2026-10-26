@@ -18,8 +18,10 @@ from ..clause_primitives import (
     ONLY_DURING_YOUR_TURN_MARKER,
     SORCERY_SPEED_MARKER,
     TRIGGER_ONCE_PER_TURN_MARKER,
+    X_CAP_MARKER,
     X_SPEND_COLOR_MARKER,
 )
+from ..count_phrase import parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..static_handlers import activation_attached_condition, static_condition
 from ..subgrammars import (
@@ -94,9 +96,23 @@ def _choose_target_single(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    return [EffectSpec("choose_targets", {
-        "kinds": [kind], "optional": target_is_optional(m),
-    })]
+    params: dict = {"kinds": [kind], "optional": target_is_optional(m)}
+    # "choose target blocking creature" / "…attacking creature whose controller controls an Island" (Dwarven Sea
+    # Clan, MEC-131): `resolve_target_kind` collapses the combat-state adjective onto the bare kind, so without the
+    # filter the announcement would accept any creature.
+    creature_filter = dict(resolve_target_creature_state_filter(m.group("target")) or {})
+    if kind == "attacking_or_blocking_creature":
+        # The announcement keeps the plain creature kind and carries the combat-state pair as a filter key, which the
+        # announcement-time and resolution-time legality checks both read (RULE 608.2b).
+        params["kinds"] = ["creature"]
+        creature_filter["attacking_or_blocking"] = True
+    land = m.groupdict().get("controls_land")
+    if land:
+        # RULE 305.6: an Island is a land with the Island subtype.
+        creature_filter["controller_controls_land_subtype"] = land.lower()
+    if creature_filter:
+        params["creature_filter"] = creature_filter
+    return [EffectSpec("choose_targets", params)]
 
 
 # RULE 701.10 "exchange control of `<X>` and `<Y>`" (PAR-29) — three
@@ -222,7 +238,9 @@ _CHOOSE_TARGETS_GROUP_RE = compile_clause(
     rf"choose {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT})"
     rf"{MULTI_TARGET_DISTINCT_CONTROLLERS}"
 )
-_CHOOSE_TARGET_SINGLE_RE = compile_clause(rf"choose {TARGET}")
+_CHOOSE_TARGET_SINGLE_RE = compile_clause(
+    rf"choose {TARGET}(?: whose controller controls an? (?P<controls_land>island|forest|mountain|plains|swamp))?"
+)
 
 
 # --- The one-sided fight ("deals damage equal to its power") ----------------
@@ -1429,6 +1447,18 @@ def _sorcery_speed(m: re.Match[str]) -> list[EffectSpec]:
 _X_SPEND_COLOR_RE = compile_clause(r"spend only (?P<color>white|blue|black|red|green) mana on x")
 
 
+#: MEC-131 / RULE 107.3: "X can't be greater than the number of snow lands you control." (Winter's Chill) — a bound on the
+#: announced X, kept as a structured count selector (`count_phrase`), never as text the engine would interpret.
+_X_CAP_RE = compile_clause(r"x can't be greater than the number of (?P<what>[a-z' ]+)")
+
+
+def _x_cap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = parse_count_phrase(m.group("what"))
+    if selector is None or selector.get("zone") != "battlefield":
+        return None
+    return [EffectSpec(X_CAP_MARKER, {"selector": selector})]
+
+
 def _x_spend_color(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(X_SPEND_COLOR_MARKER, {"color": COLOR_WORDS[m.group("color").lower()]})]
 
@@ -1952,6 +1982,7 @@ ROWS: list[EffectHandler] = [
         _sorcery_speed,
     ),
     EffectHandler("x_spend_color", _X_SPEND_COLOR_RE, _x_spend_color),
+    EffectHandler("x_cap", _X_CAP_RE, _x_cap),
     # "Activate only during your turn." — RULE 602.5d's wider sibling
     # (Wishclaw Talisman); see `ONLY_DURING_YOUR_TURN_MARKER`'s docstring.
     EffectHandler(

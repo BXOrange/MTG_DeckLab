@@ -3504,13 +3504,17 @@ class ChooseTargetsEffect(GameEffect):
         optional: bool = False,
         per_player: Optional[str] = None,
         creature_filter: Optional[dict] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         kinds = kinds or []
         if len(kinds) == 1 and count:
+            # ``count_selector`` ("choose X target attacking creatures", MEC-131): ``count`` is only the ceiling and
+            # the announced X (`TargetSpec.count_selector`) decides how many picks are offered (RULE 601.2c).
             specs = [TargetSpec(
                 kind=kinds[0], count=count, distinct_controllers=distinct_controllers,
                 optional=optional, per_player=per_player, creature_filter=creature_filter,
+                count_selector=count_selector,
             )]
         else:
             specs = [TargetSpec(kind=kind, optional=optional, per_player=per_player, creature_filter=creature_filter) for kind in kinds]

@@ -695,6 +695,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # The source-scoped sibling of `prevent_all_combat_damage`'s player-scoped
     # Fog effect — "prevent all combat damage this effect's source would deal".
     "prevent_combat_damage_dealt": "prevent_damage",
+    "prevent_combat_damage_to_and_by": "prevent_damage",
     "prevent_attacking_player_this_turn": "create_continuous_effect",
     "prevent_damage_from_target": "prevent_damage",
     "prevent_damage_shield": "prevent_damage",

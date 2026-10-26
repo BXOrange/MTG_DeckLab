@@ -147,6 +147,53 @@ def _delayed_damage_related(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: RULE 603.7c / 601.2c: "{3}{B}: Destroy target blocking creature at end of combat." (Silent Assassin) — the target is
+#: announced with the ability, not when the delayed trigger fires, so it is split into a bare announcement
+#: (`choose_targets`, the same pre-pick the "choose target ..." riders use) and a delayed destroy that captures exactly
+#: that pick (``capture="previous_targets"``). The delayed ability then names the object by zone visit (RULE 400.7) and
+#: never targets again, so hexproof gained in between does not stop it, and a creature that left and returned is a new
+#: object it leaves alone.
+_DELAYED_TARGET_DESTROY_RE = compile_clause(r"destroy (?P<target>target .+?) at end of combat")
+
+#: The announcement params a delayed targeted destroy may carry over from the plain `destroy` clause it is read as.
+_DELAYED_TARGET_PARAMS = frozenset({"target_kind", "creature_filter", "optional"})
+
+
+def _delayed_target_destroy(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    body = parse_effect_body(f"destroy {m.group('target')}", reading=reading.but(previous_subject=False))
+    if not body or len(body) != 1:
+        return None
+    effect = body[0]
+    if effect.type != "destroy" or effect.condition is not None or not set(effect.params) <= _DELAYED_TARGET_PARAMS:
+        return None
+    if not effect.params.get("target_kind"):
+        return None
+    announce = {"kinds": [effect.params["target_kind"]], "optional": bool(effect.params.get("optional", False))}
+    if effect.params.get("creature_filter"):
+        announce["creature_filter"] = effect.params["creature_filter"]
+    return [
+        EffectSpec("choose_targets", announce),
+        EffectSpec("create_delayed_trigger", {
+            "step": END_COMBAT_STEP, "scope": "any", "capture": "previous_targets",
+            "effects": [{"type": "destroy_specific", "params": {}}],
+        }),
+    ]
+
+
+#: RULE 603.7c: the same pick, read back by a later clause — "Choose target attacking or blocking creature whose
+#: controller controls an Island. ~ deals 2 damage to that creature at end of combat." (Dwarven Sea Clan). "That
+#: creature" is the earlier clause's announced target (``previous_subject``), so the delayed damage captures
+#: ``previous_targets``; the block-relation row above is the ``self_subject``/trigger-head reading of the same words.
+_DELAYED_DAMAGE_PREVIOUS_RE = compile_clause(r"(?:~|it) deals (?P<n>\d+) damage to that creature at end of combat")
+
+
+def _delayed_damage_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_delayed_trigger", {
+        "step": END_COMBAT_STEP, "scope": "any", "capture": "previous_targets",
+        "effects": [{"type": "damage_specific", "params": {"amount": int(m.group("n"))}}],
+    })]
+
+
 #: RULE 603.7 comma form: "when ~ attacks or blocks, **at end of combat**, sacrifice it and it deals 5 damage to you"
 #: (Time Elemental) — the trigger's body is itself the delayed ability. The source is fixed when the trigger resolves
 #: (``capture="self"``), so "sacrifice it" / "destroy it" name that very stay of the permanent (RULE 400.7: a copy that
@@ -200,10 +247,18 @@ ROWS: list[EffectHandler] = [
         "delayed_return_host_and_self_end_of_combat", _DELAYED_RETURN_HOST_AND_SELF_RE,
         _delayed_return_host_and_self, requires=ClauseReading(attached_subject=True),
     ),
+    EffectHandler(
+        "delayed_damage_previous_end_of_combat", _DELAYED_DAMAGE_PREVIOUS_RE, _delayed_damage_previous,
+        requires=ClauseReading(previous_subject=True),
+    ),
     EffectHandler("delayed_related_end_of_combat", _DELAYED_RELATED_RE, _delayed_related),
     EffectHandler(
         "delayed_damage_related_end_of_combat", _DELAYED_DAMAGE_RELATED_RE, _delayed_damage_related,
         requires=ClauseReading(self_subject=True),
+    ),
+    EffectHandler(
+        "delayed_target_destroy_end_of_combat", _DELAYED_TARGET_DESTROY_RE, _delayed_target_destroy,
+        reading_aware=True,
     ),
     EffectHandler(
         "delayed_destroy_self_and_blocked_end_of_combat", _AT_END_OF_COMBAT_DESTROY_SELF_AND_BLOCKED_RE,

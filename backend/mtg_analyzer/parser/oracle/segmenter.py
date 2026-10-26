@@ -50,6 +50,7 @@ from .catalogue.flicker_sequences import (
     source_return_specs,
 )
 from .catalogue.dying_hosts import dying_host_return_specs
+from .catalogue.per_creature_payment import per_creature_payment_specs
 from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
@@ -5759,6 +5760,10 @@ def _parse_effect_body_unstamped(
     physical_fight = physical_fight_specs(body)
     if physical_fight is not None:
         return physical_fight
+    # MEC-131: "choose X target attacking creatures. For each of those creatures, its controller may pay {1} or {2}. ..."
+    per_creature_payment = per_creature_payment_specs(body)
+    if per_creature_payment is not None:
+        return per_creature_payment
     # PAR-203: "choose a creature type/color/card name. <clauses naming the choice>" (RULE 608.2d).
     named_choice = named_choice_specs(body, lambda text: parse_effect_body(text, reading=reading))
     if named_choice is not None:

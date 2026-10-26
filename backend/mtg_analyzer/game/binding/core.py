@@ -34,6 +34,7 @@ from ...parser.oracle.catalogue.clause_primitives import (
     ONLY_BEFORE_ATTACKERS_MARKER,
     POWERUP_COST_REDUCTION_MARKER,
     SORCERY_SPEED_MARKER,
+    X_CAP_MARKER,
     X_SPEND_COLOR_MARKER,
 )
 from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, fold_action_limit
@@ -3203,6 +3204,12 @@ def bind_ability(
         if spell_marker is not None:
             source.x_spend_color_restriction = str(spell_marker.params.get("color") or "") or None
             effect_specs = [e for e in effect_specs if e.type != X_SPEND_COLOR_MARKER]
+        # MEC-131: "X can't be greater than the number of snow lands you control." (Winter's Chill) — read by
+        # `GameEngine.can_cast`, which refuses an announced X above the selector's count.
+        cap_marker = next((e for e in effect_specs if e.type == X_CAP_MARKER), None)
+        if cap_marker is not None:
+            source.x_cap_selector = cap_marker.params.get("selector")
+            effect_specs = [e for e in effect_specs if e.type != X_CAP_MARKER]
     if spec.ability_kind == "activated":
         x_color_marker = next((e for e in effect_specs if e.type == X_SPEND_COLOR_MARKER), None)
         if x_color_marker is not None:

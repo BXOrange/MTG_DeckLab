@@ -589,6 +589,10 @@ EffectRegistry.register(
     lambda p: PreventCombatDamageDealtEffect(subject=p.get("subject")),
 )
 EffectRegistry.register(
+    "prevent_combat_damage_to_and_by",
+    lambda p: PreventCombatDamageToAndByEffect(),
+)
+EffectRegistry.register(
     "prevent_all_combat_damage",
     # RULE 615's unscoped Fog-shaped shield — distinct from
     # "prevent_damage_shield" above, which always shields one recipient.
@@ -2036,6 +2040,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         per_player=p.get("per_player"),
         creature_filter=p.get("creature_filter"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(

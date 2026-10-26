@@ -397,6 +397,17 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.objects = chosen
                 elif hasattr(effect, "target"):
                     effect.target = chosen[0] if chosen else None
+        if self.capture == "targets":
+            # "…its controller may pay {1} or {2}. If that player doesn't, destroy that creature at end of combat."
+            # (Winter's Chill, MEC-131) — inside a per-target iteration or payment branch the object is what this
+            # effect was *applied to* (RULE 603.7c: fixed now), not the resolving spell's own earlier pick, and never
+            # the source. Baked like every other capture so the delayed firing names this very zone visit.
+            made = [t for t in (targets or []) if hasattr(t, "instance_id")]
+            for effect in baked:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+                elif hasattr(effect, "target") and made:
+                    effect.target = made[0]
         if self.capture == "trigger_related":
             # "Whenever ~ blocks or becomes blocked by a non-Wall creature, destroy **that
             # creature** at end of combat." (the Basilisks, PAR-119) — the creature(s) on the
@@ -514,7 +525,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.player = target_player
         for effect in baked:
             if (hasattr(effect, "_captured_target_incarnation") and effect.target_spec is None
-                    and self.capture in {"created_objects", "previous_or_self", "previous_targets",
+                    and self.capture in {"created_objects", "previous_or_self", "previous_targets", "targets",
                                          "trigger_related", "trigger_subject", "self"}):
                 # RULE 603.7c: an explicit source still names the visit that
                 # created this ability if it left before the ability resolved.

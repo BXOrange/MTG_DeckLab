@@ -100,6 +100,7 @@ class CombatMixin:
             obj.additional_blocking = []
             obj.blocked_by = []
             obj.dealt_deathtouch_damage = False
+            obj.prevent_combat_damage_this_combat = False  # RULE 615 "this combat" shields end with it
         # RULE 509.1a: nobody has "already declared blockers" for a combat
         # that hasn't happened yet — reset alongside the per-object flags
         # above (`GameState.declared_blockers_this_combat`'s own docstring).
