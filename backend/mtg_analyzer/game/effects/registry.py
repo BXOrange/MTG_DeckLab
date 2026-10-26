@@ -1925,6 +1925,7 @@ EffectRegistry.register(
         x_from_trigger_event=p.get("x_from_trigger_event"),
         pay_life_x=bool(p.get("pay_life_x", False)),
         x_cap_from_trigger_event=p.get("x_cap_from_trigger_event"),
+        x_cap_selector=p.get("x_cap_selector"),
     ),
 )
 EffectRegistry.register(

@@ -2479,7 +2479,8 @@ _LOOK_TOP_HIT_GRANT_KEYWORDS: dict[str, str] = {
 #: unrelated creature-choosing clause followed by an unrelated genuine
 #: untap effect.
 _GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
-    r"^(?P<before>gain control of (?:another )?target .+? until end of turn)\.\s*"
+    # PAR-204 (Eldrazi Obligator): one comma sentence, "…until end of turn, untap that creature, and it gains haste …".
+    r"^(?P<before>gain control of (?:another )?target .+? until end of turn)[.,]\s*"
     r"untap (?:that creature|that permanent|that artifact|it)[.,]?\s*(?:and\s+)?"
     r"(?P<grant>(?:it|they) gains? [a-z, ]*?haste[a-z, ]*? until end of turn"
     r"|until end of turn, (?:it|they) (?:gains?|has|have|becomes?) .+)"
@@ -8335,6 +8336,46 @@ def _while_condition_segment(
     return inner
 
 
+#: PAR-204: a graveyard-recursion trigger ("At the beginning of your upkeep, if this card is in your graveyard, you may
+#: pay {B}{B}{B}. If you do, return it to your hand." — Ghastly Remains, Pyre Zombie, Master of Death; "Whenever a
+#: creature you control dies while this card is in your graveyard, …" — Furious Forebear, Boneyard Scourge).
+#: RULE 113.6k: an ability that returns its own card from the graveyard functions only there, so the printed
+#: "if this card is in your graveyard" is where the ability *works*, not an extra condition; the binder already infers
+#: `functions_from_graveyard` from the self-return payoff (`binding.core._returns_self_from_graveyard`). The payoff's
+#: pronoun ("it", "this card") names that same card, so it is spelled out as the existing graveyard self-return row.
+_GRAVEYARD_FUNCTION_TRIGGER_RE = re.compile(
+    r"^(?P<head>(?:when|whenever|at) [^,]+?),? (?:if|while) (?:this card|~) is in your graveyard,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+_GRAVEYARD_SELF_RETURN_RE = re.compile(
+    r"\breturn (?:this card|it|~)(?: from your graveyard)? to (?P<zone>your hand|the battlefield)", re.IGNORECASE,
+)
+#: The payoff is *only* the self-return (optionally paid for / optional): any other use of "it" would be ambiguous.
+_GRAVEYARD_SELF_RETURN_BODY_RE = re.compile(
+    r"^(?:you may )?(?:pay [^.]+\. if you do, )?return this card from your graveyard to "
+    r"(?:your hand|the battlefield(?: tapped)?)(?: with an? [a-z+/0-9 -]+ counter on it)?\.?$",
+    re.IGNORECASE,
+)
+
+
+def _graveyard_self_return_segment(
+    line: str, *, allow_spell_effect: bool, provenance: ParserProvenance, is_saga: bool
+) -> "Optional[Segment]":
+    """The segment of a graveyard-recursion trigger read as its plain head plus the self-return payoff, or ``None``."""
+    m = _GRAVEYARD_FUNCTION_TRIGGER_RE.match(line.strip())
+    if m is None:
+        return None
+    body = _GRAVEYARD_SELF_RETURN_RE.sub(
+        lambda r: f"return this card from your graveyard to {r.group('zone')}", m.group("body").strip(), count=1,
+    )
+    if not _GRAVEYARD_SELF_RETURN_BODY_RE.match(body):
+        return None
+    inner = _segment_line_unsplit(
+        f"{m.group('head')}, {body}", allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
+    )
+    return inner if inner.claimed else None
+
+
 #: "if `<state>`, `<effect>`" at the head of a phase trigger's body — the state is read by
 #: `static_condition`, so anything that vocabulary says is an intervening if.
 _PHASE_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]+), (?P<rest>.+)$", re.IGNORECASE | re.S)
@@ -8374,6 +8415,11 @@ def segment_line(
     ))
     if whole.claimed:
         return whole
+    graveyard_return = _graveyard_self_return_segment(
+        line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    if graveyard_return is not None:
+        return graveyard_return
     for first, second in _compound_candidates(line):
         halves = [
             segment_line(

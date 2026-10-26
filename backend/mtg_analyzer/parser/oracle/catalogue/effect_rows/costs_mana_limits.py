@@ -647,9 +647,13 @@ def _pay_energy_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
 #: and worth being interactive about for a *typed* sacrifice/discard/life
 #: payment. Self-sacrifice is handled by that separate antecedent path.
 MAY_COST_THEN_CLAUSE = (
-    r"pay (?:\{[wubrgcx0-9/]+\})+"
+    # PAR-204 (RULE 118.8, a cost made of several parts): "you may pay {1} and 1 life / {1} and sacrifice an artifact /
+    # {2}{R} and sacrifice a nonland permanent / {1}{R} and discard a card" (Miara, Sokenzan Smelter, Dreamshaper
+    # Shaman) — mana plus ONE further part from the vocabulary `ActivationCost` charges whole (`_can_pay_player_cost`
+    # / `_pay_player_cost`), so the payer is only asked when every part is affordable.
+    r"pay (?:\{[wubrgcx0-9/]+\})+(?: and (?:sacrifice an? (?:nonland permanent|\w+)|discard a card|\d+ life))?"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
-    r"|sacrifice an? \w+(?: or (?:an? )?\w+)?"
+    r"|sacrifice an? (?:nonland permanent|\w+(?: or (?:an? )?\w+)?)"
     r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
     # PAR-152 (Strefan): "sacrifice two Blood tokens" — `costs.ActivationCost.sacrifice_count`.
     r"|sacrifice \d+ \w+(?: tokens)?"
@@ -671,6 +675,12 @@ MAY_COST_THEN_CLAUSE = (
     # `_pay_cost_then_general` refuses it under a group trigger.
     r"|remove (?:a|an|\d+) (?:[+\-]\d/[+\-]\d |[a-z]+(?: strike)? )?counters? from (?:~|it|this [a-z]+)"
 )
+def _cost_text(cost: str) -> str:
+    """The matched cost phrase as `costs.parse_activation_cost` reads it: a compound cost's bare "and 1 life" part is
+    only recognised as "and pay 1 life" (otherwise it is left unrecognised and the life would never be charged)."""
+    return re.sub(r" and (\d+ life)$", r" and pay \1", cost)
+
+
 _PAY_COST_THEN_GENERAL_RE = compile_clause(
     r"you may (?P<cost>" + MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
 )
@@ -750,11 +760,30 @@ def _body_has_target(effects: Any) -> bool:
     return False
 
 
+#: PAR-204 (RULE 107.3a): "…you may pay {X}. If you do, draw X cards. X can't be greater than the amount of life you
+#: gained this turn." (Shanna, Purifying Blade / Mortarion) — the announced X is capped by a turn-total the engine
+#: already tracks; the quantity is a `continuous.count_selector` name.
+_X_CAP_QUANTITIES: dict[str, str] = {
+    "the amount of life you gained this turn": "life_gained_this_turn",
+    "the amount of life you lost this turn": "life_lost_this_turn",
+}
+_X_CAP_RIDER_RE = re.compile(
+    r"\.\s*x can'?t be greater than (?P<quantity>" + "|".join(map(re.escape, _X_CAP_QUANTITIES)) + r")\.?$",
+    re.IGNORECASE,
+)
+
+
 def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     group = reading.group_clause
     if group and re.match(r"remove .* from it$", m.group("cost")):
         return None  # under a group trigger "it" is the firing object, not the source that pays
-    parts = re.split(r"\.\s*otherwise,?\s+", m.group("effect").strip(), maxsplit=1)
+    effect_text = m.group("effect").strip()
+    x_cap = _X_CAP_RIDER_RE.search(effect_text)
+    if x_cap is not None:
+        if "{x}" not in m.group("cost"):
+            return None  # a cap on an X nobody announces
+        effect_text = effect_text[:x_cap.start()].rstrip(". ") + "."
+    parts = re.split(r"\.\s*otherwise,?\s+", effect_text, maxsplit=1)
     if group:
         # The branch runs once the payment is made, after the trigger's event window has closed, so
         # a pronoun in it names the object `remember_trigger_subject` stamped on the source: read as
@@ -779,11 +808,13 @@ def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional
         if len(parts) > 1:
             return None  # an otherwise rider on a reflexive trigger is ambiguous
         return [EffectSpec("pay_cost_then", {
-            "cost": m.group("cost"),
+            "cost": _cost_text(m.group("cost")),
             "then_trigger": [s.to_dict() for s in sub],
             **({"remember_trigger_subject": True} if group else {}),
         })]
-    params: dict = {"cost": m.group("cost"), "effects": [s.to_dict() for s in sub]}
+    params: dict = {"cost": _cost_text(m.group("cost")), "effects": [s.to_dict() for s in sub]}
+    if x_cap is not None:
+        params["x_cap_selector"] = _X_CAP_QUANTITIES[x_cap.group("quantity").lower()]
     if len(parts) > 1:
         otherwise = parse_effect_body(
             parts[1], reading=ClauseReading(self_subject=True, previous_subject=announces_creature_target(sub)),
@@ -869,7 +900,7 @@ def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if any(s.params.get("target_kind") not in (None, "source") for s in sub):
         return None  # a targeted else-branch can't resolve off-stack either ("source" is not a pick)
     return [EffectSpec("pay_cost_then", {
-        "cost": m.group("cost"),
+        "cost": _cost_text(m.group("cost")),
         "effects": [],
         "else_effects": [s.to_dict() for s in sub],
     })]
@@ -1090,11 +1121,20 @@ def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     first = parse_effect_body(m.group("effect1").strip(), reading=inner_reading)
     if not first:
         return None
-    # A *targeted* (RULE 115) antecedent needs its own announced-target
-    # step this off-stack wrapper has no way to give it (same reasoning
-    # `_pay_cost_then_general`/`_pay_cost_then_or_else` already apply to a
-    # targeted follow-up) — fail closed rather than silently drop the target.
-    if any(s.params.get("target_kind") for s in first):
+    # PAR-204 (Cyclone Sire/Noyan Dar/Wall of Resurgence): "you may put 3 +1/+1 counters on target land you control.
+    # If you do, that land becomes a 0/0 Elemental creature …". A single targeted antecedent keeps its RULE 115
+    # target: it is announced when the ability goes on the stack (RULE 601.2c, `OptionalEffect.target_specs`), only
+    # *whether* it happens is decided at resolution, and the follow-up's "that land" is the same pick.
+    targeted_antecedent = (
+        len(first) == 1 and bool(first[0].params.get("target_kind"))
+        and re.search(r"\btarget\b", m.group("effect1")) is not None and announces_creature_target(first)
+    )
+    if targeted_antecedent:
+        inner_reading = ClauseReading(previous_subject=True, attached_subject=reading.attached_subject)
+    # Any other targeted antecedent needs its own announced-target step this off-stack wrapper has no way to give
+    # it (same reasoning `_pay_cost_then_general`/`_pay_cost_then_or_else` already apply to a targeted follow-up)
+    # — fail closed rather than silently drop the target.
+    elif any(s.params.get("target_kind") for s in first):
         return None
     second = parse_effect_body(m.group("effect2").strip(), reading=inner_reading)
     if not second:
@@ -1256,7 +1296,7 @@ _RETURN_SELF_FROM_GRAVEYARD_RE = compile_clause(
     r"(?:the battlefield(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # "…with 2 +1/+1 counters on it" (Retrofitted Transmogrant, Phoenix Chick) — the enters-with rider
     # the targeted row already reads, same counter vocabulary.
-    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|finality|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
     # "…attached to that creature" (Dragon Breath cycle, Smoke Shroud, PAR-193): the host is the
     # creature whose entering fired the trigger.
     r"(?P<attached> attached to that creature)?"
@@ -1818,7 +1858,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "transform",
         # RULE 701.28a: to convert a permanent is to turn it over exactly as transforming does ("convert ~", Ultra Magnus).
-        compile_clause(rf"(?:transform|convert) (?:{re.escape(SELF)}|it|this permanent|this creature)"),
+        compile_clause(rf"(?:transform|convert) (?:{re.escape(SELF)}|it|her|him|this permanent|this creature)"),
         _transform,
     ),
     # RULE 610.3: modern duration-bound exile returns immediately when the

@@ -1040,8 +1040,13 @@ class PayCostThenEffect(GameEffect):
         x_from_trigger_event: Optional[str] = None,
         pay_life_x: bool = False,
         x_cap_from_trigger_event: Optional[str] = None,
+        x_cap_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "…you may pay {X}. If you do, draw X cards. X can't be greater than the amount of life you gained this turn."
+        #: (Shanna, Purifying Blade; Mortarion) — a `continuous.count_selector` name evaluated for the payer when the
+        #: offer is built, capping the largest X offered (RULE 107.3a: X is announced as part of paying).
+        self.x_cap_selector = x_cap_selector
         #: "…you may pay {X}, where X is less than or equal to the amount of life you gained." (Well of Lost Dreams) —
         #: the largest X offered is capped by this field of the firing event.
         self.x_cap_from_trigger_event = x_cap_from_trigger_event
@@ -1241,6 +1246,10 @@ class PayCostThenEffect(GameEffect):
             if self.x_cap_from_trigger_event:
                 raw_cap = (context.trigger_event or {}).get(self.x_cap_from_trigger_event)
                 x_cap = int(raw_cap) if isinstance(raw_cap, int) and not isinstance(raw_cap, bool) else 0
+            if self.x_cap_selector:
+                from .. import continuous  # function-scoped: effects<->continuous cycle
+
+                x_cap = max(0, continuous.count_selector(context.state, player.id, self.x_cap_selector, self.source))
             self._open_pay_cost_then(context, player, cost, targets, trigger_x, x_cap)
         finally:
             context.acting_player_id = outer_acting

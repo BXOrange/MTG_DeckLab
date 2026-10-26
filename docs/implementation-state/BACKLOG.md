@@ -36,7 +36,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-- **PAR-204 · Optional-payment "if you do" chains.** Compose `you may pay <cost>` and `if you do` / `if you don't` by antecedent type, including targeted counter placement before animation (Cyclone Sire, Noyan Dar, Wall of Resurgence); preserve announced targets and verify outcome gating through choices and clone.
 
 ## MEC — Game mechanic
 

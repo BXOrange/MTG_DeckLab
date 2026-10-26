@@ -4266,3 +4266,11 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      cards from your graveyard into your library", colour/subtype fixed-protection groups, any dig-until kind
      `dig.parse_criteria` reads, reveal-top "if that card is a ... put it into your hand". `pay_cost_then` now routes a
      "when you do" body whose `seq`/`bind` wrapper announces a target through the reflexive trigger (RULE 603.12).
+762 PAR-204 -- optional-payment "if you do" chains by antecedent: "you may <effect on target X>. If you do, <effect on
+     that X>" keeps the antecedent's RULE 115 target (announced with the ability, RULE 601.2c) inside the existing
+     `optional` + `if_you_do_from` node (Cyclone Sire/Noyan Dar/Wall of Resurgence, "exile target creature card from a
+     graveyard. If you do, …"); compound pay costs ("pay {1} and 1 life / sacrifice an artifact / discard a card",
+     "sacrifice a nonland permanent"); RULE 113.6k graveyard-recursion triggers ("if/while this card is in your
+     graveyard" + self-return payoff, incl. "return it/this card to your hand"); a `finality` counter on the
+     self-return; "transform her/him"; the comma form of the threaten tail ("…, untap that creature, and it gains
+     haste"); "pay {X}" capped by a turn total (`x_cap_selector`: life gained/lost this turn).
