@@ -26,6 +26,7 @@ Task → entry point. Load when you do not know where a behaviour lives.
 | Combining effects: branching, "you may", "for each", "…equal to" | `backend/mtg_analyzer/game/effects/composition.py` (`seq`/`if_else`/`optional`/`for_each`/`bind`), `game/effect_amounts.py` (what `bind` measures) |
 | An "if `<predicate>`, `<effect>`" gate on a resolving effect (RULE 603.4/702.33b) | `backend/mtg_analyzer/game/effect_conditions.py` (referents + the `GameContext` predicates + the flat-key translator), `game/static_conditions.py` (every state predicate, shared with statics/triggers/replacements), `parser/oracle/segmenter.py`'s `_CONDITION_PREFIXES` |
 | A player choice: opening one, answering one, adding a new kind | `backend/mtg_analyzer/game/continuations.py` (the handler registry), `RulesEngine.open_choice`/`resolve_choice` |
+| Payments, votes, object selections, variants and miscellaneous rules operations | `game/rules/misc_mixin.py` composes focused topic mixins; [engine mechanic notes](ENGINE_MECHANICS_NOTES.md#rules-subsystem-navigation) maps responsibilities to modules |
 | What an effect type/engine method *is* (instruction/fusion/alias/…) | `backend/mtg_analyzer/game/isa.py`, `scripts/isa_report.py --registry` |
 | Which operations the corpus actually uses, and their argument frames | `scripts/isa_report.py --corpus` (re-derives `13_` §5.6b from the ledger) |
 | What a `TargetSpec.kind` decomposes into (types × scope × filters) | `game/targeting.py`'s `TARGET_FRAMES` |

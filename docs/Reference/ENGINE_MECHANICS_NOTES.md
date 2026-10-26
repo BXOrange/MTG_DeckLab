@@ -4,6 +4,32 @@ Reusable engine mechanisms and their invariants. Card-specific behaviour lives i
 the card's implementation and tests; shipped narrative in
 `docs/implementation-state/Done_Backend.md` (search the mechanic's name there).
 
+## Rules subsystem navigation
+
+`game/rules/misc_mixin.py` composes focused mixins while retaining the
+`MiscSystemsMixin` import used by `RulesEngine`. Its inherited operations live in:
+
+| Responsibility | Module under `game/rules/` |
+| --- | --- |
+| Optional energy/life/cost payments and collective payment choices | `payment_choices_mixin.py` |
+| Player-cost validation and payment | `player_costs_mixin.py` |
+| Player/object votes and outcomes | `voting_mixin.py` |
+| Resolution decisions, villainous choices and combat recipients | `resolution_choices_mixin.py` |
+| Named choices, conditional payments and opening-hand entry | `source_choices_mixin.py` |
+| Tokens, attacking entry, Sagas and cast tracking | `tokens_sagas_mixin.py` |
+| Day/night, Planechase, schemes and dungeons | `variant_systems_mixin.py` |
+| Resolving keyword actions | `keyword_actions_mixin.py` |
+| Monarch, initiative, Ring and emblems | `designations_mixin.py` |
+| Object-selection validation and resumable picks | `object_selection_mixin.py` |
+| Applying actions to selected objects | `chosen_object_actions_mixin.py` |
+| Retargeting, mutate and stack movement/countering | `stack_interaction_mixin.py` |
+| Ward, conditional counter payments and combat-triggered keywords | `ward_combat_mixin.py` |
+
+These mixins share engine state through `self`; choice decorators register the
+same continuation methods when imported by the composition. Shared predicates,
+constants and serialized-branch helpers live in `misc_helpers.py` and remain
+re-exported from `misc_mixin.py` for existing callers.
+
 ## Identity and snapshots
 
 - Counter-removal events capture the affected zone visit and occur only for actual removals. Suspend last-counter casts and ordinary removal payoffs resolve as separate triggers. Resolution play choices retain exact exile visits through JSON snapshots. Suspend haste is a timestamped continuous grant until control loss; explicit end-of-turn cast grants use their own duration.
