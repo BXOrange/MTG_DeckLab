@@ -138,8 +138,8 @@ def test_quoted_noncolor_group_pump_reuses_filtered_group_effect():
     assert granted.type == "grant_triggered_ability"
     assert granted.params["grant_effects"] == [{
         "type": "pump", "params": {
-            "power": -2, "toughness": -2, "selector": "all_creatures",
-            "creature_filter": {"without_color": "B"},
+            "power": -2, "toughness": -2,
+            "selector": {"zone": "battlefield", "of": "any", "filter": {"without_color": "B", "card_type": "creature"}},
         },
     }]
 

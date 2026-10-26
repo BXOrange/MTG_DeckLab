@@ -277,3 +277,43 @@ def test_cant_block_any_number_end_to_end_affects_only_the_chosen_creatures():
     assert chosen[0].temp_cant_block is True
     assert chosen[1].temp_cant_block is True
     assert getattr(unchosen, "temp_cant_block", False) is False
+
+
+def _cast(text, objs_by_owner, mana, *, targets=None):
+    card = Card(id="Test Pump", name="Test Pump", type_line="Instant", is_instant=True,
+                mana_cost_string="{1}{R}", converted_mana_cost=2, oracle_text=text)
+    eng = _engine()
+    p1 = eng.state.players[0]
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    p1.hand.append(obj)
+    for c in objs_by_owner:
+        eng.state.add_to_battlefield(c)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1.mana_pool.add_many(mana)
+    eng.cast_spell(p1, obj, targets=targets)
+    eng.resolve_until_stable()
+    eng.recompute_continuous_effects()
+    return eng
+
+
+def test_pump_any_number_end_to_end_pumps_only_the_chosen_creatures():
+    # RULE 115.1a: "any number of target creatures" -- the unchosen creature stays unpumped.
+    chosen = [_creature(f"Chosen{i}") for i in range(3)]
+    unchosen = _creature("Unchosen")
+    _cast("Any number of target creatures each get +1/+1 until end of turn.",
+          chosen + [unchosen], {"R": 1, "C": 1}, targets=chosen)
+    assert [c.power for c in chosen] == [3, 3, 3]
+    assert unchosen.power == 2
+
+
+def test_nonblack_group_pump_end_to_end_hits_every_players_nonblack_creatures():
+    # RULE 611.2c / 608.2: an untargeted "nonblack creatures get -1/-1" affects all players' creatures.
+    def bear(name, color, owner):
+        obj = _creature(name, owner=owner)
+        obj.card.mana_cost_string = "{" + color + "}"
+        return obj
+    mine, theirs, black = bear("Mine", "G", "p1"), bear("Theirs", "R", "p2"), bear("Black", "B", "p2")
+    _cast("Nonblack creatures get -1/-1 until end of turn.", [mine, theirs, black], {"R": 1, "C": 1})
+    assert (mine.power, theirs.power, black.power) == (1, 1, 2)

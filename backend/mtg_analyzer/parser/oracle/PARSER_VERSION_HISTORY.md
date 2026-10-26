@@ -4274,3 +4274,6 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      graveyard" + self-return payoff, incl. "return it/this card to your hand"); a `finality` counter on the
      self-return; "transform her/him"; the comma form of the threaten tail ("…, untap that creature, and it gains
      haste"); "pay {X}" capped by a turn total (`x_cap_selector`: life gained/lost this turn).
+763 PAR-198/203 shadowing fix -- retired the redundant `noncolor_creatures_pump` row (subsumed by the generic group `pump`, same
+     all-players "nonblack creatures" selector) and the older capped `pump_multi_target` row in `pump_stats.py` ("any number of
+     target creatures each get ..." now reads only as `any_number` via `pump_keywords._pump_multi`, no 10-target cap).

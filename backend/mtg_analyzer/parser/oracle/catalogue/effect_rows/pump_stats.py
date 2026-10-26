@@ -24,7 +24,6 @@ from ..subgrammars import (
 from ...normalize import SELF
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
-    ANY_NUMBER_TARGET_CAP,
     COLOR_WORDS,
     compile_clause,
     DELAYED_TAIL_INNER,
@@ -316,49 +315,6 @@ def _pump_attacking_subtype_target(m: re.Match[str]) -> Optional[list[EffectSpec
         "keywords": keywords, "target_kind": "creature_you_control",
         "creature_filter": {"attacking": True, "subtype": m.group("subtype").capitalize()},
     })]
-
-#: "Nonblack creatures get -2/-2 until end of turn." — a normal
-#: untargeted group pump with the existing negated-colour object filter.
-#: Keep the colour captured so the same catalogue row covers every colour.
-_NONCOLOR_CREATURES_PUMP_RE = compile_clause(
-    rf"non(?P<color>white|blue|black|red|green) creatures gets? {PT_DELTA} until end of turn"
-)
-
-
-def _noncolor_creatures_pump(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("pump", {
-        "power": signed_int(m.group("p")), "toughness": signed_int(m.group("t")),
-        "selector": "all_creatures",
-        "creature_filter": {"without_color": COLOR_WORDS[m.group("color").lower()]},
-    })]
-
-#: PAR-15's "any number of target creatures each get +N/+N [and gain
-#: `<keyword>`] until end of turn" (Aerial Formation/Ajani's Presence/Cruel
-#: Feeding/Desperate Stand/Rouse the Mob-shaped) — the pump-family sibling of
-#: `_add_counters_multi_target`'s "each of up to N" shape: every chosen
-#: creature gets the *full* stated boost (`PumpEffect`'s ``target_count``,
-#: not a divided pool).
-_PUMP_MULTI_TARGET_RE = compile_clause(
-    rf"any number of target creatures each get {PT_DELTA}"
-    rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
-)
-
-
-def _pump_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {
-        "power": signed_int(m.group("p")), "toughness": signed_int(m.group("t")),
-        "target_kind": "creature", "target_count": ANY_NUMBER_TARGET_CAP, "optional": True,
-    }
-    if m.groupdict().get("kw"):
-        keywords = token_keywords(m.group("kw"))
-        if keywords is None:
-            return None  # unmodeled granted ability → fail-closed
-        params["keywords"] = keywords
-    state_filter = pump_target_creature_filter(m)
-    if state_filter:
-        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
-    return [EffectSpec("pump", params)]
-
 
 #: "Untap those creatures." (Colossal Heroics' own trailing sentence,
 #: following "Any number of target creatures each get +2/+2 until end of
@@ -1163,11 +1119,6 @@ ROWS: list[EffectHandler] = [
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /
     # "creatures you control get +2/+1 until end of turn" (plural "get").
     EffectHandler(
-        "noncolor_creatures_pump",
-        _NONCOLOR_CREATURES_PUMP_RE,
-        _noncolor_creatures_pump,
-    ),
-    EffectHandler(
         "pump",
         compile_clause(
             rf"{SUBJECT} gets? {PT_DELTA}"
@@ -1212,14 +1163,6 @@ ROWS: list[EffectHandler] = [
         ("double_pt_group_pronoun", "group", _DOUBLE_PRONOUN_RE, _double_pt_group),
         ("double_pt_attached_pronoun", "attached", _DOUBLE_PRONOUN_RE, _double_pt_attached),
     ]),
-    # PAR-15: "any number of target creatures each get +N/+N [and gain
-    # `<keyword>`] until end of turn" — every chosen creature gets the full
-    # boost, not a divided pool.
-    EffectHandler(
-        "pump_multi_target",
-        _PUMP_MULTI_TARGET_RE,
-        _pump_multi_target,
-    ),
     # "Untap those creatures." (Colossal Heroics) — the previous clause's own
     # multi-target group, read back the same way `return_previous_group` does.
     EffectHandler(

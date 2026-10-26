@@ -494,7 +494,6 @@ pump_x
 pump_x_power_only
 pump_subtype_target
 grant_subtype_target
-noncolor_creatures_pump
 pump
 double_pt_of
 double_pt_possessive
@@ -502,7 +501,6 @@ double_pt_self_pronoun
 double_pt_previous
 double_pt_group_pronoun
 double_pt_attached_pronoun
-pump_multi_target
 untap_previous_group
 skip_untap_previous_selector
 tap_previous_selector
