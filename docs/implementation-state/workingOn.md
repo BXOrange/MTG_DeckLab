@@ -42,3 +42,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## BUG-36 · Undo onto an open as-enters choice loses the permanent
+
+- **Started / last update:** 2026-10-26 / 2026-10-26 21:15
+- **Goal of this run:** Make the as-enters choice pipeline state-owned and clone-safe so rewinding onto an open entry choice still lets the permanent enter.
+- **Done (built + tested):** Reproduced via `GameSession` (Meddling Mage: answer, `rewind(1)`, answer again → battlefield empty).
+- **In progress:** —
+- **Next step:** Read `RulesEngine._pending_enter_choice_*` (rules_engine.py, rules/draw_discard_mixin.py) and the state-owned `pending_permanent_entry` pattern; design the GameState representation.
+- **Decisions:** Commits allowed, no pushes. Full-cache tier before closing.
+- **Baselines / artefacts:** HEAD 59508671; --full-cache 16931 passed, 1 skipped at MEC-131 close.
+- **Known failures:** None known.
+- **Residue:** —

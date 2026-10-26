@@ -36,6 +36,36 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
+Fragment-mining tickets (PAR-207…209): measure with the `find-fragments` skill before and after
+(`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
+regressions, and executes newly claimed cards rather than trusting parse verdicts.
+
+- **PAR-207 · Trigger and activation heads.** About 1,065 open sentences fail on the head itself
+  (766 distinct heads; 42 occur on three or more cards). Largest families: reflexive `when you do`;
+  delayed `at the beginning of the next end step / that turn's end step / your next upkeep / the
+  chosen or enchanted player's upkeep`; `when this <type> enters`; `whenever you activate …`
+  (exhaust, loyalty abilities); `… this way` and threshold heads (`when you pay this cost N or more
+  times`, `when the Nth <counter> is put on ~`); `whenever <attached/equipped> … attacks / is
+  attacked / becomes (un)attached`. Build them as composable head grammar (trigger event × scope ×
+  timing), not per-phrase rows. Done when the head-failing share in a re-scan drops and every new
+  head fires in the real engine.
+- **PAR-208 · Clause separators and outcome chains.** Compose clauses the segmenter now leaves
+  alone: sentence follow-ups inside one paragraph (about 4,100 multi-sentence open clauses; the
+  follow-up is usually where it fails), shared-subject effect lists (`target player mills 2 cards,
+  draws 2 cards, and loses 2 life`), `, then` sequencing, and outcome-dependent follow-ups
+  (`if you do / if you don't / if you can't / if a player does / otherwise`) bound to the preceding
+  optional or conditional action. Check PAR-204 composition (`pay_cost_then`, `may_effect_then`)
+  first and extend it; no second chain mechanism. Done when the multi-sentence open count drops in a
+  re-scan and chained cards execute in order with correct else branches.
+- **PAR-209 · Base grammar atoms.** Shared building blocks that recur inside otherwise different
+  clauses, built once and reused: object filters (`target <adjective> <type>`, `that creature`, `each
+  creature that player controls`), durations (`for as long as`, `until your next turn`, `until end
+  of turn`), quantities (`a number of cards equal to …`, `for each …`, X and `where X is …`, `base
+  power and toughness N/N`), same-name / `exiled with ~` references, and `prevent … damage`
+  scopes. First step: add a slot decomposition (action, object filter, duration, quantity,
+  condition) to `find-fragments`, then pick the slot values that complete the most cards in
+  combination. Depends on nothing; sequence after PAR-207 and PAR-208 so their re-scan shows what
+  remains.
 
 ## MEC — Game mechanic
 
