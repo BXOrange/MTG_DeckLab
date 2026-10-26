@@ -4762,6 +4762,14 @@ focused phase/continuation/ISA/parser-lock tests also passed, including the twel
 - **Left open (generic named-token shapes, not Powerstone-specific):** "you and target opponent each create a tapped `<named>` token" (Thran Spider), "its controller creates …" (Cityscape Leveler), a for-each count over cards put into a graveyard from the battlefield this turn (Wreck Hunter), "lose X life and create X tapped …" (Terisiare's Devastation), Repair and Recharge's return-then-create, "sacrifice a Powerstone" costs (Horned Stoneseeker), Phyrexian Adapter's Incubator retyping, Wowzer's named-token count; Urza's Command is blocked by other modes.
 - **Files:** `data/tokens.json`, `game/mana_abilities.py`, `parser/oracle/catalogue/handlers.py`, `gate.py`. Tests: `tests/test_par133_powerstone.py` (token ability and ban, artifact vs nonartifact casts, ability payment, live tapped plural creation).
 
+
+### MEC-133: the Junk token (PARSER_VERSION 764, +8, 0 regressed)
+
+- **The token:** a curated `data/tokens.json` entry with the RULE 111.10t text (colorless noncreature Token Artifact — Junk, "{T}, Sacrifice this token: Exile the top card of your library. You may play that card this turn. Activate only as a sorcery."), shaped exactly like Treasure, and `"junk"` in `NAMED_TOKEN_WORDS`, so "create a/N/X Junk token(s)" uses the existing named-token rows. No new engine primitive: the sacrifice-self cost, the sorcery-speed gate and the impulse play window already existed; a land played from it uses a land drop and the permission ends at cleanup.
+- **Covered:** Boomer Scrapper, Break Down, Crimson Caravaneer, Duchess, Wayward Tavernkeep, Junktown, Mister Gutsy, Thrill-Kill Disciple, Veronica, Dissident Scribe. Review caught the first draft flagging Junk as a 0/1 creature; a test now pins it to Treasure's shape.
+- **Left on other clauses:** Rose, Cutthroat Raider (count of opponents you attacked), C.A.M.P. (shares a colour with the mana a land produced), Commander Sofia Daguerre (a token created by another player), Gunner Conscript (dies-if-it-was-enchanted/equipped LKI), Bin Chicken, Dogmeat, Overencumbered, Junk Jet.
+- **Tests:** `tests/test_mec133_junk_tokens.py`.
+
 ### PAR-93 — Contraption-crank ticket retired after legality audit
 
 - **What:** Retired the ticket rather than implementing an unsupported game

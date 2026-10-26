@@ -41,7 +41,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 - **MEC-131 · Delayed riders with their own target.** "… at end of combat" delayed effects whose target is announced with the ability and rechecked when the delayed trigger fires (RULE 603.7c): Silent Assassin, Dwarven Sea Clan, Winter's Chill (also needs its snow-land X cap and pay-{1}-or-{2} choice).
 - **MEC-132 · Delayed effects on captured or departed objects.** Delayed end-of-combat destroy/damage that uses the source after it left the battlefield (last-known information, RULE 608.2h) or the creature it blocked or damaged: Defiant Vanguard, Time Elemental, Sawtooth Ogre, Sosuke, Son of Seshiro, Simic Basilisk.
-- **MEC-133 · Junk tokens.** Predefined Junk token (RULE 111.10) and its creation clauses: 16 cards, 12 sole-blocker (Rose, Cutthroat Raider, Boomer Scrapper, Junktown, Mister Gutsy, Crimson Caravaneer, …).
 - **MEC-134 · As-enters card-name choice and name-keyed statics.** "As ~ enters, choose a … card name" plus the statics that read it (can't be cast, abilities can't be activated, costs more, protection): 12 cards (Meddling Mage, Nevermore, Voidstone Gargoyle, Pithing Spyglass, Runed Halo, Gideon's Intervention, Alpine Moon, …); look-at-a-hand-then-name variants (Sorcerous Spyglass, Anointed Peacekeeper) in the same pass.
 
 ## PLR — Player management

@@ -4277,3 +4277,4 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 763 PAR-198/203 shadowing fix -- retired the redundant `noncolor_creatures_pump` row (subsumed by the generic group `pump`, same
      all-players "nonblack creatures" selector) and the older capped `pump_multi_target` row in `pump_stats.py` ("any number of
      target creatures each get ..." now reads only as `any_number` via `pump_keywords._pump_multi`, no 10-target cap).
+764 MEC-133 -- the predefined Junk token (RULE 111.10): added to `data/tokens.json` and `NAMED_TOKEN_WORDS`, so "create a/N/X Junk token(s)" claims like Treasure/Clue/Food (+8 cards; Rose, C.A.M.P., Sofia Daguerre, Gunner Conscript stay on other clauses).

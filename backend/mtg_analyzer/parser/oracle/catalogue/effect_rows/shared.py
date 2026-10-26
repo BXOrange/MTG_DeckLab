@@ -900,7 +900,7 @@ def token_keywords(text: str) -> Optional[list[str]]:
 #: whenever a new named token is added there.
 NAMED_TOKEN_WORDS: dict[str, str] = {
     "treasure": "Treasure", "clue": "Clue", "food": "Food", "blood": "Blood", "mutagen": "Mutagen",
-    "powerstone": "Powerstone", "lander": "Lander",
+    "powerstone": "Powerstone", "lander": "Lander", "junk": "Junk",
 }
 
 
