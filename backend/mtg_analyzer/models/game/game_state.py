@@ -955,6 +955,17 @@ class GameState:
         self.turn_steps: list[Any] = []
         #: A resolving permanent retained through before-entry choices and undo.
         self.pending_permanent_entry: Optional[dict[str, Any]] = None
+        #: RULE 614.12 / 400.7: the permanent awaiting an "as ~ enters, choose ..." answer
+        #: (``{"obj", "incarnation", "batch"}``). The rest of the entry pipeline -- which queued choice is open,
+        #: where the entry continues afterwards -- is derived from this and the three entry records below, so
+        #: undo/clone never depend on a Python closure of the engine that opened the choice.
+        self.pending_enter_choice: Optional[dict[str, Any]] = None
+        #: RULE 305.1 / 614.12: a land being played that waits on a pre-entry choice
+        #: (``{"obj", "player_id", "from_zone", "grant"}``); cleared when the land enters.
+        self.pending_land_entry: Optional[dict[str, Any]] = None
+        #: RULE 111.5 / 614.12: a token being created that waits on a pre-entry choice
+        #: (``{"obj", "token_card", "controller_id", "remaining"}`` -- tokens of the batch still to create).
+        self.pending_token_entry: Optional[dict[str, Any]] = None
 
         #: RULE 500-adjacent "end the turn" (Day's Undoing/Time Stop-shaped
         #: reminder text) — the same "an effect can't reach `GameEngine.
@@ -1248,6 +1259,9 @@ class GameState:
             obj = self.pending_permanent_entry["obj"]
             if obj.instance_id == instance_id:
                 return obj
+        for entry in (self.pending_land_entry, self.pending_token_entry):
+            if entry and entry["obj"].instance_id == instance_id:
+                return entry["obj"]
         for obj in self.battlefield:
             if obj.instance_id == instance_id:
                 return obj

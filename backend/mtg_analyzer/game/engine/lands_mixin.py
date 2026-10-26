@@ -158,49 +158,10 @@ class LandsMixin:
         obj.controller_id = player.id
         obj.face_down_in_exile = False
 
-        def _finish() -> None:
-            obj.summoning_sick = True
-            # RULE 614.1: a tap-land enters the battlefield tapped —
-            # including a shock/check/fast/slow land's conditional shape
-            # (payment choice or board-state check), resolved by
-            # `enter_land_tapped`.
-            self.rules.enter_land_tapped(obj)
-            self.state.add_to_battlefield(obj)
-            player.lands_played_this_turn += 1
-            if graveyard_grant is not None and graveyard_grant.source is not None:
-                used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())
-                graveyard_grant.source.graveyard_cast_types_this_turn = used | {"land"}
-            self.state.record_stat(player.id, "land", name=obj.name)
-            self.state.fire_event(
-                GameEvent(
-                    EventType.LAND_PLAYED,
-                    player_id=player.id,
-                    card_id=obj.card.id,
-                    land=obj.name,
-                    # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
-                    from_exile=from_zone == "exile",
-                    # A "whenever you play another land" trigger (City of
-                    # Traitors) needs to exclude its own play event via
-                    # `effect_binder`'s "group"/"other" subject condition.
-                    instance_id=obj.instance_id,
-                )
-            )
-            self.state.fire_event(
-                GameEvent(
-                    EventType.ENTERS_BATTLEFIELD,
-                    from_zone=from_zone,
-                    controller_id=player.id,
-                    object=obj.name,
-                    instance_id=obj.instance_id,
-                    object_types=sorted(obj.type_words),
-                    # RULE 305.1: played, not put — "enter without being played" (PAR-119).
-                    played=True,
-                )
-            )
-            # RULE 117.3c: taking an action reclaims priority for its taker.
-            self.give_priority(player)
-
-        self.rules._offer_enter_choices(obj, _finish)
+        self.state.pending_land_entry = {
+            "obj": obj, "player_id": player.id, "from_zone": from_zone, "grant": graveyard_grant,
+        }
+        self.rules._offer_enter_choices(obj, lambda: self.rules._finish_land_entry(self.state.pending_land_entry))
         return obj
     @staticmethod
     def _castable_from_exile(obj: GameObject) -> bool:

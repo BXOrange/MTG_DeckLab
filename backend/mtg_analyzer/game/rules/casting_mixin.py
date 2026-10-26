@@ -2524,7 +2524,7 @@ class CastingResolutionMixin:
             GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
         )
         return False
-    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject) -> None:
+    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject, *, after_enter_choices: bool = False) -> None:
         """Finish resolving a permanent spell (RULE 608.3): summoning
         sickness, RULE 614.1 tapped-entry, the battlefield zone change,
         Aura attachment, and the ENTERS_BATTLEFIELD/SPELL_RESOLVED events.
@@ -2537,6 +2537,10 @@ class CastingResolutionMixin:
         itself — unlike every other resolution path here, this can pause on
         a `pending_choice` (possibly more than one, in sequence) and resume
         later from `_resume_enter_as_copy`/`_resume_choose_creature_type`.
+
+        ``after_enter_choices`` re-enters the pipeline at its tail (Read Ahead, then the entry itself) once the last
+        queued "as ~ enters" answer is in -- how `_enter_choice_exit` resumes it from the state-owned
+        ``pending_permanent_entry`` after a clone/undo, with no closure of the engine that first opened the choice.
         """
         self.state.pending_permanent_entry = {"item": item, "obj": obj}
 
@@ -2714,7 +2718,10 @@ class CastingResolutionMixin:
             else:
                 _after_copy_choice()
 
-        _after_replacement_choice()
+        if after_enter_choices:
+            _after_enter_choices()
+        else:
+            _after_replacement_choice()
 
     def _send_to_graveyard_unentered(self, obj: GameObject) -> None:
         """RULE 614.12's "don't pay" branch: ``obj`` never becomes a
@@ -2912,6 +2919,106 @@ class CastingResolutionMixin:
                     )
         if continuation is not None:
             continuation()
+    def _finish_land_entry(self, entry: dict[str, Any]) -> None:
+        """RULE 305.1 / 614.12: the land play's tail once its "as ~ enters" choices are answered. ``entry`` is the
+        state-owned ``pending_land_entry`` (`GameEngine.play_land`), so it also runs after a clone/undo."""
+        self.state.pending_land_entry = None
+        obj = entry["obj"]
+        player = self.state.player_by_id(entry["player_id"])
+        from_zone = entry["from_zone"]
+        graveyard_grant = entry["grant"]
+        obj.summoning_sick = True
+        # RULE 614.1: a tap-land enters the battlefield tapped —
+        # including a shock/check/fast/slow land's conditional shape
+        # (payment choice or board-state check), resolved by
+        # `enter_land_tapped`.
+        self.enter_land_tapped(obj)
+        self.state.add_to_battlefield(obj)
+        player.lands_played_this_turn += 1
+        if graveyard_grant is not None and graveyard_grant.source is not None:
+            used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())
+            graveyard_grant.source.graveyard_cast_types_this_turn = used | {"land"}
+        self.state.record_stat(player.id, "land", name=obj.name)
+        self.state.fire_event(
+            GameEvent(
+                EventType.LAND_PLAYED,
+                player_id=player.id,
+                card_id=obj.card.id,
+                land=obj.name,
+                # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
+                from_exile=from_zone == "exile",
+                # A "whenever you play another land" trigger (City of
+                # Traitors) needs to exclude its own play event via
+                # `effect_binder`'s "group"/"other" subject condition.
+                instance_id=obj.instance_id,
+            )
+        )
+        self.state.fire_event(
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD,
+                from_zone=from_zone,
+                controller_id=player.id,
+                object=obj.name,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+                # RULE 305.1: played, not put — "enter without being played" (PAR-119).
+                played=True,
+            )
+        )
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        # (`GameEngine.give_priority`'s two state writes: this runs on the rules engine, also after an undo.)
+        self.state.priority_player_index = self.state.players.index(player)
+        self.state.priority_passed.clear()
+
+    def _open_enter_choice_state(self, obj: GameObject) -> None:
+        """RULE 614.12 / 400.7: record the permanent now awaiting an "as ~ enters" answer in `GameState`.
+
+        Only the object and its zone visit are stored; the open effect, the remaining queue and the path the entry
+        continues on are re-derived from them (`_take_enter_choice`), so clone/undo keep the pipeline intact."""
+        self.state.pending_enter_choice = {"obj": obj, "incarnation": obj.zone_incarnation, "batch": False}
+
+    def _take_enter_choice(self) -> tuple[Optional[GameObject], Optional[Any], Optional[Callable[[], None]]]:
+        """Consume the pending entry choice: ``(object, open effect, continuation)``.
+
+        The continuation drops the answered effect from the object's queue and offers the next one, ending in the
+        path the entry runs on (`_enter_choice_exit`). A batch entrant (`restore_batch_runtime`) only drops the
+        answered effect; the batch re-offers the rest itself. All ``None`` when nothing is pending or the object
+        left the zone visit that asked (RULE 400.7: the answer would otherwise hit a new object)."""
+        entry = self.state.pending_enter_choice
+        self.state.pending_enter_choice = None
+        if not entry:
+            return None, None, None
+        obj = entry["obj"]
+        if obj.zone_incarnation != entry["incarnation"]:
+            return None, None, None
+        queue = obj.enter_choice_effects
+        effect = queue[0] if queue else None
+        remaining = queue[1:]
+        if isinstance(effect, ChooseColorReplacement) and effect.count > 1:
+            # "choose two colors": one prompt per colour, as `_offer_enter_choices` queues them.
+            remaining = [ChooseColorReplacement(count=effect.count - 1), *remaining]
+
+        def _next() -> None:
+            obj.enter_choice_effects = remaining
+            if not entry["batch"]:
+                self._offer_enter_choices(obj, self._enter_choice_exit(obj))
+
+        return obj, effect, _next
+
+    def _enter_choice_exit(self, obj: GameObject) -> Callable[[], None]:
+        """Where ``obj``'s entry continues once every queued "as ~ enters" choice is answered, derived from the
+        state-owned entry records (a resolving permanent spell, a land being played, a token being created)."""
+        spell = self.state.pending_permanent_entry
+        if spell and spell["obj"] is obj:
+            return lambda: self._resolve_permanent_spell(spell["item"], obj, after_enter_choices=True)
+        land = self.state.pending_land_entry
+        if land and land["obj"] is obj:
+            return lambda: self._finish_land_entry(land)
+        token = self.state.pending_token_entry
+        if token and token["obj"] is obj:
+            return lambda: self._finish_token_entry(token)
+        return lambda: None
+
     def _offer_enter_choices(self, obj: GameObject, continuation: Callable[[], None]) -> None:
         """RULE 601.2b: offer ``obj``'s queued "as it enters, choose a
         creature type/color" pick(s) *before* it's added to the battlefield —
@@ -3062,9 +3169,7 @@ class CastingResolutionMixin:
             _next()
             return
 
-        self._pending_enter_choice_obj = obj
-        self._pending_enter_choice_effect = effect
-        self._pending_enter_choice_continuation = _next
+        self._open_enter_choice_state(obj)
         if kind == "riot":
             self.state.pending_riot_entry = obj
         self.open_choice({
@@ -3094,9 +3199,7 @@ class CastingResolutionMixin:
         if owner is None or not owner.hand:
             resume()
             return
-        self._pending_enter_choice_obj = obj
-        self._pending_enter_choice_effect = effect
-        self._pending_enter_choice_continuation = resume
+        self._open_enter_choice_state(obj)
         self.look_at_hand(self.state.player_by_id(obj.controller_id), owner, source=obj, extra={"enter_look": True})
 
     def _offer_tribute(self, obj: GameObject, effect: ChooseTributeReplacement, resume: Callable[[], None]) -> None:
@@ -3108,9 +3211,7 @@ class CastingResolutionMixin:
         if not opponents:
             resume()
             return
-        self._pending_enter_choice_obj = obj
-        self._pending_enter_choice_effect = effect
-        self._pending_enter_choice_continuation = resume
+        self._open_enter_choice_state(obj)
         self.state.pending_tribute_entry = obj
         entry_effect = bool(self.state.pending_permanent_entry)
         if len(opponents) == 1:
@@ -3158,14 +3259,9 @@ class CastingResolutionMixin:
             obj.entry_bonus_counters["+1/+1"] = obj.entry_bonus_counters.get("+1/+1", 0) + n
         if choice.get("entry_effect"):
             obj.enter_choice_effects = obj.enter_choice_effects[1:]
-            self._pending_enter_choice_obj = None
-            self._pending_enter_choice_effect = None
-            self._pending_enter_choice_continuation = None
+            self.state.pending_enter_choice = None
         else:
-            continuation = self._pending_enter_choice_continuation
-            self._pending_enter_choice_obj = None
-            self._pending_enter_choice_effect = None
-            self._pending_enter_choice_continuation = None
+            _, _, continuation = self._take_enter_choice()
             if continuation is not None:
                 continuation()
 
@@ -3187,14 +3283,9 @@ class CastingResolutionMixin:
             # The state-owned permanent entry resumes after the handler, also
             # in a cloned/undone position where the old callback is unavailable.
             obj.enter_choice_effects = obj.enter_choice_effects[1:]
-            self._pending_enter_choice_obj = None
-            self._pending_enter_choice_effect = None
-            self._pending_enter_choice_continuation = None
+            self.state.pending_enter_choice = None
         else:
-            continuation = self._pending_enter_choice_continuation
-            self._pending_enter_choice_obj = None
-            self._pending_enter_choice_effect = None
-            self._pending_enter_choice_continuation = None
+            _, _, continuation = self._take_enter_choice()
             if continuation is not None:
                 continuation()
 
@@ -3222,12 +3313,7 @@ class CastingResolutionMixin:
         the offered (suggestion-only) options at all; a missing answer names
         the empty string, which simply matches no permanent.
         """
-        obj = self._pending_enter_choice_obj
-        effect = self._pending_enter_choice_effect
-        continuation = self._pending_enter_choice_continuation
-        self._pending_enter_choice_obj = None
-        self._pending_enter_choice_effect = None
-        self._pending_enter_choice_continuation = None
+        obj, effect, continuation = self._take_enter_choice()
 
         options = choice["options"]
         if choice["kind"] == "choose_card_name":

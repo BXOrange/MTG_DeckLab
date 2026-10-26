@@ -355,16 +355,6 @@ class RulesEngine(
         self._pending_enter_as_copy_obj: Optional[GameObject] = None
         self._pending_enter_as_copy_effect: Optional[Any] = None
         self._pending_enter_as_copy_continuation: Optional[Callable[[], None]] = None
-        #: The permanent currently awaiting an "as ~ enters, choose a
-        #: creature type/color" pick (RULE 601.2b — `enter_choice_effects`),
-        #: which of its queued choice-effects is open, and the continuation
-        #: to resume once it's answered (which may itself open the *next*
-        #: queued choice, if the card has more than one) — populated only
-        #: while that choice is pending; see `_offer_enter_choices`/
-        #: `_resume_choose_creature_type`.
-        self._pending_enter_choice_obj: Optional[GameObject] = None
-        self._pending_enter_choice_effect: Optional[Any] = None
-        self._pending_enter_choice_continuation: Optional[Callable[[], None]] = None
         #: The card just exiled by `exile_until_duplicate_name` (Tainted
         #: Pact) awaiting a "take it or keep digging" answer, its owner, and
         #: the growing "names seen this resolution" set to resume with —

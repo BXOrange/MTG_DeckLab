@@ -115,4 +115,3 @@ regressions, and executes newly claimed cards rather than trusting parse verdict
 
 ## BUG — Bugs
 
-- **BUG-36 · Undo onto an open as-enters choice loses the permanent.** After `GameSession.rewind` back to an open "as ~ enters, choose …" choice (card name, creature type, colour, …), the choice is still offered and accepted but the permanent never enters: `RulesEngine._pending_enter_choice_obj/_effect/_continuation` live on the engine (a closure), not in `GameState`, so the restored state has no continuation. Repro: Meddling Mage via `GameSession`, answer the name, `rewind(1)`, answer again → battlefield empty. Fix: make the entry-choice pipeline state-owned and clone-safe like `pending_permanent_entry` (RULE 614.12, 400.7); undoing the whole cast already works.

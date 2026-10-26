@@ -176,6 +176,7 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Costs and choices
 
+- "As ~ enters, choose ..." answers are state-owned: `GameState.pending_enter_choice` (object + zone visit) with the `pending_permanent_entry` / `pending_land_entry` / `pending_token_entry` record naming the entry path; `RulesEngine._take_enter_choice`/`_enter_choice_exit` re-derive the open effect, the remaining `enter_choice_effects` queue and the exit from them, so undo/clone onto an open choice still enters the permanent (RULE 614.12, 400.7; a changed zone visit enters nothing). New entry paths set one of the records instead of capturing a closure.
 - Announced kicker conditions use the pending cast choice before target selection and the persisted kicker count afterward. Cast offers may provide a complete `kicker_variant` with distinct requirements. `damage_divisions` maps requirement indices to positive integer shares in target order; validate before paying, preserve shares on the private stack effects and their bound specs, and never redistribute shares when a target becomes illegal. Lazy composite branches pin source references to the resolving source visit.
 
 - Open Ward payments retain their exact `StackItem`, payer and resolved cost in

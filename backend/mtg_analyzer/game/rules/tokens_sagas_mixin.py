@@ -14,6 +14,87 @@ from .. import card_registry, continuous
 class TokensSagasMixin:
     """Token creation, attacking entry, Sagas and cast tracking."""
 
+    def _finish_token_entry_object(self, token: GameObject, token_card: Card, controller_id: str) -> None:
+        token.summoning_sick = True  # RULE 302.6 applies to tokens too
+        # RULE 614.1 — see the matching comment in
+        # `_resolve_permanent_spell` above.
+        token.tapped = card_registry.enters_tapped(
+            token_card
+        ) or continuous.enters_tapped_from_static(self.state, token)
+        self._apply_entry_counters(token)  # a token was never cast, so X is 0
+        self.state.add_to_battlefield(token)
+        self.state.fire_event(
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD,
+                from_zone=None,  # RULE 111.2: created, not moved from a zone
+                controller_id=controller_id,
+                card_id=token_card.id,
+                object=token.name,
+                is_token=True,
+                instance_id=token.instance_id,
+                object_types=sorted(token.type_words),
+            )
+        )
+
+    def _create_tokens_loop(
+        self, token_card: Card, controller_id: str, zone: Zone, remaining: int, created: list[GameObject],
+    ) -> None:
+        """Create ``remaining`` tokens one by one, each through its pre-entry choices (RULE 614.12); resumable from the
+        state-owned ``pending_token_entry`` via `_finish_token_entry`."""
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
+        if remaining <= 0:
+            return
+        token = GameObject(
+            token_card,
+            owner_id=controller_id,
+            zone=zone,
+            is_token=True,
+        )
+        bind_from_catalogue(token)  # token abilities are live like any card's
+        if zone != Zone.BATTLEFIELD:
+            self.state.player_by_id(controller_id).add_to_zone(token, zone)
+            created.append(token)
+            self._create_tokens_loop(token_card, controller_id, zone, remaining - 1, created)
+            return
+
+        def _after_copy() -> None:
+            # RULE 614.12 / 400.7: the pending token and the rest of its batch live in `GameState`, so an
+            # "as ~ enters" choice survives clone/undo (`_enter_choice_exit` -> `_finish_token_entry`).
+            self.state.pending_token_entry = {
+                "obj": token, "token_card": token_card, "controller_id": controller_id,
+                "remaining": remaining - 1, "created": created,
+            }
+            self._offer_enter_choices(token, lambda: self._finish_token_entry(self.state.pending_token_entry))
+
+        if token.enter_as_copy_effects:
+            # RULE 614.1c/614.12: a token can carry its own "you may
+            # have this enter as a copy of target X" replacement —
+            # e.g. a token copy of Clever Impersonator, via
+            # `copy_permanent`/RULE 707.2 — and gets the same
+            # pre-entry choice a cast permanent does
+            # (`_resolve_permanent_spell`/`_offer_enter_as_copy`).
+            # `_offer_enter_as_copy` calls its continuation right away
+            # when there's no legal target to offer, so the common
+            # case (no card in the pool combines "create N token
+            # copies" with a *second* legal target at creation time)
+            # still finishes this whole loop synchronously; a real
+            # choice instead stashes its continuation and resumes it
+            # from `_resume_enter_as_copy`, at which point the
+            # remaining tokens in this batch (if any) are built.
+            self._offer_enter_as_copy(token, _after_copy)
+        else:
+            _after_copy()
+
+    def _finish_token_entry(self, entry: dict[str, Any]) -> None:
+        """RULE 111.5 / 614.12: a token whose "as ~ enters" choices are answered enters, then the rest of its batch is
+        created. ``entry`` is the state-owned ``pending_token_entry``, so this also runs after a clone/undo."""
+        self.state.pending_token_entry = None
+        self._finish_token_entry_object(entry["obj"], entry["token_card"], entry["controller_id"])
+        entry["created"].append(entry["obj"])
+        self._create_tokens_loop(
+            entry["token_card"], entry["controller_id"], Zone.BATTLEFIELD, entry["remaining"], entry["created"],
+        )
+
     def create_token(
         self,
         controller_id: str,
@@ -59,75 +140,9 @@ class TokensSagasMixin:
         """
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
-        def _finish_entry(token: GameObject) -> None:
-            token.summoning_sick = True  # RULE 302.6 applies to tokens too
-            # RULE 614.1 — see the matching comment in
-            # `_resolve_permanent_spell` above.
-            token.tapped = card_registry.enters_tapped(
-                token_card
-            ) or continuous.enters_tapped_from_static(self.state, token)
-            self._apply_entry_counters(token)  # a token was never cast, so X is 0
-            self.state.add_to_battlefield(token)
-            self.state.fire_event(
-                GameEvent(
-                    EventType.ENTERS_BATTLEFIELD,
-                    from_zone=None,  # RULE 111.2: created, not moved from a zone
-                    controller_id=controller_id,
-                    card_id=token_card.id,
-                    object=token.name,
-                    is_token=True,
-                    instance_id=token.instance_id,
-                    object_types=sorted(token.type_words),
-                )
-            )
-
         def _build(final_count: int) -> list[GameObject]:
             created: list[GameObject] = []
-
-            def _next(remaining: int) -> None:
-                if remaining <= 0:
-                    return
-                token = GameObject(
-                    token_card,
-                    owner_id=controller_id,
-                    zone=zone,
-                    is_token=True,
-                )
-                bind_from_catalogue(token)  # token abilities are live like any card's
-                if zone != Zone.BATTLEFIELD:
-                    self.state.player_by_id(controller_id).add_to_zone(token, zone)
-                    created.append(token)
-                    _next(remaining - 1)
-                    return
-
-                def _continuation() -> None:
-                    _finish_entry(token)
-                    created.append(token)
-                    _next(remaining - 1)
-
-                def _after_copy() -> None:
-                    self._offer_enter_choices(token, _continuation)
-
-                if token.enter_as_copy_effects:
-                    # RULE 614.1c/614.12: a token can carry its own "you may
-                    # have this enter as a copy of target X" replacement —
-                    # e.g. a token copy of Clever Impersonator, via
-                    # `copy_permanent`/RULE 707.2 — and gets the same
-                    # pre-entry choice a cast permanent does
-                    # (`_resolve_permanent_spell`/`_offer_enter_as_copy`).
-                    # `_offer_enter_as_copy` calls `_continuation` right away
-                    # when there's no legal target to offer, so the common
-                    # case (no card in the pool combines "create N token
-                    # copies" with a *second* legal target at creation time)
-                    # still finishes this whole loop synchronously; a real
-                    # choice instead stashes `_continuation` and resumes it
-                    # from `_resume_enter_as_copy`, at which point the
-                    # remaining tokens in this batch (if any) are built.
-                    self._offer_enter_as_copy(token, _after_copy)
-                else:
-                    _after_copy()
-
-            _next(max(0, final_count))
+            self._create_tokens_loop(token_card, controller_id, zone, max(0, final_count), created)
             return created
 
         if zone != Zone.BATTLEFIELD or count <= 0 or _creation_replacements_applied:

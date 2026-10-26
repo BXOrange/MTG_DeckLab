@@ -4232,6 +4232,12 @@ or fusion types were added. Targeted scry/draw and conditional untap/counter
 or counter/animation remain composed existing operations.
 Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 
+### State-owned as-enters choices (BUG-36, RULE 614.12)
+
+- **What:** Rewinding onto an open "as ~ enters, choose …" choice accepted the answer but never put the permanent onto the battlefield: the pending object, effect and continuation were closures on `RulesEngine`, which `GameSession._restore` rebuilds. The choice now lives in `GameState.pending_enter_choice` (object and zone visit) beside an entry record that names the path — the existing `pending_permanent_entry` for spells, new `pending_land_entry` and `pending_token_entry` — all deep-copied by `clone()`. `RulesEngine._take_enter_choice()` re-derives the open effect and the remaining queue from the state and ends in `_enter_choice_exit`, which resumes the spell tail (`_resolve_permanent_spell(..., after_enter_choices=True)`), the land entry (`_finish_land_entry`, moved from `play_land`) or the token batch (`_create_tokens_loop`). An answer for an object whose zone visit changed enters nothing (RULE 400.7). Non-undo behaviour is unchanged.
+- **Left open:** the protector choice, Read Ahead and enter-as-copy pre-entry steps still use engine closures, so undoing onto those open choices has the same gap.
+- **Tests:** `tests/test_bug36_undo_enter_choice.py` (name, creature type, two sequential choices, land, token batch on a clone, stale zone visit).
+
 ### `look_top_select` (Game Engine / Turn Loop & Actions)
 
 The look count also accepts an `effect_amounts` operand measured at resolution.

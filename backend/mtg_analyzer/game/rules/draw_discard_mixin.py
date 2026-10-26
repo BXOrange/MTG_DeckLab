@@ -743,10 +743,7 @@ class DrawDiscardMixin:
         if choice.get("enter_look"):
             # MEC-134 (RULE 601.2b): an "as ~ enters, look at an opponent's hand" step -- hand the pre-entry queue on to
             # whatever follows (the card-name pick), exactly as `_resume_choose_creature_type` does.
-            continuation = self._pending_enter_choice_continuation
-            self._pending_enter_choice_obj = None
-            self._pending_enter_choice_effect = None
-            self._pending_enter_choice_continuation = None
+            _, _, continuation = self._take_enter_choice()
             if continuation is not None:
                 continuation()
             return
