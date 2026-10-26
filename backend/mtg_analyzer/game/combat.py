@@ -599,6 +599,12 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # creature declared as a blocker *of the reference object* (the attacker whose
         # `blocked_by` names it), unlike ``blocking``, which is any attacker.
         "blocking_source", "no_counters", "without_counter_kind",
+        # RULE 506.3 / 509.1a combat-relation groups read at the end of combat step (RULE 511.1), where the
+        # blocks are still on the board: "creatures blocked by ~" (Wall of Nets), "…blocking or blocked by ~"
+        # (Greater Werewolf, Kjeldoran Frostbeast) and, over the turn's history, "each creature that blocked
+        # or was blocked this turn" (Heat Stroke).
+        "blocked_by_source", "blocking_or_blocked_by_source", "blocked_or_was_blocked_this_turn",
+        "blocked_source_this_turn",
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
         # "each creature dealt damage this turn" (Inflame) — RULE 514.2: marked damage persists to cleanup.
@@ -850,6 +856,28 @@ def matches_object_filter(
         reference is not None and obj.instance_id in (getattr(reference, "blocked_by", None) or ())
     ):
         return False
+    if filt.get("blocked_by_source") or filt.get("blocking_or_blocked_by_source"):
+        # RULE 509.1a: ``reference`` is the blocker, ``obj`` an attacker it blocks.
+        blocked_by_reference = reference is not None and obj.instance_id in blocking_attacker_ids(reference)
+        if filt.get("blocked_by_source") and not blocked_by_reference:
+            return False
+        if filt.get("blocking_or_blocked_by_source") and not (
+            blocked_by_reference
+            or (reference is not None and obj.instance_id in (getattr(reference, "blocked_by", None) or ()))
+        ):
+            return False
+    if filt.get("blocked_or_was_blocked_this_turn") is not None:
+        was_in_a_block = state is not None and _was_in_a_block_this_turn(state, obj)
+        if bool(was_in_a_block) != bool(filt["blocked_or_was_blocked_this_turn"]):
+            return False
+    # "creatures that blocked ~ this turn" (Joven's Ferrets): ``reference`` is the attacker they blocked.
+    if filt.get("blocked_source_this_turn") is not None:
+        blocked_it = (
+            state is not None and reference is not None
+            and _blocked_attacker_this_turn(state, obj, reference)
+        )
+        if bool(blocked_it) != bool(filt["blocked_source_this_turn"]):
+            return False
     # "…if it targets a **tapped** creature" (Ajani's Response / the
     # cost-less-if-it-targets cycle) — RULE 601.2f cost reduction gated on
     # the chosen target's tap state, a boolean flag like `attacking` above.
@@ -1281,6 +1309,36 @@ def max_blockers(obj: "GameObject") -> "Optional[int]":
 # is a RULE 613 characteristic either. `blocking`/`additional_blocking` on
 # `GameObject` hold, respectively, the first and every *subsequent* attacker a
 # blocker is assigned to — a plain blocker only ever populates the first.
+
+
+def _was_in_a_block_this_turn(state: "GameState", obj: "GameObject") -> bool:
+    """RULE 509.1a/506.3: whether ``obj`` blocked a creature, or was blocked, at any point this turn.
+
+    Read off the turn's event log (`BLOCKS` names the blocker, `BECOMES_BLOCKED` the attacker), keyed by
+    zone incarnation so a permanent that left and re-entered is a new object (RULE 400.7).
+    """
+    for event in state.events_this_turn():
+        if event.get("instance_id") != obj.instance_id:
+            continue
+        if event.type == "BLOCKS" and event.get("instance_zone_incarnation") == obj.zone_incarnation:
+            return True
+        if event.type == "BECOMES_BLOCKED" and event.get("instance_zone_incarnation") == obj.zone_incarnation:
+            return True
+    return False
+
+
+def _blocked_attacker_this_turn(state: "GameState", blocker: "GameObject", attacker: "GameObject") -> bool:
+    """RULE 509.1a: whether ``blocker`` was declared as a blocker of ``attacker`` at any point this turn."""
+    for event in state.events_this_turn():
+        if (
+            event.type == "BLOCKS"
+            and event.get("instance_id") == blocker.instance_id
+            and event.get("instance_zone_incarnation") == blocker.zone_incarnation
+            and attacker.instance_id in (event.get("related_ids") or ())
+            and (event.get("related_incarnations") or {}).get(attacker.instance_id) == attacker.zone_incarnation
+        ):
+            return True
+    return False
 
 
 def blocking_attacker_ids(blocker: "GameObject") -> list[int]:

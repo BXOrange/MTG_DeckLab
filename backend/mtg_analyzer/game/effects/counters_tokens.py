@@ -2013,6 +2013,39 @@ class AddEntryCountersEffect(GameEffect):
             self.source.entry_bonus_counters[self.kind] = self.source.entry_bonus_counters.get(self.kind, 0) + amount
 
 
+class AddCountersUpToCappedEffect(GameEffect):
+    """"Put up to X +1/+0 counters on ~. This ability can't cause the total number of +1/+0 counters on ~ to be
+    greater than N." (the Clockwork cycle).
+
+    RULE 107.1c: "up to" is the controller's own choice, so resolution opens the shared number choice
+    (`RulesEngine._request_number_choice`) over ``0 .. min(X, room)`` and the answer binds the ``"x"`` of an
+    ordinary untargeted `add_counters` on the source. ``max_total`` is the cap the text states: ``room`` is how
+    many more of ``kind`` the source can take before it would exceed it (RULE 122.1: a counter that would put it
+    over is simply not placed). A source that has left the battlefield gets nothing (RULE 400.7).
+    """
+
+    def __init__(self, amount: Any = 1, kind: str = "+1/+1", max_total: Optional[int] = None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.kind = kind
+        self.max_total = max_total
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None or source not in context.state.battlefield:
+            return
+        wanted = int(self._measured(self.amount, context, targets) or 0)
+        room = wanted if self.max_total is None else max(0, int(self.max_total) - source.counters.get(self.kind, 0))
+        upper = min(wanted, room)
+        player = _controller_of(source, context)
+        if upper <= 0 or player is None:
+            return
+        context.engine._request_number_choice(
+            player, 0, upper, [{"type": "add_counters", "params": {"count": "x", "kind": self.kind}}], source,
+        )
+
+
 class RemoveCountersEffect(GameEffect):
     """Strip counters from a target permanent (Vampire Hexmage-shaped:
     "Remove all counters from target permanent") or from every permanent on

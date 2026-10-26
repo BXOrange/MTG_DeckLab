@@ -485,9 +485,18 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
     if m is None:
         return None
     subject = m.group("subject").strip()
-    condition = {"subject": "self"} if subject == "~" else _subject(subject)
+    attached = _ATTACHED_SUBJECT.match(subject) is not None
+    if subject == "~":
+        condition = {"subject": "self"}
+    elif attached:
+        # RULE 303.4m: "enchanted creature blocks or becomes blocked by …" (Venom) — the Aura's host.
+        condition = {"subject": "attached_permanent"}
+    else:
+        condition = _subject(subject)
     if condition is None or condition["subject"] == "self_or_group":
         return None
+    if attached and not m.group("both") and not m.group("blocks"):
+        return None  # a bare attached "becomes blocked by" would need the per-blocker BLOCKS reading
     other = _SUBJECT_ARTICLE.match(m.group("other"))
     parsed = parse_object_phrase(other.group("phrase")) if other else None
     if parsed is None or not parsed[0]:

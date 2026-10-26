@@ -3722,6 +3722,13 @@ EffectRegistry.register(
     lambda p: AddCounterMatchingTypeEffect(target_kind=p.get("target_kind", "commander_entered_this_turn")),
 )
 EffectRegistry.register(
+    # The Clockwork cycle's "put up to X +1/+0 counters on ~ … can't exceed N" — see `AddCountersUpToCappedEffect`.
+    "add_counters_up_to_capped",
+    lambda p: AddCountersUpToCappedEffect(
+        amount=p.get("count", p.get("amount", 1)), kind=p.get("kind", "+1/+1"), max_total=p.get("max_total"),
+    ),
+)
+EffectRegistry.register(
     # "remove all counters from target permanent" / "remove all counters
     # from all permanents" (RULE 122 — Vampire Hexmage/Oblivion Stone/
     # Aether Snap/Thief of Blood-shaped); no ``target_kind`` = untargeted,

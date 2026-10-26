@@ -4247,3 +4247,9 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 759 PAR-198 -- the generic "instead" paragraph merge in the gate skips the
      established PAR-64 Raid amount-override paragraphs, so Firecannon Blast /
      Arrow Storm keep their specialised amount_if_raid shape.
+760 PAR-202 -- "at end of combat[ on your turn]," trigger head (STEP_BEGIN end_combat, RULE 511.1) with the
+     "~ attacked or blocked this combat" / "~ and at least N other creatures attacked this combat" intervening-ifs
+     (event_this_turn scope "combat"); combat-relation group tails ("blocking or blocked by ~", "blocked by ~",
+     "that blocked or was blocked this turn", "that blocked ~ this turn") for destroy/exile/tap/counters/steal;
+     delayed self riders (counters, library) and block-relation / attached-host referents; "green or white
+     creature" colour alternation; asymmetric P/T counter kinds; "up to X counters, can't exceed N" choice.

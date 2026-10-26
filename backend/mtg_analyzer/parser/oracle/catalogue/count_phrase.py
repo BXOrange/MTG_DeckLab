@@ -70,6 +70,19 @@ _ENTERED_THIS_TURN = re.compile(r"\s+that entered (?:the battlefield )?this turn
 #: "cards in exile **that have an adventure**" (Howling Galefang) — the `has_adventure` filter key.
 _HAS_ADVENTURE = re.compile(r"\s+that (?:has|have) an adventure$")
 _BLOCKING_IT = re.compile(r"\s+blocking (?:it|~)$")
+#: RULE 506.3 / 509.1a: the combat relations a source names *as itself* (``~``), read at the end of combat
+#: step (RULE 511.1) while the blocks are still on the board — "creatures blocking ~" (The Wretched), "creatures
+#: blocking or blocked by ~" (Greater Werewolf, Kjeldoran Frostbeast), "creatures blocked by ~" (Wall of Nets) and,
+#: over the turn's history, "creature that blocked or was blocked this turn" (Heat Stroke) and "creatures that
+#: blocked ~ this turn" (Joven's Ferrets). Only ``~``: a pronoun's referent depends on the trigger head, which a
+#: count phrase cannot see. Each maps onto its `combat.matches_object_filter` key.
+COMBAT_RELATION_TAILS: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r"\s+blocking ~$"), "blocking_source"),
+    (re.compile(r"\s+blocking or blocked by ~$"), "blocking_or_blocked_by_source"),
+    (re.compile(r"\s+blocked by ~$"), "blocked_by_source"),
+    (re.compile(r"\s+that blocked or (?:was|were) blocked this turn$"), "blocked_or_was_blocked_this_turn"),
+    (re.compile(r"\s+that blocked ~ this turn$"), "blocked_source_this_turn"),
+)
 _SHARES_TYPE_WITH_IT = re.compile(r"\s+that shares? a creature type with (?:it|~)$")
 # One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
 # Swarm). Each half keeps the same filter; summing is safe because an object
@@ -139,6 +152,12 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if adventure is not None:
         extra["has_adventure"] = True
         text = text[: adventure.start()].strip()
+    for tail, relation_key in COMBAT_RELATION_TAILS:
+        relation = tail.search(text)
+        if relation is not None:
+            extra[relation_key] = True
+            text = text[: relation.start()].strip()
+            break
     blocking = _BLOCKING_IT.search(text)
     if blocking is not None:
         extra["blocking_source"] = True

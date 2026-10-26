@@ -1777,6 +1777,17 @@ class GameState:
                 break
             yield event
 
+    def events_this_combat(self) -> "Iterator[GameEvent]":
+        """Events of the combat phase in progress (or the latest one this turn), newest first.
+
+        RULE 506.1: "this combat" is one combat phase, so it starts at that phase's
+        ``begin_combat`` step; an extra combat phase (RULE 500.8) starts a fresh window.
+        """
+        for event in self.events_this_turn():
+            yield event
+            if event.type == EventType.STEP_BEGIN and event.get("step") == turn_history.COMBAT_BEGIN_STEP:
+                return
+
     def events_last_turn(self) -> "Iterator[GameEvent]":
         """Events from the immediately preceding turn, newest first (RULE 500.1)."""
         previous = self.internal_turn.number - 1

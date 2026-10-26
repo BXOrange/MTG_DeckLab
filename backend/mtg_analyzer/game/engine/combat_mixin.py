@@ -1264,6 +1264,7 @@ class CombatMixin:
                 GameEvent(
                     EventType.BECOMES_BLOCKED,
                     attacker=attacker.name,
+                    instance_zone_incarnation=attacker.zone_incarnation,
                     player_id=attacker.controller_id,  # the attacker's own controller
                     instance_id=attacker.instance_id,
                     object_types=sorted(attacker.type_words),

@@ -564,8 +564,13 @@ def _subject(
     return None
 
 
+#: ``event_this_turn``'s ``scope`` value that narrows the log window from the turn to the combat phase in
+#: progress (RULE 506.1 "this combat" — Daredevil Dragster's "if ~ attacked or blocked this combat").
+EVENT_SCOPE_COMBAT = "combat"
+
+
 def _events_this_turn_matching(
-    state: Any, trigger: dict[str, Any], source: Any, controller_id: str
+    state: Any, trigger: dict[str, Any], source: Any, controller_id: str, scope: Optional[str] = None
 ) -> int:
     """How many events of the current turn a trigger-shaped dict matches (ENG-47).
 
@@ -588,7 +593,8 @@ def _events_this_turn_matching(
         name: _trigger_condition({**trigger, "event": name}, asker) for name in events
     }
     count = 0
-    for event in state.events_this_turn():
+    window = state.events_this_combat() if scope == EVENT_SCOPE_COMBAT else state.events_this_turn()
+    for event in window:
         name = getattr(event.type, "name", str(event.type))
         if name not in predicates:
             continue
@@ -1052,7 +1058,7 @@ def condition_holds(
         trigger = condition.get("trigger")
         if not isinstance(trigger, dict) or controller_id is None:
             return False
-        n = _events_this_turn_matching(state, trigger, source, controller_id)
+        n = _events_this_turn_matching(state, trigger, source, controller_id, condition.get("scope"))
         minimum = condition.get("min")
         maximum = condition.get("max")
         if minimum is not None and n < int(minimum):
@@ -1588,7 +1594,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
     if kind == "opponent_has_more":
         return f"solange ein Gegner mehr hat als du: {_selector_label(condition.get('selector', ''))}"
     if kind == "event_this_turn":
-        return f"falls diesen Zug {condition.get('trigger', {}).get('event', '')} eingetreten ist"
+        window = "diesen Kampf" if condition.get("scope") == EVENT_SCOPE_COMBAT else "diesen Zug"
+        return f"falls {window} {condition.get('trigger', {}).get('event', '')} eingetreten ist"
     if kind == "control_named":
         return f"solange du {condition.get('name', '')} kontrollierst"
     if kind == "drawn_cards_at_least":

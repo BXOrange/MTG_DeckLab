@@ -1513,7 +1513,7 @@ ROWS: list[EffectHandler] = [
     # named tap rows (PAR-169), which keep only what it declines.
     EffectHandler(
         "tap_all_group",
-        compile_clause(r"(?P<verb>tap|untap) all (?P<group>[a-z' -]+?)"),
+        compile_clause(r"(?P<verb>tap|untap) all (?P<group>[a-z' ~-]+?)"),
         _tap_all_group,
     ),
     EffectHandler("tap_all_player_group", _TAP_ALL_PLAYER_GROUP_RE, _tap_all_player_group, fallback_for=("tap_all_group",)),

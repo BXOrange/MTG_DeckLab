@@ -498,7 +498,7 @@ def _destroy_all_other(m: re.Match[str]) -> list[EffectSpec]:
 #: `DestroyEffect.group` / `ExileEffect.group`. Primary over the named-selector rows (PAR-169), which
 #: stay as fallbacks for what this grammar declines (an X mana-value bound, "other than ~").
 _MASS_GROUP_RE = compile_clause(
-    r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?)"
+    r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z0-9' ,/+~-]+?)"
     r"(?P<no_regen>\.? (?:they|those [a-z ]+) can'?t be regenerated)?"
 )
 

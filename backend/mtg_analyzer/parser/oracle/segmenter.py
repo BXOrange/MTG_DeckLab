@@ -55,6 +55,7 @@ from .catalogue.target_groups import target_group_specs
 from .catalogue.zone_ability_sequences import exile_grant_specs
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_EFFECT_THEN_ANTECEDENT_PHRASES
 from .catalogue.effect_rows.draw_discard_cast import CYCLING_XX_TOKEN_RE, cycling_xx_token
+from .catalogue.effect_rows.end_of_combat import END_COMBAT_STEP, NEEDS_BLOCK_HEAD
 from .catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
 from .catalogue.effect_rows.shared import base_verb
 from .catalogue.handlers import match_clause
@@ -7940,6 +7941,7 @@ def _stamp_group_pronoun_once(
             params = dict(effect.params)
             params["capture"] = "trigger_subject"
             params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
+            params.pop(NEEDS_BLOCK_HEAD, None)
             effect = EffectSpec(effect.type, params, condition=effect.condition)
         if _reads_blocked_attacker(effect) and not _stamped_dealer(effect):
             return None  # the blocked attacker is the firing object; nothing here names it
@@ -7977,7 +7979,16 @@ def _retarget_block_relation(
             params = dict(e.params)
             params["capture"] = "trigger_related"
             params["related_filter"] = dict(head_trigger.get("related_filter") or {})
+            params.pop(NEEDS_BLOCK_HEAD, None)
             e = EffectSpec(e.type, params, condition=e.condition)
+        elif (
+            e.type == "create_delayed_trigger" and e.params.get("capture") == "trigger_related"
+            and "related_filter" not in e.params
+        ):
+            e = EffectSpec(
+                e.type, {**e.params, "related_filter": dict(head_trigger.get("related_filter") or {})},
+                condition=e.condition,
+            )
         out.append(e)
     return out
 
@@ -10038,40 +10049,57 @@ def _phase_damage_referents(effects: list[EffectSpec]) -> list[EffectSpec]:
     return rewritten
 
 
+#: RULE 511.1: "At end of combat[ on your turn], <effect>" — the end of combat step's beginning-of-step
+#: trigger, the same `STEP_BEGIN` shape as `_PHASE_TRIGGER_RE`'s "at the beginning of combat". The "on your
+#: turn" scope is the ability controller's own end of combat step (``phase_relation``: "you").
+_END_OF_COMBAT_TRIGGER_RE = re.compile(
+    r"^at end of combat(?P<you> on your turn)?,\s*(?P<body>.+)$", re.IGNORECASE | re.DOTALL,
+)
+
+
 def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     provenance = ctx.provenance
     phase_trig = _PHASE_TRIGGER_RE.match(raw)
-    if phase_trig is not None:
-        step_word = (
-            phase_trig.group("step_any")
-            or phase_trig.group("step_you")
-            or phase_trig.group("step_you_each")
-            or phase_trig.group("step_both_mains")
-            or phase_trig.group("step_combat_you")
-            or phase_trig.group("step_combat_opp")
-            or phase_trig.group("step_opp")
-            or phase_trig.group("step_other")
-            or phase_trig.group("step_attached")
-        )
-        both_mains = bool(phase_trig.group("step_both_mains"))
-        step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
+    end_combat_trig = _END_OF_COMBAT_TRIGGER_RE.match(raw) if phase_trig is None else None
+    if phase_trig is not None or end_combat_trig is not None:
+        if end_combat_trig is not None:
+            # RULE 511.1: "at end of combat" is the end of combat step's own beginning-of-step trigger.
+            both_mains = False
+            step: Optional[str] = END_COMBAT_STEP
+            relation = "you" if end_combat_trig.group("you") else None
+            raw_body = end_combat_trig.group("body")
+        else:
+            step_word = (
+                phase_trig.group("step_any")
+                or phase_trig.group("step_you")
+                or phase_trig.group("step_you_each")
+                or phase_trig.group("step_both_mains")
+                or phase_trig.group("step_combat_you")
+                or phase_trig.group("step_combat_opp")
+                or phase_trig.group("step_opp")
+                or phase_trig.group("step_other")
+                or phase_trig.group("step_attached")
+            )
+            both_mains = bool(phase_trig.group("step_both_mains"))
+            step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
+            if (
+                phase_trig.group("step_you")
+                or phase_trig.group("step_you_each")
+                or both_mains
+                or phase_trig.group("step_combat_you")
+            ):
+                relation = "you"
+            elif phase_trig.group("step_opp") or phase_trig.group("step_other") or phase_trig.group("step_combat_opp"):
+                relation = "not_you"
+            elif phase_trig.group("step_attached"):
+                relation = "attached_permanent"
+            else:
+                relation = None
+            raw_body = phase_trig.group("body")
         if step is None:
             return Segment(raw=raw)
-        if (
-            phase_trig.group("step_you")
-            or phase_trig.group("step_you_each")
-            or both_mains
-            or phase_trig.group("step_combat_you")
-        ):
-            relation = "you"
-        elif phase_trig.group("step_opp") or phase_trig.group("step_other") or phase_trig.group("step_combat_opp"):
-            relation = "not_you"
-        elif phase_trig.group("step_attached"):
-            relation = "attached_permanent"
-        else:
-            relation = None
-        body, optional = peel_optional(phase_trig.group("body"))
+        body, optional = peel_optional(raw_body)
         # MEC-46: peel a leading "if another <subtype> entered … this turn,"
         # RULE 603.4 intervening-if into the trigger's own `active_if`.
         phase_active_if: Optional[dict[str, Any]] = None
@@ -10720,8 +10748,9 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 ) is not None
             )
             block_destroy = (
-                event in ("BLOCKS", "BECOMES_BLOCKED") and bool(head_trigger.get("related_filter"))
-                and (condition or {}).get("subject") == "self"
+                set(event if isinstance(event, list) else [event]) <= {"BLOCKS", "BECOMES_BLOCKED"}
+                and bool(head_trigger.get("related_filter"))
+                and (condition or {}).get("subject") in ("self", "attached_permanent")
                 and re.fullmatch(r"destroy (?:it|that creature)(?:\. it can't be regenerated)?\.?", body) is not None
             )
             attached_destroy = (
@@ -10804,7 +10833,11 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 return Segment(raw=raw)
         if composed_head:
             effects = _retarget_block_relation(event, head_trigger, effects)
-        if "'trigger_related': True" in repr(effects) and "'related_filter'" not in repr(effects):
+        if f"'{NEEDS_BLOCK_HEAD}': True" in repr(effects):
+            return Segment(raw=raw)  # "that creature" of a block relation, under a head with no block to name
+        if (
+            "'trigger_related': True" in repr(effects) or "'capture': 'trigger_related'" in repr(effects)
+        ) and "'related_filter'" not in repr(effects):
             return Segment(raw=raw)  # "that creature" of a block relation, under a head that has no other side
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
         limit = limit or body_limit

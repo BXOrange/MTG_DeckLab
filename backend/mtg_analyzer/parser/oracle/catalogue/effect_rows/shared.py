@@ -8,7 +8,7 @@ from ..clause_reading import STANDALONE, ClauseReading
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
-from ..count_phrase import parse_count_phrase
+from ..count_phrase import COMBAT_RELATION_TAILS, parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..referent_condition import PRONOUN_NOUN_ALT
 from ..static_handlers import object_filter
@@ -668,7 +668,10 @@ def mass_group_params(text: str, quant: str) -> Optional[dict]:
         if text.endswith(tail):
             text, group_player = text[: -len(tail)], who
             break
-    if any(word in text for word in _MASS_GROUP_REFUSED_WORDS):
+    # The combat-relation tails (`COMBAT_RELATION_TAILS`) name their relation to the source and are read by the
+    # count grammar; any *other* use of "blocking"/"blocked" stays refused.
+    refusal_text = next((tail.sub("", text) for tail, _ in COMBAT_RELATION_TAILS if tail.search(text)), text)
+    if any(word in refusal_text for word in _MASS_GROUP_REFUSED_WORDS):
         return None
     if quant == "each":
         text = SINGULAR_GROUP_HEADS.sub(r"\1s", text)

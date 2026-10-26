@@ -23,6 +23,17 @@ from .object_trigger_head import parse_object_trigger_head
 from .spell_phrase import parse_spell_phrase
 
 _THIS_TURN = re.compile(r"\s+this turn$")
+_THIS_COMBAT = re.compile(r"\s+this combat$")
+#: ``event_this_turn``'s ``scope`` for a combat-phase window (`static_conditions.EVENT_SCOPE_COMBAT`).
+COMBAT_SCOPE = "combat"
+#: RULE 506.1 "if ~ attacked or blocked this combat" (Daredevil Dragster, Kjeldoran Home Guard, the Clockwork
+#: cycle) — the source's own declarations in the combat phase in progress.
+_SELF_COMBAT_ROLE = re.compile(r"^(?:~|it) (?P<role>attacked or blocked|attacked|blocked)$")
+#: "~ and at least two other creatures attacked this combat" (Kytheon) — the source plus N other attackers.
+_SELF_AND_OTHERS_ATTACKED = re.compile(r"^~ and at least (?P<n>\d+) other creatures attacked$")
+_COMBAT_ROLE_EVENTS: dict[str, "str | list[str]"] = {
+    "attacked or blocked": ["ATTACKS", "BLOCKS"], "attacked": "ATTACKS", "blocked": "BLOCKS",
+}
 
 #: Past-tense object verb → the event it names.
 _OBJECT_VERBS: list[tuple[str, str]] = [
@@ -183,9 +194,31 @@ def _player_event(text: str, negated: bool) -> Optional[dict[str, Any]]:
     return None
 
 
+def _combat_condition(text: str) -> Optional[dict[str, Any]]:
+    """A "… this combat" phrase (``text`` already stripped of it) → a combat-scoped ``event_this_turn``."""
+    role = _SELF_COMBAT_ROLE.match(text)
+    if role is not None:
+        trigger = {"event": _COMBAT_ROLE_EVENTS[role.group("role")], "condition": {"subject": "self"}}
+        return {**_condition(trigger, 1, None), "scope": COMBAT_SCOPE}
+    others = _SELF_AND_OTHERS_ATTACKED.match(text)
+    if others is not None:
+        mine = {"event": "ATTACKS", "condition": {"subject": "self"}}
+        rest = {"event": "ATTACKS", "condition": {
+            "subject": "group", "controller": "you", "other": True, "filter": {"card_type": "creature"},
+        }}
+        return {"kind": "all", "conditions": [
+            {**_condition(mine, 1, None), "scope": COMBAT_SCOPE},
+            {**_condition(rest, int(others.group("n")), None), "scope": COMBAT_SCOPE},
+        ]}
+    return None
+
+
 def parse_history_condition(text: str) -> Optional[dict[str, Any]]:
     """A "… this turn" condition phrase → an ``event_this_turn`` condition, or ``None``."""
     text = text.strip().lower().rstrip(".")
+    in_combat = _THIS_COMBAT.sub("", text)
+    if in_combat != text:
+        return _combat_condition(in_combat)
     stripped = _THIS_TURN.sub("", text)
     if stripped == text:
         return None

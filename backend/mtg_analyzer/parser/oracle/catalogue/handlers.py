@@ -42,6 +42,7 @@ from .effect_rows import pump_keywords
 from .effect_rows import keyword_actions
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
+from .effect_rows import end_of_combat
 
 
 def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
@@ -161,6 +162,7 @@ HANDLERS: list[EffectHandler] = [
     *keyword_actions.ROWS,
     *tokens_animate_misc.ROWS,
     *party.ROWS,
+    *end_of_combat.ROWS,
 ]
 
 

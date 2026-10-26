@@ -319,7 +319,9 @@ _ADD_NAMED_COUNTER_GROUP_RE = compile_clause(
 #: (Acid-Spewer Dragon, Belltoll Dragon), "…on each Ooze you control" (Biogenic Ooze). Registered *after* the
 #: closed `add_counters_selector` row, which keeps the named selectors it always read.
 _ADD_PT_COUNTER_GROUP_RE = compile_clause(
-    rf"put {COUNT_X} (?P<ckind>[+\-−]1/[+\-−]1) counters? on each (?P<other>other )?(?P<group>[a-z0-9' +/\-−]+?)"
+    # An asymmetric P/T counter ("-0/-2", Greater Werewolf) is its own kind (`_counter_kind_and_multiplier`); ``~``
+    # names the source in a combat-relation group ("blocking or blocked by ~", `count_phrase.COMBAT_RELATION_TAILS`).
+    rf"put {COUNT_X} (?P<ckind>[+\-−]\d+/[+\-−]\d+) counters? on each (?P<other>other )?(?P<group>[a-z0-9' +/\-−~]+?)"
 )
 
 
@@ -330,7 +332,12 @@ def _add_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if group is None or group.get("zone") != "battlefield" or "target" in phrase:
         return None
     ckind = m.group("ckind")
-    kind = counter_sign(ckind) if ckind[0] in "+-−" else ckind
+    if ckind[0] in "+-−":
+        kind, multiplier = _counter_kind_and_multiplier(ckind)
+        if multiplier != 1:
+            return None  # a symmetric "+2/+2" counter on a group is not modeled (one counter ≠ two +1/+1)
+    else:
+        kind = ckind
     params: dict = {"count": count_or_x_of(m.group("n")), "kind": kind, "group": group}
     if m.group("other"):
         params["group_other"] = True
@@ -437,7 +444,7 @@ def _add_counter_choice(m: re.Match[str], reading: ClauseReading) -> Optional[li
 #: *cost* (`cost_text._REMOVE_COUNTERS_RE`); untargeted, the source's own
 #: counters, exactly ``count`` of one kind (none on it: nothing happens).
 _REMOVE_NAMED_COUNTER_SELF_RE = compile_clause(
-    rf"remove {COUNT} (?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]1/[+\-−]1) "
+    rf"remove {COUNT} (?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) "
     rf"counters? from (?P<selfref>{SELF_SUBJECT})"
 )
 
@@ -446,10 +453,33 @@ def _remove_named_counter_self(m: re.Match[str], reading: ClauseReading) -> Opti
     if reading.group_clause and m.group("selfref").lower() == "it":
         return None  # under a group trigger a bare "it" is the firing object, not the source
     ckind = m.group("ckind")
-    kind = "+1/+1" if ckind[0] == "+" else ("-1/-1" if ckind[0] in "-−" else ckind)
+    if ckind[0] in "+-−":
+        kind, multiplier = _counter_kind_and_multiplier(ckind)
+        if multiplier != 1:
+            return None  # a symmetric "+2/+2" counter is not modeled as one counter
+    else:
+        kind = ckind
     return [EffectSpec("remove_counters", {
         "self_only": True, "kind": kind, "count": count_or_x_of(m.group("n")),
     })]
+
+
+#: RULE 107.1c / 122.1: "Put up to X +1/+0 counters on ~. This ability can't cause the total number of +1/+0
+#: counters on ~ to be greater than 4." (the Clockwork cycle) — the controller's own "up to" choice, capped by what the
+#: source already carries (`AddCountersUpToCappedEffect`). The cap sentence must name the same counter on the same
+#: source, else the clause stays unclaimed.
+_ADD_COUNTERS_UP_TO_CAPPED_RE = compile_clause(
+    r"put up to x (?P<ckind>[+\-−]\d+/[+\-−]\d+) counters? on (?P<selfref>~)\.\s*"
+    r"this ability can'?t cause the total number of (?P<ckind2>[+\-−]\d+/[+\-−]\d+) counters? on ~ "
+    r"to be greater than (?P<cap>\d+)"
+)
+
+
+def _add_counters_up_to_capped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind, multiplier = _counter_kind_and_multiplier(m.group("ckind"))
+    if multiplier != 1 or kind != _counter_kind_and_multiplier(m.group("ckind2"))[0]:
+        return None
+    return [EffectSpec("add_counters_up_to_capped", {"count": "x", "kind": kind, "max_total": int(m.group("cap"))})]
 
 
 def _add_counters_from_trigger_amount(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
@@ -1240,6 +1270,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),
     EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list, reading_aware=True),
     EffectHandler("add_counter_choice", _ADD_COUNTER_CHOICE_RE, _add_counter_choice, reading_aware=True),
+    EffectHandler("add_counters_up_to_capped", _ADD_COUNTERS_UP_TO_CAPPED_RE, _add_counters_up_to_capped),
     EffectHandler(
         "remove_named_counter_self", _REMOVE_NAMED_COUNTER_SELF_RE, _remove_named_counter_self, reading_aware=True,
     ),

@@ -22,6 +22,9 @@ from .events import EventType, GameEvent
 
 Events = Iterable[GameEvent]
 
+#: The `STEP_BEGIN` step name that opens a combat phase (RULE 507); a combat window starts there.
+COMBAT_BEGIN_STEP = "begin_combat"
+
 
 def _tally(
     events: Events,
@@ -347,7 +350,7 @@ def combats(events: Events) -> int:
     """Combat phases this turn, game-wide (RULE 603.4 — "if it's the first combat phase of
     the turn"): one per ``begin_combat`` step that actually began, so an extra combat phase is
     the second whoever controls the effect that grants it."""
-    return sum(1 for e in events if e.type == EventType.STEP_BEGIN and e.get("step") == "begin_combat")
+    return sum(1 for e in events if e.type == EventType.STEP_BEGIN and e.get("step") == COMBAT_BEGIN_STEP)
 
 
 def planar_die_rolls(events: Events) -> "defaultdict[str, int]":

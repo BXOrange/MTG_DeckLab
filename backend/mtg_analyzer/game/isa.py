@@ -368,6 +368,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "delay_return_dying_subject": "create_delayed_trigger",
     "adapt": "adapt",
     "add_counters": "put_counter",
+    "add_counters_up_to_capped": "put_counter",
     "add_entry_counters": "put_counter",
     "add_mana": "add_mana",
     "amass": "amass",

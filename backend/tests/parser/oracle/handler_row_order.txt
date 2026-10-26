@@ -454,6 +454,7 @@ add_named_counter_group
 add_counter_pick
 add_counter_list
 add_counter_choice
+add_counters_up_to_capped
 remove_named_counter_self
 add_counters_from_trigger_amount
 add_counters_spell_mv
@@ -769,3 +770,7 @@ reveal_top_branch
 damage_target_and_controller_party
 damage_target_party
 burakos_attack_party
+delayed_return_host_and_self_end_of_combat
+delayed_related_end_of_combat
+gain_control_group_while_source
+delayed_self_rider_end_of_combat
