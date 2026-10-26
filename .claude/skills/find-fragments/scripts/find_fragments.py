@@ -27,6 +27,7 @@ Usage (from backend/, venv active):
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
 import sys
@@ -245,6 +246,205 @@ def ablate(rows: list[dict], phrases: list[dict]) -> None:
         entry["ablated"], entry["remainder_claims"] = tried, claimed
 
 
+# --- slot decomposition ------------------------------------------------------
+
+#: Atom separators inside one sentence: ", then", ";", ", and", a bare "and"
+#: only when a new verb/subject follows (otherwise it joins nouns: "flying and
+#: haste"), and ", if you do / otherwise" outcome tails. Sentences are split
+#: earlier, so no ". " here.
+ATOM_SEPARATOR_RE = re.compile(
+    r",\s+then\s+|;\s+|,\s+and\s+"
+    r"|\s+and\s+(?=(?:you|that player|each|target|draw|gain|lose|create|put|return|exile|sacrifice|"
+    r"destroy|tap|untap|mill|discard|scry|it|they)\b)"
+    r"|,\s+(?=(?:if you (?:do|don't|can't)|otherwise|then)\b)")
+
+#: A fragment without its own subject ("draws 2 cards") is retried with these
+#: prefixes before it counts as unclaimable.
+SUBJECT_PREFIXES = ("you ", "~ ")
+
+#: Stand-in antecedents for a back-reference, tried in order. If a stand-in
+#: makes the atom claim, the atom is not a missing block (the gap is the
+#: cross-clause binding, measured separately as `pronoun_rescued`).
+PRONOUN_STANDINS = (
+    (re.compile(r"\b(?:it|them)\b"),
+     ("target creature", "~", "target permanent", "target creature you control", "target card", "target player")),
+    (re.compile(r"\bthat creature\b"), ("target creature",)),
+    (re.compile(r"\bthose creatures\b"), ("target creatures",)),
+    (re.compile(r"\bthat player\b"), ("target player", "target opponent")),
+    (re.compile(r"\bthat permanent\b"), ("target permanent",)),
+    (re.compile(r"\bthat (?:card|spell)\b"), ("target card", "target spell", "target card in your graveyard")),
+    (re.compile(r"\bthat land\b"), ("target land",)),
+    (re.compile(r"\bthat token\b"), ("target token",)),
+    (re.compile(r"\bthose cards\b"), ("target cards",)),
+)
+
+#: Slot vocabulary. Each value is a regex over the lowercased atom; an atom
+#: carries every value that matches. Presence alone is meaningless (these words
+#: occur in modelled text too), so slots are only ranked by open share against
+#: a modelled baseline.
+SLOT_FEATURES = {
+    "dur:eot": r"until end of turn|this turn", "dur:next": r"until your next|next turn",
+    "dur:aslong": r"for as long as|as long as",
+    "qty:X": r"\bx\b", "qty:equal": r"equal to", "qty:foreach": r"for each", "qty:number": r"number of",
+    "qty:thatmany": r"that many|that much", "qty:upto": r"up to", "qty:anynum": r"any number",
+    "cond:if": r"^if |, if |\bif (?!able)", "cond:unless": r"\bunless\b", "cond:otherwise": r"^otherwise",
+    "ref:thisway": r"this way", "ref:samename": r"same name", "ref:exiledwith": r"exiled with",
+    "ref:choice": r"of your choice|chosen|their choice",
+    "ref:pronoun": r"\bthat (?:creature|permanent|card|player|spell|land|token)\b|\b(?:it|them|those)\b",
+    "who:opp": r"opponent", "who:each": r"each player|each other player", "who:that": r"that player",
+    "who:defending": r"defending player", "who:ench": r"enchanted player|chosen player",
+    "z:graveyard": r"graveyard", "z:hand": r"\bhand\b", "z:library": r"library", "z:exile": r"\bexile",
+    "z:bf": r"battlefield", "z:spell": r"\bspell\b|\bstack\b",
+    "obj:target": r"\btarget\b", "obj:eachall": r"\b(?:each|all)\b", "obj:creature": r"creature",
+    "obj:land": r"\bland", "obj:artifact": r"artifact", "obj:token": r"token", "obj:counter": r"counter",
+    "obj:player": r"\bplayer", "obj:mana": r"\{[a-z0-9]\}|mana",
+    "pt": r"base power|power and toughness|[+-]\d+/[+-]\d+|\+x|-x", "combat": r"attack|block|combat",
+    "damage": r"damage", "life": r"\blife\b", "turn": r"extra turn|skip|untap step|upkeep|end step",
+    "kw": r"flying|haste|trample|deathtouch|lifelink|vigilance|hexproof|indestructible|menace|first strike|protection",
+}
+_SLOT_RES = {name: re.compile(rx) for name, rx in SLOT_FEATURES.items()}
+
+#: Leading action verbs recognised as the `act:` slot.
+ACTION_VERBS = (
+    "destroy|exile|return|sacrifice|draw|discard|mill|scry|surveil|gain|lose|deal|create|put|tap|untap|"
+    "search|shuffle|reveal|look|counter|copy|cast|play|attach|regenerate|prevent|skip|choose|add|pay|take|"
+    "get|become|can't|doesn't|enter|transform|exchange|fight|goad|proliferate|investigate|connive|explore|"
+    "populate|amass|manifest|bolster|adapt|remove|move|double|roll|flip|vote|win|have|may")
+_ACTION_RE = re.compile(
+    r"^(?:you may |you |that player |that creature |each (?:opponent|player) |"
+    r"target (?:player|opponent|creature) |defending player |(?:~|it|they) )?(?:may )?(" + ACTION_VERBS + r")s?\b")
+
+#: Atoms shorter than this are fragments of nothing ("it", "then").
+MIN_ATOM_CHARS = 8
+#: Modelled cards sampled as the open-share baseline, and the seed that keeps
+#: the sample (and therefore the shares) reproducible between scans.
+SLOT_BASELINE_CARDS = 6000
+SLOT_BASELINE_SEED = 1
+#: Slot combinations seen on fewer open atoms than this are noise.
+SLOT_MIN_OPEN_ATOMS = 30
+SLOT_COMBO_SIZES = (1, 2, 3)
+
+
+def atom_claims(atom: str) -> bool:
+    atom = atom.strip(" ,.")
+    return not atom or claims_alone(atom) or any(claims_alone(prefix + atom) for prefix in SUBJECT_PREFIXES)
+
+
+def pronoun_rescued(atom: str) -> bool:
+    lowered = atom.lower()
+    for rx, standins in PRONOUN_STANDINS:
+        if rx.search(lowered) and any(atom_claims(rx.sub(standin, lowered, count=1)) for standin in standins):
+            return True
+    return False
+
+
+def atom_slots(atom: str) -> set[str]:
+    lowered = atom.lower()
+    found = {name for name, rx in _SLOT_RES.items() if rx.search(lowered)}
+    action = _ACTION_RE.match(lowered)
+    if action:
+        found.add("act:" + action.group(1))
+    return found
+
+
+def open_atoms(rows: list[dict]) -> tuple[list[tuple[str, str]], dict[str, int]]:
+    """(card, atom) pairs no rule claims, plus counts of what was set aside.
+
+    Unrecognised trigger/activation heads are reported as `head:<template>`
+    atoms. Atoms with a back-reference that claim once a stand-in antecedent
+    is substituted are dropped as `pronoun_rescued` (a binding gap, not a
+    missing block).
+    """
+    atoms: list[tuple[str, str]] = []
+    stats = {"atoms": 0, "with_backreference": 0, "pronoun_rescued": 0}
+    for row in rows:
+        text = row["clause"].rstrip(".")
+        head = row.get("head")
+        body = text[len(head):].lstrip(", :") if head and text.startswith(head) else text
+        if head and not row.get("head_ok"):
+            atoms.append((row["card"], "head:" + abstract_clause(head)))
+        for atom in ATOM_SEPARATOR_RE.split(body):
+            atom = (atom or "").strip(" ,.")
+            if len(atom) < MIN_ATOM_CHARS or atom_claims(atom):
+                continue
+            stats["atoms"] += 1
+            if any(rx.search(atom.lower()) for rx, _ in PRONOUN_STANDINS):
+                stats["with_backreference"] += 1
+                if pronoun_rescued(atom):
+                    stats["pronoun_rescued"] += 1
+                    continue
+            atoms.append((row["card"], atom))
+    return atoms, stats
+
+
+def _slot_combos(slots: set[str]):
+    ordered = sorted(slots)
+    for size in SLOT_COMBO_SIZES:
+        yield from itertools.combinations(ordered, size)
+
+
+def rank_slot_combos(atoms: list[tuple[str, str]], pool_cards, open_names: set[str]) -> list[dict]:
+    """Slot combinations that stay open: open atoms vs a modelled baseline.
+
+    `open_share` = open / (open + baseline scaled to the open-atom volume), so
+    shares are comparable across scans of the same sample. A combination with
+    many open atoms and a high share is a construct the parser lacks.
+    """
+    import random
+    open_counts: Counter[tuple[str, ...]] = Counter()
+    examples: dict[tuple[str, ...], list[str]] = defaultdict(list)
+    plain = [(card, atom) for card, atom in atoms if not atom.startswith("head:")]
+    for _card, atom in plain:
+        for combo in _slot_combos(atom_slots(atom)):
+            open_counts[combo] += 1
+            if len(examples[combo]) < 3:
+                examples[combo].append(atom)
+    candidates = [c for c in pool_cards if c.name not in open_names]
+    random.Random(SLOT_BASELINE_SEED).shuffle(candidates)
+    base_counts: Counter[tuple[str, ...]] = Counter()
+    base_atoms = 0
+    for card in candidates[:SLOT_BASELINE_CARDS]:
+        text = normalize(card.oracle_text or "", card.name, getattr(card, "keywords", None) or []).lower()
+        for line in text.split("\n"):
+            for sentence in split_sentences(line):
+                for atom in ATOM_SEPARATOR_RE.split(sentence):
+                    atom = (atom or "").strip(" ,.")
+                    if len(atom) < MIN_ATOM_CHARS:
+                        continue
+                    base_atoms += 1
+                    if atom_claims(atom):
+                        for combo in _slot_combos(atom_slots(atom)):
+                            base_counts[combo] += 1
+    scale = len(plain) / max(base_atoms, 1)
+    ranked = []
+    for combo, n_open in open_counts.items():
+        if n_open < SLOT_MIN_OPEN_ATOMS or len(combo) < 2:
+            continue
+        share = n_open / (n_open + base_counts.get(combo, 0) * scale)
+        ranked.append({"slots": list(combo), "open_atoms": n_open,
+                       "baseline_atoms": base_counts.get(combo, 0),
+                       "open_share": round(share, 2), "examples": examples[combo]})
+    ranked.sort(key=lambda r: -r["open_atoms"] * r["open_share"])
+    return ranked
+
+
+def write_slots(ranked: list[dict], stats: dict[str, int], n_cards: int, out_dir: Path,
+                top: int, day: str) -> Path:
+    path = out_dir / f"offene-fragmente-{day}-v{PARSER_VERSION}-slots.md"
+    lines = [f"# Slot-Kombinationen — Parser {PARSER_VERSION} ({day})", "",
+             f"{stats['atoms']} offene Atome aus {n_cards} Karten; {stats['with_backreference']} mit "
+             f"Rückbezug, davon {stats['pronoun_rescued']} mit Stand-in-Antezedens claimbar "
+             "(Bindungslücke, kein fehlender Baustein; nicht in den Zählungen unten).", "",
+             "`Offen-Anteil` = offene Atome / (offene + skalierte modellierte Atome der Stichprobe). "
+             "Hoher Anteil bei vielen Atomen = Konstrukt, das der Parser nicht kann.", "",
+             "| Kombination | offen | modelliert (Stichprobe) | Offen-Anteil | Beispiel |",
+             "| --- | ---: | ---: | ---: | --- |"]
+    lines += [f"| {' + '.join(r['slots'])} | {r['open_atoms']} | {r['baseline_atoms']} | {r['open_share']} | "
+              f"{(r['examples'][0] if r['examples'] else '')[:80]} |" for r in ranked[:top]]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def write_ngrams(kept: list[dict], out_dir: Path, top: int, day: str) -> Path:
     path = out_dir / f"offene-fragmente-{day}-v{PARSER_VERSION}-phrasen.md"
     lines = [f"# Blocker-Phrasen — Parser {PARSER_VERSION} ({day})", "",
@@ -429,6 +629,8 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--ngrams", action="store_true",
                     help="also rank blocker phrases (needs the card cache for the pool baseline)")
+    ap.add_argument("--slots", action="store_true",
+                    help="decompose open sentences into atoms and rank slot combinations by open share")
     ap.add_argument("--ablate", action="store_true",
                     help="with --ngrams: delete each top phrase from its sentences and re-check the remainder")
     ap.add_argument("--from-jsonl", type=Path, default=None,
@@ -453,6 +655,12 @@ def main() -> None:
         if args.ablate:
             ablate(rows, phrases[:args.top])
         print(f"phrases -> {write_ngrams(phrases, args.out_dir, args.top, day)}")
+    if args.slots:
+        legal_names = commander_legal_names_cached()
+        pool = [c for c in CardDatabase(args.card_db).list_cards() if c.name in legal_names]
+        atoms, stats = open_atoms(rows)
+        ranked = rank_slot_combos(atoms, pool, {r["card"] for r in rows})
+        print(f"slots -> {write_slots(ranked, stats, len({c for c, _ in atoms}), args.out_dir, args.top, day)}")
     jsonl, md = write_outputs(rows, remeasure, totals, args.out_dir, args.top, args.samples, day)
     print(f"PARSER_VERSION {PARSER_VERSION}: {totals}")
     print(f"{len(rows)} fragments -> {jsonl}\nsummary -> {md}")

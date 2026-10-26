@@ -36,9 +36,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining tickets (PAR-207…209): measure with the `find-fragments` skill before and after
+Fragment-mining tickets (PAR-207…214): measure with the `find-fragments` skill before and after
 (`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
-regressions, and executes newly claimed cards rather than trusting parse verdicts.
+regressions, and executes newly claimed cards rather than trusting parse verdicts. Order: PAR-207,
+PAR-208 and PAR-210 first (re-scan after them); PAR-213 needs PAR-208 and PAR-210, PAR-214 needs
+PAR-210, PAR-212's pronoun-bound forms need PAR-210; PAR-209 and PAR-211 are independent.
 
 - **PAR-207 · Trigger and activation heads.** About 1,065 open sentences fail on the head itself
   (766 distinct heads; 42 occur on three or more cards). Largest families: reflexive `when you do`;
@@ -66,6 +68,69 @@ regressions, and executes newly claimed cards rather than trusting parse verdict
   condition) to `find-fragments`, then pick the slot values that complete the most cards in
   combination. Depends on nothing; sequence after PAR-207 and PAR-208 so their re-scan shows what
   remains.
+
+- **PAR-210 · Shared object-phrase grammar and reference binding.** Rows carry their own object
+  grammar per verb, so the same object form claims under one verb and not under the next: a probe
+  of 21 verb templates × 16 object forms (`find-fragments/scripts/generalization_matrix.py`) claims
+  132 of 336 cells; `that creature`, `them`, `those creatures` and `up to two target creatures` claim
+  almost nowhere, `each` / `all` forms under only some verbs. About 5,700 open fragments carry a
+  back-reference: 840 follow a claimable sentence (`untap it`, `you may play it this turn`, `it
+  can't block this turn`, `it gains haste`), 2,030 follow a sentence that is itself open (dig /
+  search / copy-spell leads: fix the lead), 2,820 are inside one sentence (`sacrifice it unless …`,
+  `escapes with a counter on it`; only 41 claim once `it` is read as `~`). The engine already has the
+  selectors (`previous_subject`, `previous_target`, `previous_targets`, `previous_selector`), so the
+  gap is the parser side. Build one object-phrase grammar (target / each / all / up to N / pronoun
+  and `that <noun>` forms) that every verb row consumes and that resolves back-references to those
+  selectors, fail-closed when the antecedent is ambiguous or absent. First step, the 14 cards the
+  gate's antecedent checks reject: `that player loses N life` is limited to `BECOMES_TARGET`
+  (`life_loss._lose_life_that_controller`) and needs the cast / combat-damage events (Soot Imp,
+  Curse of Wizardry, Kambal, Yawgmoth's Edict, Krydle of Baldur's Gate; verify the engine's
+  `SPELL_CAST` event carries the casting player); `that much` has no source for counters removed as
+  a cost (Geistflame Reservoir, Relic Amulet) or permanents sacrificed this turn (Sawblade
+  Skinripper); Scroll of Griselbrand binds `that player` to an earlier `target opponent`; Aphelia
+  nests a `whenever` inside an activated ability. Sequence after PAR-207 and PAR-208.
+- **PAR-211 · Quantifier scopes.** `each` / `all` / `each other` scopes combined with the clause
+  parts that depend on them stay open at a share of 0.78–0.90 against modelled text: `each player` /
+  `each opponent` / `each other player` as the acting or affected set, `each creature that player /
+  that planeswalker's controller / your opponents control`, `for each <thing>` repeats, `all
+  <objects> that <condition>`, and the scope carried into a duration or damage clause (`until end of
+  turn`, `all combat damage that would be dealt …`). Build one scope grammar (set × controller ×
+  per-member repeat) that the existing target/selector resolver consumes, instead of per-phrase rows.
+  Measure with `find-fragments --slots` (`obj:eachall` rows). Done when those rows drop in a re-scan
+  and each-player / each-creature clauses execute per member in the real engine.
+- **PAR-212 · Object-state conditions and zone-destination actions.** Two slot families that stay
+  open together with a pronoun or `if`: (a) conditions on the state of an object or the game before
+  the effect (`if target attacking creature token is the chosen type`, `if you control more
+  creatures than each other player`, `if an <type> crewed it this turn`, `if <name>'s emerge cost
+  was paid`), open share 0.83–0.93; (b) actions that name a destination zone (`put … onto the
+  battlefield / on the bottom of / into your hand`, `exile … with N <counter> on it`, `exile all
+  graveyards`), open share 0.81–0.96. Extend `static_conditions.py` / `effect_conditions.py` (shared
+  predicate vocabulary) and the zone-destination wording of the existing move/exile primitives; do
+  not add a second condition mechanism. Depends on PAR-210 for the pronoun-bound forms.
+
+- **PAR-213 · Library and hand inspection sequences.** The lead sentence of a multi-sentence
+  look / reveal / choose / dispose sequence stays open when its follow-up is not one of the whole-block
+  templates `catalogue/dig.py` claims, and then every later sentence referring to it fails with it
+  (about 1,580 cards have a back-reference follow-up whose lead is open; 330 are dig / reveal-top
+  leads, 290 exile / cast, 120 copy, 100 search). Largest leads: `look at the top N cards of your
+  library` (26 cards), `target opponent / player reveals their hand` (32), `reveal the top N cards`
+  (19), upkeep / activated `look at the top card` (30), `you choose a nonland card from it` (14),
+  `if you do, put ~ onto the battlefield`. Compose the sequence from steps (lead × selection ×
+  disposal of the rest) that pass the inspected set along via `previous_selector`, instead of
+  whole-sequence regexes; the dig families PAR-144 left open (x counts refused on purpose) stay
+  fail-closed. Follow-ups to check once the lead claims: `put the rest on the bottom … in a random
+  order` (52 cards), `if you search your library this way, shuffle` (51), `then that player
+  shuffles` (35), `you may choose new targets for the copy` (50). Done when those sentences claim
+  as part of their sequence and the sequences execute against a real library / hand.
+- **PAR-214 · Missing verb-phrase rows for existing effects.** Phrases the verb × object probe
+  shows no row for, although the engine has the effect (`cant_be_regenerated`, `cast_from_exile`,
+  ability-loss in `physical_properties.py`; grep before assuming a primitive is missing): `<object>
+  loses all abilities` (56 open cards), a stand-alone `<object> can't be regenerated` sentence
+  (about 37 follow-up cards), `you may cast / play <object> this turn` as a follow-up to an exile or
+  reveal (about 32), `<object> gains haste` / `untap <object>` / `<object> can't block this turn` as
+  follow-ups (about 60). Each row must take the shared object phrase of PAR-210 rather than its own
+  target grammar. Done when `generalization_matrix.py` shows these rows filled across the object
+  forms that are valid Magic text.
 
 ## MEC — Game mechanic
 

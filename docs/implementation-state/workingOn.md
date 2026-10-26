@@ -42,3 +42,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## PAR-207 · Trigger and activation heads
+
+- **Started / last update:** 2026-10-26 / 2026-10-26 23:00
+- **Goal of this run:** Composable head grammar (trigger event × scope × timing) for the largest head families: reflexive `when you do`, delayed `at the beginning of the next end step / that turn's end step / your next upkeep / chosen or enchanted player's upkeep`, `when this <type> enters`, `whenever you activate …`, threshold/`this way` heads, attached/equipped attack heads.
+- **Done (built + tested):** —
+- **In progress:** —
+- **Next step:** Re-measure with `find-fragments` (head-failing sentences by head family) and snapshot the parser baseline; then implement the largest family first.
+- **Decisions:** Branch `analysis/open-fragment-mining-20261026` (user 2026-10-26); commits + push allowed there; scopes stay separate from the find-fragments analysis session (do not touch `.claude/skills/find-fragments/`, BACKLOG edits only via patched commit copies). Full-cache tier before closing.
+- **Baselines / artefacts:** Parser baseline v767 = 22,557 covered: `/tmp/par207-base767.json`.
+- **Known failures:** None at 95761016 (--full-cache 16982 passed, 1 skipped).
+- **Residue:** —

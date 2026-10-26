@@ -58,6 +58,18 @@ template, `touched` = cards containing it at all. `--from-jsonl FILE` regroups a
 exact-template check misses (singleton-sweeper method): tight regexes over the
 JSONL for phrase families, e.g. a shared trigger head or modifier.
 
+`--slots` decomposes each open sentence into atoms (`ATOM_SEPARATOR_RE`),
+drops atoms that claim with a subject prefix or with a stand-in antecedent for a
+back-reference (counted as binding gaps, not missing blocks), tags the rest with
+slots (action, object, scope, duration, quantity, condition, reference, zone)
+and ranks slot *combinations* by open share against a 6000-card modelled
+baseline: `offene-fragmente-<date>-v<N>-slots.md`. It needs the card cache.
+
+`scripts/generalization_matrix.py` is a separate probe of the parser itself:
+a verb × object-form grid showing which object phrases each verb row accepts.
+Empty columns are object forms the shared grammar lacks; re-run it after any
+object-grammar ticket.
+
 ## 3. Classify each top group
 
 - **PAR**: a parser handler/grammar suffices (`extend-parser` skill).
