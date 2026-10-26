@@ -629,13 +629,19 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: Effect`'s existing ``duration="end_of_turn"`` resolve-time shape
 #: instead of a standing layer-6 static.
 _GRANT_QUOTED_ABILITY_UNTIL_EOT_RE = compile_clause(
-    r"until end of turn, (?P<subject>target creature|[a-z ]+) gains? \"(?P<inner>.+)\""
+    r"until end of turn, (?P<subject>target creature(?: " + CREATURE_FILTER_SUFFIX + r")?|[a-z ]+) gains? \"(?P<inner>.+)\""
 )
 
 
 def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
-    if m.group("subject") != "target creature":
+    # "target creature with a +1/+1 counter on it gains …" (Simic Basilisk): the recipient is a RULE 115 target narrowed by
+    # the shared quality filter.
+    creature_filter = creature_quality_filter(m) if m.group("subject").startswith("target creature ") else None
+    if m.group("subject").startswith("target creature "):
+        if creature_filter is None:
+            return None
+    elif m.group("subject") != "target creature":
         grants = static_effect_specs(f'{m.group("subject")} have "{m.group("inner")}"')
         if not grants or any(s.type not in {"grant_triggered_ability", "grant_activated_ability",
                                            "grant_mana_ability"} for s in grants):
@@ -651,6 +657,7 @@ def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpe
         "static": {"type": grant.type, "params": grant.params},
         "duration": "end_of_turn",
         "target_kind": "creature",
+        **({"creature_filter": creature_filter} if creature_filter else {}),
     })]
 
 

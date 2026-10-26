@@ -131,12 +131,88 @@ def _delayed_return_host_and_self(m: re.Match[str]) -> list[EffectSpec]:
     ]
 
 
+#: RULE 603.7 / 608.2h: "~ deals 1 damage to that creature at end of combat" (Sawtooth Ogre) — the far-side creature of a
+#: block relation is fixed when the delayed ability is created, like the destroy/steal riders above (same
+#: ``previous_or_self`` + ``needs_block_head`` capture, converted by `segmenter._retarget_block_relation`). The damage is
+#: dealt by the source by last known information, so it still happens when the source left the battlefield first.
+#: Self-subject heads only: under an attached-host head "it" would be the Equipment/Aura, not the host.
+_DELAYED_DAMAGE_RELATED_RE = compile_clause(r"(?:~|it) deals (?P<n>\d+) damage to that creature at end of combat")
+
+
+def _delayed_damage_related(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_delayed_trigger", {
+        "step": END_COMBAT_STEP, "scope": "any", "capture": "previous_or_self",
+        "effects": [{"type": "damage_specific", "params": {"amount": int(m.group("n"))}}],
+        NEEDS_BLOCK_HEAD: True,
+    })]
+
+
+#: RULE 603.7 comma form: "when ~ attacks or blocks, **at end of combat**, sacrifice it and it deals 5 damage to you"
+#: (Time Elemental) — the trigger's body is itself the delayed ability. The source is fixed when the trigger resolves
+#: (``capture="self"``), so "sacrifice it" / "destroy it" name that very stay of the permanent (RULE 400.7: a copy that
+#: left and returned is a new object and is left alone) and only its controller can sacrifice it (RULE 701.17a, "you
+#: can't sacrifice it" once control changed). Damage the source deals is by last known information (RULE 608.2h), so
+#: it is dealt even when the sacrifice just happened or could not.
+_AT_END_OF_COMBAT_BODY_RE = compile_clause(r"at end of combat, (?P<body>.+)")
+
+#: The self-bound effects a comma-form delayed body may use, and what each becomes inside the delayed ability.
+_SELF_BODY_TYPES = frozenset({"sacrifice_self", "destroy", "damage"})
+
+
+def _delayed_comma_body(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    body = parse_effect_body(m.group("body"), reading=reading)
+    if not body:
+        return None
+    inner: list[dict] = []
+    for effect in body:
+        if effect.condition is not None or effect.type not in _SELF_BODY_TYPES:
+            return None
+        if effect.type == "sacrifice_self" and not effect.params:
+            inner.append({"type": "sacrifice_specific", "params": {"controlled_only": True}})
+        elif effect.type == "destroy" and effect.params == {"source_only": True}:
+            inner.append({"type": "destroy_specific", "params": {}})
+        elif effect.type == "damage" and effect.params.get("selector") == "controller":
+            inner.append(effect.to_dict())
+        else:
+            return None
+    return [EffectSpec("create_delayed_trigger", {
+        "step": END_COMBAT_STEP, "scope": "any", "capture": "self", "effects": inner,
+    })]
+
+
+#: RULE 509.1a / 603.7: "when ~ blocks, at end of combat, destroy it and all creatures it blocked this turn" (Defiant
+#: Vanguard) — the source and the attackers it was declared as a blocker of, fixed when the ability resolves
+#: (``capture="source_and_blocked"``) so the set survives the source's own death.
+_AT_END_OF_COMBAT_DESTROY_SELF_AND_BLOCKED_RE = compile_clause(
+    r"at end of combat, destroy it and all creatures it blocked this turn"
+)
+
+
+def _delayed_destroy_self_and_blocked(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_delayed_trigger", {
+        "step": END_COMBAT_STEP, "scope": "any", "capture": "source_and_blocked",
+        "effects": [{"type": "destroy_specific", "params": {}}],
+    })]
+
+
 ROWS: list[EffectHandler] = [
     EffectHandler(
         "delayed_return_host_and_self_end_of_combat", _DELAYED_RETURN_HOST_AND_SELF_RE,
         _delayed_return_host_and_self, requires=ClauseReading(attached_subject=True),
     ),
     EffectHandler("delayed_related_end_of_combat", _DELAYED_RELATED_RE, _delayed_related),
+    EffectHandler(
+        "delayed_damage_related_end_of_combat", _DELAYED_DAMAGE_RELATED_RE, _delayed_damage_related,
+        requires=ClauseReading(self_subject=True),
+    ),
+    EffectHandler(
+        "delayed_destroy_self_and_blocked_end_of_combat", _AT_END_OF_COMBAT_DESTROY_SELF_AND_BLOCKED_RE,
+        _delayed_destroy_self_and_blocked, requires=ClauseReading(self_subject=True),
+    ),
+    EffectHandler(
+        "delayed_comma_body_end_of_combat", _AT_END_OF_COMBAT_BODY_RE, _delayed_comma_body,
+        requires=ClauseReading(self_subject=True), reading_aware=True,
+    ),
     EffectHandler("gain_control_group_while_source", _GAIN_CONTROL_GROUP_WHILE_SOURCE_RE, _gain_control_group_while_source),
     EffectHandler(
         "delayed_self_rider_end_of_combat", _DELAYED_SELF_RIDER_RE, _delayed_self_rider,

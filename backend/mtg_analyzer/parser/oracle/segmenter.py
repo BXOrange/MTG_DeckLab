@@ -7969,6 +7969,24 @@ _EVENT_READS = (
 )
 
 
+#: The `ATTACKS`-style event field naming the creature a DAMAGE event dealt damage to.
+DAMAGED_CREATURE_EVENT_KEY = "target_id"
+
+
+def _retarget_damaged_creature_riders(effects: "list[EffectSpec]") -> "list[EffectSpec]":
+    """Under a "deals combat damage to a creature" head a delayed rider's "that creature" is the damaged creature:
+    its ``previous_or_self`` capture (which would fall back to the source) names the event's ``target_id`` instead."""
+    out: "list[EffectSpec]" = []
+    for e in effects:
+        if e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self":
+            params = {k: v for k, v in e.params.items() if k != NEEDS_BLOCK_HEAD}
+            params["capture"] = "trigger_subject"
+            params["trigger_event_key"] = DAMAGED_CREATURE_EVENT_KEY
+            e = EffectSpec(e.type, params, condition=e.condition)
+        out.append(e)
+    return out
+
+
 def _retarget_block_relation(
     event: "str | list[str]", head_trigger: dict[str, Any], effects: "list[EffectSpec]"
 ) -> "list[EffectSpec]":
@@ -10576,12 +10594,23 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                              **head_trigger},
                     optional=optional, raw_text=raw, parser=provenance,
                 ), claimed=True)
+        # RULE 603.7c / 510.2: "that creature" of "whenever <X> deals combat damage to a creature, destroy that
+        # creature at end of combat" (Sosuke, Simic Basilisk's granted ability) is the creature that was dealt
+        # the damage, fixed when the delayed ability is created — the firing event's ``target_id``.
+        recipient_delayed = (
+            composed_head and event == "DAMAGE"
+            and (condition or {}).get("subject") in ("self", "group", "attached_permanent")
+            and head_trigger.get("filter", {}).get("is_player") is False
+            and re.fullmatch(r"(?:destroy|exile) that creature at end of combat\.?", body) is not None
+        )
         # A group DAMAGE head aimed at a creature introduces two object
         # referents: the dealer and the recipient.  The delayed-sacrifice
         # body's bare "it"/"that creature" means the recipient on cards such
         # as Sosuke, but the current referent model can only capture the firing
         # subject.  Preserve the legacy row's fail-closed guard during the
-        # PAR-131 migration rather than silently destroying the dealer.
+        # PAR-131 migration rather than silently destroying the dealer; the
+        # "<verb> that creature at end of combat" shape (``recipient_delayed``)
+        # is the exception, retargeted to the damaged creature below.
         damage_pronoun = (
             DELAYED_SAC_EXILE_TAIL_RE.fullmatch(body.strip().rstrip(".").strip())
             if composed_head and event == "DAMAGE"
@@ -10589,7 +10618,7 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             and head_trigger.get("filter", {}).get("is_player") is False
             else None
         )
-        if damage_pronoun is not None and damage_pronoun.group("obj"):
+        if damage_pronoun is not None and damage_pronoun.group("obj") and not recipient_delayed:
             return Segment(raw=raw)
         death_counter_branch = (
             _LEAVING_COUNTER_IF_ELSE_RE.fullmatch(body)
@@ -10825,6 +10854,8 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 effects = [EffectSpec("trigger_subject_referent", {
                     "event_key": "target_id" if recipient_destroy else "instance_id",
                 }), *effects]
+            if recipient_delayed and effects is not None:
+                effects = _retarget_damaged_creature_riders(effects)
             if block_destroy and effects is not None:
                 effects = [EffectSpec(e.type, {
                     **{k: v for k, v in e.params.items() if k != "previous_subject"},

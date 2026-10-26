@@ -455,6 +455,32 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.objects = made
                 elif hasattr(effect, "target") and made:
                     effect.target = made[0]
+        if self.capture == "source_and_blocked":
+            # "When ~ blocks, at end of combat, destroy it and all creatures it blocked this turn." (Defiant
+            # Vanguard) — the source plus every attacker it was declared as a blocker of this turn (RULE 509.1a),
+            # read off the turn's BLOCKS log keyed by zone stay (RULE 400.7) and baked now, so the set survives to
+            # the delayed firing even when the source has died by then (RULE 608.2h last known information).
+            made = [self.source] if self.source is not None else []
+            if self.source is not None:
+                for event in context.state.events_this_turn():
+                    if (
+                        event.type == "BLOCKS" and event.get("instance_id") == self.source.instance_id
+                        and event.get("instance_zone_incarnation") == self.source.zone_incarnation
+                    ):
+                        incarnations = event.get("related_incarnations") or {}
+                        for iid in event.get("related_ids") or []:
+                            blocked = context.state.find_object(iid)
+                            if (blocked is not None and blocked not in made
+                                    and incarnations.get(iid) == blocked.zone_incarnation):
+                                made.append(blocked)
+            for effect in baked:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+        for effect in baked:
+            # RULE 400.7 / 603.7c: the objects fixed now are this zone stay's; one that left and came back before
+            # the delayed ability fires is a new object it no longer names.
+            if hasattr(effect, "incarnations") and getattr(effect, "objects", None):
+                effect.incarnations = {o.instance_id: o.zone_incarnation for o in effect.objects}
         # "Its controller may draw up to two cards at the beginning of the
         # next turn's upkeep." (Arcane Denial's own first sentence) — the
         # delayed draw belongs to the countered spell's controller, not
@@ -2988,10 +3014,14 @@ class SacrificeSpecificEffect(GameEffect):
         objects: list["GameObject"],
         delay_step: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        controlled_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.objects = objects
         self.delay_step = delay_step
+        #: RULE 701.17a: only a permanent's controller can sacrifice it, so "sacrifice it" resolved by a player who no
+        #: longer controls the object does nothing (Time Elemental, "you can't sacrifice it" once control changed).
+        self.controlled_only = bool(controlled_only)
         #: instance id -> the zone stay it was baked in; when set, an object that has since left and come
         #: back is a new object (RULE 400.7) and is not sacrificed (PAR-160).
         self.incarnations: Optional[dict[str, int]] = None
@@ -3015,6 +3045,9 @@ class SacrificeSpecificEffect(GameEffect):
             return
         for obj in list(self.objects):
             if self.incarnations is not None and self.incarnations.get(obj.instance_id) != obj.zone_incarnation:
+                continue
+            if (self.controlled_only and context.resolving_controller_id is not None
+                    and obj.controller_id != context.resolving_controller_id):
                 continue
             if obj in context.state.battlefield:
                 # RULE 701.17a: a sacrifice is a non-destructive move to the
@@ -3099,11 +3132,46 @@ class DestroySpecificEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.objects = objects
+        #: instance id -> the zone stay it was baked in (`CreateDelayedTriggerEffect`): an object that has since left
+        #: and come back is a new object (RULE 400.7) and the delayed destroy leaves it alone.
+        self.incarnations: Optional[dict[str, int]] = None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for obj in list(self.objects):
+            if self.incarnations is not None and self.incarnations.get(obj.instance_id) != obj.zone_incarnation:
+                continue
             if obj in context.state.battlefield:
                 context.engine.destroy(obj)
+
+
+class DamageSpecificEffect(GameEffect):
+    """The ability's source deals ``amount`` damage to the exact creatures baked into this effect (RULE 120.3).
+
+    The damage sibling of `DestroySpecificEffect`, for a delayed "~ deals N damage to that creature at end of
+    combat" (Sawtooth Ogre): the recipients were fixed when the delayed ability was created (RULE 603.7c). The
+    *source* is read by last known information (RULE 608.2h): it still deals the damage when it died or left the
+    battlefield in the meantime ("the damage happens even if this card is not on the battlefield at the end of
+    combat"). A recipient that left (and, if it came back, is a new object, RULE 400.7) is simply not damaged.
+    """
+
+    def __init__(
+        self,
+        objects: list["GameObject"],
+        amount: int = 1,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.objects = objects
+        self.amount = int(amount)
+        #: instance id -> baked zone stay, as on `DestroySpecificEffect`.
+        self.incarnations: Optional[dict[str, int]] = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            if self.incarnations is not None and self.incarnations.get(obj.instance_id) != obj.zone_incarnation:
+                continue
+            if obj in context.state.battlefield:
+                context.deal_damage(obj, self.amount, self.source)
 
 
 class ReturnSpecificToHandEffect(GameEffect):

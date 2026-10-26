@@ -2139,7 +2139,8 @@ EffectRegistry.register(
     # resolve-time fact the delayed firing can't see anymore" idiom
     # ``target_mana_value``/``target_controller`` use.
     "sacrifice_specific",
-    lambda p: SacrificeSpecificEffect(objects=[]),
+    # ``controlled_only`` (RULE 701.17a): only the object's controller can sacrifice it (Time Elemental).
+    lambda p: SacrificeSpecificEffect(objects=[], controlled_only=bool(p.get("controlled_only", False))),
 )
 EffectRegistry.register(
     # "Exile those tokens at the beginning of the next end step." (Twinflame-
@@ -2156,6 +2157,13 @@ EffectRegistry.register(
     # TriggerEffect`'s own `capture`" idiom.
     "destroy_specific",
     lambda p: DestroySpecificEffect(objects=[]),
+)
+EffectRegistry.register(
+    # "~ deals 1 damage to that creature at end of combat." (Sawtooth Ogre) — the damage sibling of
+    # `destroy_specific`: the recipients are baked by `CreateDelayedTriggerEffect`'s ``capture``; the damage's
+    # source is the ability's source by last known information (RULE 608.2h).
+    "damage_specific",
+    lambda p: DamageSpecificEffect(objects=[], amount=int(p.get("amount", 1) or 1)),
 )
 EffectRegistry.register(
     # "Return that creature to its owner's hand at the beginning of the next

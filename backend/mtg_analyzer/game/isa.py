@@ -561,6 +561,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # fusion. This is `create` with a copy-descriptor operand.
     "create_token_copy_of_named": "create",
     "damage_equal_to_counters": "deal_damage",
+    "damage_specific": "deal_damage",
     "damage_equal_to_power": "deal_damage",
     "damage_life_floor": "deal_damage",
     "deal_damage_to_chosen_player": "deal_damage",
