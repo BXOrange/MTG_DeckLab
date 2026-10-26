@@ -51,6 +51,7 @@ from .catalogue.flicker_sequences import (
 )
 from .catalogue.dying_hosts import dying_host_return_specs
 from .catalogue.physical_properties import physical_fight_specs
+from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
 from .catalogue.zone_ability_sequences import exile_grant_specs
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_EFFECT_THEN_ANTECEDENT_PHRASES
@@ -4273,16 +4274,18 @@ def _bound_pump_for_each(spec: EffectSpec, amount: dict[str, Any]) -> "Optional[
     and are refused; so is anything that isn't a plain printed +N/+M."""
     params = dict(spec.params)
     halves = {k: params.get(k) for k in ("power", "toughness")}
-    if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in halves.values()):
+    if any(isinstance(v, bool) or not isinstance(v, int) for v in halves.values()):
         return None
     scaled = {k: v for k, v in halves.items() if v}
+    # A shrinking pump ("gets -1/-1 until end of turn for each …", PAR-203) scales the same way, through the bind's
+    # "-$n" spelling; both nonzero halves must agree in size *and* sign.
     if not scaled or len(set(scaled.values())) != 1:
         return None
     unit = next(iter(scaled.values()))
-    if unit > 1:
-        amount = {**amount, "multiply": unit}
+    if abs(unit) > 1:
+        amount = {**amount, "multiply": abs(unit)}
     for key in scaled:
-        params[key] = "$n"
+        params[key] = "$n" if unit > 0 else "-$n"
     return [EffectSpec("bind", {
         "name": "n", "amount": amount,
         "effects": [{"type": "pump", "params": params}],
@@ -5752,6 +5755,10 @@ def _parse_effect_body_unstamped(
     physical_fight = physical_fight_specs(body)
     if physical_fight is not None:
         return physical_fight
+    # PAR-203: "choose a creature type/color/card name. <clauses naming the choice>" (RULE 608.2d).
+    named_choice = named_choice_specs(body, lambda text: parse_effect_body(text, reading=reading))
+    if named_choice is not None:
+        return named_choice
     target_group = target_group_specs(body, lambda text: parse_effect_body(
         text, reading=reading.unattached(),
     ))

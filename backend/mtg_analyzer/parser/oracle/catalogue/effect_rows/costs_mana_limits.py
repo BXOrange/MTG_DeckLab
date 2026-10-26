@@ -734,6 +734,22 @@ def _remembered_group_referent(specs: "list[EffectSpec]") -> Optional[list[Effec
     return [EffectSpec(d["type"], d.get("params") or {}, condition=d.get("condition")) for d in rewritten]
 
 
+#: Composition nodes whose body is announced with the node (RULE 601.2c): a target inside one is the node's own.
+_BODY_ANNOUNCING_NODES = frozenset({"seq", "bind"})
+
+
+def _body_has_target(effects: Any) -> bool:
+    """Whether any effect of a serialized ``seq`` / ``bind`` body announces a RULE 115 target (recursing through nested
+    bodies) -- PAR-203's "choose a card name, then target player reveals …" wraps its tail in one."""
+    for effect in effects or []:
+        params = effect.get("params") or {}
+        if params.get("target_kind"):
+            return True
+        if effect.get("type") in _BODY_ANNOUNCING_NODES and _body_has_target(params.get("effects")):
+            return True
+    return False
+
+
 def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     group = reading.group_clause
     if group and re.match(r"remove .* from it$", m.group("cost")):
@@ -754,7 +770,9 @@ def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
     if m.group("link") == "when" and any(
-        s.params.get("target_kind") or (s.type == "fight" and s.params.get("other_kind") not in (None, "previous_target", "previous_target_2", "trigger_subject", "attached_permanent")) for s in sub
+        s.params.get("target_kind")
+        or (s.type in _BODY_ANNOUNCING_NODES and _body_has_target(s.params.get("effects")))
+        or (s.type == "fight" and s.params.get("other_kind") not in (None, "previous_target", "previous_target_2", "trigger_subject", "attached_permanent")) for s in sub
     ):
         # RULE 603.12: only "When you do" creates a reflexive trigger.
         # "If you do" uses the enclosing spell/ability's announced targets.

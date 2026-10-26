@@ -911,6 +911,8 @@ export default {
   'bd.choice.triggeredBy': "Ausgelöst durch: {name}",
   'bd.choice.asideTitle': "Board darunter ansehen, ohne zu entscheiden",
   'bd.choice.chooseNothing': "Nichts wählen",
+  'bd.choice.typeLabel': "Oder Antwort eintippen",
+  'bd.choice.typeSubmit': "Antwort bestätigen",
   'bd.msg.actionNotAllowedShort': "Aktion nicht erlaubt: {detail}",
   'bd.exile.graveyardCostCard': "zu verbannende Friedhofskarte",
   'bd.discard.card': "abzuwerfende Karte",

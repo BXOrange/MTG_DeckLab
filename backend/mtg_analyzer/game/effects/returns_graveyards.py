@@ -829,6 +829,9 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: 205.4a supertype exclusion on the graveyard target pool.
         self.exclude_legendary = bool(exclude_legendary)
         self._kind = target_kind
+        #: "return all **Elf** creature cards from your graveyard …" (PAR-203, a chosen creature type): the mass mode's
+        #: creature-subtype narrowing, read by `apply`'s ``players`` branch (a targeted return hands it to the TargetSpec).
+        self._mass_subtype = subtype if players is not None else None
         spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number, total_power_max=total_power_max,
@@ -1184,11 +1187,16 @@ class ReturnFromGraveyardEffect(GameEffect):
             else:
                 players = list(context.state.living_players())
             kind = self._kind or "graveyard_creature"
+            from .. import continuous  # function-scoped: continuous imports the effects package
+
             with context.state.simultaneous():
                 for player in players:
                     # "return all **land** cards from your graveyard to the battlefield tapped"
                     # (Aftermath Analyst, Lumra): the kind's own type filter, not just creature/any.
-                    cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)]
+                    cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)
+                             and (not self._mass_subtype
+                                  or str(self._mass_subtype).lower() in o.card.type_line.lower().split()
+                                  or continuous.has_subtype(o, str(self._mass_subtype)))]
                     for card in cards:
                         self._apply_one(context, card)
             return

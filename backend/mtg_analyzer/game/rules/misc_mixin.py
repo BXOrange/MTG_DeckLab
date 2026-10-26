@@ -1930,6 +1930,118 @@ class MiscSystemsMixin:
         if source is not None:
             source.chosen_type = chosen
         self._apply_effect_specs(list(choice.get("then_specs") or []), source)
+    #: PAR-203: which stamp on the source each "choose a ..." kind writes, and the filter sentinel that reads it.
+    _NAMED_CHOICE_ATTRS: dict[str, str] = {
+        "creature_type": "chosen_type", "color": "chosen_color", "card_name": "chosen_card_name",
+    }
+
+    def _named_choice_options(
+        self, player: Player, kind: str, other_than: list[str], card_filter: Optional[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        """The answers offered for a resolution-time "choose a creature type / color / card name".
+
+        RULE 205.3m / 105.1 / 201.3: a creature type is any entry of the RULE 205.3m list and a name is any real
+        card name, so the offered options are suggestions drawn from what is in the game (public zones plus the
+        chooser's own hidden ones), exactly like the as-it-enters `choose_creature_type` pick; colours are the
+        five of RULE 105.1."""
+        if kind == "color":
+            return [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
+        if kind == "creature_type":
+            seen: set[str] = set()
+            for obj in self._named_choice_cards(player):
+                type_line = (getattr(obj.card, "type_line", "") or "").lower()
+                if "creature" in type_line:
+                    seen.update(w.capitalize() for w in re.findall(r"[a-z]+", type_line.partition("—")[2]))
+            excluded = {t.lower() for t in other_than}
+            return [{"id": t, "label": t} for t in sorted(seen) if t.lower() not in excluded]
+        names = {
+            obj.name for obj in self._named_choice_cards(player)
+            if card_filter is None or card_query.matches(obj.card, card_filter)
+        }
+        return [{"id": name, "label": name} for name in sorted(names)]
+
+    def _named_choice_cards(self, player: Player) -> list[GameObject]:
+        """Every card the chooser can see or knows of: the battlefield and every graveyard/exile, plus their own
+        hand, library and command zone."""
+        cards = list(self.state.battlefield)
+        for other in self.state.players:
+            cards += list(other.graveyard) + list(other.exile)
+        return cards + list(player.hand) + list(player.library) + list(player.command)
+
+    def _request_choose_for_source(
+        self, player: Player, source: Optional[GameObject], kind: str,
+        other_than: Optional[list[str]] = None, card_filter: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """RULE 608.2d: "choose a creature type / color / card name" as part of a resolving spell or ability.
+
+        The pick is stamped on ``source`` (`chosen_type` / `chosen_color` / `chosen_card_name`), where the clauses
+        that follow read it back through the ``$chosen_*`` placeholders `composition._build` resolves. The rest of
+        the effect list waits behind the choice (RULE 608.2: `_apply_effects_partitioned` parks it), so the choice
+        opens, is answered by `_resume_choose_for_source`, and the tail then runs with the answer in place."""
+        if source is None:
+            return
+        # A pick left over from an earlier use of this object (a flashed-back spell, a repeatable ability) must never
+        # stand in for this resolution's answer.
+        setattr(source, self._NAMED_CHOICE_ATTRS[kind], None)
+        other = [str(t) for t in (other_than or [])]
+        options = self._named_choice_options(player, kind, other, card_filter)
+        if kind == "creature_type" and not options:
+            # Nothing on the board names a type: any RULE 205.3m type is still a legal pick.
+            from ...models.cards.creature_types import CREATURE_SUBTYPES
+
+            options = [{"id": t.capitalize(), "label": t.capitalize()} for t in sorted(CREATURE_SUBTYPES)
+                       if t not in {x.lower() for x in other}]
+        self.open_choice({
+            "kind": "choose_for_source",
+            "player_id": player.id,
+            "prompt": {"creature_type": "Kreaturentyp wählen", "color": "Farbe wählen",
+                       "card_name": "Kartennamen wählen"}[kind],
+            "options": options,
+            # A type or a name can be any legal answer, not just a suggestion (RULE 205.3m, RULE 201.3).
+            **({"free_text": True} if kind in ("creature_type", "card_name") else {}),
+            "what": kind,
+            "source_id": source.instance_id,
+            "other_than": other,
+            "card_filter": dict(card_filter) if card_filter else None,
+        })
+
+    @continuations.choice("choose_for_source", answer=continuations.ANSWER_STR, rule="608.2d")
+    def _resume_choose_for_source(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a `_request_choose_for_source` choice and stamp the (validated) pick on its source.
+
+        A mandatory pick: an answer that is not a legal one falls back to the first option, the same treatment
+        `_resume_choose_creature_type` gives. A name only has to be a card name, so it is never validated against
+        the suggestions; one that contradicts the stated card filter ("nonland card name") is refused when the game
+        knows the card, since naming it would be illegal (RULE 201.3), and then names nothing."""
+        kind = choice["what"]
+        options = [str(o["id"]) for o in choice.get("options", [])]
+        raw = "" if answer is None or answer == "decline" else str(answer)
+        chosen: Optional[str]
+        if kind == "card_name":
+            chosen = raw
+            card_filter = choice.get("card_filter")
+            if card_filter and raw:
+                known = [o for o in self._named_choice_cards(self.state.player_by_id(choice["player_id"]))
+                         if o.name.lower() == raw.lower()]
+                if known and not card_query.matches(known[0].card, card_filter):
+                    chosen = ""
+        elif kind == "creature_type":
+            from ...models.cards.creature_types import CREATURE_SUBTYPES
+
+            excluded = {str(t).lower() for t in choice.get("other_than", [])}
+            by_lower = {o.lower(): o for o in options}
+            if raw.lower() in by_lower:
+                chosen = by_lower[raw.lower()]
+            elif raw.lower() in CREATURE_SUBTYPES and raw.lower() not in excluded:
+                chosen = raw.capitalize()
+            else:
+                chosen = options[0] if options else None
+        else:
+            chosen = raw if raw in options else (options[0] if options else None)
+        source = self._object_by_instance_id(choice.get("source_id"))
+        if source is not None and chosen is not None:
+            setattr(source, self._NAMED_CHOICE_ATTRS[kind], chosen)
+
     def _request_sacrifice_unless_pay(
         self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
     ) -> None:

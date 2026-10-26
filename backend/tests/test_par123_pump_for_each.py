@@ -44,6 +44,9 @@ def _run(engine, clause, source, **flags):
     ("~ gets +1/+0 until end of turn for each other attacking creature", {"power": "$n", "toughness": 0}, None),
     ("~ gets +1/+1 until end of turn for each elf you control", {"power": "$n", "toughness": "$n"}, None),
     ("~ gets +2/+2 until end of turn for each elf you control", {"power": "$n", "toughness": "$n"}, 2),
+    # PAR-203: a shrinking pump scales through the bind's "-$n" spelling.
+    ("~ gets -1/-1 until end of turn for each elf you control", {"power": "-$n", "toughness": "-$n"}, None),
+    ("~ gets -2/-2 until end of turn for each elf you control", {"power": "-$n", "toughness": "-$n"}, 2),
 ])
 def test_a_pump_scales_per_counted_object(clause, halves, multiply):
     [spec] = parse_effect_body(clause)
@@ -55,7 +58,7 @@ def test_a_pump_scales_per_counted_object(clause, halves, multiply):
 
 @pytest.mark.parametrize("clause", [
     "~ gets +2/+1 until end of turn for each elf you control",   # two different halves
-    "~ gets -1/-1 until end of turn for each elf you control",   # negative halves
+    "~ gets +1/-1 until end of turn for each elf you control",   # halves of opposite sign
 ])
 def test_a_pump_with_no_single_unit_is_refused(clause):
     assert parse_effect_body(clause) is None

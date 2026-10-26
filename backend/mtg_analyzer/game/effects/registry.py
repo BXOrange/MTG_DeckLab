@@ -1595,6 +1595,12 @@ EffectRegistry.register(
     lambda p: RequestChooseCreatureTypeGrantEffect(then_specs=p.get("then_specs")),
 )
 EffectRegistry.register(
+    "choose_for_source",  # PAR-203: "choose a creature type / color / card name" mid-resolution
+    lambda p: ChooseForSourceEffect(
+        kind=str(p.get("kind", "creature_type")), other_than=p.get("other_than"), card_filter=p.get("card_filter"),
+    ),
+)
+EffectRegistry.register(
     "grant_keywords_to_chosen_type_until_eot",  # Selfless Safewright
     lambda p: GrantKeywordsToChosenTypeUntilEotEffect(keywords=p.get("keywords")),
 )
@@ -2290,6 +2296,23 @@ EffectRegistry.register(
 EffectRegistry.register(
     "name_card_then",  # "Choose a card name. <effect>" (Demonic Consultation)
     lambda p: NameCardThenEffect(effects=list(p.get("effects", []))),
+)
+EffectRegistry.register(
+    # PAR-203: "Search target player's graveyard, hand, and library for ... cards with that name and exile them."
+    "exile_named_from_zones",
+    lambda p: ExileNamedFromZonesEffect(
+        name=p.get("name", ""), quantity=p.get("quantity", "all"), target_kind=p.get("target_kind", "opponent"),
+        shuffle=bool(p.get("shuffle", True)), damage_per_hand_card=int(p.get("damage_per_hand_card", 0) or 0),
+        then_effects=p.get("then_effects"),
+    ),
+)
+EffectRegistry.register(
+    # PAR-203: "Target player reveals their hand and discards all cards <matching>." (Cabal Therapy, Persecute)
+    "reveal_hand_discard_all",
+    lambda p: RevealHandDiscardAllEffect(
+        target_kind=p.get("target_kind", "player"), card_filter=p.get("card_filter"), count=p.get("count", "all"),
+        draw_if_none=bool(p.get("draw_if_none", False)),
+    ),
 )
 EffectRegistry.register(
     # "Exile the top card of your library. You may put that card into your

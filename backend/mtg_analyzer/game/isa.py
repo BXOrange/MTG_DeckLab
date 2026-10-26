@@ -359,6 +359,11 @@ class TypeEntry:
 
 #: INSTRUCTION — type name -> the ISA operation it realises one-to-one.
 _INSTRUCTION_TYPES: dict[str, str] = {
+    # PAR-203: "choose a creature type / color / card name" mid-resolution (RULE 608.2d) stamps the answer on the source
+    # and suspends only through the ordinary `seq` body that follows it (no answer protocol of its own to count).
+    "choose_for_source": "choose",
+    "exile_named_from_zones": "search",
+    "reveal_hand_discard_all": "discard",
     "complete_turn_life_loss": "lose_life",
     "reveal_opponents_hands": "reveal",
     "creature_damage_life_floor": "deal_damage",

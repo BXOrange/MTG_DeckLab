@@ -479,6 +479,39 @@ class RequestChooseCreatureTypeGrantEffect(GameEffect):
         context.engine._request_choose_creature_type_grant(player, self.source, self.then_specs)
 
 
+class ChooseForSourceEffect(GameEffect):
+    """PAR-203 / RULE 608.2d: "Choose a creature type." / "Choose a color." / "Choose a card name." as an
+    instruction of a resolving spell or ability. Opens `RulesEngine._request_choose_for_source`; the answer is
+    stamped on this effect's source and the clauses after it (a sibling ``seq`` that carries the ``$chosen_*``
+    placeholders) read it back. ``kind`` is ``creature_type`` / ``color`` / ``card_name``; ``other_than`` lists the
+    creature types a "...other than Wall" wording rules out, ``card_filter`` is a `card_query` filter for
+    "a nonland card name"."""
+
+    KINDS = ("creature_type", "color", "card_name")
+
+    def __init__(
+        self,
+        kind: str = "creature_type",
+        other_than: Optional[list[str]] = None,
+        card_filter: Optional[dict] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        if kind not in self.KINDS:
+            raise ValueError(f"unknown named choice {kind!r}")
+        self.kind = kind
+        self.other_than = list(other_than or [])
+        self.card_filter = dict(card_filter) if card_filter else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        context.engine._request_choose_for_source(
+            player, self.source, self.kind, self.other_than, self.card_filter,
+        )
+
+
 class GrantKeywordsToChosenTypeUntilEotEffect(GameEffect):
     """"Other permanents you control of that type gain hexproof and
     indestructible until end of turn." (Selfless Safewright) — "that type"

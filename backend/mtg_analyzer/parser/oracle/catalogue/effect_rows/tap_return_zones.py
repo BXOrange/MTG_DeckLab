@@ -1134,7 +1134,8 @@ def _shuffle_target_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
 #: tapped entry; `ReturnFromGraveyardEffect` filters by the kind's own type predicate.
 _MASS_RETURN_GRAVEYARD_RE = compile_clause(
     r"(?:(?P<each>each player returns)|you return|return) "
-    rf"(?:all|each) (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards? from "
+    # PAR-203: an optional creature subtype ("all Elf creature cards", a chosen creature type read as a literal).
+    rf"(?:all|each) (?:(?P<sub>[a-z]+) )??(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards? from "
     r"(?:their|your|its owner'?s|(?P<all>all)) graveyards? to "
     r"(?P<dest>the battlefield|their hand|your hand)(?P<tapped> tapped)?"
     # "…from all graveyards to the battlefield under their owners' control" (Open the Vaults): every player's own cards.
@@ -1152,12 +1153,39 @@ def _mass_return_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "destination": "battlefield" if dest == "the battlefield" else "hand",
         "players": "each_player" if m.group("each") or m.group("all") else "you",
     }
+    if m.group("sub"):
+        if m.group("sub") not in SUBTYPES:
+            return None  # a word that is no subtype ("all damaged cards") must not read as one
+        params["subtype"] = m.group("sub")
     if m.group("owners") and not m.group("all"):
         return None
     if m.group("all") and not m.group("owners"):
         return None  # "all graveyards" without "under their owners' control" would be under the caster's
     if m.group("tapped"):
         params["tapped"] = True
+    return [EffectSpec("return_from_graveyard", params)]
+
+
+#: PAR-203: "Shuffle all `<subtype>` `<type>` cards from your graveyard into your library." (Elvish Soultiller, a chosen
+#: creature type) -- the mass mode of `return_from_graveyard` with the cards put into the library and the library
+#: shuffled (RULE 701.24); the same untargeted whole-graveyard sweep `_MASS_RETURN_GRAVEYARD_RE` describes.
+_SHUFFLE_GRAVEYARD_CARDS_RE = compile_clause(
+    rf"shuffle (?:all|each) (?:(?P<sub>[a-z]+) )??(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards? "
+    r"from your graveyard into your library"
+)
+
+
+def _shuffle_graveyard_cards(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = graveyard_target_kind(m.groupdict().get("type"), "your")
+    if kind is None:
+        return None
+    params: dict = {
+        "target_kind": kind, "destination": "library_top", "players": "you", "shuffle_after": True,
+    }
+    if m.group("sub"):
+        if m.group("sub") not in SUBTYPES:
+            return None
+        params["subtype"] = m.group("sub")
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -1714,6 +1742,7 @@ ROWS: list[EffectHandler] = [
         _MASS_RETURN_GRAVEYARD_RE,
         _mass_return_graveyard,
     ),
+    EffectHandler("shuffle_graveyard_cards", _SHUFFLE_GRAVEYARD_CARDS_RE, _shuffle_graveyard_cards),
     # PAR-162: "put [up to one] target `<type>` card from your graveyard on top of your library" and its plural / pick siblings.
     EffectHandler("put_graveyard_card_top", _PUT_GRAVEYARD_CARD_TOP_RE, _put_graveyard_card_top),
     EffectHandler("put_graveyard_cards_top", _PUT_GRAVEYARD_CARDS_TOP_RE, _put_graveyard_cards_top),

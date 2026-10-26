@@ -267,6 +267,11 @@ repointed there.
 - **What:** The shared choice panel displays the printing/face and image, accepts an explicit bounded nonnegative integer and submits the ordinary choose action. It starts empty, rejects fractions and scientific notation, retains the draft after errors, and supports Enter. Printing labels are escaped; internal IDs remain internal.
 - **Validation:** Real browser verification against the actual backend covered Alexander's wordy cast, undo and measured reveal/pump/fight, including normal priority and target selection; no JavaScript errors.
 
+### Free-text choice input (PAR-203)
+
+- **What:** Any `pending_choice` flagged `free_text` (creature type, card name) gets a text field beside its suggestion buttons. The draft survives repaints and is submitted as an ordinary `choose` action with `free_text: true`; the server validates the answer. Labels come from i18n (`bd.choice.typeLabel`/`typeSubmit`, DE/EN parity).
+- **Validation:** `frontend/tests/test_free_text_choice.py` (Playwright).
+
 ### Drag-and-drop replacement-order UI
 
 - **What:** The one RULE 616.1e/f `replacement_order` choice gets a dedicated drag-and-drop reorder list — the app's only drag-and-drop UI — rather than the generic one-button-per-option modal; confirming replays the chosen order as ordinary sequential `choose` picks.

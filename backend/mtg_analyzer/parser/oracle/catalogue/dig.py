@@ -203,8 +203,8 @@ def _rest_destination(text: str) -> Optional[str]:
 #: whose hit is forced. No "otherwise" leaves the card on top (``decline_leaves_untouched``).
 _REVEAL_TOP_BRANCH_RE = re.compile(
     r"(?P<may>you may )?reveal the top card of your library\.\s+"
-    r"if (?:it'?s an? (?P<crit>[a-z' -]+?) card|an? (?P<crit2>[a-z' -]+?) card is revealed this way), "
-    r"put it (?P<dest>onto the battlefield(?: tapped(?: and attacking)?)?)"
+    r"if (?:(?:it'?s|that card is) an? (?P<crit>[a-z' -]+?) card|an? (?P<crit2>[a-z' -]+?) card is revealed this way), "
+    r"put it (?P<dest>onto the battlefield(?: tapped(?: and attacking)?)?|into your hand)"
     r"(?:\.\s+otherwise, put (?:it|that card) (?P<rest>into your hand|into your graveyard))?\.?"
 )
 _REVEAL_REST = {"into your hand": "hand", "into your graveyard": "graveyard"}

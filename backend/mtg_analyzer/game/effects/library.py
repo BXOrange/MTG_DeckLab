@@ -1935,6 +1935,122 @@ class NameCardThenEffect(GameEffect):
         context.engine._request_name_card(player, self.inner_specs, self.source)
 
 
+class ExileNamedFromZonesEffect(GameEffect):
+    """PAR-203 / RULE 201.2: "Search target player's graveyard, hand, and library for `<N | any number of | all>` cards
+    with that name and exile them. Then that player shuffles." (Cranial Extraction, Slaughter Games, Memoricide, Lost
+    Legacy, Unmoored Ego, Ancient Vendetta, Necromentia, Thought Hemorrhage ...).
+
+    ``name`` is the card name an earlier "choose a card name" stamped (the ``$chosen_name`` placeholder
+    `composition._build` resolves); it is compared with each card's name, never interpreted. A name that never resolved
+    or is empty matches nothing (RULE 201.3), but the library is still shuffled.
+
+    ``quantity`` is ``"all"`` (also "any number of": a searcher always takes every copy they find) or a cap N. **Documented
+    simplification:** past a cap, copies are taken hand first, then graveyard, then library (the searcher normally picks).
+
+    ``damage_per_hand_card`` is Thought Hemorrhage's "deals 3 damage to that player for each card with the chosen name
+    revealed this way": the hand is read first. ``then_effects`` run once per card exiled *from the hand* (``"$n"`` is that
+    count), as the target player ("that player draws a card for each card exiled from their hand this way").
+    """
+
+    def __init__(
+        self,
+        name: str = "",
+        quantity: Any = "all",
+        target_kind: str = "opponent",
+        shuffle: bool = True,
+        damage_per_hand_card: int = 0,
+        then_effects: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.name = str(name or "")
+        self.quantity = quantity if isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0 else "all"
+        self.shuffle = bool(shuffle)
+        self.damage_per_hand_card = max(0, int(damage_per_hand_card or 0))
+        self.then_effects = [dict(spec) for spec in (then_effects or [])]
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def _matches(self, obj: "GameObject") -> bool:
+        wanted = self.name.casefold()
+        return bool(wanted) and not wanted.startswith("$") and obj.name.casefold() == wanted
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = _chosen_targets(targets, 1, None)
+        if not chosen or not hasattr(chosen[0], "library"):
+            return
+        owner = chosen[0]
+        in_hand = [obj for obj in list(owner.hand) if self._matches(obj)]
+        if self.damage_per_hand_card and in_hand:
+            context.deal_damage(owner, self.damage_per_hand_card * len(in_hand), self.source)
+        found = in_hand + [obj for obj in list(owner.graveyard) if self._matches(obj)]
+        found += [obj for obj in list(owner.library) if self._matches(obj)]
+        if self.quantity != "all":
+            found = found[: int(self.quantity)]
+        from_hand = [obj for obj in found if obj in owner.hand]
+        for obj in found:
+            context.exile(obj)
+        if self.shuffle:
+            context.shuffle_library(owner)
+        if self.then_effects and from_hand:
+            outer = context.acting_player_id
+            context.acting_player_id = owner.id
+            try:
+                context.engine._apply_effect_specs(
+                    [{"type": "bind", "params": {"name": "n", "amount": len(from_hand), "effects": self.then_effects}}],
+                    self.source,
+                )
+            finally:
+                context.acting_player_id = outer
+
+
+class RevealHandDiscardAllEffect(GameEffect):
+    """PAR-203 / RULE 701.9, 701.20: "Target player reveals their hand and discards all cards `<matching>`." (Cabal
+    Therapy, Persecute) -- ``card_filter`` is a `card_query` criteria dict (a name, a colour, a creature type), the
+    matching cards are discarded by their owner, nothing is chosen. ``count`` = 1 is Brain Pry's "discards a card with that
+    name. If they can't, you draw a card" (``draw_if_none``). ``player_from_trigger_event`` reads the player a
+    combat-damage trigger names ("that player reveals their hand and discards all cards of that color", Crosis).
+
+    Revealing is not modelled as a hidden-information transfer (the same stance as `RevealRandomHandCardIfNamedEffect`):
+    only the discard has an effect on the game."""
+
+    def __init__(
+        self,
+        target_kind: str = "player",
+        card_filter: Optional[dict[str, Any]] = None,
+        count: Any = "all",
+        draw_if_none: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.card_filter = dict(card_filter or {})
+        self.count = count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else "all"
+        self.draw_if_none = bool(draw_if_none)
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = _chosen_targets(targets, 1, None)
+        owner = chosen[0] if chosen else None
+        if owner is None or not hasattr(owner, "hand"):
+            return
+        from ...models.cards import card_query
+
+        wanted = [obj for obj in list(owner.hand) if card_query.matches(obj.card, self.card_filter)]
+        if self.count != "all":
+            wanted = wanted[: int(self.count)]
+        for obj in wanted:
+            context.discard_specific(obj, cause=self.source)
+        if not wanted and self.draw_if_none:
+            caster = _controller_of(self.source, context)
+            if caster is not None:
+                context.engine.draw(caster, 1)
+
+
 class ExileUntilDuplicateNameEffect(GameEffect):
     """"Exile the top card of your library. You may put that card into
     your hand unless it has the same name as another card exiled this

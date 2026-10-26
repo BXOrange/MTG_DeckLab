@@ -248,6 +248,14 @@ X_SENTINELS: frozenset[str] = frozenset({"x", "-x"})
 #: The parser cannot name the event field — the binder resolves it per event type.
 GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
 
+#: PAR-203 (RULE 608.2d): where a later clause of the same resolution says "the chosen type" / "that color" /
+#: "the chosen name", the parser cannot know the answer, so the clause carries one of these placeholders instead
+#: and `composition._build` swaps in the value the ``choose_for_source`` effect stamped on the source (resolved
+#: lazily, when the body is built, so a body that waits behind the choice still sees the answer).
+CHOSEN_TYPE_SENTINEL = "$chosen_type"
+CHOSEN_COLOR_SENTINEL = "$chosen_color"
+CHOSEN_NAME_SENTINEL = "$chosen_name"
+
 #: PAR-120's structured count selector — ``{"zone", "of", "filter", "distinct"}`` —
 #: validated by shape only (the zone/scope/`distinct` vocabularies are named here
 #: because this package cannot import `game/`; `tests/test_par120_count_phrase.py`

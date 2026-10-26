@@ -8,6 +8,8 @@ from typing import Optional
 from ..clause_hooks import parse_effect_body
 from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
+from ..count_phrase import parse_count_phrase
+from ..dig import parse_criteria
 from ..static_handlers import quoted_ability_grant_effects
 from ..subgrammars import (
     COLOR_WORD_ALT,
@@ -496,8 +498,10 @@ def _grant_prot_choice_prev(m: re.Match[str]) -> list[EffectSpec]:
 
 
 _GROUP_FIXED_PROTECTION_RE = compile_clause(
-    r"(?P<group>creatures you control|all creatures|creatures your opponents control) "
-    r"gain protection from (?P<color>white|blue|black|red|green) until end of turn"
+    # PAR-203: any "<colour/subtype> creatures you control" group the count-phrase grammar reads (Brave the Elements'
+    # "white creatures you control", a chosen colour read as a literal) beside the three named selectors.
+    r"(?P<group>creatures you control|all creatures|creatures your opponents control|[a-z]+ creatures you control) "
+    r"(?:also )?gain protection from (?P<color>white|blue|black|red|green) until end of turn"
 )
 _GROUP_FIXED_PROTECTION_SELECTORS = {
     "creatures you control": "creatures_you_control",
@@ -506,10 +510,12 @@ _GROUP_FIXED_PROTECTION_SELECTORS = {
 }
 
 
-def _group_fixed_protection(m: re.Match[str]) -> list[EffectSpec]:
+def _group_fixed_protection(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = _GROUP_FIXED_PROTECTION_SELECTORS.get(m.group("group")) or parse_count_phrase(m.group("group"))
+    if selector is None:
+        return None
     return [EffectSpec("grant_fixed_protection_group", {
-        "selector": _GROUP_FIXED_PROTECTION_SELECTORS[m.group("group")],
-        "color": COLOR_WORDS[m.group("color")],
+        "selector": selector, "color": COLOR_WORDS[m.group("color")],
     })]
 
 
@@ -550,7 +556,9 @@ _DIG_UNTIL_REST_RES: list[tuple[re.Pattern[str], str]] = [
 ]
 _REVEAL_UNTIL_TYPE_RE = compile_clause(
     r"reveal cards from the top of your library until you reveal "
-    rf"(?P<pred>{'|'.join(map(re.escape, _DIG_UNTIL_PRED))}) card\. "
+    # PAR-203: any "<adjectives/subtype> <type>" kind `dig.parse_criteria` can read ("an elf creature card" once a chosen
+    # creature type is substituted), after the literal bare-type table above.
+    rf"(?P<pred>{'|'.join(map(re.escape, _DIG_UNTIL_PRED))}|an? [a-z -]+?) card\. "
     rf"put that card (?P<hit>{'|'.join(map(re.escape, _DIG_UNTIL_HIT))})"
     r"(?P<rest>.+)"
 )
@@ -634,13 +642,18 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     # "…onto the battlefield **and attach ~ to it**" (Shifting Shadow) — the attachment is a separate instruction
     # `dig_until` has no slot for; claiming the row would silently drop it.
-    if re.search(r"(?i)\battach\b", tail):
+    if re.search(r"(?i)\battach(?:ed)?\b", tail):
         return None
     rest_dest = next((d for rx, d in _DIG_UNTIL_REST_RES if rx.search(tail)), None)
     if rest_dest is None:
         return None
+    criteria = _DIG_UNTIL_PRED.get(m.group("pred"))
+    if criteria is None:
+        criteria = parse_criteria(f'{m.group("pred")} card')
+        if not criteria:
+            return None  # an unreadable kind must not turn "until you reveal an X" into "any card"
     return [EffectSpec("dig_until", {
-        "criteria": dict(_DIG_UNTIL_PRED[m.group("pred")]),
+        "criteria": dict(criteria),
         "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
         "rest_destination": rest_dest,
     })]

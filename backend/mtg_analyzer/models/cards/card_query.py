@@ -91,7 +91,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "not_name", "color", "without_type", "has_mana_ability", "or",
-        "nonlegendary", "has_keyword", "all_types", "has_x_cost",
+        "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic",
     }
 )
 
@@ -135,6 +135,9 @@ def matches(card: Card, criteria: Criteria) -> bool:
     if crit.get("has_x_cost") and "{x}" not in (card.mana_cost_string or "").lower():
         return False
     if crit.get("basic") and "basic" not in type_line:
+        return False
+    # "a card name other than a basic land card name" (PAR-203): the negation of ``basic`` for the name a player may pick.
+    if crit.get("not_basic") and "basic" in type_line and "land" in type_line:
         return False
     # "a nonlegendary card" (Unmarked Grave, MEC-43) — the negation of the
     # already-recognized "legendary" type-line word, its own key rather

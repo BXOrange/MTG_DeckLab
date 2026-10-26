@@ -95,16 +95,54 @@ def _resolve_x(value: Any, x_paid: int) -> Any:
     return value
 
 
+def _resolve_chosen(value: Any, source: Optional[GameObject]) -> Any:
+    """PAR-203 (RULE 608.2d): swap the "the chosen type/color/name" placeholders for what the ``choose_for_source``
+    effect stamped on ``source`` earlier in this resolution. A placeholder with no answer stays as it is, so the
+    filter that carries it matches nothing rather than everything."""
+    from ...parser.oracle.spec import CHOSEN_COLOR_SENTINEL, CHOSEN_NAME_SENTINEL, CHOSEN_TYPE_SENTINEL
+
+    answers = {
+        CHOSEN_TYPE_SENTINEL: getattr(source, "chosen_type", None),
+        CHOSEN_COLOR_SENTINEL: getattr(source, "chosen_color", None),
+        CHOSEN_NAME_SENTINEL: getattr(source, "chosen_card_name", None),
+    }
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, str):
+            # "$chosen_type" in a filter key is the lowercase subtype word the filters compare with.
+            if node == CHOSEN_TYPE_SENTINEL and answers[node]:
+                return str(answers[node]).lower()
+            return answers.get(node) or node
+        if isinstance(node, dict):
+            return {k: walk(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return node
+
+    return walk(value)
+
+
 def _build(specs: list[dict[str, Any]], source: Optional[GameObject]) -> list[GameEffect]:
     from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
     from ...parser.oracle.spec import EffectSpec
 
     x_paid = int(getattr(source, "x_paid", 0) or 0)
+
+    def params_of(spec: dict[str, Any]) -> dict[str, Any]:
+        params = _resolve_x(dict(spec.get("params") or {}), x_paid)
+        if spec["type"] == "seq":
+            # A nested ``seq`` builds its own body when *it* runs. Resolving the "$chosen_*" placeholders in that body
+            # here would read whatever an earlier use of the source left stamped, before this resolution's choice (a
+            # sibling ahead of it in this list) has been answered (PAR-203).
+            return {**_resolve_chosen({k: v for k, v in params.items() if k != "effects"}, source),
+                    **({"effects": params["effects"]} if "effects" in params else {})}
+        return _resolve_chosen(params, source)
+
     return build_effects(
         [
             EffectSpec(
                 type=spec["type"],
-                params=_resolve_x(dict(spec.get("params") or {}), x_paid),
+                params=params_of(spec),
                 condition=spec.get("condition"),
             )
             for spec in specs

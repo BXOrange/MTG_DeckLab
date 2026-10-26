@@ -282,6 +282,7 @@ return_previous_group
 return_from_graveyard_two_color
 return_from_graveyard
 mass_return_graveyard
+shuffle_graveyard_cards
 put_graveyard_card_top
 put_graveyard_cards_top
 put_graveyard_pick_top

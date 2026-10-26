@@ -4253,3 +4253,16 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      "that blocked or was blocked this turn", "that blocked ~ this turn") for destroy/exile/tap/counters/steal;
      delayed self riders (counters, library) and block-relation / attached-host referents; "green or white
      creature" colour alternation; asymmetric P/T counter kinds; "up to X counters, can't exceed N" choice.
+761 PAR-203 -- "Choose a creature type / color / card name." as an instruction of a resolving spell or ability (RULE 608.2d)
+     becomes ONE `seq` of `choose_for_source` (opens the choice; the answer is stamped on the source) and a nested `seq`
+     tail read with a stand-in subtype/colour/name and swapped for the `$chosen_type|color|name` placeholders
+     `composition._build` resolves lazily after the answer (catalogue/named_choice.py, hooked ahead of the body grammar;
+     an "if <condition>," lead gates the whole node; tails reading the firing event are refused because a resumed
+     resolution runs outside its window). New engine primitives: `choose_for_source` (free-text, validated types/colours/
+     names, RULE 201.3 filters), `exile_named_from_zones` (search-and-exile by name with per-hand-copy draw/token/damage
+     follow-ups), `reveal_hand_discard_all`; card_query `not_basic`. Grammar widenings that picked up shapes beyond the
+     choice: controller-less subtype / colour / "non-X" pump groups ("all Elf creatures get -1/-1", "Blocking creatures
+     get +1/+1"), shrinking "-N/-N for each" pumps, "[subtype] creature cards" graveyard mass return and "shuffle all ...
+     cards from your graveyard into your library", colour/subtype fixed-protection groups, any dig-until kind
+     `dig.parse_criteria` reads, reveal-top "if that card is a ... put it into your hand". `pay_cost_then` now routes a
+     "when you do" body whose `seq`/`bind` wrapper announces a target through the reflexive trigger (RULE 603.12).

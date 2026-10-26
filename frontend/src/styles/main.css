@@ -5032,6 +5032,23 @@ textarea {
   font-style: italic;
 }
 
+/* PAR-203: the typed answer of a free-text choice (card name / creature type), under the suggestion buttons. */
+.gf-choice-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.gf-choice-text label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
 /* scry/surveil (`lookTopChoiceHtml`): each looked-at card as a clickable
    thumbnail instead of a bare name button, since the whole point is reading
    the card to decide where it goes. */

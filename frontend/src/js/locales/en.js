@@ -918,6 +918,8 @@ export default {
   'bd.choice.triggeredBy': "Triggered by: {name}",
   'bd.choice.asideTitle': "Look at the board below without deciding",
   'bd.choice.chooseNothing': "Choose nothing",
+  'bd.choice.typeLabel': "Or type the answer",
+  'bd.choice.typeSubmit': "Confirm answer",
   'bd.msg.actionNotAllowedShort': "Action not allowed: {detail}",
   'bd.exile.graveyardCostCard': "graveyard card to exile",
   'bd.discard.card': "card to discard",

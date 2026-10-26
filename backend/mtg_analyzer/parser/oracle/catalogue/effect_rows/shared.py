@@ -1133,6 +1133,10 @@ _GROUP = (
     # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
     # is none of its vocabulary.
     r"|other [a-z]+s you control|[a-z]+ creatures you control|[a-z]+s you control"
+    # PAR-203: the controller-less subtype/colour/negated groups ("all Elf creatures get -1/-1", "non-Elf creatures get
+    # -3/-3" -- the shapes a "choose a creature type" body reads as once the chosen type is substituted); the count-phrase
+    # grammar still decides whether the words are a real group, so an unknown word fails closed in `_group_selector`.
+    r"|non-[a-z]+ creatures|all non-[a-z]+ creatures|all [a-z]+ creatures|[a-z]+ creatures"
     # PAR-19: "Attacking creatures get -3/-0 until end of turn." (Lethargy
     # Trap-shaped) — unscoped by controller, the same `group_selector_
     # objects` "attacking_creatures" branch Motivated Pony's anthem and
@@ -1193,6 +1197,9 @@ def _group_selector(phrase: str) -> "Optional[str | dict]":
     if phrase == "all creatures you control":
         # The emphatic "all" names the same group; bare "all creatures" (no
         # controller tail) stays the residual table's unscoped selector.
+        return parse_count_phrase(phrase[len("all "):])
+    if phrase.startswith("all ") and phrase != "all creatures":
+        # PAR-203: "all Elf creatures" / "all non-Elf creatures" -- the emphatic "all" again.
         return parse_count_phrase(phrase[len("all "):])
     return _GROUP_SELECTORS.get(phrase)
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).

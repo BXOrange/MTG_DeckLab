@@ -79,6 +79,8 @@ const CHOICE_ICONS = {
   flicker_return_timing: '🔁',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎', door_choice: '🚪',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
+  // PAR-203 (RULE 608.2d): "choose a creature type / color / card name" made as a spell or ability resolves.
+  choose_for_source: '🏷️',
   scry: '🔮', reorder_top: '🔮', look_hand: '👁️', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
   // PAR-148: which defender a creature put into combat attacks / who takes "that player or a planeswalker" damage.
@@ -157,6 +159,8 @@ export function createGameBoardView(opts = {}) {
   let status = '';
   let statusKind = '';
   let measurementDraft = { key: null, text: '' };
+  // PAR-203: the text typed into a free-text choice (a card name or creature type), kept across repaints.
+  let choiceTextDraft = { key: null, text: '' };
 
   // Player-uploaded custom art (settings.js "Einstellungen" tab, see
   // api.js tokenImageUrl/sleeveImageUrl): `tokenImages` maps a lowercased
@@ -2229,7 +2233,21 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
 
-    return `<div class="gf-choice-options">${buttons}</div>`;
+    return `<div class="gf-choice-options">${buttons}</div>${choiceTextHtml(pending)}`;
+  }
+
+  // PAR-203: a choice whose answer space is not enumerable (a card name, RULE 201.3; a creature type, RULE 205.3m)
+  // offers the options above as suggestions and lets the player type any legal answer.
+  function choiceTextHtml(pending) {
+    if (!pending.free_text) return '';
+    const key = JSON.stringify([pending.kind, pending.source_id, pending.what, pending.prompt]);
+    if (choiceTextDraft.key !== key) choiceTextDraft = { key, text: '' };
+    return `<form class="gf-choice-text" data-choice-text novalidate>
+      <label>${escapeHtml(t('bd.choice.typeLabel'))}
+        <input data-choice-text-value type="text" autocomplete="off" value="${escapeAttr(choiceTextDraft.text)}" ${busy ? 'disabled' : ''}>
+      </label>
+      <button type="submit" class="primary" data-choice-text-submit ${busy || !choiceTextDraft.text.trim() ? 'disabled' : ''}>${escapeHtml(t('bd.choice.typeSubmit'))}</button>
+    </form>`;
   }
 
   // scry/surveil (RULE 701.18/701.31): the away and order phases both offer
@@ -2602,6 +2620,23 @@ export function createGameBoardView(opts = {}) {
       });
     } else if (!['physical_property_measurement', 'physical_environment_measurement'].includes(view.state?.pending_choice?.kind)) {
       measurementDraft = { key: null, text: '' };
+    }
+    const choiceTextForm = root.querySelector('[data-choice-text]');
+    if (choiceTextForm) {
+      const input = choiceTextForm.querySelector('[data-choice-text-value]');
+      const submit = choiceTextForm.querySelector('[data-choice-text-submit]');
+      input.addEventListener('input', () => {
+        choiceTextDraft.text = input.value;
+        submit.disabled = busy || !input.value.trim();
+      });
+      choiceTextForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (busy || !text) return;
+        act({ type: 'choose', free_text: true, option_id: text });
+      });
+    } else {
+      choiceTextDraft = { key: null, text: '' };
     }
     root.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
