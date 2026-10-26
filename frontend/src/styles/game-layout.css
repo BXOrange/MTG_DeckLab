@@ -248,10 +248,7 @@
   font-style: italic;
 }
 
-/* Each stack entry is the shared mini card view (`stackItemHtml`): the
-   spell's card, or an ability's source permanent with its text overlaid,
-   plus a type badge and LIFO-position hint. Stacked vertically to fit the
-   narrow rail. */
+/* Compact action cards, stacked vertically in the narrow rail. */
 .gf-rail-stack-cards {
   display: flex;
   flex-direction: column;
@@ -261,12 +258,6 @@
 
 .gf-rail-stack-cards .gf-stack-item {
   width: 100%;
-}
-
-/* A touch smaller than the old overlay's ~100px so two or three entries
-   stay visible in the rail without scrolling. */
-.gf-rail-stack-cards .card.has-image {
-  width: 88px;
 }
 
 .gf-rail-stack-cards .gf-stack-badge {

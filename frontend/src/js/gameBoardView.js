@@ -3381,30 +3381,17 @@ export function createGameBoardView(opts = {}) {
       .join('')}</div>`;
   }
 
-  // A spell's tile shows the spell's own card. A triggered/activated
-  // ability has no card of its own on the stack (RULE 601 vs. 602/603) —
-  // its tile instead shows the *source permanent*'s card (`item.source`,
-  // `StackItem.source`) with the ability's text overlaid on top of the art,
-  // plus a small 🔗 link back to that source (both the overlay text and the
-  // link exist specifically so an ability waiting to resolve is never just
-  // an unlabeled text box — see ToDo/Done "Stack source display").
+  // Keep the current action separate from the full source card, which is
+  // still available on hover. Use the stack description, never Oracle text:
+  // a source can have several unrelated abilities.
   function stackItemHtml(item, index, total, opts = {}) {
-    const imageCache = getState().imageCache;
     const isAbility = item.kind === 'ability';
-    const visual = item.object || (isAbility ? item.source : null);
-    const abilityText = isAbility ? (item.description || item.kind) : null;
-    const displayName = visual ? visual.name : (abilityText || item.kind);
-    const imageUrl = visual ? resolveImageUrl(visual, imageCache) : null;
-    // With art to overlay onto, an ability shows its source's image with the
-    // ability text banner-ed on top; without art (no source, or unresolved
-    // art) it falls back to plain text — same as before this feature.
-    const showOverlay = isAbility && abilityText && imageUrl;
-    const inner = imageUrl
-      ? `<img src="${imageUrl}" alt="${escapeHtml(displayName)}" loading="lazy" />`
-      : escapeHtml(showOverlay ? displayName : (abilityText || displayName));
-    const classes = ['card'];
-    if (imageUrl) classes.push('has-image');
+    const visual = item.object || item.source;
     const badge = stackKindBadge(item);
+    const actionText = isAbility
+      ? (item.description && item.description !== visual?.name ? item.description : badge.label)
+      : item.kind === 'spell' ? 'Cast' : (item.description || item.kind);
+    const displayName = visual?.name || '';
     const isTop = !opts.ghost && index === total - 1;
     // `opts.ghost` = a just-resolved entry lingering for a moment: no LIFO
     // position, just an "aufgelöst" caption.
@@ -3414,19 +3401,12 @@ export function createGameBoardView(opts = {}) {
         ? (isTop ? t('bd.stack.topResolves') : `#${total - index}`)
         : '';
     const order = orderText ? `<span class="gf-stack-order">${escapeHtml(orderText)}</span>` : '';
-    const overlay = showOverlay
-      ? `<div class="gf-stack-ability-overlay">${escapeHtml(abilityText)}</div>`
-      : '';
-    const link = showOverlay
-      ? `<button type="button" class="gf-stack-source-link" data-hover-card="${escapeHtml(visual.name)}" title="Quelle: ${escapeHtml(visual.name)}">🔗</button>`
-      : '';
     return `
       <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(displayName)}" title="${escapeHtml(displayName)}">
-          ${inner}
-          ${overlay}
-          ${link}
+        <div class="card gf-stack-action"${displayName ? ` data-hover-card="${escapeAttr(displayName)}"` : ''}>
+          ${displayName ? `<strong class="gf-stack-source-name">${escapeHtml(displayName)}</strong>` : ''}
+          <span class="gf-stack-action-text">${escapeHtml(actionText)}</span>
         </div>
         ${order}
       </div>`;
