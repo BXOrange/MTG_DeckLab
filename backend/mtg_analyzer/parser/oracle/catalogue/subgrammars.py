@@ -103,6 +103,9 @@ SCOPE_ADJECTIVES: dict[str, dict] = {
     "colorless": {"colorless": True},
     "snow": {"snow": True},
     "modified": {"modified": True},
+    # RULE 303.4b / 301.5: attachment states, not creature subtypes.
+    "enchanted": {"enchanted": True},
+    "equipped": {"equipped": True},
     "nonattacking": {"attacking": False},
     "commander": {"is_commander": True},
     # RULE 700.6: legendary supertype, artifact card type or Saga subtype.

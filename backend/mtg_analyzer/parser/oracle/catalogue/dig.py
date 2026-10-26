@@ -60,7 +60,7 @@ _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 _PICK_OF_THEM_RE = re.compile(
     r"(?P<may>you may )?put (?P<up_to>up to )?(?P<n>\d+) of (?:them|those cards) "
     r"(?P<dest>into your hand|into your graveyard|(?:back )?on top of your library)"
-    r"(?: and the rest (?P<rest>.+))?"
+    r"(?: and (?P<rest_group>the rest|the other) (?P<rest>.+))?"
 )
 #: The selection sentence. ``verb`` "reveal" is only valid with its "and put it" half.
 _SELECTION_RE = re.compile(
@@ -77,7 +77,7 @@ _REST_DEST_RE = re.compile(
     r"(?P<graveyard>into your graveyard)"
 )
 _REST_SENTENCE_RE = re.compile(
-    r"(?:then )?put (?:the rest(?: of (?:the cards revealed this way|them))?|"
+    r"(?:then )?put (?:(?P<other>the other)|the rest(?: of (?:the cards revealed this way|them))?|"
     r"all (?:the )?cards revealed this way that weren't put (?:onto the battlefield|into your hand)) "
     r"(?P<dest>.+)"
 )
@@ -243,12 +243,14 @@ def parse_dig(
 
     pick = _PICK_OF_THEM_RE.fullmatch(selection)
     rest_text: Optional[str]
+    single_rest = False
     if pick is not None:
         params.update(
             action=_ACTION_BY_DEST[pick.group("dest")],
             max_picks=int(pick.group("n")), optional=bool(pick.group("up_to") or pick.group("may")),
         )
         rest_text = pick.group("rest")
+        single_rest = pick.group("rest_group") == "the other"
     else:
         sel = _SELECTION_RE.fullmatch(selection)
         if sel is None or (sel.group("verb") == "reveal") != bool(sel.group("andput")):
@@ -270,17 +272,26 @@ def parse_dig(
             params["criteria"] = criteria
         rest_text = sel.group("rest")
 
+    rest_dest = None
+    if rest_text is None and tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
+        rest_dest, tails = "library_shuffled", tails[1:]
+    elif rest_text is None and tails and tails[0] == "exile the rest":
+        rest_dest, tails = "exile", tails[1:]
+    elif rest_text is None and tails and (rest_sentence := _REST_SENTENCE_RE.fullmatch(tails[0])) is not None:
+        rest_text = rest_sentence.group("dest")
+        single_rest = bool(rest_sentence.group("other"))
+        tails = tails[1:]
+    if single_rest:
+        # RULE 609.3 / 401.4: choosing one of two leaves at most one card.
+        # "The other" cannot stand for an arbitrary pile or an optional pick.
+        if not (count == 2 and pick is not None and params["max_picks"] == 1 and not params["optional"]):
+            return None
+        if rest_text == "on the bottom of your library":
+            # A singleton has no ordering decision; reuse the ordered-bottom
+            # continuation, which already skips ordering fewer than two cards.
+            rest_text += " in any order"
     if rest_text is not None:
         rest_dest = _rest_destination(rest_text)
-    elif tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
-        rest_dest, tails = "library_shuffled", tails[1:]
-    elif tails and tails[0] == "exile the rest":
-        rest_dest, tails = "exile", tails[1:]
-    elif tails and (rest_sentence := _REST_SENTENCE_RE.fullmatch(tails[0])) is not None:
-        rest_text = rest_sentence.group("dest")
-        rest_dest, tails = _rest_destination(rest_text), tails[1:]
-    else:
-        rest_dest = None
     if pick is not None and pick.group("dest") == "into your graveyard" and rest_text is None and not tails:
         # RULE 401.2: looking and choosing one card does not reorder the
         # unchosen library cards (Soulcipher Board).

@@ -146,11 +146,10 @@ _REGRANT_SAFE_GROUP_KEYS = frozenset(
 #: "Enchanted creatures you control have shroud."): they're a characteristic
 #: filter, not a subtype — `_has_subtype` would never see "Enchanted" on any
 #: real creature's type line, so guessing one as a subtype silently matches
-#: nothing instead of the intended creatures. The engine's own selector for
-#: this shape (`continuous.py`'s ``enchanted_or_equipped_creatures_you_
-#: control``) combines *both* qualities, which "enchanted creatures" alone
-#: would over-match — a genuinely separate, still-open parser gap, not a
-#: PAR-3 widening; fail-closed here rather than half-modeled.
+#: nothing instead of the intended creatures. Leading attachment adjectives
+#: now use `scope_adjective`'s individual live filters, just like the trailing
+#: "that are enchanted/equipped" qualifiers. Keep these words out of the
+#: subtype fallback; the combined enchanted-or-equipped selector is broader.
 _NONCREATURE_TYPES: frozenset[str] = frozenset(
     {"creature", "artifact", "enchantment", "land", "permanent", "planeswalker", "token",
      "enchanted", "equipped"}

@@ -504,13 +504,17 @@ def test_static_compound_noncreature_scope_grant():
     assert statics2 == [] and r2.coverage == UNMODELED
 
 
-def test_static_enchanted_creatures_group_scope_stays_unclaimed():
+def test_static_enchanted_creatures_group_scope_uses_attachment_filter():
     # "Enchanted creatures you control get +2/+2." (A Tale for the Ages) —
-    # a characteristic filter, not a subtype; guessing one ("Enchanted")
-    # would silently match no real creature's type line, so this stays
-    # fail-closed instead of half-modeled (PAR-3 spot-check finding).
+    # a characteristic filter, not a subtype. PAR-205 routes the adjective
+    # through the existing live Aura filter rather than guessing a subtype.
     r, statics = _static_specs("Enchanted creatures you control get +2/+2.")
-    assert statics == [] and r.coverage == UNMODELED
+    assert r.coverage == MODELED
+    assert len(statics) == 1
+    assert statics[0].effects == [EffectSpec("anthem", {
+        "power": 2, "toughness": 2, "affects": "creatures_you_control",
+        "object_filter": {"enchanted": True},
+    })]
 
 
 def test_noncreature_scope_grant_applies_to_real_battlefield_objects():
