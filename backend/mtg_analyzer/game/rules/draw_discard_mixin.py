@@ -713,6 +713,7 @@ class DrawDiscardMixin:
 
     def look_at_hand(
         self, player: Player, owner: Player, source: Optional[GameObject] = None,
+        extra: Optional[dict[str, Any]] = None,
     ) -> None:
         """"Look at target player's hand." (Clairvoyance, Peek, Glasses of Urza.) Nothing moves: the
         looking player is shown ``owner``'s hand — every card as an option, any click or "done"
@@ -733,11 +734,22 @@ class DrawDiscardMixin:
             "prompt": f"Hand von {owner.name}",
             "source_name": source.name if source is not None else None,
             "options": options,
+            **(extra or {}),
         })
 
     @continuations.choice("look_hand", answer=continuations.ANSWER_STR, rule="400.2")
     def _resume_look_hand(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Close a look window before its impossible-selection follow-up."""
+        if choice.get("enter_look"):
+            # MEC-134 (RULE 601.2b): an "as ~ enters, look at an opponent's hand" step -- hand the pre-entry queue on to
+            # whatever follows (the card-name pick), exactly as `_resume_choose_creature_type` does.
+            continuation = self._pending_enter_choice_continuation
+            self._pending_enter_choice_obj = None
+            self._pending_enter_choice_effect = None
+            self._pending_enter_choice_continuation = None
+            if continuation is not None:
+                continuation()
+            return
         if choice.get("hand_else_specs"):
             outer = self.context.resolving_controller_id
             self.context.resolving_controller_id = choice.get("effect_controller_id")

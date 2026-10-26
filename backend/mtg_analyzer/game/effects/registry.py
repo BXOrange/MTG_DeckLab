@@ -821,6 +821,7 @@ EffectRegistry.register(
         library_choice=bool(p.get("library_choice", False)),  # Hinder
         count=p.get("target_count", 1), optional=bool(p.get("optional", False)),  # PAR-150: "up to two target spells"
         destination=p.get("destination"),  # PAR-175 M4: "if that spell is countered this way, exile it instead …"
+        name_from_source=bool(p.get("name_from_source", False)),  # MEC-134: "target spell with the chosen name"
     ),
 )
 EffectRegistry.register(
@@ -3068,7 +3069,12 @@ EffectRegistry.register(
     # Needle/Phyrexian Revoker-shaped) — hand-authored only, no oracle-text
     # grammar yet.
     "choose_card_name_on_enter",
-    lambda p: ChooseCardNameReplacement(),
+    # ``card_filter`` (MEC-134): "choose a nonland card name" -- a `card_query` filter the named card must satisfy.
+    # ``look_at_opponent_hand``: "look at an opponent's hand, then choose any card name" (Sorcerous Spyglass, Anointed
+    # Peacekeeper) -- the engine shows the hand first (`RulesEngine._offer_look_at_opponent_hand`).
+    lambda p: ChooseCardNameReplacement(
+        card_filter=p.get("card_filter"), look_at_opponent_hand=bool(p.get("look_at_opponent_hand", False)),
+    ),
 )
 EffectRegistry.register(
     # "As this enters, choose <Label1> or <Label2>." (Struggle for Project
@@ -4056,6 +4062,8 @@ EffectRegistry.register(
             "protection_from_chosen_type": bool(
                 p.get("protection_from_chosen_type", False)
             ),
+            # "You have protection from the chosen card name." (Runed Halo, MEC-134) -- the card-name sibling of the two above.
+            "protection_from_chosen_name": bool(p.get("protection_from_chosen_name", False)),
             # "You and creatures you control have protection from …" (Serra's Emissary) — the controller half; a player
             # carries no text of its own, so `continuous.player_static_protections` reads it for `RulesEngine.deal_damage`.
             "protects_controller": bool(p.get("protects_controller", False)),
@@ -4502,6 +4510,8 @@ EffectRegistry.register(
             # District Hero) — sets `GameObject._granted_legendary` in the
             # layer-4 pass so the legend rule (RULE 704.5j) applies.
             "legendary": bool(p.get("legendary", False)),
+            # RULE 205.3i "…lose all land types" (Alpine Moon, MEC-134): drops the land subtypes, keeps every other one.
+            **({"remove_land_types": True} if p.get("remove_land_types") else {}),
             "power": p.get("power"),
             "toughness": p.get("toughness"),
             # "…becomes an artifact creature with power and toughness each
@@ -5048,6 +5058,13 @@ EffectRegistry.register(
             **_selectors(p),
         },
     ),
+)
+EffectRegistry.register(
+    # "Prevent all damage that would be dealt to you and permanents you control by sources with the chosen name."
+    # (Gideon's Intervention, MEC-134, RULE 615.1) -- a standing prevention keyed on the card name stamped as the source
+    # entered; consulted by `continuous.damage_prevented_by_static` from `RulesEngine.deal_damage`.
+    "prevent_damage_from_chosen_name",
+    lambda p: StaticAbility("damage_source_prevention", affects="all", params={"card_name_from_source": True}),
 )
 EffectRegistry.register(
     # "Each player can't cast more than N spells each turn." (RULE 601-area,

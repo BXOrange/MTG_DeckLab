@@ -4526,6 +4526,29 @@ class ChooseCardNameReplacement(GameEffect):
     group_selector_objects`'s ``card_name_from_source`` selector param.
     """
 
+    def __init__(
+        self, description: str = "", card_filter: Optional[dict] = None, look_at_opponent_hand: bool = False,
+    ) -> None:
+        super().__init__(None)
+        self.description = description
+        #: "As ~ enters, look at an opponent's hand, then choose any card name." (Sorcerous Spyglass, Anointed Peacekeeper):
+        #: `RulesEngine._offer_enter_choices` queues a `LookAtOpponentHandReplacement` step ahead of the naming.
+        self.look_at_opponent_hand = bool(look_at_opponent_hand)
+        #: MEC-134: a `card_query` filter for "a nonland card name" / "a noncreature, nonland card name" / "a nonbasic
+        #: land card name" (RULE 201.3) -- a name the game knows to fail it is refused, as `_resume_choose_for_source` does.
+        self.card_filter = dict(card_filter) if card_filter else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
+class LookAtOpponentHandReplacement(GameEffect):
+    """"As ~ enters, look at an opponent's hand, then choose any card name." (Sorcerous Spyglass, Anointed Peacekeeper --
+    MEC-134), the looking half: a pre-entry `enter_choice_effects` step queued ahead of the `ChooseCardNameReplacement`.
+
+    `RulesEngine._offer_enter_choices` shows the controller the hand through the one choice only its decider ever sees
+    (`RulesEngine.look_at_hand`, RULE 400.2); with several opponents it first asks which one (`ChooseOpponentReplacement`)."""
+
     def __init__(self, description: str = "") -> None:
         super().__init__(None)
         self.description = description

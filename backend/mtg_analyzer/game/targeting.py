@@ -26,6 +26,7 @@ from typing import Any, Optional, Union
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
 from ..models.game.player import Player
+from ..models.cards import card_query
 from ..models.cards.card_query import is_nonland_permanent_card, is_permanent_card
 from ..parser.oracle.spec import TARGET_CHOOSER_OPPONENT
 from . import combat
@@ -1124,6 +1125,9 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
             return False
     mana_value = spell_filter.get("mana_value")
     if mana_value is not None and obj.mana_value != mana_value:
+        return False
+    # "…spell with the chosen name" (MEC-134): RULE 201.2, the name of the spell on the stack.
+    if "name" in spell_filter and not card_query.name_matches(obj.name, spell_filter["name"]):
         return False
     # "…spell with mana value 4 or less" (Expansion // Explosion).
     max_mana_value = spell_filter.get("max_mana_value")
@@ -2370,6 +2374,9 @@ def _legal_targets_for(
             if card_filter.get("mana_value") == "x":
                 # "counter target spell with mana value X" — the announced {X}, as for `exact_mana_value`.
                 card_filter["mana_value"] = int(getattr(source, "x_paid", 0) or 0)
+            if card_filter.pop("name_from_source", False):
+                # "target spell with the chosen name" (Declaration of Naught): nothing chosen offers nothing.
+                card_filter["name"] = getattr(source, "chosen_card_name", None) or ""
             if card_filter.pop("single_target", False):
                 items = [item for item in items if len(item.targets) == 1]
             if card_filter:

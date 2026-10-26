@@ -370,6 +370,9 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
         return {"subject": "you"}
     if subj == "an opponent":
         return {"subject": "group", "controller": "not_you"}
+    if subj == "enchanted player":
+        # RULE 303.4: a Curse is attached to a *player*; only that player's casts count (`binding.core._subject_condition`).
+        return {"subject": "player", "scope": "enchanted"}
     return {"subject": "group"}
 
 #: PAR-119: the composed cast-trigger head — actor + "cast" + a spell phrase
@@ -380,7 +383,7 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
 #: (`_CAST_SPELL_TRIGGER_RE`, `_NEG_`, `_PLAIN_`, `_MV_`, `_HISTORIC_`, …): this
 #: head now owns every plain "you/an opponent/a player cast(s) a <phrase> spell".
 _CAST_TRIGGER_COMPOSED_RE = re.compile(
-    r"^(?:whenever|when) (?P<subj>you|an opponent|a player) casts? "
+    r"^(?:whenever|when) (?P<subj>you|an opponent|a player|enchanted player) casts? "
     r"(?P<copies>or (?:copy|copies) )?"
     # PAR-104: a comma list of card types ("an artifact, instant, or sorcery spell") is part of the phrase.
     r"(?P<phrase>(?:an?|another|your|their) (?:(?:[a-z'-]+, )+or [a-z'-]+ |[^,]*?)\bspell\b[^,]*),\s*(?P<body>.+)$",

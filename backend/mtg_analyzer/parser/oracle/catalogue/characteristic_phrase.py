@@ -324,6 +324,9 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
         return {"has_counter_kind": m.group("kind")} if m.group("kind") else {"has_counter": True}
     if qualifier in KEYWORD_WORDS:
         return {"keyword": KEYWORD_WORDS[qualifier]}
+    if qualifier == "the chosen name":
+        # RULE 201.2 (MEC-134): the name a permanent stamped as it entered -- `combat.matches_object_filter`'s ``name_from_source``.
+        return {"name_from_source": True}
     return None
 
 

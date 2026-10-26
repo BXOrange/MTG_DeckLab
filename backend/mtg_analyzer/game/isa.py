@@ -967,7 +967,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "loyalty_instant_timing", "sideboard_cast_permission", "opponent_draw_step",
     "grant_blitz", "blitz_cost_reduction", "blitz_graveyard_permission",
     "activation_prohibition", "anthem", "attack_tax", "block_tax", "cant_attack_defender", "cant_lose_game", "opponents_cant_win",
-    "cant_be_countered", "cant_be_copied", "cast_limit", "cast_prohibition", "color_change",
+    "cant_be_countered", "cant_be_copied", "cast_limit", "cast_prohibition", "color_change", "prevent_damage_from_chosen_name",
     "combat_restriction", "commander_damage_multiplier", "cost_reduction", "cost_restriction",
     "damage_cant_be_prevented", "disable_damage_prevention", "draw_limit",
     # ENG-37 re-derivation: not an `exile`+`create_continuous_effect` weld.

@@ -44,6 +44,33 @@ _QUALIFIER_FILTERS: dict[str, dict[str, Any]] = {
     "nonartifact, nonland": {"without_type": ["artifact", "land"]},
 }
 
+#: MEC-134 (RULE 201.3): the card filter an "as ~ enters" naming choice carries for its printed qualifier. The ones the
+#: resolution-time "choose a ... card name" already knows, plus "nonbasic land".
+_ENTER_QUALIFIER_FILTERS: dict[str, dict[str, Any]] = {
+    **_QUALIFIER_FILTERS,
+    "nonbasic land": {"type": "land", "not_basic": True},
+}
+_ENTER_CARD_NAME = re.compile(
+    r"as ~ enters, choose an? (?:(?P<qual>" + "|".join(re.escape(q) for q in _ENTER_QUALIFIER_FILTERS if q) + r") )?card name"
+)
+#: Sorcerous Spyglass / Anointed Peacekeeper: the looking step comes first, then "any card name" (no qualifier).
+_ENTER_LOOK_THEN_NAME = re.compile(r"as ~ enters, look at an opponent's hand, then choose any card name")
+
+
+def enter_card_name_specs(text: str) -> Optional[list[EffectSpec]]:
+    """RULE 601.2b / 614.12: "As ~ enters, choose a [nonland] card name." -> the pre-entry naming choice
+    (`choose_card_name_on_enter`, free text validated against the printed qualifier), flagged ``look_at_opponent_hand`` for the
+    Spyglass wording. ``None`` for any other text (fail closed)."""
+    text = text.strip().rstrip(".").strip().lower()
+    if _ENTER_LOOK_THEN_NAME.fullmatch(text):
+        return [EffectSpec("choose_card_name_on_enter", {"look_at_opponent_hand": True})]
+    m = _ENTER_CARD_NAME.fullmatch(text)
+    if m is None:
+        return None
+    card_filter = _ENTER_QUALIFIER_FILTERS[m.group("qual") or ""]
+    return [EffectSpec("choose_card_name_on_enter", {"card_filter": dict(card_filter)} if card_filter else {})]
+
+
 #: The card name a tail is read with when it only needs "<noun> named X" (`dig.parse_criteria`); verified absent from the
 #: tail like the other stand-ins.
 _NAME_STAND_IN = "zzname"

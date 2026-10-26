@@ -1065,6 +1065,8 @@ _SPELL_TARGET_BODY = (
     # "…with mana value X" (Spell Blast / Spell Burst) is the spell's announced {X} — the sentinel is
     # read back at target-offer time (`targeting.legal_targets`).
     r"(?:\s+with mana value (?P<mv>\d+|x))?"
+    # MEC-134: "counter target spell with the chosen name" (Declaration of Naught) -- the name the source stamped as it entered.
+    r"(?P<chosen_name>\s+with the chosen name)?"
     # PAR-128: the controller scope slot — "counter target spell **you don't control**".
     r"(?P<scope_after> (?:you control|you don'?t control|an opponent controls|your opponents control))?"
 )
@@ -1101,6 +1103,8 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         filt["subtype_any"] = subtypes
     if m.group("mv"):
         filt["mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
+    if m.group("chosen_name"):
+        filt["name_from_source"] = True
     if m.group("scope") and m.group("scope_after"):
         return None
     scope = m.group("scope") or m.group("scope_after")

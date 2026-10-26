@@ -158,6 +158,7 @@ class SourceChoicesMixin:
 
     def _named_choice_options(
         self, player: Player, kind: str, other_than: list[str], card_filter: Optional[dict[str, Any]],
+        prefer_opponents: bool = False,
     ) -> list[dict[str, str]]:
         """The answers offered for a resolution-time "choose a creature type / color / card name".
 
@@ -179,7 +180,26 @@ class SourceChoicesMixin:
             obj.name for obj in self._named_choice_cards(player)
             if card_filter is None or card_query.matches(obj.card, card_filter)
         }
-        return [{"id": name, "label": name} for name in sorted(names)]
+        ordered = sorted(names)
+        if prefer_opponents:
+            # A bot (or a player in a hurry) takes the first suggestion: let that be a card an opponent is known to have.
+            theirs = {obj.name for obj in self._named_choice_cards(player) if obj.owner_id != player.id}
+            ordered.sort(key=lambda name: name not in theirs)
+        return [{"id": name, "label": name} for name in ordered]
+
+    def _validated_card_name(self, player_id: str, answer: Optional[str], card_filter: Optional[dict[str, Any]]) -> str:
+        """The card name a player's typed answer stands for, or ``""`` when it names nothing legal.
+
+        A name only has to be a card name, so it is never validated against the offered suggestions; one that contradicts
+        the stated card filter ("nonland card name", RULE 201.3) is refused when the game knows the card, since naming it
+        would be illegal. A card the game has never seen cannot be checked and is accepted as typed."""
+        raw = "" if answer is None or answer == "decline" else str(answer)
+        if card_filter and raw:
+            known = [o for o in self._named_choice_cards(self.state.player_by_id(player_id))
+                     if card_query.name_matches(o.name, raw)]
+            if known and not card_query.matches(known[0].card, card_filter):
+                return ""
+        return raw
 
     def _named_choice_cards(self, player: Player) -> list[GameObject]:
         """Every card the chooser can see or knows of: the battlefield and every graveyard/exile, plus their own
@@ -239,13 +259,7 @@ class SourceChoicesMixin:
         raw = "" if answer is None or answer == "decline" else str(answer)
         chosen: Optional[str]
         if kind == "card_name":
-            chosen = raw
-            card_filter = choice.get("card_filter")
-            if card_filter and raw:
-                known = [o for o in self._named_choice_cards(self.state.player_by_id(choice["player_id"]))
-                         if o.name.lower() == raw.lower()]
-                if known and not card_query.matches(known[0].card, card_filter):
-                    chosen = ""
+            chosen = self._validated_card_name(choice["player_id"], answer, choice.get("card_filter"))
         elif kind == "creature_type":
             from ...models.cards.creature_types import CREATURE_SUBTYPES
 

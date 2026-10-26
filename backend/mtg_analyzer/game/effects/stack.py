@@ -46,6 +46,7 @@ class CounterSpellEffect(GameEffect):
         count: int = 1,
         optional: bool = False,
         destination: Optional[str] = None,
+        name_from_source: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -118,6 +119,10 @@ class CounterSpellEffect(GameEffect):
             spell_filter["mana_value"] = mana_value
         if color:
             spell_filter["color"] = color
+        # "counter target spell **with the chosen name**" (Declaration of Naught, MEC-134): the name the source stamped as it
+        # entered, read when the targets are offered (`targeting._legal_targets_for`).
+        if name_from_source:
+            spell_filter["name_from_source"] = True
         if target_from_trigger_event is None:
             # "counter target spell **you don't control**" (Counterflux, PAR-128): the
             # controller-scoped ``spell_you_dont_control`` pool.

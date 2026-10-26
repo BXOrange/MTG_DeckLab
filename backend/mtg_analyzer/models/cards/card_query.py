@@ -115,6 +115,20 @@ def normalize(criteria: Criteria) -> dict[str, Any]:
     raise ValueError(f"criteria must be a str, dict, or None (got {type(criteria).__name__})")
 
 
+#: RULE 201.2 / 708.4: a split or double-faced card is printed "Front // Back"; each half is a name a player can say.
+_NAME_FACE_SEPARATOR = "//"
+
+
+def name_matches(card_name: str, chosen: str) -> bool:
+    """Whether a card called ``card_name`` answers to the name ``chosen`` (RULE 201.2): the whole printed name,
+    or one half of a "Front // Back" name, compared case-insensitively."""
+    wanted = str(chosen or "").strip().lower()
+    if not wanted:
+        return False
+    full = str(card_name or "").strip().lower()
+    return wanted == full or wanted in (part.strip() for part in full.split(_NAME_FACE_SEPARATOR))
+
+
 def matches(card: Card, criteria: Criteria) -> bool:
     """Whether ``card`` satisfies ``criteria`` (all conditions AND-combined)."""
     crit = normalize(criteria)

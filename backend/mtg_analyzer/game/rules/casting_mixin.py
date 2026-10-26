@@ -48,6 +48,7 @@ from ..effects.core import (
     ChooseBasicLandTypeReplacement,
     ChooseCardTypeReplacement,
     ChooseCardNameReplacement,
+    LookAtOpponentHandReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseEnterCounterReplacement,
@@ -2967,6 +2968,16 @@ class CastingResolutionMixin:
         if isinstance(effect, ChooseTributeReplacement):
             self._offer_tribute(obj, effect, _next)
             return
+        if isinstance(effect, ChooseCardNameReplacement) and effect.look_at_opponent_hand:
+            # "…look at an opponent's hand, then choose any card name": the look is a pre-entry step of its own, ahead of the
+            # naming (which then runs as a plain `ChooseCardNameReplacement`).
+            naming = ChooseCardNameReplacement(card_filter=effect.card_filter)
+            obj.enter_choice_effects = [LookAtOpponentHandReplacement(), naming, *remaining]
+            self._offer_enter_choices(obj, continuation)
+            return
+        if isinstance(effect, LookAtOpponentHandReplacement):
+            self._offer_look_at_opponent_hand(obj, effect, remaining, continuation, _next)
+            return
         if isinstance(effect, ChooseRiotReplacement):
             kind = "riot"
             prompt = f"{obj.name}: Riot — +1/+1-Marke oder Haste?"
@@ -3009,6 +3020,13 @@ class CastingResolutionMixin:
                 {"id": name, "label": name}
                 for name in sorted({o.card.name for o in self.state.battlefield})
             ]
+            if effect.card_filter:
+                # MEC-134 (RULE 201.3): "a nonland card name" -- suggest only names the filter allows, opposing cards
+                # first (every printed name lock is aimed at what the opponents play); a typed answer is validated on resume.
+                options = self._named_choice_options(
+                    self.state.player_by_id(obj.controller_id), "card_name", [], effect.card_filter,
+                    prefer_opponents=True,
+                )
         elif isinstance(effect, ChooseNumberReplacement):
             kind = "choose_number"
             prompt = "Zahl wählen"
@@ -3054,9 +3072,32 @@ class CastingResolutionMixin:
             "player_id": obj.controller_id,
             "prompt": prompt,
             "options": options,
+            **({"card_filter": dict(effect.card_filter)} if kind == "choose_card_name" and effect.card_filter else {}),
             **({"free_text": True} if kind in ("choose_card_name", "choose_number") else {}),
             **({"entry_effect": bool(self.state.pending_permanent_entry)} if kind == "riot" else {}),
         })
+
+    def _offer_look_at_opponent_hand(
+        self, obj: GameObject, effect: LookAtOpponentHandReplacement, remaining: list[GameEffect],
+        continuation: Callable[[], None], resume: Callable[[], None],
+    ) -> None:
+        """RULE 601.2b: "As ~ enters, look at an opponent's hand, then choose any card name." (Sorcerous Spyglass,
+        Anointed Peacekeeper) -- the looking half. The controller sees the hand through the choice only its decider ever
+        receives (RULE 400.2); with several opponents the pick of whose hand is a pre-entry choice of its own, asked first.
+        Nothing to look at (no opponent, an empty hand) simply moves on to the naming step."""
+        opponents = [p for p in self.state.living_players() if p.id != obj.controller_id]
+        if len(opponents) > 1 and obj.chosen_player_id not in {p.id for p in opponents}:
+            obj.enter_choice_effects = [ChooseOpponentReplacement(), effect, *remaining]
+            self._offer_enter_choices(obj, continuation)
+            return
+        owner = next((p for p in opponents if len(opponents) == 1 or p.id == obj.chosen_player_id), None)
+        if owner is None or not owner.hand:
+            resume()
+            return
+        self._pending_enter_choice_obj = obj
+        self._pending_enter_choice_effect = effect
+        self._pending_enter_choice_continuation = resume
+        self.look_at_hand(self.state.player_by_id(obj.controller_id), owner, source=obj, extra={"enter_look": True})
 
     def _offer_tribute(self, obj: GameObject, effect: ChooseTributeReplacement, resume: Callable[[], None]) -> None:
         """RULE 702.104a Tribute N: "an opponent of your choice may put N +1/+1 counters on it" as it enters.
@@ -3190,7 +3231,8 @@ class CastingResolutionMixin:
 
         options = choice["options"]
         if choice["kind"] == "choose_card_name":
-            chosen = str(answer) if answer else ""
+            # RULE 201.3: a name the game knows to fail the printed qualifier ("nonland") is no legal pick and names nothing.
+            chosen = self._validated_card_name(choice["player_id"], answer, choice.get("card_filter"))
         elif choice["kind"] == "choose_number":
             # Sanctum Prelate (MEC-43): a missing/unparseable answer
             # defaults to 0 — the same "skipped mandatory pick" safe

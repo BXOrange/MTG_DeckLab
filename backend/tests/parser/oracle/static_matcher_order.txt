@@ -30,6 +30,7 @@ grant_search_prohibited
 grant_skip_extra_turns
 lands_every_basic_type
 flash_permission
+named_card
 activation_prohibition_opponents
 cant_cast_opponents_your_turn
 cant_cast_opponents_hand_only

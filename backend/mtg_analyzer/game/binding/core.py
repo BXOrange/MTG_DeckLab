@@ -693,10 +693,16 @@ def _subject_condition(
             actor_key = "target_id"
         scope = condition.get("scope", "any")
 
-        def _player_ok(event: Any, context: Any, src=source, key=actor_key, wanted=scope) -> bool:
+        def _player_ok(event: Any, context: Any, src=source, key=actor_key, wanted=scope, iid=instance_id) -> bool:
             actor = event.get(key)
             if actor is None:
                 return False
+            if wanted == "enchanted":
+                # "Whenever enchanted player casts a spell" (Curse of Silence, RULE 303.4): the Aura's `attached_to` holds the
+                # player id; read live (it can be re-attached) off the current object, never a stale bind-time copy.
+                state = getattr(context, "state", None)
+                live_source = state.find_object(iid) if state is not None else src
+                return getattr(live_source, "attached_to", None) == actor
             mine = actor == getattr(src, "controller_id", None)
             return wanted == "any" or (wanted == "not_you" and not mine) or (wanted == "you" and mine)
 

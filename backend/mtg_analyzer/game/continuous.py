@@ -80,6 +80,7 @@ from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from .creature_types import CREATURE_SUBTYPES
 from ..models.cards.card_colors import effective_colors
+from ..models.cards.card_query import name_matches
 from .rooms import unlocked_door_names
 from .effects.core import (
     ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
@@ -99,6 +100,13 @@ _PT_COUNTER_KIND_RE = re.compile(r"([+-]\d+)/([+-]\d+)")
 def _signed(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
 
+
+#: RULE 205.3i: every land type, lowercased (the five basic ones above plus the nonbasic ones) -- what "lose all land types"
+#: (Alpine Moon) removes from a land's subtypes.
+_LAND_TYPES: frozenset[str] = frozenset(
+    {"cave", "desert", "forest", "gate", "island", "lair", "locus", "mine", "mountain", "plains", "planet", "power-plant",
+     "sphere", "swamp", "tower", "town", "urza’s", "urza's"}
+)
 
 #: RULE 305.6's five basic land types, lowercased — the trigger for RULE
 #: 305.7's "setting a land's subtype removes its rules text and abilities"
@@ -681,7 +689,7 @@ def group_selector_objects(
         chosen_name = getattr(src, "chosen_card_name", None)
         if not chosen_name:
             return []
-        result = [o for o in result if getattr(o.card, "name", None) == chosen_name]
+        result = [o for o in result if name_matches(getattr(o.card, "name", ""), chosen_name)]
     if params.get("tokens"):  # "creature tokens you control …" (RULE 111)
         result = [o for o in result if getattr(o, "is_token", False)]
     if params.get("exclude_self"):  # a global "Other creatures …" anthem
@@ -2493,6 +2501,12 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
         chosen_type = getattr(ability.source, "chosen_type", None)
         if chosen_type:
             quals.add(str(chosen_type).lower())
+    if ability.params.get("protection_from_chosen_name"):
+        # RULE 702.16a: "protection from the chosen card name" (Runed Halo) -- one ``name:<name>`` quality that
+        # `combat._quality_matches_type` matches against the source's name; nothing chosen is no protection.
+        chosen_name = getattr(ability.source, "chosen_card_name", None)
+        if chosen_name:
+            quals.add(f"name:{str(chosen_name).strip().lower()}")
     if ability.params.get("protection_from_mana_values_among_artifacts"):
         # RULE 702.16a: "protection from each mana value among artifacts you control" is one protection per distinct
         # mana value; `combat._quality_matches_type` matches a ``mv:N`` quality against the source's mana value.
@@ -3008,6 +3022,16 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                     str(t).lower() in _BASIC_LAND_TYPES for t in set_subtypes
                 ):
                     obj._loses_all_abilities = True
+            if ability.params.get("remove_land_types"):
+                # RULE 205.3i / 613.1d: "lose all land types" (Alpine Moon) strips only the land subtypes; any other
+                # subtype (an animated land's creature types) stays. Built from whatever the layer has so far (an earlier
+                # overwrite, else the printed line plus earlier additions); RULE 305.6's intrinsic mana abilities follow
+                # from the remaining set, so the five basic types stop producing mana.
+                if obj._derived_subtypes is not None:
+                    current = set(obj._derived_subtypes)
+                else:
+                    current = set(obj.card.type_line.partition("—")[2].split()) | set(obj._added_subtypes)
+                obj._derived_subtypes = {t for t in current if t.lower() not in _LAND_TYPES}
             if obj_power is not None and obj_toughness is not None:
                 animation_pt[obj.instance_id] = (obj_power, obj_toughness)
             if ability.params.get("legendary"):
@@ -4209,6 +4233,10 @@ def cost_reduction_for(
         # permanent's own controller.
         if ability.affects == "opponents_spells" and getattr(ability.source, "controller_id", None) == player.id:
             continue
+        # "Spells with the chosen name enchanted player casts cost {2} more to cast." (Curse of Silence) -- the curse is
+        # attached to a *player* (`GameObject.attached_to` holds the player id), and only that player's spells are taxed.
+        if ability.affects == "enchanted_player_spells" and getattr(ability.source, "attached_to", None) != player.id:
+            continue
         # "…that target ~ cost {N} more to cast." (Icefall Regent) — the
         # spell being cast must target this static's own source. Targets are
         # chosen before the cost is locked in (RULE 601.2c precedes
@@ -4236,7 +4264,7 @@ def cost_reduction_for(
                 continue
         if ability.params.get("card_name_from_source"):
             chosen = getattr(ability.source, "chosen_card_name", None)
-            if not chosen or obj is None or obj.card.name != chosen:
+            if not chosen or obj is None or not name_matches(obj.card.name, chosen):
                 continue
         spell_type = ability.params.get("spell_type")
         if ability.params.get("spell_type_from_source_mode"):
@@ -4807,6 +4835,26 @@ def damage_prevention_globally_disabled(state: "GameState") -> bool:
     return False
 
 
+def damage_prevented_by_static(state: "GameState", target: Any, source: Optional["GameObject"]) -> bool:
+    """RULE 615.1: a standing "Prevent all damage that would be dealt to you and permanents you control by sources with the
+    chosen name." (Gideon's Intervention, MEC-134) -- consulted by `RulesEngine.deal_damage` for each recipient.
+
+    The recipient is the static's controller or a permanent they control (``target`` is a `Player` or a `GameObject`); the
+    source answers to the name the permanent stamped as it entered (`GameObject.chosen_card_name`, RULE 201.2). Nothing
+    chosen prevents nothing; a damage source with no known object (``None``) is never matched."""
+    if source is None:
+        return False
+    recipient_controller = getattr(target, "controller_id", None) if hasattr(target, "instance_id") else getattr(target, "id", None)
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "damage_source_prevention":
+            continue
+        if recipient_controller is None or recipient_controller != getattr(ability.source, "controller_id", None):
+            continue
+        if name_matches(getattr(source, "name", ""), getattr(ability.source, "chosen_card_name", None)):
+            return True
+    return False
+
+
 def global_wither_active(state: "GameState") -> bool:
     """"All damage is dealt as though its source had wither." (Everlasting
     Torment) — RULE 609.4b as-though, a standing battlefield static that
@@ -5095,6 +5143,13 @@ def activation_cost_reduction_for(
         if is_mana_ability and ability.params.get("except_mana_abilities"):
             continue
         source_controller = getattr(ability.source, "controller_id", None)
+        if ability.params.get("card_name_from_source"):
+            # MEC-134 (Skyseer's Chariot, Anointed Peacekeeper): "Activated abilities of sources with the chosen name cost
+            # {2} more to activate" -- any source (RULE 602.1), whoever controls it; nothing chosen taxes nothing.
+            if not name_matches(getattr(source.card, "name", ""), getattr(ability.source, "chosen_card_name", None)):
+                continue
+            net += _cost_static_amount(ability, state, source_controller)
+            continue
         if ability.params.get("first_targeting_own_creature"):
             # "The first activated ability you activate during your turn that targets a creature you control costs {2} less to activate."
             # (Professor Hojo): this ability must target a creature you control, and no earlier activation of yours this turn did.
@@ -5231,6 +5286,13 @@ def activation_prohibited(
         player_id = ability.params.get("player_id")
         if player_id is not None:
             if source.controller_id == player_id:
+                return True
+            continue
+        if ability.params.get("card_name_from_source") and ability.affects == "all_permanents":
+            # MEC-134 (Pithing Needle, Voidstone Gargoyle): "Activated abilities of **sources** with the chosen name" -- a
+            # source is any object, so a card in hand or a graveyard (cycling, channel, ...) is silenced too, which the
+            # battlefield-only `affected_objects` selector could not see (RULE 602.1: the ability's source is the object).
+            if name_matches(getattr(source.card, "name", ""), getattr(ability.source, "chosen_card_name", None)):
                 return True
             continue
         if source in affected_objects(state, ability):
@@ -5473,6 +5535,12 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
         if ability.params.get("noncreature") and getattr(card, "is_creature", False):
             continue
         if ability.params.get("nonartifact") and getattr(card, "is_artifact", False):
+            continue
+        if ability.params.get("card_name_from_source") and not name_matches(
+            getattr(card, "name", ""), getattr(ability.source, "chosen_card_name", None)
+        ):
+            # MEC-134 (Meddling Mage, Nevermore): "Spells with the chosen name can't be cast." (RULE 101.2) -- the name is
+            # the one stamped as the source entered; nothing chosen yet prohibits nothing.
             continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
             continue
@@ -6663,7 +6731,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: UI's layer-trace panel rather than a bare "99", same treatment "cost"
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
-    {"loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition",
+    {"loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition", "damage_source_prevention",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",

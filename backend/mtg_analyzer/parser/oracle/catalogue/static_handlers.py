@@ -56,6 +56,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, NamedTuple, Optional, Union
 
 from .library_permission import parse_graveyard_cast_permission, parse_top_library_permission
+from .named_card_statics import named_card_static_specs
+from .named_choice import enter_card_name_specs
 from ..spec import EffectSpec, ParserProvenance
 from .clause_primitives import (
     ONCE_PER_TURN_MARKER,
@@ -2123,6 +2125,10 @@ def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("choose_basic_land_type_on_enter", {})]
     if _CHOOSE_OPPONENT_ON_ENTER_RE.fullmatch(text):
         return [EffectSpec("choose_opponent_on_enter", {})]
+    # MEC-134: "As ~ enters, choose a nonland card name." / "…look at an opponent's hand, then choose any card name."
+    named = enter_card_name_specs(text)
+    if named is not None:
+        return named
     # MEC-108 / RULE 614.1: "~ enters with your choice of a flying counter or a
     # first strike counter on it." — the counter pick is an as-it-enters choice.
     choice = ENTER_COUNTER_CHOICE_RE.fullmatch(text)
@@ -5342,6 +5348,10 @@ def _static_cant_cast_or_activate_opponents(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _static_named_card(ctx: StaticContext) -> StaticResult:
+    return named_card_static_specs(ctx.text)
+
+
 def _static_activation_prohibition(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _ACTIVATION_PROHIBITION_RE.fullmatch(text)
@@ -7035,6 +7045,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("grant_skip_extra_turns", _static_grant_skip_extra_turns),
     StaticMatcher("lands_every_basic_type", _static_lands_every_basic_type),
     StaticMatcher("flash_permission", _static_flash_permission),
+    StaticMatcher("named_card", _static_named_card),
     StaticMatcher("activation_prohibition_opponents", _static_activation_prohibition_opponents),
     StaticMatcher("cant_cast_opponents_your_turn", _static_cant_cast_opponents_your_turn),
     StaticMatcher("cant_cast_opponents_hand_only", _static_cant_cast_opponents_hand_only),

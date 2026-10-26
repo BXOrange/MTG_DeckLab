@@ -306,6 +306,10 @@ class DamageDeathMixin:
             continuous.player_static_protections(self.state, target), source
         ) and not self.damage_prevention_is_disabled():
             return
+        # RULE 615.1: "prevent all damage … by sources with the chosen name" (Gideon's Intervention) -- a standing static
+        # on the recipient's controller, inert where damage can't be prevented (RULE 615.12).
+        if continuous.damage_prevented_by_static(self.state, target, source) and not self.damage_prevention_is_disabled():
+            return
         target_id = target.id if is_player else target.instance_id
         event = GameEvent(
             EventType.DAMAGE,

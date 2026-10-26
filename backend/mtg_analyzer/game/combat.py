@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
+from ..models.cards.card_query import name_matches
 from ..parser.oracle.catalogue.levels import leveler_base_text
 from ..parser.oracle.catalogue.station import station_base_text
 
@@ -618,6 +619,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
         # Circle/Prismatic Circle/Circle of Solace).
         "color_any", "shares_color_with_reference", "color_from_source", "color_from_source_chosen_colors", "subtype_from_source",
+        # MEC-134: "a spell with the chosen name" — RULE 201.2 name match against the source's `chosen_card_name`.
+        "name_from_source",
         # RULE 111.9 — "a **nontoken** blue creature" (Flare of Denial-
         # shaped RULE 118.9 alternative cost).
         "nontoken",
@@ -1007,6 +1010,13 @@ def matches_object_filter(
         chosen = getattr(reference, "chosen_type", None) if reference is not None else None
         if not chosen or not _has_subtype(obj, str(chosen)):
             return False
+    # MEC-134 (Silverquill Silencer, Declaration of Naught): "a spell **with the chosen name**" -- the card-name sibling of
+    # ``subtype_from_source`` above (RULE 201.2: a name is the object's own, copies of a spell share it); nothing chosen
+    # matches nothing.
+    if filt.get("name_from_source"):
+        chosen_name = getattr(reference, "chosen_card_name", None) if reference is not None else None
+        if not name_matches(getattr(obj, "name", ""), chosen_name):
+            return False
     # "creatures with even mana values" (Void Winnower — "Zero is even.").
     # Reads the printed card's own mana value, matching how a spell's mana
     # value is looked up before layer-engine effects (see `_spell_type_
@@ -1374,6 +1384,10 @@ def has_block_capacity(blocker: "GameObject") -> bool:
     return cap is None or blocks_used(blocker) < cap
 
 
+#: The protection quality `continuous._protection_qualities` writes for "protection from the chosen card name".
+_NAME_QUALITY_PREFIX = "name:"
+
+
 def _quality_matches_type(quality: str, card: "Card") -> bool:
     """Whether a non-colour protection ``quality`` describes ``card``'s type.
 
@@ -1387,6 +1401,9 @@ def _quality_matches_type(quality: str, card: "Card") -> bool:
         return bool(getattr(card, attr, False))
     if quality in {"kindred", "conspiracy", "dungeon", "phenomenon", "plane", "scheme", "vanguard"}:
         return quality in card.type_line.lower().partition("—")[0].split()
+    if quality.startswith(_NAME_QUALITY_PREFIX):
+        # "protection from the chosen card name" (Runed Halo, MEC-134): the source answers to that name (RULE 201.2).
+        return name_matches(card.name, quality[len(_NAME_QUALITY_PREFIX):])
     if quality.startswith("mv:"):
         # "protection from each mana value among artifacts you control" (Rebbec) — the source's printed mana value.
         return quality[3:].isdigit() and int(getattr(card, "converted_mana_cost", 0) or 0) == int(quality[3:])
