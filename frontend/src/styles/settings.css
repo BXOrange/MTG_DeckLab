@@ -1,0 +1,63 @@
+/* --- Einstellungen --- */
+
+.connection-settings-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+.connection-settings-groups > .connection-settings-panel {
+  flex: 1 1 360px;
+  width: 100%;
+  min-width: 0;
+}
+
+.llm-settings-panel > label {
+  display: block;
+  margin: 0.85rem 0 0.3rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.llm-settings-panel > button,
+.llm-settings-panel > .import-actions {
+  margin-top: 0.85rem;
+}
+
+.connection-settings-panel {
+  max-width: 480px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+/* Text-like fields fill the panel; checkboxes/radios keep their native box
+   (a `width: 100%` checkbox is what made the Profil toggles look shifted). */
+.connection-settings-panel input:not([type='checkbox']):not([type='radio']) {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.connection-settings-panel input[type='checkbox'],
+.connection-settings-panel input[type='radio'] {
+  width: auto;
+  margin: 0;
+  flex: none;
+}
+
+.connection-settings-panel select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}

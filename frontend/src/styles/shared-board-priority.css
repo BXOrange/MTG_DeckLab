@@ -1,0 +1,407 @@
+/* --- Shared-board additions used by multiplayer --- */
+
+/* Your own board sits at the bottom (nearest you), the opponent's above it. */
+.gf-own-board > .gf-player-board-head {
+  border-color: var(--accent);
+}
+
+.gf-opponent-board {
+  opacity: 0.96;
+}
+
+/* Folding an opponent away at a table of 3+ (gameBoardView's
+   `collapsedBoards`): the header stays, the play area is hidden, and a
+   one-line count summary takes its place. */
+.gf-board-fold {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+}
+
+.gf-board-fold:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.gf-board-folded > .gf-player-board-head {
+  margin-bottom: 0.25rem;
+}
+
+.gf-board-fold-summary {
+  margin: 0;
+  padding: 0 0.75rem 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.gf-board-out {
+  opacity: 0.55;
+}
+
+.gf-seat-badge {
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid currentColor;
+  vertical-align: middle;
+}
+
+.gf-seat-active {
+  color: var(--ok);
+}
+
+.gf-seat-out {
+  color: var(--error);
+}
+
+/* A hidden hand card (RULE 400.2): the player's sleeve, or a plain patterned
+   back. Sized like a real card tile (.card.has-image) — it has no <img> and
+   no text to give it dimensions of its own. */
+.gf-face-down {
+  width: 100px;
+  max-width: none;
+  padding: 0;
+  aspect-ratio: 63 / 88;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--panel-alt),
+    var(--panel-alt) 6px,
+    var(--panel) 6px,
+    var(--panel) 12px
+  );
+  border: 1px solid var(--border);
+}
+
+.gf-observer-note {
+  margin: 0 0 0.6rem;
+}
+
+/* Other seats' decisions float above the board without blocking inspection. */
+.gf-modal-overlay.gf-waiting-choice {
+  pointer-events: none;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.gf-waiting-choice .gf-modal {
+  pointer-events: auto;
+}
+
+.gf-waiting-choice .gf-modal-head {
+  margin-bottom: 0;
+}
+
+/* MEC-51 / RULE 720 — "you control that player's turn/combat" banner. */
+.gf-turn-control {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  font-style: normal;
+}
+.gf-turn-control-driving {
+  background: color-mix(in srgb, var(--accent, #6c8cff) 16%, transparent);
+  border: 1px solid var(--accent, #6c8cff);
+  color: var(--text, inherit);
+}
+.gf-turn-control-locked {
+  background: color-mix(in srgb, var(--warn, #d98b2b) 14%, transparent);
+  border: 1px solid var(--warn, #d98b2b);
+}
+
+/* Blocker declaration (RULE 509.1a) — the defending player's own panel. */
+.gf-block-panel {
+  background: var(--panel);
+  border: 1px solid var(--info);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.gf-block-panel h4 {
+  margin: 0 0 0.3rem;
+  color: var(--info);
+  font-size: 0.95rem;
+}
+
+.gf-block-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.3rem 0;
+}
+
+.gf-block-blocker {
+  font-weight: 600;
+  min-width: 10rem;
+}
+
+.gf-block-arrow {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.gf-block-pick {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+/* --- Interactive priority (RULE 117, multiplayer) --- */
+
+.gf-priority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.gf-priority-mine {
+  border-color: var(--ok);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* Legacy inline rail-control styling. */
+.gf-autopass {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.gf-banner-takeback {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+/* Fixed name/action slots keep the compact banner stable across updates. */
+.gf-banner-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gf-banner-identity > h3 {
+  flex: 0 0 9rem;
+  width: 9rem;
+}
+
+.gf-banner-center {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.gf-banner-status {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2rem;
+}
+
+.gf-banner-status > span:empty { display: none; }
+.gf-banner-status .gf-seat-badge { margin-left: 0; }
+
+.gf-banner-priority {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Reserve both action slots, including when yielding is unavailable. */
+.gf-banner-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 11rem);
+  gap: 0.4rem;
+  align-items: stretch;
+}
+
+.gf-banner-actions > span { display: flex; }
+.gf-banner-actions button { width: 100%; height: 2rem; min-height: 2rem; white-space: nowrap; }
+
+/* Wrap only when necessary; status never adds a separate full-width row. */
+@media (max-width: 900px) {
+  .gf-player-board-head { grid-template-columns: minmax(0, 1fr) auto; gap: 0.5rem; }
+  .gf-banner-identity { flex-wrap: wrap; }
+  .gf-banner-center { grid-column: 2; grid-row: 1; }
+  .gf-banner-stats { grid-column: 1 / -1; }
+}
+
+@media (max-width: 540px) {
+  .gf-banner-priority { flex-wrap: wrap; width: 100%; min-width: 0; }
+  .gf-banner-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .gf-banner-identity { min-width: 0; }
+  .gf-banner-actions button { white-space: normal; height: 3rem; min-height: 3rem; }
+}
+
+.gf-banner-pass {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+/* Mana, life and counters remain aligned to the right edge. */
+.gf-banner-stats {
+  justify-content: flex-end;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-left: auto;
+}
+
+.gf-banner-stats > .gf-manapool {
+  margin-left: 0;
+}
+
+/* Player-level counters: poison, energy/experience/rad, the Ring, the
+   Monarch/Initiative designations, emblems (RULE 704.5c/122/701.52/725/726/
+   114) — everything about a *player* that isn't life or floating mana. */
+.gf-pcounters {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.gf-pcounter {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.gf-pcounter--lethal {
+  background: var(--warn);
+  color: #1a1a1a;
+}
+
+.gf-pcounter--designation {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* An opponent's hand, collapsed to its count (the default — the cards are
+   never on the wire either way, RULE 400.2). */
+.gf-hand-hidden {
+  margin: 0;
+  padding: 0.4rem 0;
+}
+
+.gf-hand-toggle {
+  margin-left: 0.5rem;
+}
+
+.gf-seat-away {
+  color: var(--warn);
+}
+
+.mp-inline-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+}
+
+/* This label wraps its own checkbox and names it beside it — the generic
+   `.deck-section label` (display: block, uppercase, dim) would otherwise
+   flatten it so the checkbox sits above the text. */
+.deck-section label.mp-inline-option {
+  display: flex;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  margin: 0.4rem 0;
+}
+
+.mp-inline-option input[type='checkbox'] {
+  flex: none;
+  margin: 0;
+}
+
+.bug-report-dialog { width: min(36rem, calc(100vw - 2rem)); border-radius: .6rem; padding: 1.5rem; background: var(--panel); color: var(--text); }
+.bug-report-dialog::backdrop { background: #0009; }
+.bug-report-dialog form { display: grid; gap: .8rem; }
+.bug-report-dialog textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.bug-report-dialog input { width: 6rem; }
+.bug-report-buttons { display: flex; justify-content: flex-end; gap: .6rem; }
+
+/* VIS-12: yield buttons, the armed-yield badge and the rail's stops panel. */
+.gf-banner-yield {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.gf-yield-active {
+  font-weight: 600;
+}
+
+.gf-yield-badge {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.gf-rail-stops {
+  font-size: 0.8rem;
+}
+
+.gf-rail-stops summary {
+  cursor: pointer;
+}
+
+.gf-rail-stops-help {
+  margin: 0.3rem 0;
+  opacity: 0.75;
+}
+
+.gf-rail-stops table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gf-rail-stops th {
+  font-weight: 500;
+  text-align: center;
+}
+
+.gf-rail-stops td:first-child {
+  text-align: left;
+}
+
+.gf-rail-stops td {
+  padding: 0.1rem 0.2rem;
+  text-align: center;
+}
+
+/* RULE 701.34: editable recipient selection before the single confirmation. */
+.gf-proliferate-options { display: grid; gap: .5rem; max-height: 50vh; overflow-y: auto; margin: 1rem 0; }
+.gf-proliferate-option { display: flex; align-items: center; gap: .75rem; padding: .65rem; border: 1px solid var(--border, #555); border-radius: .35rem; cursor: pointer; }
+.gf-proliferate-option input { flex: 0 0 auto; }
+.gf-proliferate-option small { overflow-wrap: anywhere; }

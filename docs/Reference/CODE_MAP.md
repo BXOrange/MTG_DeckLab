@@ -32,6 +32,9 @@ Task → entry point. Load when you do not know where a behaviour lives.
 | Mana abilities with “Activate only if …” (Mox Opal / Metalcraft) | `game/mana_abilities.py` parses the shared activation condition and gates production options; `engine/activation_mixin.py` rechecks it during cost validation, including mana abilities and auto-tap |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
+| UI styles | `frontend/src/styles/main.css` (ordered imports); area styles in the same directory, including `game-layout.css`, `battlefield.css`, `game-choices.css`, `replay.css`, `multiplayer.css` |
+| UI translations | `frontend/src/js/locales/en.js` / `de.js` (catalog entry points); matching area catalogs under `locales/en/` and `locales/de/` |
+| Engine integration tests | `backend/tests/game/engine/test_engine_*.py` (casting, attachments, commander, combat, ward, costs, state/effects, turns/mana); shared factories and setup in `engine_test_helpers.py` |
 | Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |
 | Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js`, `bannerColors.js` (seat banner colours) |
 | Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (registry/driver, compatible class exports; individual policies in `services/bot_policies/`, deck planning in `services/bot_strategy.py`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |

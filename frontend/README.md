@@ -77,7 +77,8 @@ in English and German:
 ```text
 index.html
 src/
-  styles/main.css
+  styles/main.css               ordered @import entry point
+  styles/*.css                  focused UI styles (base, analysis, board, replay, …)
   js/
     app.js                      sidebar wiring, entry point
     state.js                    tiny pub/sub store (parsed deck + image cache)
@@ -102,6 +103,15 @@ src/
     api.js                      backend HTTP client (/api/decks, /api/cards, /api/game, …)
     gameSocket.js                WebSocket client (kept for future multiplayer)
 ```
+
+Styles are split by UI area in `src/styles/`. Keep the import order in
+`main.css`: it preserves the cascade, including later shared-board overrides.
+Add rules to the matching area stylesheet; `main.css` remains the entry point.
+
+Translation entry points `src/js/locales/en.js` and `de.js` merge matching
+`interface`, `analysis`, `board` and `play-modes` catalogs from the `en/` and
+`de/` subdirectories. Edit the matching area in both languages; keep keys and
+plural shapes aligned (`frontend/scripts/i18n-verify.mjs`).
 
 See [`../docs/implementation-state/BACKLOG.md`](../docs/implementation-state/BACKLOG.md)
 (open work — the `VIS` tickets are the frontend ones) and

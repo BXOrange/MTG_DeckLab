@@ -1,0 +1,159 @@
+/* --- Gespeicherte Decks --- */
+
+.saved-decks-panel {
+  max-width: 800px;
+}
+
+.saved-deck-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.saved-deck-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.saved-deck-commander {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.saved-deck-author {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.saved-deck-archetypes {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.saved-deck-row--hidden {
+  display: none;
+}
+
+.saved-deck-meta {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.color-identity {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.color-pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.color-pip--w { background: #f8f6d8; }
+.color-pip--u { background: #aee0fa; }
+.color-pip--b { background: #b7aca4; }
+.color-pip--r { background: #f9aa8f; }
+.color-pip--g { background: #9bd3ae; }
+.color-pip--c { background: #d8d8d8; }
+
+.saved-deck-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  align-items: flex-end;
+}
+
+.saved-deck-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* --- Card detail on hover (cardHoverDetail.js) --- */
+
+/* Single global panel, repositioned/repainted for whichever element is
+   currently hovered (see cardHoverDetail.js) rather than one per card. */
+.card-hover-tooltip {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.1s ease;
+  max-width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.card-hover-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.card-hover-tooltip-inner {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.6rem;
+}
+
+.card-hover-tooltip-image {
+  display: block;
+  width: 110px;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  border-radius: 5px;
+  flex-shrink: 0;
+  /* `.card-hover-tooltip-inner` is a flex row; without this the image (a
+     flex item) stretches to the text column's height instead of keeping
+     its own card ratio. */
+  align-self: flex-start;
+}
+
+.card-hover-tooltip-text-col {
+  min-width: 0;
+}
+
+.card-hover-tooltip-text-col h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.card-hover-tooltip-text-col p {
+  margin: 0 0 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+/* Names the *other* face of a DFC being hovered (see cardHoverDetail.js's
+   `faceForName`) — a quiet footnote, not a call to action, since flipping
+   the actual tooltip preview isn't wired here (use the board's own 🔄
+   button on the permanent's tile for that). */
+.card-hover-tooltip-flip-hint {
+  color: var(--text-dim);
+  font-style: italic;
+}
