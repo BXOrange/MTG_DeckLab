@@ -281,24 +281,13 @@ class RulesEngine(
         #: dungeon rooms): the still-to-ask player ids, chained one
         #: `pay_cost_then` choice at a time; see `_advance_each_player_pay_or`.
         self._pending_each_player_pay_or: Optional[dict[str, Any]] = None
-        #: Backing state for a `_request_all_players_decline_or` mass sweep
-        #: (Rhystic Circle's "Any player may pay {1}. If no one does,
-        #: `<effect>`." — RULE 118.3-adjacent, MEC-30): the still-to-ask
-        #: player ids, chained one `all_decline_or` choice at a time — the
-        #: *aggregate-outcome* mirror of `_pending_each_player_pay_or`
-        #: above (that one applies its effect once **per decliner**; this
-        #: one applies it once, only if **every** player declined, and the
-        #: first player to actually pay cancels the whole sweep with no
-        #: effect at all). See `_request_all_players_decline_or`/
-        #: `_advance_all_decline_or`/`_resume_all_decline_or`.
-        self._pending_all_decline_or: Optional[dict[str, Any]] = None
         #: Backing state for a `_request_vote` APNAP sweep (RULE 701.38 —
         #: "starting with you, each player votes for `<A>` or `<B>`."): the
         #: still-to-ask player ids, the running per-option tally, and the
         #: serialized outcome specs (a `majority` winner/tie branch, or a
         #: `per_vote` set of magnitude-scaled effect lists). Chained one
         #: `vote` choice at a time, the same shape as
-        #: `_pending_all_decline_or`. See `_request_vote`/`_advance_vote`/
+        #: `state.pending_all_decline_or`. See `_request_vote`/`_advance_vote`/
         #: `_resume_vote`/`_tally_and_apply_vote`.
         self._pending_vote: Optional[dict[str, Any]] = None
         #: MEC-46: backing state for a `_request_object_vote` APNAP sweep

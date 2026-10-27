@@ -731,20 +731,25 @@ class PaymentChoicesMixin:
             if not self.state.players[(start + i) % n].has_lost
             and not (opponents_only and self.state.players[(start + i) % n].id == controller_id)
         ]
-        self._pending_all_decline_or = {
+        self.state.pending_all_decline_or = {
             "remaining_ids": order,
             "cost": cost,
             "effect_specs": [dict(d) for d in effect_specs],
             "paid_effect_specs": [dict(d) for d in paid_effect_specs or []],
             "source": source,
             "controller_id": controller_id,
+            "source_incarnation": (self.context.resolving_source_incarnation
+                                   if self.context.resolving_source_incarnation is not None
+                                   else getattr(source, "zone_incarnation", None)),
+            "then_trigger_event": self.context.trigger_event,
+            "revealed_card": self.context.revealed_card,
         }
         self._advance_all_decline_or()
     def _advance_all_decline_or(self) -> None:
         """Ask the next still-pending player in a `request_all_players_
         decline_or` sweep; once nobody's left (everyone declined or
         couldn't pay), resolve the "if no one does" effect and clear it."""
-        pending = self._pending_all_decline_or
+        pending = self.state.pending_all_decline_or
         if pending is None:
             return
         remaining: list[str] = pending["remaining_ids"]
@@ -769,7 +774,7 @@ class PaymentChoicesMixin:
             })
             return  # a real choice opened — resumed via _resume_all_decline_or
         # Every remaining player declined or couldn't pay — the sweep is over.
-        self._pending_all_decline_or = None
+        self.state.pending_all_decline_or = None
         try:
             controller = self.state.player_by_id(pending["controller_id"])
         except (KeyError, ValueError):
@@ -783,7 +788,7 @@ class PaymentChoicesMixin:
         it. Anything else (decline, or a re-check finding they no longer
         can pay — the board can have changed since the offer was made)
         moves on to the next player."""
-        pending = self._pending_all_decline_or
+        pending = self.state.pending_all_decline_or
         if pending is None:
             return
         if answer == "pay":
@@ -793,10 +798,17 @@ class PaymentChoicesMixin:
                 player = None
             if player is not None and self._can_pay_player_cost(player, pending["cost"]):
                 self._pay_player_cost(player, pending["cost"])
-                self._pending_all_decline_or = None
+                self.state.pending_all_decline_or = None
                 if pending.get("paid_effect_specs"):
-                    # "If a player does, ..." (PAR-208): the payoff, once, as the ability's source resolves it --
-                    # "you"/"~" read the source's controller, so no target list is passed.
-                    self._apply_effect_specs(pending["paid_effect_specs"], pending["source"])
+                    # RULE 608.2c: selecting the sacrifice/discard completes the cost before the payoff.
+                    # Reuse the single-player paid-cost continuation, retaining the ability's controller.
+                    paid = {
+                        **pending, "effect_specs": pending["paid_effect_specs"],
+                        "acting_player_id": pending["controller_id"],
+                    }
+                    if self.state.pending_choice is not None:
+                        self.state.deferred_effects.append({"kind": self.DEFERRED_PAID_COST, "pending": paid})
+                    else:
+                        self._finish_paid_cost_then(paid)
                 return
         self._advance_all_decline_or()

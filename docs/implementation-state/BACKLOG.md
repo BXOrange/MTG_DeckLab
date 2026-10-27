@@ -36,29 +36,21 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining tickets (PAR-208…214): measure with the `find-fragments` skill before and after
+Fragment-mining tickets (PAR-209…214): measure with the `find-fragments` skill before and after
 (`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
-regressions, and executes newly claimed cards rather than trusting parse verdicts. Order: PAR-208
-and PAR-210 first (re-scan after them); PAR-213 needs PAR-208 and PAR-210, PAR-214 needs
-PAR-210, PAR-212's pronoun-bound forms need PAR-210; PAR-209 and PAR-211 are independent.
+regressions, and executes newly claimed cards rather than trusting parse verdicts. Order: PAR-210
+first (re-scan after it); PAR-213 and PAR-214 need PAR-210, as do PAR-212's pronoun-bound
+forms; PAR-209 and PAR-211 are independent.
 
-- **PAR-208 · Clause separators and outcome chains.** Compose clauses the segmenter now leaves
-  alone: sentence follow-ups inside one paragraph (about 4,100 multi-sentence open clauses; the
-  follow-up is usually where it fails), shared-subject effect lists (`target player mills 2 cards,
-  draws 2 cards, and loses 2 life`), `, then` sequencing, and outcome-dependent follow-ups
-  (`if you do / if you don't / if you can't / if a player does / otherwise`) bound to the preceding
-  optional or conditional action. Check PAR-204 composition (`pay_cost_then`, `may_effect_then`)
-  first and extend it; no second chain mechanism. Done when the multi-sentence open count drops in a
-  re-scan and chained cards execute in order with correct else branches.
 - **PAR-209 · Base grammar atoms.** Shared building blocks that recur inside otherwise different
   clauses, built once and reused: object filters (`target <adjective> <type>`, `that creature`, `each
   creature that player controls`), durations (`for as long as`, `until your next turn`, `until end
   of turn`), quantities (`a number of cards equal to …`, `for each …`, X and `where X is …`, `base
-  power and toughness N/N`), same-name / `exiled with ~` references, and `prevent … damage`
+  power and toughness N/N`), same-name / `exiled with ~` references (including cross-zone
+  same-name search/exile sweeps such as Counterbore and Extirpate), and `prevent … damage`
   scopes. First step: add a slot decomposition (action, object filter, duration, quantity,
   condition) to `find-fragments`, then pick the slot values that complete the most cards in
-  combination. Depends on nothing; sequence after PAR-207 and PAR-208 so their re-scan shows what
-  remains.
+  combination. Depends on nothing; use the current fragment re-scan to size what remains.
 
 - **PAR-210 · Shared object-phrase grammar and reference binding.** Rows carry their own object
   grammar per verb, so the same object form claims under one verb and not under the next: a probe
@@ -79,7 +71,7 @@ PAR-210, PAR-212's pronoun-bound forms need PAR-210; PAR-209 and PAR-211 are ind
   `SPELL_CAST` event carries the casting player); `that much` has no source for counters removed as
   a cost (Geistflame Reservoir, Relic Amulet) or permanents sacrificed this turn (Sawblade
   Skinripper); Scroll of Griselbrand binds `that player` to an earlier `target opponent`; Aphelia
-  nests a `whenever` inside an activated ability. Sequence after PAR-207 and PAR-208.
+  nests a `whenever` inside an activated ability. Use the current fragment re-scan to size the remaining head/body gaps.
 - **PAR-211 · Quantifier scopes.** `each` / `all` / `each other` scopes combined with the clause
   parts that depend on them stay open at a share of 0.78–0.90 against modelled text: `each player` /
   `each opponent` / `each other player` as the acting or affected set, `each creature that player /
@@ -107,12 +99,14 @@ PAR-210, PAR-212's pronoun-bound forms need PAR-210; PAR-209 and PAR-211 are ind
   library` (26 cards), `target opponent / player reveals their hand` (32), `reveal the top N cards`
   (19), upkeep / activated `look at the top card` (30), `you choose a nonland card from it` (14),
   `if you do, put ~ onto the battlefield`. Compose the sequence from steps (lead × selection ×
-  disposal of the rest) that pass the inspected set along via `previous_selector`, instead of
+  disposal of the rest) that pass the inspected set along via `previous_selector`, including
+  per-player revealed-card pools (the parley family) and their per-revealed-card payoffs, instead of
   whole-sequence regexes; the dig families PAR-144 left open (x counts refused on purpose) stay
   fail-closed. Follow-ups to check once the lead claims: `put the rest on the bottom … in a random
   order` (52 cards), `if you search your library this way, shuffle` (51), `then that player
-  shuffles` (35), `you may choose new targets for the copy` (50). Done when those sentences claim
-  as part of their sequence and the sequences execute against a real library / hand.
+  shuffles` (32; remaining inspection leads and references), `you may choose new targets for the copy`
+  (50). Done when those sentences claim as part of their sequence and the sequences execute
+  against a real library / hand.
 - **PAR-214 · Missing verb-phrase rows for existing effects.** Phrases the verb × object probe
   shows no row for, although the engine has the effect (`cant_be_regenerated`, `cast_from_exile`,
   ability-loss in `physical_properties.py`; grep before assuming a primitive is missing): `<object>

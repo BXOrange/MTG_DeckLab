@@ -14,15 +14,24 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-27 at PARSER_VERSION 770: **22,649 / 35,051 cards (64.6%)**,
+Measured on 2026-10-27 at PARSER_VERSION 772: **22,734 / 35,051 cards (64.9%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **22,043 / 32,068 (68.7%)**.
-The full-pool probe comparison against v769 reports **92 new supported card names and
-zero regressions**, from the composed trigger and activation head grammar (PAR-207).
+Commander-legal coverage: **22,127 / 32,068 (69.0%)**.
+PAR-208 adds outcome/else chains, comma-separated effect series, other-player
+library searches, typed/random discard costs and untargeted graveyard returns.
+Against v771, the full-pool comparison finds **49 new parser-modeled card names,
+zero regressions** and six changed existing specs: four equivalent graveyard
+selection nodes, plus corrected optional-action scope for Summon Undead and
+Gallifrey Stands. All six changed cases execute in regression tests.
+The v772 fragment scan records **14,593 open sentences**, including **4,771
+follow-ups on 3,589 cards**. Distinct open multi-sentence card/parent pairs fall
+from **4,029 at v771 to 3,999** using identical counting; the pre-PAR-208 baseline
+was 4,055. Remaining reveal pools, same-name references and pronoun/state-bound
+follow-ups belong to the existing PAR-209–214 grammar scopes.
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py` and its
-`--commander-legal-only` scope against isolated copies of the card/raw databases.
+`--commander-legal-only` scope; tests use isolated card/raw databases.
 
 ## Existing building blocks
 

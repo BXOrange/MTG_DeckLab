@@ -6,7 +6,8 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
@@ -103,6 +104,57 @@ def test_sudden_reclamation_returns_one_creature_and_one_land():
 def test_carrion_cruiser_takes_a_creature_or_vehicle_card():
     spec = match_clause("return a creature or vehicle card from your graveyard to your hand")
     assert spec[0].params["permanent_filter"] == {"any_of": [{"card_type": "creature"}, {"subtype": "vehicle"}]}
+
+
+@pytest.mark.parametrize("name,eligible", [
+    ("Inspiration from Beyond", Card(id="spell", name="Spell", type_line="Instant", is_instant=True)),
+    ("Takenuma, Abandoned Mire", creature("Bear")),
+    ("Under the Skin", land()),
+    ("Vanille, Cheerful l'Cie", land()),
+])
+def test_changed_existing_return_specs_keep_their_pool_and_execute(name, eligible):
+    eng = _engine()
+    source = GameObject(_named(name), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(source)
+    eng.state.add_to_battlefield(source)
+    result = parse_oracle(source.card)
+    node = next(e for s in result.specs for e in s.effects if e.type == "choose_objects")
+    good, bad = _grave(eng, [eligible, Card(id="bad", name="Bad", type_line="Sorcery", is_sorcery=True)
+                           if name != "Inspiration from Beyond" else creature("Bad")])
+    for effect in build_effects([node], source):
+        effect.apply(eng.rules.context)
+    _drive(eng, pick=[good])
+    assert good.zone is Zone.HAND and bad.zone is Zone.GRAVEYARD
+
+
+def test_summon_undead_reanimates_even_when_the_mill_is_declined():
+    eng = _engine()
+    bear, = _grave(eng, [creature("Bear")])
+    before = len(eng.state.player_by_id("p1").library)
+    _cast(eng, "Summon Undead")
+    _drive(eng, pick=[bear], accept=False)
+    assert bear.zone is Zone.BATTLEFIELD
+    assert len(eng.state.player_by_id("p1").library) == before
+
+
+def test_gallifrey_stands_checks_victory_after_declining_the_doctor():
+    eng = _engine()
+    source = GameObject(_named("Gallifrey Stands"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(source)
+    eng.state.add_to_battlefield(source)
+    for i in range(13):
+        obj = GameObject(creature(f"Doctor {i}", type_line="Creature — Doctor"), owner_id="p1", zone=Zone.BATTLEFIELD)
+        eng.state.add_to_battlefield(obj)
+    doctor = GameObject(creature("Hand Doctor", type_line="Creature — Doctor"), owner_id="p1", zone=Zone.HAND)
+    eng.state.player_by_id("p1").hand.append(doctor)
+    eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", player_id="p1", controller_id="p1"))
+    eng.resolve_until_stable()
+    choice = eng.state.pending_choice
+    assert choice is not None and any(o["id"] == "decline" for o in choice["options"])
+    eng.resolve_pending_choice("decline")
+    eng.resolve_until_stable()
+    assert doctor.zone is Zone.HAND
+    assert eng.state.player_by_id("p2").has_lost
 
 
 @pytest.mark.parametrize("clause", [

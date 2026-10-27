@@ -8,6 +8,7 @@ import pytest
 
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -100,6 +101,46 @@ def test_argothian_wurm_stays_when_everyone_declines():
     assert _asked(eng) == "p2"
     _answer(eng, "decline")
     assert wurm.zone is Zone.BATTLEFIELD
+
+
+@pytest.mark.parametrize("clone_at", [None, "offer", "selection"])
+def test_paid_followup_waits_for_sacrifice_selection_and_survives_clone(clone_at):
+    eng = _engine()
+    first = _board(eng, land("Island", "Island"), "p2")
+    second = _board(eng, land("Forest", "Forest"), "p2")
+    wurm = _enter(eng, "Argothian Wurm")
+    wurm_id, first_id, second_id = wurm.instance_id, first.instance_id, second.instance_id
+    if clone_at == "offer":
+        eng = GameEngine(eng.state.clone())
+    _answer(eng, "pay")
+    # RULE 608.2c: agreeing to pay is not the sacrifice itself. With two legal lands,
+    # the payer still has to select one before the Wurm can leave the battlefield.
+    assert eng.state.pending_choice is not None
+    assert any(o.instance_id == wurm_id for o in eng.state.battlefield)
+    assert len(eng.state.player_by_id("p1").library) == 10
+    if clone_at == "selection":
+        eng = GameEngine(eng.state.clone())
+    while eng.state.pending_choice is not None:
+        choice = eng.state.pending_choice
+        eng.resolve_pending_choice(next(o["id"] for o in choice["options"] if o["id"] != "decline"))
+        eng.resolve_until_stable()
+    assert any(o.instance_id == wurm_id for o in eng.state.player_by_id("p1").library)
+    assert sum(o.instance_id in {first_id, second_id} for o in eng.state.player_by_id("p2").graveyard) == 1
+    assert not eng.state.deferred_effects
+
+
+def test_cloned_sweep_keeps_only_the_remaining_players():
+    eng = _engine()
+    _board(eng, land("Island", "Island"), "p1")
+    _board(eng, land("Forest", "Forest"), "p2")
+    wurm = _enter(eng, "Argothian Wurm")
+    _answer(eng, "decline")
+    clone = GameEngine(eng.state.clone())
+    assert _asked(clone) == "p2"
+    _answer(clone, "decline")
+    assert clone.state.pending_all_decline_or is None
+    assert any(o.instance_id == wurm.instance_id for o in clone.state.battlefield)
+    assert _asked(eng) == "p2"  # answering the clone leaves the original offer intact
 
 
 def test_clackbridge_troll_asks_only_opponents_and_pays_off_for_the_controller():

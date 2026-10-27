@@ -608,6 +608,8 @@ class GameState:
         self.pending_physical_cast: Optional[dict[str, Any]] = None
         # Resolve-time payment frame belongs to state so rewind preserves it.
         self.pending_pay_cost_then: Optional[dict[str, Any]] = None
+        #: Multi-player optional cost sweep; source and remaining offers must survive clone/undo.
+        self.pending_all_decline_or: Optional[dict[str, Any]] = None
         # RULE 608.2g: scoped permission while a resolving effect offers
         # playing a card; separate from pending_choice while casting it.
         self.resolution_play_choice: Optional[dict[str, Any]] = None

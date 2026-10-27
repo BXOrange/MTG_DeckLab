@@ -1751,6 +1751,8 @@ ROWS: list[EffectHandler] = [
         "return_pick_from_graveyard",
         _RETURN_PICK_FROM_GRAVEYARD_RE,
         _return_pick_from_graveyard,
+        # The shared own-graveyard hand picker wins; this row retains other scopes/destinations.
+        fallback_for=("return_own_graveyard",),
     ),
     EffectHandler(
         "return_from_graveyard_owner_control",
