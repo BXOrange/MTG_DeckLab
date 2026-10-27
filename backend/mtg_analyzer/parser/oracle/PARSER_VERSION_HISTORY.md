@@ -4320,3 +4320,19 @@ payment of `pay_cost_then` now stamps it too (`RulesEngine.sacrifice(source=...)
 `IF_YOU_DO_ANTECEDENT_TYPES`. (6) Comma series "A, B, and C" / "A, B, then C" in one sentence split at commas that open
 an effect clause (`_SERIES_COMMA_CONNECTOR`), the elided player subject carried as for "A and B". (7) Life-total comparison gates "an opponent has more life than you" (`opponent_has_more` over `your_life_total`) and
 "you have more life than an opponent" (new `opponent_has_fewer` static condition).
+
+772: PAR-208 slice 2 -- outcome-chain payoffs and the "then that player shuffles" tail. (1) `search_other_library`
+(`search_control_attach`): "search target opponent's/player's library for <criteria> and exile it / put it onto the
+battlefield under your control / put them into their graveyard. Then that player shuffles." is `search` with
+`player_from_target` (+ `target_any_player` for "target player"); a search into the battlefield with a chooser other than
+the library's owner puts the card under the chooser's control (`_finish_search`). (2) `UNLESS_COST` reads "discard a
+`<type>`/noncreature card" and "discard a card at random" (`costs.discard_filter_matches` adds `non<type>` and `a_or_b`
+words; `_pay_player_cost` pays a random discard); `_DISCARD_UNLESS_RE` accepts "an instant or sorcery card" and "a basic
+land card" (`unless_discard` `card_types` / `basic`). (3) `any_player_may` (`costs_mana_limits`) extends
+`all_players_decline_or` with `paid_effects` ("If a player does, ...", run once for the controller when the first player
+pays) and `opponents_only` ("any opponent may"); new `counter ~` (`counter_source`) for the cast-trigger payoff;
+`_pay_player_cost` pays "half their life, rounded up". (4) "defending player discards N cards [at random]" under
+attacks / isn't-blocked / becomes-blocked heads (the unblocked and blocked events now carry `defending_player_id`).
+(5) `return_own_graveyard` (`draw_discard_cast`): untargeted "return [up to N] <object phrase> card(s) from your graveyard
+to your hand" (and "A card and a B card") as `choose_objects` from the graveyard; `peel_optional` no longer lets a
+leading "you may X. Then Y" make Y optional too.

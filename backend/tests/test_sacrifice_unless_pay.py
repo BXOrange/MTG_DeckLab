@@ -15,8 +15,8 @@ The parser deliberately claims a **closed** list of cost shapes rather than
 handing free text to `costs.parse_activation_cost`, which returns a *free*
 cost for anything it doesn't understand — here that would silently read as
 "pay nothing to keep it". Echo/Cumulative Upkeep's self-referential costs,
-scaled "for each" costs, "discard a card at random" and multi-permanent
-sacrifices all stay unclaimed instead.
+scaled "for each" costs and multi-permanent sacrifices all stay unclaimed
+instead ("discard a card at random" is a real `discard_random` cost since PAR-208).
 
 Reference: mtg_analyzer/game/{rules_engine,effects}.py,
 mtg_analyzer/parser/oracle/catalogue/handlers.py.
@@ -96,8 +96,6 @@ def test_recognized_cost_shapes(body, cost):
         # A *scaled* cost — `parse_activation_cost` would quietly drop the
         # multiplier and read this as a flat {G}.
         "sacrifice ~ unless you pay {g} for each wind counter on it",
-        # The engine's `discard` auto-picks and has no random mode.
-        "sacrifice it unless you discard a card at random",
         # `ActivationCost.sacrifice` is a single permanent.
         "sacrifice ~ unless you sacrifice 4 creatures",
     ],
@@ -236,3 +234,10 @@ def test_granted_upkeep_sacrifice_asks_the_hosts_controller():
     eng.resolve_pending_choice("pay")
     assert host in state.battlefield
     assert len(p2.hand) == 0
+
+
+def test_random_discard_cost_is_claimed():
+    # PAR-208 (RULE 701.8d): `_pay_player_cost` pays "discard a card at random" via `discard_random`.
+    (spec,) = parse_effect_body("sacrifice it unless you discard a card at random")
+    assert spec.type == "sacrifice_unless_pay"
+    assert spec.params == {"cost": "discard a card at random"}

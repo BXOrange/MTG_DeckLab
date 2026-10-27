@@ -34,6 +34,7 @@ from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     DISCARD_FILTER_SAME_NAME,
+    discard_filter_matches,
     DISCARD_X,
     EXILE_FROM_GRAVEYARD_X,
     PAY_LIFE_COMMANDER_COLORS,
@@ -1157,7 +1158,7 @@ class ActivationMixin:
         return [
             c for c in player.hand
             if c is not exclude
-            and (not filter_word or filter_word in (c.card.type_line or "").lower())
+            and (not filter_word or discard_filter_matches(filter_word, c.card.type_line or ""))
         ]
     def _resolve_discard_cost(
         self,

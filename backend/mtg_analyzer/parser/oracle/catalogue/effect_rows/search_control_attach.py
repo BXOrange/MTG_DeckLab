@@ -396,6 +396,39 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("search", params)]
 
 
+#: PAR-208 (RULE 701.19a, "then" sequencing): "search target OPPONENT's/PLAYER's library for <criteria> and exile it /
+#: put it onto the battlefield under your control / put them into their graveyard. Then that player shuffles."
+#: (Bribery, Acquire, Eternal Dominion, Bitter Ordeal, Extract, Denying Wind, Jester's Cap, Life's Finale, ...). The
+#: searcher is the controller, the library and its shuffle are the target's: `SearchLibraryEffect.player_from_target`
+#: (Praetor's Grasp). The put-clause may share the search's sentence ("... and exile it") or follow it ("... card.
+#: Put that card onto the battlefield ..."); the trailing shuffle belongs to the engine's search, so it is consumed.
+_SEARCH_OTHER_LIBRARY_PUT = (
+    r"(?P<exile>exile (?:it|them|that card|those cards))"
+    rf"|put {_SEARCH_PRONOUN} (?:(?P<field>onto the battlefield under your control)|(?P<grave>into (?:their|that player's) graveyard))"
+)
+_SEARCH_OTHER_LIBRARY_RE = compile_clause(
+    r"search target (?P<who>opponent|player)'s library for " + _SEARCH_CRITERIA + r",?\s*"
+    rf"(?:(?:\.\s*|and\s+|,\s*)(?:{_SEARCH_OTHER_LIBRARY_PUT}))"
+    r"(?:\.\s*|,\s*)(?:then )?(?:that|the) player shuffles(?: their library)?"
+)
+
+
+def _search_other_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("mv") is not None or m.group("count") == "x":
+        return None  # a dynamic amount / mana-value bound needs its own binding; fail closed
+    params: dict = {
+        "criteria": _search_criteria_from_match(m),
+        "destination": "battlefield" if m.group("field") else "graveyard" if m.group("grave") else "exile",
+        "player_from_target": True,
+    }
+    if m.group("who") == "player":
+        params["target_any_player"] = True
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
+
+
 #: Elfhame Sanctuary's optional basic-land search has a reflexive "If you
 #: do" tail.  Keep the tail on the asynchronous search itself so it resolves
 #: after the player accepts the search, rather than immediately beside the
@@ -1690,6 +1723,8 @@ ROWS: list[EffectHandler] = [
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par38_residue.py (a card-specific upkeep body kept for its residue test).
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
+    # PAR-208: "search target opponent's library for <criteria> and exile it. Then that player shuffles."
+    EffectHandler("search_other_library", _SEARCH_OTHER_LIBRARY_RE, _search_other_library),
     EffectHandler(
         "search_put_then_shuffle",
         _SEARCH_PUT_THEN_SHUFFLE_RE,

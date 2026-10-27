@@ -86,6 +86,20 @@ REMOVE_COUNTERS_ANY_KIND = "*"
 #: ENG-51: `ActivationCost.discard_filter`'s value for "Discard another card
 #: named ~" (Baru, Fist of Krosa's Grandeur).
 DISCARD_FILTER_SAME_NAME = "same_name"
+
+
+def discard_filter_matches(filter_word: str, type_line: str) -> bool:
+    """Whether a card with ``type_line`` satisfies a ``discard_filter`` word (RULE 205.2): a plain type/subtype word
+    is a type-line substring ("land" also names a "Basic Land"); ``non<type>`` negates it ("noncreature", PAR-208:
+    Drekavac); ``a_or_b`` is a union ("instant_or_sorcery", Practical Research)."""
+    line = (type_line or "").lower()
+    for word in filter_word.split("_or_"):
+        if word.startswith("non"):
+            if word[len("non"):] not in line:
+                return True
+        elif word in line:
+            return True
+    return False
 #: ENG-51: `ActivationCost.pay_life` sentinel for "Pay half your life, rounded
 #: up" (Lurking Evil) — the amount depends on the life total at payment.
 PAY_LIFE_HALF_UP = -2

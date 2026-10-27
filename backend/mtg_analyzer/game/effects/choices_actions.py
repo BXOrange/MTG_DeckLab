@@ -1382,10 +1382,16 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         cost: str = "",
         effects: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        paid_effects: Optional[list[dict[str, Any]]] = None,
+        opponents_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
         self.inner_specs = list(effects or [])
+        #: PAR-208: "If a player does, <effect>" -- the payoff run once when the first player pays.
+        self.paid_specs = list(paid_effects or [])
+        #: PAR-208: "any opponent may ..." -- the ability's controller is not asked.
+        self.opponents_only = bool(opponents_only)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..costs import parse_activation_cost  # function-scoped: import cycle
@@ -1395,6 +1401,7 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
             return
         context.engine._request_all_players_decline_or(
             parse_activation_cost(self.cost_text), self.inner_specs, self.source, controller.id,
+            paid_effect_specs=self.paid_specs, opponents_only=self.opponents_only,
         )
 
 

@@ -361,12 +361,18 @@ class CostScan:
     leftover: Optional[str] = None
 
 
-def _vetted_card_filter(phrase: Optional[str]) -> bool:
+def _vetted_card_filter(phrase: Optional[str], extra_words: frozenset[str] = frozenset()) -> bool:
     """Whether a typed-card filter ("creature", "instant or sorcery") names
     only real card types/supertypes/subtypes (or is absent)."""
     if phrase is None:
         return True
-    return all(part in _CARD_WORDS for part in phrase.lower().split(" or "))
+    return all(part in _CARD_WORDS or part in extra_words for part in phrase.lower().split(" or "))
+
+
+#: PAR-208 (RULE 205.2): a discard cost may also be negated -- "discard a noncreature card" (Drekavac). The pool
+#: (`costs.discard_filter_matches`) reads the ``non`` prefix; the graveyard-exile cost does not, so only discard
+#: vets these.
+_DISCARD_NEGATED_WORDS: frozenset[str] = frozenset({"noncreature", "nonland"})
 
 
 def scan_cost_text(cost_text: str) -> CostScan:
@@ -380,9 +386,11 @@ def scan_cost_text(cost_text: str) -> CostScan:
     scan = CostScan()
     consumed: list[tuple[int, int]] = []
 
-    def take(name: str, regex: re.Pattern[str], typed: bool = False) -> Optional[re.Match[str]]:
+    def take(
+        name: str, regex: re.Pattern[str], typed: bool = False, extra_words: frozenset[str] = frozenset(),
+    ) -> Optional[re.Match[str]]:
         match = regex.search(cost_text)
-        if match is not None and typed and not _vetted_card_filter(match.group("type")):
+        if match is not None and typed and not _vetted_card_filter(match.group("type"), extra_words):
             match = None  # an unvetted card filter — leave it unread
         if match is not None:
             scan.hits[name] = match
@@ -412,7 +420,7 @@ def scan_cost_text(cost_text: str) -> CostScan:
     take("pay_half_life", _PAY_HALF_LIFE_RE)
     if not take("discard_self", _DISCARD_SELF_RE):
         if not take("discard_same_name", _DISCARD_SAME_NAME_RE):
-            take("discard", _DISCARD_RE, typed=True)
+            take("discard", _DISCARD_RE, typed=True, extra_words=_DISCARD_NEGATED_WORDS)
     if not take("remove_any_counters", _REMOVE_ANY_COUNTERS_RE):
         take("remove_counters", _REMOVE_COUNTERS_RE)
     if not take("exile_graveyard_top", _EXILE_GRAVEYARD_TOP_RE, typed=True):

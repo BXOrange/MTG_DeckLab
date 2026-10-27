@@ -47,9 +47,13 @@ class CounterSpellEffect(GameEffect):
         optional: bool = False,
         destination: Optional[str] = None,
         name_from_source: bool = False,
+        counter_source: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: PAR-208 (RULE 701.5a): "When you cast this spell, any player may ... If a player does, counter ~." (Brain
+        #: Gorgers, Dash Hopes) -- the spell the ability came from, not a RULE 115 target.
+        self.counter_source = bool(counter_source)
         #: PAR-175 M4: "If that spell is countered this way, exile it / put it on top of its owner's library / put it
         #: into its owner's hand instead of putting it into its owner's graveyard." (Dissipate, Memory Lapse, Remand) --
         #: one of `COUNTER_DESTINATIONS`; anything else is refused (an unknown redirect must not silently be a plain
@@ -123,7 +127,7 @@ class CounterSpellEffect(GameEffect):
         # entered, read when the targets are offered (`targeting._legal_targets_for`).
         if name_from_source:
             spell_filter["name_from_source"] = True
-        if target_from_trigger_event is None:
+        if target_from_trigger_event is None and not self.counter_source:
             # "counter target spell **you don't control**" (Counterflux, PAR-128): the
             # controller-scoped ``spell_you_dont_control`` pool.
             kind = target_kind if target_kind in ("spell", "spell_you_control", "spell_you_dont_control", "spell_or_ability") else "spell"
@@ -149,6 +153,10 @@ class CounterSpellEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         on_pay = self.on_pay_effect_specs or None
         unless_pays = self._unless_pays_cost(context)
+        if self.counter_source:
+            if self.source is not None:
+                self._counter_one(context, self.source, unless_pays, on_pay)
+            return
         if self.target_from_trigger_event == "stack_id":
             # RULE 701.5 / 115.9: "counter that spell or ability" under a becomes-the-target head names the stack
             # item that targeted -- a spell or an ability, found by the event's ``stack_id`` (an ability has no

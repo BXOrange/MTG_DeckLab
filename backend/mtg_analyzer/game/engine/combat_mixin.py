@@ -271,6 +271,8 @@ class CombatMixin:
                         player_id=obj.controller_id,
                         instance_id=obj.instance_id,
                         object_types=sorted(obj.type_words),
+                        # RULE 508.1b: "defending player discards ..." (PAR-208) names the player this attacker attacks.
+                        defending_player_id=getattr(self._defending_player(obj.combat_defender), "id", None),
                     )
                 )
     def _fire_player_attacked_events(self) -> None:
@@ -1267,6 +1269,8 @@ class CombatMixin:
                     attacker=attacker.name,
                     instance_zone_incarnation=attacker.zone_incarnation,
                     player_id=attacker.controller_id,  # the attacker's own controller
+                    # RULE 508.1b: the player the blocked attacker attacks (PAR-208, "defending player discards").
+                    defending_player_id=getattr(self._defending_player(attacker.combat_defender), "id", None),
                     instance_id=attacker.instance_id,
                     object_types=sorted(attacker.type_words),
                     blocker_count=blocker_count,

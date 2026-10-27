@@ -736,11 +736,8 @@ ATTACHED_SUBJECT = (
 #:   (and those two keywords aren't modeled at all).
 #: * "pay {G} **for each** wind counter on it" (Sandstorm Ambush) — a scaled
 #:   cost; `parse_activation_cost` would quietly drop the multiplier.
-#: * "discard a card **at random**" — the engine's `discard` auto-picks and
-#:   has no random mode, so claiming it would misrepresent the card.
-#: * "discard a **`<type>`** card" (Body Snatcher's "discard a creature
-#:   card") — `parse_activation_cost` returns a *free* cost for a typed
-#:   discard, which would read as "pay nothing".
+#: * (PAR-208 lifted: "discard a card at random" and "discard a `<type>` card" are read since ENG-49 and
+#:   paid by `_pay_player_cost`; the vetted words are the alternation below.)
 #: * "sacrifice **four** creatures" — `ActivationCost.sacrifice` is one
 #:   permanent.
 #:
@@ -751,7 +748,9 @@ ATTACHED_SUBJECT = (
 UNLESS_COST = (
     r"(?:pay (?:\{[^{}]+\})+"
     r"|pay \d+ life"
-    r"|discard a card"
+    # PAR-208: "discard a land card" / "discard a noncreature card" (typed, `ActivationCost.discard_filter`) and
+    # "discard a card at random" (`discard_random`), read by `costs.parse_activation_cost` since ENG-49.
+    r"|discard an? (?:(?:land|creature|noncreature|artifact|enchantment|instant|sorcery) )?card(?: at random)?"
     r"|discard (?:\d+|two|three|four) cards"
     r"|sacrifice (?:a|another) (?:creature|permanent|artifact|enchantment|land))"
 )

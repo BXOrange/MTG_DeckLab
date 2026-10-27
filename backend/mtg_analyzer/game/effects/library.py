@@ -143,6 +143,7 @@ class SearchLibraryEffect(GameEffect):
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict[str, Any]]] = None,
         reveal: bool = False,
+        target_any_player: bool = False,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
@@ -180,7 +181,11 @@ class SearchLibraryEffect(GameEffect):
         #: make the target both the searcher *and* the one who answers.
         self.player_from_target = player_from_target
         if player_from_target:
-            self.target_spec = TargetSpec(kind="opponent", description="Gegner")
+            # PAR-208 (RULE 115.1 / 701.19a): "search target PLAYER's library" (Bitter Ordeal, Extract) may name the
+            # caster too; "target OPPONENT's library" (Praetor's Grasp, Bribery) may not.
+            self.target_spec = (
+                TargetSpec(kind="player") if target_any_player else TargetSpec(kind="opponent", description="Gegner")
+            )
         #: "…for any number of creature cards with **total** mana value 6
         #: or less…" (Protean Hulk, MEC-12) — a running budget shared
         #: across the *whole* multi-pick search, unlike `criteria`'s own

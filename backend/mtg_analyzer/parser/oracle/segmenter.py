@@ -11459,6 +11459,10 @@ def peel_optional(body: str) -> tuple[str, bool]:
                 and re.search(r"\.\s+if you do\b", rest, re.I)
             ):
                 return body, False
+        # PAR-208 (RULE 608.2c): "you may X. Then Y." -- only X is optional; peeling the "you may" would make the whole
+        # ability (and so Y) skippable. The pair stays whole and unclaimed unless a row reads it.
+        if re.search(r"\.\s+then\b", rest, re.I):
+            return body, False
         return rest, True
     return body, False
 

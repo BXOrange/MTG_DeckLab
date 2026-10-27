@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Optional
 from ...models.game.game_object import GameObject
 from ...models.game.player import Player
-from ..costs import DISCARD_HAND, REMOVE_COUNTERS_ANY_KIND, ActivationCost
+from ..costs import DISCARD_HAND, PAY_LIFE_HALF_UP, REMOVE_COUNTERS_ANY_KIND, ActivationCost
 from .. import continuations
 from .misc_helpers import (
     _names_other_word,
@@ -40,7 +40,10 @@ class PlayerCostsMixin:
             # Reuse these rules/listeners and preserve the live turn cursor.
             if find_tap_plan(GameEngine(self.state, rules=self), player, cost.mana) is None:
                 return False
-        if cost.pay_life and player.life < cost.pay_life:
+        if cost.pay_life == PAY_LIFE_HALF_UP:
+            if player.life < 1:
+                return False  # RULE 119.4: a player can pay life only while they have some
+        elif cost.pay_life and player.life < cost.pay_life:
             return False
         if cost.discard and cost.discard != DISCARD_HAND and len(self._discard_pool(player, cost, source)) < cost.discard:
             return False
@@ -136,9 +139,16 @@ class PlayerCostsMixin:
                 GameEngine(self.state, rules=self).auto_tap_for(player, cost=cost.mana)
             life_spent = player.mana_pool.pay(cost.mana, life_available=player.life)
             self.lose_life(player, life_spent, cause="cost")
-        if cost.pay_life:
+        if cost.pay_life == PAY_LIFE_HALF_UP:
+            # "pay half their life, rounded up" (Temporal Extortion; RULE 107.1a rounding is printed): the amount is
+            # read from the life total at payment.
+            self.lose_life(player, (player.life + 1) // 2, cause="cost")
+        elif cost.pay_life:
             self.lose_life(player, cost.pay_life, cause="cost")
-        if cost.discard and cost.discard_filter and cost.discard != DISCARD_HAND:
+        if cost.discard and cost.discard_random and cost.discard != DISCARD_HAND:
+            # RULE 701.8d: "discard a card at random" (Balduvian Horde) -- no choice, a uniform pick.
+            self.discard_random(player, cost.discard, cause=source)
+        elif cost.discard and cost.discard_filter and cost.discard != DISCARD_HAND:
             # RULE 601.2b / 118.3: "discard a land card" is the payer's own pick among the cards that
             # qualify (Mox Diamond's "you may discard a land card instead"); forced when only
             # ``cost.discard`` of them are in hand. Pausing here is fine: the "if you do" half waits

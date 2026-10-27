@@ -691,9 +691,16 @@ class PaymentChoicesMixin:
         effect_specs: list[dict[str, Any]],
         source: Optional[GameObject],
         controller_id: str,
+        paid_effect_specs: Optional[list[dict[str, Any]]] = None,
+        opponents_only: bool = False,
     ) -> None:
         """RULE 118.3-adjacent multi-player tax: "Any player may pay
         `<cost>`. If no one does, `<effect>`." (Rhystic Circle, MEC-30).
+
+        PAR-208 (RULE 608.2c): ``paid_effect_specs`` is the printed "**If a player does**, `<effect>`" payoff (Brain
+        Gorgers, Argothian Wurm, Clackbridge Troll): it runs once, for ``controller_id``, as soon as the first player
+        pays -- and the sweep ends there, exactly as for the "if no one does" form. ``opponents_only`` is "any
+        **opponent** may" (Desecration Demon, Innocent Traveler): the controller is not asked.
 
         Every living player, starting with the active player and
         proceeding in turn order, is asked in turn whether to pay ``cost``.
@@ -722,11 +729,13 @@ class PaymentChoicesMixin:
             self.state.players[(start + i) % n].id
             for i in range(n)
             if not self.state.players[(start + i) % n].has_lost
+            and not (opponents_only and self.state.players[(start + i) % n].id == controller_id)
         ]
         self._pending_all_decline_or = {
             "remaining_ids": order,
             "cost": cost,
             "effect_specs": [dict(d) for d in effect_specs],
+            "paid_effect_specs": [dict(d) for d in paid_effect_specs or []],
             "source": source,
             "controller_id": controller_id,
         }
@@ -785,5 +794,9 @@ class PaymentChoicesMixin:
             if player is not None and self._can_pay_player_cost(player, pending["cost"]):
                 self._pay_player_cost(player, pending["cost"])
                 self._pending_all_decline_or = None
+                if pending.get("paid_effect_specs"):
+                    # "If a player does, ..." (PAR-208): the payoff, once, as the ability's source resolves it --
+                    # "you"/"~" read the source's controller, so no target list is passed.
+                    self._apply_effect_specs(pending["paid_effect_specs"], pending["source"])
                 return
         self._advance_all_decline_or()

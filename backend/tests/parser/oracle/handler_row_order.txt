@@ -97,6 +97,7 @@ you_and_target_opponent_draw
 draw
 draw_next_upkeep
 recover_milled
+return_own_graveyard
 choose_keep_types
 choose_keep_count
 choose_land_of_each_type
@@ -309,6 +310,7 @@ destroy_controller_search_basic_land
 search_put_then_shuffle_share_type
 elfhame_sanctuary
 search_named_criteria
+search_other_library
 search_put_then_shuffle
 search_put_attach_then_shuffle
 search_mv_lands_qualifier
@@ -406,6 +408,8 @@ action_if_you_do
 action_when_you_do
 counter_unless_pay
 counter_that_spell_or_ability
+counter_self
+any_player_may
 spell_controller_sacrifices
 counter_target_spell_unless_discard_hand
 get_energy

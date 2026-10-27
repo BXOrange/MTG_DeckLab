@@ -37,6 +37,7 @@ from .shared import (
     CAST_WINDOW_COLORS,
     compile_clause,
     EffectHandler,
+    EVENT_PLAYER_EVENTS_KEY,
     GRAVEYARD_SCOPE_WORD,
     graveyard_target_kind,
     GRAVEYARD_TYPE_WORD,
@@ -228,6 +229,37 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "under_your_control": destination == "battlefield",
         }}],
     })]
+
+
+#: PAR-208 (RULE 608.2d / 701.x "return"): "return a creature card from your graveyard to your hand" / "return up to 2
+#: creature cards ..." / "return a creature card and a land card ..." with no "target": the resolving player's own pick
+#: from their graveyard (`ChooseObjectsEffect`, ``pool_zone="graveyard"``), "up to N" being an optional pick. Mill-then-
+#: return (Another Chance, Carrion Cruiser, Sudden Reclamation) reaches it through the ordinary "then" connector.
+_OWN_GRAVEYARD_PICK = r"(?:an?|up to (?:\d+|one|two|three)) [a-z/ -]+? cards?"
+_RETURN_OWN_GRAVEYARD_RE = compile_clause(
+    rf"return (?P<picks>{_OWN_GRAVEYARD_PICK}(?: and {_OWN_GRAVEYARD_PICK})?) from your graveyard to your hand"
+)
+_OWN_GRAVEYARD_PICK_RE = re.compile(r"(?P<q>an?|up to (?P<n>\d+|one|two|three)) (?P<what>[a-z/ -]+? cards?)")
+_UP_TO_WORDS = {"one": 1, "two": 2, "three": 3}
+
+
+def _return_own_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    picks = re.split(r" and (?=an? |up to )", m.group("picks"))
+    specs: list[EffectSpec] = []
+    for text in picks:
+        pick = _OWN_GRAVEYARD_PICK_RE.fullmatch(text)
+        if pick is None:
+            return None
+        parsed = parse_object_phrase(pick.group("what"), plural=True)
+        if parsed is None or parsed[1] is not None or "target" in text:
+            return None
+        n = pick.group("n")
+        count = 1 if n is None else _UP_TO_WORDS.get(n) or int(n)
+        specs.append(EffectSpec("choose_objects", {
+            "action": "return_from_graveyard_to_hand", "what": "permanent", "pool_zone": "graveyard",
+            "permanent_filter": parsed[0], "count": count, "optional": n is not None,
+        }))
+    return specs
 
 
 # Per-type keeper choices share one pool and sacrifice its complement.
@@ -1129,9 +1161,19 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
         params["scope"] = "each_player"
     elif who == "each opponent":
         params["scope"] = "each_opponent"
+    elif who == "defending player":
+        # PAR-208 (RULE 508.1b): the player the source attacks, named by the firing combat event's
+        # ``defending_player_id``; only an attack / unblocked / blocked head carries it.
+        params["player"] = {"of": "trigger_player", "as": "self"}
+        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_COMBAT_EVENTS
     if m.groupdict().get("at_random"):
         params["random"] = True
     return [EffectSpec("discard", params)]
+
+
+#: Combat events that name the attacked player (``defending_player_id``): ATTACKS, ATTACKER_UNBLOCKED (RULE 509.1h),
+#: BECOMES_BLOCKED (RULE 509.1).
+_DEFENDING_PLAYER_COMBAT_EVENTS = ["ATTACKS", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"]
 
 
 #: "Discard N cards unless you discard a `<quality>` card." (Thirst for Knowledge, Compulsive Research, Alpharael,
@@ -1140,7 +1182,8 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
 #: or a creature/permanent subtype the shared count grammar knows (fail-closed on anything else).
 _DISCARD_UNLESS_RE = compile_clause(
     r"(?:then )?(?:(?P<who>you|that player|target player|target opponent|each opponent|each player) )?"
-    rf"discards? {COUNT} cards? unless (?:you|they) discards? (?:a|an) (?P<quality>[a-z]+) card"
+    # PAR-208: "an instant or sorcery card" (a type union) and "a basic land card" (supertype + type).
+    rf"discards? {COUNT} cards? unless (?:you|they) discards? (?:a|an) (?P<basic>basic )?(?P<quality>[a-z]+(?: or [a-z]+)?) card"
 )
 _DISCARD_UNLESS_CARD_TYPES = frozenset({"artifact", "creature", "land", "enchantment", "instant", "sorcery", "planeswalker"})
 
@@ -1148,7 +1191,16 @@ _DISCARD_UNLESS_CARD_TYPES = frozenset({"artifact", "creature", "land", "enchant
 def _discard_unless(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
     quality = m.group("quality").lower()
-    if quality == "nonland":
+    if " or " in quality:
+        parts = quality.split(" or ")
+        if m.group("basic") or not all(part in _DISCARD_UNLESS_CARD_TYPES for part in parts):
+            return None
+        unless = {"card_types": parts}  # RULE 205.2: either type satisfies it
+    elif m.group("basic"):
+        if quality != "land":
+            return None
+        unless = {"card_type": "land", "basic": True}
+    elif quality == "nonland":
         unless: dict = {"nonland": True}
     elif quality in _DISCARD_UNLESS_CARD_TYPES:
         unless = {"card_type": quality}
@@ -1656,6 +1708,7 @@ ROWS: list[EffectHandler] = [
         _draw_next_upkeep,
     ),
     EffectHandler("recover_milled", _RECOVER_MILLED_RE, _recover_milled),
+    EffectHandler("return_own_graveyard", _RETURN_OWN_GRAVEYARD_RE, _return_own_graveyard),  # PAR-208
     EffectHandler("choose_keep_types", _CHOOSE_KEEP_TYPES_RE, _choose_keep_types),
     EffectHandler("choose_keep_count", _CHOOSE_KEEP_COUNT_RE, _choose_keep_count),
     EffectHandler("choose_land_of_each_type", _CHOOSE_LAND_OF_EACH_TYPE_RE, _choose_land_of_each_type),
@@ -1798,7 +1851,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "discard",
         compile_clause(
-            r"(?P<who>you|target player|target opponent|each player|each opponent)?\s*"
+            r"(?P<who>you|target player|target opponent|each player|each opponent|defending player)?\s*"
             rf"discards? {COUNT} cards?(?P<at_random> at random)?"
         ),
         _discard,

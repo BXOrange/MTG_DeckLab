@@ -1337,6 +1337,51 @@ def _action_if_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list
     return [EffectSpec("seq", params)]
 
 
+#: PAR-208 (RULE 701.5a): "counter ~" -- the payoff of a "When you cast this spell, any player may ... If a player
+#: does, counter ~." trigger (Brain Gorgers, Dash Hopes): the spell the ability came from. Only a SPELL_CAST head has
+#: such a referent, so `gate._resolve_event_player_tree` keeps the clause unclaimed anywhere else.
+_COUNTER_SELF_RE = compile_clause(r"counter ~")
+CAST_EVENT = "SPELL_CAST"
+
+
+def _counter_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("counter", {"counter_source": True, EVENT_PLAYER_EVENTS_KEY: [CAST_EVENT]})]
+
+
+#: PAR-208 (RULE 118.12 / 608.2c): "Any player/opponent may <cost>. If a player does, <effect>." and "... If no 1
+#: does, <effect>." (Brain Gorgers, Argothian Wurm, Prowling Pangolin, Clackbridge Troll, Desecration Demon, Innocent
+#: Traveler): every player in turn order is asked (`RulesEngine._request_all_players_decline_or`); the first to pay ends
+#: the sweep and runs the "if a player does" payoff once for the controller. The cost is a closed vocabulary that
+#: `costs.parse_activation_cost` reads and `RulesEngine._pay_player_cost` pays.
+_ANY_PLAYER_COST = (
+    r"(?:sacrifice (?:an?|\d+|two|three) (?:creature|land|artifact|enchantment|permanent)s?(?: of their choice)?"
+    r"|discard (?:an?|\d+|two|three) cards?"
+    r"|pay \d+ life"
+    r"|pay half their life, rounded up)"
+)
+_ANY_PLAYER_MAY_RE = compile_clause(
+    rf"any (?P<scope>player|opponent) may (?P<cost>{_ANY_PLAYER_COST})\.\s*"
+    r"(?:if (?P<paid>a player does)|if (?P<none>no (?:1|one) does)),\s*(?P<payoff>[^.]+)"
+)
+_NUMBER_WORD_COST = {"two": "2", "three": "3"}
+#: A ``target_kind`` that names the ability's own source ("tap ~"), not a RULE 115 target.
+SOURCE_REFERENT_KIND = "source"
+
+
+def _any_player_may(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None  # "~" would be the firing object / host, not the source
+    cost = m.group("cost").replace(" of their choice", "").replace("their life", "your life")
+    cost = re.sub(r"\b(two|three)\b", lambda w: _NUMBER_WORD_COST[w.group(1)], cost)
+    payoff = parse_effect_body(m.group("payoff").strip(), reading=ClauseReading(self_subject=True))
+    if not payoff or any(spec.params.get("target_kind") not in (None, SOURCE_REFERENT_KIND) for spec in payoff):
+        return None  # the payoff runs once the sweep ends, with no target announced for it
+    params: dict[str, Any] = {"cost": cost, "paid_effects" if m.group("paid") else "effects": [s.to_dict() for s in payoff]}
+    if m.group("scope") == "opponent":
+        params["opponents_only"] = True
+    return [EffectSpec("all_players_decline_or", params)]
+
+
 #: MEC-19's "counter it/that spell[or ability] unless that player/its
 #: controller pays `<cost>`." — a `_BECOMES_TARGET_TRIGGER_RE`-anchored
 #: triggered ability's own resolution body, the un-keyworded-Ward-shaped
@@ -2008,6 +2053,8 @@ ROWS: list[EffectHandler] = [
         _counter_unless_pay,
     ),
     EffectHandler("counter_that_spell_or_ability", _COUNTER_THAT_SPELL_OR_ABILITY_RE, _counter_that_spell_or_ability),
+    EffectHandler("counter_self", _COUNTER_SELF_RE, _counter_self),  # PAR-208
+    EffectHandler("any_player_may", _ANY_PLAYER_MAY_RE, _any_player_may, reading_aware=True),  # PAR-208
     EffectHandler("spell_controller_sacrifices", _SPELL_CONTROLLER_SACRIFICES_RE, _spell_controller_sacrifices),
     EffectHandler(
         "counter_target_spell_unless_discard_hand",

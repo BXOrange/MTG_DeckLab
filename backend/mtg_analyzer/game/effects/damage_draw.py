@@ -1445,7 +1445,8 @@ class DiscardEffect(GameEffect):
         self.player = player
         #: "Discard N cards **unless** you discard a `<quality>` card." (Thirst for Knowledge, Compulsive
         #: Research, Alpharael) — the discarding player may instead discard one hand card matching this
-        #: filter (``{"card_type": "land"}`` / ``{"nonland": True}`` / ``{"subtype": "pirate"}``); declining —
+        #: filter (``{"card_type": "land"}`` / ``{"nonland": True}`` / ``{"subtype": "pirate"}`` / ``{"card_types": ["instant",
+        #: "sorcery"]}`` / ``{"card_type": "land", "basic": True}``); declining —
         #: or holding no such card — discards ``count`` cards as usual (RULE 608.2, the choice is theirs).
         self.unless_discard = dict(unless_discard) if unless_discard else None
         #: An explicit discarding player by id — what the "declined, so discard N" branch of
@@ -1524,6 +1525,11 @@ class DiscardEffect(GameEffect):
             return "land" not in types.split()
         if spec.get("subtype"):
             return str(spec["subtype"]).lower() in subtypes.split()
+        if spec.get("card_types"):
+            # PAR-208 (RULE 205.2): "an instant or sorcery card" -- either type.
+            return any(str(word).lower() in types.split() for word in spec["card_types"])
+        if spec.get("basic") and "basic" not in types.split():
+            return False  # RULE 205.4: "basic" is a supertype of the type line
         return str(spec.get("card_type", "")).lower() in types.split()
 
     def _discard_from(self, context: GameContext, player: Any) -> None:

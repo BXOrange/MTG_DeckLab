@@ -826,6 +826,7 @@ EffectRegistry.register(
         count=p.get("target_count", 1), optional=bool(p.get("optional", False)),  # PAR-150: "up to two target spells"
         destination=p.get("destination"),  # PAR-175 M4: "if that spell is countered this way, exile it instead …"
         name_from_source=bool(p.get("name_from_source", False)),  # MEC-134: "target spell with the chosen name"
+        counter_source=bool(p.get("counter_source", False)),  # PAR-208: "counter ~" from a cast trigger
     ),
 )
 EffectRegistry.register(
@@ -1969,6 +1970,8 @@ EffectRegistry.register(
     lambda p: RequestAllPlayersDeclineOrEffect(
         cost=p.get("cost", ""),
         effects=list(p.get("effects", [])),
+        paid_effects=list(p.get("paid_effects", [])),
+        opponents_only=bool(p.get("opponents_only", False)),
     ),
 )
 EffectRegistry.register(
@@ -3493,6 +3496,7 @@ EffectRegistry.register(
         remember=bool(p.get("remember", False)),
         total_mana_value_budget=p.get("total_mana_value_budget"),
         player_from_target=bool(p.get("player_from_target", False)),
+        target_any_player=bool(p.get("target_any_player", False)),
         share_land_type=bool(p.get("share_land_type", False)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         untap_if_lands_at_least=p.get("untap_if_lands_at_least"),

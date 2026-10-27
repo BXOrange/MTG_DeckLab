@@ -1866,6 +1866,11 @@ class SearchMixin:
                 # rather than putting it back.
                 self.exile(obj)
                 continue
+            if chooser_id is not None and chooser_id != player.id and dest in ("battlefield", "battlefield_tapped"):
+                # RULE 110.2 / 701.19a: "search target opponent's library for a creature card and put it onto the
+                # battlefield under your control" (Bribery): the searcher, not the library's owner, controls the
+                # entrant; ownership stays with the library's owner (RULE 108.3).
+                obj.controller_id = chooser_id
             self._put_searched_card(player, obj, dest, chooser_id=chooser_id)
             if (
                 untap_if_lands_at_least is not None
