@@ -23,6 +23,12 @@ def matching_attackers(event: Any, context: Any, spec: dict, source: Any) -> lis
         # attacking a planeswalker or battle doesn't count.
         if spec.get("defender") == "player" and (getattr(obj, "combat_defender", None) or {}).get("kind") != "player":
             continue
+        # "Whenever three or more creatures attack **you**" (PAR-207): only the attackers whose defender is this
+        # ability's controller as a player (a planeswalker they control is not "you", RULE 508.1b).
+        if spec.get("defender") == "controller":
+            defender = getattr(obj, "combat_defender", None) or {}
+            if defender.get("kind") != "player" or defender.get("id") != getattr(source, "controller_id", None):
+                continue
         if matches_object_filter(obj, spec.get("filter"), reference=source, state=state):
             result.append(obj)
     return result

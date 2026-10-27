@@ -84,6 +84,12 @@ class EventType:
 
     # RULE 610.3: notification after actual removal, distinct from look-back LTB triggers.
     BATTLEFIELD_DEPARTED = "BATTLEFIELD_DEPARTED"
+    #: RULE 702.26a (PAR-207): a permanent phased in -- fired once per object by the untap step's phasing action
+    #: (directly and indirectly, RULE 702.26g), after it is back. Carries ``instance_id`` / ``controller_id``.
+    PHASED_IN = "PHASED_IN"
+    #: The mirror of `PHASED_IN`: fired just *before* the permanent leaves play's sight, so a "whenever ~ phases out"
+    #: ability still finds its source (RULE 702.26a, 603.10 look-back). Same payload.
+    PHASED_OUT = "PHASED_OUT"
     # RULE 603.2: per-card sibling of CARDS_LEFT_GRAVEYARD (one-or-more).
     CARD_LEFT_GRAVEYARD = "CARD_LEFT_GRAVEYARD"
 

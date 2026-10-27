@@ -35,6 +35,12 @@ _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _ORDINAL_SPELL = re.compile(
     rf"^(?:your|their) (?P<n>{'|'.join(_ORDINALS)}) spell (?P<tail>.+)$"
 )
+#: PAR-207: "your first **instant or sorcery** spell each turn" -- the ordinal counts only the spells that match the
+#: rest of the phrase (RULE 601: each spell cast is a separate event), so the same filter that scopes the trigger also
+#: scopes the count (`is_nth_matching_spell_cast_this_turn`, read over the turn's `SPELL_CAST` events).
+_ORDINAL_TYPED_SPELL = re.compile(
+    rf"^(?:your|their) (?P<n>{'|'.join(_ORDINALS)}) (?P<head>(?:[a-z'-]+ )+?)spell (?:each turn|in a turn)$"
+)
 _FIRST_X_SPELL = re.compile(
     r"^(?:your|their) first spell with \{x\} in its mana cost each turn$"
 )
@@ -93,9 +99,13 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
     phrase = phrase.strip().lower()
     if _FIRST_X_SPELL.fullmatch(phrase):
         return {"first_x_spell": True, "spell_has_x": True}
+    typed = _ORDINAL_TYPED_SPELL.fullmatch(phrase)
     ordinal = _ORDINAL_SPELL.fullmatch(phrase)
     ordinal_keys: dict[str, Any] = {}
-    if ordinal:
+    if typed:
+        ordinal_keys["is_nth_matching_spell_cast_this_turn"] = _ORDINALS[typed.group("n")]
+        phrase = f"a {typed.group('head')}spell"
+    elif ordinal:
         tail = ordinal.group("tail")
         if tail in ("each turn", "in a turn"):
             tail = ""

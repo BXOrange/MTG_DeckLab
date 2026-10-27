@@ -69,7 +69,7 @@ def test_head_shapes():
 
 
 def test_a_heads_not_in_the_grammar_stays_unclaimed():
-    assert parse_object_trigger_head("the fourth plan counter is put on ~") is None  # ordinal state trigger
+    assert parse_object_trigger_head("the fourth plan counter is put on target creature") is None  # not ~'s own counter
     assert parse_object_trigger_head("1 or more +1/+1 counters are put on ~ or another creature") is None
 
 

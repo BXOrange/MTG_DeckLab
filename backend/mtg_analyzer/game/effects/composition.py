@@ -151,6 +151,30 @@ def _build(specs: list[dict[str, Any]], source: Optional[GameObject]) -> list[Ga
     )
 
 
+def antecedent_impossible(antecedent: list[dict[str, Any]], source: Optional[GameObject], context: GameContext) -> bool:
+    """An "if you do" antecedent that cannot be performed in full is not offered (RULE 609.3 applies to the
+    instruction, but the question is only worth asking when "if you do" can come true): "exile two cards from
+    your graveyard" needs two."""
+    for spec in antecedent:
+        if spec.get("type") == "choose_objects":
+            # "tap two other untapped creatures": fewer than two to pick cannot do it, so "if you do" cannot hold.
+            chooser = _build([spec], source)[0]
+            pooled = chooser.pool_candidates(context)
+            needed = chooser.count
+            if pooled is None or (isinstance(needed, int) and len(pooled[1]) < needed):
+                return True
+        if spec.get("type") == "exile_own_graveyard_cards":
+            controller = effect_conditions._player_by_id(context, effect_conditions._controller_id(source, context))
+            params = spec.get("params") or {}
+            needed = max(1, int(params.get("count", 1)))
+            card_type = str(params.get("card_type") or "").lower()
+            pool = [o for o in (controller.graveyard if controller is not None else [])
+                    if not card_type or card_type in (o.card.type_line or "").lower().split("—")[0]]
+            if controller is None or len(pool) < needed:
+                return True
+    return False
+
+
 class _CompositeEffect(GameEffect):
     """Shared body handling for the five nodes.
 
@@ -241,8 +265,40 @@ class SeqEffect(_CompositeEffect):
             specs.extend(effect.target_specs)
         return specs
 
+    def __init__(
+        self,
+        effects: Optional[list[Any]] = None,
+        source: Optional[GameObject] = None,
+        if_you_do_from: Optional[int] = None,
+    ) -> None:
+        super().__init__(effects, source)
+        #: RULE 608.2c / 603.12 "A. **When/If you do**, B." with no "you may" of its own: the number of leading
+        #: ``effects`` that are A. B (the rest) waits behind `IfYouDoEffect`'s check that A changed the game --
+        #: the unconditional sibling of `OptionalEffect.if_you_do_from` (the optional question is the ability's).
+        self.if_you_do_from = (
+            if_you_do_from if isinstance(if_you_do_from, int) and 0 < if_you_do_from < len(self.inner_specs) else None
+        )
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        self._run(self.inner_specs, context, targets)
+        split = self.if_you_do_from
+        if not split:
+            self._run(self.inner_specs, context, targets)
+            return
+        antecedent, payoff = self.inner_specs[:split], self.inner_specs[split:]
+        if antecedent_impossible(antecedent, self.source, context):
+            return  # "exile 5 cards from your graveyard" with 3 there cannot come true
+        built = _build(effect_conditions.pin_source_reference(
+            antecedent, self.source, context.resolving_source_incarnation), self.source)
+        if not all(spec.get("type") in ALWAYS_DONE_ANTECEDENTS for spec in antecedent):
+            built.append(IfYouDoEffect(game_fingerprint(context, self.source), payoff, self.source))
+        else:
+            built += _build(payoff, self.source)
+        _apply_effects_partitioned(
+            built, context, targets, None, source=self.source,
+            previous_targets=list(getattr(context, "previous_targets", []) or []),
+            created_objects=list(getattr(context, "created_objects", []) or []),
+            created_sink=context.created_objects,
+        )
 
 
 #: `TriggerSubjectReferentEffect.event_key` naming the remembered subject rather than an event field.
@@ -486,24 +542,7 @@ class OptionalEffect(_CompositeEffect):
         self.player = player
 
     def _antecedent_impossible(self, context: GameContext) -> bool:
-        """An "if you do" antecedent that cannot be performed in full is not offered (RULE 609.3 applies to the
-        instruction, but the question is only worth asking when "if you do" can come true): "exile two cards from
-        your graveyard" needs two."""
-        for spec in self.inner_specs[: self.if_you_do_from]:
-            if spec.get("type") == "choose_objects":
-                # "tap two other untapped creatures": fewer than two to pick cannot do it, so "if you do" cannot hold.
-                chooser = _build([spec], self.source)[0]
-                pooled = chooser.pool_candidates(context)
-                needed = chooser.count
-                if pooled is None or (isinstance(needed, int) and len(pooled[1]) < needed):
-                    return True
-            if spec.get("type") == "exile_own_graveyard_cards":
-                controller = effect_conditions._player_by_id(
-                    context, effect_conditions._controller_id(self.source, context))
-                needed = max(1, int((spec.get("params") or {}).get("count", 1)))
-                if controller is None or len(controller.graveyard) < needed:
-                    return True
-        return False
+        return antecedent_impossible(self.inner_specs[: self.if_you_do_from], self.source, context)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.inner_specs and not self.else_specs:
@@ -960,7 +999,7 @@ class BindEffect(_CompositeEffect):
 EffectRegistry.register(
     # A list as a value — see `SeqEffect`.
     "seq",
-    lambda p: SeqEffect(effects=p.get("effects")),
+    lambda p: SeqEffect(effects=p.get("effects"), if_you_do_from=p.get("if_you_do_from")),
 )
 EffectRegistry.register("entry_effect", lambda p: EntryEffect(effects=p.get("effects")))
 EffectRegistry.register(

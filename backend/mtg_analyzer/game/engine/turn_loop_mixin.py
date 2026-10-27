@@ -758,6 +758,13 @@ class TurnLoopMixin:
             if not obj.phased_out and obj.attached_to in phase_out_ids
             and obj.instance_id not in phase_out_ids
         ]
+        # RULE 702.26a / 603.10: "whenever ~ phases out" looks back to the permanent as it leaves play's sight, so the
+        # event goes out before the flag flips (a phased-out permanent has no triggered abilities to find).
+        for obj in phase_out + indirect_out:
+            self.state.fire_event(GameEvent(
+                EventType.PHASED_OUT, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                object_types=sorted(getattr(obj, "type_words", None) or []),
+            ))
         for obj in phase_in + indirect_in:
             obj.phased_out = False
             obj.phased_out_with = None
@@ -766,6 +773,13 @@ class TurnLoopMixin:
         for obj in indirect_out:
             obj.phased_out = True
             obj.phased_out_with = obj.attached_to
+        # RULE 702.26a: "whenever ~ phases in" -- only once everything has finished phasing, so a trigger sees
+        # the board as the step left it (the sets above were taken before either direction was applied).
+        for obj in phase_in + indirect_in:
+            self.state.fire_event(GameEvent(
+                EventType.PHASED_IN, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                object_types=sorted(getattr(obj, "type_words", None) or []),
+            ))
         # RULE 502.3-adjacent (Winter Orb/Static Orb/Winter Moon): "players
         # can't untap more than N `<type>` during their untap steps" — a
         # flat, unscoped cap that applies to every player's untap step

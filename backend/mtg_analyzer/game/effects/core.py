@@ -2196,9 +2196,13 @@ class ActivatedAbility(GameEffect):
         attach_kind: Optional[str] = None,
         modes: Optional[list[dict[str, Any]]] = None,
         once_per_game: bool = False,
+        keyword_label: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.effects = effects
+        #: PAR-207: the keyword this ability was printed under ("exhaust", RULE 702.177; "power-up"), so a trigger
+        #: on "an exhaust ability" can tell it from another once-per-game ability.
+        self.keyword_label = keyword_label
         if cost is None:
             # Back-compat: build a cost from the old mana/tap parameters.
             from ..costs import ActivationCost

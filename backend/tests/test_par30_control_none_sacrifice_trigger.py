@@ -43,10 +43,13 @@ def test_plains_stays_plains():
     assert seg.spec.trigger["controls_none_of_type"] == "plains"
 
 
-def test_non_basic_type_is_not_claimed_here():
-    # "control no creatures" is a different (much broader) shape.
+def test_non_basic_type_is_not_the_land_type_rows_but_a_state_trigger():
+    # "control no creatures" is a different (much broader) shape: not the printed-land-type gate on a
+    # LEAVES_BATTLEFIELD event, but a RULE 603.8 state trigger over the shared state-predicate vocabulary (PAR-207).
     seg = _seg("when you control no creatures, sacrifice ~")
-    assert not seg.claimed or seg.spec is None
+    assert seg.claimed and "controls_none_of_type" not in seg.spec.trigger
+    assert seg.spec.trigger["event"] == "STATE_CHECK"
+    assert seg.spec.trigger["state_condition"]["max"] == 0
 
 
 def test_bog_serpent_modeled():

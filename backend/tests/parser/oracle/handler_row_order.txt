@@ -402,6 +402,7 @@ may_exile_target_if_you_do
 may_have_it_deal_damage_equal_to_power
 have_that_player_lose_life
 may_effect_then
+action_when_you_do
 counter_unless_pay
 counter_that_spell_or_ability
 spell_controller_sacrifices
@@ -779,3 +780,4 @@ delayed_destroy_self_and_blocked_end_of_combat
 delayed_comma_body_end_of_combat
 gain_control_group_while_source
 delayed_self_rider_end_of_combat
+delayed_step_body

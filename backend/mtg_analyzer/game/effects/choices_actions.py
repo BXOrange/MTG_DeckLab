@@ -1022,14 +1022,19 @@ class ReflexiveTriggerEffect(GameEffect):
     def __init__(
         self, then_trigger: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        then_trigger_condition: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
+        #: RULE 603.12 + 603.4: "When you do, if <condition>, <effect>" -- checked as the reflexive trigger is
+        #: created, so a false condition puts nothing on the stack and announces no target.
+        self.then_trigger_condition = then_trigger_condition
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not self.then_trigger_specs:
             return
-        context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source)
+        context.enqueue_reflexive_trigger(
+            self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 
 
 class PayCostThenEffect(GameEffect):

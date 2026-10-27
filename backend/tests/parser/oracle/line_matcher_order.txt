@@ -3,6 +3,7 @@ kw_labeled
 equip_dash
 equip_once_each_turn
 etb_and_cast
+split_heads
 play_with_top_revealed
 meld_trig
 attack_meld

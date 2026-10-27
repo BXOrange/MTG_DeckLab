@@ -1165,7 +1165,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "exile_own_graveyard_cards",
-    lambda p: ExileOwnGraveyardCardsEffect(count=int(p.get("count", 1) or 1)),
+    lambda p: ExileOwnGraveyardCardsEffect(count=int(p.get("count", 1) or 1), card_type=p.get("card_type")),
 )
 EffectRegistry.register(
     # "Exile the top card of your library[, face down]." (MEC-38,
@@ -1904,7 +1904,9 @@ EffectRegistry.register(
     # RULE 603.12 reflexive "When you do, <effect>" trigger, carried in an
     # antecedent effect's `then` list (Meanders Guide's tap-then-return).
     "reflexive_trigger",
-    lambda p: ReflexiveTriggerEffect(then_trigger=list(p.get("then_trigger", []))),
+    lambda p: ReflexiveTriggerEffect(
+        then_trigger=list(p.get("then_trigger", [])), then_trigger_condition=p.get("then_trigger_condition"),
+    ),
 )
 EffectRegistry.register(
     # RULE 118.3 resolve-time optional payment, generalized past energy:

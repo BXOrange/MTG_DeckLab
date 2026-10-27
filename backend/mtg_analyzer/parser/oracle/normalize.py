@@ -86,8 +86,12 @@ _SELF_REFERENCE_RE = re.compile(
 
 
 def _fold_self_reference(text: str) -> str:
-    """Fold type-worded self-references ("this creature", …) to ``~``."""
-    return _SELF_REFERENCE_RE.sub(SELF, text)
+    """Fold type-worded self-references ("this creature", …) to ``~``.
+
+    PAR-207: a card whose short name is its type word ("Case of the Filched Falcon" -> "Case") has that word folded
+    to ``~`` by `_fold_self_name` first, leaving "this ~"; "this" + the card's own name can only mean the card
+    itself, so it folds the same way."""
+    return _SELF_REFERENCE_RE.sub(SELF, text).replace(f"this {SELF}", SELF)
 
 
 #: RULE 207.2c "ability words" — italicized labels with no rules meaning of

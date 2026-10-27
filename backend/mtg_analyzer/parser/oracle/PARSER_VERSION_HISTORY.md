@@ -4289,3 +4289,21 @@ Fixes A Tale for the Ages without treating attachment states as creature subtype
 769: PAR-206 — mandatory one-of-two dig selections accept "the other" in the
 selection sentence or a following sentence. A singleton bottom remainder reuses
 look_top_select without an extra ordering choice (A Little Chat / Sleight of Hand).
+
+770: PAR-207 — trigger and activation heads as composed grammar. (1) RULE 603.12 reflexive "<action>. When you do,
+<effect>." for any single antecedent with an observable footprint (`spec.IF_YOU_DO_ANTECEDENT_TYPES`, now incl. mill and
+amass): `seq` + `if_you_do_from` + `reflexive_trigger`, the payoff keeping its own targets; `pay {E}` and typed discards
+join `pay_cost_then`'s cost vocabulary; "when you discard a (non)land card this way" reflexive over the `this_way_pool`
+window. (2) New `catalogue/event_heads.py`: "you activate an exhaust / loyalty ability [of …]" (`ACTIVATED_ABILITY` now
+carries `is_loyalty_ability` / `is_exhaust_ability`; the Exhaust marker carries its keyword), "the Nth <kind> counter is
+put on ~" (`source_counter_reaches`), "you get N or more {E}", "enchanted player is attacked" and RULE 603.8 state heads
+over `static_condition` ("there are no creatures …", "~ has flying", "you control no …") as `STATE_CHECK` triggers.
+(3) Attachment adjectives modified / equipped / enchanted in `characteristic_phrase`, so every object head, batch-attack
+`object_filter` and count phrase reads them. (4) Heads: "~ or equipped creature <predicate>" (two independent
+abilities), "phases in/out" (`PHASED_IN`/`PHASED_OUT`), "enters untapped", "complete a dungeon", "shuffles their
+library", "a source deals damage to ~", "N or more creatures attack [you]" (`ATTACKERS_DECLARED` of any player),
+"your first <type> spell each turn" (`is_nth_matching_spell_cast_this_turn`), "enchanted/the chosen player's <step>"
+(`phase_relation`), "When you cast or cycle ~" / "When ~ enters and when you sacrifice it" as split heads, "this ~" folded
+to "~". (5) A step-named delayed trigger: "At the beginning of the next end step / your next end step / your next
+upkeep, <referent-free effect>" (`effect_rows/delayed_steps.py`). A sentence after a reflexive payoff that does not parse
+into it now fails the body closed instead of reading its "it" as the source.

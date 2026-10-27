@@ -239,6 +239,9 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "EXERTED": "player_id",
     # RULE 700.13: the player committing the crime, independent of the targeted object's controller.
     "CRIME_COMMITTED": "player_id",
+    # PAR-207: the player whose library was shuffled (RULE 701.20) / who lost the game (RULE 104.3) -- neither event
+    # carries a ``controller_id``.
+    "SHUFFLE": "player_id", "PLAYER_LOST": "player_id",
     # RULE 506.5's "whenever a Samurai or Warrior you control attacks alone"
     # — same payload shape as `ATTACKS`, just fired once per combat rather
     # than once per attacker (`GameEngine._fire_attacks_alone_event`).
@@ -1334,6 +1337,9 @@ def _any_attacking_matches(
     # PAR-148: "one or more Goblins and/or Orcs you control attack" — the attacker has any of the subtypes
     # (RULE 205.3m; derived, so a changeling or a granted type counts).
     subtypes_any = group_filter.get("subtypes_any") or []
+    object_filter = group_filter.get("object_filter") or None
+    if object_filter:
+        from ..combat import matches_object_filter  # function-scoped: see combat.py
     for obj in state.battlefield:
         if not getattr(obj, "attacking", False):
             continue
@@ -1354,6 +1360,10 @@ def _any_attacking_matches(
             obj_subs = {s.lower() for s in _card_subtypes(getattr(obj, "card", None))}
             if any(e in obj_subs for e in excluded):
                 continue
+        # PAR-207: "one or more creatures you control **with flying** attack" -- any other noun-phrase quality is
+        # the ordinary object filter, read against the live attacker.
+        if object_filter and not matches_object_filter(obj, object_filter, state=state):
+            continue
         return True
     return False
 
@@ -1623,6 +1633,14 @@ def _trigger_condition(
             return event.get("to_zone") != zone
 
         predicates.append(_not_to_zone_ok)
+
+    # "When ~ enters untapped" (PAR-207, RULE 614.1d) -- the source's own tapped status once its entry replacements
+    # (an "enters tapped unless …" land) have run: the trigger is checked right after it is on the battlefield.
+    if trigger.get("entered_untapped"):
+        def _entered_untapped_ok(event: Any, context: Any, src=source) -> bool:
+            return not bool(getattr(src, "tapped", False))
+
+        predicates.append(_entered_untapped_ok)
 
     # "…enter **without being played**" (Deep Gnome Terramancer) — RULE 305.1: only
     # `play_land` stamps ``played``; every other way onto the battlefield is "put".
@@ -2144,6 +2162,28 @@ def _trigger_condition(
 
         predicates.append(_nth_instant_or_sorcery_ok)
 
+    # "Whenever you cast your **first instant or sorcery spell each turn**, …" (PAR-207, Double Vision, Psemilla) --
+    # the general form of the per-type tallies above: the Nth `SPELL_CAST` this turn by the casting player that
+    # matches the trigger's own ``spell_filter`` (this event is already in the turn's history, so it counts itself).
+    nth_matching = trigger.get("is_nth_matching_spell_cast_this_turn")
+    if nth_matching is not None:
+        n_matching = int(nth_matching)
+        counted_filter = (
+            spell_filter_predicate(dict(trigger["spell_filter"]), source)
+            if isinstance(trigger.get("spell_filter"), dict) else None
+        )
+
+        def _nth_matching_spell_ok(event: Any, context: Any, n=n_matching, flt=counted_filter) -> bool:
+            player_id = event.get("player_id")
+            counted = sum(
+                1 for past in context.state.events_this_turn()
+                if past.type == EventType.SPELL_CAST and past.get("player_id") == player_id
+                and (flt is None or flt(past, context))
+            )
+            return counted == n
+
+        predicates.append(_nth_matching_spell_ok)
+
     # "Whenever you tap a permanent for {C}, add an additional {C}." (Forsaken Monument) — the mana the
     # tap actually produced (`TAPPED_FOR_MANA.produced`) includes the named type.
     produced_type = trigger.get("mana_produced_includes")
@@ -2610,6 +2650,16 @@ def _trigger_condition(
             return active is not None and host is not None and active.id == host
 
         predicates.append(_phase_relation_enchanted_player_ok)
+    elif phase_relation == "chosen_player":
+        # "At the beginning of the chosen player's upkeep" (PAR-207, Black Vise, The Rack): the step is the turn of
+        # the player this permanent chose as it entered (`GameObject.chosen_player_id`, RULE 700.2g), read live.
+        def _phase_relation_chosen_player_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            active = getattr(state, "active_player", None) if state is not None else None
+            chosen = getattr(src, "chosen_player_id", None)
+            return active is not None and chosen is not None and active.id == chosen
+
+        predicates.append(_phase_relation_chosen_player_ok)
     elif phase_relation == "attached_permanent":
         # "At the beginning of the upkeep of enchanted creature's
         # controller, …" (MEC-43 round 4F — Dance of the Dead) — unlike
@@ -2726,6 +2776,40 @@ def _trigger_condition(
             return int((obj.counters or {}).get(k, 0)) >= want
 
         predicates.append(_source_counters_at_least_ok)
+
+    # "When the fourth plan counter is put on ~, …" (PAR-207, RULE 122 / 603.2) -- the COUNTER event whose
+    # placement *reached* the Nth counter of that kind: the source holds N or more now and held fewer before
+    # (`amount` is how many this placement added), so a fifth counter later does not fire it again.
+    source_counter_reaches = trigger.get("source_counter_reaches")
+    if source_counter_reaches is not None:
+        reach_id = getattr(source, "instance_id", None)
+        reach_count = int(source_counter_reaches.get("count", 0))
+        reach_kind = str(source_counter_reaches.get("kind", "+1/+1"))
+
+        def _source_counter_reaches_ok(
+            event: Any, context: Any, iid=reach_id, want=reach_count, k=reach_kind,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            obj = state.find_object(iid) if state is not None and iid is not None else None
+            if obj is None:
+                return False
+            now = int((obj.counters or {}).get(k, 0))
+            return now >= want > now - int(event.get("amount") or 0)
+
+        predicates.append(_source_counter_reaches_ok)
+
+    # "When there are no creatures on the battlefield, sacrifice ~." (PAR-207, RULE 603.8) -- a state trigger
+    # whose whole condition is a `static_conditions` predicate, read live against the ability's current
+    # controller on every `STATE_CHECK`.
+    state_condition = trigger.get("state_condition")
+    if state_condition is not None:
+        state_gate = dict(state_condition)
+
+        def _state_condition_ok(event: Any, context: Any, src=source, gate=state_gate) -> bool:
+            state = getattr(context, "state", None)
+            return state is not None and condition_holds(gate, state, src, getattr(src, "controller_id", None))
+
+        predicates.append(_state_condition_ok)
 
     # "When you control no Swamps, sacrifice ~." (RULE 603.8 state trigger —
     # Bog Serpent / Sea Serpent / Dandân cycle). A `LEAVES_BATTLEFIELD`
@@ -3192,6 +3276,7 @@ def bind_ability(
     only_during_your_turn = False
     only_before_attackers = False
     once_per_game = False  # PAR-28 RULE 702.177a Exhaust / Power-up
+    keyword_label: Optional[str] = None  # PAR-207: "exhaust" / "power-up", which of the two it was printed as
     powerup_cost_reduction = False  # PAR-28 Power-up
     from_hand = False  # PAR-28 RULE 702.57a Forecast
     activation_condition: Optional[dict[str, Any]] = None
@@ -3222,8 +3307,10 @@ def bind_ability(
             only_during_your_turn = True
         if any(e.type == ONLY_BEFORE_ATTACKERS_MARKER for e in effect_specs):
             only_before_attackers = True
-        if any(e.type == ACTIVATE_ONLY_ONCE_MARKER for e in effect_specs):
+        once_marker = next((e for e in effect_specs if e.type == ACTIVATE_ONLY_ONCE_MARKER), None)
+        if once_marker is not None:
             once_per_game = True
+            keyword_label = once_marker.params.get("keyword") or None
         if any(e.type == POWERUP_COST_REDUCTION_MARKER for e in effect_specs):
             powerup_cost_reduction = True
         if any(e.type == FROM_HAND_MARKER for e in effect_specs):
@@ -3510,6 +3597,7 @@ def bind_ability(
         modes=activated_modes,
         once_per_game=once_per_game,
         attach_kind=cost.attach_kind,
+        keyword_label=keyword_label,
     )
 
 

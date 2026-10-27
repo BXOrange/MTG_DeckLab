@@ -155,7 +155,9 @@ def test_payment_clone_and_undo_retain_original_objects(name):
 
 def test_ambiguous_bare_source_pronoun_stays_unclaimed():
     assert parse_effect_body('you may pay {e}. if you do, it gets +2/+0 until end of turn') is None
-    assert parse_effect_body('you may pay {e}. when you do, target creature gains flying until end of turn') is None
+    # PAR-207: a *reflexive* payoff names its own target, so nothing is ambiguous and `pay_cost_then` carries it.
+    (reflexive,) = parse_effect_body('you may pay {e}. when you do, target creature gains flying until end of turn')
+    assert reflexive.type == 'pay_cost_then' and reflexive.params['then_trigger'][0]['params']['target_kind'] == 'creature'
 
 
 def test_source_new_zone_visit_is_not_pumped_after_payment():
@@ -203,9 +205,13 @@ def test_existing_coup_target_is_not_announced_twice():
 
 
 def test_nested_reflexive_target_is_not_announced_early():
-    assert parse_effect_body(
+    # PAR-207: the whole payoff (target included) is the reflexive trigger's, so its target is chosen only after the
+    # payment (RULE 603.12) -- it is no longer a body the ability would have to announce up front.
+    (spec,) = parse_effect_body(
         'you may pay {e}. when you do, you gain 1 life, then target creature gains flying until end of turn'
-    ) is None
+    )
+    assert spec.type == 'pay_cost_then' and 'effects' not in spec.params
+    assert [e['type'] for e in spec.params['then_trigger']] == ['gain_life', 'pump']
 
 
 def test_independent_target_groups_fail_closed_as_atomic_payment():

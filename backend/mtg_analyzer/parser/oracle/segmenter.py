@@ -1103,6 +1103,16 @@ def _active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
                 EffectSpec("search", {"criteria": "", "destination": "hand", "optional": False}).to_dict(),
             ],
         })]
+    # PAR-207: "they lose 1 life and you gain 1 life" (Curse of Leeches) -- a life loss for the step's player, then a
+    # clause about the ability's controller: each half is read under its own player. Only the life-loss shape: other
+    # "that player ... and you ..." bodies name two player referents and stay unclaimed.
+    split_players = re.fullmatch(
+        r"(?P<theirs>(?:they|that player) lose[s]? \d+ life) and (?P<yours>you [^.]+)\.?", rest)
+    if split_players is not None:
+        theirs = _active_player_phase_body(split_players.group("theirs"))
+        yours = parse_effect_body(split_players.group("yours"))
+        if theirs is not None and yours is not None:
+            return theirs + yours
     # RULE 504 / 109.5: a phase's "that player" is the player whose turn
     # it is. Reuse second-person bodies, including optional choices and
     # linked instructions, while retaining the actual ability controller.
@@ -1207,6 +1217,10 @@ _PHASE_TRIGGER_RE = re.compile(
     # the enchanted host, independently of who controls the Aura.
     rf"|the (?P<step_attached>{_PHASE_STEP_ALT})(?:\s+step)? of enchanted "
     r"(?:creature|artifact|land|enchantment|permanent)'?s controller"
+    # PAR-207: the step belongs to a *player* the permanent names -- the one it enchants (a Curse, RULE 303.4t) or the
+    # one chosen as it entered (Black Vise, RULE 700.2g `GameObject.chosen_player_id`).
+    rf"|enchanted player'?s (?P<step_enchanted>{_PHASE_STEP_ALT})(?:\s+step)?"
+    rf"|the chosen player'?s (?P<step_chosen>{_PHASE_STEP_ALT})(?:\s+step)?"
     r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -3613,10 +3627,22 @@ def _compound_heads_disjoint(first: dict[str, Any], second: dict[str, Any]) -> b
     # The same event: only "~ … or another … " names two disjoint objects.
     subjects = {(first.get("condition") or {}).get("subject"),
                 (second.get("condition") or {}).get("subject")}
+    if subjects == {"self", "attached_permanent"}:
+        # PAR-207: "~ or equipped creature deals combat damage" -- a permanent is never attached to itself
+        # (RULE 301.5c / 303.4c), so the source and its host are two different objects and one event cannot
+        # satisfy both heads.
+        return True
     if subjects != {"self", "group"}:
         return False
     group = first if (first.get("condition") or {}).get("subject") == "group" else second
     return bool(group["condition"].get("other"))
+
+
+#: The subjects a shared predicate may coordinate: the source and the permanent it is attached to.
+_SHARED_PREDICATE_SUBJECTS_RE = re.compile(
+    r"^(?P<a>~|equipped creature|enchanted creature) or (?P<b>equipped creature|enchanted creature|~) "
+    r"(?P<predicate>(?:deals|attacks|blocks|dies|becomes|is) .+|attacks|blocks|dies)$"
+)
 
 
 def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
@@ -3629,6 +3655,14 @@ def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
     into exile" is the battlefield departure it pairs with (Syr Vondam).
     """
     cond = cond.strip()
+    # PAR-207: two subjects sharing one predicate -- "~ or equipped creature deals combat damage to a player" is
+    # "~ deals ..." plus "equipped creature deals ...". Each half is validated as a head of its own below.
+    shared = _SHARED_PREDICATE_SUBJECTS_RE.match(cond)
+    if shared is not None:
+        halves = [f"{shared.group('a')} {shared.group('predicate')}", f"{shared.group('b')} {shared.group('predicate')}"]
+        triggers = [trigger_condition_dict(half) for half in halves]
+        if all(t is not None and isinstance(t.get("event"), str) for t in triggers) and _compound_heads_disjoint(*triggers):
+            return halves
     for sep in re.finditer(r",\s*(?:or\s+)?|\s+or\s+", cond):
         left, right = cond[:sep.start()], cond[sep.end():]
         first = trigger_condition_dict(left)
@@ -4476,8 +4510,15 @@ _THIS_WAY_EACH_RE = re.compile(
 _THIS_WAY_EACH_LEAD_RE = re.compile(
     rf"^for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>{_THIS_WAY_VERB_RE}) this way, (?P<rest>.+?)\.?$"
 )
+#: PAR-207 (RULE 603.12): "**When you discard** a nonland card **this way**, <effect>." -- the reflexive sibling of the
+#: "if a nonland card was discarded this way" consumer: a trigger of its own (so its targets are chosen after the
+#: discard), which exists only if the pool holds a matching card. Discard is the one verb that prints in this form.
+_THIS_WAY_WHEN_RE = re.compile(
+    rf"^when you (?P<action>discard) (?:an? |1 or more )?{_THIS_WAY_TYPES} ?cards? this way, (?P<then>.+?)\.?$"
+)
 _THIS_WAY_SPLIT_RE = re.compile(
     rf"\.\s+(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:{_THIS_WAY_VERB_RE}) this way, "
+    rf"|when you discard (?:an? |1 or more )?[a-z]* ?cards? this way, "
     rf"|for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way, "
     rf"|.+ for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way))"
 )
@@ -4494,7 +4535,10 @@ def _this_way_sequences(
     body: str, *, verbs: frozenset[str], reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """The instruction + its "this way" consumers (see the block comment above), for the pools in ``verbs``."""
-    if " this way" not in body or not any(f" {v} this way" in body for v in verbs):
+    if " this way" not in body or not (
+        any(f" {v} this way" in body for v in verbs)
+        or ("discarded" in verbs and _THIS_WAY_WHEN_RE.search(body.split(". ")[-1].strip()))
+    ):
         return None
     parts = _THIS_WAY_SPLIT_RE.split(body)
     if len(parts) < 2:
@@ -4507,6 +4551,32 @@ def _this_way_sequences(
     specs = list(before)
     for sentence in parts[1:]:
         sentence = sentence.strip()
+        reflexive = _THIS_WAY_WHEN_RE.match(sentence)
+        if reflexive is not None:
+            if "discarded" not in verbs or (reflexive.group("non") and not reflexive.group("type")):
+                return None
+            if '"type": "discard"' not in before_json:
+                return None  # the measured verb must be the one the first clause performs
+            # The payoff's own pronouns ("that card's mana value", "it") name the pooled card, which no row binds yet.
+            if re.search(r"\b(?:it|its|that|those|them|they|their)\b", reflexive.group("then")):
+                return None
+            payoff = parse_effect_body(
+                reflexive.group("then"), reading=ClauseReading(self_subject=reading.self_subject),
+            )
+            if not payoff or any(spec.condition for spec in payoff):
+                return None
+            pool: dict[str, Any] = {"kind": "this_way_pool", "pool": "discarded"}
+            if reflexive.group("type"):
+                pool["card_type"] = reflexive.group("type")
+                if reflexive.group("non"):
+                    pool["negate"] = True
+            if reflexive.group("color"):
+                pool["color"] = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[reflexive.group("color")]
+            windowed = True
+            specs.append(EffectSpec(
+                "reflexive_trigger", {"then_trigger": [spec.to_dict() for spec in payoff]}, condition=pool,
+            ))
+            continue
         m = _THIS_WAY_IF_RE.match(sentence)
         each = None
         if m is None:
@@ -5733,6 +5803,53 @@ def _lift_opponent_choice(body: str) -> Optional[tuple[str, list[tuple[int, bool
     return "".join(out), lifted
 
 
+#: Spec keys that hand the rest of the ability to a RULE 603.12 reflexive trigger: a payoff of its own with its own
+#: targets (``then_trigger``), or the `reflexive_trigger` node.
+_REFLEXIVE_MARKERS = ('"then_trigger"', '"reflexive_trigger"')
+
+
+def _opens_reflexive_trigger(spec: EffectSpec) -> bool:
+    """Whether ``spec`` (a serialized effect, nested bodies included) puts a reflexive trigger on the stack."""
+    return any(marker in json.dumps(spec.to_dict(), default=str) for marker in _REFLEXIVE_MARKERS)
+
+
+#: "exile a creature card from your graveyard": a pick from the player's own graveyard, not a RULE 115 target.
+_OWN_GRAVEYARD_EXILE_RE = re.compile(
+    r"exile (?:an?|\d+) (?:creature|artifact|enchantment|land|instant|sorcery|planeswalker) cards? from your graveyard"
+)
+
+
+def _action_then_when_you_do(action_then: "re.Match[str]", reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    """"Exile target X. / Create a token. When you do, <effect>." -- the single exile/token antecedent whose own
+    action carries the reflexive trigger (``then_trigger``); ``None`` when the clause is not that shape."""
+    before_specs = parse_effect_body(
+        action_then.group("before"),
+        reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+    )
+    after_text = action_then.group("after")
+    condition = None
+    if after_text.lower().startswith("if "):
+        gate = _GENERIC_IF_PREFIX_RE.match(after_text)
+        condition = static_condition(gate.group("cond")) if gate else None
+        if condition is None:
+            return None
+        after_text = gate.group("rest")
+    after_specs = parse_effect_body(after_text)
+    if not before_specs or len(before_specs) != 1 or before_specs[0].type not in {"exile", "create_token"} or not after_specs:
+        return None
+    params = dict(before_specs[0].params)
+    # One action; multi-event/mass antecedents need
+    # explicit batching semantics before exposing a reflexive body.
+    if (params.get("count", 1) != 1 or params.get("count_selector")
+            or params.get("selector") or params.get("group") or params.get("spell_or_permanent")
+            or params.get("per_opponent") or params.get("creators", "you") not in {"you", "target"}):
+        return None
+    params["then_trigger"] = [spec.to_dict() for spec in after_specs]
+    if condition is not None:
+        params["then_trigger_condition"] = condition
+    return [EffectSpec(before_specs[0].type, params)]
+
+
 def parse_effect_body(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> Optional[list[EffectSpec]]:
@@ -6434,32 +6551,21 @@ def _parse_effect_body_inner(
     if action_then is not None:
         before_text = action_then.group("before")
         if before_text.startswith("exile ") and not re.search(r"\btarget\b", before_text):
-            return None  # nontargeted exile choices must be made during resolution
-        before_specs = parse_effect_body(
-            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
-        )
-        after_text = action_then.group("after")
-        condition = None
-        if after_text.lower().startswith("if "):
-            gate = _GENERIC_IF_PREFIX_RE.match(after_text)
-            condition = static_condition(gate.group("cond")) if gate else None
-            if condition is None:
-                return None
-            after_text = gate.group("rest")
-        after_specs = parse_effect_body(after_text)
-        if not before_specs or len(before_specs) != 1 or before_specs[0].type not in {"exile", "create_token"} or not after_specs:
-            return None
-        params = dict(before_specs[0].params)
-        # One action; multi-event/mass antecedents need
-        # explicit batching semantics before exposing a reflexive body.
-        if (params.get("count", 1) != 1 or params.get("count_selector")
-                or params.get("selector") or params.get("group") or params.get("spell_or_permanent")
-                or params.get("per_opponent") or params.get("creators", "you") not in {"you", "target"}):
-            return None
-        params["then_trigger"] = [spec.to_dict() for spec in after_specs]
-        if condition is not None:
-            params["then_trigger_condition"] = condition
-        return [EffectSpec(before_specs[0].type, params)]
+            before_specs = parse_effect_body(
+                before_text, reading=ClauseReading(self_subject=reading.self_subject),
+            )
+            if not before_specs or (
+                before_specs[0].type == "exile" and not _OWN_GRAVEYARD_EXILE_RE.fullmatch(before_text)
+            ):
+                return None  # nontargeted exile choices must be made during resolution
+            # PAR-207: another action ("exile 2 cards from your graveyard", "exile a creature card from your
+            # graveyard" -- the player's own pick) is the general reflexive row's.
+        else:
+            claimed = _action_then_when_you_do(action_then, reading)
+            if claimed is not None:
+                return claimed
+            # PAR-207: whatever this exile/token-only row declines falls through to the general reflexive row
+            # (`effect_rows.costs_mana_limits._action_when_you_do`) instead of failing the whole body closed.
 
     may_exile_self_then = _MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE.match(body)
     if may_exile_self_then is not None:
@@ -6510,6 +6616,8 @@ def _parse_effect_body_inner(
         delayed_specs = match_clause(prefixed_delayed.group("delayed"))
         if delayed_specs is None:
             return None
+        if any(_opens_reflexive_trigger(spec) for spec in before_specs):
+            return None  # PAR-207: "it" would be the reflexive trigger's object, which this chain cannot name
         return before_specs + delayed_specs
 
     prefixed_delayed_tail = _PREFIXED_DELAYED_TAIL_RE.match(body)
@@ -6524,6 +6632,8 @@ def _parse_effect_body_inner(
         # battlefield. That creature gains haste until end of turn. Sacrifice
         # it at the beginning of the next end step.").
         if before_specs is not None and delayed_specs is not None:
+            if any(_opens_reflexive_trigger(spec) for spec in before_specs):
+                return None  # PAR-207: as above -- the delayed "it" is the reflexive trigger's object
             return before_specs + delayed_specs
 
     mill_land_this_way = _MILL_LAND_THIS_WAY_RE.match(body)
@@ -6802,9 +6912,16 @@ def _parse_effect_body_inner(
             parts = merged
             skip_until = 0
             conjunct_player_scope = None
+            reflexive_open = False
             for idx, part in enumerate(parts):
                 if idx < skip_until:
                     continue  # consumed by a multi-sentence window
+                if reflexive_open:
+                    # PAR-207 (RULE 603.12): a sentence after "When you do, <effect>." belongs to that reflexive
+                    # trigger. It could not be absorbed into the payoff above (it did not parse there), and read on
+                    # its own its "it" would silently mean this ability's source -- fail closed instead.
+                    ok = False
+                    break
                 # A period split retains the leading "then" from a printed
                 # "… . Then <effect>" sentence, unlike the explicit
                 # `, then` connector. It is sequencing, not effect grammar.
@@ -6888,6 +7005,7 @@ def _parse_effect_body_inner(
                     break
                 last_len = len(sub)
                 collected.extend(sub)
+                reflexive_open = any(_opens_reflexive_trigger(spec) for spec in sub)
                 prev_referent, prev_referent_selector = referent, referent_selector
                 prev_referents = referents
                 # RULE 601.2c: what the clause just parsed *chose* is what
@@ -7470,7 +7588,9 @@ def _apply_keyword_restriction(spec: AbilitySpec, kw: str) -> bool:
     if kw in ("exhaust", "power-up"):  # RULE 702.177a / Power-up
         if spec.ability_kind != "activated":
             return False
-        spec.effects.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
+        # PAR-207: the keyword rides on the marker, so "whenever you activate an exhaust ability" can tell an
+        # Exhaust ability (RULE 702.177) from a Power-up one that is equally once-only.
+        spec.effects.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {"keyword": kw}))
         if kw == "power-up":
             spec.effects.append(EffectSpec(POWERUP_COST_REDUCTION_MARKER, {}))
         return True
@@ -8563,6 +8683,38 @@ def _line_etb_and_cast(ctx: LineContext) -> Optional[Segment]:
         if etb_seg.spec is not None and cast_seg.spec is not None:
             return Segment(raw=raw, spec=etb_seg.spec, extra_specs=[cast_seg.spec], claimed=True)
         return Segment(raw=raw)
+    return None
+
+
+#: PAR-207 (RULE 603.2 / 603.1): one printed sentence naming two trigger conditions that share one body is two
+#: independent triggered abilities -- "When you cast or cycle ~" is "when you cast this spell" plus "when you cycle
+#: this card" (Drownyard Lurker, Warped Tusker), "When ~ enters and when you sacrifice it" is "when ~ enters" plus
+#: "when you sacrifice ~" (Carrot Cake, Heaped Harvest). Each half is re-segmented as a line of its own, so it gets
+#: exactly the head and body reading a single-condition line would.
+_SPLIT_HEAD_ROWS: tuple[tuple["re.Pattern[str]", tuple[str, ...]], ...] = (
+    (re.compile(r"^when you cast or cycle ~,\s*(?P<body>.+)$", re.IGNORECASE | re.S),
+     ("when you cast this spell, {body}", "when you cycle this card, {body}")),
+    (re.compile(r"^when ~ enters and when you sacrifice (?:it|~),\s*(?P<body>.+)$", re.IGNORECASE | re.S),
+     ("when ~ enters, {body}", "when you sacrifice ~, {body}")),
+)
+
+
+def _line_split_heads(ctx: LineContext) -> Optional[Segment]:
+    for pattern, templates in _SPLIT_HEAD_ROWS:
+        m = pattern.match(ctx.raw)
+        if m is None:
+            continue
+        parts = [
+            segment_line(
+                template.format(body=m.group("body").strip()),
+                allow_spell_effect=ctx.allow_spell_effect, provenance=ctx.provenance,
+            )
+            for template in templates
+        ]
+        if any(part.spec is None or not part.claimed for part in parts):
+            return Segment(raw=ctx.raw)
+        specs = [spec for part in parts for spec in (part.spec, *part.extra_specs)]
+        return Segment(raw=ctx.raw, spec=specs[0], extra_specs=specs[1:], claimed=True)
     return None
 
 
@@ -10159,6 +10311,8 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 or phase_trig.group("step_opp")
                 or phase_trig.group("step_other")
                 or phase_trig.group("step_attached")
+                or phase_trig.group("step_enchanted")
+                or phase_trig.group("step_chosen")
             )
             both_mains = bool(phase_trig.group("step_both_mains"))
             step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
@@ -10173,6 +10327,10 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 relation = "not_you"
             elif phase_trig.group("step_attached"):
                 relation = "attached_permanent"
+            elif phase_trig.group("step_enchanted"):
+                relation = "enchanted_player"
+            elif phase_trig.group("step_chosen"):
+                relation = "chosen_player"
             else:
                 relation = None
             raw_body = phase_trig.group("body")
@@ -11066,6 +11224,7 @@ LINE_MATCHERS: tuple[LineMatcher, ...] = (
     LineMatcher("equip_dash", _line_equip_dash),
     LineMatcher("equip_once_each_turn", _line_equip_once_each_turn),
     LineMatcher("etb_and_cast", _line_etb_and_cast),
+    LineMatcher("split_heads", _line_split_heads),
     LineMatcher("play_with_top_revealed", _line_play_with_top_revealed),
     LineMatcher("meld_trig", _line_meld_trig),
     LineMatcher("attack_meld", _line_attack_meld),

@@ -14,11 +14,11 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-26 at PARSER_VERSION 769: **22,557 / 35,051 cards (64.4%)**,
+Measured on 2026-10-27 at PARSER_VERSION 770: **22,649 / 35,051 cards (64.6%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **21,951 / 32,068 (68.5%)**.
-The full-pool probe comparison against v768 reports **7 new supported card names and
-zero regressions**, from mandatory one-of-two dig selections with a singleton remainder.
+Commander-legal coverage: **22,043 / 32,068 (68.7%)**.
+The full-pool probe comparison against v769 reports **92 new supported card names and
+zero regressions**, from the composed trigger and activation head grammar (PAR-207).
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py` and its

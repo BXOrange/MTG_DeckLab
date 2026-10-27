@@ -63,11 +63,15 @@ def test_pay_energy_then_effect_is_recognized_with_untargeted_follow_up():
     assert spec.params["effects"][0]["type"] == "create_token"
 
 
-def test_pay_energy_then_with_reflexive_targeted_follow_up_stays_unclaimed():
-    # A reflexive targeted follow-up requires a fresh trigger after payment.
-    assert parse_effect_body(
+def test_pay_energy_then_with_reflexive_targeted_follow_up_is_a_reflexive_trigger():
+    # A reflexive targeted follow-up requires a fresh trigger after payment (RULE 603.12): `pay_cost_then` carries it
+    # as its ``then_trigger`` (PAR-207), rather than `pay_energy_then`'s off-stack ``effects``.
+    (spec,) = parse_effect_body(
         "you may pay {e}{e}. when you do, put 2 +1/+1 counters on target attacking creature"
-    ) is None
+    )
+    assert spec.type == "pay_cost_then" and spec.params["cost"] == "pay {e}{e}"
+    assert spec.params["then_trigger"][0]["params"]["target_kind"] == "creature"
+    assert "effects" not in spec.params
 
 
 def test_aether_chaser_is_fully_modeled():

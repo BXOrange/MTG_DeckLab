@@ -1989,6 +1989,10 @@ class ActivationMixin:
                 # (ENG-26, `StackItem.stack_id`).
                 stack_id=item.stack_id,
                 has_x=ability.cost.mana.has_variable,
+                # PAR-207 (RULE 606.3 / 702.177): which kind of ability this was, for "whenever you activate a
+                # loyalty ability" / "an exhaust ability".
+                is_loyalty_ability=bool(ability.cost.is_loyalty),
+                is_exhaust_ability=getattr(ability, "keyword_label", None) == "exhaust",
             )
         )
         self.rules.check_ward(item, player)

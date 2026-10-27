@@ -83,7 +83,6 @@ def test_reflexive_effect_conditions_survive_spec_serialization(dragon):
     'exile 2 target creature cards from graveyards. when you do, draw a card',
     'exile target creature card from a graveyard. when you do, if the moon is purple, draw a card',
     'exile target creature card from a graveyard. when you do, fly to the moon',
-    'exile a creature card from your graveyard. when you do, draw a card',
     'exile an instant or sorcery card from your graveyard. when you do, tap target creature',
 ])
 def test_unimplemented_batching_and_unknown_conditions_or_bodies_fail_closed(text):
@@ -155,3 +154,14 @@ def test_initial_target_revisit_fizzles_without_creating_a_spirit():
     assert target.zone == Zone.GRAVEYARD
     assert len([o for o in eng.state.battlefield if o.is_token]) == before
     assert not eng.state.pending_choice
+
+
+def test_own_graveyard_pick_antecedent_is_a_reflexive_trigger_not_a_fail_closed_exile():
+    # PAR-207: "exile a creature card from your graveyard" names no target -- it is the player's own pick
+    # (`exile_own_graveyard_cards` with a card type), so "when you do" follows it as a reflexive trigger (RULE 603.12),
+    # exercised in the engine by tests/test_par207_trigger_heads.py (Kishla Trawlers).
+    (spec,) = parse_effect_body('exile a creature card from your graveyard. when you do, draw a card')
+    assert spec.type == 'seq' and spec.params['if_you_do_from'] == 1
+    assert spec.params['effects'][0] == {'type': 'exile_own_graveyard_cards',
+                                         'params': {'count': 1, 'card_type': 'creature'}}
+    assert spec.params['effects'][1]['type'] == 'reflexive_trigger'

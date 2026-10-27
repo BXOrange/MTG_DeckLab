@@ -618,6 +618,8 @@ def _pay_energy_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     if m.group("link") == "when" and re.search(r"\btarget\b", m.group("effect")):
         # RULE 603.12: a reflexive target is chosen after payment, unlike
         # an "if you do" target announced with the enclosing ability.
+        # PAR-207: `pay_cost_then` (`_pay_cost_then_general`) carries that as its ``then_trigger``, and charges
+        # `{E}` through `_pay_player_cost`; this narrower row declines so that one reads it.
         return None
     return [EffectSpec("pay_energy_then", {"amount": amount, "effects": [s.to_dict() for s in sub]})]
 
@@ -670,6 +672,12 @@ MAY_COST_THEN_CLAUSE = (
     # Shaman) — mana plus ONE further part from the vocabulary `ActivationCost` charges whole (`_can_pay_player_cost`
     # / `_pay_player_cost`), so the payer is only asked when every part is affordable.
     r"pay (?:\{[wubrgcx0-9/]+\})+(?: and (?:sacrifice an? (?:nonland permanent|\w+)|discard a card|\d+ life))?"
+    # PAR-207 (RULE 107.14, 118.3): "you may pay {E}{E}. When you do, <targeted effect>" -- energy is charged by
+    # `_pay_player_cost` (`ActivationCost.pay_energy`); `_pay_energy_then` keeps the untargeted / "if you do" forms.
+    r"|pay (?:\{e\})+"
+    # PAR-207: a typed discard -- `costs.parse_activation_cost` reads the card type into ``discard_filter`` (Dokuchi
+    # Silencer's "you may discard a creature card"). Only the type words that function reads, so "nonland" stays out.
+    r"|discard an? (?:creature|land|artifact|enchantment|instant|sorcery|planeswalker) card"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
     r"|sacrifice an? (?:nonland permanent|\w+(?: or (?:an? )?\w+)?)"
     r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
@@ -792,6 +800,8 @@ _X_CAP_RIDER_RE = re.compile(
 
 
 def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if m.group("link") == "if" and re.fullmatch(r"pay (?:\{e\})+", m.group("cost")):
+        return None  # PAR-207: an energy payment's "if you do" stays `_pay_energy_then`'s (it keeps the caller's reading)
     group = reading.group_clause
     if group and re.match(r"remove .* from it$", m.group("cost")):
         return None  # under a group trigger "it" is the firing object, not the source that pays
@@ -1166,6 +1176,84 @@ def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     return [EffectSpec("optional", {
         "effects": [s.to_dict() for s in first] + [s.to_dict() for s in second],
         "if_you_do_from": len(first),
+    })]
+
+
+#: PAR-207 (RULE 603.12): "<action>. **When you do**, <effect>." -- a reflexive trigger fired by an action the
+#: ability's own earlier sentence performed (Kroxa and Kunoros, Kishla Trawlers, Wick's Patrol, The Fire Nation
+#: Drill ...). The payoff is a fresh triggered ability, so its targets are chosen only after the action happened;
+#: the action is a mandatory instruction here because a leading "you may" is either the whole ability's
+#: (`peel_optional` keeps the pair together once this row reads it) or a cost (`pay_cost_then_general`, tried first).
+#: The antecedent must leave an observable footprint (`spec.if_you_do_antecedent_ok`: the engine checks that it
+#: actually changed the game, RULE 608.2c) and must not announce a target of its own. A payoff naming the
+#: antecedent's object ("it", "that creature", "the exiled card") fails closed: nothing here can say which object
+#: that is.
+_ACTION_WHEN_YOU_DO_RE = compile_clause(r"(?P<action>(?!you may\b).+?)\.\s*when you do,\s*(?P<payoff>.+)")
+_PAYOFF_PRONOUN_RE = re.compile(
+    r"\b(?:it|its|they|them|their|those|that (?:creature|permanent|card|player|land|token|artifact)"
+    r"|the (?:exiled|sacrificed|discarded|milled|returned|tapped|chosen|revealed|amassed) \w+)\b",
+    re.IGNORECASE,
+)
+#: PAR-207: the leading intervening "if" of a payoff ("When you do, if you control a Dragon, ...", RULE 603.4).
+_PAYOFF_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,160}),\s+(?P<rest>.+)$", re.IGNORECASE | re.DOTALL)
+
+
+#: "return a land you control to its owner's hand": the table reads the article phrase as a ``<type>_you_control``
+#: target kind, but the sentence never says "target" -- it is the resolving player's own pick (RULE 608.2d), the same
+#: ``choose_objects`` the "return another creature you control" antecedent uses.
+_OWN_PICK_KIND_RE = re.compile(r"^(?P<type>[a-z]+)_you_control$")
+
+
+#: "exile a creature card from your graveyard": likewise the resolving player's own pick, from their graveyard.
+_OWN_GRAVEYARD_KIND_RE = re.compile(r"^graveyard_(?P<type>creature|artifact|enchantment|land|instant|sorcery|planeswalker)$")
+
+
+def _untargeted_own_choice(spec: EffectSpec) -> EffectSpec:
+    graveyard = _OWN_GRAVEYARD_KIND_RE.match(str(spec.params.get("target_kind") or ""))
+    if spec.type == "exile" and graveyard is not None and set(spec.params) == {"target_kind"}:
+        return EffectSpec("exile_own_graveyard_cards", {"count": 1, "card_type": graveyard.group("type")})
+    kind = _OWN_PICK_KIND_RE.match(str(spec.params.get("target_kind") or ""))
+    if spec.type == "return_to_hand" and kind is not None and set(spec.params) == {"target_kind"}:
+        return EffectSpec("choose_objects", {
+            "action": "return_to_hand", "what": kind.group("type"), "count": 1,
+        })
+    return spec
+
+
+def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None  # "it" / the firing object would be a different referent than the source's own
+    action_text = m.group("action").strip()
+    action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
+    if action and len(action) == 1 and "target" not in action_text:
+        action = [_untargeted_own_choice(action[0])]
+    if not action or len(action) != 1 or any(s.params.get("target_kind") for s in action):
+        # "When you do" answers the *last* instruction; a longer antecedent would fire on its first half (Blood
+        # Spatter Analysis: "mill a card and put a counter ... then sacrifice it if ... When you do").
+        return None  # a targeted antecedent needs its own announcement; "return a land you control" is no target
+    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+        return None
+    payoff_text = m.group("payoff").strip()
+    condition = None
+    gate = _PAYOFF_IF_RE.match(payoff_text)
+    if gate is not None:
+        condition = static_condition(gate.group("cond"))
+        if condition is None:
+            return None
+        payoff_text = gate.group("rest")
+    # Only the payoff's *first* sentence is read against the antecedent: a later "it gains trample" follows the
+    # target that first sentence chose, which the ordinary sentence chain (`parse_effect_body`) resolves.
+    if _PAYOFF_PRONOUN_RE.search(re.split(r"\.\s+", payoff_text, maxsplit=1)[0]):
+        return None
+    payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
+    if not payoff:
+        return None
+    trigger: dict[str, Any] = {"then_trigger": [s.to_dict() for s in payoff]}
+    if condition is not None:
+        trigger["then_trigger_condition"] = condition
+    return [EffectSpec("seq", {
+        "effects": [s.to_dict() for s in action] + [EffectSpec("reflexive_trigger", trigger).to_dict()],
+        "if_you_do_from": len(action),
     })]
 
 
@@ -1822,6 +1910,13 @@ ROWS: list[EffectHandler] = [
         _MAY_EFFECT_THEN_RE,
         _may_effect_then,
         fallback_for=("pay_cost_then_general",), reading_aware=True,
+    ),
+    # PAR-207 (RULE 603.12): "<action>. When you do, <effect>." -- the certain-antecedent reflexive trigger.
+    EffectHandler(
+        "action_when_you_do",
+        _ACTION_WHEN_YOU_DO_RE,
+        _action_when_you_do,
+        reading_aware=True,
     ),
     # MEC-19: "counter it unless that player pays <cost>" — the
     # un-keyworded-Ward-shaped `BECOMES_TARGET` trigger's own resolution.

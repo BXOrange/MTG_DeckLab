@@ -2441,17 +2441,23 @@ class ExileLibraryEffect(GameEffect):
 
 
 class ExileOwnGraveyardCardsEffect(GameEffect):
-    """Exile N cards from your graveyard (RULE 701.5a)."""
+    """Exile N cards from your graveyard (RULE 701.5a).
 
-    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+    ``card_type`` (PAR-207, "exile a **creature** card from your graveyard") narrows the pool to cards of that type
+    (RULE 205.2); with fewer than ``count`` matching cards the instruction cannot be done in full."""
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None, card_type: Optional[str] = None) -> None:
         super().__init__(source)
         self.count = max(1, int(count))
+        self.card_type = str(card_type).lower() if card_type else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
         if controller is None:
             return
         candidates = list(controller.graveyard)
+        if self.card_type is not None:
+            candidates = [o for o in candidates if self.card_type in (o.card.type_line or "").lower().split("—")[0]]
         if not candidates:
             return
         context.engine._request_choose_objects(

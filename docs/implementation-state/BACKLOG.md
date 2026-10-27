@@ -36,21 +36,12 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining tickets (PAR-207…214): measure with the `find-fragments` skill before and after
+Fragment-mining tickets (PAR-208…214): measure with the `find-fragments` skill before and after
 (`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
-regressions, and executes newly claimed cards rather than trusting parse verdicts. Order: PAR-207,
-PAR-208 and PAR-210 first (re-scan after them); PAR-213 needs PAR-208 and PAR-210, PAR-214 needs
+regressions, and executes newly claimed cards rather than trusting parse verdicts. Order: PAR-208
+and PAR-210 first (re-scan after them); PAR-213 needs PAR-208 and PAR-210, PAR-214 needs
 PAR-210, PAR-212's pronoun-bound forms need PAR-210; PAR-209 and PAR-211 are independent.
 
-- **PAR-207 · Trigger and activation heads.** About 1,065 open sentences fail on the head itself
-  (766 distinct heads; 42 occur on three or more cards). Largest families: reflexive `when you do`;
-  delayed `at the beginning of the next end step / that turn's end step / your next upkeep / the
-  chosen or enchanted player's upkeep`; `when this <type> enters`; `whenever you activate …`
-  (exhaust, loyalty abilities); `… this way` and threshold heads (`when you pay this cost N or more
-  times`, `when the Nth <counter> is put on ~`); `whenever <attached/equipped> … attacks / is
-  attacked / becomes (un)attached`. Build them as composable head grammar (trigger event × scope ×
-  timing), not per-phrase rows. Done when the head-failing share in a re-scan drops and every new
-  head fires in the real engine.
 - **PAR-208 · Clause separators and outcome chains.** Compose clauses the segmenter now leaves
   alone: sentence follow-ups inside one paragraph (about 4,100 multi-sentence open clauses; the
   follow-up is usually where it fails), shared-subject effect lists (`target player mills 2 cards,

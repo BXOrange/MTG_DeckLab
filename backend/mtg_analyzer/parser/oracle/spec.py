@@ -198,6 +198,8 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
     "draw", "discard", "exile", "exile_own_graveyard_cards", "choose_objects", "sacrifice_self", "add_counters",
     "search", "tap", "attach", "create_token", "bind",
+    # PAR-207: "mill N cards" moves library cards to the graveyard; "amass" makes an Army or adds counters to one.
+    "mill", "amass",
     # A card placed from hand moves zones (Ultra Magnus-shaped "you may put … onto the battlefield. If you do, …").
     "put_from_hand_onto_battlefield", "put_from_defending_hand",
 })

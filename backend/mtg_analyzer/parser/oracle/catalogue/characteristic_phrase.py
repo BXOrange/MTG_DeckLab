@@ -70,6 +70,12 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "blocking": {"blocking": True},
     # RULE 701.15b / 708.2: a designation and a status (PAR-119).
     "goaded": {"goaded": True},
+    # PAR-207: attachment-derived adjectives -- RULE 700.9 "modified" (a counter, an Equipment or an Aura its
+    # controller controls) and RULE 301.5 / 303.4 "equipped" / "enchanted" (an Equipment / Aura is attached).
+    # `combat.matches_object_filter` reads all three keys off the live board.
+    "modified": {"modified": True},
+    "equipped": {"equipped": True},
+    "enchanted": {"enchanted": True},
     "suspected": {"is_suspected": True},
     "face-down": {"face_down": True},
     # RULE 903.3: a commander is a designation, not a type or subtype.
