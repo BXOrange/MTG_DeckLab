@@ -14,9 +14,10 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-27 at PARSER_VERSION 786: **23,321 / 35,051 cards (66.5%)**,
+Measured on 2026-10-28 at PARSER_VERSION 792: **23,370 / 35,051 cards (66.7%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **22,707 / 32,068 (70.8%)**.
+Commander-legal coverage: **22,755 / 32,068 (71.0%)**. The paragraphs below record
+how PAR-211…214 moved the slot counts from v783 on.
 PAR-212 extends the shared object-state predicates (counter thresholds, chosen
 types, per-player count comparisons and payment-time crew history) and composes
 destination wording and exile-counter riders through the existing move effects.
@@ -85,6 +86,21 @@ from **4,029 at v771 to 3,999** using identical counting; the pre-PAR-208 baseli
 was 4,055. Reveal pools and pronoun/state-bound follow-ups were then split across
 PAR-211…214: quantifier scopes (PAR-211), object-state/destination grammar (PAR-212),
 inspection sequences (PAR-213) and verb rows over the shared object phrase (PAR-214).
+**Plan from the v792 scan.** 9,179 open Commander cards hold 13,440 open sentences
+in 11,713 distinct templates; the best exact template unlocks 5 cards, and trigger
+or cost heads are rarely the blocker (468 head-only failures against 3,678
+body failures under a parsed head). The remaining tail is therefore worked as
+shared axes over the PAR-210 object phrase, ranked by open cards touched / cards
+whose every open sentence carries the axis: referenced-object amounts and
+mana-value comparisons (PAR-215), prevention/redirection (PAR-216),
+type-changing "becomes" (PAR-217), combat requirements (PAR-218), name references
+(PAR-219), linked exile and cast windows (PAR-220), control change and counter
+movement (PAR-221), per-player trigger scopes (PAR-222), condition-bound and
+next-turn durations (PAR-223) and small rows for existing effects (PAR-224).
+Graveyard/library play windows are the one verified missing engine primitive
+(MEC-135); the colour-conditional counter target filter is a correctness bug
+(BUG-37). Axis counts overlap, so re-scan after each ticket and re-rank; cards
+left with a single unshared sentence go to `singletons.md` for hand-authoring.
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py` and its

@@ -36,10 +36,56 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
--No Tickets-
+Fragment-axis tickets (PAR-215…224), from the v792 scan (9,179 open Commander cards, 13,440 open
+sentences; the best exact template unlocks 5 cards, so each ticket is a shared grammar axis over
+the PAR-210 object phrase, not template rows). Counts are `touched` / `only` (open cards with the
+axis / cards whose every open sentence has it; an overlapping upper bound). Each ticket re-scans
+with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
+claimed cards.
+
+- **PAR-215 · Referenced-object amounts and mana-value comparisons.** `equal to its / that card's
+  mana value / power / toughness`, `the damage dealt / prevented this way`, `the number of <counted
+  objects>`, `with mana value x or less / less than or equal to <amount>` as operands of existing
+  life, damage, draw, token, P/T and filter effects (`effect_amounts.py`). 384+316 / 243+143.
+- **PAR-216 · Damage prevention and redirection over the shared object phrase.** `prevent all
+  [combat] damage that would be dealt to / by <object> [this turn]`, `a source of your choice`,
+  `excess damage is dealt to <player> instead`, `all damage that would be dealt to <object> is dealt
+  to ~ instead`, reusing `game/effects/replacements.py`. 229 / 170.
+- **PAR-217 · Type- and characteristic-changing "becomes".** `<object> becomes an artifact creature
+  [with power and toughness each equal to its mana value]`, `becomes a <colour> <subtype> with base
+  power and toughness N/M`, `becomes an aura with enchant creature`, `becomes the color / basic land
+  type of your choice`, durations from the shared grammar. Includes RULE 205.1a type replacement for
+  non-creature subjects if the engine lacks it (PAR-214 refused that form). 189+126 / 148+73.
+- **PAR-218 · Combat requirements and restrictions over the shared object phrase.** `<object>
+  blocks / attacks [each combat] [this turn] if able`, `can block an additional creature [this turn /
+  each combat]`, `can't block [if <condition>]`, `assigns combat damage equal to its toughness rather
+  than its power`, on existing `must_attack` / `must_block` / `additional_block`. 162 / 118.
+- **PAR-219 · Name references.** `with the same name as <reference>`, `a card named <name>` searches
+  including `your library and/or graveyard` with the `if you search your library this way, shuffle`
+  tail, and `can't cast spells with the same name as <reference>`. 212+63 / 107+37.
+- **PAR-220 · Linked exile and cast windows.** `cards exiled with ~` (RULE 607) as a reference and
+  count, `you may cast / play <exiled reference> [this turn / for as long as …]` and `without paying
+  its mana cost` follow-ups over exile. 184+338 / 56+71.
+- **PAR-221 · Control change and counter movement.** `gain control of <object> [for as long as …]`,
+  `exchange control of <object> and <object>`, `any number of target creatures` (counted steal),
+  `move / remove <quantity> <counter> counters from <object> [onto <object>]`. 140+125 / 65+66.
+- **PAR-222 · Per-player trigger scopes.** `at the beginning of each player's / each opponent's /
+  enchanted player's upkeep or end step` with `that player` bodies, and `each opponent / player who
+  <did X>` payoffs, through the PAR-211 quantifier scopes. 98+85 / 51+38.
+- **PAR-223 · Condition-bound and next-turn durations.** `for as long as <condition>`, `until your
+  next upkeep / end step`, `during your next turn`, `until the end of your next turn`; `your_next_turn`
+  exists, the others need engine windows (included). 138+105 / 57+40.
+- **PAR-224 · Small rows for existing effects.** `target player takes an extra turn after this one`
+  (only `you take` is claimed; Time Warp), `you skip your next turn`, `activate no more than twice each
+  turn`, `put <object> on top / bottom of its owner's library` over the shared object phrase.
+  29+43+256 / 21+22+65.
 
 ## MEC — Game mechanic
 
+- **MEC-135 · Play windows from graveyard and library.** `Mill a card. You may play that card this
+  turn` (Ark of Hunger, Tablet of Discovery) and reveal-then-cast follow-ups: `_has_temp_play_permission`
+  honours only exile, so the permission is recorded but never offered (verified in PAR-214). Engine
+  window plus parser rows. 15 / 3, more once PAR-220 claims the leads.
 
 ## PLR — Player management
 
@@ -85,4 +131,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
+
+- **BUG-37 · Colour-conditional counter restricts targets.** `counter target spell if it's <colour>`
+  (Pyroblast, Hydroblast) parses to an offer-time colour filter; any spell is a legal target and the
+  colour is checked on resolution (RULE 601.2c, 608.2b), as PAR-214 fixed for their destroy mode.
 
