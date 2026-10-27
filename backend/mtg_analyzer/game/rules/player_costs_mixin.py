@@ -151,9 +151,11 @@ class PlayerCostsMixin:
             self.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
         if cost.sacrifice:
             # "another"/"other …": the source is not a legal pick (RULE 109.5).
-            self.sacrifice(player, cost.sacrifice, 1, exclude=source if _names_other_word(cost.sacrifice) else None)
+            self.sacrifice(
+                player, cost.sacrifice, 1, exclude=source if _names_other_word(cost.sacrifice) else None, source=source,
+            )
         if cost.sacrifice_count and isinstance(cost.sacrifice_count[0], int):
-            self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0])
+            self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0], source=source)
         if cost.pay_energy:
             self.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice_or_discard:

@@ -1726,8 +1726,20 @@ _MAY_HAVE_TARGET_GET_RE = re.compile(
     r"(\byou may )have (target (?:[a-z-]+ )*?creature) (get|gain) ", re.IGNORECASE
 )
 _AND_CONNECTOR = r"\s+and\s+"
+#: PAR-208: the commas of a series "A, B, and C" ("target player mills 2 cards, draws 2 cards, and loses 2 life"; "you
+#: draw a card, gain 1 life, and scry 1") sit between whole effect clauses of one sentence. Only a comma whose next
+#: word opens an effect clause (a whitelisted effect verb, or a stated player subject) is a boundary, so a comma
+#: inside a condition, an amount phrase or a target description is never split. The last "and" of the series is
+#: consumed with its comma; a two-clause "A and B" keeps `_AND_CONNECTOR`.
+_SERIES_VERBS = (
+    r"draws?|discards?|mills?|loses?|gains?|scry|surveil|creates?|sacrifices?|exiles?|returns?|untaps?|taps?|"
+    r"destroys?|puts?|adds?|investigate|proliferate|explores?|goads?|reveals?|shuffles?|searches"
+)
+_SERIES_COMMA_CONNECTOR = (
+    rf",\s+(?:and\s+)?(?=(?:(?:{_SERIES_VERBS})\b|(?:you|each opponent|each player|target (?:player|opponent))\s+(?:{_SERIES_VERBS})\b))"
+)
 _CONNECTORS: tuple[str, ...] = (
-    r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, _AND_CONNECTOR,
+    r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, _SERIES_COMMA_CONNECTOR, _AND_CONNECTOR,
 )
 
 
@@ -6927,7 +6939,7 @@ def _parse_effect_body_inner(
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
                 part = _created_noun_to_pronoun(part, referents)
-                if sep == _AND_CONNECTOR:
+                if sep in (_AND_CONNECTOR, _SERIES_COMMA_CONNECTOR):
                     part = part.rstrip(",").strip()  # "…if {g} was spent to cast this spell**,** and …"
                     # A repeated third-person verb keeps the current group
                     # subject: "each opponent sacrifices ... and loses ...".
@@ -6987,7 +6999,7 @@ def _parse_effect_body_inner(
                 if sub is None:
                     ok = False
                     break
-                if sep == _AND_CONNECTOR and idx and _elides_player_subject(parts[0], part):
+                if sep in (_AND_CONNECTOR, _SERIES_COMMA_CONNECTOR) and idx and _elides_player_subject(parts[0], part):
                     # "target player draws a card **and loses 2 life**": the second verb has no subject of
                     # its own, so it acts on the player the first clause chose, not on the controller.
                     sub = _stamp_previous_player(sub)
@@ -11438,8 +11450,15 @@ def peel_optional(body: str) -> tuple[str, bool]:
         # 603.12), and the peel hands it a body whose first clause no longer says it was optional. When the peeled
         # body cannot be read, the whole sentence pair is the unit (`may_effect_then`); a body the peel already
         # reads keeps its meaning untouched.
-        if _IF_YOU_DO_SENTENCE_RE.search(rest) and parse_effect_body(rest) is None and parse_effect_body(body) is not None:
-            return body, False
+        if _IF_YOU_DO_SENTENCE_RE.search(rest) and parse_effect_body(body) is not None:
+            rest_specs = parse_effect_body(rest)
+            # PAR-208: a mandatory-action outcome chain (`seq` + ``if_you_do_from``) reading the peeled remainder is
+            # the same unit "you may <action>. If you do, ..." already had as one `optional` node.
+            if rest_specs is None or (
+                len(rest_specs) == 1 and rest_specs[0].type == "seq" and "if_you_do_from" in rest_specs[0].params
+                and re.search(r"\.\s+if you do\b", rest, re.I)
+            ):
+                return body, False
         return rest, True
     return body, False
 

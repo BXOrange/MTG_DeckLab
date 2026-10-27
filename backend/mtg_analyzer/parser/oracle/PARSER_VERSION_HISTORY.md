@@ -4307,3 +4307,16 @@ library", "a source deals damage to ~", "N or more creatures attack [you]" (`ATT
 to "~". (5) A step-named delayed trigger: "At the beginning of the next end step / your next end step / your next
 upkeep, <referent-free effect>" (`effect_rows/delayed_steps.py`). A sentence after a reflexive payoff that does not parse
 into it now fails the body closed instead of reading its "it" as the source.
+
+771: PAR-208 — outcome chains and clause series. (1) New `action_if_you_do` row (`costs_mana_limits`): a mandatory single
+observable action followed by "If you do, <effect>[. Otherwise / If you don't, <effect>]" is `seq` + `if_you_do_from`
+(+ `else_effects`; RULE 608.2c). A targeted payoff after a targeted action stays unclaimed. (2) `else_effects` reaches
+every outcome node: `seq`/`IfYouDoEffect` run it when the action cannot be performed or changed nothing, `optional`
+(`may_effect_then`) also when the player declines, and `pay_cost_then_general` splits "If you don't," as well as
+"Otherwise,". (3) `may_effect_then` reads "exile a creature card from your graveyard" as the resolving player's own
+pick (`exile_own_graveyard_cards`), not a target. (4) After a sacrifice antecedent, "that creature's / its power,
+toughness, mana value" reads the sacrificed object (`sacrificed_referent_payoff` -> `sacrificed_cost_*`); the cost
+payment of `pay_cost_then` now stamps it too (`RulesEngine.sacrifice(source=...)`). (5) `remove_counters` joins
+`IF_YOU_DO_ANTECEDENT_TYPES`. (6) Comma series "A, B, and C" / "A, B, then C" in one sentence split at commas that open
+an effect clause (`_SERIES_COMMA_CONNECTOR`), the elided player subject carried as for "A and B". (7) Life-total comparison gates "an opponent has more life than you" (`opponent_has_more` over `your_life_total`) and
+"you have more life than an opponent" (new `opponent_has_fewer` static condition).

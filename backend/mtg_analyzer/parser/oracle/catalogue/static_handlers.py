@@ -3916,6 +3916,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"there(?:'s| is| are) an? (?P<sub>[a-z][a-z-]+) card in your graveyard", re.I),
      lambda m: {"kind": "subtype_in_graveyard", "subtype": m.group("sub").lower()}),
     # -- The controller's own resources.
+    # PAR-208 (Pulse of the Fields, Survival Cache): comparisons of life totals with some one opponent (RULE 119.1).
+    (re.compile(r"an opponent has more life than you", re.I),
+     lambda m: {"kind": "opponent_has_more", "selector": "your_life_total"}),
+    (re.compile(r"you have more life than an opponent", re.I),
+     lambda m: {"kind": "opponent_has_fewer", "selector": "your_life_total"}),
     (re.compile(r"you have (?P<n>\d+) or more life", re.I),
      lambda m: {"kind": "life_at_least", "amount": int(m.group("n"))}),
     (re.compile(r"you have (?P<n>\d+) or less life", re.I),

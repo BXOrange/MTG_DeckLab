@@ -2014,8 +2014,10 @@ class CastingResolutionMixin:
             if all(s.type in ALWAYS_DONE_ANTECEDENTS for s in spec_objs[:split]):
                 built += build_effects(spec_objs[split:], source)
             else:
+                # PAR-208: an accepted antecedent that changed nothing also counts as "if you don't".
                 built.append(IfYouDoEffect(
-                    game_fingerprint(self.context, source), [s.to_dict() for s in spec_objs[split:]], source))
+                    game_fingerprint(self.context, source), [s.to_dict() for s in spec_objs[split:]], source,
+                    choice.get("else_specs") or []))
         else:
             built = build_effects(spec_objs, source)
         # RULE 601.2c/608.2h: the announced targets, re-found by id across the

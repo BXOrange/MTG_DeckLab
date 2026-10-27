@@ -799,19 +799,36 @@ _X_CAP_RIDER_RE = re.compile(
 )
 
 
+#: PAR-208 (RULE 608.2h): after "sacrifice a creature", a payoff that measures "that creature's power" / "its toughness"
+#: means the sacrificed object's last-known value. `RulesEngine.note_sacrificed` stamps those on the ability's source,
+#: and `count_phrase.parse_amount_term` already reads the spelled-out "the sacrificed creature's power".
+_SACRIFICE_ANTECEDENT_RE = re.compile(r"^(?:sacrifice (?:another|an?|\d+) (?!it\b)|sacrifice a nontoken )", re.IGNORECASE)
+_SACRIFICED_PRONOUN_RE = re.compile(
+    r"\b(?:that (?:creature|permanent|artifact|land)'s|its) (?P<what>power|toughness|mana value)\b", re.IGNORECASE
+)
+
+
+def sacrificed_referent_payoff(antecedent: str, payoff: str) -> str:
+    """``payoff`` with "that creature's power" spelled "the sacrificed creature's power" when ``antecedent`` is the
+    ability's own sacrifice of a chosen permanent; otherwise unchanged."""
+    if _SACRIFICE_ANTECEDENT_RE.match(antecedent.strip()) is None:
+        return payoff
+    return _SACRIFICED_PRONOUN_RE.sub(lambda m: f"the sacrificed creature's {m.group('what').lower()}", payoff)
+
+
 def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     if m.group("link") == "if" and re.fullmatch(r"pay (?:\{e\})+", m.group("cost")):
         return None  # PAR-207: an energy payment's "if you do" stays `_pay_energy_then`'s (it keeps the caller's reading)
     group = reading.group_clause
     if group and re.match(r"remove .* from it$", m.group("cost")):
         return None  # under a group trigger "it" is the firing object, not the source that pays
-    effect_text = m.group("effect").strip()
+    effect_text = sacrificed_referent_payoff(m.group("cost"), m.group("effect").strip())
     x_cap = _X_CAP_RIDER_RE.search(effect_text)
     if x_cap is not None:
         if "{x}" not in m.group("cost"):
             return None  # a cap on an X nobody announces
         effect_text = effect_text[:x_cap.start()].rstrip(". ") + "."
-    parts = re.split(r"\.\s*otherwise,?\s+", effect_text, maxsplit=1)
+    parts = re.split(r"\.\s*otherwise,?\s+|\.\s*if you don'?t,\s*", effect_text, maxsplit=1)  # PAR-208: "if you don't," too
     if group:
         # The branch runs once the payment is made, after the trigger's event window has closed, so
         # a pronoun in it names the object `remember_trigger_subject` stamped on the source: read as
@@ -1149,6 +1166,10 @@ def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     first = parse_effect_body(m.group("effect1").strip(), reading=inner_reading)
     if not first:
         return None
+    # PAR-208: "you may exile a creature card from your graveyard. If you do, ..." -- the resolving player's own
+    # pick (RULE 608.2d), not a RULE 115 target, when the antecedent never says "target".
+    if len(first) == 1 and re.search(r"\btarget\b", m.group("effect1")) is None:
+        first = [_untargeted_own_choice(first[0])]
     # PAR-204 (Cyclone Sire/Noyan Dar/Wall of Resurgence): "you may put 3 +1/+1 counters on target land you control.
     # If you do, that land becomes a 0/0 Elemental creature …". A single targeted antecedent keeps its RULE 115
     # target: it is announced when the ability goes on the stack (RULE 601.2c, `OptionalEffect.target_specs`), only
@@ -1164,11 +1185,19 @@ def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     # — fail closed rather than silently drop the target.
     elif any(s.params.get("target_kind") for s in first):
         return None
-    second = parse_effect_body(m.group("effect2").strip(), reading=inner_reading)
+    # PAR-208 (RULE 608.2c): "... If you do, Y. Otherwise / If you don't, Z." -- Z runs when the player declined,
+    # could not perform X, or X changed nothing (`OptionalEffect.else_specs`, `IfYouDoEffect`).
+    payoff_text, *rest = _OTHERWISE_SPLIT_RE.split(m.group("effect2").strip(), maxsplit=1)
+    second = parse_effect_body(sacrificed_referent_payoff(m.group("effect1"), payoff_text), reading=inner_reading)
     if not second:
         return None
     if any(s.params.get("target_kind") for s in second):
         return None
+    otherwise: list[EffectSpec] = []
+    if rest:
+        otherwise = parse_effect_body(rest[0].strip(), reading=ClauseReading(self_subject=True)) or []
+        if not otherwise or any(s.params.get("target_kind") for s in otherwise):
+            return None
     # RULE 608.2c: "if you do" -- the second part waits for the first to have been performed (`IfYouDoEffect`), which
     # the engine can only see for antecedents with an observable footprint; any other stays unclaimed.
     if not if_you_do_antecedent_ok([s.to_dict() for s in first]):
@@ -1176,6 +1205,7 @@ def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     return [EffectSpec("optional", {
         "effects": [s.to_dict() for s in first] + [s.to_dict() for s in second],
         "if_you_do_from": len(first),
+        **({"else_effects": [s.to_dict() for s in otherwise]} if otherwise else {}),
     })]
 
 
@@ -1255,6 +1285,56 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
         "effects": [s.to_dict() for s in action] + [EffectSpec("reflexive_trigger", trigger).to_dict()],
         "if_you_do_from": len(action),
     })]
+
+
+#: PAR-208: the sentence boundary that opens an outcome rider's "else" half ("Otherwise," / "If you don't,").
+_OTHERWISE_SPLIT_RE = re.compile(r"\.\s*(?:otherwise|if you don'?t),\s*", re.IGNORECASE)
+
+
+#: PAR-208 (RULE 608.2c): "<action>. **If you do**, <effect>[. Otherwise, <effect>]." with a mandatory action (no "you
+#: may": Dreadfeast Demon, Booby Trap, Dark Depths, Charnel Troll). The same `seq` + ``if_you_do_from`` node
+#: `_action_when_you_do` composes, but the payoff is *not* a new trigger: it is the same resolution's next
+#: instruction, so its own targets are announced with the ability (RULE 601.2c) and a pronoun in it may name the
+#: action's object. "Otherwise" / "If you don't" is the ``else_effects`` branch, run when the action could not be
+#: performed or changed nothing. Only a single observable action counts (`if_you_do_antecedent_ok`).
+_ACTION_IF_YOU_DO_RE = compile_clause(
+    r"(?P<action>(?!you may\b)[^.]+?)\.\s*if you do,\s*(?P<payoff>.+)"
+)
+
+
+def _action_if_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None  # "it" would be the firing object / host, not the source the action names
+    action_text = m.group("action").strip()
+    if re.search(r"\b(?:may|if|unless|instead|when|whenever)\b", action_text):
+        return None  # a conditional or replacement antecedent is another construct
+    action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
+    targeted = bool(action) and re.search(r"\btarget\b", action_text) is not None
+    if action and len(action) == 1 and not targeted:
+        action = [_untargeted_own_choice(action[0])]
+    if not action or len(action) != 1:
+        return None  # "if you do" answers the *last* instruction; a longer antecedent is ambiguous
+    if action[0].params.get("target_kind") and not (targeted and announces_creature_target(action)):
+        return None
+    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+        return None
+    payoff_text, *rest = _OTHERWISE_SPLIT_RE.split(m.group("payoff").strip(), maxsplit=1)
+    inner = ClauseReading(self_subject=True, previous_subject=targeted)
+    payoff = parse_effect_body(sacrificed_referent_payoff(action_text, payoff_text), reading=inner)
+    if not payoff:
+        return None
+    if targeted and any(s.params.get("target_kind") for s in payoff):
+        return None  # two announced targets whose pronouns cannot be told apart: stay unclaimed
+    params: dict[str, Any] = {
+        "effects": [s.to_dict() for s in action] + [s.to_dict() for s in payoff],
+        "if_you_do_from": 1,
+    }
+    if rest:
+        other = parse_effect_body(rest[0].strip(), reading=ClauseReading(self_subject=True))
+        if not other:
+            return None
+        params["else_effects"] = [s.to_dict() for s in other]
+    return [EffectSpec("seq", params)]
 
 
 #: MEC-19's "counter it/that spell[or ability] unless that player/its
@@ -1911,6 +1991,8 @@ ROWS: list[EffectHandler] = [
         _may_effect_then,
         fallback_for=("pay_cost_then_general",), reading_aware=True,
     ),
+    # PAR-208 (RULE 608.2c): "<action>. If you do, <effect>[. Otherwise, <effect>]." -- the mandatory-action outcome chain.
+    EffectHandler("action_if_you_do", _ACTION_IF_YOU_DO_RE, _action_if_you_do, reading_aware=True),
     # PAR-207 (RULE 603.12): "<action>. When you do, <effect>." -- the certain-antecedent reflexive trigger.
     EffectHandler(
         "action_when_you_do",

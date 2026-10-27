@@ -200,6 +200,8 @@ IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
     "search", "tap", "attach", "create_token", "bind",
     # PAR-207: "mill N cards" moves library cards to the graveyard; "amass" makes an Army or adds counters to one.
     "mill", "amass",
+    # PAR-208: "remove a counter from it. If you do, ..." -- the counter totals are part of the fingerprint.
+    "remove_counters",
     # A card placed from hand moves zones (Ultra Magnus-shaped "you may put … onto the battlefield. If you do, …").
     "put_from_hand_onto_battlefield", "put_from_defending_hand",
 })

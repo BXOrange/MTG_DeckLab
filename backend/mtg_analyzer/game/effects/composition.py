@@ -270,8 +270,12 @@ class SeqEffect(_CompositeEffect):
         effects: Optional[list[Any]] = None,
         source: Optional[GameObject] = None,
         if_you_do_from: Optional[int] = None,
+        else_effects: Optional[list[Any]] = None,
     ) -> None:
         super().__init__(effects, source)
+        #: PAR-208 (RULE 608.2c): "A. If you do, B. **Otherwise / If you don't**, C." -- C runs when A could not be
+        #: performed or changed nothing. Only meaningful beside ``if_you_do_from``.
+        self.else_specs = _as_spec_dicts(else_effects) if if_you_do_from else []
         #: RULE 608.2c / 603.12 "A. **When/If you do**, B." with no "you may" of its own: the number of leading
         #: ``effects`` that are A. B (the rest) waits behind `IfYouDoEffect`'s check that A changed the game --
         #: the unconditional sibling of `OptionalEffect.if_you_do_from` (the optional question is the ability's).
@@ -286,11 +290,13 @@ class SeqEffect(_CompositeEffect):
             return
         antecedent, payoff = self.inner_specs[:split], self.inner_specs[split:]
         if antecedent_impossible(antecedent, self.source, context):
-            return  # "exile 5 cards from your graveyard" with 3 there cannot come true
+            # "exile 5 cards from your graveyard" with 3 there cannot come true: B never runs, C ("otherwise") does.
+            self._run(self.else_specs, context, targets)
+            return
         built = _build(effect_conditions.pin_source_reference(
             antecedent, self.source, context.resolving_source_incarnation), self.source)
         if not all(spec.get("type") in ALWAYS_DONE_ANTECEDENTS for spec in antecedent):
-            built.append(IfYouDoEffect(game_fingerprint(context, self.source), payoff, self.source))
+            built.append(IfYouDoEffect(game_fingerprint(context, self.source), payoff, self.source, self.else_specs))
         else:
             built += _build(payoff, self.source)
         _apply_effects_partitioned(
@@ -548,6 +554,8 @@ class OptionalEffect(_CompositeEffect):
         if not self.inner_specs and not self.else_specs:
             return
         if self.if_you_do_from and self._antecedent_impossible(context):
+            # PAR-208: an antecedent that cannot come true is not offered, and "if you don't" then holds.
+            self._run(self.else_specs, context, targets)
             return
         referent_subject_id = None
         if self.player == "target":
@@ -693,9 +701,14 @@ class IfYouDoEffect(_CompositeEffect):
     an empty library, tapping what is already tapped, exiling a card that has left -- leaves Y undone.
     """
 
-    def __init__(self, before: tuple, effects: Optional[list[Any]] = None, source: Optional[GameObject] = None) -> None:
+    def __init__(
+        self, before: tuple, effects: Optional[list[Any]] = None, source: Optional[GameObject] = None,
+        else_effects: Optional[list[Any]] = None,
+    ) -> None:
         super().__init__(effects, source)
         self.before = before
+        #: PAR-208: the "otherwise / if you don't" branch, run when X changed nothing.
+        self.else_specs = _as_spec_dicts(else_effects)
 
     @property
     def target_specs(self) -> list[TargetSpec]:
@@ -704,6 +717,8 @@ class IfYouDoEffect(_CompositeEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if game_fingerprint(context, self.source) != self.before:
             self._run(self.inner_specs, context, targets)
+        elif self.else_specs:
+            self._run(self.else_specs, context, targets)
 
 
 class ForEachEffect(_CompositeEffect):
@@ -999,7 +1014,9 @@ class BindEffect(_CompositeEffect):
 EffectRegistry.register(
     # A list as a value — see `SeqEffect`.
     "seq",
-    lambda p: SeqEffect(effects=p.get("effects"), if_you_do_from=p.get("if_you_do_from")),
+    lambda p: SeqEffect(
+        effects=p.get("effects"), if_you_do_from=p.get("if_you_do_from"), else_effects=p.get("else_effects"),
+    ),
 )
 EffectRegistry.register("entry_effect", lambda p: EntryEffect(effects=p.get("effects")))
 EffectRegistry.register(

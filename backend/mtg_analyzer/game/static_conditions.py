@@ -205,6 +205,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # ``selector`` exceeds the controller's ("an opponent controls more
         # creatures than you"). `opponent_controls_more_lands` is its special case.
         "opponent_has_more",  # + ``selector``
+        # PAR-208: the mirror, "if you have more life than an opponent" -- some one opponent's count of the
+        # ``selector`` is below the controller's.
+        "opponent_has_fewer",  # + ``selector``
         # ENG-47: "…happened this turn" — how many events of the current turn match a
         # trigger-shaped ``trigger`` dict (the same ``event`` / ``condition`` /
         # ``filter`` keys a triggered ability of that shape carries), read off the
@@ -1082,6 +1085,19 @@ def condition_holds(
             for other in getattr(state, "players", [])
             if other.id != controller_id
         )
+    if kind == "opponent_has_fewer":
+        # RULE 107.1: a comparison of two counts of the same selector, read from each player's own point of view.
+        from .continuous import count_selector  # local: continuous imports this module
+
+        selector = condition.get("selector")
+        if not selector or controller_id is None:
+            return False
+        mine = count_selector(state, controller_id, _selector_arg(selector), source=source)
+        return any(
+            count_selector(state, other.id, _selector_arg(selector), source=source) < mine
+            for other in getattr(state, "players", [])
+            if other.id != controller_id
+        )
     if kind == "control_named":
         # "As long as you control a <specific card>" — matched on name, the
         # only stable identity a parsed condition can carry (an instance id
@@ -1593,6 +1609,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return f"solange Gegner ≥{condition.get('min', 1)} {_selector_label(condition.get('selector', ''))}"
     if kind == "opponent_has_more":
         return f"solange ein Gegner mehr hat als du: {_selector_label(condition.get('selector', ''))}"
+    if kind == "opponent_has_fewer":
+        return f"solange ein Gegner weniger hat als du: {_selector_label(condition.get('selector', ''))}"
     if kind == "event_this_turn":
         window = "diesen Kampf" if condition.get("scope") == EVENT_SCOPE_COMBAT else "diesen Zug"
         return f"falls {window} {condition.get('trigger', {}).get('event', '')} eingetreten ist"

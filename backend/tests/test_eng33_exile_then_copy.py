@@ -31,7 +31,7 @@ from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partition
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+from mtg_analyzer.parser.oracle.gate import MODELED, UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
@@ -118,15 +118,19 @@ def test_reflexive_connector_without_a_graveyard_antecedent_stays_unmodeled():
     assert parse_oracle(card).coverage == UNMODELED
 
 
-def test_reflexive_connector_with_a_non_copy_followup_stays_unmodeled():
-    # The "after" half is anchored on "create a … token that's a copy of that
-    # card"; a different follow-up must not have its "if you do," stripped and
-    # then run unconditionally.
+def test_reflexive_connector_with_a_non_copy_followup_is_gated_on_the_exile():
+    # The "after" half is anchored on "create a ... token that's a copy of that card"; a different follow-up must not
+    # have its "if you do," stripped and then run unconditionally. PAR-208 reads it as an optional exile (the
+    # resolving player's own graveyard pick) whose draw waits behind `if_you_do_from` (RULE 608.2c).
     card = _sorcery(
         "You may exile a creature card from your graveyard. If you do, draw "
         "two cards."
     )
-    assert parse_oracle(card).coverage == UNMODELED
+    result = parse_oracle(card)
+    assert result.coverage == MODELED
+    [effect] = [e for spec in result.specs for e in spec.effects]
+    assert effect.type == "optional" and effect.params["if_you_do_from"] == 1
+    assert [e["type"] for e in effect.params["effects"]] == ["exile_own_graveyard_cards", "draw"]
 
 
 # --- execute ----------------------------------------------------------------

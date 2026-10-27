@@ -882,6 +882,7 @@ class DamageDeathMixin:
     def sacrifice(
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
         exclude: Optional[GameObject] = None, chooser: Optional[Player] = None,
+        source: Optional[GameObject] = None,
     ) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -925,6 +926,9 @@ class DamageDeathMixin:
         self._request_choose_objects(
             chooser or player, candidates, "sacrifice", count=count,
             prompt="Wähle eine bleibende Karte zum Opfern",
+            # PAR-208: a sacrifice paid for an ability's own cost ("you may sacrifice a creature. If you do, ... that
+            # creature's power") is remembered on that ability's source (`note_sacrificed`, RULE 608.2h).
+            source=source,
         )
     def _return_until_source_leaves_exiles(self, event: GameEvent) -> None:
         """RULE 610.3c/d: return immediately after actual (possibly simultaneous) departures."""
