@@ -318,7 +318,9 @@ def test_series_splits_commas_only_at_effect_clauses():
     from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
     specs = parse_effect_body("target player mills 2 cards, draws 2 cards, and loses 2 life.")
-    assert [s.type for s in specs] == ["mill", "draw", "lose_life"]
+    # Later verbs act on the same earlier-named player (RULE 608.2c), carried by one referent each.
+    assert [s.type for s in specs] == ["mill", "trigger_subject_referent", "trigger_subject_referent"]
+    assert [s.params["effects"][0]["type"] for s in specs[1:]] == ["draw", "lose_life"]
     # A comma inside a condition or an amount phrase is no boundary.
     assert parse_effect_body("if you control a demon, target player draws a card, and loses 1 life.") is not None
     assert parse_effect_body("draw a card, gain a hat, and scry 1.") is None

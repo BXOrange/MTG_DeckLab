@@ -2247,9 +2247,18 @@ class SacrificeTargetEffect(GameEffect):
     accidentally become a fresh RULE 115 target.
     """
 
+    def __init__(self, controller_only: bool = False, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.controller_only = bool(controller_only)
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         subject = (targets or [None])[0]
         if subject is not None and subject in context.state.battlefield:
+            if self.controller_only:
+                player = _controller_of(self.source, context)
+                if player is None or subject.controller_id != player.id or subject.cant_be_sacrificed_this_turn:
+                    return
+                context.engine.note_sacrificed(self.source, subject)
             context.put_into_graveyard(subject)
 
 

@@ -208,8 +208,18 @@ def test_seek_emblem_unpayable_upkeep_loses_game():
     assert eng.state.players[0].has_lost
 
 
-def test_emblem_payment_and_sacrifice_unknown_tail_fail_closed():
-    assert match_clause('you get an emblem with "'+SORIN+' and draws a card."') is None
+def test_emblem_sacrifice_then_draw_acts_for_that_player():
+    eng=engine();emblem(eng,SORIN+' and draws a card')
+    for pl in eng.state.players:
+        pl.library.append(GameObject(Card(id='f'+pl.id,name='F',type_line='Sorcery'),owner_id=pl.id,zone=Zone.LIBRARY))
+    victim=put(eng,'Victim');p1,p2=eng.state.players
+    upkeep(eng,1)
+    while eng.state.pending_choice:
+        eng.resolve_pending_choice(str(victim.instance_id));eng.resolve_until_stable()
+    assert victim.zone==Zone.GRAVEYARD and len(p2.hand)==1 and not p1.hand
+
+
+def test_emblem_payment_unknown_tail_fails_closed():
     assert match_clause('you get an emblem with "'+SEEK+' and draw a card."') is None
 
 

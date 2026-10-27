@@ -1081,7 +1081,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"), trigger_event_key=p.get("trigger_event_key"),
     ),
 )
-EffectRegistry.register("sacrifice_target", lambda p: SacrificeTargetEffect())
+EffectRegistry.register("sacrifice_target", lambda p: SacrificeTargetEffect(controller_only=bool(p.get("controller_only", False))))
 EffectRegistry.register(
     "sacrifice_controller_permanent",
     lambda p: SacrificeControllerPermanentEffect(what=p.get("what", "permanent")),

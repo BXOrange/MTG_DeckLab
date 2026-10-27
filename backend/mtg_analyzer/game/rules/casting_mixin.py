@@ -1918,6 +1918,8 @@ class CastingResolutionMixin:
     DEFERRED_ITERATION = "iteration"
     #: A paid `pay_cost_then` whose payment opened a choice (the sacrifice pick): its "if you do" half waits here.
     DEFERRED_PAID_COST = "paid_cost"
+    #: RULE 603.2c: finish the event batch after an object instruction's last suspended iteration.
+    DEFERRED_BATCH_END = "batch_end"
 
     def defer_iteration(
         self,
@@ -1999,6 +2001,11 @@ class CastingResolutionMixin:
         ]
         previous.extend(self.state.player_by_id(player_id)
                         for player_id in choice.get("previous_player_ids", []))
+        created = []
+        for visit in choice.get("created_object_visits", []):
+            obj = self.state.find_object(visit["instance_id"])
+            if obj is not None and obj.zone_incarnation == visit["zone_incarnation"]:
+                created.append(obj)
         from ..binding.core import build_effects  # function-scoped: binder cycle
         from ...parser.oracle.spec import EffectSpec
 
@@ -2059,7 +2066,7 @@ class CastingResolutionMixin:
         try:
             _apply_effects_partitioned(
                 built, self.context, announced or None, None, source=source,
-                previous_targets=previous, revealed_card=revealed,
+                previous_targets=previous, created_objects=created, revealed_card=revealed,
             )
         finally:
             self.context.resolving_source_incarnation = outer_source_incarnation
@@ -2154,6 +2161,9 @@ class CastingResolutionMixin:
         if self.state.pending_choice or not self.state.deferred_effects:
             return False
         resumed = self.state.deferred_effects.pop()
+        if resumed.get("kind") == self.DEFERRED_BATCH_END:
+            self.state.release_batches()
+            return True
         if resumed.get("kind") == self.DEFERRED_ITERATION:
             self._resume_iteration(resumed)
             return True

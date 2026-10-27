@@ -26,7 +26,8 @@ from typing import Any, Optional
 from .dying_hosts import dying_host_return_specs
 from .fight_sequences import fight_sequence_specs, source_counter_fight_specs
 from ..spec import EffectSpec
-from .clause_reading import STANDALONE, ClauseReading
+from .clause_reading import STANDALONE, ClauseReading, CREATED, PLAYER
+from .object_phrase import ambiguous_object_reference, object_phrase_specs
 from .effect_rows.shared import EffectHandler, match_clause_reading
 from .clause_hooks import register_clause_matcher
 from .effect_rows import damage_copy
@@ -69,10 +70,32 @@ def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optiona
     `GameContext.previous_targets`. Rows written for the group subject itself win first, so
     nothing they claim changes reading.
     """
-    return match_clause_reading(clause, reading=reading.entered())
+    reading = reading.entered()
+    effects = match_clause_reading(clause, reading=reading)
+    if effects is None and reading.group_clause:
+        return object_phrase_specs(clause, reading, _match_registered_clause)
+    return effects
 
 
 def _match_clause_once(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
+    if ambiguous_object_reference(clause, reading, _match_registered_clause):
+        return None
+    registered = _match_registered_clause(clause, reading=reading)
+    if reading.group_clause:
+        # Preserve the established group-trigger rereading/seed in match_clause_reading.
+        return registered
+    # These nodes already consume CREATED through the sequence's created-pronoun pass.
+    if (any(ref.kind == CREATED for ref in reading.referents) and registered
+            and all(spec.type in ("pump", "grant_until") for spec in registered)):
+        return registered
+    if any(ref.kind in (CREATED, PLAYER) for ref in reading.referents):
+        bound = object_phrase_specs(clause, reading, _match_registered_clause, references_only=True)
+        if bound is not None:
+            return bound
+    return registered or object_phrase_specs(clause, reading, _match_registered_clause)
+
+
+def _match_registered_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     fight_sequence = fight_sequence_specs(clause) or source_counter_fight_specs(clause)
     if fight_sequence is not None:
         return fight_sequence

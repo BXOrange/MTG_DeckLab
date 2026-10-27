@@ -1124,6 +1124,10 @@ class ConditionalEffect(GameEffect):
         self.target_spec = inner.target_spec
 
     @property
+    def created_objects_are_referent(self) -> bool:
+        return bool(getattr(self.inner, "created_objects_are_referent", False))
+
+    @property
     def target_specs(self) -> list[TargetSpec]:
         """RULE 702.174m: a gated part whose condition the cast already decided as false
         announces no target — "if the gift was promised, tap target creature" asks for

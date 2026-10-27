@@ -1359,6 +1359,9 @@ ROWS: list[EffectHandler] = [
         _PUMP_PREVIOUS_SELECTOR_RE,
         _pump_previous_selector,
         requires=ClauseReading(previous_selector=True),
+        # A remembered group iteration (God-Eternal Rhonas's "double the power of each other creature") leaves both
+        # a previous-target and a previous-selector referent; the targets row wins and reads the same group.
+        fallback_for=("pump_previous_targets_kw",),
     ),
     # "Target attacking Elf you control gains deathtouch until end of
     # turn." (Gnarlroot Trapper-shaped) — tried before the plain

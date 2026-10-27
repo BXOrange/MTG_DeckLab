@@ -454,8 +454,10 @@ def test_plural_targets_take_the_controller_scope(clause, effect, kind, count):
     assert spec.params["optional"] is True
 
 
-def test_a_plural_row_with_no_scoped_pool_stays_unclaimed():
-    assert match_clause("tap up to 2 target artifacts your opponents control") is None
+def test_a_plural_artifact_row_takes_the_opponent_scope_from_the_shared_object_phrase():
+    spec = match_clause("tap up to 2 target artifacts your opponents control")[0]
+    choose = spec.params["effects"][0]["params"]
+    assert choose["kinds"] == ["artifact_you_dont_control"] and choose["count"] == 2 and choose["optional"]
 
 
 def test_plural_scope_taps_only_the_opponents_creatures():
@@ -494,7 +496,8 @@ def test_dont_untap_takes_the_controller_scope():
     effect.source = mine
     effect.apply(engine.rules.context, targets=[theirs])
     assert theirs.skip_next_untap and not mine.skip_next_untap
-    assert match_clause("target creature you control doesn't untap during its controller's next untap step") is None
+    own = match_clause("target creature you control doesn't untap during its controller's next untap step")[0]
+    assert own.params["effects"][0]["params"]["kinds"] == ["creature_you_control"]
 
 
 # -- the controller scope on a group filter and on divided damage -------------

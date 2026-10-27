@@ -192,6 +192,14 @@ class _CompositeEffect(GameEffect):
         super().__init__(source)
         self.inner_specs = _as_spec_dicts(effects)
 
+    @property
+    def created_objects_are_referent(self) -> bool:
+        # Copy-producing compositions retain the copy effect's existing referent contract.
+        if not self.inner_specs:
+            return False
+        last = _build(self.inner_specs[-1:], self.source)
+        return bool(last and getattr(last[-1], "created_objects_are_referent", False))
+
     def _run(
         self,
         specs: list[dict[str, Any]],
@@ -342,7 +350,9 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
         referent: str = 'trigger_subject',
     ) -> None:
         super().__init__(effects, source)
-        if referent not in effect_conditions.EFFECT_SUBJECTS:
+        # "attached" is RULE 303.4/301.5's host of an Aura/Equipment source (`subject_of` resolves it); it stays out of
+        # EFFECT_SUBJECTS so a standing condition's ``of: attached`` keeps resolving through `static_conditions`.
+        if referent not in effect_conditions.EFFECT_SUBJECTS and referent != 'attached':
             raise ValueError('Unknown body referent')
         self.referent = referent
         self.event_key = event_key or "instance_id"
@@ -390,7 +400,8 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
             object_id = getattr(self.source, "remembered_instance_id", None)
         else:
             object_id = (context.trigger_event or {}).get(self.event_key)
-        firing = context.state.find_object(object_id) if object_id is not None else None
+        firing = (subject if self.referent != 'trigger_subject'
+                  else context.state.find_object(object_id) if object_id is not None else None)
         # RULE 400.7: a damage recipient / targeted host that left and returned is a new object.
         incarnation_key = {"target_id": "target_zone_incarnation", "instance_id": "instance_zone_incarnation"}.get(self.event_key)
         incarnation = (context.trigger_event or {}).get(incarnation_key) if incarnation_key else None
@@ -655,6 +666,11 @@ class OptionalEffect(_CompositeEffect):
                 for obj in (getattr(context, "previous_targets", []) or [])
                 if getattr(obj, "instance_id", None) is not None
             ],
+            # RULE 400.7: an optional rider keeps the creations' exact zone visits across its question.
+            "created_object_visits": [
+                {"instance_id": obj.instance_id, "zone_incarnation": obj.zone_incarnation}
+                for obj in context.created_objects
+            ],
             # Same, for a `reveal_top` clause's stashed card — "you may put
             # **that card** onto the battlefield" (Nissa) is the body here.
             "revealed_card_id": getattr(
@@ -749,6 +765,10 @@ class ForEachEffect(_CompositeEffect):
         self.over = dict(over or {})
 
     def _items(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
+        if self.over.get("created_objects"):
+            return list(context.created_objects)
+        if self.over.get("previous_targets"):
+            return list(context.previous_targets)
         if self.over.get("targets"):
             return list(targets or [])
         if self.over.get("batch_members"):
@@ -775,6 +795,10 @@ class ForEachEffect(_CompositeEffect):
             if scope == "you":
                 return [p for p in living if p.id == controller_id]
             return living
+        if self.over.get("previous_selector"):
+            from .attachments_transforms import previous_group_objects
+
+            return previous_group_objects(context, self.source, context.previous_selector)
         selector = self.over.get("selector")
         if isinstance(selector, dict) and selector.get("zone", "battlefield") != "battlefield":
             # PAR-153: "for each creature card you own in exile with a memory counter on it" (Altaïr) — a card
@@ -816,6 +840,11 @@ class ForEachEffect(_CompositeEffect):
         items = self._items(context, targets)
         if not items or not self.inner_specs:
             return
+        # RULE 603.2c: a plural object action is one instruction even if a member opens a choice.
+        owns_hold = bool(self.over.get("simultaneous")) and not context.state._batch_hold
+        if owns_hold:
+            context.state.hold_batches()
+            context.state.deferred_effects.append({"kind": context.engine.DEFERRED_BATCH_END})
         # Park the whole loop and run it here: `resume_deferred_effects`
         # drains an iteration frame one item at a time, and draining it now
         # (rather than leaving it for `resolve_until_stable`) is what keeps
@@ -828,9 +857,11 @@ class ForEachEffect(_CompositeEffect):
             not context.state.pending_choice
             and context.state.deferred_effects
             and context.state.deferred_effects[-1].get("kind")
-            == context.engine.DEFERRED_ITERATION
+            in (context.engine.DEFERRED_ITERATION, context.engine.DEFERRED_BATCH_END)
         ):
             context.engine.resume_deferred_effects()
+        if self.over.get("remember"):
+            context.previous_targets = list(items)
 
 
 #: `TargetGroupEffect.shares` vocabulary → the `combat.matches_object_filter` relative key that implements it.

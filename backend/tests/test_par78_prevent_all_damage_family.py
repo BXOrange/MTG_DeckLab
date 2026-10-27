@@ -431,12 +431,20 @@ def test_target_creature_two_word_subtype_or_filter_parses():
     })]
 
 
-def test_target_creature_unknown_subtype_word_stays_unclaimed():
-    # "attacking" isn't in the closed subtype vocabulary — must fail closed
-    # rather than guessing a subtype filter for a qualifier word.
+def test_target_creature_unknown_qualifier_word_stays_unclaimed():
+    # A word outside the subtype vocabulary and the status words must fail closed
+    # rather than guessing a subtype filter.
     assert parse_effect_body(
-        "prevent all damage that would be dealt to target attacking creature this turn"
+        "prevent all damage that would be dealt to target frobbing creature this turn"
     ) is None
+
+
+def test_target_attacking_creature_is_a_status_filter():
+    # RULE 506.4: "attacking" is a combat status, carried as a filter flag, not a subtype.
+    specs = parse_effect_body(
+        "prevent all damage that would be dealt to target attacking creature this turn"
+    )
+    assert "'attacking': True" in str(specs)
 
 
 def test_control_permanent_of_each_color_condition():

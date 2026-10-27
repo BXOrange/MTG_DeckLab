@@ -222,6 +222,18 @@ TARGET_PARAM_KEYS: frozenset[str] = frozenset(
     {"target_kind", "fighter_kind", "other_kind", "dealer_kind", "kinds"}
 )
 
+#: These operations call their target multiplicity `count`; counter/token amounts use that word too,
+#: so every other operation reads `target_count` instead. This is target arity, never effect magnitude.
+TARGET_COUNT_IS_COUNT: frozenset[str] = frozenset({
+    "choose_targets", "destroy", "exile", "tap", "return_to_hand", "goad", "damage", "regenerate",
+})
+
+
+def has_plural_targets(spec: EffectSpec) -> bool:
+    key = "count" if spec.type in TARGET_COUNT_IS_COUNT else "target_count"
+    count = spec.params.get(key, 1)
+    return (isinstance(count, int) and count > 1) or bool(spec.params.get("target_count_selector"))
+
 
 #: Target kinds that make a clause a legal antecedent for the next clause's
 #: creature pronoun. `EffectSpec` params name their target kinds in a handful

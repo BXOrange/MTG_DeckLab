@@ -1571,6 +1571,8 @@ def _apply_effects_partitioned(
                     selector = (getattr(selecting, "static", {}) or {}).get("params", {}).get("affects")
                 if selector and not getattr(selecting, "selector_player", None):
                     context.previous_selector = selector  # a player-scoped one set its own
+            elif isinstance(getattr(selecting, "over", None), dict) and selecting.over.get("remember"):
+                context.previous_selector = selecting.over["selector"]
             elif (
                 isinstance(selecting, AddCountersEffect)
                 and selecting.selector in ADD_COUNTERS_GROUP_AFFECTS

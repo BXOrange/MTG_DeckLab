@@ -436,11 +436,17 @@ _LOSE_LIFE_PER_LIFE_GAINED_RE = compile_clause(
     r"that player loses (?P<n>\d+) life for each 1 life they gained"
 )
 _LOSE_LIFE_THAT_CONTROLLER_RE = compile_clause(
-    r"that (?:player|spell or ability's controller) loses (?P<n>\d+) life"
+    r"that (?P<who>player|spell or ability's controller) loses (?P<n>\d+) life"
 )
 
 
 def _lose_life_that_controller(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("who") == "player":
+        return [EffectSpec("lose_life", {
+            "amount": int(m.group("n")), "player": {"of": "trigger_player", "as": "self"},
+            EVENT_PLAYER_EVENTS_KEY: ["SPELL_CAST", "DAMAGE", "ATTACKS", "BECOMES_TARGET",
+                                      "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
+        })]
     return [EffectSpec("lose_life", {
         "amount": int(m.group("n")), "selector": "event_player",
         EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],

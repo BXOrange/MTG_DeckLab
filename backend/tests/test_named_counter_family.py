@@ -24,11 +24,11 @@ def test_put_a_spore_counter_on_self_parses():
     ]
 
 
-def test_put_a_spore_counter_on_target_fungus_stays_unclaimed():
-    # "target fungus" isn't a `TARGET` row this grammar recognises (a
-    # creature-subtype-scoped target, a different, still-open gap) — fail
-    # closed rather than dropping the subtype filter.
-    assert match_clause("put a spore counter on target fungus") is None
+def test_put_a_spore_counter_on_target_fungus_keeps_the_subtype_filter():
+    # A subtype-scoped target is the shared PAR-210 object phrase: the subtype is a target filter,
+    # never dropped.
+    spec = match_clause("put a spore counter on target fungus")[0]
+    assert spec.params["effects"][0]["params"]["creature_filter"] == {"subtype": "fungus"}
 
 
 def test_deathspore_thallid_full_card_is_modeled():

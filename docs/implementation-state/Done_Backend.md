@@ -1913,6 +1913,31 @@ Copies use the existing spell-copy primitive and do not count as casts.
 - **Clause separators and outcome chains (PAR-208, PARSER_VERSION 771–772):** Mandatory observable actions followed by “if you do” compose through `seq.if_you_do_from`; `else_effects` handles declined, impossible and ineffective actions across existing sequence/optional/payment nodes. Shared-subject comma series and “, then” preserve order. Sacrifice payoffs read the sacrificed object's characteristics; removing counters is an observable antecedent. Other-player library searches include the shuffle tail and put stolen permanents under the searching player's control. Typed/union/random discard costs, half-life payments, defending-player discard and untargeted own-graveyard returns reuse existing primitives. “You may X. Then Y” makes only X optional. Any-player/opponent payments support both paid and all-declined outcomes; an interactive sacrifice finishes before its payoff through the existing paid-cost continuation (RULE 608.2c). Open offers, remaining players and deferred payoffs survive clone/undo through `GameState`.
 - **PAR-208 validation and boundary:** Coverage **22,734/35,051 (64.9%)**, Commander **22,127/32,068 (69.0%)**. The v772 comparison against v771 has **49 newly parser-modeled names, zero lost names**, and six changed existing specs. The older graveyard-return row is explicitly declared as a fallback for the shared own-graveyard picker, so the full-pool handler audit recognizes their intentional overlap. Four changes replace equivalent untargeted graveyard picks; Summon Undead and Gallifrey Stands correct optional-action scope. All six execute in `test_par208_return_own_graveyard.py`; `test_par208_any_player_may.py` verifies payment order and clones at both the offer and selection stages, including preserved remaining players. The fresh fragment scan has **14,593 open sentences**, **4,771 follow-ups on 3,589 cards** and **3,999 open multi-sentence card/parent pairs**, down from **4,029 at v771** with the same counting. The separator/outcome acceptance criteria are met; this does not claim arbitrary missing actions or references. Same-name cross-zone sweeps remain PAR-209/210, revealed-card pools and inspection leads PAR-213, quantifier scopes PAR-211, and counter-threshold/pronoun-bound follow-ups PAR-212/210. Non-cost offers such as optional damage or graveyard exile remain unclaimed rather than being charged as costs. Family execution tests: `test_par208_{outcome_chains,other_library_search,unless_discard,defending_player_discard,return_own_graveyard,any_player_may}.py`. Final regular run: **16,687 passed, 486 skipped**; its two sandbox socket-binding failures pass with loopback permission (**3 proxy tests passed**). The full-cache run had **17,162 passed, 1 skipped**; its remaining handler-shadowing failure is fixed and the complete full-pool audit rerun passes (**2 passed**). Payment/return/prevention regression rerun: **118 passed**, including the additional clone-continuation test.
 
+- **Shared object-phrase grammar and reference binding (PAR-210, PARSER_VERSION 773–777):**
+  `parser/oracle/catalogue/object_phrase.py` is one object-operand adapter over `ClauseReading`
+  and the existing selectors that every effect row consumes: quantified targets and filtered
+  groups, typed player/plural/created referents, cast/damage player actors, elided actions,
+  counter-payment and sacrifice-history quantities, nested trigger contexts. Resolution is
+  fail-closed when the antecedent is absent or ambiguous: created objects outrank earlier
+  targets and a previous player never becomes a permanent's `it`. Plural object actions keep one
+  event batch (clone-safe finalizer) and optional created-object riders keep exact zone visits
+  across choices/clones; copy-producing compositions preserve their copy referent. Explicit
+  where-X definitions stay with the shared binder so X is fixed before object iteration; four
+  v776 prototype gains of that shape (Deekah, Draining Whelk, Mask of the Schemer, Olivia's
+  Wrath) therefore remain unclaimed rather than being claimed unsoundly. The shared operand also refuses
+  `another/other target X` (no permanent target frame excludes the source), a bare `it` in a copy clause
+  (it may be the cast spell, RULE 707.10) and `it becomes … creature` (RULE 205.1a retention gate), and reads `that creature` as the attached host
+  never (Sword of Kaldra, Shield of the Righteous, Crystallization): 54 prototype claims stay unclaimed.
+  The `attached` referent is accepted by `TriggerSubjectReferentEffect` (Bestial Fury, Chainflail
+  Centipede), and the three overlapping self/previous and targets/selector rows are declared fallbacks. Unknown `X or X` alternatives collapse to one. Validation: coverage
+  **23,141/35,051 (66.0%)**, Commander **22,529/32,068 (70.3%)**; the v777 comparison against
+  v772 has **431 newly parser-modeled names, zero lost** and 58 changed specs (the
+  `Target player draws N cards and loses N life` family now carries its actor through comma-then),
+  all reviewed and executed. Fragment scan: **14,027 open sentences** (14,593 at v772). Tests:
+  `test_par210_{object_phrases,player_references,quantity_references}.py` (67 passed; 23 older parser tests updated where the shared grammar legitimately claims what they
+  pinned as open: shadow/attacking filters, group explore, parametric keyword grants, spore on a subtype
+  target, plural opponent-scope artifacts, emblem sacrifice-then-draw, Dauntless Dismantler).
+
 ### Card-resolution packages: Dance residual bodies (MEC-76)
 
 - **What:** Hand-authored the four residual card bodies that did not justify a

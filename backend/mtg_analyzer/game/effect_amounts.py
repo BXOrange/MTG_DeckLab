@@ -134,6 +134,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the revealed card" (Counterbalance) reads ``mana_value`` off the
         # `SPELL_CAST` event. Non-numeric / absent field → 0.
         "trigger_event",  # + ``field`` (the event key to read)
+        "event_count",  # + ``trigger``: reuse the turn-history condition's event predicate
         # RULE 508.3a: this trigger head's filtered count, captured at declaration.
         "attackers_declared",
         # "N, or M if <condition>" — the override every "…instead" card prints
@@ -353,6 +354,21 @@ def _base(
         if isinstance(raw, bool) or not isinstance(raw, int):
             return 0
         return int(raw)
+
+    if kind == "event_count":
+        from .static_conditions import _events_this_turn_matching
+
+        trigger = amount.get("trigger")
+        if not isinstance(trigger, dict) or not trigger.get("event") or controller_id is None:
+            return 0
+        reference = source
+        if source is not None and source.controller_id != controller_id:
+            from copy import copy
+
+            # RULE 109.5: "you" is the resolving ability's controller, even after its source changes control.
+            reference = copy(source)
+            reference.controller_id = controller_id
+        return _events_this_turn_matching(context.state, trigger, reference, controller_id, amount.get("scope"))
 
     if kind == "chosen_colors_shared_with_trigger_spell":
         event = getattr(context, "trigger_event", None) or {}

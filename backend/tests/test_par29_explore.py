@@ -51,9 +51,15 @@ def test_target_creature_explores_parses():
     ]
 
 
-def test_double_explore_and_mass_explore_stay_unclaimed():
+def test_double_explore_stays_unclaimed():
     assert match_clause("it explores, then it explores again", reading=ClauseReading(self_subject=True)) is None
-    assert match_clause("each merfolk creature you control explores") is None
+
+
+def test_group_explore_is_claimed_by_the_shared_object_phrase():
+    # RULE 701.44a: each named permanent explores on its own (PAR-210 group operand).
+    spec = match_clause("each merfolk creature you control explores")[0]
+    assert spec.type == "for_each"
+    assert spec.params["effects"][0]["type"] == "explore"
 
 
 def test_real_explore_card_is_modeled_end_to_end():

@@ -1622,6 +1622,8 @@ def trigger_player_antecedent(state: "GameState", event: Any) -> Optional[str]:
         return event.get("defending_player_id")
     if event_type == "BECOMES_TARGET":
         return event.get("controller_id")
+    if event_type == "SPELL_CAST":
+        return event.get("player_id")
     if event_type == "STEP_BEGIN":
         active = getattr(state, "active_player", None)
         return getattr(active, "id", None)

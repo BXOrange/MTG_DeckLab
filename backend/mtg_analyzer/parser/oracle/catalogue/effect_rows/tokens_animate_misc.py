@@ -1881,6 +1881,9 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "becomes_in_addition_self_pronoun", _BECOMES_IN_ADDITION_SELF_PRONOUN_RE, _becomes_in_addition,
         requires=ClauseReading(self_subject=True),
+        # A self trigger whose earlier clause chose a target ("…put a counter on target Food. If you do, it
+        # becomes…", Cinnamon): "it" is the nearer antecedent, the target, so the previous-target row wins.
+        fallback_for=("becomes_in_addition_previous",),
     ),
     EffectHandler("becomes_in_addition", _BECOMES_IN_ADDITION_RE, _becomes_in_addition),
     EffectHandler(
@@ -1905,6 +1908,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "animate_self_pronoun", _ANIMATE_SELF_PRONOUN_RE, _animate_target,
         requires=ClauseReading(self_subject=True),
+        fallback_for=("becomes_in_addition_previous",),
     ),
     EffectHandler("animate_multi", _ANIMATE_MULTI_RE, _animate_multi),
     EffectHandler(

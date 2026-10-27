@@ -328,10 +328,11 @@ def subject_of(
         # "that player" / "they" / "defending player" under a trigger whose event names one player as its
         # recipient: the player a DAMAGE event hurt (RULE 120.3), else the defending player an ATTACKS event names
         # (RULE 508.1b). The parser only emits it under those heads (gate `event_player_events`).
-        event = getattr(context, "trigger_event", None) or {}
-        if event.get("is_player"):
-            return _player_by_id(context, event.get("target_id"))
-        return _player_by_id(context, event.get("defending_player_id"))
+        from .targeting import trigger_player_antecedent
+
+        return _player_by_id(context, trigger_player_antecedent(
+            context.state, getattr(context, "trigger_event", None),
+        ))
     if of == "attacked_player":
         # PAR-120: "whenever a creature attacks 1 of your opponents, **that
         # player** loses 1 life." (Calculating Lich) — the group subject's

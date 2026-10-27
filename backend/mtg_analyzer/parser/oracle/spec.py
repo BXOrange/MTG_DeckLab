@@ -295,6 +295,7 @@ RETIRED_EFFECT_PARAMS: dict[str, str] = {
 
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "property": str,
+    "trigger": dict,  # a turn-history event_count uses the existing trigger predicate shape
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
     "event_key": str,  # exact trigger subject field, resolved by the trigger binder
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
@@ -1488,6 +1489,11 @@ class AbilitySpec:
             expected = _AMOUNT_SPEC_FIELDS.get(key)
             if expected is None:
                 raise SpecValidationError(f"unknown amount spec field {key!r}")
+            if key == "trigger":
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'trigger' in an amount spec must be a dict")
+                AbilitySpec._validate_trigger_shape(value)
+                continue
             if key == "condition":
                 if not isinstance(value, dict):
                     raise SpecValidationError("'condition' in an amount spec must be a dict")

@@ -21,7 +21,7 @@ import json
 import re
 from .catalogue.clause_reading import (
     COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
-    ClauseReading, Referent,
+    ClauseReading, Referent, PLAYER,
 )
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional
@@ -61,6 +61,7 @@ from .catalogue.effect_rows.end_of_combat import END_COMBAT_STEP, NEEDS_BLOCK_HE
 from .catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
 from .catalogue.effect_rows.shared import base_verb
 from .catalogue.handlers import match_clause
+from .catalogue.clause_primitives import has_plural_targets
 from .catalogue.keywords import ALIAS_DISPLAYS, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
 from .catalogue.replacements import replacement_clause_specs, standing_ability_kind
@@ -2158,7 +2159,7 @@ def _die_that_much_specs(
     if _THAT_MUCH_RE.search(rest) is None:
         return None
     return _bind_x_specs(
-        _THAT_MUCH_RE.sub("x", rest), {"kind": "die_result"}, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject, previous_selector=False),
+        _THAT_MUCH_RE.sub("x", rest), {"kind": "die_result"}, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject, previous_selector=False),
     )
 
 
@@ -3839,7 +3840,7 @@ def _if_else_specs(
     if match is None:
         return None
     condition = _group_pronoun_condition(
-        match.group("cond"), static_condition(match.group("cond")), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        match.group("cond"), static_condition(match.group("cond")), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if condition is None:
         return None
@@ -4309,7 +4310,7 @@ def _for_each_amount_specs(
     something the card never scaled.
     """
     amount = _count_amount(
-        phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if amount is None:
         return None
@@ -5057,7 +5058,7 @@ def _where_x_specs(
         minus = _MINUS_TAIL_RE.search(phrase)
         if minus is not None:
             phrase = phrase[: minus.start()]
-        amount = _count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET)), )
+        amount = _count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER)), )
         if amount is None and " plus the number of " in phrase:
             # "…the number of caves you control **plus the number of** cave cards in your graveyard" (Calamitous
             # Cave-In): a sum of counts, which the amount grammar reads as one expression.
@@ -5271,7 +5272,7 @@ def _referent_characteristic_specs(
 #: opponent" iterates the body over those players (`for_each` hands each one to it as
 #: its target, APNAP order, RULE 101.4), and "target opponent" narrows the target.
 _PLAYER_SCOPE_SUBJECT_RE = re.compile(
-    r"^(?P<who>each player|each opponent|target opponent) (?P<rest>.+)$", re.IGNORECASE
+    r"^(?P<who>each player|each opponent|target opponent|target player|that player) (?P<rest>.+)$", re.IGNORECASE
 )
 _PLAYER_SCOPE_ITERATION = {"each player": "each_player", "each opponent": "each_opponent"}
 
@@ -5284,6 +5285,12 @@ def _player_scope_specs(
     m = _PLAYER_SCOPE_SUBJECT_RE.match(body.strip())
     if m is None:
         return None
+    if m.group("who").lower() == "target player":
+        return None  # the singular operation itself must exist; do not re-enter this scope adapter
+    if m.group("who").lower() == "that player" and (
+        reading.previous_subject or reading.attached_subject or any(r.kind == PLAYER for r in reading.referents)
+    ):
+        return None  # an earlier pick/host supplies the player; retain its contextual reading
     inner = parse_effect_body(
         f"target player {m.group('rest')}", reading=reading.unattached(),
     )
@@ -5294,6 +5301,13 @@ def _player_scope_specs(
         if named != ["player"] or spec.type in ("for_each", "bind", "if_else", "seq"):
             return None
     who = m.group("who").lower()
+    if who == "that player":
+        return [EffectSpec("trigger_subject_referent", {
+            "referent": "trigger_player",
+            "event_player_events": ["SPELL_CAST", "DAMAGE", "ATTACKS", "BECOMES_TARGET",
+                                    "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
+            "effects": [spec.to_dict() for spec in inner],
+        })]
     if who == "target opponent":
         return [
             EffectSpec(spec.type, {**spec.params, "target_kind": "opponent"}, condition=spec.condition)
@@ -5696,17 +5710,17 @@ def _peel_condition(
         inner = None
         if row.parse_rest is not None:
             inner = row.parse_rest(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
             )
         if inner is None:
             inner = parse_effect_body(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
             )
         if inner is None:
             return True, None
         condition = row.build(match)
         condition = _group_pronoun_condition(
-            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if (
             condition is not None and reading.previous_subject and not reading.self_subject and not reading.group_subject
@@ -5747,7 +5761,7 @@ def _peel_condition(
         # re-fold it through `parse_effect_body` so it gets that gate rather
         # than silently inheriting this one.
         more = parse_effect_body(
-            trailing, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            trailing, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         return True, (gated + more if more is not None else None)
     return False, None
@@ -5769,7 +5783,7 @@ def _with_after_tail(
     if not after_text:
         return specs
     after_specs = parse_effect_body(
-        after_text, reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        after_text, reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if after_specs is None:
         return None
@@ -5836,7 +5850,7 @@ def _action_then_when_you_do(action_then: "re.Match[str]", reading: ClauseReadin
     action carries the reflexive trigger (``then_trigger``); ``None`` when the clause is not that shape."""
     before_specs = parse_effect_body(
         action_then.group("before"),
-        reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     after_text = action_then.group("after")
     condition = None
@@ -5868,7 +5882,30 @@ def parse_effect_body(
     """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
     emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
     specs = _parse_effect_body_unstamped(body, reading=reading)
-    return _stamp_created_pronouns(specs) if specs else specs
+    if not specs:
+        return specs
+    return _bind_local_object_quantities(body, _stamp_created_pronouns(specs))
+
+
+def _bind_local_object_quantities(body: str, specs: list[EffectSpec]) -> list[EffectSpec]:
+    """An object-list sacrifice supplies its own following 'that many', independently of a trigger."""
+    if not re.search(r"\bthat (?:many|much)\b", body, re.I):
+        return specs
+    out: list[EffectSpec] = []
+    producer = None
+    for spec in specs:
+        children = spec.params.get("effects", []) if spec.type == "for_each" else []
+        if children and all(child.get("type") == "sacrifice_target" for child in children):
+            producer = len(out)
+        elif producer is not None and any(spec.params.get(key) == "amount" for key in _EVENT_READS):
+            bound = _bind_attack_count([spec], {"kind": "this_way_count", "pool": "sacrificed"})
+            if bound is not None:
+                out.insert(producer, EffectSpec("mark_event_log", {}))
+                out.extend(bound)
+                producer = None
+                continue
+        out.append(spec)
+    return out
 
 
 def _parse_effect_body_unstamped(
@@ -6091,7 +6128,7 @@ def _parse_effect_body_inner(
     # Preserve the existing hand-cheat package before placement-tail folding.
     # Its choice already owns haste and the delayed sacrifice (MEC-73).
     if "that creature gains haste until end of turn" in body:
-        packaged = match_clause(body, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET)), )
+        packaged = match_clause(body, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER)), )
         if packaged and len(packaged) == 1 and packaged[0].type == "cheat_creature_from_hand":
             return packaged
     # "you may **have** target creature get -2/-2 until end of turn" (Blightcaster, Battle-Rattle Shaman, the
@@ -6149,7 +6186,7 @@ def _parse_effect_body_inner(
     # "if C," gate or a first sentence — creates the same turn-long trigger a whole line does.
     if _TURN_TRIGGER_RE.match(body):
         turn_trigger = _turn_trigger_segment(
-            body, provenance=ParserProvenance(), reading=ClauseReading(referents=reading.referents_of(TARGET)),
+            body, provenance=ParserProvenance(), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER)),
         )
         if turn_trigger is not None and turn_trigger.claimed and turn_trigger.spec is not None:
             return list(turn_trigger.spec.effects)
@@ -6221,7 +6258,7 @@ def _parse_effect_body_inner(
     # *without* its gate — a wrong-but-modeled unconditional card is worse
     # than an unclaimed one.
     matched, peeled = _peel_condition(
-        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if matched:
         return peeled
@@ -6327,7 +6364,7 @@ def _parse_effect_body_inner(
     enters_atk = _CREATED_ENTERS_ATTACKING_RE.match(body)
     if enters_atk is not None:
         before_specs = parse_effect_body(
-            enters_atk.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            enters_atk.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         name_subj = (enters_atk.group("name_subj") or "").strip().lower()
         # ``create_named_legendary_token`` emits a plain ``create_token``
@@ -6359,7 +6396,7 @@ def _parse_effect_body_inner(
     if spend_mana is not None:
         restriction = _spend_mana_restriction(spend_mana.group("what"))
         before_specs = parse_effect_body(
-            spend_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            spend_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         ) if restriction is not None else None
         if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
             return None
@@ -6369,13 +6406,13 @@ def _parse_effect_body_inner(
             for spec in before_specs
         ]
         return _with_after_tail(
-            before_specs, spend_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            before_specs, spend_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
 
     keep_mana = _KEEP_MANA_SENTENCE_RE.match(body)
     if keep_mana is not None:
         before_specs = parse_effect_body(
-            keep_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            keep_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
             return None
@@ -6386,7 +6423,7 @@ def _parse_effect_body_inner(
             for spec in before_specs
         ]
         return _with_after_tail(
-            before_specs, keep_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            before_specs, keep_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
@@ -6446,7 +6483,7 @@ def _parse_effect_body_inner(
     regen_exile = _REGEN_EXILE_RIDER_RE.match(body.strip())
     if regen_exile is not None:
         before_specs = parse_effect_body(
-            regen_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            regen_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if not before_specs or not any(spec.type == "damage" for spec in before_specs):
             return None
@@ -6464,7 +6501,7 @@ def _parse_effect_body_inner(
     die_to_exile = _DIE_TO_EXILE_SENTENCE_RE.match(body)
     if die_to_exile is not None:
         before_specs = parse_effect_body(
-            die_to_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            die_to_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6490,7 +6527,7 @@ def _parse_effect_body_inner(
     kicked_mag = _KICKED_MAGNITUDE_OVERRIDE_RE.match(body)
     if kicked_mag is not None:
         before_specs = parse_effect_body(
-            kicked_mag.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            kicked_mag.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6511,7 +6548,7 @@ def _parse_effect_body_inner(
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:
         before_specs = parse_effect_body(
-            gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(
             spec.type == "gain_control_until_eot" for spec in before_specs
@@ -6538,7 +6575,7 @@ def _parse_effect_body_inner(
         if certain is None:
             continue
         before_specs = parse_effect_body(
-            certain.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            certain.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == antecedent_type for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
@@ -6547,7 +6584,7 @@ def _parse_effect_body_inner(
     exile_self_delayed_return = _EXILE_SELF_THEN_DELAYED_RETURN_RE.match(body)
     if exile_self_delayed_return is not None:
         before_specs = parse_effect_body(
-            exile_self_delayed_return.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            exile_self_delayed_return.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == "exile" for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
@@ -6591,10 +6628,10 @@ def _parse_effect_body_inner(
     roll_when_you_do = _ROLL_DIE_THEN_WHEN_YOU_DO_RE.match(body)
     if roll_when_you_do is not None:
         before_specs = parse_effect_body(
-            roll_when_you_do.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            roll_when_you_do.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         after_specs = parse_effect_body(
-            roll_when_you_do.group("after"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            roll_when_you_do.group("after"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if (before_specs is None or len(before_specs) != 1
                 or before_specs[0].type != "roll_die" or after_specs is None):
@@ -6621,7 +6658,7 @@ def _parse_effect_body_inner(
     prefixed_delayed = _PREFIXED_DELAYED_SAC_EXILE_RE.match(body)
     if prefixed_delayed is not None:
         before_specs = parse_effect_body(
-            prefixed_delayed.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            prefixed_delayed.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6635,7 +6672,7 @@ def _parse_effect_body_inner(
     prefixed_delayed_tail = _PREFIXED_DELAYED_TAIL_RE.match(body)
     if prefixed_delayed_tail is not None:
         before_specs = parse_effect_body(
-            prefixed_delayed_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            prefixed_delayed_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         delayed_specs = match_clause(prefixed_delayed_tail.group("delayed"))
         # Fall through (rather than fail closed) when this split doesn't
@@ -6708,7 +6745,7 @@ def _parse_effect_body_inner(
         if optional_exile:
             before_text = before_text[len("you may "):]
         before_specs = parse_effect_body(
-            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is not None and optional_exile:
             before_specs = [
@@ -6800,7 +6837,7 @@ def _parse_effect_body_inner(
         # and turn an unsupported paid/reflexive payoff into a free effect.
         return None
 
-    timed = _for_as_long_as_counter_specs(body, reading=ClauseReading(referents=reading.referents_of(TARGET)))
+    timed = _for_as_long_as_counter_specs(body, reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER)))
     if timed is not None:
         return timed
 
@@ -6939,7 +6976,7 @@ def _parse_effect_body_inner(
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
                 part = _created_noun_to_pronoun(part, referents)
-                if sep in (_AND_CONNECTOR, _SERIES_COMMA_CONNECTOR):
+                if sep in (_AND_CONNECTOR, _SERIES_COMMA_CONNECTOR, _CONNECTORS[2]):
                     part = part.rstrip(",").strip()  # "…if {g} was spent to cast this spell**,** and …"
                     # A repeated third-person verb keeps the current group
                     # subject: "each opponent sacrifices ... and loses ...".
@@ -6947,7 +6984,10 @@ def _parse_effect_body_inner(
                     player_head = _PLAYER_SCOPE_SUBJECT_RE.match(part)
                     if player_head is not None:
                         who = player_head['who'].lower()
-                        conjunct_player_scope = who if who in _PLAYER_SCOPE_ITERATION else None
+                        conjunct_player_scope = (
+                            "that player" if who.startswith("target ")
+                            else who if who in _PLAYER_SCOPE_ITERATION or who == "that player" else None
+                        )
                     elif conjunct_player_scope and _ELIDED_PLAYER_VERB_RE.match(part):
                         part = f"{conjunct_player_scope} {part}"
                     else:
@@ -7033,6 +7073,8 @@ def _parse_effect_body_inner(
                 # that pick, via ``referent``, not the source).
                 if referent:
                     carry_self = False
+                if any(r.kind == PLAYER for r in produces(sub)):
+                    carry_self = False
                 # PAR-30: "clash with an opponent" is a *referent-transparent*
                 # interstitial — it neither targets nor creates, so a card
                 # like Gilt-Leaf Ambush ("create 2 tokens. clash with an
@@ -7073,7 +7115,11 @@ def _parse_effect_body_inner(
                     tuple(r for r in prev_referents if r.kind == CREATED)
                     if any(s.params.get("referent") == CREATED for s in sub) else ()
                 )
-                referents = _referents_from(referent, referent_selector, made)
+                target_refs = tuple(r for r in produces(sub) if r.kind == TARGET) or tuple(
+                    r for r in prev_referents if r.kind == TARGET)
+                player_refs = tuple(r for r in produces(sub) if r.kind == PLAYER) or (
+                    tuple(r for r in prev_referents if r.kind == PLAYER) if "that player" in part else ())
+                referents = _referents_from(referent, referent_selector, made, target_refs) + player_refs
             if ok:
                 return collected
 
@@ -7085,7 +7131,7 @@ def _parse_effect_body_inner(
     # implementations — where in the pipeline a gate binds is a real property
     # of the gate, and the only thing that separates the two tables.
     matched, peeled = _peel_condition(
-        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -7140,7 +7186,7 @@ def _parse_effect_body_inner(
         return each_object
 
     matched, peeled = _peel_condition(
-        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -7360,8 +7406,22 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
     """What a just-parsed clause leaves for the next one to name (the referent environment's one producer): the
     object it chose (``it`` / ``that creature``) and/or the group it acted on (``they`` / ``those creatures``)."""
     out: list[Referent] = []
+    if specs and specs[-1].params.get("target_kind") in ("player", "opponent"):
+        out.append(Referent(PLAYER, noun="player"))
+    if specs and specs[-1].type == "seq":
+        children = specs[-1].params.get("effects", [])
+        if children and children[0].get("type") == "choose_targets":
+            params = children[0]["params"]
+            out.append(Referent(TARGET, group=params.get("count", 1) > 1))
+            if children[-1].get("type") == "for_each":
+                body = children[-1].get("params", {}).get("effects", [])
+                if body and body[-1].get("type") == "copy_permanent":
+                    plural = params.get("count", 1) > 1 or body[-1].get("params", {}).get("count", 1) != 1
+                    out.append(CREATED_GROUP_REFERENT if plural else CREATED_REFERENT)
+    if specs and specs[-1].type == "for_each" and specs[-1].params.get("over", {}).get("remember"):
+        out.append(Referent(TARGET, group=True))
     if announces_creature_target(specs):
-        out.append(TARGET_REFERENT)
+        out.append(Referent(TARGET, group=has_plural_targets(specs[-1])))
     if _announces_group_selector(specs):
         out.append(SELECTOR_REFERENT)
     if specs and specs[-1].type == "counter" and not specs[-1].params.get("destination"):
@@ -7451,9 +7511,12 @@ def _stamp_created_pronouns(specs: list[EffectSpec]) -> list[EffectSpec]:
     return out
 
 
-def _referents_from(target: bool, selector: bool, created: tuple[Referent, ...] = ()) -> tuple[Referent, ...]:
+def _referents_from(
+    target: bool, selector: bool, created: tuple[Referent, ...] = (), target_refs: tuple[Referent, ...] = (),
+) -> tuple[Referent, ...]:
     """The environment for the next clause, after the sequencing loop has applied its carry-over rules."""
-    return tuple(ref for ref, on in ((TARGET_REFERENT, target), (SELECTOR_REFERENT, selector)) if on) + created
+    return ((target_refs or (TARGET_REFERENT,)) if target else ()) + (
+        (SELECTOR_REFERENT,) if selector else ()) + created
 
 
 def _sequel_reading(reading: ClauseReading, carry_self: bool, referents: tuple[Referent, ...]) -> ClauseReading:
@@ -7474,6 +7537,8 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
     if not specs:
         return False
     last = specs[-1]
+    if last.type == "for_each" and last.params.get("over", {}).get("remember"):
+        return True
     if last.type == "exile" and (last.params.get("group") or last.params.get("selector")):
         # PAR-136: "Exile each creature you control. Return those cards …" (Ghostway) — a mass exile
         # leaves exactly what it exiled in `GameContext.previous_targets` (`ExileEffect`).

@@ -36,11 +36,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining tickets (PAR-209…214): measure with the `find-fragments` skill before and after
+Fragment-mining tickets (PAR-209, 211…214): measure with the `find-fragments` skill before and after
 (`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
-regressions, and executes newly claimed cards rather than trusting parse verdicts. Order: PAR-210
-first (re-scan after it); PAR-213 and PAR-214 need PAR-210, as do PAR-212's pronoun-bound
-forms; PAR-209 and PAR-211 are independent.
+regressions, and executes newly claimed cards rather than trusting parse verdicts. PAR-210 is
+closed, so PAR-213 and PAR-214 and PAR-212's pronoun-bound forms are unblocked; PAR-209 and PAR-211
+are independent.
 
 - **PAR-209 · Base grammar atoms.** Shared building blocks that recur inside otherwise different
   clauses, built once and reused: object filters (`target <adjective> <type>`, `that creature`, `each
@@ -52,26 +52,6 @@ forms; PAR-209 and PAR-211 are independent.
   condition) to `find-fragments`, then pick the slot values that complete the most cards in
   combination. Depends on nothing; use the current fragment re-scan to size what remains.
 
-- **PAR-210 · Shared object-phrase grammar and reference binding.** Rows carry their own object
-  grammar per verb, so the same object form claims under one verb and not under the next: a probe
-  of 21 verb templates × 16 object forms (`find-fragments/scripts/generalization_matrix.py`) claims
-  132 of 336 cells; `that creature`, `them`, `those creatures` and `up to two target creatures` claim
-  almost nowhere, `each` / `all` forms under only some verbs. About 5,700 open fragments carry a
-  back-reference: 840 follow a claimable sentence (`untap it`, `you may play it this turn`, `it
-  can't block this turn`, `it gains haste`), 2,030 follow a sentence that is itself open (dig /
-  search / copy-spell leads: fix the lead), 2,820 are inside one sentence (`sacrifice it unless …`,
-  `escapes with a counter on it`; only 41 claim once `it` is read as `~`). The engine already has the
-  selectors (`previous_subject`, `previous_target`, `previous_targets`, `previous_selector`), so the
-  gap is the parser side. Build one object-phrase grammar (target / each / all / up to N / pronoun
-  and `that <noun>` forms) that every verb row consumes and that resolves back-references to those
-  selectors, fail-closed when the antecedent is ambiguous or absent. First step, the 14 cards the
-  gate's antecedent checks reject: `that player loses N life` is limited to `BECOMES_TARGET`
-  (`life_loss._lose_life_that_controller`) and needs the cast / combat-damage events (Soot Imp,
-  Curse of Wizardry, Kambal, Yawgmoth's Edict, Krydle of Baldur's Gate; verify the engine's
-  `SPELL_CAST` event carries the casting player); `that much` has no source for counters removed as
-  a cost (Geistflame Reservoir, Relic Amulet) or permanents sacrificed this turn (Sawblade
-  Skinripper); Scroll of Griselbrand binds `that player` to an earlier `target opponent`; Aphelia
-  nests a `whenever` inside an activated ability. Use the current fragment re-scan to size the remaining head/body gaps.
 - **PAR-211 · Quantifier scopes.** `each` / `all` / `each other` scopes combined with the clause
   parts that depend on them stay open at a share of 0.78–0.90 against modelled text: `each player` /
   `each opponent` / `each other player` as the acting or affected set, `each creature that player /

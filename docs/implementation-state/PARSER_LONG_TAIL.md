@@ -14,9 +14,14 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-27 at PARSER_VERSION 772: **22,734 / 35,051 cards (64.9%)**,
+Measured on 2026-10-27 at PARSER_VERSION 777: **23,141 / 35,051 cards (66.0%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **22,127 / 32,068 (69.0%)**.
+Commander-legal coverage: **22,529 / 32,068 (70.3%)**.
+PAR-210 adds the shared object-phrase grammar and fail-closed reference binding:
+against v772, **431 newly parser-modeled names, zero lost** and 58 changed
+existing specs (player actors through comma-then series, created/previous-player
+referents). The v777 fragment scan records **14,027 open sentences** (14,593 at
+v772) on 9,419 open Commander-legal cards.
 PAR-208 adds outcome/else chains, comma-separated effect series, other-player
 library searches, typed/random discard costs and untargeted graveyard returns.
 Against v771, the full-pool comparison finds **49 new parser-modeled card names,

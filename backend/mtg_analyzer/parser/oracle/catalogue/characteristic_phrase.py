@@ -252,12 +252,13 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
     fragments = [_word_fragment(p, plural=plural) for p in parts]
     if any(f is None or not f for f in fragments):
         return None
+    # "X or X" names one alternative once (RULE 105.2: colours are a set), so repeats collapse.
     if all(set(f) == {"card_type"} for f in fragments):
-        return {"card_type_any": [f["card_type"] for f in fragments]}
+        return {"card_type_any": list(dict.fromkeys(f["card_type"] for f in fragments))}
     if all(set(f) == {"color"} for f in fragments):
-        return {"color_any": [f["color"] for f in fragments]}
+        return {"color_any": list(dict.fromkeys(f["color"] for f in fragments))}
     if all(set(f) == {"subtype"} for f in fragments):
-        return {"subtype_any": [f["subtype"] for f in fragments]}
+        return {"subtype_any": list(dict.fromkeys(f["subtype"] for f in fragments))}
     if all(all(k.startswith("without_") for k in f) for f in fragments):
         merged: dict[str, Any] = {}
         for f in fragments:

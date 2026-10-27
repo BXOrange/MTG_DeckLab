@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "772"
+PARSER_VERSION = "777"
 
 
 def parser_source_hash() -> str:
@@ -707,7 +707,7 @@ def _merge_room_halves(results: list[ParseResult]) -> ParseResult:
 #: ``DAMAGE`` head only counts when its recipient filter is a player.
 _THAT_PLAYER_EVENTS: frozenset[str] = frozenset({
     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", "ATTACKS", "PLAYER_ATTACKED",
-    "BECOMES_TARGET", "STEP_BEGIN",
+    "BECOMES_TARGET", "STEP_BEGIN", "SPELL_CAST",
 })
 #: The head must name that player itself — the event alone isn't enough ("at
 #: the beginning of **your** upkeep" is a `STEP_BEGIN` with no other player).
@@ -720,7 +720,7 @@ _THAT_PLAYER_HEAD_RE = re.compile(
 _THAT_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
 
 
-def _that_player_head_ok(event: str, filt: Any, text: str) -> bool:
+def _that_player_head_ok(event: str, filt: Any, text: str, *, allow_prior_target: bool = True) -> bool:
     """Whether a trigger (``event`` + recipient ``filt``, printed as ``text``)
     names the player a "that player" in its body refers to."""
     before_that = text.lower().split("that player", 1)[0]
@@ -728,7 +728,7 @@ def _that_player_head_ok(event: str, filt: Any, text: str) -> bool:
         r"\btarget (?:opponent|player)\b|\btarget [^.]+? (?:an opponent controls|you don'?t control)\b",
         before_that,
     ):
-        return True
+        return allow_prior_target
     player_damage = event == "DAMAGE" and isinstance(filt, dict) and filt.get("is_player")
     if event not in _THAT_PLAYER_EVENTS and not player_damage:
         return False
@@ -745,6 +745,25 @@ _PER_PLAYER_SCOPES = ("opponents", "players", "any_opponents")
 _SPELL_CONTEXT: tuple[str, Any, str] = ("PRIOR_TARGET", None, "")
 
 
+def _nested_trigger_context(node: dict, context: Optional[tuple[str, Any, str]], text: str):
+    """A created/granted trigger establishes its own antecedents, independent of the outer ability."""
+    if not any(isinstance(node.get(key), list) for key in ("effects", "grant_effects")):
+        return context
+    trigger = node.get("trigger")
+    if isinstance(trigger, dict) and isinstance(trigger.get("event"), str):
+        event, filt = trigger["event"], trigger.get("filter")
+    elif isinstance(node.get("trigger_event"), str):
+        event, filt = node["trigger_event"], node.get("filter")
+    else:
+        return context
+    quoted = re.search(r'"([^"]*)"', text)
+    description = ((quoted.group(1) if quoted else node.get("description", ""))
+                   if isinstance(node.get("trigger_event"), str)
+                   else node.get("description") or (quoted.group(1) if quoted else ""))
+    description = re.sub(r"^until end of turn,\s*", "", str(description), flags=re.I)
+    return event, filt, description
+
+
 def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], text: str) -> bool:
     """Walk a spec tree; every ``…_that_player_controls`` kind must sit under
     a trigger whose head names that player. A granted trigger (a dict with
@@ -756,9 +775,7 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
         return all(_that_player_tree_ok(item, context, text) for item in node)
     if not isinstance(node, dict):
         return True
-    if isinstance(node.get("trigger_event"), str):
-        quoted = re.search(r'"([^"]*)"', text)
-        context = (node["trigger_event"], node.get("filter"), quoted.group(1) if quoted else "")
+    context = _nested_trigger_context(node, context, text)
     for key, val in node.items():
         if key.endswith("kind") and isinstance(val, str) and val.endswith("_that_player_controls"):
             if node.get("per_player") in _PER_PLAYER_SCOPES:
@@ -905,29 +922,50 @@ _THAT_MUCH_TRIGGER_FIELDS: dict[str, str] = {
 }
 
 
-def _resolve_that_much_tree(node: Any, field: Optional[str]) -> bool:
+def _resolve_that_much_tree(node: Any, field: Optional[str], amount: Optional[dict] = None) -> bool:
     """Resolve the private handler sentinel, or reject an unsafe antecedent."""
     if isinstance(node, EffectSpec):
-        return _resolve_that_much_tree(node.params, field)
+        return _resolve_that_much_tree(node.params, field, amount)
     if isinstance(node, (list, tuple)):
-        return all(_resolve_that_much_tree(item, field) for item in node)
+        return all(_resolve_that_much_tree(item, field, amount) for item in node)
     if not isinstance(node, dict):
         return True
+    nested = _nested_trigger_context(node, None, "")
+    if nested is not None:
+        field, amount = _THAT_MUCH_TRIGGER_FIELDS.get(nested[0]), None
     if node.get("amount_from_trigger_event") == "that_much":
-        if field is None:
+        if amount is not None:
+            node.pop("amount_from_trigger_event")
+            node["amount"] = dict(amount)
+        elif field is None:
             return False
-        node["amount_from_trigger_event"] = field
-    return all(_resolve_that_much_tree(value, field) for value in node.values())
+        else:
+            node["amount_from_trigger_event"] = field
+    return all(_resolve_that_much_tree(value, field, amount) for value in node.values())
 
 
 def _that_much_antecedent_ok(spec: AbilitySpec) -> bool:
     event = str((spec.trigger or {}).get("event") or "") if spec.ability_kind == "triggered" else ""
+    amount = None
+    if spec.ability_kind == "activated":
+        cost = spec.cost or {}
+        scan = scan_cost_text(str(cost.get("text", "")))
+        if cost.get("remove_counters") or any(key in scan.hits for key in ("remove_counters", "remove_any_counters")):
+            # RULE 602.2b/601.2h: the activation keeps its own payment snapshot.
+            amount = {"kind": "trigger_event", "field": "counters_removed_as_cost"}
+    elif spec.ability_kind == "triggered":
+        condition = (spec.trigger or {}).get("active_if") or {}
+        if condition.get("kind") == "event_this_turn" and condition.get("trigger", {}).get("event") == "SACRIFICE":
+            # RULE 608.2h: the referenced count is re-measured when the ability resolves.
+            amount = {"kind": "event_count", "trigger": condition["trigger"]}
+            if condition.get("scope"):
+                amount["scope"] = condition["scope"]
     return _resolve_that_much_tree(
-        [spec.effects, spec.modes, spec.target], _THAT_MUCH_TRIGGER_FIELDS.get(event)
+        [spec.effects, spec.modes, spec.target], _THAT_MUCH_TRIGGER_FIELDS.get(event), amount,
     )
 
 
-def _resolve_event_player_tree(node: Any, event: str) -> bool:
+def _resolve_event_player_tree(node: Any, event: str, context: tuple[str, Any, str]) -> bool:
     """PAR-132: strip the private ``event_player_events`` marker, or reject its antecedent.
 
     A handler that reads the firing event's player under a phrase only some heads can satisfy
@@ -935,20 +973,30 @@ def _resolve_event_player_tree(node: Any, event: str) -> bool:
     ``player_id`` is that exact player; anywhere else the clause stays unclaimed.
     """
     if isinstance(node, EffectSpec):
-        return _resolve_event_player_tree(node.params, event)
+        return _resolve_event_player_tree(node.params, event, context)
     if isinstance(node, (list, tuple)):
-        return all(_resolve_event_player_tree(item, event) for item in node)
+        return all(_resolve_event_player_tree(item, event, context) for item in node)
     if not isinstance(node, dict):
         return True
+    context = _nested_trigger_context(node, context, context[2])
+    event = context[0]
     allowed = node.pop(EVENT_PLAYER_EVENTS_KEY, None)
     if allowed is not None and event not in allowed:
         return False
-    return all(_resolve_event_player_tree(value, event) for value in node.values())
+    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE"}
+            and (node.get("player") == {"of": "trigger_player", "as": "self"}
+                 or node.get("referent") == "trigger_player")
+            and not _that_player_head_ok(*context, allow_prior_target=False)):
+        return False
+    return all(_resolve_event_player_tree(value, event, context) for value in node.values())
 
 
 def _event_player_antecedent_ok(spec: AbilitySpec) -> bool:
     event = str((spec.trigger or {}).get("event") or "") if spec.ability_kind == "triggered" else ""
-    return _resolve_event_player_tree([spec.effects, spec.modes, spec.target], event)
+    return _resolve_event_player_tree(
+        [spec.effects, spec.modes, spec.target], event,
+        (event, (spec.trigger or {}).get("filter"), spec.raw_text or ""),
+    )
 
 
 def _parse_oracle_uncached(card: Any) -> ParseResult:

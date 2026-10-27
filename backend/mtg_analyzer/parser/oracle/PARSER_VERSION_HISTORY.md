@@ -4336,3 +4336,33 @@ attacks / isn't-blocked / becomes-blocked heads (the unblocked and blocked event
 (5) `return_own_graveyard` (`draw_discard_cast`): untargeted "return [up to N] <object phrase> card(s) from your graveyard
 to your hand" (and "A card and a B card") as `choose_objects` from the graveyard; `peel_optional` no longer lets a
 leading "you may X. Then Y" make Y optional too.
+
+773: PAR-210 — event-player references use the shared trigger_player operand for cast and player-damage heads.
+The gate verifies the named event player and refuses an absent or competing antecedent. Player-subject
+conjunctions carry "that player" into elided actions (Krydle's mill); the existing referent composition
+can bind player subjects without announcing new targets.
+
+774: PAR-210 — that-much quantities resolve to the activation's counters_removed_as_cost event snapshot
+or to the explicit sacrifice-history condition's event count. The generic event_count amount reuses the
+turn-history condition predicate, measuring again at resolution and preserving controller/filter scope.
+Relic Amulet, Geistflame Reservoir and Sawblade Skinripper execute in regression tests, including stacked
+activations, source departure and cloning.
+
+775: PAR-210 — one object operand grammar adapts existing singular-target operations to quantified
+targets, filtered each/all groups and bound object/player/created references. choose_targets announces
+requirements once; for_each and trigger_subject_referent execute the existing operation with its operand.
+ClauseReading retains player and plural-object referents; a singular reference to a plural pick fails
+closed. Created references keep precedence over an earlier pick. Created/granted triggers establish
+their own event-player and quantity context, including Aphelia's activated turn-long combat trigger.
+
+776: PAR-210 — quantified/group object instructions retain simultaneous event batches across choices
+and clones; the existing sacrifice_target operation optionally enforces controller-only sacrifices.
+Target arity is separate from counter/token magnitude, and native group-trigger rereadings retain their
+existing IR. Copy-producing compositions retain CopyPermanentEffect's referent contract (Applied Geometry).
+An object-list sacrifice followed by that-many uses the existing mark_event_log/this_way_count/bind
+composition rather than reading an absent trigger (Hellion Eruption).
+
+777: PAR-210 — shared-subject player actions carry their actor through comma-then as well as and,
+without announcing a second target. Reference nouns reuse the existing subtype vocabulary. Explicit
+where-X definitions stay with the shared binder so the quantity is fixed before object iteration.
+Optional riders preserve created objects' exact zone visits across choices/clones (Cori-Steel Cutter).

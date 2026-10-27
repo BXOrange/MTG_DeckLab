@@ -24,6 +24,8 @@ from typing import Any
 #: `Referent.kind`: an object an earlier clause *chose* (RULE 601.2c target, a created or copied object, a graveyard
 #: card, a countered spell) -- `GameContext.previous_targets` at resolution -- read by "it" / "that creature".
 TARGET = "target"
+#: A player previously targeted by this sequence; never interchangeable with a permanent's "it".
+PLAYER = "player"
 #: `Referent.kind`: the group an earlier untargeted mass selector acted on -- `GameContext.previous_selector` -- read
 #: by "they" / "those creatures".
 SELECTOR = "selector"
