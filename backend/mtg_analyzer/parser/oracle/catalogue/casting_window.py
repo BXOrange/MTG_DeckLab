@@ -23,6 +23,7 @@ import re
 from typing import Callable, Optional
 
 from ..spec import EffectSpec
+from .characteristic_phrase import parse_object_phrase
 
 #: First-sentence effect types that really exile cards this resolution (`GameContext.exiled_objects`).
 _EXILING_TYPES = frozenset({"exile_top_of_library", "exile"})
@@ -32,7 +33,8 @@ _WINDOW = (
     r"for as long as (?:that card|they|it) remain(?:s)? exiled"
 )
 _PLURAL_POOL = r"them|those cards|the exiled cards|those exiled cards|cards exiled this way|the cards exiled this way"
-_SINGULAR_POOL = r"that card|it"
+#: PAR-214: "the exiled card" names the one card of a single-card exile as plainly as "that card" does.
+_SINGULAR_POOL = r"that card|it|the exiled card|that exiled card"
 #: "`<type>` spells" words -> the `combat.matches_object_filter` fragment they mean.
 _TYPE_FILTERS: dict[str, dict] = {
     "creature": {"card_type": "creature"},
@@ -53,6 +55,9 @@ _WILD_TAIL = (
 
 _CAST_PAIR_RE = re.compile(
     r"(?P<exile>(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+)\.\s+"
+    # PAR-214: "If it's a Goblin or an artifact card, you may play it this turn." -- for a one-card pool the condition
+    # on the card is the pool's filter (nothing else is in the pool to be told apart from it).
+    r"(?:if (?:it(?:'s| is)|that card is) (?:an? )?(?P<cond>[^,.]+?)(?: card)?, )?"
     rf"(?:(?P<pre>{_WINDOW}), )?(?:you may )?(?P<verb>cast|play) "
     r"(?:"
     rf"(?P<singular>{_SINGULAR_POOL})"
@@ -104,6 +109,14 @@ def parse_exile_cast_window(
         return None
     card_filter: dict = {}
     any_number = False
+    if m.group("cond"):
+        # Only a single exiled card can be "it"; a pool-wide condition is not a filter on any card among many.
+        if not m.group("singular") or is_mill or not _exiles_one_card(exile[0]):
+            return None
+        condition = parse_object_phrase(m.group("cond").lower() + " card")
+        if condition is None or condition[1] is not None:
+            return None
+        card_filter.update(condition[0])
     if m.group("type"):
         card_filter.update(_TYPE_FILTERS[m.group("type").lower()])
     if m.group("cap"):

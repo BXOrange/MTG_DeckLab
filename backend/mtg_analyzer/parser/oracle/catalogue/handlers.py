@@ -40,6 +40,7 @@ from .effect_rows import costs_mana_limits
 from .effect_rows import counters_blocking
 from .effect_rows import pump_stats
 from .effect_rows import pump_keywords
+from .effect_rows import ability_loss
 from .effect_rows import keyword_actions
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
@@ -183,6 +184,7 @@ HANDLERS: list[EffectHandler] = [
     *counters_blocking.ROWS,
     *pump_stats.ROWS,
     *pump_keywords.ROWS,
+    *ability_loss.ROWS,
     *keyword_actions.ROWS,
     *tokens_animate_misc.ROWS,
     *party.ROWS,

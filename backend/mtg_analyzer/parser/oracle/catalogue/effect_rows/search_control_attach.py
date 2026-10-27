@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from ..clause_reading import ClauseReading
+from ..clause_hooks import match_clause
 from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
 from ..clause_primitives import split_keywords_with_parametric
@@ -844,6 +845,25 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         # No untap/haste rider belongs to this duration's printings (an explicit "untap that creature" tail is a separate clause).
         params.update({"duration": "end_of_your_next_turn", "haste": False, "untap": False})
     return [EffectSpec("gain_control_until_eot", params)]
+
+
+#: PAR-214: "Untap target creature and gain control of it until end of turn." (Threaten, Blind with Anger, Word of
+#: Seizing) -- the same steal as the row above in the other word order. `GainControlUntilEndOfTurnEffect` already
+#: untaps the stolen permanent and grants haste (RULE 611.2), so the pair is the one existing effect: the clause is
+#: read as that effect over the same target phrase, and any "it gains haste" restatement behind it is the established
+#: previous-subject follow-up. The pronoun "it" is the untapped target, never an object nothing chose.
+_UNTAP_AND_GAIN_CONTROL_RE = compile_clause(
+    rf"untap {TARGET}(?P<mv> with mana value \d+ or less)? and gain control of it until end of turn"
+)
+
+
+def _untap_and_gain_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    steal = match_clause(f"gain control of {m.group('target')}{m.group('mv') or ''} until end of turn")
+    if not steal or len(steal) != 1 or steal[0].type != "gain_control_until_eot":
+        return None
+    if target_is_optional(m):
+        return None  # "untap up to one target ..." would make the whole steal optional; no printed card does
+    return steal
 
 
 #: PAR-130: the **no-duration** steal — "gain control of target artifact"
@@ -1848,6 +1868,7 @@ ROWS: list[EffectHandler] = [
         _GAIN_CONTROL_EOT_RE,
         _gain_control_eot,
     ),
+    EffectHandler("untap_and_gain_control_eot", _UNTAP_AND_GAIN_CONTROL_RE, _untap_and_gain_control),
     # PAR-150: "gain control of ... for as long as you control ~" (RULE 611.2b; Rangers of Ithilien).
     EffectHandler("gain_control_while_source", _GAIN_CONTROL_WHILE_SOURCE_RE, _gain_control_while_source),
     EffectHandler("tap_and_fight", _TAP_AND_FIGHT_RE, _tap_and_fight),

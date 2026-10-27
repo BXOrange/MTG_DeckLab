@@ -36,21 +36,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining ticket (PAR-214): measure with the `find-fragments` skill before and after
-(`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
-regressions, and executes newly claimed cards rather than trusting parse verdicts.
-Shared base grammar, reference binding, quantifier scopes, object-state predicates,
-zone-destination actions and inspection sequences are available; PAR-214 is unblocked.
-
-- **PAR-214 · Missing verb-phrase rows for existing effects.** Phrases the verb × object probe
-  shows no row for, although the engine has the effect (`cant_be_regenerated`, `cast_from_exile`,
-  ability-loss in `physical_properties.py`; grep before assuming a primitive is missing): `<object>
-  loses all abilities` (56 open cards), a stand-alone `<object> can't be regenerated` sentence
-  (about 37 follow-up cards), `you may cast / play <object> this turn` as a follow-up to an exile or
-  reveal (about 32), `<object> gains haste` / `untap <object>` / `<object> can't block this turn` as
-  follow-ups (about 60). Each row must take the shared object phrase of PAR-210 rather than its own
-  target grammar. Done when `generalization_matrix.py` shows these rows filled across the object
-  forms that are valid Magic text.
+-No Tickets-
 
 ## MEC — Game mechanic
 

@@ -2274,11 +2274,55 @@ _CHOOSE_TARGET_IF_SUSPECTED_RE = re.compile(
 #: regenerated **this turn**" (Orcish Healer/Carbonize-shaped) is a
 #: genuinely different, free-standing prevent-regeneration effect and must
 #: NOT match here.
+#:
+#: PAR-214: the rider also reads as a clause of the same sentence ("destroy target Knight **and it** can't be
+#: regenerated"), names a non-creature referent, or points back at the destruction ("a creature destroyed this
+#: way can't be regenerated", Damn). The last form is only claimed when exactly the destroy it qualifies exists.
+_NO_REGEN_WHO = (
+    r"it|they|that creature|the creature|that permanent|that land|that artifact|those creatures"
+    r"|(?:an?|each) (?:creature|permanent|artifact|land) destroyed this way"
+    r"|(?:creature|permanent|artifact|land)s destroyed this way"
+)
 _NO_REGEN_SENTENCE_RE = re.compile(
-    r"^(?P<before>.+?)\.\s*(?:it|they|that creature|the creature) can'?t be regenerated"
+    rf"^(?P<before>.+?)(?:\.\s*|,? and )(?P<who>{_NO_REGEN_WHO}) can'?t be regenerated"
     r"(?:\.\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
+#: The plural subjects: a rider that qualifies every destruction of a shared verb ("destroy A and B. They ...").
+_NO_REGEN_PLURAL_RE = re.compile(r"^(?:they|those creatures|(?:creature|permanent|artifact|land)s destroyed this way)$", re.IGNORECASE)
+_NO_REGEN_THIS_WAY_RE = re.compile(r"destroyed this way$", re.IGNORECASE)
+#: Wrapper nodes whose last effect is what the wrapper's effect ends on (object-phrase composition, PAR-210).
+_DESTROY_WRAPPERS = frozenset({"seq", "for_each", "trigger_subject_referent"})
+
+
+def _last_destroy_denying_regeneration(node: dict) -> Optional[dict]:
+    """``node`` (an `EffectSpec` dict) with ``can_be_regenerated: False`` on the destroy it ends in, else ``None``.
+
+    RULE 701.19c: the rider qualifies the destruction that immediately precedes it, which the object-phrase
+    composition may have wrapped in a target announcement or iteration (`seq` / `for_each`)."""
+    if node.get("type") == "destroy":
+        return {**node, "params": {**(node.get("params") or {}), "can_be_regenerated": False}}
+    if node.get("type") == "if_else" and (node.get("params") or {}).get("then"):
+        # A resolution-time condition ("destroy target creature if it's white") gates the destroy it ends in.
+        then = node["params"]["then"]
+        flagged = _last_destroy_denying_regeneration(then[-1])
+        if flagged is not None:
+            return {**node, "params": {**node["params"], "then": [*then[:-1], flagged]}}
+        return None
+    inner = (node.get("params") or {}).get("effects")
+    if node.get("type") in _DESTROY_WRAPPERS and inner:
+        flagged = _last_destroy_denying_regeneration(inner[-1])
+        if flagged is not None:
+            return {**node, "params": {**node["params"], "effects": [*inner[:-1], flagged]}}
+    return None
+
+
+def _count_destroys(node: Any) -> int:
+    if isinstance(node, dict):
+        return (node.get("type") == "destroy") + sum(_count_destroys(v) for v in node.values())
+    if isinstance(node, list):
+        return sum(_count_destroys(v) for v in node)
+    return 0
 
 #: "Add {R}. **Until end of turn, you don't lose this mana as steps and phases end.**" (Brazen Collector, Savage
 #: Ventmaw, Neheb, Sakiko, Avatar Roku's "until end of combat") — a trailing sentence that is a property of the mana
@@ -6499,11 +6543,9 @@ def _parse_effect_body_inner(
         if immediate_specs is None:
             return None  # A trailing conditional may require the earlier cost's antecedent.
         def _is_destroy(spec: EffectSpec) -> bool:
-            # A group trigger's "destroy it" sits in the firing-object wrapper's body.
-            if spec.type == "trigger_subject_referent":
-                wrapped = spec.params.get("effects")
-                return bool(wrapped) and wrapped[-1].get("type") == "destroy"
-            return spec.type == "destroy"
+            # A group trigger's "destroy it" sits in the firing-object wrapper's body; a composed target or group
+            # operand ("destroy target Wall") ends in its destroy inside seq / for_each wrappers.
+            return _last_destroy_denying_regeneration(spec.to_dict()) is not None
 
         def _is_marker(spec: EffectSpec) -> bool:
             # The bare firing-object marker a group trigger puts before "destroy it".
@@ -6520,15 +6562,16 @@ def _parse_effect_body_inner(
             start -= 1
         if start == end:
             return None
-        plural_regen = bool(re.search(r"\.\s*they can'?t be regenerated", body, re.IGNORECASE))
-        if not plural_regen:
+        who = no_regen.group("who")
+        if not _NO_REGEN_PLURAL_RE.match(who):
             start = end - 1
+        if _NO_REGEN_THIS_WAY_RE.search(who) and _count_destroys([s.to_dict() for s in before_specs]) != _count_destroys(
+                [s.to_dict() for s in before_specs[start:]]):
+            return None  # "destroyed this way" names the one destruction of this resolution; two would be ambiguous
+
         def _deny_regeneration(spec: EffectSpec) -> EffectSpec:
-            if spec.type == "trigger_subject_referent":
-                *head, last = spec.params["effects"]
-                nested = {**last, "params": {**(last.get("params") or {}), "can_be_regenerated": False}}
-                return EffectSpec(spec.type, {**spec.params, "effects": [*head, nested]}, condition=spec.condition)
-            return EffectSpec(spec.type, {**spec.params, "can_be_regenerated": False}, condition=spec.condition)
+            flagged = _last_destroy_denying_regeneration(spec.to_dict())
+            return EffectSpec(spec.type, flagged["params"], condition=spec.condition)
 
         before_specs = [_deny_regeneration(spec) if i >= start else spec for i, spec in enumerate(before_specs)]
         return _with_after_tail(

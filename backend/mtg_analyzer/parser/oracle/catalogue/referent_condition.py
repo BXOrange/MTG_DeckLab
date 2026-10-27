@@ -17,6 +17,7 @@ import re
 from typing import Any, Optional
 
 from .keywords import KEYWORDS, KeywordShape, keyword_slug
+from .subgrammars import COLOR_LETTERS
 from .subtype_vocabulary import SUBTYPES
 
 #: What "that `<noun>`" may name under a group trigger: the object types, or any creature subtype
@@ -66,6 +67,9 @@ _COUNTER_THRESHOLD_RE = re.compile(
     rf"{_SUBJECT} (?:has|had) (?:(?P<exact>exactly) |(?P<less>fewer than|less than) |(?P<more>more than) )?"
     r"(?P<n>\d+|no)(?: or (?P<bound>more|greater|fewer|less))? "
     r"(?:(?P<kind>[+\-]\d+/[+\-]\d+|[a-z]+) )?counters?(?: on it)?"
+)
+_COLOR_RE = re.compile(
+    rf"{_SUBJECT} (?P<neg>isn'?t|wasn'?t|is not|was not|is|was) (?P<color>white|blue|black|red|green)"
 )
 _ATTACKING_RE = re.compile(rf"{_SUBJECT} (?P<neg>isn'?t|wasn'?t|is not|was not|is|was) attacking")
 _ENTERED_RE = re.compile(
@@ -141,6 +145,10 @@ def parse_referent_condition(text: str) -> Optional[dict[str, Any]]:
             {"kind": "toughness", "min": toughness, "max": toughness},
         ]}
 
+    m = _COLOR_RE.fullmatch(phrase)
+    if m is not None:
+        # RULE 105.2: the object's colour at the moment the condition is checked (static_conditions `is_color`).
+        return _negated({"kind": "is_color", "color": COLOR_LETTERS[m.group("color")]}, m.group("neg"))
     m = _ATTACKING_RE.fullmatch(phrase)
     if m is not None:
         return _negated({"kind": "source_attacking"}, m.group("neg"))

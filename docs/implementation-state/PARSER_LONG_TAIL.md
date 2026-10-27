@@ -53,7 +53,7 @@ counts fall for `obj:creature + obj:eachall` **1,327 → 1,296**,
 **738 → 713**, `obj:eachall + ref:pronoun` **792 → 773**, and
 `dur:eot + obj:eachall` **431 → 421**. These overlapping counts measure the
 quantifier grammar; conditions/actions still missing from their sentences remain
-in PAR-214's existing scope; PAR-212 and PAR-213 supply the shared object-state and
+in later fragment tickets; PAR-212 and PAR-213 supply the shared object-state and
 zone-destination and inspection-sequence grammar.
 PAR-209 factors target adjectives, fixed durations and quantity spellings into
 shared atoms and extends name references and prevention scopes. Against v777,
@@ -82,9 +82,9 @@ Gallifrey Stands. All six changed cases execute in regression tests.
 The v772 fragment scan records **14,593 open sentences**, including **4,771
 follow-ups on 3,589 cards**. Distinct open multi-sentence card/parent pairs fall
 from **4,029 at v771 to 3,999** using identical counting; the pre-PAR-208 baseline
-was 4,055. Remaining reveal pools and pronoun/state-bound follow-ups belong to the existing
-PAR-214 grammar scope; inspection sequences, object-state/destination grammar and
-quantifier scopes are delivered in PAR-213, PAR-212 and PAR-211.
+was 4,055. Reveal pools and pronoun/state-bound follow-ups were then split across
+PAR-211…214: quantifier scopes (PAR-211), object-state/destination grammar (PAR-212),
+inspection sequences (PAR-213) and verb rows over the shared object phrase (PAR-214).
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py` and its

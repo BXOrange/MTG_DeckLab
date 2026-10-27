@@ -329,6 +329,7 @@ shuffle_self_into_library
 shuffle_enchanted_into_library
 gain_control_by_opponent
 gain_control_eot
+untap_and_gain_control_eot
 gain_control_while_source
 tap_and_fight
 gain_control_while_tapped
@@ -597,6 +598,8 @@ pump_until
 pump_and_grant_indefinite
 pump_grant_while_tapped
 cant_attack_or_block_until
+loses_all_abilities_self
+loses_all_abilities_target
 scry_or_surveil
 fateseal
 heal

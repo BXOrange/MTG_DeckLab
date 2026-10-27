@@ -51,6 +51,8 @@ _REFERENCES = {
 _QUANTIFIER = re.compile(rf'^(?:(?P<up>up to )?(?P<n>{NUMBER_WORD_PATTERN}) target|(?P<target>target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
 _TYPE_WORDS = frozenset({'creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent'})
 _SCOPE_TAIL = {'you': ' you control', 'not_you': " you don't control"}
+# A plural subject (an explicit group or a plural pronoun reference) agrees with the plural verb form.
+_PLURAL_KINDS = frozenset({'group', 'references', 'selector_reference', 'created_references'})
 _SINGULAR_REFERENCE = re.compile(rf"that (?P<noun>{PRONOUN_NOUN_ALT}|card|enchantment|planeswalker|battle)")
 
 
@@ -154,7 +156,7 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
         optional = operand.noun == 'player' and not text[:start].strip() and tail.startswith(' may ')
         if optional:
             tail = ' ' + tail.removeprefix(' may ')
-        if not text[:start].strip() and operand.kind == 'group':
+        if not text[:start].strip() and operand.kind in _PLURAL_KINDS:
             # RULE 608.2c: the plural subject changes agreement, never the duration.
             tail = re.sub(r'^ (get|gain|lose|draw|discard|mill)\b', lambda m: ' ' + m[1] + 's', tail)
         rewritten = text[:start] + phrase + tail

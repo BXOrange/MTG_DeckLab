@@ -47,6 +47,23 @@ VERB_TEMPLATES = (
     "goad {}", "{} gains haste until end of turn", "{} fights target creature you don't control",
     "you may cast {} this turn", "put {} onto the battlefield", "{} loses all abilities",
     "{} becomes a 1/1 creature until end of turn", "prevent all damage that would be dealt to {} this turn",
+    "{} can't be regenerated this turn", "{} loses all abilities and has base power and toughness 0/1 until end of turn",
+)
+CAST_FOLLOW_UPS = (
+    ("exile target nonland permanent.", "you may cast the exiled card this turn."),
+    ("exile target card from a graveyard.", "you may cast it this turn."),
+    ("exile the top card of your library.", "you may play it this turn."),
+    ("exile the top card of your library.", "if it's a goblin or an artifact card, you may play it this turn."),
+    ("exile the top 2 cards of your library.", "you may play them this turn."),
+    ("exile the top 2 cards of your library.", "if it's a land card, you may play it this turn."),  # not valid: 2 cards
+    ("mill a card.", "you may play that card this turn."),  # open: needs graveyard play window (engine)
+    ("reveal the top card of your library.", "you may cast that card this turn."),  # open: needs library cast
+)
+#: Pronoun object forms only mean something after an antecedent sentence, so they are probed as a two-sentence body
+#: (PAR-214): singular pronouns follow a one-target pick, plural ones a two-target pick.
+FOLLOW_UP_FORMS = (
+    ("it", "tap target creature. "), ("that creature", "tap target creature. "),
+    ("them", "tap 2 target creatures. "), ("those creatures", "tap 2 target creatures. "),
 )
 
 
@@ -65,6 +82,26 @@ def main() -> None:
         row = [claims(verb.format(obj) + ".") or claims("~ " + verb.format(obj) + ".") for obj in OBJECT_FORMS]
         hits, cells = hits + sum(row), cells + len(row)
         print(f"{verb[:50]:52s}" + " ".join(" X" if ok else " ." for ok in row))
+    print("\nfollow-up pronouns (after a tap clause that picked the referent)")
+    for verb in VERB_TEMPLATES:
+        row = []
+        for obj, lead in FOLLOW_UP_FORMS:
+            plural = obj in ("them", "those creatures")
+            subject_form = verb.startswith("{}")
+            word = {"them": "they"}.get(obj, obj) if subject_form else obj
+            text = verb.format(word)
+            if plural and subject_form:  # agreement: "they gain", "those creatures lose"
+                text = text.replace(" gets ", " get ").replace(" gains ", " gain ").replace(" loses ", " lose ")
+                text = text.replace(" becomes ", " become ")
+            row.append(claims(lead + text + "."))
+        hits, cells = hits + sum(row), cells + len(row)
+        print(f"{verb[:50]:52s}" + " ".join(" X" if ok else " ." for ok in row))
+    print("   cols: " + ", ".join(o for o, _ in FOLLOW_UP_FORMS))
+    print("\ncasting windows after an exile clause (lead sentence | window sentence)")
+    for lead, body in CAST_FOLLOW_UPS:
+        ok = claims(lead + " " + body)
+        hits, cells = hits + ok, cells + 1
+        print(f"{' X' if ok else ' .'}  {lead} | {body}")
     print()
     for i, obj in enumerate(OBJECT_FORMS):
         print(f"{i:2d} {obj}")

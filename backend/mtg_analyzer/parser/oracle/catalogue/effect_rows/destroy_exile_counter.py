@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 
 from typing import Optional
-from ..clause_hooks import parse_effect_body
+from ..clause_hooks import match_clause, parse_effect_body
+from ..object_phrase import conditional_object_specs
 from ..clause_reading import COUNTERED_REFERENT, ClauseReading
 from ..static_handlers import quoted_ability_grant_effects, static_effect_specs
 from ..subgrammars import (
+    target_is_optional,
     all_permanent_type_selector,
     CANT_BE_COUNTERED_RE,
     COLOR_LETTERS,
@@ -68,7 +70,24 @@ from .shared import (
 _MULTI_TARGET_ALT_WITH_SPELL = MULTI_TARGET_ALT + "|(?:target spells)"
 
 
+def _destroy_if_colour(target_phrase: str, colour_word: str, optional: bool) -> Optional[list[EffectSpec]]:
+    """"Destroy target `<kind>` if it's `<colour>`" (Hydroblast/Pyroblast, Soul Rend).
+
+    RULE 601.2c / 608.2b: the colour is not a targeting restriction -- any such permanent is a legal target, and the
+    colour is checked on resolution (a miss destroys nothing, and the rest of the spell still resolves). The target
+    is therefore announced unrestricted and the destroy sits behind the shared target-named condition
+    (`object_phrase.conditional_object_specs`, `is_color` of the announced target)."""
+    if optional:
+        return None
+    return conditional_object_specs(
+        f"if {target_phrase} is {colour_word}, destroy it", ClauseReading(), match_clause)
+
+
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.groupdict().get("cond_color"):
+        if resolve_target_creature_state_filter(m.group("target")):
+            return None  # a state qualifier plus a resolution-time colour is not a printed shape
+        return _destroy_if_colour(m.group("target"), m.group("cond_color").lower(), target_is_optional(m))
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, (
         "creature", "attacking_or_blocking_creature", "permanent", "permanent_you_dont_control",
@@ -361,6 +380,11 @@ _DESTROY_COLOR_ADJ_RE = compile_clause(
 
 def _destroy_color_adj(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     gd = m.groupdict()
+    if gd.get("cond_color"):
+        # The trailing "if it's <colour>" is a resolution-time check; only the bare noun can carry it.
+        if any(gd.get(key) for key in ("c1", "c2", "color", "kw", "combat_state")):
+            return None
+        return _destroy_if_colour(f"target {m.group('noun')}", gd["cond_color"].lower(), False)
     params: dict = {"target_kind": _DESTROY_COLOR_NOUN_KINDS[m.group("noun")]}
     if gd.get("c1") and gd.get("c2"):
         colors = two_color_letters(m)
