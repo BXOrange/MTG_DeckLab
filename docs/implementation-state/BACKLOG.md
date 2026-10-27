@@ -36,37 +36,12 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining tickets (PAR-212…214): measure with the `find-fragments` skill before and after
+Fragment-mining ticket (PAR-214): measure with the `find-fragments` skill before and after
 (`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
 regressions, and executes newly claimed cards rather than trusting parse verdicts.
-Shared base grammar, reference binding and quantifier scopes are available; the remaining tickets are unblocked.
+Shared base grammar, reference binding, quantifier scopes, object-state predicates,
+zone-destination actions and inspection sequences are available; PAR-214 is unblocked.
 
-- **PAR-212 · Object-state conditions and zone-destination actions.** Two slot families that stay
-  open together with a pronoun or `if`: (a) conditions on the state of an object or the game before
-  the effect (`if target attacking creature token is the chosen type`, `if you control more
-  creatures than each other player`, `if an <type> crewed it this turn`, `if <name>'s emerge cost
-  was paid`), open share 0.83–0.93; (b) actions that name a destination zone (`put … onto the
-  battlefield / on the bottom of / into your hand`, `exile … with N <counter> on it`, `exile all
-  graveyards`), open share 0.81–0.96. Extend `static_conditions.py` / `effect_conditions.py` (shared
-  predicate vocabulary) and the zone-destination wording of the existing move/exile primitives; do
-  not add a second condition mechanism. Depends on PAR-210 for the pronoun-bound forms.
-
-- **PAR-213 · Library and hand inspection sequences.** The lead sentence of a multi-sentence
-  look / reveal / choose / dispose sequence stays open when its follow-up is not one of the whole-block
-  templates `catalogue/dig.py` claims, and then every later sentence referring to it fails with it
-  (about 1,580 cards have a back-reference follow-up whose lead is open; 330 are dig / reveal-top
-  leads, 290 exile / cast, 120 copy, 100 search). Largest leads: `look at the top N cards of your
-  library` (26 cards), `target opponent / player reveals their hand` (32), `reveal the top N cards`
-  (19), upkeep / activated `look at the top card` (30), `you choose a nonland card from it` (14),
-  `if you do, put ~ onto the battlefield`. Compose the sequence from steps (lead × selection ×
-  disposal of the rest) that pass the inspected set along via `previous_selector`, including
-  per-player revealed-card pools (the parley family) and their per-revealed-card payoffs, instead of
-  whole-sequence regexes; the dig families PAR-144 left open (x counts refused on purpose) stay
-  fail-closed. Follow-ups to check once the lead claims: `put the rest on the bottom … in a random
-  order` (52 cards), `if you search your library this way, shuffle` (51), `then that player
-  shuffles` (32; remaining inspection leads and references), `you may choose new targets for the copy`
-  (50). Done when those sentences claim as part of their sequence and the sequences execute
-  against a real library / hand.
 - **PAR-214 · Missing verb-phrase rows for existing effects.** Phrases the verb × object probe
   shows no row for, although the engine has the effect (`cant_be_regenerated`, `cast_from_exile`,
   ability-loss in `physical_properties.py`; grep before assuming a primitive is missing): `<object>

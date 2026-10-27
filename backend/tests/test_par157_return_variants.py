@@ -152,8 +152,8 @@ def test_unseen_return_type_union_and_adversarial_condition():
     tail = "exile target creature. return it to the battlefield under its owner's control. "
     assert parse_effect_body(tail + 'if that creature is a warrior or wizard, gain 2 life.')
     assert parse_effect_body(tail + 'if that creature is a bird, frog, or imaginarytype, draw a card.') is None
-    # An ordinary destructive tail still has no live permanent to inspect.
-    assert parse_effect_body('destroy target creature. if that creature is a bird, draw a card.') is None
+    # PAR-212: destruction retains the last battlefield characteristics for the predicate.
+    assert parse_effect_body('destroy target creature. if that creature is a bird, draw a card.')
 
 
 def test_target_controller_body_survives_draw_choice_and_clone_after_exile():

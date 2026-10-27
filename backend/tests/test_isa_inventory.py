@@ -292,7 +292,9 @@ class TestBacklogSizes:
         # Livio's counter-marked global pool uses the same entry batch.
         # Shared blink phases replace four card adapters; blink and its
         # transformed-return compatibility alias are continuations (net -2).
-        assert n <= 119, f"continuation types grew to {n}"
+        # PAR-213 adds one shared bounded-inspection adapter: independent
+        # selections and ordered disposal retain the exact same inspected set.
+        assert n <= 120, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

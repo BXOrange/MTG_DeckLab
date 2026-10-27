@@ -1342,6 +1342,12 @@ def count_selector(
     callers without a source in hand can keep omitting it.
     """
     if isinstance(selector, dict):
+        if selector == {'zone': 'battlefield', 'of': 'any',
+                        'filter': {'card_type': 'creature', 'crewed_reference_this_turn': True}}:
+            # RULE 702.122b / 400.7: count the creature visits that paid crew,
+            # even after departure (Luxurious Locomotive, OTJ release notes).
+            return (len(source.crewed_by_visits)
+                    if source is not None and source.crewed_turn == state.internal_turn.number else 0)
         if "terms" in selector:
             return _count_expression(state, controller_id, selector, source)
         if selector.get("counters_on") == "source":

@@ -77,6 +77,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # performed yet this turn (`GameObject.action_turns`, stamped by `ActionStampEffect`).
         "action_unused_this_turn",
         "source_tapped",  # "as long as ~ is tapped"
+        "crewed_by_filter",
+        "is_chosen_type",
+        "you_have_most",
+        "you_have_fewest",
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
         "source_harnessed",  # MEC-79 / RULE 701.64b — the Infinity Stones' ∞
@@ -434,6 +438,7 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         "madness_cost_paid",  # RULE 702.35 (PAR-139) — "if its/this spell's madness cost was paid"
         "blitz_cost_paid",  # RULE 702.152: this instance was cast for blitz.
         "surge_cost_paid",  # RULE 702.117 — "if its/this spell's surge cost was paid"
+        "emerge_cost_paid",  # RULE 702.119
         # RULE 601.2b's generic optional additional cost, stamped by
         # `GameEngine.cast_spell` — was ``additional_cost_paid``.
         "additional_cost_paid",
@@ -675,6 +680,30 @@ def condition_holds(
     # Which object the subject-scoped rows below read: the source itself by
     # default, or an attached host / a floating static's affected permanent.
     subject = _subject(condition, state, source, affected)
+
+    if kind == 'is_chosen_type':
+        from .combat import matches_object_filter
+        chosen = condition.get('subtype') or getattr(source, 'chosen_type', None)
+        return bool(subject is not None and chosen and matches_object_filter(subject, {
+            'any_of': [{'subtype': chosen}, {'card_type': chosen}],
+        }))
+    if kind == 'crewed_by_filter':
+        # RULE 702.122b-c: the creatures tapped to pay crew, restricted to this turn.
+        if subject is None or subject.crewed_turn != state.internal_turn.number:
+            return False
+        filt = condition.get('selector', {}).get('filter', {})
+        types = {filt['subtype']} if 'subtype' in filt else set(filt.get('subtype_any', []))
+        return bool(types & subject.crewed_by_subtypes)
+    if kind in ('you_have_most', 'you_have_fewest'):
+        from .continuous import count_selector
+        selector = condition.get('selector')
+        if not selector or controller_id is None:
+            return False
+        mine = count_selector(state, controller_id, selector, source=source)
+        others = [p for p in state.living_players() if p.id != controller_id]
+        return all((mine > count_selector(state, p.id, selector, source=source)
+                    if kind == 'you_have_most' else mine < count_selector(state, p.id, selector, source=source))
+                   for p in others)
 
     if kind == "zone_visit":
         # RULE 400.7: returning to the same zone is a different object.

@@ -17,6 +17,7 @@ from .clause_reading import ClauseReading, CREATED, PLAYER, TARGET
 from .subgrammars import resolve_target_kind
 from .quantifier_scope import quantified_set
 from .referent_condition import PRONOUN_NOUN_ALT
+from .referent_condition import parse_referent_condition
 from ..spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 
 
@@ -217,6 +218,34 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
     })
     iterate = EffectSpec('for_each', {'over': {'targets': True, 'simultaneous': True}, 'effects': body})
     return [EffectSpec('seq', {'effects': [announce.to_dict(), iterate.to_dict()]})]
+
+
+def conditional_object_specs(text: str, reading: ClauseReading, parse_body: Callable) -> Optional[list[EffectSpec]]:
+    """RULE 115.1: a target introduced in the condition is announced only once.
+
+    The shared operand grammar narrows that target; the shared predicate vocabulary
+    then tests it at resolution. The condition is never a target restriction.
+    """
+    found = re.fullmatch(r'if (?P<object>target .+?) (?P<predicate>is .+?|has .+?), (?P<body>.+)', text)
+    if found is None:
+        return None
+    operand = parse_operand(found['object'], reading)
+    condition = parse_referent_condition('it ' + found['predicate'])
+    if operand is None or operand.kind != 'target' or operand.count != 1 or condition is None:
+        return None
+    effects = parse_body(found['body'], reading=ClauseReading(previous_subject=True))
+    if not effects:
+        return None
+    kind = resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
+    if kind is None:
+        return None
+    announce = EffectSpec('choose_targets', {'kinds': [kind], 'count': 1, 'creature_filter': operand.filter or {}})
+    # One if_else node tests once before any effect can change the condition.
+    guarded = EffectSpec('if_else', {
+        'condition': {**condition, 'of': 'previous_target'},
+        'then': [e.to_dict() for e in effects], 'else': [],
+    })
+    return [EffectSpec('seq', {'effects': [announce.to_dict(), guarded.to_dict()]})]
 
 
 def object_phrase_specs(

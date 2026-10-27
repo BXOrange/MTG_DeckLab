@@ -70,9 +70,16 @@ def test_all_three_are_hand_authored_not_parsed():
         assert is_registered(name), name
         card = db.get_card(name)
         assert card is not None, name
+        assert specs_for(card), name
+        if name == "Traumatic Revelation":
+            # PAR-213's inspection grammar now claims this card too (reviewed: same choose/discard/else-incubate
+            # semantics), but the registry entry is trusted wholesale and keeps precedence in play.
+            assert parse_oracle(card).modeled, name
+            effect_types = {e.type for s in specs_for(card) for e in s.effects}
+            assert "reveal_hand_choose_discard" in effect_types and "inspect_cards" not in effect_types
+            continue
         # hand-authoring does not move the parser verdict — it stays UNMODELED
         assert parse_oracle(card).coverage == UNMODELED, name
-        assert specs_for(card), name
 
 
 # --- Traumatic Revelation -------------------------------------------------------

@@ -416,6 +416,27 @@ class CastingMixin:
             return None
         return ManaCost.parse(str(param["cost"]))
 
+    def _emerge_payment(
+        self, player: Player, obj: GameObject, chosen_id: Optional[int] = None,
+    ) -> Optional[tuple[ActivationCost, GameObject]]:
+        """RULE 702.119a,c: lock the sacrifice choice before calculating the total cost."""
+        param = (getattr(obj, 'parametric_keywords', None) or {}).get('emerge')
+        if not param or not param.get('cost'):
+            return None
+        self.recompute_continuous_effects()
+        for victim in self.state.permanents_controlled_by(player.id):
+            if (not victim.is_creature or victim.cant_be_sacrificed_this_turn
+                    or (chosen_id is not None and victim.instance_id != chosen_id)):
+                continue
+            base = ManaCost.parse(str(param['cost']))
+            # Increases (including commander tax) precede generic reductions, RULE 601.2f.
+            base = base.increase_generic(self.commander_tax(player, obj))
+            cost = self._adjust_cost(base, player, obj, extra_reduction=int(victim.mana_value))
+            payment = ActivationCost(mana=cost)
+            if self._can_pay_alt_cast_cost(player, obj, payment):
+                return payment, victim
+        return None
+
     def _surge_enabled(self, player: Player) -> bool:
         """RULE 702.117a: a Surge cost may be paid only "if you or one of
         your teammates has cast another spell this turn". The engine has no
@@ -764,6 +785,9 @@ class CastingMixin:
         ``"both"``) prices identically regardless of ``mode``, so passing it
         is harmless there too.
         """
+        if alt_cost and 'emerge' in (getattr(obj, 'parametric_keywords', None) or {}):
+            if free or evoke or surge or mutate or blitz is not None or face != 'front':
+                return False
         if alt_cost and obj.miracle and not (obj.miracle_armed and self._has_resolution_play_permission(player, obj)):
             return False
         # A commander may be cast from the command zone as well as the
@@ -1140,9 +1164,15 @@ class CastingMixin:
             )):
                 return False
         elif alt_cost:
+            emerge_payment = self._emerge_payment(player, obj, sacrifice_choice)
+            if 'emerge' in (getattr(obj, 'parametric_keywords', None) or {}):
+                if emerge_payment is None:
+                    return False
             alt_cast_cost = getattr(obj, "alt_cast_cost", None) or continuous.granted_alt_cast_cost_for(
                 self.state, player, card, obj
             )
+            if emerge_payment is not None:
+                alt_cast_cost = emerge_payment[0]
             if alt_cast_cost is None:
                 return False
             alt_cast_condition = getattr(obj, "alt_cast_condition", None)
@@ -1851,6 +1881,11 @@ class CastingMixin:
         # Nothing is given yet: an instant/sorcery gives it as it begins to resolve
         # (`RulesEngine.give_gift`, RULE 702.174j), a permanent through its own ETB trigger
         # (RULE 702.174b, `binding.core._kw_gift`).
+        if alt_cost and 'emerge' in (getattr(obj, 'parametric_keywords', None) or {}) and sacrifice_choices is not None:
+            if len(sacrifice_choices) != 1 or (sacrifice_choice is not None and sacrifice_choice != sacrifice_choices[0]):
+                raise ValueError('Choose exactly one creature for Emerge')
+            sacrifice_choice = sacrifice_choices[0]
+            sacrifice_choices = None
         obj.gift_promised = gift_opponent_id is not None
         obj.gift_recipient_id = gift_opponent_id
         if face == "face_down":
@@ -2549,12 +2584,18 @@ class CastingMixin:
                 # pays the alternative cost instead, the same "free push,
                 # pay something else after" order the RULE 118-life-payment
                 # branch just below uses.
+                emerge_payment = self._emerge_payment(player, obj, sacrifice_choice)
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
                 self._pay_alt_cast_cost(
                     player, obj,
-                    getattr(obj, "alt_cast_cost", None)
-                    or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj),
+                    emerge_payment[0] if emerge_payment is not None else (
+                        getattr(obj, "alt_cast_cost", None)
+                        or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)),
                 )
+                if emerge_payment is not None:
+                    victim = emerge_payment[1]
+                    self.rules.note_sacrificed(obj, victim)
+                    self.rules.put_into_graveyard(victim)
                 if getattr(obj, "dash", False):
                     # RULE 702.109c/d (PAR-26): a creature cast for its dash
                     # cost gains haste and is bounced at the next end step —
@@ -2740,6 +2781,7 @@ class CastingMixin:
             # RULE 702.117: "if its surge cost was paid" — reassigned every
             # cast like ``cast_via_evoke``, so a later plain recast clears it.
             obj.surge_cost_paid = surge
+            obj.emerge_cost_paid = bool(alt_cost and 'emerge' in (obj.parametric_keywords or {}))
             # Lurrus-shaped: record the casting turn so `_move_to_graveyard`
             # can honor the permission source's own "if a spell cast this
             # way would be put into a graveyard this turn, exile it

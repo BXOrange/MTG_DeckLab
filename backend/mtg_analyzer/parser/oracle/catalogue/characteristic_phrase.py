@@ -355,7 +355,7 @@ def parse_characteristic_phrase(text: str) -> Optional[dict[str, Any]]:
 #: "with <qualifier>", or an "of the chosen <color|type>".
 _TAIL_MARKER = re.compile(
     r"\s(?=(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|with|without|of the chosen|that entered)\b)"
+    + r"|with|without|of the chosen|that entered|that crewed)\b)"
 )
 #: "creatures **without flying**" (Deluge, PAR-128) — the negated sibling of the
 #: "with `<keyword>`" tail: ``combat.matches_object_filter``'s ``without_keyword``.
@@ -368,6 +368,8 @@ _TAIL_QUALIFIER = re.compile(
     + r"|of the chosen|that entered)\b|$)"
 )
 _CHOSEN_TAILS = {
+    "that crewed it this turn": {"crewed_reference_this_turn": True},
+    "that crewed ~ this turn": {"crewed_reference_this_turn": True},
     "of the chosen color": {"color_from_source": True},
     "of the chosen type": {"subtype_from_source": True},
     # "creatures you control **that entered this turn**" (Goro-Goro and Satoru, PAR-119)

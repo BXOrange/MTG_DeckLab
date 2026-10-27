@@ -877,6 +877,8 @@ class TurnLoopMixin:
             # yet.
             obj.crewed_by_ids = []
             obj.crewed_by_incarnations = {}
+            obj.crewed_by_visits = set()
+            obj.crewed_by_subtypes = set()
             obj.crewed_turn = None
         # PAR-28 / RULE 702.142a (Boast): "attacked this turn" resets for
         # every permanent, not just the active player's — attacks only ever

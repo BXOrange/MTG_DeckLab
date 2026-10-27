@@ -4393,3 +4393,25 @@ follow-up group references retain exact zone visits. Controller/filter tails
 compose in either order; established defending-player damage keeps its dealer-
 specific path. Magnitude and recorded-result families keep their dedicated
 composition gates; versions 780–782 were intermediate measurements.
+
+## Versions 784–786 — PAR-212: object-state conditions and zone destinations
+
+Counter thresholds, strict per-player board-count comparisons, source-chosen
+types and crew history reuse the shared predicate vocabulary. A target named
+in a condition uses the shared operand grammar and one announcement, with the
+whole payoff gated at resolution. Crew subtype history records the payment-time
+types and survives departure; creature operands retain exact crewed visits.
+Crew/count intervening-ifs gate the complete triggered body. Emerge uses the
+existing alternative-cost path, records its actual sacrifice characteristics
+and exposes the paid-cost condition. Token override references accept singular
+articles as well as numeric counts. Existing exile effects accept counter riders
+through bound operands; mass-graveyard exile and put/return destination wording
+reuse the existing move effects, retaining graveyard-origin ability markers.
+Version 785 also preserves shared target announcements under exile-counter riders
+and accepts their plural counter pronoun; v784 was an intermediate measurement.
+Version 786 gates complete self-trigger bodies on leading counter predicates,
+including Ayara's Oathsworn's four-counter search threshold.
+
+"789": PAR-213 — composable bounded library/hand inspections, exact visited-card pools, independent selections and disposal, ordered/random piles, optional selection outcomes and multiplayer revealed-card payoffs. Existing Dig handlers retain precedence; unsupported X counts and unknown riders remain fail-closed.
+
+"790": PAR-213 review fixes — a conditional payoff after a single reveal gates the whole compound sentence as one unit (Harsh Deceiver: untap and +1/+1), and a pronoun follow-up after a bare reveal/look lead is left to the whole-block Dig grammar instead of binding to the source (Llanowar Empath keeps `inspect_top_choose`).

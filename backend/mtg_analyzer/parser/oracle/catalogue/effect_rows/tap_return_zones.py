@@ -396,6 +396,9 @@ _RETURN_TO_HAND_KINDS: frozenset[str] = frozenset(
 
 
 def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.groupdict().get('verb') is not None:
+        if (m['verb'] == 'return') != (m['hand_dest'] == "to its owner's hand"):
+            return None
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS):
         return None
@@ -439,7 +442,7 @@ _NTH_FROM_TOP_WORDS = {"second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _NTH_FROM_TOP = r"(?P<nth>" + "|".join(_NTH_FROM_TOP_WORDS) + r") from the top"
 #: Where "put … into/on … its owner's library" lands: on top, on the bottom, or Nth from the top.
 _LIBRARY_PLACEMENT = (
-    rf"(?:on (?:top|the (?P<pos>bottom)) of its owner's library|into (?:its owner's|your) library {_NTH_FROM_TOP})"
+    rf"(?:on (?:top|the (?P<pos>bottom)) of (?:its owner's|your) library|into (?:its owner's|your) library {_NTH_FROM_TOP})"
 )
 
 
@@ -554,6 +557,9 @@ def _return_attached_to_library(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
+    # Keep the graveyard-origin marker: the binder uses it to enable this ability there.
+    if _PUT_SELF_GRAVEYARD_TOP_RE.fullmatch(m[0]):
+        return _put_self_graveyard_top(m)
     return [EffectSpec("return_to_library", {"target_kind": None, **_library_placement_params(m)})]
 
 
@@ -751,7 +757,7 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: same `TargetSpec.max_mana_value` offer-time filter `destroy_mv` already
 #: uses, not a new one.
 _RETURN_FROM_GRAVEYARD_RE = compile_clause(
-    rf"return (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
+    rf"(?P<verb>return|put) (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     # PAR-165: one leading adjective -- a colour ("black card", Xiahou Dun) or "legendary" ("legendary creature card", Loyal Retainers).
     rf"(?:(?P<adj>legendary|{COLOR_WORD_ALT}) )?"
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card(?P<adv> that has an adventure)?"
@@ -760,7 +766,7 @@ _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     # source's own power, `TargetSpec.max_mana_value`'s existing ``"source_power"`` sentinel.
     rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x)"
     r"| with mana value less than or equal to (?P<mvp>~'s power))? from "
-    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard to "
+    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard (?P<prep>to|onto|into) "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
     # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
     r"(?P<tapped> tapped)?(?P<atk> and attacking)?"
@@ -779,6 +785,10 @@ _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = compile_clause(
 
 
 def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.groupdict().get('verb') is not None:
+        expected = 'to' if m['verb'] == 'return' else ('onto' if m['dest'] == 'the battlefield' else 'into')
+        if m['prep'] != expected:
+            return None
     kind = graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
     if kind is None:
         return None
@@ -1328,6 +1338,34 @@ def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("exile_target_graveyard", {"target_kind": "player"})]
 
 
+def _exile_with_counters(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 122.2: counters are placed on the new exile object, after the zone move.
+    specs = parse_effect_body('exile ' + m['head_object'], reading=reading)
+    if not specs:
+        return None
+    counters = {m['kind']: count_of(m['n'])}
+
+    def decorate(entry):
+        params = dict(entry.get('params', {}))
+        if entry['type'] == 'choose_targets':
+            return entry  # retain the shared operand's announcement and its complete filter
+        if entry['type'] == 'exile' and not params.get('exile_counters'):
+            params['exile_counters'] = counters
+        elif entry['type'] in ('seq', 'for_each', 'trigger_subject_referent'):
+            children = [decorate(e) for e in params.get('effects', [])]
+            if not children or any(e is None for e in children):
+                return None
+            params['effects'] = children
+        else:
+            return None
+        return {**entry, 'params': params}
+
+    decorated = [decorate(s.to_dict()) for s in specs]
+    if any(e is None for e in decorated):
+        return None
+    return [EffectSpec(e['type'], e['params'], condition=e.get('condition')) for e in decorated]
+
+
 _EXILE_TRIGGER_CONTROLLER_GRAVEYARD_RE = compile_clause(
     r"exile (?:all cards from )?(?:its|(?:that|the) (?:creature|permanent)'?s) controller'?s graveyard"
 )
@@ -1649,7 +1687,7 @@ ROWS: list[EffectHandler] = [
     # control to its owner's hand" (RULE 701.3 — the bounce family).
     EffectHandler(
         "return_to_hand",
-        compile_clause(rf"return {TARGET} to its owner's hand"),
+        compile_clause(rf"(?P<verb>return|put) {TARGET} (?P<hand_dest>to its owner's hand|into your hand)"),
         _return_to_hand,
     ),
     # "put target <c1> or <c2> creature on top of its owner's library"
@@ -1857,5 +1895,18 @@ ROWS: list[EffectHandler] = [
         "exile_trigger_controller_graveyard",
         _EXILE_TRIGGER_CONTROLLER_GRAVEYARD_RE, _exile_trigger_controller_graveyard,
         requires=ClauseReading(group_subject=True),
+    ),
+    EffectHandler(
+        'exile_all_graveyards',
+        compile_clause(r"exile (?:all graveyards|all cards (?:from|in) all graveyards|each opponent's graveyard)"),
+        lambda m: [EffectSpec('exile_all_graveyards',
+                             {'opponents_only': True} if "opponent" in m[0] else {})],
+    ),
+    EffectHandler(
+        'exile_with_counters',
+        compile_clause(r'exile (?P<head_object>.+?) with (?P<n>a|an|\d+) (?P<kind>[a-z]+|[+\-]\d+/[+\-]\d+) counters? on (?:it|them)'),
+        # The operand is still read by the shared object grammar and existing exile rows.
+        _exile_with_counters,
+        reading_aware=True,
     ),
 ]

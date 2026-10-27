@@ -14,9 +14,30 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-27 at PARSER_VERSION 783: **23,263 / 35,051 cards (66.4%)**,
+Measured on 2026-10-27 at PARSER_VERSION 786: **23,321 / 35,051 cards (66.5%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **22,650 / 32,068 (70.6%)**.
+Commander-legal coverage: **22,707 / 32,068 (70.8%)**.
+PAR-212 extends the shared object-state predicates (counter thresholds, chosen
+types, per-player count comparisons and payment-time crew history) and composes
+destination wording and exile-counter riders through the existing move effects.
+Emerge uses alternative casting with an actual sacrifice and retains its paid
+cost and sacrifice characteristics for conditional payoffs. Conditional target
+subjects announce once and gate the whole payoff; crew/count intervening-ifs
+gate complete triggered bodies. Live crew targets retain exact visits, while
+historical counts include departed creatures. The v786 full-pool comparison
+against v783 records **66 newly parser-modeled names, zero lost**, and one
+reviewed existing-spec correction: Encumbered Reejerey's counter condition gates
+triggering as well as resolution. Its zero/one-counter cases execute in the
+family tests. Ayara's Oathsworn likewise gates its entire counter/search body.
+The ledger gains 58 covered cards because some newly parsed
+cards already had authored implementations.
+The fresh v786 scan records **13,777 open sentences** (13,854 at v783), **9,241
+open Commander cards** (9,298), and **14,247 open atoms** (14,331). Open slots
+fall for condition/pronoun **1,403 → 1,348**, put/pronoun **473 → 355**,
+hand/pronoun **540 → 423**, battlefield/pronoun **524 → 521**, and
+exile/pronoun **478 → 465**. The phrase `if it's a` falls from **110 → 97**
+open cards under the same n-gram/ablation measurement. These overlapping counts
+measure shared slots; independent inspection leads are delivered in PAR-213.
 PAR-211 adds shared quantified player/object sets, contextual controllers,
 per-member instructions and player-relative amounts. The full-pool spec diff
 against v779 finds **46 newly parser-modeled names, zero lost**, with two
@@ -32,7 +53,8 @@ counts fall for `obj:creature + obj:eachall` **1,327 → 1,296**,
 **738 → 713**, `obj:eachall + ref:pronoun` **792 → 773**, and
 `dur:eot + obj:eachall` **431 → 421**. These overlapping counts measure the
 quantifier grammar; conditions/actions still missing from their sentences remain
-in PAR-212–214's existing scopes.
+in PAR-214's existing scope; PAR-212 and PAR-213 supply the shared object-state and
+zone-destination and inspection-sequence grammar.
 PAR-209 factors target adjectives, fixed durations and quantity spellings into
 shared atoms and extends name references and prevention scopes. Against v777,
 **83 newly parser-modeled names, zero lost**; 16 existing specs retain their
@@ -61,7 +83,8 @@ The v772 fragment scan records **14,593 open sentences**, including **4,771
 follow-ups on 3,589 cards**. Distinct open multi-sentence card/parent pairs fall
 from **4,029 at v771 to 3,999** using identical counting; the pre-PAR-208 baseline
 was 4,055. Remaining reveal pools and pronoun/state-bound follow-ups belong to the existing
-PAR-212–214 grammar scopes; quantifier scopes are delivered in PAR-211.
+PAR-214 grammar scope; inspection sequences, object-state/destination grammar and
+quantifier scopes are delivered in PAR-213, PAR-212 and PAR-211.
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py` and its

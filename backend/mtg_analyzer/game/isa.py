@@ -917,6 +917,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "gift_give": "702.174",
     "impulsive_look": "601.2b",
     "inspect_top_choose": "601.2b",
+    "inspect_cards": "701.20",
     "play_hideaway_card": "608.2g",
     "intuition_search": "701.23",
     "land_or_free_cast": "601.2b",

@@ -420,8 +420,16 @@ def _context_holds(
     if kind == "amount_compare":
         from . import effect_amounts  # function-scoped: effect_amounts imports this module
 
-        left = effect_amounts.amount_of(condition.get("left"), context, source, targets)
-        right = effect_amounts.amount_of(condition.get("right"), context, source, targets)
+        def scoped_amount(value):
+            if isinstance(value, dict):
+                return {key: (condition['of'] if key == 'of' and child == 'trigger_subject' and 'of' in condition
+                              else scoped_amount(child)) for key, child in value.items()}
+            if isinstance(value, list):
+                return [scoped_amount(child) for child in value]
+            return value
+
+        left = effect_amounts.amount_of(scoped_amount(condition.get("left")), context, source, targets)
+        right = effect_amounts.amount_of(scoped_amount(condition.get("right")), context, source, targets)
         return {
             "lt": left < right, "le": left <= right,
             "gt": left > right, "ge": left >= right,
@@ -585,7 +593,7 @@ def _evaluate(
     if not condition:
         return True
     kind = condition.get("kind")
-    if kind == "kicked" and "of" not in condition and source is not None:
+    if (kind in ('kicked', 'crewed_by_filter') or (kind == 'flag' and condition.get('flag') == 'emerge_cost_paid')) and "of" not in condition and source is not None:
         # RULE 608.2h: a kicked ETB ability retains its source visit's
         # cast choices after that permanent has left the battlefield.
         visit = getattr(context, "resolving_source_incarnation", None)
@@ -603,7 +611,7 @@ def _evaluate(
 
     if kind == "all":
         results = [
-            _evaluate(sub, context, source, targets)
+            _evaluate({**({'of': condition['of']} if 'of' in condition else {}), **sub}, context, source, targets)
             for sub in (condition.get("conditions") or [])
         ]
         if any(result is False for result in results):
@@ -611,7 +619,7 @@ def _evaluate(
         return None if any(result is None for result in results) else True
     if kind == "any":
         results = [
-            _evaluate(sub, context, source, targets)
+            _evaluate({**({'of': condition['of']} if 'of' in condition else {}), **sub}, context, source, targets)
             for sub in (condition.get("conditions") or [])
         ]
         if any(result is True for result in results):
@@ -621,6 +629,8 @@ def _evaluate(
         inner = condition.get("condition")
         if not inner:
             return False  # an empty negation is fail-closed, not vacuously true
+        if 'of' in condition:
+            inner = {'of': condition['of'], **inner}
         result = _evaluate(inner, context, source, targets)
         return None if result is None else not result
 
@@ -634,6 +644,16 @@ def _evaluate(
         return None
 
     controller_id = _controller_id(source, context)
+    if kind == 'is_chosen_type':
+        # The choice belongs to the ability source even when "it" names a different object.
+        choice_source = source
+        visit = getattr(context, 'resolving_source_incarnation', None)
+        if source is not None and visit is not None and visit != source.zone_incarnation:
+            choice_source = context.state.zone_visit_sources.get((source.instance_id, visit))
+        chosen = getattr(choice_source, 'chosen_type', None)
+        if not chosen:
+            return False
+        condition = {**condition, 'subtype': chosen}
     of = condition.get("of") or "source"
     if kind == 'source_counters' and of == 'source' and source is not None:
         from copy import copy
@@ -649,6 +669,12 @@ def _evaluate(
     subject = subject_of(of, context, source, targets)
     if subject is None:
         return None
+    if (of == 'previous_target' and getattr(getattr(subject, 'zone', None), 'value', None) != 'battlefield'
+            and subject in [*context.destroyed_objects, *context.exiled_objects]):
+        # RULE 608.2h: a just-destroyed/exiled permanent supplies its last battlefield
+        # characteristics, not the reset characteristics of its new-zone object.
+        subject = context.state.zone_visit_sources.get(
+            (subject.instance_id, subject.zone_incarnation - 1), subject)
     # Point the predicate at the resolved referent and let the one shared
     # implementation answer it.
     return static_conditions.condition_holds(

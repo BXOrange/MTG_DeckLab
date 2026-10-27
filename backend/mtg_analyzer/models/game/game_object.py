@@ -299,6 +299,7 @@ class GameObject:
         #: `GameEngine.cast_spell`, read by the ``surge_cost_paid`` flag
         #: condition — "if its surge cost was paid").
         self.surge_cost_paid: bool = False
+        self.emerge_cost_paid: bool = False  # RULE 702.119: alternative-cost choice.
         #: RULE 701.20a: this card was exiled **face down** (Beseech the
         #: Mirror's "search your library for a card, exile it face down").
         #: A face-down card in exile has no characteristics anyone but its
@@ -705,6 +706,9 @@ class GameObject:
         #: `effect_binder._build_group_ok`'s ``crewed_by_self`` condition.
         self.crewed_by_ids: list[int] = []
         self.crewed_by_incarnations: dict[int, int] = {}
+        self.crewed_by_visits: set[tuple[int, int]] = set()
+        # RULE 702.122b: qualities when the crew cost was paid, retained even after departure.
+        self.crewed_by_subtypes: set[str] = set()
         self.crewed_turn: Optional[int] = None
         #: Blocking (RULE 509): ``blocking`` is the instance id of the
         #: attacker this creature is declared to block (None if not
@@ -1557,6 +1561,7 @@ class GameObject:
         self.gift_recipient_id = None
         self.madness_cost_paid = False
         self.surge_cost_paid = False
+        self.emerge_cost_paid = False
         self.face_down_in_exile = False
         self.face_down_exile_viewers = set()
         self.hideaway_source_id = None
@@ -1618,6 +1623,8 @@ class GameObject:
         self.saddled_by_incarnations = {}
         self.crewed_by_ids = []
         self.crewed_by_incarnations = {}
+        self.crewed_by_visits = set()
+        self.crewed_by_subtypes = set()
         self.crewed_turn = None
         self.haunting_instance_id = None
         self.haunting_incarnation = None

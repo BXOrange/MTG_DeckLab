@@ -436,6 +436,15 @@ class LegalActionsMixin:
                 action["free"] = True
             elif alt_cost:
                 action["alt_cost"] = True
+                emerge = self._emerge_payment(player, obj)
+                if emerge is not None:
+                    action['alt_cost_label'] = 'Emerge ' + obj.parametric_keywords['emerge']['cost'] + ' — Kreatur opfern; generische Kosten um ihren Manawert reduzieren'
+                    # Reuse the board's existing one-permanent cost picker.
+                    action['sacrifice_count_cost'] = {'count': 1, 'options': [
+                        {'instance_id': candidate.instance_id, 'name': candidate.name}
+                        for candidate in self.state.permanents_controlled_by(player.id)
+                        if self._emerge_payment(player, obj, candidate.instance_id) is not None
+                    ]}
                 alt_cast_cost = getattr(obj, "alt_cast_cost", None) or (
                     continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
                     if obj is not None else None
@@ -860,6 +869,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
+                or 'emerge' in (getattr(obj, 'parametric_keywords', None) or {})
                 or (card is not None and continuous.granted_alt_cast_cost_for(self.state, player, card, obj))
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
@@ -1028,6 +1038,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
+                or 'emerge' in (getattr(obj, 'parametric_keywords', None) or {})
                 or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))

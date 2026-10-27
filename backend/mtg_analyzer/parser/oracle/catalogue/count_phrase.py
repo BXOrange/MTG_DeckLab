@@ -275,6 +275,7 @@ _CONTROL = re.compile(r"^you control (?P<rest>.+)$")
 _OWN = re.compile(r"^you own (?P<rest>.+)$")
 _THERE_ARE = re.compile(r"^there (?:are|is) (?P<rest>.+)$")
 _OPPONENT_MORE = re.compile(r"^an opponent controls more (?P<phrase>.+?) than you$")
+_YOU_MOST = re.compile(r"you control (?P<direction>more|fewer) (?P<phrase>.+?) than each other player")
 
 
 def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
@@ -286,6 +287,13 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
     `<phrase>`" counts the phrase's own location ("… in your graveyard").
     """
     text = text.strip().lower().rstrip(".")
+    m = _YOU_MOST.fullmatch(text)
+    if m is not None:
+        selector = parse_count_phrase(m['phrase'])
+        if selector is None or selector.get('of') != 'any' or selector.get('zone') != 'battlefield':
+            return None
+        return {'kind': 'you_have_most' if m['direction'] == 'more' else 'you_have_fewest',
+                'selector': {**selector, 'of': 'you'}}
     m = _OPPONENT_MORE.match(text)
     if m is not None:
         selector = parse_count_phrase(m.group("phrase"))

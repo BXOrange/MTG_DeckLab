@@ -55,7 +55,8 @@ from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
 from .catalogue.quantifier_scope import PLAYER_SETS, quantified_set, per_member_amount_specs
-from .catalogue.object_phrase import object_phrase_specs
+from .catalogue.object_phrase import object_phrase_specs, conditional_object_specs
+from .catalogue import inspection as _inspection  # module handle: the PAR-213 spec audit toggles its parser
 from .catalogue.name_reference import same_name_specs
 from .catalogue.zone_ability_sequences import exile_grant_specs
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_EFFECT_THEN_ANTECEDENT_PHRASES
@@ -3975,7 +3976,7 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
         rewritten = re.sub(r"^you may put it\b", "you may put " + target.group(0), rewritten, flags=re.I)
     # PAR-139 (madness overrides): "instead create X of those tokens" names the base's own tokens, and
     # "divided … among those permanents and/or players" the base's own "any number of targets".
-    base_tokens = re.search(r"\bcreate \d+ (?P<phrase>.+? tokens?)\b", base_text, flags=re.I)
+    base_tokens = re.search(r"\bcreate (?:a|an|\d+) (?P<phrase>.+? tokens?)\b", base_text, flags=re.I)
     if base_tokens is not None:
         rewritten = re.sub(r"\b(?P<n>x|\d+) of those tokens\b",
                            lambda m: f"{m.group('n')} {base_tokens.group('phrase')}", rewritten, flags=re.I)
@@ -5643,6 +5644,9 @@ def _group_pronoun_condition(
     ``condition`` is what the shared vocabulary made of the phrase (or ``None``); a phrase it does
     not know is tried against the referent grammar (`parse_referent_condition`), and the result is
     scoped to the object that fired the trigger."""
+    if condition is None and reading.self_subject and not reading.previous_subject and not reading.group_subject:
+        if _PRONOUN_CONDITION_RE.match(cond_text) and not re.search(r'\b(?:was|had|were)\b', cond_text):
+            return parse_referent_condition(cond_text)
     if (
         condition is None and reading.previous_subject and not reading.self_subject and not reading.group_subject
         and _PRONOUN_CONDITION_RE.match(cond_text) is not None
@@ -5651,11 +5655,16 @@ def _group_pronoun_condition(
         # mana value reads the same in any zone, so the gate survives the pick having just left the battlefield.
         # Power, toughness and keywords are last-known information (RULE 608.2h) the engine does not keep here.
         referent = parse_referent_condition(cond_text)
-        return referent if referent is not None and referent.get("kind") == "mana_value" else None
+        if referent is not None and (referent.get('kind') == 'mana_value'
+                or not re.search(r"\b(?:was|wasn't|had|didn't|were)\b", cond_text)):
+            return referent
+        return None
     if not reading.group_subject or reading.self_subject or reading.previous_subject or _PRONOUN_CONDITION_RE.match(cond_text) is None:
         return condition
     if condition is None:
         condition = parse_referent_condition(cond_text)
+        if condition is not None and condition.get('kind') == 'source_counters' and re.search(r'\bhad\b', cond_text):
+            return {**condition, 'kind': 'trigger_event_counters'}
     return None if condition is None else _rescope_to_trigger_subject(condition)
 
 #: The condition kinds that talk about one object (the ``of`` referent), rather than the board or a
@@ -5665,6 +5674,7 @@ _SUBJECT_SCOPED_CONDITION_KINDS: frozenset[str] = frozenset({
     "source_attacked_this_turn", "is_card_type", "is_color", "is_subtype", "is_legendary", "is_basic",
     "was_dealt_damage_this_turn", "flag", "power", "toughness", "mana_value", "has_keyword",
     "source_monstrous", "source_equipped", "source_enchanted", "entered_this_turn",
+    "is_chosen_type", "crewed_by_filter",
 })
 
 
@@ -5912,6 +5922,16 @@ def parse_effect_body(
     """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
     emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
     specs = _parse_effect_body_unstamped(body, reading=reading)
+    def has_inspection(node):
+        if isinstance(node, dict):
+            return node.get("type") == "inspect_cards" or any(has_inspection(v) for v in node.values())
+        if isinstance(node, list):
+            return any(has_inspection(v) for v in node)
+        return False
+    if specs is None or has_inspection([e.to_dict() for e in specs]):
+        inspection = _inspection.parse_inspection(body, lambda text: parse_effect_body(text, reading=reading))
+        if inspection is not None or _inspection.starts_inspection(body):
+            specs = inspection
     if not specs:
         return specs
     return _bind_local_object_quantities(body, _stamp_created_pronouns(specs))
@@ -6290,6 +6310,9 @@ def _parse_effect_body_inner(
     # connector split so a base `<effect>` handler can never claim the clause
     # *without* its gate — a wrong-but-modeled unconditional card is worse
     # than an unclaimed one.
+    conditional_object = conditional_object_specs(body, reading, parse_effect_body)
+    if conditional_object is not None:
+        return conditional_object
     matched, peeled = _peel_condition(
         body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
@@ -7003,6 +7026,9 @@ def _parse_effect_body_inner(
                     # trigger. It could not be absorbed into the payoff above (it did not parse there), and read on
                     # its own its "it" would silently mean this ability's source -- fail closed instead.
                     ok = False
+                    break
+                if collected and _inspection.leaves_dangling_reference(collected, part):
+                    ok = False  # PAR-213: "it" after a bare reveal/look lead must not fall back to the source
                     break
                 # A period split retains the leading "then" from a printed
                 # "… . Then <effect>" sentence, unlike the explicit
@@ -11205,6 +11231,23 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             return Segment(raw=raw)  # "that creature" of a block relation, under a head that has no other side
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
         limit = limit or body_limit
+        # RULE 603.4: the crew-history condition gates the entire triggered ability,
+        # including subsequent sentences, both at triggering and at resolution.
+        leading_state = _ETB_INTERVENING_IF_RE.match(body)
+        state_gate = static_condition(leading_state['cond']) if leading_state is not None else None
+        counter_gate = None
+        if leading_state is not None and (condition or {}).get('subject') == 'self':
+            counter_gate = parse_referent_condition(leading_state['cond'].replace('~', 'it'))
+            if counter_gate is not None and counter_gate.get('kind') != 'source_counters':
+                counter_gate = None
+        if counter_gate is not None:
+            state_gate = counter_gate
+        if state_gate is not None and (state_gate.get('kind') in ('crewed_by_filter', 'you_have_most', 'you_have_fewest') or counter_gate is not None):
+            head_trigger = {**head_trigger, 'active_if': state_gate}
+            effects = [EffectSpec('seq', {'effects': [
+                EffectSpec(e.type, e.params, condition=None if e.condition == state_gate else e.condition).to_dict()
+                for e in effects
+            ]}, condition=state_gate)]
         intervening = _etb_intervening_if(event, condition, body)
         if intervening is not None:
             head_trigger = {**head_trigger, "active_if": intervening}

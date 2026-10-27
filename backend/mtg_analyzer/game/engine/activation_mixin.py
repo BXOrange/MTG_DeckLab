@@ -1416,12 +1416,18 @@ class ActivationMixin:
             if source.crewed_turn != turn:
                 source.crewed_by_ids = []
                 source.crewed_by_incarnations = {}
+                source.crewed_by_visits = set()
+                source.crewed_by_subtypes = set()
             source.crewed_turn = turn
             for obj in self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []:
+                from ...models.cards.creature_types import CREATURE_SUBTYPES
+                source.crewed_by_subtypes.update(
+                    subtype for subtype in CREATURE_SUBTYPES if combat._has_subtype(obj, subtype))
                 self.rules.set_tapped(obj, True)
                 if obj.instance_id not in source.crewed_by_ids:
                     source.crewed_by_ids.append(obj.instance_id)
                 source.crewed_by_incarnations[obj.instance_id] = obj.zone_incarnation
+                source.crewed_by_visits.add((obj.instance_id, obj.zone_incarnation))
         if cost.saddle_power:
             # RULE 702.171a (Guardian Sunmare, MEC-40) — same pool/tap
             # mechanics as ``crew_power`` just above. The tapped creatures are remembered for the turn:

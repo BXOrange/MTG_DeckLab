@@ -82,6 +82,7 @@ from .characteristic_phrase import KEYWORD_WORDS, parse_object_phrase
 from .clause_hooks import register_static_condition, segment_line, trigger_condition_dict
 from .count_phrase import parse_amount_phrase, parse_count_condition, parse_count_phrase
 from .history_phrase import parse_history_condition
+from .referent_condition import parse_referent_condition
 from .subtype_vocabulary import SUBTYPES
 from .trigger_doubler import parse_trigger_doubler
 from ..normalize import normalize
@@ -3575,6 +3576,8 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    (re.compile(r"(?:~'s|its|this spell's) emerge cost was paid", re.I),
+     lambda m: {'kind': 'flag', 'flag': 'emerge_cost_paid'}),
     # RULE 731.1: shared by conditional effect bodies and standing abilities.
     (re.compile(r"it(?:'s| is) (?P<designation>day|night)", re.I),
      lambda m: {"kind": "day_night", "designation": m.group("designation").lower()}),
@@ -4235,6 +4238,12 @@ def static_condition(text: str) -> Optional[dict]:
     worse than an unmodeled card.
     """
     stripped = text.strip().rstrip(".").strip()
+    crew = re.fullmatch(r"an? (?P<quality>[a-z ]+) crewed (?:it|~) this turn", stripped)
+    if crew is not None:
+        parsed = parse_object_phrase(crew['quality'])
+        if parsed is None or parsed[1] is not None or not parsed[0] or set(parsed[0]) - {'subtype', 'subtype_any'}:
+            return None
+        return {'kind': 'crewed_by_filter', 'selector': {'filter': parsed[0]}}
     for pattern, build in _STATIC_CONDITION_RES:
         if pattern.fullmatch(stripped):
             built = build(pattern.fullmatch(stripped))
@@ -4246,6 +4255,10 @@ def static_condition(text: str) -> Optional[dict]:
     # graveyard", "an opponent controls more lands than you"), tried only after the
     # named rows above declined.
 
+    if stripped.startswith('~ ') and not re.search(r'\b(?:was|had)\b', stripped):
+        source_condition = parse_referent_condition('it ' + stripped[2:])
+        if source_condition is not None:
+            return source_condition
     counted = parse_count_condition(stripped)
     if counted is not None:
         return counted

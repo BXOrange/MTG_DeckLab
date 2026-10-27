@@ -306,6 +306,8 @@ exile_graveyard_cards_multi
 exile_own_graveyard_cards
 exile_target_graveyard
 exile_trigger_controller_graveyard
+exile_all_graveyards
+exile_with_counters
 destroy_controller_search_basic_land
 search_put_then_shuffle_share_type
 elfhame_sanctuary

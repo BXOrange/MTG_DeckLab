@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core import EffectRegistry, SetDayNightEffect
+from .inspection import InspectCardsEffect
 from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalEndStepEffect
 from .linked_pool_riders import EFFECT_FACTORIES as _LINKED_POOL_FACTORIES
@@ -12,6 +13,8 @@ from .loss_replacements import RecoverInsteadOfLosingEffect
 from ._runtime import install, register
 
 install(globals())
+
+EffectRegistry.register("inspect_cards", lambda p: InspectCardsEffect(p))
 
 for _name, _factory in _LINKED_POOL_FACTORIES.items():
     EffectRegistry.register(_name, _factory)

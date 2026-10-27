@@ -589,6 +589,7 @@ _PRINTED_ONLY_KEYWORDS: frozenset[str] = frozenset({"flashback", "disturb"})
 _FILTER_KEYS: frozenset[str] = frozenset(
     {
         "all_of", "not_basic_land",
+        "crewed_reference_this_turn",
         "min_power", "max_power", "min_toughness", "max_toughness",
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
@@ -723,6 +724,12 @@ def matches_object_filter(
     """
     if not filt:
         return True
+    if filt.get('crewed_reference_this_turn'):
+        # RULE 702.122b-c / 400.7: only the very creature visit that paid crew.
+        if (reference is None or getattr(reference, 'crewed_turn', None) is None
+                or (state is not None and reference.crewed_turn != state.internal_turn.number)
+                or reference.crewed_by_incarnations.get(obj.instance_id) != obj.zone_incarnation):
+            return False
     # "except by artifact creatures and/or red creatures" (PAR-79, Firefright
     # Mage) — a union across two *different* filter dimensions (card type vs
     # colour), which every other key here (a flat AND) can't express;
