@@ -7,6 +7,7 @@ import re
 
 from typing import Any, Optional
 from ..count_phrase import parse_count_phrase
+from ..quantifier_scope import object_set
 from ..characteristic_phrase import parse_object_phrase
 from ..referent_condition import PRONOUN_NOUN_ALT
 from ..static_handlers import type_addition_params
@@ -1482,12 +1483,25 @@ def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Opt
 #: Fury) -- the announced player AND that player's creature group (Urabrask's shape). Read as the ordinary
 #: "each creature target player controls" mass hit plus the player themself as a scoped recipient.
 _DAMAGE_TARGET_PLAYER_AND_GROUP_RE = compile_clause(
-    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to (?P<who>target player|target opponent) "
-    r"and each (?P<group>[a-z' -]+?) (?:that player|they) controls?"
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to (?P<who>target (?:player|opponent)(?: or planeswalker)?) "
+    r"and (?:(?P<group_n>\d+|x) damage to )?each (?P<group>[a-z' -]+?) "
+    r"(?P<controller>that player or that planeswalker's controller|that player|they) controls?"
 )
 
 
 def _damage_target_player_and_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if 'planeswalker' in m['who'] or m['group_n']:
+        if ('planeswalker' in m['who']) != ('planeswalker' in m['controller']):
+            return None
+        group = object_set(m['group'], reading.only())
+        if group is None or group.get('of') != 'any':
+            return None
+        n = m['n']
+        params = {'amount': 'x' if n == 'x' else int(n), 'group': {**group, 'of': 'you'},
+                  'group_player': resolve_target_kind(m['who']), 'group_and_players': 'scoped_player'}
+        if m['group_n']:
+            params['group_amount'] = 'x' if m['group_n'] == 'x' else int(m['group_n'])
+        return [EffectSpec('damage', params)]
     inner = match_clause_once(
         f"~ deals {m.group('n')} damage to each {m.group('group')} {m.group('who')} controls",
         reading=reading.only(),

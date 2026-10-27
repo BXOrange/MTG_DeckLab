@@ -36,21 +36,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining tickets (PAR-211…214): measure with the `find-fragments` skill before and after
+Fragment-mining tickets (PAR-212…214): measure with the `find-fragments` skill before and after
 (`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
-regressions, and executes newly claimed cards rather than trusting parse verdicts. PAR-209 and PAR-210 are
-closed, so PAR-213 and PAR-214 and PAR-212's pronoun-bound forms are unblocked; PAR-211
-is independent.
+regressions, and executes newly claimed cards rather than trusting parse verdicts.
+Shared base grammar, reference binding and quantifier scopes are available; the remaining tickets are unblocked.
 
-- **PAR-211 · Quantifier scopes.** `each` / `all` / `each other` scopes combined with the clause
-  parts that depend on them stay open at a share of 0.78–0.90 against modelled text: `each player` /
-  `each opponent` / `each other player` as the acting or affected set, `each creature that player /
-  that planeswalker's controller / your opponents control`, `for each <thing>` repeats, `all
-  <objects> that <condition>`, and the scope carried into a duration or damage clause (`until end of
-  turn`, `all combat damage that would be dealt …`). Build one scope grammar (set × controller ×
-  per-member repeat) that the existing target/selector resolver consumes, instead of per-phrase rows.
-  Measure with `find-fragments --slots` (`obj:eachall` rows). Done when those rows drop in a re-scan
-  and each-player / each-creature clauses execute per member in the real engine.
 - **PAR-212 · Object-state conditions and zone-destination actions.** Two slot families that stay
   open together with a pronoun or `if`: (a) conditions on the state of an object or the game before
   the effect (`if target attacking creature token is the chosen type`, `if you control more

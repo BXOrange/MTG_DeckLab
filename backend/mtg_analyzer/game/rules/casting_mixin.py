@@ -235,7 +235,7 @@ _CARD_TYPE_OPTIONS: list[tuple[str, str]] = [
 
 
 #: The magnitude attributes `_substitute_x` rewrites in place.
-_X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "count", "power", "toughness", "times", "any_amount")
+_X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "group_amount", "count", "power", "toughness", "times", "any_amount")
 #: The mana-value bounds it rewrites inside a ``filter``/``criteria`` dict.
 _X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value")
 #: `CreateDelayedTriggerEffect` captures that write their own value into the

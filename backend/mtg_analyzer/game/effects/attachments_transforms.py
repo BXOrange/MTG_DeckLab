@@ -57,6 +57,10 @@ def previous_group_objects(context: GameContext, source: Optional["GameObject"],
     """The battlefield objects ``selector`` (a `GameContext.previous_selector`
     value) names — the damaged set for `DAMAGED_GROUP_SENTINEL`, else
     `continuous.group_selector_objects`."""
+    if isinstance(selector, dict) and "zone_visits" in selector:
+        return [obj for object_id, incarnation in selector["zone_visits"]
+                if (obj := context.state.find_object(object_id)) is not None
+                and obj.zone_incarnation == incarnation and obj in context.state.battlefield]
     if selector == DAMAGED_GROUP_SENTINEL:
         return [o for o in context.damaged_this_way if o in context.state.battlefield]
     from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle

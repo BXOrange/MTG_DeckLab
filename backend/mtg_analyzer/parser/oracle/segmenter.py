@@ -54,6 +54,8 @@ from .catalogue.per_creature_payment import per_creature_payment_specs
 from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
+from .catalogue.quantifier_scope import PLAYER_SETS, quantified_set, per_member_amount_specs
+from .catalogue.object_phrase import object_phrase_specs
 from .catalogue.name_reference import same_name_specs
 from .catalogue.zone_ability_sequences import exile_grant_specs
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_EFFECT_THEN_ANTECEDENT_PHRASES
@@ -4760,10 +4762,16 @@ def _for_each_specs(
         return None
     phrase = match.group("group").strip().lower()
     selector = parse_count_phrase(phrase) if phrase in _FOR_EACH_GROUP_PHRASES else None
+    over = {"selector": selector} if selector is not None else None
     if selector is None:
-        return _for_each_amount_specs(
-            match, phrase, reading=reading.unattached(),
-        )
+        amount_specs = _for_each_amount_specs(match, phrase, reading=reading.unattached())
+        if amount_specs is not None:
+            return amount_specs
+        # A non-scaling instruction (e.g. proliferate) is repeated, rather than
+        # assigned a fabricated magnitude. Counts and aggregates are never sets.
+        over = quantified_set("each " + phrase, reading)
+        if over is None:
+            return None
     inner = parse_effect_body(
         match.group("rest").strip(), reading=reading.unattached(),
     )
@@ -4771,8 +4779,10 @@ def _for_each_specs(
         return None
     if any(_names_a_target(spec) for spec in inner):
         return None
+    if selector is None and any(spec.type in ("pump", "coin_flip", "roll_die") for spec in inner):
+        return None  # magnitude/recorded-result families keep their dedicated composition gates
     return [EffectSpec("for_each", {
-        "over": {"selector": selector},
+        "over": over,
         "effects": [spec.to_dict() for spec in inner],
     })]
 
@@ -5272,9 +5282,8 @@ def _referent_characteristic_specs(
 #: opponent" iterates the body over those players (`for_each` hands each one to it as
 #: its target, APNAP order, RULE 101.4), and "target opponent" narrows the target.
 _PLAYER_SCOPE_SUBJECT_RE = re.compile(
-    r"^(?P<who>each player|each opponent|target opponent|target player|that player) (?P<rest>.+)$", re.IGNORECASE
+    r"^(?P<who>each other player|each player|each opponent|target opponent|target player|that player) (?P<rest>.+)$", re.IGNORECASE
 )
-_PLAYER_SCOPE_ITERATION = {"each player": "each_player", "each opponent": "each_opponent"}
 
 
 def _player_scope_specs(
@@ -5314,7 +5323,7 @@ def _player_scope_specs(
             for spec in inner
         ]
     return [EffectSpec("for_each", {
-        "over": {"players": _PLAYER_SCOPE_ITERATION[who]},
+        "over": quantified_set(who, reading),
         "effects": [spec.to_dict() for spec in inner],
     })]
 
@@ -5356,7 +5365,7 @@ def _leading_for_each_flip_specs(
     )
 
 
-def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
+def _leading_for_each_object_specs(body: str, *, reading: ClauseReading = STANDALONE) -> "Optional[list[EffectSpec]]":
     """See `_LEADING_FOR_EACH_OBJECT_RE`."""
     m = _LEADING_FOR_EACH_OBJECT_RE.match(body.strip())
     if m is None:
@@ -5368,20 +5377,41 @@ def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
         # segmenter keeps it off any head that isn't a batch.
         over = {"batch_members": True}
     else:
+        scope = quantified_set("each " + m.group("group"), reading)
         selector = parse_count_phrase(m.group("group"))
+        if scope is not None:
+            over = scope
         # PAR-153: a card zone too — "for each creature card you own in exile with a memory counter on it,
         # create a … token that's a copy of it" (Altaïr); `ForEachEffect` reads the zone's cards.
-        if (
+        elif (
             selector is None or selector.get("zone") not in _ITERATION_ZONES or "terms" in selector
             or "distinct" in selector or "aggregate" in selector
         ):
             return None
-        over = {"selector": selector}
-    inner = parse_effect_body(m.group("rest").strip(), reading=ClauseReading(previous_subject=True))
+        else:
+            over = {"selector": selector}
+    rest = m.group("rest").strip()
+    # A body independent of the member still executes once per member. Preserve
+    # the meaning of "you", and never replace a separately announced target.
+    independent = parse_effect_body(rest, reading=reading)
+    if independent and not any(
+        _names_a_target(spec) or spec.type in ("coin_flip", "roll_die") for spec in independent
+    ) and not re.search(
+        r"\b(?:it|its|that|those|them|they|their)\b", rest
+    ):
+        return [EffectSpec("for_each", {"over": over, "effects": [e.to_dict() for e in independent]})]
+    inner_reading = ClauseReading(previous_subject=True, referents=(Referent(PLAYER),)) if "players" in over else ClauseReading(previous_subject=True)
+    inner = parse_effect_body(rest, reading=inner_reading)
+    if inner and any(spec.params.get("referent") not in _ITERATION_REFERENTS for spec in inner):
+        inner = object_phrase_specs(rest, inner_reading, match_clause) or inner
     if not inner:
         return None
     effects = []
     for spec in inner:
+        if (spec.type == "trigger_subject_referent"
+                and spec.params.get("referent") in ("previous_subject", "previous_player")):
+            effects.append({"type": spec.type, "params": {**spec.params, "referent": "iteration"}})
+            continue
         if spec.params.get("referent") not in _ITERATION_REFERENTS or _names_a_target(spec):
             return None
         entry: dict[str, Any] = {
@@ -6989,7 +7019,7 @@ def _parse_effect_body_inner(
                         who = player_head['who'].lower()
                         conjunct_player_scope = (
                             "that player" if who.startswith("target ")
-                            else who if who in _PLAYER_SCOPE_ITERATION or who == "that player" else None
+                            else who if who in PLAYER_SETS or who == "that player" else None
                         )
                     elif conjunct_player_scope and _ELIDED_PLAYER_VERB_RE.match(part):
                         part = f"{conjunct_player_scope} {part}"
@@ -7172,6 +7202,10 @@ def _parse_effect_body_inner(
     if referent_x is not None:
         return referent_x
 
+    per_member = per_member_amount_specs(body, lambda text: parse_effect_body(text, reading=reading))
+    if per_member is not None:
+        return per_member
+
     player_scope = _player_scope_specs(
         body, reading=reading.unattached(),
     )
@@ -7184,7 +7218,7 @@ def _parse_effect_body_inner(
     if each_flip is not None:
         return each_flip
 
-    each_object = _leading_for_each_object_specs(body)
+    each_object = _leading_for_each_object_specs(body, reading=reading)
     if each_object is not None:
         return each_object
 

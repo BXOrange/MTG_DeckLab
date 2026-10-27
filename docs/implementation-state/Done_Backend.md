@@ -1913,6 +1913,29 @@ Copies use the existing spell-copy primitive and do not count as casts.
 - **Clause separators and outcome chains (PAR-208, PARSER_VERSION 771–772):** Mandatory observable actions followed by “if you do” compose through `seq.if_you_do_from`; `else_effects` handles declined, impossible and ineffective actions across existing sequence/optional/payment nodes. Shared-subject comma series and “, then” preserve order. Sacrifice payoffs read the sacrificed object's characteristics; removing counters is an observable antecedent. Other-player library searches include the shuffle tail and put stolen permanents under the searching player's control. Typed/union/random discard costs, half-life payments, defending-player discard and untargeted own-graveyard returns reuse existing primitives. “You may X. Then Y” makes only X optional. Any-player/opponent payments support both paid and all-declined outcomes; an interactive sacrifice finishes before its payoff through the existing paid-cost continuation (RULE 608.2c). Open offers, remaining players and deferred payoffs survive clone/undo through `GameState`.
 - **PAR-208 validation and boundary:** Coverage **22,734/35,051 (64.9%)**, Commander **22,127/32,068 (69.0%)**. The v772 comparison against v771 has **49 newly parser-modeled names, zero lost names**, and six changed existing specs. The older graveyard-return row is explicitly declared as a fallback for the shared own-graveyard picker, so the full-pool handler audit recognizes their intentional overlap. Four changes replace equivalent untargeted graveyard picks; Summon Undead and Gallifrey Stands correct optional-action scope. All six execute in `test_par208_return_own_graveyard.py`; `test_par208_any_player_may.py` verifies payment order and clones at both the offer and selection stages, including preserved remaining players. The fresh fragment scan has **14,593 open sentences**, **4,771 follow-ups on 3,589 cards** and **3,999 open multi-sentence card/parent pairs**, down from **4,029 at v771** with the same counting. The separator/outcome acceptance criteria are met; this does not claim arbitrary missing actions or references. Same-name cross-zone sweeps are delivered in PAR-209; revealed-card pools and inspection leads PAR-213, quantifier scopes PAR-211, and counter-threshold/pronoun-bound follow-ups PAR-212/210. Non-cost offers such as optional damage or graveyard exile remain unclaimed rather than being charged as costs. Family execution tests: `test_par208_{outcome_chains,other_library_search,unless_discard,defending_player_discard,return_own_graveyard,any_player_may}.py`. Final regular run: **16,687 passed, 486 skipped**; its two sandbox socket-binding failures pass with loopback permission (**3 proxy tests passed**). The full-cache run had **17,162 passed, 1 skipped**; its remaining handler-shadowing failure is fixed and the complete full-pool audit rerun passes (**2 passed**). Payment/return/prevention regression rerun: **118 passed**, including the additional clone-continuation test.
 
+- **Quantified player/object scopes (PAR-211, PARSER_VERSION 780–783):**
+  `catalogue/quantifier_scope.py` composes player sets, contextual object controllers,
+  existing object filters and per-member instructions through the selector resolver and
+  `for_each`. Player-relative amounts bind inside each iteration. “Each other player”
+  excludes the player named by the trigger/earlier instruction; optional draws ask each
+  member and resume through cloned state. Contextual group follow-ups retain exact zone
+  visits. Fixed durations and combat-only prevention survive plural scope adaptation.
+  Player/planeswalker damage announces one target and hits that player's/controller's
+  creature set, preserving separate damage amounts. Radiating Lightning's creature damage
+  uses the announced player; Balefire Dragon retains the damaged player/event amount.
+  Magnitude and recorded-result families retain their existing composition restrictions.
+  Full-pool spec comparison: **46 newly parser-modeled names, zero lost**, two reviewed
+  existing-spec changes, both executed. Coverage **23,263/35,051 (66.4%)**, Commander
+  **22,650/32,068 (70.6%)**. Fresh scan: **13,854 open sentences**, **9,298 open Commander
+  cards**, **14,331 open atoms**. Open `obj:eachall` combinations drop for creatures
+  **1,327 → 1,296**, players **672 → 641**, repeats **738 → 713**, pronouns **792 → 773**
+  and end-of-turn durations **431 → 421**. `test_par211_quantifier_scopes.py` supplies
+  **39 execution/parse tests**; updated legacy scope/copy rejection pins and this family
+  pass together (**53 full-cache tests**). Broad full-cache validation has **17,350 passing
+  tests (1 skipped)**; its stale destroy-iteration rejection was replaced by an unsupported
+  operation and the now-supported operation executes in the family test. All **3** proxy
+  tests pass separately with loopback permission.
+
 - **Shared base grammar atoms (PAR-209, PARSER_VERSION 778–779):**
   Shared target-adjective intersections preserve stacked restrictions and carry state filters
   into both Fight targets. Fixed duration atoms are reused by base-P/T grants, keyword grants

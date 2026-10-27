@@ -54,7 +54,7 @@ from .core import EffectRegistry, GameContext, GameEffect, _apply_effects_partit
 #: How a `for_each` names the players it iterates, in APNAP order (RULE
 #: 101.4). Deliberately the same three words `SacrificeEffect.selector` and
 #: `MillEffect.player_selector` already use, rather than a fourth spelling.
-PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "you", "each_opponent_except_defending"})
+PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "each_other_player", "you", "each_opponent_except_defending"})
 
 
 def _as_spec_dicts(raw: Any) -> list[dict[str, Any]]:
@@ -788,6 +788,13 @@ class ForEachEffect(_CompositeEffect):
             living = list(context.state.living_players_apnap())
             if scope == "each_opponent":
                 return [p for p in living if p.id != controller_id]
+            if scope == "each_other_player":
+                # RULE 608.2c: "other" excludes the player just named (e.g. the
+                # caster in Zenith Chronicler), otherwise the ability's controller.
+                ref = self.over.get("except_player_ref")
+                excluded = effect_conditions.subject_of(ref or "trigger_player", context, self.source, targets)
+                excluded_id = getattr(excluded, "id", None) if excluded is not None else controller_id
+                return [p for p in living if p.id != excluded_id]
             if scope == "each_opponent_except_defending":
                 # RULE 702.116a (Myriad): "each opponent other than defending player".
                 defending = (getattr(context, "trigger_event", None) or {}).get("defending_player_id")
@@ -800,20 +807,29 @@ class ForEachEffect(_CompositeEffect):
 
             return previous_group_objects(context, self.source, context.previous_selector)
         selector = self.over.get("selector")
+        controller_id = effect_conditions._controller_id(self.source, context)
+        if isinstance(selector, dict) and selector.get("of") == "context":
+            # RULE 608.2h: the earlier player, or the earlier permanent's controller.
+            subject = effect_conditions.subject_of(selector.get("controller_ref"), context, self.source, targets)
+            controller_id = (getattr(subject, "id", None) if hasattr(subject, "life")
+                             else getattr(subject, "controller_id", None))
+            if controller_id is None:
+                return []
+            selector = {**selector, "of": "you"}
         if isinstance(selector, dict) and selector.get("zone", "battlefield") != "battlefield":
             # PAR-153: "for each creature card you own in exile with a memory counter on it" (Altaïr) — a card
             # zone, which `group_selector_objects` (battlefield statics) does not read.
             from ..continuous import _structured_selector_objects  # function-scoped: cycle
 
             return list(_structured_selector_objects(
-                context.state, effect_conditions._controller_id(self.source, context), selector, self.source,
+                context.state, controller_id, selector, self.source,
             ))
         if selector:
             from ..continuous import group_selector_objects  # function-scoped: cycle
 
             return list(group_selector_objects(
                 context.state,
-                effect_conditions._controller_id(self.source, context),
+                controller_id,
                 selector, {}, src=self.source,
             ))
         return []
@@ -862,6 +878,10 @@ class ForEachEffect(_CompositeEffect):
             context.engine.resume_deferred_effects()
         if self.over.get("remember"):
             context.previous_targets = list(items)
+            if isinstance(self.over.get("selector"), dict) and self.over["selector"].get("of") == "context":
+                # RULE 400.7: later "those creatures" remembers the selected zone visits,
+                # not a controller reference which the loop's body may have overwritten.
+                context.previous_selector = {"zone_visits": [(o.instance_id, o.zone_incarnation) for o in items]}
 
 
 #: `TargetGroupEffect.shares` vocabulary → the `combat.matches_object_filter` relative key that implements it.

@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "779"
+PARSER_VERSION = "783"
 
 
 def parser_source_hash() -> str:
@@ -985,7 +985,8 @@ def _resolve_event_player_tree(node: Any, event: str, context: tuple[str, Any, s
         return False
     if (allowed is not None and event in {"SPELL_CAST", "DAMAGE"}
             and (node.get("player") == {"of": "trigger_player", "as": "self"}
-                 or node.get("referent") == "trigger_player")
+                 or node.get("referent") == "trigger_player"
+                 or node.get("controller_ref") == "trigger_player")
             and not _that_player_head_ok(*context, allow_prior_target=False)):
         return False
     return all(_resolve_event_player_tree(value, event, context) for value in node.values())

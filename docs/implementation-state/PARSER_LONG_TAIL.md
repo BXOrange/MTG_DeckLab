@@ -14,9 +14,25 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-27 at PARSER_VERSION 779: **23,221 / 35,051 cards (66.2%)**,
+Measured on 2026-10-27 at PARSER_VERSION 783: **23,263 / 35,051 cards (66.4%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **22,608 / 32,068 (70.5%)**.
+Commander-legal coverage: **22,650 / 32,068 (70.6%)**.
+PAR-211 adds shared quantified player/object sets, contextual controllers,
+per-member instructions and player-relative amounts. The full-pool spec diff
+against v779 finds **46 newly parser-modeled names, zero lost**, with two
+reviewed existing-spec changes: Radiating Lightning uses its announced player's
+creatures and Balefire Dragon retains the damaged player and event amount through
+the shared selector. Both execute in regression tests; player exclusions, cloned
+choices, group identities, fixed durations and combat-only prevention are also
+validated through the real engine.
+The v783 scan records **13,854 open sentences** (13,917 at v779), **9,298 open
+Commander-legal cards** (9,340), and **14,331 open atoms** (14,398). Open slot
+counts fall for `obj:creature + obj:eachall` **1,327 → 1,296**,
+`obj:eachall + obj:player` **672 → 641**, `obj:eachall + qty:foreach`
+**738 → 713**, `obj:eachall + ref:pronoun` **792 → 773**, and
+`dur:eot + obj:eachall` **431 → 421**. These overlapping counts measure the
+quantifier grammar; conditions/actions still missing from their sentences remain
+in PAR-212–214's existing scopes.
 PAR-209 factors target adjectives, fixed durations and quantity spellings into
 shared atoms and extends name references and prevention scopes. Against v777,
 **83 newly parser-modeled names, zero lost**; 16 existing specs retain their
@@ -44,8 +60,8 @@ Gallifrey Stands. All six changed cases execute in regression tests.
 The v772 fragment scan records **14,593 open sentences**, including **4,771
 follow-ups on 3,589 cards**. Distinct open multi-sentence card/parent pairs fall
 from **4,029 at v771 to 3,999** using identical counting; the pre-PAR-208 baseline
-was 4,055. Remaining reveal pools, quantifier scopes and pronoun/state-bound
-follow-ups belong to the existing PAR-211–214 grammar scopes.
+was 4,055. Remaining reveal pools and pronoun/state-bound follow-ups belong to the existing
+PAR-212–214 grammar scopes; quantifier scopes are delivered in PAR-211.
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py` and its

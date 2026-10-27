@@ -4378,3 +4378,18 @@ to owners' hands. Prevention target filters and combat scopes reach runtime.
 
 v779 completes source-filter composition and preserves combat-state target
 filters on both Fight operands; v778 was an intermediate measurement.
+
+## Versions 780–783 — PAR-211: shared quantifier scopes
+
+Player sets and contextual object controllers share quantified operands with the
+existing selector resolver. Leading and suffix per-member instructions compose
+existing effects; player-relative counts bind inside the iteration. Plural
+combat-prevention scopes retain their duration. Damage to a player or planeswalker
+and that player's/controller's creatures uses one announced target and preserves
+distinct damage amounts, correcting Radiating Lightning's announced-player scope.
+"Each other player" excludes the player named by the trigger/earlier instruction.
+Contextual controller selectors use the existing event-player antecedent gate;
+follow-up group references retain exact zone visits. Controller/filter tails
+compose in either order; established defending-player damage keeps its dealer-
+specific path. Magnitude and recorded-result families keep their dedicated
+composition gates; versions 780–782 were intermediate measurements.

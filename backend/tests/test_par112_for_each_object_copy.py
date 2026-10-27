@@ -107,8 +107,8 @@ def test_a_one_sentence_phase_body_gates_triggering_and_resolution():
     # the body targets — `for_each` would override the announced target with the item
     "At the beginning of your end step, for each creature you control, "
     "put a +1/+1 counter on target creature.",
-    # a pronoun this family has no iteration reading for
-    "At the beginning of your end step, for each creature you control, destroy it.",
+    # an unknown operation on the iteration pronoun
+    "At the beginning of your end step, for each creature you control, destroy it twice.",
     # not a battlefield group
     "At the beginning of your end step, for each creature card in your graveyard, "
     "create a token that's a copy of it.",

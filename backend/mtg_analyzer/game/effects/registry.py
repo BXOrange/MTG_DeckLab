@@ -71,6 +71,7 @@ EffectRegistry.register(
         group=p.get("group"),
         group_player=p.get("group_player"),
         group_and_players=p.get("group_and_players"),
+        group_amount=p.get("group_amount"),
         division=p.get("division"), division_required=bool(p.get("division_required")), divided=bool(p.get("divided", False)),
         distinct_from_others=bool(p.get("distinct_from_others", False)),
         double_at=p.get("double_at"),

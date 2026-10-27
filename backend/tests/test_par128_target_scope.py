@@ -558,7 +558,7 @@ def test_each_other_player_edict_hits_the_opponent_and_not_the_controller():
 def test_grave_pact_is_modeled():
     card = Card(id="gp", name="Grave Pact", type_line="Enchantment",
                 oracle_text="Whenever a creature you control dies, each other player sacrifices a creature.")
-    assert parse_oracle(card).modeled is False  # no "of their choice": a different, unclaimed wording
+    assert parse_oracle(card).modeled  # PAR-211: the shared player scope also reads the implicit choice
     card = Card(id="gp2", name="Grave Pact", type_line="Enchantment",
                 oracle_text="Whenever a creature you control dies, each other player sacrifices a creature of their choice.")
     assert parse_oracle(card).modeled

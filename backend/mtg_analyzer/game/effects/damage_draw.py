@@ -89,6 +89,7 @@ class DealDamageEffect(GameEffect):
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
         group_and_players: Optional[str] = None,
+        group_amount: Optional[Any] = None,
         divided: bool = False,
         division: Optional[list[int]] = None,
         division_required: bool = False,
@@ -276,8 +277,10 @@ class DealDamageEffect(GameEffect):
         #: ``of: "you"``) names: ``"defending"`` (RULE 506.4), ``"event_player"`` (the trigger's
         #: damaged player), ``"previous_controller"`` (the controller of the preceding clause's
         #: target), or ``"player"``/``"opponent"`` (a RULE 115 player target).
+        self.group_amount = group_amount
         self.group_player = (
-            group_player if group_player in ("defending", "event_player", "previous_controller", "player", "opponent")
+            group_player if group_player in ("defending", "event_player", "previous_controller", "player", "opponent",
+                                            "player_or_planeswalker", "opponent_or_planeswalker")
             else None
         )
         #: "~ deals N damage to each creature **without flying**." (RULE
@@ -303,7 +306,7 @@ class DealDamageEffect(GameEffect):
         self.double_at = double_at
         self.division: Optional[list[int]] = list(division) if division is not None else None
         self.target_spec = None
-        if self.group is not None and self.group_player in ("player", "opponent"):
+        if self.group is not None and self.group_player in ("player", "opponent", "player_or_planeswalker", "opponent_or_planeswalker"):
             self.target_spec = TargetSpec(kind=self.group_player)
         if self.selector is None and self.recipient_subject is None:
             # Damage targets "any target" by default (RULE 115.4); a card
@@ -689,7 +692,7 @@ class DealDamageEffect(GameEffect):
         if self.selector == "group":
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
-            controller_id = getattr(self.source, "controller_id", None)
+            controller_id = getattr(_controller_of(self.source, context), "id", None)
             if self.group_player is not None:
                 if self.group_player == "defending":
                     scoped = _defending_player_of(self.source, context)
@@ -704,12 +707,18 @@ class DealDamageEffect(GameEffect):
                     scoped = context.state.player_by_id(owner_id) if owner_id is not None else None
                 else:
                     scoped = (targets or [self.target])[0] if (targets or self.target is not None) else None
-                if scoped is None or getattr(scoped, "id", None) is None or not hasattr(scoped, "life"):
+                if scoped is None:
                     return
-                controller_id = scoped.id
+                # RULE 120.3 / 608.2h: a player supplies their own creatures;
+                # a planeswalker supplies its controller's, while taking the hit itself.
+                controller_id = (scoped.id if hasattr(scoped, "life")
+                                 else getattr(scoped, "controller_id", None))
+                if controller_id is None:
+                    return
+            group_amount = amount if self.group_amount is None else self.group_amount
             # Snapshot first: an early death must not skip a still-owed hit.
             for obj in list(group_selector_objects(context.state, controller_id, self.group, src=self.source)):
-                context.deal_damage(obj, amount, self.source)
+                context.deal_damage(obj, group_amount, self.source)
             if self.group_and_players == "scoped_player":
                 context.deal_damage(scoped, amount, self.source)
             elif self.group_and_players is not None:

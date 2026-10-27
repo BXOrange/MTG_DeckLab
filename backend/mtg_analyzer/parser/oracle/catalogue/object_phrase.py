@@ -15,6 +15,7 @@ from .clause_primitives import TARGET_PARAM_KEYS
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .clause_reading import ClauseReading, CREATED, PLAYER, TARGET
 from .subgrammars import resolve_target_kind
+from .quantifier_scope import quantified_set
 from .referent_condition import PRONOUN_NOUN_ALT
 from ..spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 
@@ -28,6 +29,7 @@ class ObjectPhrase:
     count: int = 1
     optional: bool = False
     referent: Optional[str] = None
+    over: Optional[dict] = None
 
 
 # "another/other target X" excludes the source (RULE 109.1 identity); no target frame models that for a
@@ -106,7 +108,19 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
     match = _QUANTIFIER.fullmatch(text)
     if match is None:
         return None
-    plural = bool(match['group'] or match['n'])
+    if match['group']:
+        over = quantified_set(text, reading)
+        if over is None:
+            return None
+        # The damage grammar resolves the defending player from its dealer,
+        # which may be an Equipment's host rather than this ability's source.
+        if (over.get('selector') or {}).get('of') == 'defending':
+            return None
+        filt = (over.get('selector') or {}).get('filter') or {}
+        noun = 'player' if 'players' in over else filt.get('card_type', 'permanent')
+        return ObjectPhrase('group', noun if noun in _TYPE_WORDS or noun == 'player' else 'permanent',
+                            filt, over=over)
+    plural = bool(match['n'])
     parsed = parse_object_phrase(match['object'], plural=plural)
     if parsed is None:
         return None
@@ -114,13 +128,9 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
     if controller not in (None, *_SCOPE_TAIL):
         return None
     filt = dict(filt)
-    if match['other']:
-        filt['not_reference'] = True
     noun = filt.get('card_type', 'permanent')
     if noun not in _TYPE_WORDS:
         noun = 'permanent'
-    if match['group']:
-        return ObjectPhrase('group', noun, filt, controller)
     count = number_value(match['n']) if match['n'] else 1
     if count <= 0:
         return None
@@ -139,7 +149,14 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
         if noun == 'creature' and operand.noun != 'creature' and re.match(r'\s*becomes?\b', text[end:]):
             continue
         phrase = f'target {noun}'
-        rewritten = text[:start] + phrase + text[end:]
+        tail = text[end:]
+        optional = operand.noun == 'player' and not text[:start].strip() and tail.startswith(' may ')
+        if optional:
+            tail = ' ' + tail.removeprefix(' may ')
+        if not text[:start].strip() and operand.kind == 'group':
+            # RULE 608.2c: the plural subject changes agreement, never the duration.
+            tail = re.sub(r'^ (get|gain|lose|draw|discard|mill)\b', lambda m: ' ' + m[1] + 's', tail)
+        rewritten = text[:start] + phrase + tail
         rewritten = re.sub(r"\bto their owners?' hands\b", "to its owner's hand", rewritten)
         if rewritten == text:
             continue
@@ -154,7 +171,7 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
                 key != 'target_kind' and spec.params.get(key) is not None for key in TARGET_PARAM_KEYS)
                 or any(key in spec.params for key in ('effects', 'divided', 'count_selector', 'count_max'))):
             continue
-        return effects
+        return [EffectSpec('optional', {'player': 'target', 'effects': [e.to_dict() for e in effects]})] if optional else effects
     return None
 
 
@@ -187,8 +204,10 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
                      created_references='created_objects')[operand.kind]: True, 'simultaneous': True}
         return [EffectSpec('for_each', {'over': over, 'effects': body})]
     if operand.kind == 'group':
-        selector = {'zone': 'battlefield', 'of': 'opponents' if operand.controller == 'not_you' else operand.controller or 'any', 'filter': operand.filter or {}}
-        return [EffectSpec('for_each', {'over': {'selector': selector, 'remember': True, 'simultaneous': True}, 'effects': body})]
+        over = dict(operand.over or {})
+        if 'selector' in over:
+            over.update(remember=True, simultaneous=True)
+        return [EffectSpec('for_each', {'over': over, 'effects': body})]
     kind = resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
     if kind is None:
         return None
@@ -206,6 +225,11 @@ def object_phrase_specs(
     """Back off to the singular operation only after an exact operand parse."""
     if re.search(r"\bwhere x is\b", text, re.I):
         return None  # the shared X binder measures once before any object iteration
+    # RULE 615: a plural recipient/dealer is a set even without an explicit
+    # "each" (Commencement of Festivities). The targeted shield keeps its duration.
+    plural_prevention = re.fullmatch(r'(prevent all (?:combat )?damage that would be dealt (?:to|by) )((?:players|opponents|creatures)(?: [a-z0-9+/-]+)*)( this turn)', text)
+    if plural_prevention:
+        text = plural_prevention[1] + 'all ' + plural_prevention[2] + plural_prevention[3]
     for start in _START.finditer(text):
         for end in reversed([m.end() for m in re.finditer(r"[^\s,.;]+", text[start.start():])]):
             end += start.start()

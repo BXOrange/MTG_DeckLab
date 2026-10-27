@@ -114,7 +114,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: "the first token made" and "the most recent" with nothing to validate the
 #: choice against would be a guess baked into a whitelisted vocabulary.
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
-    {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
+    {"target", "previous_target", "previous_player", "previous_subject", "iteration", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
      "attacked_player", "attacking_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
      "enchanted_player", "previous_entry_controller"}
@@ -294,6 +294,8 @@ def subject_of(
         # clause exiled ("that card's mana value", Tavern Brawler), a token it created.
         created = getattr(context, "created_objects", None) or []
         return created[-1] if created else None
+    if of == "iteration":
+        return getattr(context, "iteration_item", None)
     if of == "previous_player":
         # The player an earlier clause of this resolution targeted ("Target player draws …
         # and loses half their life" — the second clause reads the first one's player).
