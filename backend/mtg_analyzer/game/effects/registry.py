@@ -586,7 +586,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "prevent_combat_damage_dealt",
-    lambda p: PreventCombatDamageDealtEffect(subject=p.get("subject")),
+    lambda p: PreventCombatDamageDealtEffect(subject=p.get("subject"), target_kind=p.get("target_kind"), creature_filter=p.get("creature_filter"), optional=bool(p.get("optional", False))),
 )
 EffectRegistry.register(
     "prevent_combat_damage_to_and_by",
@@ -1385,7 +1385,7 @@ EffectRegistry.register(
     lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature"), tapped=bool(p.get("tapped", False)),
                                       sacrifice_source=bool(p.get("sacrifice_source", False)),
                                       under_your_control=bool(p.get("under_your_control", False)),
-                                      card_types=p.get("card_types")),
+                                      card_types=p.get("card_types"), destination=p.get("destination", "battlefield")),
 )
 EffectRegistry.register("transfer_exiled_with_to_created", lambda p: TransferExiledWithToCreatedEffect())  # Mechtitan Core
 EffectRegistry.register(  # "Exile ~ with three time counters on it." (Suspended Sentence)
@@ -2004,6 +2004,7 @@ EffectRegistry.register(
         other_instance_id=p.get("other_instance_id"),
         tap_fighters=bool(p.get("tap_fighters", False)),
         excess_then_trigger=p.get("excess_then_trigger"),
+        fighter_filter=p.get("fighter_filter"), other_filter=p.get("other_filter"),
     ),
 )
 EffectRegistry.register(

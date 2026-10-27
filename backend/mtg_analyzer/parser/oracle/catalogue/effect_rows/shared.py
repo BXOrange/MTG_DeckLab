@@ -99,9 +99,10 @@ class EffectHandler:
 def _carries_filter(node: object, fragment: dict) -> bool:
     """Whether some ``creature_filter`` inside ``node`` (an effect's params, nested) holds ``fragment``."""
     if isinstance(node, dict):
-        held = node.get("creature_filter")
-        if isinstance(held, dict) and all(held.get(k) == v for k, v in fragment.items()):
-            return True
+        for key in ("creature_filter", "fighter_filter", "other_filter"):
+            held = node.get(key)
+            if isinstance(held, dict) and all(held.get(k) == v for k, v in fragment.items()):
+                return True
         return any(_carries_filter(v, fragment) for v in node.values())
     if isinstance(node, (list, tuple)):
         return any(_carries_filter(v, fragment) for v in node)

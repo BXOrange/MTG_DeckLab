@@ -42,6 +42,7 @@ A criteria value is one of:
                       Guard's "with toughness 2 or less").
   ``min_toughness``   int  — printed toughness ≥ this.
   ``name``            str  — exact card name, case-insensitive ("a card named…").
+  ``same_name_as``    str  — share at least one name (RULE 201.2a).
   ``color``           str | list[str] — a colour ("W"/"U"/"B"/"R"/"G") that
                       must be in the card's colour identity; a list is an OR.
                       ``"colorless"`` is a special entry meaning an *empty*
@@ -90,7 +91,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
     {
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
-        "name", "not_name", "color", "without_type", "has_mana_ability", "or",
+        "name", "same_name_as", "not_name", "color", "without_type", "has_mana_ability", "or",
         "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic",
     }
 )
@@ -128,6 +129,13 @@ def name_matches(card_name: str, chosen: str) -> bool:
     full = str(card_name or "").strip().lower()
     return wanted == full or wanted in (part.strip() for part in full.split(_NAME_FACE_SEPARATOR))
 
+
+
+def names_overlap(first: str, second: str) -> bool:
+    """RULE 201.2a: nameless objects never match; one shared name is enough."""
+    def names(text):
+        return {part.strip().casefold() for part in str(text or '').split('//') if part.strip()}
+    return bool(names(first) & names(second))
 
 def matches(card: Card, criteria: Criteria) -> bool:
     """Whether ``card`` satisfies ``criteria`` (all conditions AND-combined)."""
@@ -170,6 +178,8 @@ def matches(card: Card, criteria: Criteria) -> bool:
     if "max_toughness" in crit and (card.toughness is None or card.toughness > crit["max_toughness"]):
         return False
     if "min_toughness" in crit and (card.toughness is None or card.toughness < crit["min_toughness"]):
+        return False
+    if "same_name_as" in crit and not names_overlap(card.name, crit["same_name_as"]):
         return False
     if "name" in crit and card.name.lower() != str(crit["name"]).lower():
         return False

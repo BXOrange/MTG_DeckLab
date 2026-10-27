@@ -4871,20 +4871,26 @@ class StaticRewrite:
 
 
 def _static_fixed_base(ctx: StaticContext) -> StaticResult:
-    text = ctx.text
-    fixed_base = re.fullmatch(
-        r"creatures(?P<scope> you control| your opponents control)? have base power and toughness "
-        r"(?P<p>\d+)/(?P<t>\d+)", text, re.IGNORECASE,
+    fixed = re.fullmatch(
+        r"(?P<subject>creatures(?: you control| your opponents control)?|~|enchanted creature|equipped creature) "
+        r"(?:has|have) base power and toughness (?P<p>\d+)/(?P<t>\d+)"
+        r"(?: and (?:has|have) (?P<keywords>.+))?", ctx.text, re.IGNORECASE,
     )
-    if fixed_base is not None:
-        # RULE 613.4b: this sets base P/T; counters and ordinary pumps still
-        # apply afterwards (The Capitoline Triad's command-zone emblem).
-        affects = {None: "all_creatures", " you control": "creatures_you_control",
-                   " your opponents control": "opponents_creatures"}[fixed_base.group("scope")]
-        return [EffectSpec("pt_set", {"affects": affects,
-                                      "power": int(fixed_base.group("p")),
-                                      "toughness": int(fixed_base.group("t"))})]
-    return None
+    if fixed is None:
+        return None
+    affects = {'creatures': 'all_creatures', 'creatures you control': 'creatures_you_control',
+               'creatures your opponents control': 'opponents_creatures', '~': 'self',
+               'enchanted creature': 'attached_permanent', 'equipped creature': 'attached_permanent'}[fixed['subject']]
+    # RULE 613.4b: base P/T is set before ordinary pumps and counters.
+    specs = [EffectSpec('pt_set', {'affects': affects, 'power': int(fixed['p']), 'toughness': int(fixed['t'])})]
+    if fixed['keywords']:
+        keywords = flag_keywords_and_ward(fixed['keywords'])
+        if keywords is None:
+            return None
+        words, ward = keywords
+        specs.append(EffectSpec('grant_keyword', {'affects': affects, 'keywords': words,
+                                                 **({'ward_cost': ward} if ward else {})}))
+    return specs
 
 
 # RULE 702.152: a grant, a cost adjustment, and a restricted zone permission.

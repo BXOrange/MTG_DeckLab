@@ -14,6 +14,12 @@ from ..spec import EffectSpec
 #: filter is ``card_type`` on the same word, so only words `matches_object_filter` knows may appear.
 _GROUP_TYPES = frozenset({"creature", "enchantment", "artifact", "land"})
 
+_NAME_GROUP_PHRASE = re.compile(
+    r"target (?P<t>creature|artifact|enchantment|land|nonland permanent|permanent) and "
+    r"all other (?P<others>creatures|artifacts|enchantments|lands|permanents) with the same name as that "
+    r"(?:creature|artifact|enchantment|land|permanent)(?P<verb> (?:gain|get)\b)?"
+)
+
 _GROUP_PHRASE = re.compile(
     r"target (?P<t>[a-z]+) and each other (?P=t) that shares a colou?r with it(?P<verb> (?:gain|get)\b)?"
 )
@@ -29,8 +35,12 @@ _DAMAGE_DEALT_SENTINEL = "$damage_dealt"  # = composition.DAMAGE_DEALT_SENTINEL 
 
 
 def target_group_specs(body: str, parse: Callable[..., Optional[list[EffectSpec]]]) -> Optional[list[EffectSpec]]:
-    m = _GROUP_PHRASE.search(body)
-    if m is None or m.group("t") not in _GROUP_TYPES or len(_GROUP_PHRASE.findall(body)) != 1:
+    pattern = _NAME_GROUP_PHRASE if _NAME_GROUP_PHRASE.search(body) else _GROUP_PHRASE
+    m = pattern.search(body)
+    if m is None or len(pattern.findall(body)) != 1:
+        return None
+    same_name = pattern is _NAME_GROUP_PHRASE
+    if not same_name and m.group("t") not in _GROUP_TYPES:
         return None
     then_effects: list[dict] = []
     plain = body
@@ -39,7 +49,9 @@ def target_group_specs(body: str, parse: Callable[..., Optional[list[EffectSpec]
         then_effects = [{"type": "gain_life", "params": {"amount": _DAMAGE_DEALT_SENTINEL}}]
     verb = m.group("verb")
     replacement = f"target {m.group('t')}" + (f"{verb}s" if verb else "")
-    plain = _GROUP_PHRASE.sub(replacement, plain, count=1)
+    plain = pattern.sub(replacement, plain, count=1)
+    if same_name:
+        plain = plain.replace("to their owners' hands", "to its owner's hand")
     plain = _THOSE_CREATURES.sub(lambda g: f"it {g.group('verb')}s", plain)
     inner = parse(plain)
     if not inner:
@@ -49,8 +61,9 @@ def target_group_specs(body: str, parse: Callable[..., Optional[list[EffectSpec]
     if any(spec.type in ("for_each", "bind", "if_else", "seq", "target_group") for spec in inner):
         return None
     params: dict = {
-        "shares": "color",
-        "filter": {"card_type": m.group("t")},
+        "shares": "name" if same_name else "color",
+        "filter": ({"card_type": m['others'][:-1]} if m['others'] != 'permanents' else {})
+                  if same_name else {"card_type": m.group("t")},
         "effects": [spec.to_dict() for spec in inner],
     }
     if then_effects:

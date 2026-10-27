@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ..duration_phrase import FIXED_DURATIONS
 from ..clause_reading import ClauseReading
 from typing import Any, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
@@ -916,13 +917,8 @@ def _pump_group_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: are (cleared at RULE 514.2 cleanup), and routing it here too would give one
 #: phrasing two implementations. These are the ones ``temp_*`` *cannot*
 #: express, because it has nowhere to record any other ending.
-_GRANT_DURATIONS: dict[str, str] = {
-    "until your next turn": "your_next_turn",
-    "until the end of your next turn": "end_of_your_next_turn",  # PAR-163, RULE 611.2
-    "until end of combat": "end_of_combat",
-    "until the end of combat": "end_of_combat",
-    "until the beginning of the next end step": "next_end_step",
-}
+
+_GRANT_DURATIONS = {text: clock for text, clock in FIXED_DURATIONS.items() if clock != "end_of_turn"}
 
 
 def _target_quoted_until_source_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:

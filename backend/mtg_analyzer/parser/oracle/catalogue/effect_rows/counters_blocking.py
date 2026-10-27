@@ -8,6 +8,7 @@ from ..clause_reading import ClauseReading
 from typing import Optional
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
+from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
 from ..static_handlers import object_filter
 from ..subgrammars import (
@@ -21,6 +22,7 @@ from ..subgrammars import (
     resolve_target_kind,
     TARGET,
     target_kind_allowed,
+    target_is_optional,
 )
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
@@ -516,8 +518,8 @@ _BASE_PT_UNTIL_EOT_RE = compile_clause(
     # end of turn" (Quandrix Charm / Turn to Frog / Snakeform / Creeperhulk
     # / Ovinize — 59 SOLO). `grant_until` already resolves a RULE 115 target
     # and scopes the parked `pt_set` to those ids.
-    rf"|(?P<tgt>target creature(?: you control)?)) "
-    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) until end of turn"
+    rf"|{TARGET}) "
+    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) (?P<duration>{FIXED_DURATION_PATTERN})"
     rf"(?:\. x can'?t be 0)?(?:\. activate only during your turn)?"
 )
 
@@ -526,18 +528,23 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     def _v(g: str) -> "int | str":
         return "x" if g.lower() == "x" else int(g)
 
-    tgt = (m.groupdict().get("tgt") or "").strip()
+    tgt = (m.groupdict().get("target") or "").strip()
     params: dict = {
         "power": _v(m.group("p")), "toughness": _v(m.group("t")),
         "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
     }
     target_kind = None
     if tgt:
-        target_kind = "creature_you_control" if "you control" in tgt else "creature"
+        target_kind = resolve_target_kind(tgt)
+        if not target_kind_allowed(target_kind, ("creature",)):
+            return None
     return [EffectSpec("grant_until", {
         "static": {"type": "pt_set", "params": params},
-        "duration": "end_of_turn",
+        "duration": FIXED_DURATIONS[m.group("duration")],
         "target_kind": target_kind,
+        **({"optional": True} if tgt and target_is_optional(m) else {}),
+        **({"creature_filter": resolve_target_creature_state_filter(tgt)}
+           if tgt and resolve_target_creature_state_filter(tgt) else {}),
     })]
 
 

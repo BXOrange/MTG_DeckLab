@@ -588,6 +588,7 @@ _PRINTED_ONLY_KEYWORDS: frozenset[str] = frozenset({"flashback", "disturb"})
 
 _FILTER_KEYS: frozenset[str] = frozenset(
     {
+        "all_of", "not_basic_land",
         "min_power", "max_power", "min_toughness", "max_toughness",
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
@@ -736,6 +737,15 @@ def matches_object_filter(
             for sub in any_of
         ):
             return False
+    # RULE 115.1: stacked adjective restrictions are an intersection, including
+    # repeated dimensions such as "red green creature" or "Elf Warrior".
+    if "all_of" in filt and not all(
+        matches_object_filter(obj, sub, reference=reference, state=state)
+        for sub in filt["all_of"]
+    ):
+        return False
+    if filt.get("not_basic_land") and obj.is_land and "basic" in obj.card.type_line.lower().split():
+        return False
     min_power = filt.get("min_power")
     if min_power is not None and (obj.power or 0) < min_power:
         return False

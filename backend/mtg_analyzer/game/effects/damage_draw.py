@@ -18,12 +18,14 @@ class PreventCombatDamageDealtEffect(GameEffect):
 
     def __init__(
         self, subject: Optional[str] = None, source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None, creature_filter: Optional[dict] = None, optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.subject = subject
+        self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter, optional=optional) if target_kind else None
 
     def apply(self, context, targets=None) -> None:
-        obj = self.source
+        obj = (targets or [None])[0] if self.target_spec else self.source
         if self.subject:
             from .. import effect_conditions  # avoid the effect_conditions↔effects import cycle
 

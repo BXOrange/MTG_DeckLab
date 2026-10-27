@@ -866,7 +866,7 @@ class ForEachEffect(_CompositeEffect):
 
 #: `TargetGroupEffect.shares` vocabulary → the `combat.matches_object_filter` relative key that implements it.
 #: Closed like every other whitelisted name; an unlisted word makes the node do nothing (fail closed).
-TARGET_GROUP_SHARES: dict[str, str] = {"color": "shares_color_with_reference"}
+TARGET_GROUP_SHARES: dict[str, str] = {"color": "shares_color_with_reference", "name": "named_as_reference"}
 
 #: The `TargetGroupEffect.then_effects` sentinel for the total damage the group's loop actually dealt
 #: ("You gain life equal to the damage dealt this way" — Brightflame). Substituted like a `bind` name.
@@ -944,6 +944,10 @@ class TargetGroupEffect(_CompositeEffect):
         if not items:
             return
         log_start = len(context.state.event_log)
+        # RULE 603.2c: all members of this single instruction move as one batch.
+        if not context.state._batch_hold:
+            context.state.hold_batches()
+            context.state.deferred_effects.append({"kind": context.engine.DEFERRED_BATCH_END})
         context.engine.defer_iteration(
             [], items, source=self.source,
             specs=[dict(spec) for spec in self.inner_specs], item_as_target=True,
@@ -951,7 +955,8 @@ class TargetGroupEffect(_CompositeEffect):
         while (
             not context.state.pending_choice
             and context.state.deferred_effects
-            and context.state.deferred_effects[-1].get("kind") == context.engine.DEFERRED_ITERATION
+            and context.state.deferred_effects[-1].get("kind") in (
+                context.engine.DEFERRED_ITERATION, context.engine.DEFERRED_BATCH_END)
         ):
             context.engine.resume_deferred_effects()
         if not self.then_specs:

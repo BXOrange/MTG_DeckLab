@@ -648,9 +648,11 @@ class GameContext:
     def prevent_damage_to_target(
         self, target: Any, amount: Union[int, str] = "all", source_filter: Optional[dict] = None,
         rider: Optional[dict] = None, shield_controller_id: Optional[str] = None,
+        combat_only: bool = False,
     ) -> None:
         self.engine.prevent_damage_to_target(
             target, amount, source_filter=source_filter, rider=rider, shield_controller_id=shield_controller_id,
+            combat_only=combat_only,
         )
 
     def prevent_all_combat_damage_this_turn(

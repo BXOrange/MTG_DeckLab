@@ -172,6 +172,10 @@ def _damage_source_matches(
     source = state.find_object(source_id) if source_id is not None else None
     if source is None:
         return False
+    if source_filter.get("object_filter") and not combat.matches_object_filter(
+        source, source_filter["object_filter"], state=state,
+    ):
+        return False
     if source_filter.get("creature") and not getattr(source, "is_creature", False):
         return False
     if source_filter.get("artifact") and not getattr(getattr(source, "card", None), "is_artifact", False):
@@ -1771,6 +1775,7 @@ class DamageDeathMixin:
         rider: Optional[dict] = None,
         source_filter: Optional[dict] = None,
         shield_controller_id: Optional[str] = None,
+        combat_only: bool = False,
     ) -> None:
         """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
         (PAR-15's "prevent the next N damage ... to any number of targets,
@@ -1792,13 +1797,14 @@ class DamageDeathMixin:
         """
         is_player = isinstance(target, Player)
         target_id = target.id if is_player else target.instance_id
-        protected_player_id = target.id if is_player else target.controller_id
+        protected_player_id = shield_controller_id or (target.id if is_player else target.controller_id)
         remaining = None if amount == "all" else int(amount)
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
             condition=lambda e, c: (
                 bool(e.get("is_player")) == is_player and e.get("target_id") == target_id
+                and (not combat_only or bool(e.get("combat")))
                 and (watched_source_id is None or e.get("source_id") == watched_source_id)
                 and _damage_source_matches(c.state, e, source_filter, protected_player_id)
             ),

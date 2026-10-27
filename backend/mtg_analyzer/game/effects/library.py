@@ -3173,6 +3173,8 @@ class FightEffect(GameEffect):
         other_instance_id: Optional[int] = None,
         tap_fighters: bool = False,
         excess_then_trigger: Optional[list[dict]] = None,
+        fighter_filter: Optional[dict] = None,
+        other_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         #: "Tap target creature you control and target creature ... Those creatures fight each other." (Arena, Magus of
@@ -3187,12 +3189,12 @@ class FightEffect(GameEffect):
         self.other_instance_id = other_instance_id if isinstance(other_instance_id, int) else None
         specs: list[TargetSpec] = []
         if fighter_kind not in _IMPLICIT_FIGHT_SUBJECTS:
-            specs.append(TargetSpec(kind=fighter_kind, optional=fighter_optional))
+            specs.append(TargetSpec(kind=fighter_kind, optional=fighter_optional, creature_filter=fighter_filter))
         if other_kind not in _IMPLICIT_FIGHT_SUBJECTS and self.other_instance_id is None:
             # ``other_exact_mana_value``: "…target creature you don't control **with the same mana
             # value**" (Boxing Ring) — `TargetSpec.exact_mana_value`'s ``trigger_subject_mana_value``.
             specs.append(TargetSpec(
-                kind=other_kind, optional=optional, distinct_from_others=distinct,
+                kind=other_kind, optional=optional, distinct_from_others=distinct, creature_filter=other_filter,
                 exact_mana_value=other_exact_mana_value,
             ))
         if specs:

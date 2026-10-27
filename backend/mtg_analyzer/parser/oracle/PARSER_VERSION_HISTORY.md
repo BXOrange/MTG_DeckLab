@@ -4366,3 +4366,15 @@ composition rather than reading an absent trigger (Hellion Eruption).
 without announcing a second target. Reference nouns reuse the existing subtype vocabulary. Explicit
 where-X definitions stay with the shared binder so the quantity is fixed before object iteration.
 Optional riders preserve created objects' exact zone visits across choices/clones (Cori-Steel Cutter).
+
+## Versions 778–779 — PAR-209 base grammar atoms
+
+Shared composable target adjectives and fixed duration vocabulary; base P/T
+with target filters and duration clocks; quantity spelling and amount terms
+through the existing X binder; same-name target groups through `target_group`,
+cross-zone same-name search/exile with pre-move name/controller capture and
+mandatory public vs optional hidden finds; exact source-linked pool returns
+to owners' hands. Prevention target filters and combat scopes reach runtime.
+
+v779 completes source-filter composition and preserves combat-state target
+filters on both Fight operands; v778 was an intermediate measurement.

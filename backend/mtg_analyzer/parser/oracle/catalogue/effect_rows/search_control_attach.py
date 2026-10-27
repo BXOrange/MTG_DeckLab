@@ -1401,6 +1401,10 @@ def _fight(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if fighter is None or other is None:
         return None
     params: dict = {"fighter_kind": fighter, "other_kind": other}
+    for slot, key in (("target", "fighter_filter"), ("target_b", "other_filter")):
+        filt = resolve_target_creature_state_filter(m[slot])
+        if filt:
+            params[key] = filt
     if target_is_optional(m):
         params["fighter_optional"] = True
     if target_is_optional(m, "_b"):
@@ -1421,6 +1425,9 @@ def _fight_implicit(fighter_kind: Optional[str]):
         if other is None:
             return None
         params: dict = {"other_kind": other, **optional_param(m)}
+        filt = resolve_target_creature_state_filter(m["target"])
+        if filt:
+            params["other_filter"] = filt
         if m.groupdict().get("same_mv"):
             # "…with the same mana value" as the group trigger's firing object (Boxing Ring): a
             # target filter read off the trigger's event, so only under a group trigger.

@@ -54,6 +54,7 @@ from .catalogue.per_creature_payment import per_creature_payment_specs
 from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
+from .catalogue.name_reference import same_name_specs
 from .catalogue.zone_ability_sequences import exile_grant_specs
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_EFFECT_THEN_ANTECEDENT_PHRASES
 from .catalogue.effect_rows.draw_discard_cast import CYCLING_XX_TOKEN_RE, cycling_xx_token
@@ -4784,7 +4785,7 @@ _WHERE_X_RE = re.compile(
     r"^(?P<rest>.+?),?\s+where x is the number of (?P<phrase>.+)$", re.IGNORECASE
 )
 _EQUAL_TO_RE = re.compile(
-    r"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage) equal to the number of (?P<phrase>.+?)"
+    r"^(?P<verb>.+?)\s+(?:a number of )?(?P<noun>life|cards?|damage) equal to the number of (?P<phrase>.+?)"
     r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
     re.IGNORECASE,
 )
@@ -4800,12 +4801,12 @@ _DAMAGE_TO_EQUAL_TO_RE = re.compile(
 #: Primal Hunter; ~25 cards) — an aggregate over a group rather than a count of it, read by
 #: `count_phrase.parse_amount_phrase`. The recipient may sit before "equal to" or after the term.
 _EQUAL_TO_AGGREGATE_RE = re.compile(
-    r"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage)(?P<pre>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?"
-    r" equal to (?P<phrase>the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) .+?|"
-    rf"{SACRIFICED_TERM})"
+    r"^(?P<verb>.+?)\s+(?:a number of )?(?P<noun>life|cards?|damage)(?P<pre>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?"
+    r" equal to (?P<phrase>[^.]+?)"
     r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
     re.IGNORECASE,
 )
+
 #: The params an X can sit in once an X-capable handler has parsed the body.
 _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value")
 
@@ -4813,10 +4814,9 @@ _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_
 #: "`<effect with x>`, where x is the sacrificed creature's power" (Ghoulcaller Gisa, Atogatog) — X as an
 #: amount term rather than "the number of …": read by `count_phrase.parse_amount_phrase` like the aggregates.
 _WHERE_X_AMOUNT_RE = re.compile(
-    rf"^(?P<rest>.+?),?\s+where x is (?P<phrase>(?:\d+ plus )?(?:{SACRIFICED_TERM}"
-    r"|~'s (?:power|toughness|mana value)|the amount of life you (?:gained|lost) this turn"
-    r"|the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) [^.]+?))$", re.IGNORECASE
+    r"^(?P<rest>.+?),?\s+where x is (?P<phrase>[^.]+)$", re.IGNORECASE
 )
+
 #: RULE 107.2: "where x is half the number of <phrase>, rounded up/down" -- the count of `_WHERE_X_RE` halved.
 _HALF_DIVISOR = 2
 _WHERE_X_HALF_COUNT_RE = re.compile(
@@ -5914,6 +5914,9 @@ def _parse_effect_body_unstamped(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
+    named = same_name_specs(body.strip(), reading)
+    if named is not None:
+        return named
     designation = re.fullmatch(r"it becomes (?P<designation>day|night)\.?", body.strip())
     if designation is not None:
         return [EffectSpec("set_day_night", {"designation": designation.group("designation")})]

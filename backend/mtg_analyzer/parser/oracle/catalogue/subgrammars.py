@@ -182,6 +182,31 @@ def _adjective_alternation() -> str:
 
 
 TARGET_ADJECTIVE = _adjective_alternation()
+# RULE 115.1: adjective slots compose as an intersection, never a discarded word.
+TARGET_ADJECTIVES = rf"(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped)(?: (?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped))*"
+
+
+def target_adjectives_filter(words: str) -> Optional[dict]:
+    if words.lower() == 'werewolf':
+        return {}  # the legacy werewolf target kind already carries this restriction
+    fragments = []
+    for word in words.lower().split():
+        if word in _ADJECTIVE_STATE_WORDS:
+            fragment = {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
+        elif word == "werewolf":
+            fragment = {"subtype": "Werewolf"}
+        else:
+            fragment = target_adjective_filter(word)
+        if fragment is None:
+            return None
+        fragments.append(fragment)
+    merged = {}
+    for fragment in fragments:
+        if any(k in merged and merged[k] != v for k, v in fragment.items()):
+            return {"all_of": fragments}
+        merged.update(fragment)
+    return merged
+
 
 
 #: Ordered (regex-fragment, target_kind) rows. **Longest / most specific
@@ -225,8 +250,8 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # PAR-141: "target `<adjective>` creature [you control]" — the adjective is read back as a filter
     # fragment by `target_adjective_filter` (`resolve_target_creature_state_filter`), never dropped:
     # `effect_rows.shared.EffectHandler.match` refuses a builder that loses it.
-    (rf"target (?:{TARGET_ADJECTIVE}) creature you control", "creature_you_control"),
-    (rf"target (?:{TARGET_ADJECTIVE}) creature", "creature"),
+    (rf"target (?:{TARGET_ADJECTIVES}) creature you control", "creature_you_control"),
+    (rf"target (?:{TARGET_ADJECTIVES}) creature", "creature"),
     # An ATTACKS trigger's defending player is carried on the event; this is
     # narrower than an arbitrary opponent-controlled creature.
     (r"target creature defending player controls", "creature_defending_player_controls"),
@@ -288,7 +313,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # *above* the N-way row — it matches a two-word "X or Y" too, and used to
     # turn Naturalize's "target artifact or enchantment" into any permanent.
     (r"target artifact or enchantment", "artifact_or_enchantment"),
-    (rf"target (?:(?:{TARGET_ADJECTIVE}) )?(?:artifact or creature|creature or artifact)", "artifact_or_creature"),
+    (rf"target (?:(?:{TARGET_ADJECTIVES}) )?(?:artifact or creature|creature or artifact)", "artifact_or_creature"),
     # PAR-104: "target artifact, enchantment, or creature [with flying]" (Mutant Chain Reaction, Spider Food, Broken
     # Wings, Exorcise, Vivien Reid, …) — the three-type union in any printed order, with the dedicated pool the engine
     # already has rather than the broad ``"permanent"`` the N-way row below would pick (which also offers lands). A
@@ -827,7 +852,7 @@ def target_quality_filter(phrase: str) -> dict:
     fragment: dict = {}
     adjective = _TARGET_ADJECTIVE_RE.fullmatch(_ATTACKING_YOU_RE.sub("", _TARGET_QUALITY_RE.sub("", text)))
     if adjective is not None:
-        fragment.update(target_adjective_filter(adjective.group(1)) or {})
+        fragment.update(target_adjectives_filter(adjective.group(1)) or {})
     if _ATTACKING_YOU_RE.search(text):
         fragment.update({"attacking": True, "attacking_you": True})
     quality = _TARGET_QUALITY_RE.search(text)
@@ -872,7 +897,7 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     adjective = _TARGET_ADJECTIVE_RE.fullmatch(text)
     if (
         adjective is not None and adjective.group(1).lower() not in _ADJECTIVE_STATE_WORDS
-        and target_adjective_filter(adjective.group(1)) is None
+        and target_adjectives_filter(adjective.group(1)) is None
     ):
         return None  # an adjective with no filter reading would be dropped silently (e.g. "nonbasic")
     for pattern, kind in _TARGET_LOOKUP:
@@ -929,7 +954,7 @@ _TARGET_COMBAT_STATE_RE = re.compile(
 
 
 _TARGET_ADJECTIVE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + rf")?target ({TARGET_ADJECTIVES}) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
     re.IGNORECASE,
 )
 
@@ -957,7 +982,7 @@ def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
         # "target multicolored creature") — `scope_adjective`'s vocabulary, so a
         # caller that falls back to "the word is a subtype" never guesses it.
         m = _TARGET_ADJECTIVE_RE.fullmatch(phrase.strip())
-        return None if m is None else target_adjective_filter(m.group(1))
+        return None if m is None else target_adjectives_filter(m.group(1))
     word = m.group(1).lower()
     return {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
 

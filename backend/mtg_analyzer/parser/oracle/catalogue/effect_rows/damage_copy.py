@@ -7,6 +7,7 @@ import re
 
 from typing import Any, Optional
 from ..count_phrase import parse_count_phrase
+from ..characteristic_phrase import parse_object_phrase
 from ..referent_condition import PRONOUN_NOUN_ALT
 from ..static_handlers import type_addition_params
 from ..subgrammars import (
@@ -22,6 +23,8 @@ from ..subgrammars import (
     SELF_SUBJECT_PREFIX,
     TARGET,
     target_adjective_filter,
+    target_is_optional,
+    target_kind_allowed,
 )
 from ..subtype_vocabulary import SUBTYPES
 from ...spec import EffectSpec
@@ -985,12 +988,20 @@ def _prevent_divided_damage(m: re.Match[str]) -> list[EffectSpec]:
 #: with no ``divided`` flag (its default) — only this oracle-text
 #: recognition was missing.
 _PREVENT_DAMAGE_SINGLE_TARGET_RE = compile_clause(
-    r"prevent the next (?P<n>\d+) damage that would be dealt to any target this turn"
+    rf"prevent the next {COUNT_X} damage that would be dealt to {TARGET} this turn"
 )
 
 
-def _prevent_damage_single_target(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n")), "target_kind": "any"})]
+def _prevent_damage_single_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m["target"])
+    if not target_kind_allowed(kind, ("any", "creature", "player", "opponent", "planeswalker", "permanent")):
+        return None
+    return [EffectSpec("prevent_damage_shield", {
+        "amount": count_or_x_of(m["n"]), "target_kind": kind,
+        **({"optional": True} if target_is_optional(m) else {}),
+        **({"creature_filter": resolve_target_creature_state_filter(m["target"])}
+           if resolve_target_creature_state_filter(m["target"]) else {}),
+    })]
 
 
 #: PAR-139: "prevent the next N damage that would be dealt to target creature this turn" (Test of Faith, Temper's
@@ -1090,11 +1101,19 @@ def _prevent_all_combat_damage_to_self(m: re.Match[str]) -> list[EffectSpec]:
 
 
 _PREVENT_ALL_COMBAT_DAMAGE_DEALT_SELF_RE = compile_clause(
-    r"prevent all combat damage (?:this creature|this permanent|~) would deal this turn"
+    rf"prevent all combat damage (?P<by>that would be dealt by )?(?:{TARGET}|this creature|this permanent|~)(?(by)| would deal) this turn"
 )
 
 
 def _prevent_all_combat_damage_dealt_self(m: re.Match[str]) -> list[EffectSpec]:
+    if m.groupdict().get('target'):
+        kind = resolve_target_kind(m['target'])
+        if not target_kind_allowed(kind, ('creature', 'attacking_or_blocking_creature')):
+            return None
+        return [EffectSpec('prevent_combat_damage_dealt', {
+            'target_kind': kind, 'creature_filter': resolve_target_creature_state_filter(m['target']),
+            **optional_param(m),
+        })]
     return [EffectSpec("prevent_combat_damage_dealt", {})]
 
 
@@ -1122,9 +1141,9 @@ _PREVENT_SOURCE_FILTER_PHRASES: dict[str, dict] = {
 }
 #: Built from the dict above, longest-alternative-first so e.g. "attacking
 #: creatures without flying" wins over the shorter "attacking creatures".
-_PREVENT_SOURCE_FILTER_ALT = "|".join(
-    sorted(_PREVENT_SOURCE_FILTER_PHRASES, key=len, reverse=True)
-)
+# The shared object grammar validates this slot completely in the builder.
+_PREVENT_SOURCE_FILTER_ALT = r"[a-z][a-z0-9 '/+-]*"
+
 
 
 def _parse_prevent_source_filter(phrase: str) -> Optional[dict]:
@@ -1134,7 +1153,13 @@ def _parse_prevent_source_filter(phrase: str) -> Optional[dict]:
     for pattern, filt in _PREVENT_SOURCE_FILTER_PHRASES.items():
         if re.fullmatch(pattern, text):
             return dict(filt)
-    return None
+    parsed = parse_object_phrase(text, plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    if controller not in (None, 'you', 'not_you'):
+        return None
+    return {'object_filter': filt, **({'controller': controller} if controller else {})}
 
 
 #: PAR-78: bare self — "Prevent all damage that would be dealt to
@@ -1234,18 +1259,26 @@ def _prevent_all_damage_creatures(m: re.Match[str]) -> Optional[list[EffectSpec]
 #: another word.
 _PREVENT_TARGET_SUBTYPE_WORDS: frozenset[str] = frozenset({"merfolk", "kithkin"})
 _PREVENT_ALL_DAMAGE_TARGET_RE = compile_clause(
-    r"prevent all damage that would be dealt to target "
+    rf"prevent all (?P<combat>combat )?damage that would be dealt to (?:{TARGET}|target "
     r"(?:(?P<tapped>tapped) )?(?:(?P<legendary>legendary) )?"
     r"(?:(?P<subtype1>[a-z]+)(?: or (?P<subtype2>[a-z]+))? )?creature"
     r"(?: with power (?P<minpower>\d+) or greater)?"
-    r" this turn"
+    r") this turn"
     rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
 )
 
 
 def _prevent_all_damage_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"amount": "all", "target_kind": "creature"}
-    creature_filter: dict = {}
+    target = m.groupdict().get("target")
+    kind = resolve_target_kind(target) if target else "creature"
+    if not target_kind_allowed(kind, ("any", "creature", "player", "opponent", "planeswalker", "permanent")):
+        return None
+    params: dict = {"amount": "all", "target_kind": kind}
+    if m["combat"]:
+        params["combat_only"] = True
+    if target and target_is_optional(m):
+        params["optional"] = True
+    creature_filter: dict = resolve_target_creature_state_filter(target) or {} if target else {}
     minpower = m.groupdict().get("minpower")
     if minpower:
         creature_filter["min_power"] = int(minpower)

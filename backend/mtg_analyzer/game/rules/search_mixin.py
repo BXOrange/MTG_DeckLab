@@ -1171,6 +1171,7 @@ class SearchMixin:
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
+        required_ids: Optional[list[int]] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1269,7 +1270,7 @@ class SearchMixin:
         # but no shipped card yet combines Leonin Arbiter with a second,
         # independent search-prohibition source, so the simpler "ignore
         # them all" reading costs nothing today.
-        if self.is_search_prohibited_for(player):
+        if self.is_search_prohibited_for(chooser or player):
             return
         zones = list(zones) if zones else ["library"]
         if "library" in zones:
@@ -1278,7 +1279,7 @@ class SearchMixin:
             )
         eligible = [
             obj
-            for obj in self._search_zone_objects(player, zones)
+            for obj in self._search_zone_objects(player, zones, chooser)
             if card_query.matches(obj.card, criteria)
             and (
                 total_mana_value_budget is None
@@ -1293,7 +1294,10 @@ class SearchMixin:
             self._apply_effect_specs(list(then_specs_if_none or []), source)
             return
         self.open_choice(self._search_choice(
-            player, criteria, destination, count, optional, found=[],
+            player, criteria, destination, count, optional,
+            # RULE 701.23b: public-zone matches are mandatory, while a quality
+            # search may fail to find hidden-zone matches. Move all finds together.
+            found=[obj.instance_id for obj in eligible if obj.instance_id in (required_ids or [])],
             zones=zones, destinations=destinations, exile_rest=exile_rest,
             extra_counters=extra_counters, destination_if=destination_if,
             attach_to_creature_you_control=attach_to_creature_you_control,
@@ -1468,7 +1472,7 @@ class SearchMixin:
                 self._flag_commander_zone_choice(obj)  # RULE 903.9a
         self.shuffle_library(searcher)
 
-    def _search_zone_objects(self, player: Player, zones: list[str]) -> list[GameObject]:
+    def _search_zone_objects(self, player: Player, zones: list[str], searcher: Optional[Player] = None) -> list[GameObject]:
         """The combined pool of cards a (possibly multi-zone) search draws
         from, library before graveyard when both are searched.
 
@@ -1490,7 +1494,7 @@ class SearchMixin:
             limits = [
                 e.n
                 for permanent in self.state.battlefield
-                if permanent.controller_id != player.id
+                if permanent.controller_id != (searcher or player).id
                 for e in getattr(permanent, "static_effects", None) or []
                 if isinstance(e, GrantSearchLimitedToTopNEffect)
             ]
@@ -1537,7 +1541,7 @@ class SearchMixin:
             found.append(instance_id)
             if total_mana_value_budget is not None:
                 picked = next(
-                    o for o in self._search_zone_objects(player, zones)
+                    o for o in self._search_zone_objects(player, zones, self.state.player_by_id(chooser_id))
                     if o.instance_id == instance_id
                 )
                 spent_mana_value += picked.mana_value
@@ -1551,7 +1555,7 @@ class SearchMixin:
         ]
         still_eligible = [
             obj
-            for obj in self._search_zone_objects(player, zones)
+            for obj in self._search_zone_objects(player, zones, self.state.player_by_id(chooser_id))
             if obj.instance_id not in found
             and card_query.matches(obj.card, choice["criteria"])
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
@@ -1686,7 +1690,7 @@ class SearchMixin:
         ]
         eligible = [
             {"instance_id": obj.instance_id, "name": obj.name}
-            for obj in self._search_zone_objects(player, zones)
+            for obj in self._search_zone_objects(player, zones, chooser)
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)

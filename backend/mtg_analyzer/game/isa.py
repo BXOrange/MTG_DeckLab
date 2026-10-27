@@ -363,6 +363,8 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     # and suspends only through the ordinary `seq` body that follows it (no answer protocol of its own to count).
     "choose_for_source": "choose",
     "exile_named_from_zones": "search",
+    "same_name_search": "search",  # a reference operand over the existing search continuation
+
     "reveal_hand_discard_all": "discard",
     "complete_turn_life_loss": "lose_life",
     "reveal_opponents_hands": "reveal",
@@ -832,6 +834,7 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+
     # Bounded flicker compositions suspend on existing entry/die/selection
     # continuations; physical reports are explicit player observations.
     "drive_to_work": "608.2d",

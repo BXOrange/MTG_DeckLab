@@ -6,6 +6,7 @@ import json
 import re
 
 from typing import Any, Optional
+from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..clause_hooks import segment_line
 from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
@@ -1412,12 +1413,10 @@ def _animate_grants(m: re.Match[str]) -> Optional[list[dict[str, Any]]]:
     return extra
 
 
-_ANIMATE_DURATION_WORDS = r"until end of turn|until your next turn|until the end of your next turn"
+
+_ANIMATE_DURATION_WORDS = FIXED_DURATION_PATTERN
 _ANIMATE_DURATION = rf"(?: (?P<duration>{_ANIMATE_DURATION_WORDS}))?"
-_ANIMATE_DURATIONS = {
-    "until end of turn": "end_of_turn", "until your next turn": "your_next_turn",
-    "until the end of your next turn": "end_of_your_next_turn",
-}
+_ANIMATE_DURATIONS = FIXED_DURATIONS
 
 
 def _animation_duration(m: re.Match[str]) -> str:

@@ -14,9 +14,22 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-27 at PARSER_VERSION 777: **23,141 / 35,051 cards (66.0%)**,
+Measured on 2026-10-27 at PARSER_VERSION 779: **23,221 / 35,051 cards (66.2%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **22,529 / 32,068 (70.3%)**.
+Commander-legal coverage: **22,608 / 32,068 (70.5%)**.
+PAR-209 factors target adjectives, fixed durations and quantity spellings into
+shared atoms and extends name references and prevention scopes. Against v777,
+**83 newly parser-modeled names, zero lost**; 16 existing specs retain their
+restrictions through the shared grammar, including both Fight operands.
+Same-name cross-zone searches retain the pre-move name/controller, require
+public graveyard finds and offer hidden-zone finds through the existing search
+continuation. Linked pool hand returns retain exact source/card exile visits.
+The v779 re-scan records **13,917 open sentences** (14,027 at v777), **9,340
+open Commander-legal cards** (9,419), and **14,398 open atoms** (14,528).
+Phrase occurrences on open cards fall from 104 to 87 for `the same name`,
+138 to 126 for `base power and toughness`, and 101 to 96 for `exiled with ~`.
+These are measured reductions, not a claim that unrelated conditions and
+actions on every card containing those phrases are modeled.
 PAR-210 adds the shared object-phrase grammar and fail-closed reference binding:
 against v772, **431 newly parser-modeled names, zero lost** and 58 changed
 existing specs (player actors through comma-then series, created/previous-player
@@ -31,8 +44,8 @@ Gallifrey Stands. All six changed cases execute in regression tests.
 The v772 fragment scan records **14,593 open sentences**, including **4,771
 follow-ups on 3,589 cards**. Distinct open multi-sentence card/parent pairs fall
 from **4,029 at v771 to 3,999** using identical counting; the pre-PAR-208 baseline
-was 4,055. Remaining reveal pools, same-name references and pronoun/state-bound
-follow-ups belong to the existing PAR-209–214 grammar scopes.
+was 4,055. Remaining reveal pools, quantifier scopes and pronoun/state-bound
+follow-ups belong to the existing PAR-211–214 grammar scopes.
 The probe's raw pool includes 35,100 card names; the ledger report uses its
 authoritative coverage denominator of 35,051.
 Measurements use the ledger-backed `scripts/coverage_report.py` and its

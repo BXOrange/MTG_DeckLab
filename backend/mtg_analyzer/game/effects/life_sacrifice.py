@@ -565,17 +565,17 @@ class PreventDamageEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             host = context.state.find_object(host_id) if host_id is not None else None
             if host is not None:
-                context.prevent_damage_to_target(host, amount, source_filter=self.source_filter)
+                context.prevent_damage_to_target(host, amount, source_filter=self.source_filter, combat_only=self.combat_only)
             return
         if self.previous_subject:
             prev = list(context.previous_targets)
             target = prev[0] if prev else None
             if target is not None:
-                context.prevent_damage_to_target(target, amount, source_filter=self.source_filter)
+                context.prevent_damage_to_target(target, amount, source_filter=self.source_filter, combat_only=self.combat_only)
             return
         if self.self_only:
             if self.source is not None:
-                context.prevent_damage_to_target(self.source, amount, source_filter=self.source_filter)
+                context.prevent_damage_to_target(self.source, amount, source_filter=self.source_filter, combat_only=self.combat_only)
             return
         if self.recipient_creatures_scope is not None:
             player = _controller_of(self.source, context)
@@ -621,6 +621,7 @@ class PreventDamageEffect(GameEffect):
             if share == "all" or (isinstance(share, int) and share > 0):
                 context.prevent_damage_to_target(
                     target, share, source_filter=self.source_filter, rider=self.rider,
+                    combat_only=self.combat_only,
                     shield_controller_id=controller.id if controller is not None else None,
                 )
 

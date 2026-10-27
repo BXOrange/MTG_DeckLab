@@ -2188,12 +2188,14 @@ class ReturnAllExiledWithEffect(GameEffect):
         sacrifice_source: bool = False,
         under_your_control: bool = False,
         card_types: Optional[list[str]] = None,
+        destination: str = "battlefield",
     ) -> None:
         super().__init__(source)
         self.counter_if_creature = dict(counter_if_creature or {}) or None
         self.sacrifice_source = bool(sacrifice_source)
         self.under_your_control = bool(under_your_control)
         self.card_types = list(card_types or [])
+        self.destination = destination
         self.captured_visits = None
         #: "…return all cards exiled with this Vehicle except this card to the battlefield **tapped** under their owners'
         #: control." (Mechtitan Core)
@@ -2247,6 +2249,16 @@ class ReturnAllExiledWithEffect(GameEffect):
                                                if self.card_types and instance_id not in consumed_ids]
         if self.sacrifice_source:
             context.put_into_graveyard(self.source)
+        if self.destination == "hand":
+            # RULE 607.2a / 400.7: only the exact linked exile visit may return.
+            from .core import ReturnToHandEffect, _apply_effects_partitioned
+            returned = [obj for iid, incarnation in visits
+                        if (obj := context.state.find_object(iid)) is not None
+                        and obj.zone == Zone.EXILE and obj.zone_incarnation == incarnation]
+            _apply_effects_partitioned(
+                [ReturnToHandEffect(target=obj, source=self.source) for obj in returned],
+                context, None, None, source=self.source)
+            return
         options = {'tapped': self.tapped}
         if self.counter_if_creature:
             options['typed_entry_counters'] = [dict(self.counter_if_creature, types=['creature'])]

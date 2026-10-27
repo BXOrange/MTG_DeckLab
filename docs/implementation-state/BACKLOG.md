@@ -36,21 +36,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-mining tickets (PAR-209, 211…214): measure with the `find-fragments` skill before and after
+Fragment-mining tickets (PAR-211…214): measure with the `find-fragments` skill before and after
 (`--ngrams`/`--ablate` for phrases); each ticket re-scans, diffs full-pool specs for zero
-regressions, and executes newly claimed cards rather than trusting parse verdicts. PAR-210 is
-closed, so PAR-213 and PAR-214 and PAR-212's pronoun-bound forms are unblocked; PAR-209 and PAR-211
-are independent.
-
-- **PAR-209 · Base grammar atoms.** Shared building blocks that recur inside otherwise different
-  clauses, built once and reused: object filters (`target <adjective> <type>`, `that creature`, `each
-  creature that player controls`), durations (`for as long as`, `until your next turn`, `until end
-  of turn`), quantities (`a number of cards equal to …`, `for each …`, X and `where X is …`, `base
-  power and toughness N/N`), same-name / `exiled with ~` references (including cross-zone
-  same-name search/exile sweeps such as Counterbore and Extirpate), and `prevent … damage`
-  scopes. First step: add a slot decomposition (action, object filter, duration, quantity,
-  condition) to `find-fragments`, then pick the slot values that complete the most cards in
-  combination. Depends on nothing; use the current fragment re-scan to size what remains.
+regressions, and executes newly claimed cards rather than trusting parse verdicts. PAR-209 and PAR-210 are
+closed, so PAR-213 and PAR-214 and PAR-212's pronoun-bound forms are unblocked; PAR-211
+is independent.
 
 - **PAR-211 · Quantifier scopes.** `each` / `all` / `each other` scopes combined with the clause
   parts that depend on them stay open at a share of 0.78–0.90 against modelled text: `each player` /
