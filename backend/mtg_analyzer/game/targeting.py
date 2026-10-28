@@ -1919,6 +1919,14 @@ def _legal_targets_for(
             spec = replace(spec, max_mana_value=int(_event.get("power") or 0))
         else:
             spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+    # PAR-215: "…with mana value less than or equal to the number of Plains you control" (Lay Down Arms) -- a
+    # `continuous.count_selector` measured for the ability's controller while the target is offered (RULE 601.2c).
+    for bound_attr in ("max_mana_value", "exact_mana_value"):
+        bound = getattr(spec, bound_attr)
+        if isinstance(bound, dict) and "count_selector" in bound:
+            from .continuous import count_selector as _bound_count
+
+            spec = replace(spec, **{bound_attr: _bound_count(state, controller_id, bound["count_selector"], source)})
     if spec.max_mana_value == "counters_on_permanents_you_control":
         from .continuous import count_selector
         spec = replace(spec, max_mana_value=count_selector(state, controller_id, spec.max_mana_value))

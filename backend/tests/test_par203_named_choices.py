@@ -703,7 +703,7 @@ def test_the_opponent_sees_only_that_a_choice_is_pending_not_the_suggestions():
     "Rohirrim Chargers",        # "attached to that creature" is not carried by the generic dig-until row
     "Tsabo's Decree", "Pact of the Serpent", "Peer Pressure", "Kindred Charge",  # shapes with no primitive yet
     "Cursed Scroll", "Mise", "Predict",                                          # reveal-and-compare is not modelled
-    "Prismatic Boon", "Searing Rays",
+    "Prismatic Boon",
 ))
 def test_shapes_without_a_primitive_stay_unmodeled(name):
     assert not _modeled(name)

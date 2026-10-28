@@ -3270,6 +3270,15 @@ class FightEffect(GameEffect):
                                    excess_damage_this_way=context.excess_damage_this_way-prior)
 
 
+#: Which dealer characteristic sizes a "deals damage equal to its <characteristic>" clause.
+_DEALER_AMOUNT_CHARACTERISTICS: frozenset[str] = frozenset({"power", "toughness"})
+#: Role-named single recipients `DamageEqualToPowerEffect` resolves without a target (RULE 115.1).
+_DEALER_IMPLICIT_RECIPIENTS: frozenset[str] = frozenset({"dealer_controller", "ability_controller", "source"})
+#: Mass recipients relative to the dealer, resolved by `DamageEqualToPowerEffect._selected_recipients` only
+#: ("each other creature" — every creature but the dealer, RULE 109.5).
+_DEALER_RELATIVE_SELECTORS: frozenset[str] = frozenset({"each_other_creature"})
+
+
 class DamageEqualToPowerEffect(GameEffect):
     """"Target creature you control deals damage equal to its power to target
     creature you don't control." (Rabid Bite) — the *one-sided* fight, and
@@ -3301,8 +3310,17 @@ class DamageEqualToPowerEffect(GameEffect):
         dealer_group: Optional[str] = None,
         excess_to_controller_if_trample: bool = False,
         distinct: bool = False,
+        recipient: Optional[str] = None,
+        characteristic: str = "power",
     ) -> None:
         super().__init__(source)
+        #: The amount is the dealer's ``power`` or, for "equal to its toughness" (Creature Bond), its
+        #: ``toughness`` — read as the dealer last existed (RULE 608.2h).
+        self.characteristic = characteristic if characteristic in _DEALER_AMOUNT_CHARACTERISTICS else "power"
+        #: An *untargeted* single recipient the clause names by role (RULE 115.1: nothing is announced
+        #: for it): ``"dealer_controller"`` — "… to its controller" / "to that player" (Backlash),
+        #: ``"ability_controller"`` — "… to you", ``"source"`` — "… to ~" (Gargantuan Gorilla).
+        self.recipient = recipient if recipient in _DEALER_IMPLICIT_RECIPIENTS else None
         #: "If the creature you control has trample, excess damage is dealt to that creature's
         #: controller instead." (Ram Through) — with a trampling dealer the recipient creature
         #: takes only lethal damage (RULE 120.4a; 1 from a deathtouch dealer) and the rest goes
@@ -3319,14 +3337,15 @@ class DamageEqualToPowerEffect(GameEffect):
         # there is never a second target, and the "each creature" mass form
         # has no dealer target at all (each creature is its own dealer).
         self.to_self = to_self
-        self.selector = selector if selector in _DAMAGE_SELECTORS else None
+        self.selector = selector if selector in _DAMAGE_SELECTORS | _DEALER_RELATIVE_SELECTORS else None
         specs: list[TargetSpec] = []
         need_dealer_target = self.dealer_group is None and dealer_kind not in _IMPLICIT_FIGHT_SUBJECTS and not (
             to_self and self.selector is not None
         )
         if need_dealer_target:
             specs.append(TargetSpec(kind=dealer_kind, optional=dealer_optional))
-        if not to_self and self.selector is None and target_kind is not None and self.dealer_group is None:
+        if (not to_self and self.selector is None and self.recipient is None and target_kind is not None
+                and self.dealer_group is None):
             specs.append(TargetSpec(kind=target_kind, optional=optional, distinct_from_others=distinct))
         if specs:
             self.target_spec = specs[0]
@@ -3368,8 +3387,13 @@ class DamageEqualToPowerEffect(GameEffect):
             legal = legal_targets(context.state, controller_id, self.target_spec, self.source)
             if getattr(dealer, "instance_id", None) not in {entry.get("instance_id") for entry in legal}:
                 return
-        amount = dealer.power or 0
+        amount = (getattr(dealer, self.characteristic, None) or 0)
         if amount <= 0:
+            return
+        if self.recipient is not None:
+            implied = self._implied_recipient(context, dealer)
+            if implied is not None:
+                context.deal_damage(implied, amount, dealer)
             return
         if self.to_self:
             # "target creature deals damage to itself equal to its power."
@@ -3409,6 +3433,17 @@ class DamageEqualToPowerEffect(GameEffect):
                 return
         context.deal_damage(recipient, amount, dealer)
 
+    def _implied_recipient(self, context: GameContext, dealer: Any) -> Optional[Any]:
+        """The single recipient a role phrase names (see ``recipient``); None when it is gone."""
+        if self.recipient == "ability_controller":
+            return _controller_of(self.source, context)
+        if self.recipient == "source":
+            # RULE 608.2b: a source that left the battlefield takes no damage.
+            return self.source if self.source in context.state.permanents() else None
+        # RULE 608.2h: the dealer's controller as it last existed (a dies trigger reads the graveyard copy).
+        owner_id = getattr(dealer, "controller_id", None)
+        return context.state.player_by_id(owner_id) if owner_id is not None else None
+
     def _selected_recipients(self, context: GameContext, dealer: Any) -> list[Any]:
         """RULE 601.2c's untargeted recipient groups, scoped to the **dealer**
         (not the effect's source — "each opponent" of the creature dealing the
@@ -3416,6 +3451,9 @@ class DamageEqualToPowerEffect(GameEffect):
         player)."""
         if self.selector == "each_creature":
             return [obj for obj in context.state.permanents() if obj.is_creature]
+        if self.selector == "each_other_creature":
+            # RULE 109.5: "each other creature" excludes the creature dealing the damage.
+            return [obj for obj in context.state.permanents() if obj.is_creature and obj is not dealer]
         controller_id = getattr(dealer, "controller_id", None)
         if self.selector == "each_other_creature_and_opponent":
             return [

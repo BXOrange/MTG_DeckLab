@@ -237,11 +237,28 @@ _CARD_TYPE_OPTIONS: list[tuple[str, str]] = [
 #: The magnitude attributes `_substitute_x` rewrites in place.
 _X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "group_amount", "count", "power", "toughness", "times", "any_amount")
 #: The mana-value bounds it rewrites inside a ``filter``/``criteria`` dict.
-_X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value")
+_X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value", "exact_mana_value")
 #: `CreateDelayedTriggerEffect` captures that write their own value into the
 #: ``"x"`` sentinel of their nested ``inner_specs`` — `_substitute_x` must
 #: leave those nested sentinels alone rather than fill them with this spell's X.
 _X_OWNING_CAPTURES: frozenset[str] = frozenset({"target_mana_value"})
+
+
+#: The dict-valued places a mass or search effect keeps a mana-value bound that may still read "x": its own
+#: ``filter`` / ``criteria``, and (RULE 107.3c) the selector filter of a ``for_each`` loop over a mass group
+#: ("destroy each artifact with mana value X", Dauntless Dismantler).
+_X_MAPPING_ATTRS = ("filter", "criteria", "over")
+
+
+def _x_mapping(effect: Any, name: str) -> Optional[dict]:
+    """The dict ``name`` stands for on ``effect`` (``over`` -> its selector's filter), or ``None``."""
+    if name == "over":
+        over = getattr(effect, "over", None)
+        selector = over.get("selector") if isinstance(over, dict) else None
+        found = selector.get("filter") if isinstance(selector, dict) else None
+    else:
+        found = getattr(effect, name, None)
+    return found if isinstance(found, dict) else None
 
 
 def _restore_x_sentinels(effect: Any) -> None:
@@ -261,7 +278,7 @@ def _restore_x_sentinels(effect: Any) -> None:
         for attr, value in saved["attrs"].items():
             setattr(effect, attr, value)
         for dict_attr, values in saved["maps"].items():
-            mapping = getattr(effect, dict_attr, None)
+            mapping = _x_mapping(effect, dict_attr)
             if isinstance(mapping, dict):
                 mapping.update(values)
         if saved["target_spec"] is not None:
@@ -275,8 +292,8 @@ def _restore_x_sentinels(effect: Any) -> None:
         if isinstance(getattr(effect, attr, None), str)
     }
     maps: dict[str, dict[str, Any]] = {}
-    for dict_attr in ("filter", "criteria"):
-        mapping = getattr(effect, dict_attr, None)
+    for dict_attr in _X_MAPPING_ATTRS:
+        mapping = _x_mapping(effect, dict_attr)
         if isinstance(mapping, dict):
             strings = {k: mapping[k] for k in _X_MANA_VALUE_KEYS if isinstance(mapping.get(k), str)}
             if strings:
@@ -1727,11 +1744,11 @@ class CastingResolutionMixin:
             while hasattr(effect, "inner"):
                 effect = effect.inner
             _restore_x_sentinels(effect)
-            for dict_attr in ("filter", "criteria"):
-                mapping = getattr(effect, dict_attr, None)
+            for dict_attr in _X_MAPPING_ATTRS:
+                mapping = _x_mapping(effect, dict_attr)
                 if not isinstance(mapping, dict):
                     continue
-                for mv_key in ("max_mana_value", "min_mana_value"):
+                for mv_key in ("max_mana_value", "min_mana_value", "exact_mana_value"):
                     mv_value = mapping.get(mv_key)
                     if mv_value == "x":
                         mapping[mv_key] = x
@@ -1860,6 +1877,9 @@ class CastingResolutionMixin:
         outer_trigger_event = self.context.trigger_event
         outer_resolving_controller_id = self.context.resolving_controller_id
         outer_resolution_count = self.context.ability_resolution_count
+        # RULE 608.2: "the damage dealt this way" is scoped to the one spell or ability now resolving.
+        outer_damage_dealt = self.context.damage_dealt_this_way
+        self.context.damage_dealt_this_way = 0
         outer_stack_item = self.context.resolving_stack_item
         self.context.resolving_stack_item = item
         outer_source_incarnation = getattr(self.context, "resolving_source_incarnation", None)
@@ -1875,6 +1895,7 @@ class CastingResolutionMixin:
             self.context.trigger_event = outer_trigger_event
             self.context.resolving_controller_id = outer_resolving_controller_id
             self.context.ability_resolution_count = outer_resolution_count
+            self.context.damage_dealt_this_way = outer_damage_dealt
 
     def _count_ability_resolution(self, item: StackItem) -> Optional[int]:
         """Record that ``item`` (an ability) is resolving and return which

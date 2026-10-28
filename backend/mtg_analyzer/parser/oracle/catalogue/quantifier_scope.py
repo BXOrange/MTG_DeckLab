@@ -73,7 +73,10 @@ def per_member_amount_specs(text: str, parse) -> Optional[list]:
     incorrectly change unrelated effects in that same instruction.
     """
     sets = list(re.finditer(r'\beach (?:other player|player|opponent)\b', text))
-    count = re.search(r' equal to the number of (?P<objects>.+?) (?:they control|in their (?P<zone>hand|graveyard|library))$', text)
+    count = re.search(
+        r" (?P<lead>equal to (?P<twice>twice )?the number of|for each) (?P<objects>.+?) "
+        r"(?:they control|that (?:player|opponent) controls"
+        r"|in (?:their|that player's) (?P<zone>hand|graveyard|library))$", text)
     if len(sets) != 1 or count is None:
         return None
     member = sets[0]
@@ -81,14 +84,17 @@ def per_member_amount_specs(text: str, parse) -> Optional[list]:
         return None
     suffix = ' you control' if count['zone'] is None else ' in your ' + count['zone']
     rewritten = (text[:member.start()] + 'target player' + text[member.end():count.start()]
-                 + ' equal to the number of ' + count['objects'] + suffix)
+                 + ' ' + count['lead'] + ' ' + count['objects'] + suffix)
     inner = parse(rewritten)
     if not inner or len(inner) != 1 or inner[0].type != 'bind':
         return None
     params = inner[0].params
     amount = params.get('amount') or {}
     effects = params.get('effects') or []
-    if (amount.get('kind') != 'count_selector' or (amount.get('selector') or {}).get('of') != 'you'
+    selector = amount.get('selector') or {}
+    # "twice the number of ..." parses as an arithmetic expression whose every term is taken as "you".
+    terms = selector.get('terms') or [selector]
+    if (amount.get('kind') != 'count_selector' or any(term.get('of') != 'you' for term in terms)
             or len(effects) != 1 or effects[0].get('params', {}).get('target_kind') != 'player'):
         return None
     bound = EffectSpec('bind', {**params, 'amount': {**amount, 'of': 'target'}})

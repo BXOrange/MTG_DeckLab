@@ -4037,6 +4037,16 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
          "right": {"kind": "fixed", "amount": 1},
          "op": "ge",
      }),
+    # RULE 120.4a / 608.2: "if excess damage was dealt [to a permanent / that creature] this way" (Orbital Plunge,
+    # Contest of Claws) -- this resolution's `excess_damage_this_way` tally is above 0. A qualifier names the damaged
+    # object, which the tally already scopes (the clause before dealt damage to exactly that recipient).
+    (re.compile(r"excess damage was dealt(?: to (?:a|that) (?:creature|permanent))? this way", re.I),
+     lambda m: {
+         "kind": "amount_compare",
+         "left": {"kind": "this_way", "tally": "excess_damage_this_way"},
+         "right": {"kind": "fixed", "amount": 1},
+         "op": "ge",
+     }),
     # PAR-120: "if you cast it[ from your hand]" — the "when ~ enters, if you
     # cast it, …" cluster (Crystalline Entity, Coal Stoker, …): "it" is the
     # trigger's own source (the entering permanent *is* "~" for this shape),

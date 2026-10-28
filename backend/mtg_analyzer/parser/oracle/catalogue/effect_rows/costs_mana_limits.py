@@ -266,7 +266,24 @@ _DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
         "creature_or_planeswalker",
     }
 )
-_DEALS_POWER = r"deals? damage equal to its power to"
+_DEALS_POWER = r"deals? damage equal to its (?P<stat>power|toughness) to"
+
+
+def _stat_param(m: re.Match[str]) -> dict:
+    """RULE 208/209: "equal to its toughness" sizes the damage by toughness (Creature Bond-style); power is the default."""
+    return {"characteristic": "toughness"} if m.group("stat") == "toughness" else {}
+
+#: Role phrases naming the single recipient of a one-sided power hit without announcing a target (RULE 115.1).
+#: "its controller" / "that creature's controller" read the dealer's controller (Backlash, Traitor's Roar);
+#: "you" is the ability's controller; "~" is the ability's own source (Gargantuan Gorilla, Cyclops Gladiator).
+_IMPLICIT_RECIPIENTS: dict[str, str] = {
+    "its controller": "dealer_controller",
+    "that creature's controller": "dealer_controller",
+    "the creature's controller": "dealer_controller",
+    "you": "ability_controller",
+    SELF: "source",
+}
+_IMPLICIT_RECIPIENT_ALT = "|".join(re.escape(k) for k in _IMPLICIT_RECIPIENTS)
 
 
 def _power_recipient(phrase: str) -> Optional[str]:
@@ -279,7 +296,7 @@ def _damage_equal_to_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     recipient = _power_recipient(m.group("target_b"))
     if dealer is None or recipient is None:
         return None
-    params: dict = {"dealer_kind": dealer, "target_kind": recipient}
+    params: dict = {"dealer_kind": dealer, "target_kind": recipient, **_stat_param(m)}
     if target_is_optional(m):
         params["dealer_optional"] = True
     if target_is_optional(m, "_b"):
@@ -294,9 +311,34 @@ def _damage_equal_to_power_implicit(dealer_kind: Optional[str]):
         recipient = _power_recipient(m.group("target"))
         if recipient is None:
             return None
-        params: dict = {"target_kind": recipient, **optional_param(m)}
+        params: dict = {"target_kind": recipient, **optional_param(m), **_stat_param(m)}
         if dealer_kind is not None:
             params["dealer_kind"] = dealer_kind
+        return [EffectSpec("damage_equal_to_power", params)]
+
+    return build
+
+
+def _damage_equal_to_power_role(dealer_kind: Optional[str], allowed: frozenset[str]):
+    """"<dealer> deals damage equal to its power to its controller / you / ~ / each other creature" — the
+    recipient is a role (RULE 115.1, nothing announced for it), not a target. ``allowed`` names the
+    recipient roles that make sense for this dealer ("its controller" needs a dealer other than the
+    ability's own source; "~" needs one that is not the source)."""
+
+    def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+        params: dict = {"target_kind": None, **_stat_param(m)}
+        if dealer_kind is not None:
+            params["dealer_kind"] = dealer_kind
+        selector = (m.groupdict().get("selector") or "").lower()
+        if selector:
+            if selector != "each other creature" or "selector" not in allowed:
+                return None
+            params["selector"] = "each_other_creature"
+        else:
+            role = _IMPLICIT_RECIPIENTS.get(m.group("recip").lower())
+            if role is None or role not in allowed:
+                return None
+            params["recipient"] = role
         return [EffectSpec("damage_equal_to_power", params)]
 
     return build
@@ -310,7 +352,7 @@ def _damage_equal_to_power_selector(dealer_kind: Optional[str]):
         selector = SELECTOR_WORD_MAP.get(m.group("selector").lower())
         if selector is None:
             return None
-        params: dict = {"selector": selector, "target_kind": None}
+        params: dict = {"selector": selector, "target_kind": None, **_stat_param(m)}
         if dealer_kind is not None:
             params["dealer_kind"] = dealer_kind
         return [EffectSpec("damage_equal_to_power", params)]
@@ -361,6 +403,42 @@ _POWER_DAMAGE_SELF_SELECTOR_RE = compile_clause(
 _POWER_DAMAGE_PRONOUN_SELECTOR_RE = compile_clause(
     rf"it {_DEALS_POWER} (?P<selector>{_DAMAGE_SELECTOR_ALT})"
 )
+#: PAR-215: the role-named recipients (see `_IMPLICIT_RECIPIENTS`) and the dealer-relative "each other creature"
+#: group — one alternation, each row narrowing which roles its dealer can take.
+_POWER_ROLE_RECIPIENT = rf"(?:(?P<recip>{_IMPLICIT_RECIPIENT_ALT})|(?P<selector>each other creature))"
+_POWER_DAMAGE_TARGET_ROLE_RE = compile_clause(rf"{TARGET} {_DEALS_POWER} {_POWER_ROLE_RECIPIENT}")
+#: Dong Zhou, the Tyrant: "target creature an opponent controls deals damage equal to its power to that player"
+#: — "that player" is the chosen creature's controller only for an opposing dealer.
+_POWER_DAMAGE_OPPONENT_CONTROLLER_RE = compile_clause(rf"{TARGET} {_DEALS_POWER} (?P<recip>that player)")
+_POWER_DAMAGE_PREVIOUS_ROLE_RE = compile_clause(rf"{THEN}{PREVIOUS_SUBJECT} {_DEALS_POWER} {_POWER_ROLE_RECIPIENT}")
+_POWER_DAMAGE_PRONOUN_ROLE_RE = compile_clause(rf"it {_DEALS_POWER} {_POWER_ROLE_RECIPIENT}")
+_POWER_DAMAGE_SELF_ROLE_RE = compile_clause(rf"{re.escape(SELF)} {_DEALS_POWER} (?P<recip>you)")
+_POWER_ROLES_ALL = frozenset({"dealer_controller", "ability_controller", "source", "selector"})
+
+
+def _damage_equal_to_power_target_role(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dealer = fight_kind(m.group("target"))
+    if dealer is None:
+        return None
+    built = _damage_equal_to_power_role(dealer, _POWER_ROLES_ALL)(m)
+    if built is None:
+        return None
+    if target_is_optional(m):
+        built[0].params["dealer_optional"] = True
+    return built
+
+
+def _damage_equal_to_power_opponent_controller(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    # RULE 109.4: "that player" is the opponent the chosen creature belongs to — only a
+    # creature-you-don't-control dealer makes that unambiguous.
+    dealer = fight_kind(m.group("target"))
+    if dealer != "creature_you_dont_control":
+        return None
+    return [EffectSpec("damage_equal_to_power", {
+        "dealer_kind": dealer, "target_kind": None, "recipient": "dealer_controller", **_stat_param(m),
+    })]
+
+
 #: PAR-30: "<subject> deals damage equal to its power to each opponent." as
 #: a *triggered-ability body* where the damage source and its amount are the
 #: same object — the trigger's own subject (Champion of the Path's
@@ -437,6 +515,29 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
         _damage_equal_to_power_implicit("previous_target"), {"requires": ClauseReading(previous_subject=True)},
+    ),
+    # PAR-215: role-named recipients ("its controller", "you", "~", "each other creature").
+    ("damage_equal_to_power_target_role", _POWER_DAMAGE_TARGET_ROLE_RE, _damage_equal_to_power_target_role, {}),
+    (
+        "damage_equal_to_power_opponent_controller", _POWER_DAMAGE_OPPONENT_CONTROLLER_RE,
+        _damage_equal_to_power_opponent_controller, {},
+    ),
+    (
+        "damage_equal_to_power_previous_role", _POWER_DAMAGE_PREVIOUS_ROLE_RE,
+        _damage_equal_to_power_role("previous_target", _POWER_ROLES_ALL), {"requires": ClauseReading(previous_subject=True)},
+    ),
+    (
+        "damage_equal_to_power_pronoun_role", _POWER_DAMAGE_PRONOUN_ROLE_RE,
+        _damage_equal_to_power_role(None, frozenset({"ability_controller", "selector"})),
+        {"requires": ClauseReading(self_subject=True)},
+    ),
+    (
+        "damage_equal_to_power_group_pronoun_role", _POWER_DAMAGE_PRONOUN_ROLE_RE,
+        _damage_equal_to_power_role("trigger_subject", _POWER_ROLES_ALL), {"requires": ClauseReading(group_subject=True)},
+    ),
+    (
+        "damage_equal_to_power_self_role", _POWER_DAMAGE_SELF_ROLE_RE,
+        _damage_equal_to_power_role(None, frozenset({"ability_controller"})), {},
     ),
     # "… deals damage to itself equal to its power." — dealer == recipient.
     (

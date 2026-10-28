@@ -192,6 +192,11 @@ class GameContext:
         #: RULE 120.9: actual damage beyond the amount needed to be lethal.
         self.fight_results: list[dict] = []
         self.excess_damage_this_way: int = 0
+        #: "You gain life equal to the damage dealt this way." (Corrupt, Syphon Soul) -- the damage this
+        #: resolution actually dealt (RULE 120.3, after prevention), summed over every hit. Unlike the tallies
+        #: `_apply_effects_partitioned` saves and restores per nested body, this one runs for the whole
+        #: resolution (loops and branches included) and is zeroed when a stack item starts resolving.
+        self.damage_dealt_this_way: int = 0
         #: "Destroy each nonland permanent with mana value 2 or less. Add
         #: {B} or {G} for each permanent destroyed this way." (Culling
         #: Ritual, MEC-40) — `life_lost_this_way`'s sibling for a *count* of
@@ -311,6 +316,11 @@ class GameContext:
                 remaining = min(remaining, 1)
         event_start = len(self.state.event_log)
         self.engine.deal_damage(target, amount, source, single_target_hint=single_target_hint)
+        hit_id = target.instance_id if hasattr(target, "instance_id") else getattr(target, "id", None)
+        self.damage_dealt_this_way += sum(
+            int(e.get("amount", 0)) for e in self.state.event_log[event_start:]
+            if e.type == EventType.DAMAGE and e.get("target_id") == hit_id
+            and e.get("source_id") == getattr(source, "instance_id", None))
         if remaining is not None:
             dealt = sum(int(e.get("amount", 0)) for e in self.state.event_log[event_start:]
                         if e.type == EventType.DAMAGE and e.get("target_id") == target.instance_id

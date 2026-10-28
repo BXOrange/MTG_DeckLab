@@ -2028,6 +2028,8 @@ EffectRegistry.register(
         dealer_group=p.get("dealer_group"),
         excess_to_controller_if_trample=bool(p.get("excess_to_controller_if_trample", False)),
         distinct=bool(p.get("distinct", False)),
+        recipient=p.get("recipient"),
+        characteristic=p.get("characteristic", "power"),
     ),
 )
 EffectRegistry.register(

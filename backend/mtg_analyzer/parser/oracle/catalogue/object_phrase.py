@@ -183,6 +183,33 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
     return None
 
 
+#: RULE 115.1: the qualities the singular body ("destroy target permanent with mana value 3") states on its *target*.
+#: A `for_each` over a group announces nothing, so they have to move to the group's own filter or the loop would hit
+#: every member (Dauntless Dismantler, Pernicious Deed, Vicious Rivalry, Swift Demise destroyed everything).
+_TARGET_BOUND_KEYS = ('exact_mana_value', 'max_mana_value', 'min_mana_value')
+
+
+def _fold_target_bounds_into_group(
+    over: dict, effects: list[EffectSpec],
+) -> Optional[tuple[dict, list[EffectSpec]]]:
+    """``(group, body)`` with the body's target-only bounds moved onto the group's selector filter, or ``None``."""
+    if len(effects) != 1:
+        return over, effects
+    spec = effects[0]
+    bounds = {k: spec.params[k] for k in _TARGET_BOUND_KEYS if spec.params.get(k) is not None}
+    quality = spec.params.get('creature_filter')
+    if not bounds and not quality:
+        return over, effects
+    selector = over.get('selector')
+    if not isinstance(selector, dict):
+        return None  # a player group has no object filter to carry them
+    if quality and set(quality) & set(selector.get('filter') or {}):
+        return None  # the same key twice would silently pick one meaning
+    params = {k: v for k, v in spec.params.items() if k not in _TARGET_BOUND_KEYS and k != 'creature_filter'}
+    folded = {**over, 'selector': {**selector, 'filter': {**(selector.get('filter') or {}), **bounds, **(quality or {})}}}
+    return folded, [EffectSpec(spec.type, params, condition=spec.condition)]
+
+
 def ambiguous_object_reference(text: str, reading: ClauseReading, match: Callable) -> bool:
     """A singular object cannot silently choose one member of an earlier plural pick."""
     if not any(ref.kind == TARGET and ref.group for ref in reading.referents):
@@ -213,6 +240,11 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
         return [EffectSpec('for_each', {'over': over, 'effects': body})]
     if operand.kind == 'group':
         over = dict(operand.over or {})
+        folded = _fold_target_bounds_into_group(over, effects)
+        if folded is None:
+            return None
+        over, effects = folded
+        body = [e.to_dict() for e in effects]
         if 'selector' in over:
             over.update(remember=True, simultaneous=True)
         return [EffectSpec('for_each', {'over': over, 'effects': body})]

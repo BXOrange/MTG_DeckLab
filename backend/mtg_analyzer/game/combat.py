@@ -665,6 +665,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # kept here, on the one shared filter, so a static or a target phrase
         # can use them too.
         "multicolored", "colorless", "min_mana_value", "max_mana_value",
+        # RULE 202.3: "each permanent with mana value equal to the number of charge counters on ~" (Ratchet Bomb).
+        "exact_mana_value",
         "card_type_any", "kicked",
         # "an **artifact creature**" — every listed type at once (the AND
         # sibling of ``card_type_any``); ``card_type`` names exactly one.
@@ -1157,6 +1159,9 @@ def matches_object_filter(
         return False
     max_mana_value = filt.get("max_mana_value")
     if max_mana_value is not None and obj.mana_value > max_mana_value:
+        return False
+    exact_mana_value = filt.get("exact_mana_value")
+    if exact_mana_value is not None and obj.mana_value != exact_mana_value:
         return False
     # "an **instant or sorcery** spell" — the OR-of-types form of
     # ``card_type``, same idiom as ``subtype_any``/``keyword_any``.

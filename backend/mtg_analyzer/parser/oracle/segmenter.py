@@ -4274,6 +4274,16 @@ _THIS_WAY_TALLY_RE = re.compile(r"^(?:creature|permanent|card)s? (?P<verb>destro
 _THIS_WAY_TALLY_NAMES = {"destroyed": "permanents_destroyed_this_way", "exiled": "objects_exiled_this_way"}
 
 
+#: RULE 120.3 / 120.4a: "the damage dealt this way" / "the amount of excess damage dealt to that creature this way" /
+#: "that excess damage" -- `GameContext.damage_dealt_this_way` / `excess_damage_this_way`, the damage this resolution
+#: actually dealt (after prevention) and the part beyond lethal. A recipient qualifier is the clause's own target, so
+#: it is read as the whole tally (the earlier clause dealt damage to exactly that one recipient on every printing).
+_DAMAGE_THIS_WAY_RE = re.compile(
+    r"^(?:the (?:amount of )?(?P<excess>excess )?damage dealt(?: to (?:that (?:creature|permanent|player)|it|them))? this way"
+    r"|(?P<excess_ref>that excess damage))$"
+)
+
+
 _THIS_WAY_COUNT_PHRASE_RE = re.compile(
     r"^(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)? ?"
     r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled) this way$"
@@ -4301,6 +4311,10 @@ def _count_amount(
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is not None:
         return amount
+    damage_way = _DAMAGE_THIS_WAY_RE.match(phrase)
+    if damage_way is not None:
+        excess = damage_way.group("excess") or damage_way.group("excess_ref")
+        return {"kind": "this_way", "tally": "excess_damage_this_way" if excess else "damage_dealt_this_way"}
     this_way = _THIS_WAY_TALLY_RE.match(phrase)
     if this_way is not None:
         return {"kind": "this_way", "tally": _THIS_WAY_TALLY_NAMES[this_way.group("verb")]}
@@ -4863,7 +4877,7 @@ _EQUAL_TO_AGGREGATE_RE = re.compile(
 )
 
 #: The params an X can sit in once an X-capable handler has parsed the body.
-_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value")
+_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value", "exact_mana_value")
 
 
 #: "`<effect with x>`, where x is the sacrificed creature's power" (Ghoulcaller Gisa, Atogatog) — X as an
@@ -5008,6 +5022,62 @@ def _die_x_rest(text: str) -> "Optional[tuple[str, dict[str, Any]]]":
     return rest, amount
 
 
+#: PAR-215 axis E: "destroy each nonland permanent with mana value equal to the number of charge counters on ~"
+#: (Ratchet Bomb, Engineered Explosives, Powder Keg, Wave of Terror, The Moment): the mass destroy/exile verbs only --
+#: a *targeted* bound has to resolve while the target is announced (RULE 601.2c), before any amount is measured.
+_MANA_VALUE_AMOUNT_RE = re.compile(
+    r"^(?P<head>(?:destroy|exile) (?:each|all) [^,]+? with mana value) "
+    r"(?P<cmp>equal to|less than or equal to) (?P<phrase>the number of .+)$", re.IGNORECASE,
+)
+
+
+def _mana_value_bound_is_resolve_time(specs: "list[EffectSpec]") -> bool:
+    """Whether the measured bound sits in an effect that filters at resolution (a mass group), not in a target."""
+    for spec in specs:
+        if spec.type != "bind":
+            return False
+        for effect in spec.params.get("effects", []):
+            params = effect.get("params", {})
+            if params.get("target_kind") not in (None, "permanent", "creature", "artifact", "nonland_permanent") and \
+                    "$n" in repr(params):
+                return False
+            if "$n" not in repr(params):
+                return False
+    return True
+
+
+#: PAR-215 axis E: a *targeted* mana-value bound that is a count of the controller's own permanents ("exile target
+#: creature with mana value less than or equal to the number of Plains you control", Lay Down Arms; Dominating Vampire).
+#: The bound is a RULE 601.2c target restriction, so it is measured while the target is offered
+#: (`targeting.legal_targets`), and only a count taken as "you" -- a count relative to the target's controller
+#: (Drown in the Loch) is a per-candidate comparison and stays unclaimed.
+_MV_COUNT_BOUND_RE = re.compile(
+    r"^(?P<head>.+? target [^,]+? with mana value) (?P<cmp>equal to|less than or equal to) "
+    r"the number of (?P<phrase>[^,.]+? you control)(?P<tail>.*)$", re.IGNORECASE,
+)
+#: The placeholder bound the existing rows parse; it never appears in printed text next to "the number of".
+_MV_COUNT_PLACEHOLDER = 0
+
+
+def _mana_value_count_bound_specs(body: str, *, reading: ClauseReading = STANDALONE) -> "Optional[list[EffectSpec]]":
+    m = _MV_COUNT_BOUND_RE.match(body.strip().rstrip(".").strip())
+    if m is None:
+        return None
+    selector = parse_count_phrase(m.group("phrase"))
+    if not isinstance(selector, dict) or selector.get("of") != "you" or selector.get("zone") != "battlefield" \
+            or "distinct" in selector or "aggregate" in selector:
+        return None
+    exact = m.group("cmp").lower() == "equal to"
+    placeholder = f"{_MV_COUNT_PLACEHOLDER}" if exact else f"{_MV_COUNT_PLACEHOLDER} or less"
+    specs = parse_effect_body(f"{m.group('head')} {placeholder}{m.group('tail')}", reading=reading)
+    key = "exact_mana_value" if exact else "max_mana_value"
+    if not specs or len(specs) != 1 or specs[0].params.get(key) != _MV_COUNT_PLACEHOLDER \
+            or isinstance(specs[0].params.get(key), bool):
+        return None
+    params = {**specs[0].params, key: {"count_selector": selector}}
+    return [EffectSpec(specs[0].type, params, condition=specs[0].condition)]
+
+
 def _where_x_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
@@ -5017,6 +5087,15 @@ def _where_x_specs(
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    mana_value = _MANA_VALUE_AMOUNT_RE.match(text)
+    if mana_value is not None:
+        # RULE 202.3: "each permanent with mana value equal to / less than or equal to `<count>`" is the mass
+        # "with mana value x [or less]" row with that count as X (measured once, when the ability resolves).
+        bound = _where_x_specs(
+            f"{mana_value.group('head')} {'x' if mana_value.group('cmp') == 'equal to' else 'x or less'}, "
+            f"where x is {mana_value.group('phrase')}", reading=reading, several=several, divide_by=divide_by,
+        )
+        return bound if bound is not None and _mana_value_bound_is_resolve_time(bound) else None
     inline_source = re.fullmatch(
         r"(?P<head>.+), where x is (?P<phrase>~'s (?:power|toughness|mana value)), (?P<tail>.+)", text,
     )
@@ -5098,11 +5177,16 @@ def _where_x_specs(
             return None
         recipient = (m.groupdict().get("pre") or "") + (m.group("tail") or "")
         rest = f"{m.group('verb')} x {m.group('noun')}{recipient}"
-    if aggregate is not None:
+    relative = _relative_player_amount(m.group("phrase"), rest)
+    if relative is not None:
+        amount = relative
+    elif aggregate is not None:
         source_characteristic = re.fullmatch(r"~'s (power|toughness|mana value)", m.group("phrase"))
         if source_characteristic:
             amount = {"kind": "characteristic", "of": "source",
                       "characteristic": source_characteristic[1].replace(" ", "_")}
+        elif _DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()):
+            amount = _count_amount(m.group("phrase"))
         else:
             term = parse_amount_phrase(m.group("phrase"))
             amount = None if term is None else {"kind": "count_selector", "selector": term}
@@ -5130,6 +5214,52 @@ def _where_x_specs(
         rest, amount, reading=reading.unattached(),
         several=several,
     )
+
+
+#: PAR-215 axis D: a count taken *as another player* -- "the number of cards in **that player's** hand", "the number of
+#: islands **they control**" (RULE 109.5: "they"/"that player" is the player the clause names, not "you").
+_RELATIVE_PLAYER_COUNT_RE = re.compile(
+    r"^(?P<twice>twice )?(?:the number of )?(?P<head>.+?)(?: (?P<control>that (?:player|opponent) controls|they control)"
+    r"| in (?P<owner>their|that player's) (?P<zone>hand|graveyard))$"
+)
+#: Placeholder for a relative count whose player is the body's own "that player" (resolved in `_bind_x_specs`).
+_THAT_PLAYER_HOLDER = "@that_player"
+#: The damage selectors that name a trigger's own player -- also the `effect_conditions.subject_of` referents.
+_TRIGGER_PLAYER_SELECTORS = frozenset({"active_player", "event_player"})
+#: The player the effect body itself announces (RULE 115.1), whom a relative count is then taken as.
+_BODY_TARGET_PLAYER_RE = re.compile(r"\btarget (?:player|opponent)\b")
+
+
+def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]":
+    """"the number of `<X>` that player controls / in their hand" -> the `count_selector` amount taken as the target player.
+
+    Only when the body announces exactly one player target ("deals x damage to target player", "target opponent loses
+    x life"): that target is the player "they" / "that player" / "their" names, and ``of: target`` makes
+    `effect_amounts` evaluate the count with that player as the controller. Any other antecedent (a trigger's player,
+    an iteration) is refused here rather than guessed. A phrase naming its *own* "target opponent" is a second
+    target the body does not announce, so only the pronoun spellings are read."""
+    phrase = phrase.strip().lower()
+    # "...the number of cards in their hand minus 4" (Iron Maiden): a negative X counts as 0 (RULE 107.1b).
+    minus = _MINUS_TAIL_RE.search(phrase)
+    if minus is not None:
+        phrase = phrase[: minus.start()]
+    m = _RELATIVE_PLAYER_COUNT_RE.match(phrase)
+    if m is None:
+        return None
+    targets = len(_BODY_TARGET_PLAYER_RE.findall(body))
+    if targets > 1 or (targets == 0 and not re.search(r"\bthat player\b", body)):
+        return None
+    tail = f" in your {m.group('zone')}" if m.group("zone") else " you control"
+    selector = parse_count_phrase(m.group("head") + tail)
+    if not isinstance(selector, dict) or selector.get("of") != "you" or "distinct" in selector:
+        return None
+    amount = {"kind": "count_selector", "selector": selector, "of": "target" if targets else _THAT_PLAYER_HOLDER}
+    # `effect_amounts` multiplies a measured count by ``multiply`` ("twice the number of ...").
+    if m.group("twice"):
+        amount["multiply"] = 2
+    if minus is not None:
+        amount.update(minus=int(minus.group("n")), minimum=0)
+    return amount
 
 
 def _bind_x_specs(
@@ -5172,6 +5302,11 @@ def _bind_x_specs(
         if isinstance(params.get('return_effects'), list):
             params['return_effects'], return_x = _replace_x(params['return_effects'])
             nested = nested or return_x
+        for group_key in ("filter", "group", "over"):
+            # A mass effect's own filter ("destroy each nonland permanent with mana value x or less").
+            if isinstance(params.get(group_key), dict):
+                params[group_key], group_x = _replace_x(params[group_key])
+                nested = nested or group_x
         if isinstance(params.get('extra_counters'), dict):
             params['extra_counters'], counter_x = _replace_x(params['extra_counters'])
             nested = nested or counter_x
@@ -5193,6 +5328,19 @@ def _bind_x_specs(
         effects.append(entry)
     if not bound_any:
         return None
+    if amount.get("of") == _THAT_PLAYER_HOLDER:
+        # RULE 109.5: "that player" is whichever player the body's own recipient names (a trigger's active player,
+        # the player a spell cast): read it back off the parsed body, and refuse anything else.
+        holders = {e["params"].get("selector") for e in effects}
+        if len(holders) != 1 or not holders <= _TRIGGER_PLAYER_SELECTORS:
+            return None
+        amount = {**amount, "of": next(iter(holders))}
+        # Only a step trigger names its player without a target: `_phase_damage_referents` turns the body's
+        # "that player" into the active player there. Under a spell-cast / damage / attack head the event's own
+        # ``player_id`` is not that player, so the gate rejects the marker anywhere else (`gate._resolve_event_player_tree`).
+        return [EffectSpec("bind", {
+            "name": "n", "amount": amount, "effects": effects, "event_player_events": ["STEP_BEGIN"],
+        })]
     return [EffectSpec("bind", {"name": "n", "amount": amount, "effects": effects})]
 
 
@@ -7300,6 +7448,10 @@ def _parse_effect_body_inner(
     )
     if referent_x is not None:
         return referent_x
+
+    count_bound = _mana_value_count_bound_specs(body, reading=reading)
+    if count_bound is not None:
+        return count_bound
 
     per_member = per_member_amount_specs(body, lambda text: parse_effect_body(text, reading=reading))
     if per_member is not None:
@@ -10507,6 +10659,10 @@ def _phase_damage_referents(effects: list[EffectSpec]) -> list[EffectSpec]:
         params = dict(effect.params)
         if effect.type == "damage" and params.get("selector") == "event_player":
             params["selector"] = "active_player"
+        amount = params.get("amount")
+        if effect.type == "bind" and isinstance(amount, dict) and amount.get("of") == "event_player":
+            # PAR-215: a count taken "as that player" ("the number of swamps they control") is that same step player.
+            params["amount"] = {**amount, "of": "active_player"}
         fields = {"seq": ("effects",), "bind": ("effects",), "if_else": ("then", "else")}.get(effect.type, ())
         for field in fields:
             if isinstance(params.get(field), list):
