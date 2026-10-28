@@ -189,6 +189,9 @@ def _damage_source_matches(
     without_keyword = source_filter.get("without_keyword")
     if without_keyword and combat.has(source, without_keyword):
         return False
+    # RULE 510.2: "combat damage" / "noncombat damage" is a property of the damage event itself.
+    if "combat" in source_filter and bool(event.get("combat")) != bool(source_filter["combat"]):
+        return False
     controller = source_filter.get("controller")
     if controller == "you" and source.controller_id != protected_player_id:
         return False
@@ -198,6 +201,9 @@ def _damage_source_matches(
     if color and color.upper() not in (getattr(source, "colors", None) or set()):
         return False
     if source_filter.get("attacking") and not getattr(source, "attacking", False):
+        return False
+    # RULE 509.1h: "unblocked creatures" -- an attacker no creature blocks (Snag).
+    if source_filter.get("unblocked") and not (getattr(source, "attacking", False) and not source.blocked_by):
         return False
     if source_filter.get("enchanted"):
         # "…by enchanted creatures." (Wall of Putrid Flesh) — the source
@@ -259,13 +265,14 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 class DamageDeathMixin:
     """Damage/life-loss and every zone move off the battlefield (destroy/sacrifice/exile/bounce/graveyard), plus life gain and damage prevention."""
 
-    def damage_prevention_is_disabled(self) -> bool:
+    def damage_prevention_is_disabled(self, source: Optional[GameObject] = None, combat: bool = False) -> bool:
         """RULE 615.12: "damage can't be prevented" is in force, either the
-        turn-scoped flag or the standing battlefield static — the same two
-        sources `_run_replacement_loop` consults."""
+        turn-scoped flag or the standing battlefield static -- the same two
+        sources `_run_replacement_loop` consults. A static scoped to a damage source or to combat damage (PAR-216) answers
+        for the ``source``/``combat`` given."""
         if self.state.damage_prevention_disabled:
             return True
-        return continuous.damage_prevention_globally_disabled(self.state)
+        return continuous.damage_prevention_globally_disabled(self.state, source, combat)
 
     def deal_damage(
         self,
@@ -283,7 +290,7 @@ class DamageDeathMixin:
             return
         # RULE 615 / 615.12: "prevent all combat damage that would be dealt to and dealt by that creature this combat"
         # (Winter's Chill) — a per-object flag on either side of the damage, dropped when combat ends.
-        if combat and not self.damage_prevention_is_disabled() and any(
+        if combat and not self.damage_prevention_is_disabled(source, combat) and any(
             getattr(obj, "prevent_combat_damage_this_combat", False)
             for obj in (source, None if is_player else target)
         ):
@@ -296,30 +303,30 @@ class DamageDeathMixin:
         # protection is inert (the targeting/blocking/attachment parts of
         # RULE 702.16b are not damage and are enforced elsewhere).
         if (not is_player and source is not None and is_protected_from(target, source)
-                and not self.damage_prevention_is_disabled()):
+                and not self.damage_prevention_is_disabled(source, combat)):
             return
         # RULE 702.16e: a *player* with protection from everything (Teferi's
         # Protection) is dealt no damage at all — the player-side mirror of
         # the permanent check above, which `is_protected_from` can't answer
         # because players carry no printed protection.
         # RULE 615.12: unpreventable damage ignores every player-protection return below too.
-        if is_player and self._player_protected_from_everything(target) and not self.damage_prevention_is_disabled():
+        if is_player and self._player_protected_from_everything(target) and not self.damage_prevention_is_disabled(source, combat):
             return
         # MEC-62 (Noble Heritage): "you gain protection from that player" —
         # the single-player-scoped sibling just above, checked only when a
         # source is actually known (an unattributed/sourceless damage event
         # can't match "controlled by that player" either way).
         if (is_player and source is not None and self._player_protected_from_source_controller(target, source)
-                and not self.damage_prevention_is_disabled()):
+                and not self.damage_prevention_is_disabled(source, combat)):
             return
         # RULE 702.16e: "you … have protection from <quality>" off a standing static (Serra's Emissary).
         if is_player and source is not None and protection_qualities_cover(
             continuous.player_static_protections(self.state, target), source
-        ) and not self.damage_prevention_is_disabled():
+        ) and not self.damage_prevention_is_disabled(source, combat):
             return
         # RULE 615.1: "prevent all damage … by sources with the chosen name" (Gideon's Intervention) -- a standing static
         # on the recipient's controller, inert where damage can't be prevented (RULE 615.12).
-        if continuous.damage_prevented_by_static(self.state, target, source) and not self.damage_prevention_is_disabled():
+        if continuous.damage_prevented_by_static(self.state, target, source) and not self.damage_prevention_is_disabled(source, combat):
             return
         target_id = target.id if is_player else target.instance_id
         event = GameEvent(
@@ -406,7 +413,7 @@ class DamageDeathMixin:
             # Protection prevents the damage from a source of the named quality (RULE 702.16c;
             # `deal_damage` enforces this too). RULE 615.12: unpreventable damage ignores it.
             if (isinstance(target, GameObject) and combat.is_protected_from(target, source)
-                    and not self.damage_prevention_is_disabled()):
+                    and not self.damage_prevention_is_disabled(source, True)):
                 continue
             self.deal_damage(target, amount, source=source, combat=True)
         self.state.combat_damage_batch["closed"] = True
@@ -1739,6 +1746,8 @@ class DamageDeathMixin:
             target_obj = c.state.find_object(e.get("target_id"))
             if target_obj is None or target_obj.controller_id != player.id:
                 return False
+            if scope == "planeswalkers":
+                return bool(getattr(target_obj, "is_planeswalker", False))  # "you and planeswalkers you control"
             return target_obj.is_creature if scope == "creatures" else True
 
         effect = ReplacementEffect(
@@ -2031,6 +2040,79 @@ class DamageDeathMixin:
         effect.replacement_fn = _replace
         controller.player_effects.append(effect)
 
+    def _redirect_damage_shield(
+        self, controller: Player, shield_source: Optional[GameObject], new_recipient: Any, protected_ids: set,
+        include_permanents: bool = False, *, amount: Union[int, str] = "all", once: bool = False,
+        combat_only: bool = False, source_filter: Optional[dict] = None,
+    ) -> None:
+        """RULE 616.1: a turn-scoped one-shot redirect (PAR-216, `RedirectDamageShieldEffect`).
+
+        ``protected_ids`` holds player ids and permanent instance ids whose incoming damage is rewritten to
+        ``new_recipient``; ``include_permanents`` widens it to every permanent ``controller`` controls ("you and permanents
+        you control"). ``amount`` is a budget (a larger hit redirects the remainder only, RULE 616.1) or ``"all"``;
+        ``once`` ends the shield after the first matching hit ("the next time damage would be dealt", Mirrorwood
+        Treefolk). Not a prevention (RULE 615), so it stays unmarked by ``prevents_damage``.
+        """
+        from ..effects.replacements import _source_relation_matches  # function-scoped: the effects package imports the engine
+
+        remaining = None if amount == "all" else int(amount)
+        new_is_player = isinstance(new_recipient, Player)
+
+        def _protected(event: GameEvent, context: Any) -> bool:
+            target_id = event.get("target_id")
+            if target_id in protected_ids:
+                return True
+            if not include_permanents or event.get("is_player"):
+                return False
+            target = context.state.find_object(target_id)
+            return target is not None and target.controller_id == controller.id
+
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=lambda e, c: (
+                _protected(e, c) and (not combat_only or bool(e.get("combat")))
+                and (not source_filter or _source_relation_matches(source_filter, e, c, shield_source))
+            ),
+            description=f"{getattr(shield_source, 'name', '')}: Schadensumleitung",
+            source=shield_source,
+        )
+        effect.damage_prevention_shield = True  # swept in cleanup like the prevention shields
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            redirected = dealt if remaining is None else min(remaining, dealt)
+            if remaining is not None:
+                remaining -= redirected
+            if (once or (remaining is not None and remaining <= 0)) and effect in controller.player_effects:
+                controller.player_effects.remove(effect)
+            if redirected <= 0 or (not new_is_player and new_recipient not in context.state.permanents()):
+                return event
+            leftover = dealt - redirected
+            if leftover > 0:
+                original_is_player = bool(event.get("is_player", False))
+                original = (
+                    self.state.player_by_id(event.get("target_id")) if original_is_player
+                    else self.state.find_object(event.get("target_id"))
+                )
+                if original is not None:
+                    self.deal_damage(
+                        original, leftover, source=self.state.find_object(event.get("source_id")),
+                        combat=bool(event.get("combat", False)),
+                    )
+            overrides: dict[str, Any] = {
+                "amount": redirected,
+                "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
+                "is_player": new_is_player,
+            }
+            if not new_is_player:
+                overrides["target_controller_id"] = new_recipient.controller_id
+            return event.copy_with(**overrides)
+
+        effect.replacement_fn = _replace
+        controller.player_effects.append(effect)
+
     def prevent_damage_from_source(
         self, source: GameObject, amount: Union[int, str] = "all", rider: Optional[dict] = None,
     ) -> None:
@@ -2182,7 +2264,23 @@ class DamageDeathMixin:
             c in (event.get("source_colors") or ()) for c in wanted_colors_any
         ):
             return
+        # "If damage from a creature source is prevented this way ..." (Comeuppance): gates a rider on the source's type.
+        creature_gate = rider.get("if_source_creature")
+        if creature_gate is not None and bool(event.get("source_is_creature")) != bool(creature_gate):
+            return
         kind = rider.get("kind")
+        if kind == "shield_deals_damage":
+            # "~ deals that much damage to that creature / the source's controller." (Comeuppance, RULE 120.3): the
+            # shield's own permanent (the resolving spell) is the dealer, never the prevented source.
+            source_obj = self.state.find_object(event.get("source_id")) if event.get("source_id") is not None else None
+            if rider.get("to") == "source":
+                recipient_obj = source_obj if source_obj is not None and source_obj.zone == Zone.BATTLEFIELD else None
+            else:
+                controller_id = event.get("source_controller_id")
+                recipient_obj = self.state.player_by_id(controller_id) if controller_id is not None else None
+            if recipient_obj is not None:
+                self.deal_damage(recipient_obj, prevented, source=shield_source)
+            return
         if kind == "reflexive_damage":
             # PAR-139, Phyrexian Vindicator: "…prevent that damage. When damage is prevented this way, ~ deals
             # that much damage to any other target." — a fresh triggered ability (RULE 603.11: its target is
@@ -2206,7 +2304,20 @@ class DamageDeathMixin:
                 counted_on = self.state.find_object(target_id) if target_id is not None else None
             else:
                 counted_on = shield_source
-            if counted_on is not None:
+            if counted_on is not None and rider.get("delayed") == "next_end_step":
+                # "At the beginning of the next end step, put a +0/+1 counter on that creature for each 1 damage
+                # prevented this way." (Sacred Boon, Scars of the Veteran; RULE 603.7): a delayed trigger sized now.
+                from ..binding.core import build_effects  # function-scoped: effects<->binder cycle
+                from ...parser.oracle.spec import EffectSpec
+
+                self.state.delayed_triggers.append(DelayedTrigger(
+                    controller_id=shield_controller_id or counted_on.controller_id, step="end", scope="any",
+                    effects=build_effects([EffectSpec("add_counters", {
+                        "amount": prevented, "kind": str(rider.get("counter", "+1/+1")), "target_kind": "creature",
+                    })], shield_source),
+                    targets=[counted_on], description=f"{getattr(shield_source, 'name', '')}: Marken im Endsegment",
+                ))
+            elif counted_on is not None:
                 self.add_counters(counted_on, prevented, str(rider.get("counter", "+1/+1")), source=shield_source)
             return
         if kind == "add_self_counter":
@@ -2348,15 +2459,17 @@ class DamageDeathMixin:
 
     def _prevent_damage_by_sources(
         self, controller: Player, source_filter: Optional[dict] = None, rider: Optional[dict] = None,
-        shield_source: Optional[GameObject] = None,
+        shield_source: Optional[GameObject] = None, combat_only: bool = False,
     ) -> None:
-        """RULE 615: "Prevent all damage that would be dealt **by creatures** this turn. You gain life equal to the
+        """RULE 615: "Prevent all [combat] damage that would be dealt **by creatures** this turn. You gain life equal to the
         damage prevented this way." (Chant of Vitu-Ghazi) -- every damage event whose *source* matches
         ``source_filter`` is prevented whoever or whatever it hits, so (unlike the recipient shields above) no
         recipient is named. ``rider`` is told the amount actually prevented (`apply_prevent_rider`); the shield
         lives on the resolving spell's controller like every other RULE 615 shield (swept at cleanup)."""
         def _condition(e: GameEvent, c: Any) -> bool:
-            return _damage_source_matches(c.state, e, source_filter, controller.id)
+            return (not combat_only or bool(e.get("combat"))) and _damage_source_matches(
+                c.state, e, source_filter, controller.id,
+            )
 
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
@@ -2418,6 +2531,10 @@ class DamageDeathMixin:
                     return False
                 if recipient_filter.get("attacking") and not target_obj.attacking:
                     return False
+                if recipient_filter.get("object_filter") and not combat.matches_object_filter(
+                    target_obj, recipient_filter["object_filter"], state=self.state,
+                ):
+                    return False  # any characteristic phrase: "dogs you control" (Pack Leader)
             return True
 
         def _condition(e: GameEvent, c: Any) -> bool:

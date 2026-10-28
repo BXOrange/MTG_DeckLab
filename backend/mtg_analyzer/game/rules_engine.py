@@ -599,7 +599,8 @@ class RulesEngine(
     ) -> Optional[GameEvent]:
         current: Optional[GameEvent] = event
         # RULE 615.12: turn flag or standing static (shared helper).
-        prevention_disabled = self.damage_prevention_is_disabled()
+        damage_source = self.state.find_object(event.get("source_id")) if event.get("source_id") is not None else None
+        prevention_disabled = self.damage_prevention_is_disabled(damage_source, bool(event.get("combat")))
         while current is not None:
             applicable = [
                 effect

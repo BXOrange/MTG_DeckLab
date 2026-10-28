@@ -491,9 +491,13 @@ class PreventDamageEffect(GameEffect):
         attached_only: bool = False,
         previous_subject: bool = False,
         by_sources_only: bool = False,
+        and_dealt_by: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "Prevent all combat damage that would be dealt to **and dealt by** that creature this turn." (Maze of Ith,
+        #: Fog Bank, PAR-216): the recipient shield below plus the same creature's own combat damage (RULE 615.1).
+        self.and_dealt_by = bool(and_dealt_by)
         #: "Prevent all damage that would be dealt **by creatures** this turn." (Chant of Vitu-Ghazi, PAR-215): no
         #: recipient at all, only ``source_filter`` decides what is prevented (`RulesEngine._prevent_damage_by_sources`).
         self.by_sources_only = bool(by_sources_only)
@@ -564,12 +568,38 @@ class PreventDamageEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        self._apply_shield(context, targets)
+        if not self.and_dealt_by:
+            return
+        # RULE 615 / 514.2: the dealt-by half is the creature's own turn-scoped flag (`RulesEngine.deal_damage` reads it).
+        if self.attached_only:
+            host_id = getattr(self.source, "attached_to", None)
+            subjects = [context.state.find_object(host_id)] if host_id is not None else []
+        elif self.previous_subject:
+            subjects = list(context.previous_targets)[:1]
+        elif self.self_only:
+            subjects = [self.source]
+        elif self.target_spec is not None:
+            subjects = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+        else:
+            subjects = []
+        for obj in subjects:
+            if obj is not None and hasattr(obj, "instance_id"):
+                obj.temp_prevent_combat_damage_dealt = True
+
+    def _apply_shield(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         amount = self._measured(self.amount, context, targets)
         if self.by_sources_only:
             player = _controller_of(self.source, context)
             if player is not None:
+                source_filter = dict(self.source_filter or {})
+                if source_filter.pop("other", False) and self.source is not None:
+                    # "other creatures" (Haze Frog): every source but this ability's own permanent.
+                    source_filter["object_filter"] = {
+                        **source_filter.get("object_filter", {}), "without_instance_id": self.source.instance_id,
+                    }
                 context.engine._prevent_damage_by_sources(
-                    player, self.source_filter, rider=self.rider, shield_source=self.source,
+                    player, source_filter, rider=self.rider, shield_source=self.source, combat_only=self.combat_only,
                 )
             return
         if self.attached_only:
@@ -1099,6 +1129,79 @@ class RedirectDamageToTargetCreatureEffect(GameEffect):
             context.engine.redirect_damage_from_target(self.source, target, self.amount)
 
 
+class RedirectDamageShieldEffect(GameEffect):
+    """RULE 616.1: a turn-scoped one-shot damage redirect -- "the next N damage that would be dealt to `<protected>` this
+    turn is dealt to `<recipient>` instead" (Zealous Inquisitor, Vassal's Duty, Ward of Piety), "all [combat] damage that
+    would be dealt to `<protected>` this turn is dealt to `<recipient>` instead" (Sivvi's Valor, Turn the Tables) and "the
+    next time damage would be dealt to `<protected>` this turn, that damage is dealt to `<recipient>` instead"
+    (Mirrorwood Treefolk, ``once``).
+
+    ``protected`` is ``"self"`` / ``"you"`` / ``"you_and_self"`` / ``"you_and_permanents"`` / ``"attached"`` /
+    ``"target"`` (RULE 115, ``target_kind`` + ``creature_filter``); ``recipient`` is ``"self"`` / ``"you"`` /
+    ``"attached"`` / ``"target"``. At most one of the two is a target. A finite ``amount`` is a budget: a hit larger than
+    what is left redirects only the remainder and the rest lands on the original recipient (RULE 616.1). A redirect is
+    not a prevention (RULE 615), so it is not marked ``prevents_damage``. ``source_filter`` narrows the damage source with
+    the standing-shield vocabulary (`replacements._source_relation_matches`: ``unblocked``, ``object_filter`` ...).
+    """
+
+    def __init__(
+        self,
+        amount: Any = "all",
+        protected: str = "self",
+        recipient: str = "self",
+        target_kind: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
+        optional: bool = False,
+        once: bool = False,
+        combat_only: bool = False,
+        source_filter: Optional[dict] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.protected = protected
+        self.recipient = recipient
+        self.once = bool(once)
+        self.combat_only = bool(combat_only)
+        self.source_filter = dict(source_filter or {})
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional, creature_filter=creature_filter)
+            if target_kind is not None else None
+        )
+
+    def _resolve(self, role: str, context: GameContext, controller: Any, chosen: list[Any]) -> Any:
+        if role == "target":
+            return chosen[0] if chosen else None
+        if role == "you":
+            return controller
+        if role == "attached":
+            host_id = getattr(self.source, "attached_to", None)
+            return context.state.find_object(host_id) if host_id is not None else None
+        return self.source
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        chosen = _chosen_targets(targets, 1, None) if self.target_spec is not None else []
+        recipient = self._resolve(self.recipient, context, controller, chosen)
+        if recipient is None:
+            return
+        protected_ids: set[Any] = set()
+        scope_permanents = self.protected == "you_and_permanents"
+        if self.protected in ("you", "you_and_self", "you_and_permanents"):
+            protected_ids.add(controller.id)
+        if self.protected in ("self", "you_and_self", "attached", "target"):
+            obj = self._resolve("self" if self.protected == "you_and_self" else self.protected, context, controller, chosen)
+            if obj is None:
+                return
+            protected_ids.add(obj.instance_id)
+        context.engine._redirect_damage_shield(
+            controller, self.source, recipient, protected_ids, scope_permanents,
+            amount=self.amount, once=self.once, combat_only=self.combat_only, source_filter=self.source_filter,
+        )
+
+
 class ChooseSourceCoinFlipEffect(GameEffect):
     """"Choose a source you control and flip a coin. If you win the flip,
     the next time that source would deal damage this turn, it deals
@@ -1156,12 +1259,15 @@ class PreventDamageFromTargetEffect(GameEffect):
         amount: Any = "all",
         rider: Any = None,
         source: Optional["GameObject"] = None,
+        spell_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.amount = amount
         self.rider = list(rider) if isinstance(rider, list) else (dict(rider) if rider else None)
-        self.target_spec = TargetSpec(kind=target_kind, count=count)
+        #: "prevent all damage target instant or sorcery spell would deal this turn" (Hallow, PAR-216): the source is a
+        #: spell on the stack, narrowed by `targeting.TargetSpec.spell_filter`.
+        self.target_spec = TargetSpec(kind=target_kind, count=count, spell_filter=spell_filter)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)

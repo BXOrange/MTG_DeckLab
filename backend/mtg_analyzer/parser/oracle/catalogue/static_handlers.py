@@ -5719,6 +5719,29 @@ def _static_players_cant_gain_life(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: PAR-216, RULE 615.12: the scoped forms of "damage can't be prevented" -- the damage source named by "that would be dealt
+#: by `<source>`" and/or the combat qualifier. ``source`` is the engine's closed scope vocabulary
+#: (`continuous.damage_prevention_globally_disabled`).
+_DAMAGE_CANT_BE_PREVENTED_RE = re.compile(
+    r"(?P<combat>combat )?damage(?: that would be dealt by (?P<source>~|creatures you control))? can't be prevented"
+)
+_UNPREVENTABLE_SOURCE_SCOPES: dict[str, str] = {"~": "self", "creatures you control": "your_creatures"}
+
+
+def _static_damage_cant_be_prevented(ctx: StaticContext) -> StaticResult:
+    # "Damage can't be prevented." (Leyline of Punishment, Sunspine Lynx) -- the standing, board-wide prohibition
+    # `continuous.damage_prevention_globally_disabled` reads live (Everlasting Torment's own effect).
+    m = _DAMAGE_CANT_BE_PREVENTED_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    params: dict[str, object] = {}
+    if m.group("combat"):
+        params["combat_only"] = True
+    if m.group("source"):
+        params["source"] = _UNPREVENTABLE_SOURCE_SCOPES[m.group("source")]
+    return [EffectSpec("damage_cant_be_prevented", params)]
+
+
 def _static_skip_your_step(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _SKIP_YOUR_STEP_RE.fullmatch(text)
@@ -7118,6 +7141,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("skip_untap_steps", _static_skip_untap_steps),
     StaticMatcher("players_cant_draw", _static_players_cant_draw),
     StaticMatcher("players_cant_gain_life", _static_players_cant_gain_life),
+    StaticMatcher("damage_cant_be_prevented", _static_damage_cant_be_prevented),
     StaticMatcher("skip_your_step", _static_skip_your_step),
     StaticMatcher("graveyard_library_cast_prohibition", _static_graveyard_library_cast_prohibition),
     StaticMatcher("graveyard_library_entry_prohibition", _static_graveyard_library_entry_prohibition),

@@ -119,8 +119,13 @@ class DealDamageEffect(GameEffect):
         dealer_event_key: Optional[str] = None,
         dealer_subject: Optional[str] = None,
         per_player: Optional[str] = None,
+        excess_to_controller: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Excess damage is dealt to that creature's controller instead." (Flame Spill, Pigment Storm; RULE 120.4a +
+        #: 614.1): a creature recipient takes only lethal damage (1 from a deathtouch source, RULE 702.2c) and the rest
+        #: is dealt to its controller by the same source.
+        self.excess_to_controller = bool(excess_to_controller)
         #: ``"previous_target"`` — "**target enchantment** deals damage equal to its mana value to its controller"
         #: (Enchanter's Bane): the object an earlier clause targeted is the damage's source, not this ability's.
         self.dealer_subject = dealer_subject
@@ -633,10 +638,21 @@ class DealDamageEffect(GameEffect):
             and self.target_spec.count == 1 and not self.target_spec.optional
         )
         for target in chosen:
+            amount = self._amount_for(target, context)
+            excess = 0
+            if self.excess_to_controller and getattr(target, "is_creature", False) and hasattr(target, "instance_id"):
+                from .. import combat  # function-scoped: combat is a leaf module, avoid load-order cycles
+
+                lethal = 1 if combat.has_deathtouch(self.source) else max(0, (target.toughness or 0) - (target.damage_marked or 0))
+                excess = max(0, amount - lethal)
+                amount -= excess
             context.deal_damage(
-                target, self._amount_for(target, context), self.source,
+                target, amount, self.source,
                 single_target_hint=single_target_hint,
             )
+            if excess:
+                owner = context.state.player_by_id(target.controller_id)
+                context.deal_damage(owner, excess, self.source)
             if self.tap_target_if_colorless and getattr(target, "is_creature", False):
                 colors = {str(c).upper() for c in (getattr(target, "colors", None) or set())}
                 if not colors.intersection({"W", "U", "B", "R", "G"}):

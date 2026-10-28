@@ -449,6 +449,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "random_number": "random_number",
     "recruit": "recruit",
     "redirect_damage_to_target_creature": "redirect_damage",
+    "redirect_damage_shield": "redirect_damage",  # PAR-216: the general one-shot redirect (RULE 616.1)
     "regenerate": "regenerate",
     "remove_counters": "remove_counter",
     "roll_die": "roll_die",

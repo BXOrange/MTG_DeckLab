@@ -110,6 +110,7 @@ EffectRegistry.register(
         dealer_event_key=p.get("dealer_event_key"),
         dealer_subject=p.get("dealer_subject"),
         per_player=p.get("per_player"),
+        excess_to_controller=bool(p.get("excess_to_controller", False)),
     ),
 )
 EffectRegistry.register(
@@ -583,6 +584,17 @@ EffectRegistry.register(
         attached_only=bool(p.get("attached_only", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         by_sources_only=bool(p.get("by_sources_only", False)),
+        and_dealt_by=bool(p.get("and_dealt_by", False)),
+    ),
+)
+EffectRegistry.register(
+    # RULE 616.1 one-shot redirect "the next N damage that would be dealt to X this turn is dealt to Y instead" (PAR-216).
+    "redirect_damage_shield",
+    lambda p: RedirectDamageShieldEffect(
+        amount=p.get("amount", "all"), protected=p.get("protected", "self"), recipient=p.get("recipient", "self"),
+        target_kind=p.get("target_kind"), creature_filter=p.get("creature_filter"),
+        optional=bool(p.get("optional", False)), once=bool(p.get("once", False)),
+        combat_only=bool(p.get("combat_only", False)), source_filter=p.get("source_filter"),
     ),
 )
 EffectRegistry.register(
@@ -718,6 +730,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         amount=p.get("amount", "all"),
         rider=p.get("rider"),
+        spell_filter=p.get("spell_filter"),
     ),
 )
 EffectRegistry.register(
@@ -4661,7 +4674,11 @@ EffectRegistry.register(
     # `continuous.damage_prevention_globally_disabled`, the same "not a RULE
     # 613 layer, read off the battlefield" shape as `prevent_all_life_gain`.
     "damage_cant_be_prevented",
-    lambda p: StaticAbility("damage_prevention_prohibition", affects="all", params={}),
+    # PAR-216: ``combat_only`` / ``source`` ("self" | "your_creatures") scope it (Frenzied Baloth, Excruciator, Questing Beast).
+    lambda p: StaticAbility(
+        "damage_prevention_prohibition", affects="all",
+        params={k: p[k] for k in ("combat_only", "source") if p.get(k)},
+    ),
 )
 EffectRegistry.register(
     # "All damage is dealt as though its source had wither." (Everlasting

@@ -4846,17 +4846,36 @@ def life_gain_prohibited_for(state: "GameState", player: "Player") -> bool:
     return False
 
 
-def damage_prevention_globally_disabled(state: "GameState") -> bool:
+def damage_prevention_globally_disabled(
+    state: "GameState", source: Optional["GameObject"] = None, combat: bool = False,
+) -> bool:
     """"Damage can't be prevented." (Everlasting Torment) — a standing
     battlefield static making RULE 615 prevention shields inert while it is
     on the battlefield, the board-permanent sibling of the turn-scoped
     `GameState.damage_prevention_disabled`. Consulted by
     `RulesEngine._run_replacement_loop`. Same "live battlefield read, no
     separate lifecycle" shape as `life_gain_prohibited_for`.
+
+    PAR-216: a scoped static narrows it by ``params`` -- ``combat_only`` ("combat damage can't be prevented", Frenzied
+    Baloth) and ``source`` (``"self"``: "damage that would be dealt by ~", Excruciator; ``"your_creatures"``: "that would
+    be dealt by creatures you control", Questing Beast). A scoped static answers only for the damage ``source``/``combat``
+    describe, so a caller with no damage in hand (``source=None``) gets the unscoped statics alone.
     """
     for ability in _battlefield_static_abilities(state):
-        if ability.layer == "damage_prevention_prohibition":
-            return True
+        if ability.layer != "damage_prevention_prohibition":
+            continue
+        params = ability.params or {}
+        if params.get("combat_only") and not combat:
+            continue
+        scope = params.get("source")
+        if scope == "self" and (source is None or source is not ability.source):
+            continue
+        if scope == "your_creatures" and (
+            source is None or not source.is_creature
+            or source.controller_id != getattr(ability.source, "controller_id", None)
+        ):
+            continue
+        return True
     return False
 
 

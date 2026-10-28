@@ -58,6 +58,7 @@ hand_size_modifier
 skip_untap_steps
 players_cant_draw
 players_cant_gain_life
+damage_cant_be_prevented
 skip_your_step
 graveyard_library_cast_prohibition
 graveyard_library_entry_prohibition

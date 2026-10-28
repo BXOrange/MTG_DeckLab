@@ -31,6 +31,7 @@ from .object_phrase import ambiguous_object_reference, object_phrase_specs
 from .effect_rows.shared import EffectHandler, match_clause_reading
 from .clause_hooks import register_clause_matcher
 from .effect_rows import damage_copy
+from .effect_rows import damage_prevention
 from .effect_rows import draw_discard_cast
 from .effect_rows import life_loss
 from .effect_rows import destroy_exile_counter
@@ -190,6 +191,8 @@ HANDLERS: list[EffectHandler] = [
     *party.ROWS,
     *end_of_combat.ROWS,
     *delayed_steps.ROWS,
+    # PAR-216: last, so it only ever claims clauses no older row reads (the older en-Kor redirect row keeps its IR).
+    *damage_prevention.ROWS,
 ]
 
 

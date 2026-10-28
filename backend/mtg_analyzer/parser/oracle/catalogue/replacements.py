@@ -36,6 +36,7 @@ import re
 from typing import Optional
 
 from ..spec import EffectSpec
+from .prevention_statics import prevention_static_specs
 from .subgrammars import COLOR_LETTERS
 
 #: Colour words → their WUBRG symbol (`additional_damage`'s single-colour
@@ -574,7 +575,7 @@ def _standing_prevent_count_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
 REPLACEMENT_CLAUSE_EFFECT_TYPES: frozenset[str] = frozenset({
     "additional_damage", "additional_named_token", "die_to_exile", "double_counters", "double_damage",
     "double_tokens", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
-    "roll_dice_modifier", "win_instead_of_empty_draw",
+    "redirect_damage", "roll_dice_modifier", "win_instead_of_empty_draw",
 })
 
 
@@ -720,4 +721,5 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
         if spec is not None:
             return [spec]
 
-    return None
+    # PAR-216: the open object-phrase grammar behind the closed vocabulary above (combat/noncombat, hosts, redirects).
+    return prevention_static_specs(text)

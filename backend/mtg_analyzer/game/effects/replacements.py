@@ -6,6 +6,52 @@ from ._runtime import install, register
 
 install(globals())
 
+
+#: PAR-216: the source-side vocabulary of a standing damage shield that is relative to the shield's own permanent or
+#: to an arbitrary object class, kept out of `_prevent_damage_replacement` so the redirect sibling reuses it.
+def _source_relation_matches(source_filter: dict, event: GameEvent, context: GameContext, shield_source: Any) -> bool:
+    """Whether the DAMAGE event's source satisfies ``source_filter``'s relational keys.
+
+    ``attached`` -- the damage source is the permanent ``shield_source`` is attached to ("damage that would be dealt
+    by enchanted creature", RULE 303.4); ``self_source`` -- it is the shield's own permanent ("damage that ~ would
+    deal"); ``blocked_by_self`` / ``blocking_self`` -- a creature ``shield_source`` is blocking / that is blocking it
+    (RULE 509.1); ``unblocked`` -- an attacking creature no creature blocks (RULE 509.1h); ``object_filter`` -- any
+    `combat.matches_object_filter` class; ``max_amount`` -- only a hit of at most that much ("if a source would deal
+    3 or less damage to ~", the amount the event carries).
+    """
+    object_keys = ("attached", "self_source", "blocked_by_self", "blocking_self", "unblocked", "object_filter")
+    if source_filter.get("max_amount") is not None and int(event.get("amount", 0) or 0) > int(source_filter["max_amount"]):
+        return False
+    if not any(source_filter.get(k) for k in object_keys):
+        return True
+    source_id = event.get("source_id")
+    src_obj = context.state.find_object(source_id) if source_id is not None else None
+    if src_obj is None or shield_source is None:
+        return False
+    if source_filter.get("attached") and src_obj.instance_id != getattr(shield_source, "attached_to", None):
+        return False
+    if source_filter.get("self_source") and src_obj.instance_id != shield_source.instance_id:
+        return False
+    if source_filter.get("blocked_by_self") and src_obj.instance_id not in (
+        [shield_source.blocking, *shield_source.additional_blocking]
+    ):
+        return False
+    if source_filter.get("blocking_self") and shield_source.instance_id not in (
+        [src_obj.blocking, *src_obj.additional_blocking]
+    ):
+        return False
+    if source_filter.get("unblocked") and not (src_obj.attacking and not src_obj.blocked_by):
+        return False
+    if source_filter.get("object_filter"):
+        from .. import combat  # local: avoid the combat<->effects import cycle
+
+        if not combat.matches_object_filter(
+            src_obj, source_filter["object_filter"], reference=shield_source, state=context.state,
+        ):  # reference: "of the chosen color" reads the shield permanent
+            return False
+    return True
+
+
 def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """A standing damage-prevention shield (RULE 615/616.1) — the *permanent*
     sibling of `PreventDamageEffect`'s one-shot spell grant (registered
@@ -147,7 +193,10 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
                 return True
             from .. import combat  # local: avoid the combat<->effects import cycle
 
-            return combat.matches_object_filter(target_obj, recipient_filter)
+            resolved_filter = dict(recipient_filter)
+            if resolved_filter.pop("exclude_self", False) and src is not None:
+                resolved_filter["without_instance_id"] = src.instance_id  # "other creatures you control"
+            return combat.matches_object_filter(target_obj, resolved_filter)
         if to in ("any_player", "opponent_player"):
             return _recipient_entry_matches(to, event, context, src)
         if to == "any":
@@ -208,6 +257,8 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
                 for o in context.state.permanents()
             ):
                 return False
+        if not _source_relation_matches(source_filter, event, context, src):
+            return False
         controller = source_filter.get("controller")
         if controller is not None:
             shield_controller_id = getattr(src, "controller_id", None)
@@ -1513,7 +1564,65 @@ class ReplacementRegistry:
         return name in cls._factories
 
 
+def _redirect_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """A standing damage *redirect* (RULE 614.1/616.1): "all damage that would be dealt to `<recipient>` [by `<source>`]
+    is dealt to `<X>` instead" (Empyrial Archangel, Pariah, Palisade Giant, Veteran Bodyguard, Treacherous Link).
+
+    ``to`` / ``recipient_filter`` / ``recipient_union`` / ``source_filter`` pick the damage exactly as
+    `_prevent_damage_replacement` does (the match is that factory's own predicate, so the two vocabularies cannot
+    drift). ``redirect_to`` names the new recipient, read off the shield's own permanent: ``"self"`` (the permanent
+    itself), ``"attached_permanent"`` (an Aura/Equipment's host) or ``"recipient_controller"`` (the controller of the
+    permanent that would have been damaged, Treacherous Link). The amount is unchanged and the event stays a damage
+    event, so it is not a prevention and "damage can't be prevented" does not stop it (RULE 615 vs 616.1). A new
+    recipient that is not a permanent on the battlefield any more leaves the damage where it was.
+    """
+    redirect_to = params.get("redirect_to", "self")
+    matcher = _prevent_damage_replacement({k: v for k, v in params.items() if k not in ("redirect_to", "rider", "amount")})
+    effect = ReplacementEffect(
+        event_type=EventType.DAMAGE,
+        replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+        description=str(params.get("description", "redirect damage")),
+    )
+
+    def _new_recipient(event: GameEvent, context: GameContext) -> Any:
+        src = effect.source
+        if redirect_to == "recipient_controller":
+            target = context.state.find_object(event.get("target_id"))
+            controller_id = getattr(target, "controller_id", None)
+            return context.state.player_by_id(controller_id) if controller_id is not None else None
+        if redirect_to == "attached_permanent":
+            host_id = getattr(src, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+        else:
+            host = src
+        if host is None or host not in context.state.permanents():
+            return None
+        return host
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        recipient = _new_recipient(event, context)
+        if recipient is None:
+            return event
+        is_player = not hasattr(recipient, "instance_id")
+        new_id = recipient.id if is_player else recipient.instance_id
+        if new_id == event.get("target_id") and is_player == bool(event.get("is_player")):
+            return event
+        overrides: dict[str, Any] = {"target_id": new_id, "is_player": is_player}
+        if not is_player:
+            overrides["target_controller_id"] = recipient.controller_id
+        return event.copy_with(**overrides)
+
+    def _applies(event: GameEvent, context: GameContext) -> bool:
+        matcher.source = effect.source  # the predicate reads its shield's source off its own effect object
+        return bool(matcher.condition(event, context))
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e -- see _prevent_damage_replacement
+    return effect
+
+
 ReplacementRegistry.register("prevent_damage", _prevent_damage_replacement)
+ReplacementRegistry.register("redirect_damage", _redirect_damage_replacement)
 ReplacementRegistry.register("prevent_damage_convert_counters", _prevent_damage_convert_counters_replacement)
 ReplacementRegistry.register("double_damage", _double_damage_replacement)
 ReplacementRegistry.register("additional_damage", _additional_damage_replacement)

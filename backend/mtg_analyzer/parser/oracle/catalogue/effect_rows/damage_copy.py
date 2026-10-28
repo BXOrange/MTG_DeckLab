@@ -1193,6 +1193,10 @@ def _parse_prevent_source_filter(phrase: str) -> Optional[dict]:
     return {'object_filter': filt, **({'controller': controller} if controller else {})}
 
 
+#: PAR-216: the damage-source phrase grammar, shared with `effect_rows.damage_prevention`.
+parse_prevent_source_filter = _parse_prevent_source_filter
+
+
 #: PAR-78: bare self — "Prevent all damage that would be dealt to
 #: `<~/this creature/this permanent>`[ this turn][ **by** `<source
 #: filter>`]." (Cho-Manno, Revolutionary/Dawn Elemental/Argothian Pixies/
@@ -1240,7 +1244,7 @@ def _prevent_all_damage_by_sources(m: re.Match[str]) -> Optional[list[EffectSpec
 #: Deep Wood/Scarecrow/Eerie Interference/…).
 _PREVENT_ALL_DAMAGE_YOU_RE = compile_clause(
     r"prevent all damage that would be dealt to you"
-    r"(?: and (?P<scope>creatures|permanents) you control)?"
+    r"(?: and (?P<scope>creatures|permanents|planeswalkers) you control)?"
     r"(?: this turn)?"
     rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
 )
