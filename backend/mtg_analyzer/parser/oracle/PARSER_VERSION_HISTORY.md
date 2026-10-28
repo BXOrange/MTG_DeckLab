@@ -4444,3 +4444,12 @@ including Ayara's Oathsworn's four-counter search threshold.
 "806": PAR-219 — shared name operands for object filters, named and same-name searches, and cast prohibitions. Named criteria accept internal punctuation without swallowing instruction boundaries; library and multi-zone searches share type/color/name/value criteria. Search names bind targeted or contextual references before the choice. Linked-name readers stamp exile producers with exact source/card visits. Same-name damage groups compose the existing target-group primitive; optional search/shuffle sentences remain together in longer sequences.
 
 "807": PAR-219 validation — a named search alternative followed by an independently qualified card phrase composes criteria OR, preserving the second branch's type restriction (Forging the Tyrite Sword). An unknown alternative declines the whole handler.
+
+## Versions 808–809 — PAR-222: per-player scopes
+
+Phase bodies reuse the targeted-player and acting-player grammars while keeping
+separate controller instructions. Qualified player sets reuse state predicates
+in PAR-211 loops. Resolution-local discard/draw/sacrifice outcomes capture an
+current-turn event cursor through the existing `bind` node into continuation
+specs; later payoffs filter the shared player set by actual actions, including
+typed discards, after all antecedent choices.

@@ -14,9 +14,14 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-28 at PARSER_VERSION 807: **23,900 / 35,051 cards (68.2%)**,
+Measured on 2026-10-28 at PARSER_VERSION 809: **23,913 / 35,051 cards (68.2%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,283 / 32,068 (72.6%)**.
+Commander-legal coverage: **23,296 / 32,068 (72.6%)**.
+PAR-222 composes phase-player instructions and qualified player sets through
+the shared quantifier scopes. Resolution-local action payoffs bind a clone-stable
+current-turn event cursor and wait for all antecedent choices. Against v807,
+the complete pool gains **13 covered names, zero lost**; unsupported conditions
+and action bodies remain fail-closed.
 PAR-219 adds shared name operands to object filters, same-name searches and
 cast prohibitions, including linked exile visits; named searches accept internal
 commas and reuse one criteria grammar across library and combined-zone searches.

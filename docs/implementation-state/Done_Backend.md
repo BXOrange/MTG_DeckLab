@@ -1972,6 +1972,29 @@ Copies use the existing spell-copy primitive and do not count as casts.
   operation and the now-supported operation executes in the family test. All **3** proxy
   tests pass separately with loopback permission.
 
+- **Per-player phase and payoff scopes (PAR-222, PARSER_VERSION 808–809):**
+  Phase bodies compose the existing targeted/acting-player grammars: “that player”
+  names the player whose step it is, while separate “you” instructions retain the
+  ability controller. Phase edicts announce no player target and keep the actual
+  player's sacrifice choice through clone/undo. Qualified PAR-211 player sets
+  evaluate shared state predicates separately for each candidate before the payoff
+  begins. This includes control filters, life-loss history, spell casting and Raid.
+  Draw/discard/sacrifice follow-ups bind an `event_cursor` with the existing `bind`
+  node. Payoffs then select players by actual events in that instruction's window,
+  including typed discards and inability to perform the antecedent, after all
+  players' choices; earlier actions that turn do not count. The cursor is serialized
+  into continuation specs, rather than stored on the source. Unsupported action
+  bodies, rival player references and unbound outcome qualifications fail closed.
+  `test_par222_player_scopes.py` covers multiplayer identities, optional decisions,
+  exact outcome counts, clone/resume (including pruned prior-turn events) and
+  real-card execution (**29 tests**). Pool comparison: **13 newly covered names,
+  zero lost**. Coverage **23,913/35,051 (68.2%)**, Commander **23,296/32,068 (72.6%)**.
+  Final regular suite: **17,568 passed, 487 skipped**. Broad full-cache run:
+  **18,046 passed, 1 skipped**; its five pre-fix/sandbox failures (import graph,
+  version lock, obsolete mixed-player rejection and two loopback tests) pass in
+  the final **267 focused full-cache checks** and **3 proxy checks**. No unresolved
+  failures remain.
+
 - **Shared base grammar atoms (PAR-209, PARSER_VERSION 778–779):**
   Shared target-adjective intersections preserve stacked restrictions and carry state filters
   into both Fight targets. Fixed duration atoms are reused by base-P/T grants, keyword grants

@@ -80,6 +80,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
     {
         # A plain number, so a body can be written uniformly whether its
         # magnitude is measured or printed.
+        "event_cursor",  # RULE 608.2c: this instruction's serializable event-window start
         "physical_property",  # an explicitly observed printing/face fact
         "fixed",  # + ``amount``
         # RULE 109.3 off a referent — the ``<who>_<char>`` grammar
@@ -354,6 +355,10 @@ def _base(
         if isinstance(raw, bool) or not isinstance(raw, int):
             return 0
         return int(raw)
+
+    if kind == "event_cursor":
+        # Clone/undo prunes older turns; a current-turn ordinal stays stable.
+        return sum(1 for _ in context.state.events_this_turn())
 
     if kind == "event_count":
         from .static_conditions import _events_this_turn_matching

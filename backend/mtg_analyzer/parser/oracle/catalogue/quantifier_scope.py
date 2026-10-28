@@ -11,6 +11,7 @@ from typing import Optional
 
 from .clause_reading import ClauseReading, PLAYER, TARGET
 from .count_phrase import parse_count_phrase
+from .clause_hooks import static_condition
 from ..spec import EffectSpec
 
 PLAYER_SETS = {
@@ -58,6 +59,9 @@ def quantified_set(text: str, reading: ClauseReading) -> Optional[dict]:
         if scope['players'] == 'each_other_player' and any(r.kind == PLAYER for r in reading.referents):
             scope['except_player_ref'] = 'previous_player'
         return scope
+    players = qualified_player_set(text)
+    if players is not None:
+        return players
     match = re.fullmatch(r'(?:each|all) (?P<noun>.+)', text)
     if match is None:
         return None
@@ -100,3 +104,35 @@ def per_member_amount_specs(text: str, parse) -> Optional[list]:
     bound = EffectSpec('bind', {**params, 'amount': {**amount, 'of': 'target'}})
     return [EffectSpec('for_each', {'over': quantified_set(member.group(), ClauseReading()),
                                    'effects': [bound.to_dict()]})]
+
+
+def qualified_player_set(text: str) -> Optional[dict]:
+    """RULE 608.2h: select players by a predicate at this instruction's start.
+
+    Reuse the standing condition vocabulary with each candidate as "you".
+    Resolution-local "this way" outcomes deliberately require their own record.
+    """
+    match = re.fullmatch(r'(?P<set>each (?:other player|player|opponent)) who (?P<cond>.+)', text)
+    if match is None:
+        return None
+    condition = match['cond']
+    if re.search(r'\b(?:you|your|this way|that|those|them|it)\b', condition):
+        return None
+    history = re.fullmatch(r'lost (?:(?P<n>\d+) or more )?life this turn', condition)
+    if history:
+        predicate = {'kind': 'life_lost_this_turn', 'scope': 'you', 'min': int(history['n'] or 1)}
+    elif condition == 'cast a spell this turn':
+        predicate = {'kind': 'cast_spell_this_turn'}
+    else:
+        condition = re.sub(r'^has ', 'have ', condition)
+        condition = re.sub(r"^doesn't ", "don't ", condition)
+        condition = re.sub(r'^controls\b', 'control', condition)
+        condition = re.sub(r'\btheir\b', 'your', condition)
+        predicate = static_condition('you ' + condition)
+    if predicate is None and condition.startswith("don't control "):
+        positive = static_condition('you control ' + condition[len("don't control "):])
+        if positive is not None:
+            predicate = {'kind': 'not', 'condition': positive}
+    if predicate is None:
+        return None
+    return {'players': PLAYER_SETS[match['set']], 'player_condition': predicate}

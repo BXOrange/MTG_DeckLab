@@ -869,6 +869,34 @@ class ForEachEffect(_CompositeEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         items = self._items(context, targets)
+        # RULE 608.2h: snapshot the qualified player set before any member's
+        # instruction changes state; "you" in the payoff remains unchanged.
+        result = self.over.get("action_result")
+        if isinstance(result, dict):
+            start = result.get("start")
+            event_type = result.get("event")
+            if not isinstance(start, int) or start < 0 or event_type not in ('DISCARD_CARD', 'DRAW', 'SACRIFICE', 'LIBRARY_SEARCHED'):
+                return
+            counts = {}
+            events = list(context.state.events_this_turn())
+            for event in list(reversed(events))[start:]:
+                if event.type != event_type:
+                    continue
+                types = event.get('object_types') or []
+                card_type = result.get('card_type')
+                if card_type and ((card_type.removeprefix('non') in types) == card_type.startswith('non')):
+                    continue
+                player_id = event.get('player_id')
+                counts[player_id] = counts.get(player_id, 0) + 1
+            minimum = result.get('count', 1)
+            items = [p for p in items if (counts.get(p.id, 0) >= minimum) != bool(result.get('negated'))]
+        predicate = self.over.get("player_condition")
+        if predicate is not None:
+            from ..static_conditions import condition_holds
+
+            items = [p for p in items if hasattr(p, "life") and condition_holds(
+                predicate, context.state, self.source, p.id,
+            )]
         if not items or not self.inner_specs:
             return
         # RULE 603.2c: a plural object action is one instruction even if a member opens a choice.

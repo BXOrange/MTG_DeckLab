@@ -55,7 +55,7 @@ from .catalogue.per_creature_payment import per_creature_payment_specs
 from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
-from .catalogue.quantifier_scope import PLAYER_SETS, quantified_set, per_member_amount_specs
+from .catalogue.quantifier_scope import PLAYER_SETS, quantified_set, per_member_amount_specs, qualified_player_set
 from .catalogue.object_phrase import object_phrase_specs, conditional_object_specs
 from .catalogue import inspection as _inspection  # module handle: the PAR-213 spec audit toggles its parser
 from .catalogue.name_reference import same_name_specs
@@ -1119,17 +1119,33 @@ def _active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
         yours = parse_effect_body(split_players.group("yours"))
         if theirs is not None and yours is not None:
             return theirs + yours
-    # RULE 504 / 109.5: a phase's "that player" is the player whose turn
-    # it is. Reuse second-person bodies, including optional choices and
-    # linked instructions, while retaining the actual ability controller.
-    # Explicit "you" or a target would introduce another player referent.
     if rest.startswith("that player ") and not re.search(r"\b(?:you|your|target)\b", rest):
+        targeted = parse_effect_body('target player ' + rest[len('that player '):])
+        if targeted and all(
+            [spec.params[k] for k in TARGET_PARAM_KEYS if spec.params.get(k) is not None] == ['player']
+            for spec in targeted
+        ):
+            return [EffectSpec('trigger_subject_referent', {
+                'referent': 'active_player', 'effects': [e.to_dict() for e in targeted],
+            })]
+    # RULE 109.5 / 608.2c: scope only instructions addressed to the step
+    # player. A separate "you" instruction keeps the ability controller.
+    pieces = re.split(r"\.\s+| and (?=you\b)|,? then (?=you\b)", rest.rstrip("."))
+    if len(pieces) > 1 and re.search(r"\b(?:you|your)\b", rest):
+        effects = []
+        for piece in pieces:
+            parsed = _active_player_phase_body(piece) or parse_effect_body(piece)
+            if parsed is None:
+                return None
+            effects.extend(parsed)
+        return effects
+    if re.match(r"^(?:that player|they)\b", rest) and not re.search(r"\b(?:you|your|target)\b", rest):
         rewritten = re.sub(r"\bthat player\b|\bthey\b", "you", rest)
         rewritten = re.sub(r"\btheir\b", "your", rewritten)
-        rewritten = re.sub(r"\byou (draws|loses|gains|searches|puts|discards|shuffles)\b",
+        rewritten = re.sub(r"\byou (?!may\b)([a-z]+)\b",
                            lambda m: "you " + base_verb(m.group(1)), rewritten)
-        rewritten = re.sub(r"\bthen (draws|discards)\b",
-                           lambda m: "then " + base_verb(m.group(1)), rewritten)
+        rewritten = re.sub(r"\bthen (draws|discards)\b", lambda m: "then " + base_verb(m[1]), rewritten)
+        rewritten = re.sub(r"\bif (?:the player|you) does?\b", "if you do", rewritten)
         effects = parse_effect_body(rewritten)
         if effects is not None:
             return [EffectSpec("trigger_subject_referent", {
@@ -5577,11 +5593,77 @@ _PLAYER_SCOPE_SUBJECT_RE = re.compile(
 )
 
 
+def _player_action_outcome_specs(body: str, reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    """Bind a qualified payoff to the preceding shared player instruction."""
+    match = re.fullmatch(
+        r"(?P<before>each (?:other player|player|opponent) (?:may )?"
+        r"(?P<verb>discards?|draws?|sacrifices?) (?P<n>a|an|\d+) [^.]+?)"
+        r"(?:\.\s*|,? then )(?P<after>.+)", body, re.I,
+    )
+    if match is None:
+        return None
+    verb = base_verb(match['verb'])
+    event = {'discard': 'DISCARD_CARD', 'draw': 'DRAW', 'sacrifice': 'SACRIFICE'}[verb]
+    count = 1 if match['n'] in ('a', 'an') else int(match['n'])
+    after = match['after']
+    qualifier = re.search(
+        r"(?P<set>each (?:other player|player|opponent)) who "
+        r"(?P<condition>"
+        r"(?:discarded|drew|sacrificed) (?:(?:a|an|\d+) )?(?:nonland |creature |noncreature )?cards? this way|"
+        r"didn't discard (?:(?:a|an|\d+) )?(?:nonland |creature |noncreature )?cards? this way|"
+        r"can't|cannot|doesn't|didn't|does|did)"
+        r"(?=,| (?:draws?|loses?|gains?|discards?|may|creates?)\b|$)", after, re.I,
+    )
+    if qualifier is None:
+        return None
+    condition = qualifier['condition']
+    past = {'discard': 'discarded', 'draw': 'drew', 'sacrifice': 'sacrificed'}[verb]
+    if 'this way' in condition and not (condition.startswith(past + ' ') or (verb == 'discard' and condition.startswith("didn't discard "))):
+        return None
+    leading = parse_effect_body(match['before'], reading=reading)
+    rewritten = after[:qualifier.start()] + qualifier['set'] + after[qualifier.end():]
+    trailing = _player_scope_specs(rewritten, reading=reading) or parse_effect_body(rewritten, reading=reading)
+    if not leading or not trailing:
+        return None
+    # Only a single shared player loop is the payoff; unsupported instructions
+    # and separately announced targets cannot be smuggled into this scope.
+    if len(trailing) != 1 or trailing[0].type != 'for_each':
+        return None
+    params = trailing[0].params
+    if params.get('over', {}).get('players') != PLAYER_SETS[qualifier['set']]:
+        return None
+    if 'this way' in condition:
+        printed_count = re.search(r'\b(a|an|\d+)\b', condition)
+        count = int(printed_count[1]) if printed_count and printed_count[1].isdigit() else 1
+    result = {'event': event, 'start': '$action_start', 'count': count,
+              'negated': condition in ("can't", 'cannot', "doesn't", "didn't") or condition.startswith("didn't ")}
+    typed = re.search(r'\b(nonland|creature|noncreature) card', condition)
+    if typed:
+        if verb != 'discard':
+            return None
+        result['card_type'] = typed[1]
+    payoff = EffectSpec('for_each', {**params, 'over': {**params['over'], 'action_result': result}})
+    return [EffectSpec('bind', {'name': 'action_start', 'amount': {'kind': 'event_cursor'},
+                               'effects': [e.to_dict() for e in leading] + [payoff.to_dict()]})]
+
+
 def _player_scope_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """See `_PLAYER_SCOPE_SUBJECT_RE`; ``None`` unless every effect of the "target
     player" reading targets exactly that one player and nothing else."""
+    qualified = re.fullmatch(
+        r"(?P<who>each (?:other player|player|opponent) who .+?) "
+        r"(?P<rest>(?:draws?|discards?|loses?|gains?|mills?|sacrifices?|creates?|may) .+)", body.strip(), re.I,
+    )
+    if qualified is not None:
+        over = qualified_player_set(qualified['who'])
+        if over is None:
+            return None
+        inner = _player_scope_specs('each player ' + qualified['rest'], reading=reading)
+        if not inner or len(inner) != 1 or inner[0].type != 'for_each':
+            return None
+        return [EffectSpec('for_each', {**inner[0].params, 'over': over})]
     m = _PLAYER_SCOPE_SUBJECT_RE.match(body.strip())
     if m is None:
         return None
@@ -6447,6 +6529,9 @@ def _parse_effect_body_inner(
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+    outcome = _player_action_outcome_specs(body, reading)
+    if outcome is not None:
+        return outcome
     # RULE 608.2c: a coordinated permission inherits the source subject.
     permission_tail = re.fullmatch(
         r"(?P<before>~ [^.]+) and (?P<permission>can attack this turn as though it didn't have defender)", body,
