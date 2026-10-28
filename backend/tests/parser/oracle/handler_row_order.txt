@@ -123,6 +123,7 @@ hand_pick
 blink_plain
 reveal_top_conditional
 reveal_top_put_or_hand
+reveal_top_take
 put_self_from_hand
 look_defending_hand
 put_from_defending_hand

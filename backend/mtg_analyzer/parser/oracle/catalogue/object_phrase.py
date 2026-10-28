@@ -167,6 +167,11 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
         if not effects or len(effects) != 1:
             continue
         spec = effects[0]
+        if spec.type == 'attach' and operand.referent == 'self' and text.startswith('attach it to'):
+            # "attach it to ~": the `attach` row reads "it" as the attaching source and the operand as its destination, so
+            # the self wrapper would attach the source to itself -- the opposite of an earlier-picked Equipment moving
+            # onto this permanent (Thieving Skydiver).
+            continue
         kind = resolve_target_kind(phrase)
         # Exactly one target slot. A fight, attachment, divided damage or a fused
         # sequence may have other operands and must retain its own composition.

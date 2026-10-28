@@ -832,6 +832,7 @@ EffectRegistry.register(
         name_from_source=bool(p.get("name_from_source", False)),  # MEC-134: "target spell with the chosen name"
         counter_source=bool(p.get("counter_source", False)),  # PAR-208: "counter ~" from a cast trigger
         resolve_if_color=p.get("resolve_if_color"),  # BUG-37: "counter target spell if it's blue"
+        max_mana_value=p.get("max_mana_value"), min_mana_value=p.get("min_mana_value"),  # PAR-215: "…with mana value N or less/greater"
     ),
 )
 EffectRegistry.register(

@@ -876,7 +876,8 @@ def _untap_and_gain_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: the full match leaves it unclaimed for its own row.
 _GAIN_CONTROL_PERMANENT_RE = compile_clause(
     rf"gain control of (?P<another>another )?{TARGET}"
-    r"(?: with mana value (?P<mv>\d+) or less)?"
+    # PAR-215: "x" is the announced {X} (`targeting` resolves the sentinel at offer time, RULE 107.3).
+    r"(?: with mana value (?P<mv>\d+|x) or less)?"
     r"(?P<untap>\.\s*untap (?:it|that (?:creature|permanent|artifact|land)))?"
 )
 #: What a permanent steal may take — permanents only (a spell is
@@ -896,7 +897,7 @@ def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "duration": "permanent", "haste": False, "untap": bool(m.group("untap")),
     }
     if m.group("mv"):
-        params["max_mana_value"] = int(m.group("mv"))
+        params["max_mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
     quality = target_quality_filter(m.group("target"))  # PAR-160: "with power N or less" (TARGET's quality slot)
     if quality:
         params["creature_filter"] = quality

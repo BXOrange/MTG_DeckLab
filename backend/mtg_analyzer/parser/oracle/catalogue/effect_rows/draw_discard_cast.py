@@ -965,6 +965,21 @@ def _reveal_top_conditional(m: re.Match[str]) -> list[EffectSpec]:
     ]})]
 
 
+#: RULE 701.20 + 121.4 (PAR-215): "reveal the top card of your library and put that card into your hand" -- the
+#: reveal stashes the card as `GameContext.revealed_card` (a later "its mana value" measures it), and the put is
+#: not a draw. Two flat specs, so the sequencer sees `put_revealed_card` as the clause's last effect.
+_REVEAL_TOP_TAKE_RE = compile_clause(
+    r"reveal the top card of your library and put (?:that card|it) into your hand"
+)
+
+
+def _reveal_top_take(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("reveal_top", {"whose": "you"}),
+        EffectSpec("put_revealed_card", {"destination": "hand"}),
+    ]
+
+
 #: PAR-152 (Zareth San): "put this card from your hand onto the battlefield [tapped and attacking]." — the card's own
 #: activated ability from hand (`bind_ability` infers the hand zone from the effect), RULE 508.4 for the combat entry.
 _PUT_SELF_FROM_HAND_RE = compile_clause(
@@ -1807,6 +1822,7 @@ ROWS: list[EffectHandler] = [
         _reveal_top_conditional,
     ),
     EffectHandler("reveal_top_put_or_hand", _REVEAL_TOP_PUT_OR_HAND_RE, _reveal_top_put_or_hand),
+    EffectHandler("reveal_top_take", _REVEAL_TOP_TAKE_RE, _reveal_top_take),
     EffectHandler("put_self_from_hand", _PUT_SELF_FROM_HAND_RE, _put_self_from_hand),
     EffectHandler(
         "look_defending_hand", _LOOK_DEFENDING_HAND_RE,

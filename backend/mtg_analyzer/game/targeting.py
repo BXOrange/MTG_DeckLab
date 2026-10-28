@@ -1133,6 +1133,10 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
     max_mana_value = spell_filter.get("max_mana_value")
     if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
+    # "…spell with mana value 4 or greater" (PAR-215): the floor sibling of the ceiling above.
+    min_mana_value = spell_filter.get("min_mana_value")
+    if min_mana_value is not None and obj.mana_value < min_mana_value:
+        return False
     return True
 
 

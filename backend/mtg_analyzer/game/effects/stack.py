@@ -49,6 +49,8 @@ class CounterSpellEffect(GameEffect):
         name_from_source: bool = False,
         counter_source: bool = False,
         resolve_if_color: Optional[str] = None,
+        max_mana_value: Optional[int] = None,
+        min_mana_value: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -127,6 +129,12 @@ class CounterSpellEffect(GameEffect):
             spell_filter["subtype_any"] = list(subtype_any)
         if mana_value is not None:
             spell_filter["mana_value"] = mana_value
+        # PAR-215: "counter target spell with mana value 2 or less / 4 or greater" (RULE 202.3) -- a ceiling / floor
+        # on the target spell, enforced at offer time like the exact value above.
+        if max_mana_value is not None:
+            spell_filter["max_mana_value"] = int(max_mana_value)
+        if min_mana_value is not None:
+            spell_filter["min_mana_value"] = int(min_mana_value)
         if color:
             spell_filter["color"] = color
         # "counter target spell **with the chosen name**" (Declaration of Naught, MEC-134): the name the source stamped as it

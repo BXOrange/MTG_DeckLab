@@ -194,6 +194,11 @@ def starts_inspection(text: str) -> bool:
 _PRONOUN_FOLLOW_UP = re.compile(r"\b(?:it|its|them|they|that card|those cards|the revealed cards?)\b", re.I)
 
 
+#: "equal to its / that card's mana value" after a lone "reveal the top card of your library" measures that revealed
+#: card (RULE 701.20), which `InspectCardsEffect` leaves as `GameContext.revealed_card`; it is not a dangling pronoun.
+_REVEALED_AMOUNT_FOLLOW_UP = re.compile(r"\bequal to (?:its|that card's) (?:mana value|power|toughness)\b", re.I)
+
+
 def leaves_dangling_reference(specs: list, follow_up: str) -> bool:
     """True if ``specs`` end in a bare lead (no steps) and ``follow_up`` refers back to what it inspected.
 
@@ -206,4 +211,6 @@ def leaves_dangling_reference(specs: list, follow_up: str) -> bool:
                 return True
             return any(bare_lead(v) for v in node.values())
         return isinstance(node, list) and any(bare_lead(v) for v in node)
+    if _REVEALED_AMOUNT_FOLLOW_UP.search(follow_up):
+        return False
     return bool(specs) and bare_lead([e.to_dict() for e in specs[-1:]]) and _PRONOUN_FOLLOW_UP.search(follow_up) is not None

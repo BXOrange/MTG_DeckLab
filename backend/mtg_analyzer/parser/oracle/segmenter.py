@@ -20,7 +20,7 @@ import copy
 import json
 import re
 from .catalogue.clause_reading import (
-    COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
+    COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, EXILED_REFERENT, REVEALED, REVEALED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
     ClauseReading, Referent, PLAYER,
 )
 from dataclasses import dataclass, field, replace
@@ -5202,13 +5202,19 @@ def _bind_x_specs(
 #: X bound to that object's characteristic (`effect_amounts`' ``characteristic``), the same shape
 #: `_where_x_specs` gives a counted quantity.
 _REFERENT_WHAT = r"(?P<what>power|toughness|mana value)"
-_REFERENT_POSSESSIVE = rf"(?P<possessive>its|that {PRONOUN_NOUN_ALT}'s)"
+_REFERENT_POSSESSIVE = rf"(?P<possessive>its|that (?:{PRONOUN_NOUN_ALT}|card|spell)'s)"
 _WHERE_X_CHARACTERISTIC_RE = re.compile(
     rf"^(?P<rest>.+?),?\s+where x is {_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$", re.IGNORECASE
 )
 _EQUAL_TO_CHARACTERISTIC_RE = re.compile(
     rf"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage) equal to {_REFERENT_POSSESSIVE} {_REFERENT_WHAT}"
-    r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
+    r"(?P<tail>\s+to (?:any target|(?:up to (?:one|1) )?target [a-z ]+?|each opponent|each player|that player))?$",
+    re.IGNORECASE,
+)
+#: "~ deals damage **to that player** equal to that card's mana value" -- the recipient before "equal to".
+_DAMAGE_RECIPIENT_EQUAL_CHARACTERISTIC_RE = re.compile(
+    rf"^(?P<verb>.+? deals?) damage (?P<recipient>to (?:that player|that creature|you|target [a-z ]+?|each opponent)) equal to "
+    rf"{_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$",
     re.IGNORECASE,
 )
 #: "put +1/+1 counters on X equal to its power" / "put a number of +1/+1 counters on X equal to its
@@ -5247,7 +5253,8 @@ def _referent_characteristic_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """See `_REFERENT_WHAT`; ``None`` unless the body reads as one X-taking effect."""
-    if not (reading.self_subject or reading.group_subject or reading.previous_subject or reading.attached_subject):
+    if not (reading.self_subject or reading.group_subject or reading.previous_subject or reading.attached_subject
+            or reading.referents_of(REVEALED)):
         return None
     text = body.strip().rstrip(".").strip()
     mid = _WHERE_X_MID_BODY_RE.match(text)
@@ -5264,6 +5271,8 @@ def _referent_characteristic_specs(
         m = _EQUAL_TO_CHARACTERISTIC_RE.match(text)
         if m is not None:
             rest = f"{m.group('verb')} x {m.group('noun')}{m.group('tail') or ''}"
+        elif (m := _DAMAGE_RECIPIENT_EQUAL_CHARACTERISTIC_RE.match(text)) is not None:
+            rest = f"{m.group('verb')} x damage {m.group('recipient')}"
         else:
             m = _COUNTERS_EQUAL_CHARACTERISTIC_RE.match(text)
             if m is not None:
@@ -5278,7 +5287,22 @@ def _referent_characteristic_specs(
         # creature's toughness") acts for whoever the clause before it named — not necessarily "you".
         return None
     explicit_source = bool(re.match(r"~ (?:gets?|deals?)\b", rest) or re.match(r"put x .+ counters? on ~(?!\w)", rest))
-    if m.group("possessive") != "its":
+    # RULE 701.20: after "reveal the top card of your library and put it into your hand" the pronoun and "that
+    # card" name that card, not the ability's source (`GameContext.revealed_card`, or the card the exile left).
+    revealed = next((r for r in reading.referents if r.kind == REVEALED), None)
+    if revealed is not None and (m.group("possessive") == "that card's" or (
+            m.group("possessive") == "its" and not explicit_source)):
+        referent = revealed.noun
+    elif m.group("possessive") == "that spell's":
+        # RULE 608.2h: last-known information of the spell an earlier clause countered. A token the clause before
+        # made is not that spell ("create a token. Put X counters on it, where X is that spell's mana value" names
+        # the spell that fired the trigger), so only a counter antecedent binds it.
+        if not reading.referents_of(COUNTERED):
+            return None
+        referent = "previous_subject"
+    elif m.group("possessive") == "that card's" and (reading.referents_of(CREATED) or not reading.previous_subject):
+        return None  # a made token is no "card"; with no card picked earlier the noun has no antecedent
+    elif m.group("possessive") != "its":
         if not (reading.previous_subject or reading.group_subject):
             return None  # a self trigger establishes no "that creature/artifact" antecedent
         referent = "previous_target" if reading.previous_subject else "trigger_subject"
@@ -5837,7 +5861,10 @@ def _peel_condition(
                 params["target_kind"] = "previous_target"  # "return it" after a clause that chose the pick
             if row.rewrite_params is not None:
                 row.rewrite_params(params, match)
-            gated.append(EffectSpec(spec.type, params, condition=condition))
+            # An inner spec that already carries a gate of its own ("if it was kicked, tap target artifact. If that
+            # artifact is an Equipment, attach it to ~") keeps it: both must hold (RULE 608.2c), not the outer one alone.
+            gated.append(EffectSpec(spec.type, params, condition=condition if spec.condition is None else {
+                "kind": "all", "conditions": [condition, spec.condition]}))
         trailing = (match.groupdict().get("trailing") or "").strip().lstrip(". ").strip()
         if not trailing:
             return True, gated
@@ -7221,7 +7248,10 @@ def _parse_effect_body_inner(
                     r for r in prev_referents if r.kind == TARGET)
                 player_refs = tuple(r for r in produces(sub) if r.kind == PLAYER) or (
                     tuple(r for r in prev_referents if r.kind == PLAYER) if "that player" in part else ())
-                referents = _referents_from(referent, referent_selector, made, target_refs) + player_refs
+                # A revealed / exiled library card stays nameable until another clause replaces it (RULE 701.20).
+                revealed_refs = tuple(r for r in produces(sub) if r.kind == REVEALED) or tuple(
+                    r for r in prev_referents if r.kind == REVEALED)
+                referents = _referents_from(referent, referent_selector, made, target_refs) + player_refs + revealed_refs
             if ok:
                 return collected
 
@@ -7508,6 +7538,28 @@ _CREATING_TYPES: frozenset[str] = frozenset({"create_token"})
 # as the next clause's `previous_targets`, so "Create a token that's a copy of that card. It gains haste." is right.)
 
 
+#: The effects that leave exactly one library card for the next sentence's "it" / "that card" (RULE 701.20): the
+#: reveal stashes `GameContext.revealed_card`; the single-card exile leaves it on `GameContext.created_objects`.
+_REVEALED_CARD_TYPES: frozenset[str] = frozenset({"reveal_top", "put_revealed_card"})
+
+
+def _revealed_card_referent(specs: list[EffectSpec]) -> tuple[Referent, ...]:
+    """The library card the clause just parsed revealed or exiled, as the referent a later "its mana value" names."""
+    if not specs:
+        return ()
+    last = specs[-1]
+    if last.type in _REVEALED_CARD_TYPES:
+        return (REVEALED_REFERENT,)
+    params = last.params
+    if (last.type == "inspect_cards" and params.get("zone") == "library" and params.get("count") == 1
+            and params.get("reveal") and params.get("scope") == "you" and not params.get("steps")):
+        # `InspectCardsEffect` stashes a lone revealed library card as `GameContext.revealed_card` (RULE 701.20).
+        return (REVEALED_REFERENT,)
+    if last.type == "exile_top_of_library" and last.params.get("count", 1) == 1:
+        return (EXILED_REFERENT,)
+    return ()
+
+
 def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
     """What a just-parsed clause leaves for the next one to name (the referent environment's one producer): the
     object it chose (``it`` / ``that creature``) and/or the group it acted on (``they`` / ``those creatures``)."""
@@ -7532,6 +7584,7 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
         out.append(SELECTOR_REFERENT)
     if specs and specs[-1].type == "counter" and not specs[-1].params.get("destination"):
         out.append(COUNTERED_REFERENT)
+    out.extend(_revealed_card_referent(specs))
     # The creation may be followed, inside the same clause, by riders that already consumed it ("create a token that's a
     # copy of …, except it has "…"" is a copy plus a grant on the copy): the last spec that is not such a rider decides.
     core = list(specs)

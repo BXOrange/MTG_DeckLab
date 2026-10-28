@@ -1092,7 +1092,9 @@ _SPELL_TARGET_BODY = (
     r"(?P<scope> (?:you control|you don'?t control|an opponent controls|your opponents control))?"
     # "…with mana value X" (Spell Blast / Spell Burst) is the spell's announced {X} — the sentinel is
     # read back at target-offer time (`targeting.legal_targets`).
-    r"(?:\s+with mana value (?P<mv>\d+|x))?"
+    # PAR-215: "…with mana value 4 or less / greater" is a bound, not the exact value (digits only: an "x or less"
+    # bound would need the announced X compared as a ceiling, which the spell filter does not model).
+    r"(?:\s+with mana value (?P<mv>\d+|x)(?: or (?P<mv_cmp>less|greater))?)?"
     # MEC-134: "counter target spell with the chosen name" (Declaration of Naught) -- the name the source stamped as it entered.
     r"(?P<chosen_name>\s+with the chosen name)?"
     # PAR-128: the controller scope slot — "counter target spell **you don't control**".
@@ -1129,7 +1131,12 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
     if m.group("subtypes"):
         subtypes = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("subtypes")) if t]
         filt["subtype_any"] = subtypes
-    if m.group("mv"):
+    if m.group("mv") and m.group("mv_cmp"):
+        if m.group("mv") == "x":
+            return None
+        # RULE 202.3: "or less" is a ceiling (`max_mana_value`), "or greater" a floor (`min_mana_value`).
+        filt["max_mana_value" if m.group("mv_cmp") == "less" else "min_mana_value"] = int(m.group("mv"))
+    elif m.group("mv"):
         filt["mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
     if m.group("chosen_name"):
         filt["name_from_source"] = True
