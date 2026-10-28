@@ -48,9 +48,15 @@ class CounterSpellEffect(GameEffect):
         destination: Optional[str] = None,
         name_from_source: bool = False,
         counter_source: bool = False,
+        resolve_if_color: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Counter target spell **if it's blue**." (Pyroblast, Hydroblast, Burnout) -- RULE 601.2c / 608.2b: the colour
+        #: is not a targeting restriction (any spell, here narrowed only by ``card_types``, is a legal target); it is
+        #: checked as the effect resolves, and a miss counters nothing while the spell stays on the stack. The inline
+        #: "counter target blue spell" adjective stays the offer-time ``color`` filter below.
+        self.resolve_if_color = resolve_if_color
         #: PAR-208 (RULE 701.5a): "When you cast this spell, any player may ... If a player does, counter ~." (Brain
         #: Gorgers, Dash Hopes) -- the spell the ability came from, not a RULE 115 target.
         self.counter_source = bool(counter_source)
@@ -184,6 +190,13 @@ class CounterSpellEffect(GameEffect):
             self._counter_one(context, target, unless_pays, on_pay)
 
     def _counter_one(self, context: GameContext, target: Any, unless_pays: Optional[str], on_pay: Optional[list]) -> None:
+        if self.resolve_if_color:
+            # RULE 608.2b: the spell's colour at resolution (the shared `is_color` matcher, `continuous._has_color`).
+            from .. import continuous  # function-scoped: avoid an import cycle
+
+            stack_obj = getattr(context.engine._stack_item_for(target), "obj", None)
+            if stack_obj is None or not continuous._has_color(stack_obj, [self.resolve_if_color]):
+                return
         if self.target_spec is not None and self.target_spec.kind == "spell_you_control":
             # RULE 608.2b: the newly admitted own-spell scope must still
             # hold when control of the original changes in response.

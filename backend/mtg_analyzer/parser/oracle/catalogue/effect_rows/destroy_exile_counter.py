@@ -625,7 +625,11 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             params["unless_pays_extra_selector"] = "cards_in_your_graveyard"
     cond_color = resolve_color_word(m.groupdict().get("cond_color"))
     if cond_color:
-        params["color"] = cond_color
+        # RULE 601.2c / 608.2b: a trailing "if it's <colour>" is checked on resolution, not a target restriction. It
+        # cannot also carry an inline colour adjective (that one is the offer-time filter).
+        if "color" in params:
+            return None
+        params["resolve_if_color"] = cond_color
     # "…unless its controller pays {4}. **If they do**, you incubate 2."
     # (Assimilate Essence) — a reflexive follow-up on the branch where the
     # target's controller pays (`CounterSpellEffect.on_pay_effect_specs`).

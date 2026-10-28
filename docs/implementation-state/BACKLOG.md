@@ -132,7 +132,5 @@ claimed cards.
 
 ## BUG — Bugs
 
-- **BUG-37 · Colour-conditional counter restricts targets.** `counter target spell if it's <colour>`
-  (Pyroblast, Hydroblast) parses to an offer-time colour filter; any spell is a legal target and the
-  colour is checked on resolution (RULE 601.2c, 608.2b), as PAR-214 fixed for their destroy mode.
+-No Tickets-
 
