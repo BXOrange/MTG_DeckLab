@@ -61,8 +61,8 @@ def test_redirect_clause_spec(text, params):
 
 
 @pytest.mark.parametrize("text", [
-    # two announced targets are not one shield
-    "The next 1 damage that would be dealt to target creature this turn is dealt to another target creature instead.",
+    # two announced targets must be different objects ("another")
+    "The next 1 damage that would be dealt to target creature this turn is dealt to target creature instead.",
     # a pronoun with no referent
     "All damage that would be dealt to it this turn is dealt to target creature instead.",
     "The next 1 damage that would be dealt to a mystery this turn is dealt to ~ instead.",

@@ -70,7 +70,7 @@ def test_standing_clause_spec(text, expected):
 
 @pytest.mark.parametrize("text", [
     "prevent all combat damage that would be dealt to a mystery",              # unknown recipient phrase
-    "prevent all damage that would be dealt by creatures with no +1/+1 counters on them",  # unparsed source phrase
+    "prevent all damage that would be dealt by creatures that sing loudly",  # unparsed source phrase
     "prevent all damage that would be dealt to ~ by something odd",
     "all damage that would be dealt to you is dealt to target creature instead",  # a target is not a standing slot
 ])

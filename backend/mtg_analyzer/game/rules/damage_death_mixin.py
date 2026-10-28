@@ -163,6 +163,11 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
 #: `DAMAGE` event, against whatever `GameObject` `event["source_id"]`
 #: names (fails closed — no live source object, e.g. a spell already off
 #: the stack, never matches a filtered shield).
+def _half_prevented(rounding: str, dealt: int) -> int:
+    """RULE 615 / 107.1a: "prevent half that damage, rounded up/down" -> the points prevented out of ``dealt``."""
+    return (dealt + 1) // 2 if rounding == "up" else dealt // 2
+
+
 def _damage_source_matches(
     state: GameState, event: GameEvent, source_filter: Optional[dict], protected_player_id: Optional[str],
 ) -> bool:
@@ -191,6 +196,9 @@ def _damage_source_matches(
         return False
     # RULE 510.2: "combat damage" / "noncombat damage" is a property of the damage event itself.
     if "combat" in source_filter and bool(event.get("combat")) != bool(source_filter["combat"]):
+        return False
+    # RULE 109.4: "creatures target opponent controls" -- the announced player's id, resolved when the shield is made.
+    if source_filter.get("controller_id") is not None and source.controller_id != source_filter["controller_id"]:
         return False
     controller = source_filter.get("controller")
     if controller == "you" and source.controller_id != protected_player_id:
@@ -1583,6 +1591,7 @@ class DamageDeathMixin:
         combat_only: bool = False,
         source_filter: Optional[dict] = None,
         shield_source: Optional[GameObject] = None,
+        once: bool = False,
     ) -> None:
         """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
         (Riot Control's "all", Thought Lash's repeatable "the next 1") —
@@ -1623,8 +1632,13 @@ class DamageDeathMixin:
         control"/…) narrows the shield to damage from a matching source,
         via `_damage_source_matches` (checked against this player's own id
         for the ``"controller"`` key).
+
+        ``once`` (PAR-216, "**the next time** a source of your choice would deal damage to you this turn, prevent ...",
+        Dark Sphere): the shield ends after the first damage event it applies to. ``amount`` may also be
+        ``{"half": "up"|"down"}`` -- half of that one event's damage (RULE 107.1a rounding).
         """
-        remaining = None if amount == "all" else int(amount)
+        half = amount.get("half") if isinstance(amount, dict) else None
+        remaining = None if amount == "all" or half else int(amount)
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
@@ -1642,15 +1656,19 @@ class DamageDeathMixin:
         def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
             nonlocal remaining
             dealt = int(event.get("amount", 0) or 0)
-            if remaining is None:
+            if half is not None:
+                prevented = _half_prevented(half, dealt)
+            elif remaining is None:
                 prevented = dealt
             else:
                 prevented = min(remaining, dealt)
                 remaining -= prevented
                 if remaining <= 0 and effect in player.player_effects:
                     player.player_effects.remove(effect)
+            if once and effect in player.player_effects:
+                player.player_effects.remove(effect)  # the "next time" window is spent on its first hit
             self.apply_prevent_rider(rider, prevented, event, player.id, shield_source)
-            if remaining is None:
+            if remaining is None and half is None:
                 return None  # "all" — every point prevented, shield persists
             new_amount = dealt - prevented
             return event.copy_with(amount=new_amount) if new_amount > 0 else None
@@ -1788,6 +1806,7 @@ class DamageDeathMixin:
         shield_controller_id: Optional[str] = None,
         combat_only: bool = False,
         shield_source: Optional[GameObject] = None,
+        once: bool = False,
     ) -> None:
         """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
         (PAR-15's "prevent the next N damage ... to any number of targets,
@@ -1810,7 +1829,8 @@ class DamageDeathMixin:
         is_player = isinstance(target, Player)
         target_id = target.id if is_player else target.instance_id
         protected_player_id = shield_controller_id or (target.id if is_player else target.controller_id)
-        remaining = None if amount == "all" else int(amount)
+        half = amount.get("half") if isinstance(amount, dict) else None  # see `prevent_damage_to_player`
+        remaining = None if amount == "all" or half else int(amount)
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
@@ -1829,13 +1849,17 @@ class DamageDeathMixin:
         def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
             nonlocal remaining
             dealt = int(event.get("amount", 0) or 0)
-            if remaining is None:
+            if half is not None:
+                prevented = _half_prevented(half, dealt)
+            elif remaining is None:
                 prevented = dealt
             else:
                 prevented = min(remaining, dealt)
                 remaining -= prevented
                 if remaining <= 0 and effect in holder:
                     holder.remove(effect)
+            if once and effect in holder:
+                holder.remove(effect)  # the "next time" window is spent on its first hit
             # ``shield_controller_id``: whose "you" a rider means — the spell's controller (PAR-139, "you gain
             # life equal to the damage prevented"), not necessarily the shielded permanent's.
             self.apply_prevent_rider(
@@ -1843,7 +1867,7 @@ class DamageDeathMixin:
                 shield_controller_id or (target_id if is_player else getattr(target, "controller_id", None)),
                 shield_source,
             )
-            if remaining is None:
+            if remaining is None and half is None:
                 return None  # "all" — every point prevented, shield persists
             new_amount = dealt - prevented
             return event.copy_with(amount=new_amount) if new_amount > 0 else None
@@ -1914,7 +1938,7 @@ class DamageDeathMixin:
 
     def redirect_damage_from_source(
         self, source: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
-        only_to_player_id: Optional[str] = None,
+        only_to_player_id: Optional[str] = None, once: bool = False, only_to_object_id: Optional[int] = None,
     ) -> None:
         """RULE 616.1c "the next time a source of your choice would deal
         damage this turn, that damage is dealt to `<X>` instead" (Opal-Eye,
@@ -1930,6 +1954,9 @@ class DamageDeathMixin:
         `prevent_damage_from_source` uses, swept by the same `damage_
         prevention_shield` cleanup pass (the flag still drives cleanup
         timing even though this isn't a prevention effect semantically).
+
+        ``once`` (PAR-216, "the **next time** a source of your choice would deal damage to you this turn ...", Beacon
+        of Destiny): the shield ends after the first matching damage event.
         """
         controller = self.state.player_by_id(source.controller_id) if source.controller_id else None
         if controller is None:
@@ -1944,6 +1971,10 @@ class DamageDeathMixin:
                 # "...would deal damage to you" (Nova Pentacle): only damage headed for that player.
                 only_to_player_id is None
                 or (bool(e.get("is_player")) and e.get("target_id") == only_to_player_id)
+            ) and (
+                # Kor Chant: "...to target creature by a source of your choice": only damage headed for that permanent.
+                only_to_object_id is None
+                or (not e.get("is_player") and e.get("target_id") == only_to_object_id)
             ),
             description=f"{source.name}: Schadensumleitung",
         )
@@ -1959,6 +1990,8 @@ class DamageDeathMixin:
                     controller.player_effects.remove(effect)
             else:
                 redirected = dealt
+            if once and effect in controller.player_effects:
+                controller.player_effects.remove(effect)
             if redirected <= 0:
                 return event
             leftover = dealt - redirected
@@ -2115,6 +2148,7 @@ class DamageDeathMixin:
 
     def prevent_damage_from_source(
         self, source: GameObject, amount: Union[int, str] = "all", rider: Optional[dict] = None,
+        combat_only: bool = False,
     ) -> None:
         """RULE 615/616.1d's *unscoped-recipient* one-shot shield — "the next
         time **target creature** would deal damage this turn, prevent that
@@ -2139,7 +2173,8 @@ class DamageDeathMixin:
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
-            condition=lambda e, c: e.get("source_id") == watched_source_id,
+            # RULE 510.2: "combat damage ... would deal" narrows to the event's combat flag (Serene Sunset).
+            condition=lambda e, c: e.get("source_id") == watched_source_id and (not combat_only or bool(e.get("combat"))),
             description=f"{source.name}: Schadensverhinderung",
         )
         effect.damage_prevention_shield = True

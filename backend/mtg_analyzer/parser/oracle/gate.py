@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "797"
+PARSER_VERSION = "798"
 
 
 def parser_source_hash() -> str:
@@ -614,6 +614,28 @@ _RAID_OVERRIDE_RE = re.compile(
     r"(?: instead if you attacked this turn)?\.?",
     re.I,
 )
+
+
+#: PAR-216 (RULE 615.6, 118-area): "If X is 5 or more, this spell can't be countered and the damage can't be prevented."
+#: (Banefire) / "Hellbent -- If you have no cards in hand, ..." (Demonfire) -- a rider on the preceding damage
+#: instruction, not an independent effect: the condition gates that damage's unpreventability and the spell's own
+#: uncounterability.
+_X_AT_LEAST_RE = re.compile(r"x is (?P<n>\d+) or more", re.I)
+_UNPREVENTABLE_RIDER_RE = re.compile(
+    r"if (?P<cond>[^,]+), (?P<uncounterable>this spell can'?t be countered and )?the damage can'?t be prevented\.?",
+    re.I,
+)
+
+
+def _unpreventable_rider_condition(text: str) -> Optional[dict[str, Any]]:
+    """The structured condition of a "... the damage can't be prevented" rider, or ``None`` (fail closed)."""
+    x_at_least = _X_AT_LEAST_RE.fullmatch(text.strip())
+    if x_at_least is not None:
+        return {"kind": "x_paid", "min": int(x_at_least.group("n"))}  # RULE 107.3c: the spell's announced X
+    probe = parse_effect_body(f"if {text}, draw a card.")  # the shared leading-"if" condition reader
+    if probe is not None and len(probe) == 1 and probe[0].type == "draw":
+        return probe[0].condition
+    return None
 
 
 def parse_oracle(card: Any) -> ParseResult:
@@ -1160,6 +1182,17 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 damages[0].params["amount_if_raid"] = int(raid_override.group("n"))
                 if raid_override.group("unpreventable"):
                     damages[0].params["unpreventable"] = True
+                return
+        unpreventable_rider = _UNPREVENTABLE_RIDER_RE.fullmatch(line)
+        if unpreventable_rider is not None and effect_specs:
+            previous = effect_specs[-1]
+            damages = [effect for effect in previous.effects if effect.type == "damage"]
+            condition = _unpreventable_rider_condition(unpreventable_rider.group("cond"))
+            if (previous.ability_kind == "spell_effect" and len(damages) == 1 and condition is not None
+                    and "unpreventable_if" not in damages[0].params and not damages[0].params.get("unpreventable")):
+                damages[0].params["unpreventable_if"] = condition
+                if unpreventable_rider.group("uncounterable"):
+                    previous.effects.append(EffectSpec("cant_be_countered", {}, condition=condition))
                 return
         # PAR-95 / Adamant's two-line forms.  These riders refer to the
         # immediately preceding spell instruction, so append/modify that

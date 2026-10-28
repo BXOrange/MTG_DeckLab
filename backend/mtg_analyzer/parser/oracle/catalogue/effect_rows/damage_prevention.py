@@ -26,7 +26,10 @@ from ..subgrammars import (
 )
 from ...spec import EffectSpec
 from .damage_copy import parse_prevent_source_filter
-from .shared import EffectHandler, compile_clause
+from .shared import (
+    MULTI_TARGET_ALT, MULTI_TARGET_QUANTIFIER, MULTI_TARGET_QUANTIFIER_X, EffectHandler,
+    compile_clause, multi_target_params,
+)
 
 #: A pronoun naming the creature an earlier clause chose, or this ability's own source (RULE 608.2h).
 _PRONOUNS = "it|that creature|the creature"
@@ -147,14 +150,60 @@ def _dealers_filter(text: str) -> Optional[dict[str, Any]]:
     return {**result, "other": True} if other else result
 
 
+#: Encircling Fissure: "... by creatures target opponent controls" -- the class (the shared object phrase) scoped to one
+#: announced player (RULE 109.4, 115.1): the class filter plus ``controller: "target"``, resolved to that player's id when
+#: the shield is made (`PreventDamageEffect`).
+_TARGET_PLAYER_SCOPE_RE = re.compile(r"^(?P<cls>.+?) target (?P<who>opponent|player) controls$")
+_TARGET_PLAYER_KINDS: dict[str, str] = {"opponent": "opponent", "player": "player"}
+
+
 def _prevent_by_sources(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    source_filter = _dealers_filter(m.group("src"))
+    text = m.group("src")
+    scoped = _TARGET_PLAYER_SCOPE_RE.match(text.strip())
+    source_filter = _dealers_filter(scoped.group("cls") if scoped else text)
     if source_filter is None:
         return None
     params: dict[str, Any] = {"amount": "all", "by_sources_only": True, "source_filter": source_filter}
+    if scoped:
+        if "other" in source_filter or "controller" in source_filter:
+            return None
+        params["source_filter"] = {**source_filter, "controller": "target"}
+        params["target_kind"] = _TARGET_PLAYER_KINDS[scoped.group("who")]
     if m.group("combat"):
         params["combat_only"] = True
     return [EffectSpec("prevent_damage_shield", params)]
+
+
+# --- multi-target shields: "prevent all damage that would be dealt this turn to up to two target creatures" ---------------
+
+#: Redeem: the recipient shield of `_prevent_to_creatures`' sibling over N announced targets (RULE 115.1d), one
+#: `prevent_damage_to_target` shield each (`PreventDamageEffect` loops its chosen targets).
+_PREVENT_TO_MULTI_RE = compile_clause(
+    rf"prevent all damage that would be dealt (?:this turn )?to {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT})"
+    r"(?: this turn)?"
+)
+#: Soul Parry / Serene Sunset: the by-source mirror -- "prevent all [combat] damage <N target creatures> would deal this
+#: turn" (`PreventDamageFromTargetEffect` shields each chosen source). "X target creatures" is the announced X.
+_PREVENT_BY_MULTI_RE = compile_clause(
+    rf"prevent all (?P<combat>combat )?damage {MULTI_TARGET_QUANTIFIER_X}(?P<target>{MULTI_TARGET_ALT}) would deal this turn"
+)
+_MULTI_SHIELD_KINDS = ("creature", "creature_you_control", "creature_you_dont_control")
+
+
+def _prevent_to_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = multi_target_params(m)
+    if params is None or not target_kind_allowed(params["target_kind"], _MULTI_SHIELD_KINDS):
+        return None
+    return [EffectSpec("prevent_damage_shield", {"amount": "all", **params})]
+
+
+def _prevent_by_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = multi_target_params(m)
+    if params is None or not target_kind_allowed(params["target_kind"], _MULTI_SHIELD_KINDS):
+        return None
+    if m.group("combat"):
+        params["combat_only"] = True
+    return [EffectSpec("prevent_damage_from_target", params)]
 
 
 # --- "prevent all [combat|noncombat] damage that would be dealt to <recipients> this turn" -----------------------------
@@ -263,6 +312,61 @@ def _prevent_next_chosen_source(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("request_prevent_damage_source", {"amount": int(m.group("n")), "target_kind": "any"})]
 
 
+# --- "the next time a source of your choice would deal damage to you this turn, ..." ---------------------------------------
+
+#: RULE 615/616.1: the one-shot ("next time") chosen-source shield -- unlike "prevent all damage a source of your choice
+#: would deal", it ends after the first matching hit. Dark Sphere (prevent half, rounded down), the plain "prevent that
+#: damage", Beacon of Destiny / General's Regalia (that damage is dealt to ~ / target creature you control instead).
+_NEXT_TIME_SOURCE = (
+    r"the next time an? (?:(?P<color>white|blue|black|red|green) )?source of your choice would deal damage to you this turn, "
+)
+_NEXT_TIME_PREVENT_RE = compile_clause(
+    _NEXT_TIME_SOURCE + r"prevent (?:that damage|half that damage, rounded (?P<half>up|down))"
+)
+_NEXT_TIME_REDIRECT_RE = compile_clause(
+    _NEXT_TIME_SOURCE + rf"that damage is dealt to (?P<rec>{_HOSTS}|target creature you control|target creature) instead"
+)
+
+
+def _next_time_prevent(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict[str, Any] = {"amount": {"half": m.group("half")} if m.group("half") else "all", "once": True}
+    if m.group("color"):
+        params["source_filter"] = {"color": _CHOSEN_SOURCE_COLORS[m.group("color").lower()]}
+    return [EffectSpec("request_prevent_damage_source", params)]
+
+
+def _next_time_redirect(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict[str, Any] = {"once": True, "only_to_you": True}
+    recipient = m.group("rec")
+    if recipient.startswith("target"):
+        kind = resolve_target_kind(recipient)
+        if not target_kind_allowed(kind, ("creature", "creature_you_control")):
+            return None
+        params.update(recipient="target", target_kind=kind)
+    if m.group("color"):
+        params["source_filter"] = {"color": _CHOSEN_SOURCE_COLORS[m.group("color").lower()]}
+    return [EffectSpec("request_redirect_damage_source", params)]
+
+
+#: Kor Chant / Oracle's Attendants: "all damage that would be dealt [this turn] to target creature [you control] [this
+#: turn] by a source of your choice is dealt to ~ / another target creature instead" -- lasts the turn (no "next time"),
+#: for one chosen source and one announced creature.
+_ALL_FROM_CHOSEN_SOURCE_REDIRECT_RE = compile_clause(
+    r"all damage that would be dealt (?:this turn )?to (?P<prot>target creature(?: you control)?)(?: this turn)? "
+    rf"by a source of your choice is dealt to (?P<rec>{_HOSTS}|another target creature) instead"
+)
+
+
+def _all_from_chosen_source_redirect(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    protected = resolve_target_kind(m.group("prot"))
+    if not target_kind_allowed(protected, ("creature", "creature_you_control")):
+        return None
+    params: dict[str, Any] = {"protected_target_kind": protected}
+    if m.group("rec").startswith("another"):
+        params.update(recipient="target", target_kind="creature")
+    return [EffectSpec("request_redirect_damage_source", params)]
+
+
 # --- a shield followed by a rider keyed on the damage it prevented --------------------------------------------------------
 
 #: Comeuppance: "If damage from a creature source is prevented this way, ~ deals that much damage to that creature. If
@@ -352,10 +456,12 @@ def _damage_then_unpreventable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: One redirect grammar for the one-shot family. The protected slot (what the damage is headed for) and the recipient slot
 #: (where it goes instead) each name a host, "you" or one RULE 115 target; at most one of the two is a target
 #: (`RedirectDamageShieldEffect`).
+#: A slot's text runs to the next clause comma, except inside the one printed union "creature, planeswalker, or player".
+_REDIRECT_SLOT_TEXT = r"(?:[^,]|, planeswalker, or player)+?"
 _REDIRECT_SHIELD_RE = compile_clause(
     r"(?:the next (?P<n>\d+|x) damage|all (?P<combat>combat )?damage) that would be dealt "
-    r"(?:this turn )?to (?P<prot>[^,]+?)(?: this turn)?(?P<unblocked> by unblocked creatures)?(?: this turn)? "
-    r"is dealt to (?P<rec>[^,]+?) instead"
+    rf"(?:this turn )?to (?P<prot>{_REDIRECT_SLOT_TEXT})(?: this turn)?(?P<unblocked> by unblocked creatures)?(?: this turn)? "
+    rf"is dealt to (?P<rec>{_REDIRECT_SLOT_TEXT}) instead"
 )
 _REDIRECT_ONCE_RE = compile_clause(
     r"the next time damage would be dealt to (?P<prot>[^,]+?) this turn, that damage is dealt to (?P<rec>[^,]+?) instead"
@@ -365,7 +471,12 @@ _REDIRECT_PROTECTED: dict[str, str] = {
     "~ and/or you": "you_and_self", "you and/or ~": "you_and_self", "enchanted creature": "attached",
 }
 _REDIRECT_RECIPIENT: dict[str, str] = {"~": "self", "this creature": "self", "you": "you", "enchanted creature": "attached"}
-_REDIRECT_TARGET_KINDS = ("any", "creature", "creature_you_control", "player", "planeswalker", "permanent")
+_REDIRECT_TARGET_KINDS = (
+    "any", "creature", "creature_you_control", "player", "planeswalker", "permanent", "creature_planeswalker_or_player",
+)
+#: Captain's Maneuver: "target creature, planeswalker, or player" -- "any target" minus battles (RULE 115.4); only this
+#: slot reads it, so no other clause's target pool changes.
+_CREATURE_PLANESWALKER_OR_PLAYER_RE = re.compile(r"^(?:another )?target creature, planeswalker, or player$")
 
 
 def _redirect_slot(text: str, table: dict[str, str]) -> Optional[tuple[str, dict[str, Any]]]:
@@ -373,6 +484,8 @@ def _redirect_slot(text: str, table: dict[str, str]) -> Optional[tuple[str, dict
     text = text.strip()
     if text in table:
         return table[text], {}
+    if _CREATURE_PLANESWALKER_OR_PLAYER_RE.match(text):
+        return "target", {"target_kind": "creature_planeswalker_or_player"}
     if text not in ("any target", "another target creature") and not text.startswith("target "):
         return None
     kind = resolve_target_kind(text.replace("another ", "", 1) if text.startswith("another ") else text)
@@ -393,13 +506,17 @@ def _redirect_spec(
     recipient = _redirect_slot(rec, _REDIRECT_RECIPIENT)
     if protected is None or recipient is None:
         return None
-    if protected[0] == "target" and recipient[0] == "target":
-        return None  # two announced targets are not one shield (Carom, Kor Chant)
     if protected[0] == "target" and unblocked:
         return None
-    params: dict[str, Any] = {
-        "amount": amount, "protected": protected[0], "recipient": recipient[0], **protected[1], **recipient[1],
-    }
+    params: dict[str, Any] = {"amount": amount, "protected": protected[0], "recipient": recipient[0], **protected[1]}
+    if protected[0] == "target" and recipient[0] == "target":
+        # Carom / Razia: "... to target creature ... is dealt to another target creature instead" -- two announced
+        # targets (RULE 115.1); "another" is what makes them different objects (RULE 115.3), so it is required.
+        if not rec.strip().startswith("another "):
+            return None
+        params["recipient_target_kind"] = recipient[1]["target_kind"]
+    else:
+        params.update(recipient[1])
     if once:
         params["once"] = True
     if combat:
@@ -449,6 +566,11 @@ ROWS: list[EffectHandler] = [
         "prevent_combat_damage_dealt_by_previous", _COMBAT_DEALT_BY_PREVIOUS_RE, _combat_dealt_by_previous,
         requires=ClauseReading(previous_subject=True),
     ),
+    EffectHandler("prevent_damage_to_multi_target", _PREVENT_TO_MULTI_RE, _prevent_to_multi),
+    EffectHandler("prevent_damage_by_multi_target", _PREVENT_BY_MULTI_RE, _prevent_by_multi),
+    EffectHandler("prevent_next_time_chosen_source", _NEXT_TIME_PREVENT_RE, _next_time_prevent),
+    EffectHandler("redirect_next_time_chosen_source", _NEXT_TIME_REDIRECT_RE, _next_time_redirect),
+    EffectHandler("redirect_all_from_chosen_source", _ALL_FROM_CHOSEN_SOURCE_REDIRECT_RE, _all_from_chosen_source_redirect),
     EffectHandler("prevent_all_damage_chosen_source", _PREVENT_CHOSEN_SOURCE_RE, _prevent_chosen_source),
     EffectHandler("prevent_next_damage_chosen_source", _PREVENT_NEXT_CHOSEN_SOURCE_RE, _prevent_next_chosen_source),
     EffectHandler("prevent_shield_then_source_punish", _SHIELD_THEN_SOURCE_PUNISH_RE, _shield_then_source_punish),

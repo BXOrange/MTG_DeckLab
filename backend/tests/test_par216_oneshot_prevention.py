@@ -64,7 +64,7 @@ def test_one_shot_clause_spec(text, effect):
 
 
 @pytest.mark.parametrize("text", [
-    "Prevent all damage creatures with no +1/+1 counters on them would deal this turn.",  # unparsed source phrase
+    "Prevent all damage creatures that sing loudly would deal this turn.",  # unparsed source phrase
     "Prevent all damage target mystery would deal this turn.",
     "Prevent all combat damage that would be dealt to and dealt by those creatures this turn.",
 ])

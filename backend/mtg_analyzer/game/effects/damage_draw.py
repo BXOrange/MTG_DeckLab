@@ -120,8 +120,12 @@ class DealDamageEffect(GameEffect):
         dealer_subject: Optional[str] = None,
         per_player: Optional[str] = None,
         excess_to_controller: bool = False,
+        unpreventable_if: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
+        #: "If X is 5 or more, ... the damage can't be prevented." (Banefire, Demonfire, Urza's Rage, Lightning Surge;
+        #: RULE 615.6): `unpreventable` gated on a condition read when this effect resolves.
+        self.unpreventable_if = dict(unpreventable_if) if unpreventable_if else None
         #: "Excess damage is dealt to that creature's controller instead." (Flame Spill, Pigment Storm; RULE 120.4a +
         #: 614.1): a creature recipient takes only lethal damage (1 from a deathtouch source, RULE 702.2c) and the rest
         #: is dealt to its controller by the same source.
@@ -524,7 +528,12 @@ class DealDamageEffect(GameEffect):
         # Amount overrides are resolve-time questions; Raid reads the same
         # player declaration history as every other controller-scoped gate.
         self._state = context.state
-        if not self.unpreventable:
+        from .. import effect_conditions  # avoid the effect_conditions<->effects import cycle
+
+        if not self.unpreventable and not (
+            self.unpreventable_if is not None
+            and effect_conditions.condition_holds(self.unpreventable_if, context, self.source, targets)
+        ):
             self._apply_impl(context, targets)
             return
         # RULE 615.6: for the span of this one effect, no prevention shield

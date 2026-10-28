@@ -371,6 +371,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target player or planeswalker" (ENG-52, RULE 115.1) — `opponent_or_planeswalker` with the
         # controller's own seat a legal player too, as printed (Hungry Flames, Punish the Enemy).
         "player_or_planeswalker",
+        # "target creature, planeswalker, or player" (PAR-216, Captain's Maneuver): "any target" without battles
+        # (RULE 115.4), as printed before battles existed.
+        "creature_planeswalker_or_player",
         # "target Aura or Equipment attached to a creature you control"
         # (Halvar, God of Battle) — `attached_equipment_you_control` widened
         # to Auras, and narrowed to hosts you control.
@@ -820,6 +823,7 @@ class TargetSpec:
             "opponent": "Gegner",
             "opponent_or_planeswalker": "Gegner oder Planeswalker",
             "player_or_planeswalker": "Spieler oder Planeswalker",
+            "creature_planeswalker_or_player": "Kreatur, Planeswalker oder Spieler",
             "artifact_creature_planeswalker_or_opponent":
                 "Artefakt, Kreatur, Planeswalker oder Gegner",
             "artifact_creature_enchantment_or_planeswalker":
@@ -1597,6 +1601,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "planeswalker", with_opponents=True, players_first=True),
     "player_or_planeswalker": TargetFrame(
         "planeswalker", with_all_players=True, players_first=True),
+    "creature_planeswalker_or_player": TargetFrame("creature_or_planeswalker", with_all_players=True),
     "battle_or_opponent": TargetFrame("battle", with_opponents=True),
     "artifact_creature_planeswalker_or_opponent": TargetFrame(
         "artifact_creature_or_planeswalker", with_opponents=True),

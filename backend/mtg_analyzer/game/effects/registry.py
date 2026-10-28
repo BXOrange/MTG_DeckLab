@@ -107,6 +107,7 @@ EffectRegistry.register(
         amount_from_defending_player_hand_size=bool(p.get("amount_from_defending_player_hand_size", False)),
         recipient_subject=p.get("recipient_subject"),
         unpreventable=bool(p.get("unpreventable", False)),
+        unpreventable_if=p.get("unpreventable_if"),
         dealer_event_key=p.get("dealer_event_key"),
         dealer_subject=p.get("dealer_subject"),
         per_player=p.get("per_player"),
@@ -585,6 +586,8 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         by_sources_only=bool(p.get("by_sources_only", False)),
         and_dealt_by=bool(p.get("and_dealt_by", False)),
+        count_max=p.get("count_max"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -595,6 +598,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"), creature_filter=p.get("creature_filter"),
         optional=bool(p.get("optional", False)), once=bool(p.get("once", False)),
         combat_only=bool(p.get("combat_only", False)), source_filter=p.get("source_filter"),
+        recipient_target_kind=p.get("recipient_target_kind"),
     ),
 )
 EffectRegistry.register(
@@ -682,6 +686,7 @@ EffectRegistry.register(
         rider=p.get("rider"),
         optional=bool(p.get("optional", False)),
         recipient=p.get("recipient"),
+        once=bool(p.get("once", False)),
     ),
 )
 EffectRegistry.register(
@@ -705,6 +710,9 @@ EffectRegistry.register(
         recipient=p.get("recipient", "self"),
         optional=bool(p.get("optional", False)),
         only_to_you=bool(p.get("only_to_you", False)),
+        once=bool(p.get("once", False)),
+        target_kind=p.get("target_kind", "creature"),
+        protected_target_kind=p.get("protected_target_kind"),
     ),
 )
 EffectRegistry.register(
@@ -731,6 +739,9 @@ EffectRegistry.register(
         amount=p.get("amount", "all"),
         rider=p.get("rider"),
         spell_filter=p.get("spell_filter"),
+        count_max=p.get("count_max"),
+        count_selector=p.get("count_selector"),
+        combat_only=bool(p.get("combat_only", False)),
     ),
 )
 EffectRegistry.register(

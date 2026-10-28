@@ -4078,6 +4078,9 @@ def _target_signature(specs: list["EffectSpec"]) -> list[tuple[str, Any]]:
     return signature
 
 
+_UNPREVENTABLE_OVERRIDE_TAIL_RE = re.compile(r"\s+and the damage can'?t be prevented\s*$", re.I)
+
+
 def _magnitude_override_specs(
     base_text: str, replacement_text: str, condition: dict[str, Any], *, reading: ClauseReading = STANDALONE,
 ) -> Optional[list[EffectSpec]]:
@@ -4088,6 +4091,11 @@ def _magnitude_override_specs(
     target announced for the base is the one the bigger effect hits (RULE
     115.1). A `bind` measures the size once and keeps the base's target.
     """
+    # PAR-216 (RULE 615.6): "... instead it deals 10 damage to that permanent or player and the damage can't be
+    # prevented" (Urza's Rage, Lightning Surge) -- the bigger hit is also unpreventable, under the same condition.
+    unpreventable_tail = _UNPREVENTABLE_OVERRIDE_TAIL_RE.search(replacement_text)
+    if unpreventable_tail is not None:
+        replacement_text = replacement_text[: unpreventable_tail.start()]
     base_numbers = _OVERRIDE_NUMBER_RE.findall(base_text)
     new_numbers = _OVERRIDE_NUMBER_RE.findall(replacement_text)
     if len(base_numbers) != 1 or len(new_numbers) != 1:
@@ -4112,11 +4120,14 @@ def _magnitude_override_specs(
             or base_spec.condition is not None
             or {**base_spec.params, keys[0]: None} != {**bigger_spec.params, keys[0]: None}):
         return None
+    if unpreventable_tail is not None and base_spec.type != "damage":
+        return None
+    gated = {"unpreventable_if": condition} if unpreventable_tail is not None else {}
     return [EffectSpec("bind", {
         "name": "n",
         "amount": {"kind": "if", "condition": condition,
                    "then": int(new_numbers[0]), "otherwise": int(base_numbers[0])},
-        "effects": [EffectSpec(base_spec.type, {**base_spec.params, keys[0]: "$n"}).to_dict()],
+        "effects": [EffectSpec(base_spec.type, {**base_spec.params, keys[0]: "$n", **gated}).to_dict()],
     })]
 
 

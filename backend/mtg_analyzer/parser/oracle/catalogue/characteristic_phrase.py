@@ -116,6 +116,9 @@ _WITH_STAT = re.compile(r"^(?P<stat>power|toughness) (?P<n>\d+) or (?P<dir>great
 _WITH_COUNTER = re.compile(
     r"^(?:an? )?(?:(?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) )?counters? on (?:it|them)$"
 )
+#: PAR-216: "creatures with no +1/+1 counters on them" (Hindervines) -- the plural spelling of the "without a +1/+1 counter"
+#: negation the tail grammar already reads (RULE 122.1: a counter kind is a name, `without_counter_kind`).
+_WITH_NO_COUNTER_KIND = re.compile(r"^no (?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) counters on (?:it|them)$")
 _NON_SUBTYPE = re.compile(r"^non-?(?P<sub>[a-z]+)$")
 
 
@@ -322,6 +325,9 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     m = _WITH_STAT.match(qualifier)
     if m:
         return _bound(m.group("stat"), int(m.group("n")), m.group("dir"))
+    no_kind = _WITH_NO_COUNTER_KIND.match(qualifier)
+    if no_kind is not None:
+        return {"without_counter_kind": no_kind.group("kind")}
     m = _WITH_COUNTER.match(qualifier)
     if m:
         # The kindless "a counter on it" is any counter (RULE 122.1); "no counters on them"

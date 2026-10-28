@@ -186,6 +186,7 @@ class ChosenObjectActionsMixin:
                     method(
                         recipient, prevent_shield.get("amount", "all"),
                         watched_source_id=obj.instance_id, rider=prevent_shield.get("rider"),
+                        once=bool(prevent_shield.get("once")),
                     )
         elif action == "remember_source_redirect" and redirect_shield is not None:
             # MEC-30 (RULE 616.1c "that damage is dealt to `<X>` instead" —
@@ -200,6 +201,7 @@ class ChosenObjectActionsMixin:
                 self.redirect_damage_from_source(
                     obj, recipient, redirect_shield.get("amount", "all"),
                     only_to_player_id=redirect_shield.get("only_to_player_id"),
+                    only_to_object_id=redirect_shield.get("only_to_object_id"), once=bool(redirect_shield.get("once")),
                 )
         elif action == "select_referent":
             self.context.previous_targets = [obj]

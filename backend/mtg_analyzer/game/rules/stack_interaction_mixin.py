@@ -309,6 +309,15 @@ class StackInteractionMixin:
         effects += list(getattr(obj, "static_effects", []) or [])
         if any(isinstance(e, CantBeCounteredEffect) for e in effects):
             return True
+        # PAR-216: "If X is 5 or more, this spell can't be countered ..." (Banefire) / Hellbent (Demonfire) -- the marker
+        # gated on a condition, read now, while the spell is on the stack.
+        from ..effects.game_status import ConditionalEffect  # function-scoped: the effects package imports the engine
+
+        if any(
+            isinstance(e, ConditionalEffect) and isinstance(e.inner, CantBeCounteredEffect)
+            and e._condition_holds(self.context) for e in effects
+        ):
+            return True
         if self._covered_by_uncounterable_grant(obj):
             return True
         is_creature = "creature" in (getattr(obj, "type_words", None) or set())
