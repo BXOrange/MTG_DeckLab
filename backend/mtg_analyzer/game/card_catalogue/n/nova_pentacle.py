@@ -17,6 +17,7 @@ def _nova_pentacle() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_redirect_damage_source", {
+                "once": True,
                 "amount": "all", "recipient": "target", "only_to_you": True, "target_chooser": "opponent",
             })],
             cost={"text": "{3}, {T}"},

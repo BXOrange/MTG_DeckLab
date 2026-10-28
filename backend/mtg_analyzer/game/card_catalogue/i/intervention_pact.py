@@ -20,6 +20,7 @@ def _intervention_pact() -> list[AbilitySpec]:
             "spell_effect",
             [
                 EffectSpec("request_prevent_damage_source", {
+                    "once": True,
                     "amount": "all",
                     "rider": {"kind": "gain_life", "recipient": "you"},
                 }),

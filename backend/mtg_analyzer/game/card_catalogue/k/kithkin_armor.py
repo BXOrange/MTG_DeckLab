@@ -38,6 +38,7 @@ def _kithkin_armor() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "recipient": "attached_permanent", "amount": "all",
             })],
             cost={"text": "Sacrifice ~"},

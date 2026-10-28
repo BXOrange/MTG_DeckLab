@@ -599,6 +599,8 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)), once=bool(p.get("once", False)),
         combat_only=bool(p.get("combat_only", False)), source_filter=p.get("source_filter"),
         recipient_target_kind=p.get("recipient_target_kind"),
+        from_target_kind=p.get("from_target_kind"), from_creature_filter=p.get("from_creature_filter"),
+        from_spell_filter=p.get("from_spell_filter"),
     ),
 )
 EffectRegistry.register(
@@ -713,6 +715,7 @@ EffectRegistry.register(
         once=bool(p.get("once", False)),
         target_kind=p.get("target_kind", "creature"),
         protected_target_kind=p.get("protected_target_kind"),
+        protected_scope=p.get("protected_scope"),
     ),
 )
 EffectRegistry.register(
@@ -741,6 +744,7 @@ EffectRegistry.register(
         spell_filter=p.get("spell_filter"),
         count_max=p.get("count_max"),
         count_selector=p.get("count_selector"),
+        creature_filter=p.get("creature_filter"),
         combat_only=bool(p.get("combat_only", False)),
     ),
 )
@@ -3606,7 +3610,7 @@ EffectRegistry.register(
     lambda p: ShuffleHandAndGraveyardIntoLibraryEffect(scope=p.get("scope")),
 )
 EffectRegistry.register(
-    "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
+    "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"), object_filter=p.get("object_filter"))
 )
 EffectRegistry.register(
     # RULE 710 "flip ~" (flip cards) — see `FlipEffect`.

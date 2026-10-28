@@ -1142,12 +1142,23 @@ class TransformEffect(GameEffect):
         self,
         target_kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        object_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
+        #: "Transform all Humans." (Moonmist): every battlefield permanent matching this `combat.matches_object_filter`
+        #: class; a permanent with no back face is left alone (RULE 712.8 -- only double-faced cards can transform).
+        self.object_filter = dict(object_filter) if object_filter else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.object_filter is not None:
+            from .. import combat  # local: avoid the combat<->effects import cycle
+
+            for obj in list(context.state.battlefield):
+                if combat.matches_object_filter(obj, self.object_filter, reference=self.source, state=context.state):
+                    context.engine.transform_permanent(obj)
+            return
         if self.target_spec is not None:
             target = targets[0] if targets else None
         else:

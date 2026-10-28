@@ -26,6 +26,7 @@ def _story_circle() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "source_filter": {"color_from_source": True}, "amount": "all",
             })],
             cost={"mana": "{W}"},

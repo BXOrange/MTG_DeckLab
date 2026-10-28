@@ -17,6 +17,7 @@ def _circle_of_despair() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "target_kind": "any", "amount": "all",
             })],
             cost={"text": "{1}, Sacrifice a creature"},

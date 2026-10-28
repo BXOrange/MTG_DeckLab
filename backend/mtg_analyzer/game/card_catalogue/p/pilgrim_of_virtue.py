@@ -13,6 +13,7 @@ def _pilgrim_of_virtue() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "source_filter": {"color": "B"}, "amount": "all",
             })],
             cost={"text": "{W}, Sacrifice ~"},

@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from ..characteristic_phrase import parse_object_phrase
+from ..characteristic_phrase import KEYWORD_WORDS, parse_object_phrase
 from .....models.cards.creature_types import CREATURE_SUBTYPES
 from ..clause_hooks import match_clause
 from ..clause_reading import ClauseReading
@@ -86,10 +86,33 @@ def _to_and_by_previous(m: re.Match[str]) -> list[EffectSpec]:
 #: Chain of Silence / Inquisitor's Snare / Kry Shield / Hidden Retreat / Hallow: every point of damage the chosen source
 #: would deal for the rest of the turn (`RulesEngine.prevent_damage_from_source`, "all" keeps the shield for the turn).
 _PREVENT_DEALT_BY_TARGET_RE = compile_clause(
-    r"prevent all damage (?:that would be dealt (?:this turn )?by (?P<by>target [a-z ]+?)(?: this turn)?"
+    r"prevent all (?P<combat>combat )?damage (?:that would be dealt (?:this turn )?by (?P<by>target [a-z ]+?)(?: this turn)?"
     r"|(?P<dealer>target [a-z ]+?) would deal this turn)"
     + _LIFE_TALLY
 )
+#: Benalish Missionary / Gossamer Chains / Songstitcher: the announced creature carries a combat-state adjective
+#: ("blocked", "unblocked", "attacking") or a keyword quality ("with flying"). Peeled locally, so no other handler's target
+#: phrase changes; the keyword vocabulary is the parser's own (`KEYWORD_WORDS`).
+_BLOCK_STATE_RE = re.compile(r"^target (?P<state>blocked|unblocked) creature$")
+_WITH_KEYWORD_RE = re.compile(r"^(?P<base>.+?) with (?P<kw>" + "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True)) + r")$")
+
+
+def _dealer_target(text: str) -> Optional[tuple[str, dict[str, Any]]]:
+    """A creature-dealer target phrase -> (target kind, ``creature_filter``), or ``None`` (fail-closed)."""
+    filt: dict[str, Any] = {}
+    keyword = _WITH_KEYWORD_RE.match(text)
+    if keyword:
+        text = keyword.group("base")
+        filt["keyword"] = KEYWORD_WORDS[keyword.group("kw")]
+    block = _BLOCK_STATE_RE.match(text)
+    if block:
+        text = "target creature"
+        filt[block.group("state")] = True
+    kind = resolve_target_kind(text)
+    if not target_kind_allowed(kind, _DEALER_KINDS):
+        return None
+    filt.update(resolve_target_creature_state_filter(text) or {})
+    return kind, filt
 
 
 def _prevent_dealt_by_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -103,10 +126,14 @@ def _prevent_dealt_by_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if spell:
             params["spell_filter"] = spell
     else:
-        kind = resolve_target_kind(text)
-        if not target_kind_allowed(kind, _DEALER_KINDS) or resolve_target_creature_state_filter(text):
+        dealer = _dealer_target(text)
+        if dealer is None:
             return None
-        params["target_kind"] = kind
+        params["target_kind"] = dealer[0]
+        if dealer[1]:
+            params["creature_filter"] = dealer[1]
+    if m.group("combat"):
+        params["combat_only"] = True
     if m.group("life"):
         params["rider"] = dict(_LIFE_RIDER)
     return [EffectSpec("prevent_damage_from_target", params)]
@@ -157,8 +184,37 @@ _TARGET_PLAYER_SCOPE_RE = re.compile(r"^(?P<cls>.+?) target (?P<who>opponent|pla
 _TARGET_PLAYER_KINDS: dict[str, str] = {"opponent": "opponent", "player": "player"}
 
 
+#: Terrifying Presence: "... by creatures other than target creature" -- every creature source but the announced one.
+_OTHER_THAN_TARGET_RE = re.compile(r"^creatures other than (?P<target>target creature)$")
+#: Moonmist: "... by creatures other than Werewolves and Wolves" -- every creature source outside the named subtypes.
+_OTHER_THAN_SUBTYPES_RE = re.compile(r"^creatures other than (?P<subs>[a-z]+(?: and [a-z]+)*)$")
+
+
+def _other_than_sources(text: str) -> Optional[dict[str, Any]]:
+    """"creatures other than `<target creature | subtypes>`" -> the by-source shield params, else ``None``."""
+    target = _OTHER_THAN_TARGET_RE.match(text)
+    if target:
+        return {"source_filter": {"creature": True, "except_target": True}, "target_kind": "creature"}
+    named = _OTHER_THAN_SUBTYPES_RE.match(text)
+    if not named:
+        return None
+    subtypes: list[str] = []
+    for word in named.group("subs").split(" and "):
+        parsed = parse_object_phrase(word, plural=True)
+        if parsed is None or parsed[1] is not None or set(parsed[0]) != {"subtype"}:
+            return None
+        subtypes.append(str(parsed[0]["subtype"]).lower())
+    return {"source_filter": {"creature": True, "object_filter": {"without_subtype": subtypes}}}
+
+
 def _prevent_by_sources(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     text = m.group("src")
+    other_than = _other_than_sources(text.strip())
+    if other_than is not None:
+        params = {"amount": "all", "by_sources_only": True, **other_than}
+        if m.group("combat"):
+            params["combat_only"] = True
+        return [EffectSpec("prevent_damage_shield", params)]
     scoped = _TARGET_PLAYER_SCOPE_RE.match(text.strip())
     source_filter = _dealers_filter(scoped.group("cls") if scoped else text)
     if source_filter is None:
@@ -542,6 +598,90 @@ def _redirect_once(m: re.Match[str], reading: ClauseReading) -> Optional[list[Ef
     )
 
 
+# --- "all damage that would be dealt [to you] this turn by target <creature | spell> is dealt to <X> instead" ---------
+
+#: Mirror Strike / Shimian Night Stalker / Reverberation: the one announced target is the damage *source*
+#: (`RedirectDamageShieldEffect.from_target_kind`); the protected side is "you" or, with no "to" clause, anything.
+_REDIRECT_FROM_TARGET_RE = compile_clause(
+    r"all (?P<combat>combat )?damage that would be dealt (?:this turn )?(?:to (?P<prot>you) (?:this turn )?)?"
+    r"by (?P<src>target [a-z ]+?)(?: this turn)? is dealt to (?P<rec>~|this creature|its controller|that spell'?s controller) instead"
+)
+_REDIRECT_CONTROLLER_WORDS = ("its controller", "that spell's controller", "that spells controller")
+
+
+def _redirect_from_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    source_text = m.group("src").strip()
+    params: dict[str, Any] = {
+        "amount": "all", "protected": "you" if m.group("prot") else "any",
+        "recipient": "source_controller" if m.group("rec") in _REDIRECT_CONTROLLER_WORDS else "self",
+    }
+    if source_text.endswith(" spell"):
+        if m.group("rec") == "its controller":
+            return None  # "its" names a creature, not a spell
+        spell = resolve_spell_filter(source_text)
+        if spell is None:
+            return None
+        params["from_target_kind"] = spell.pop("target_kind", "spell")
+        if spell:
+            params["from_spell_filter"] = spell
+    else:
+        if m.group("rec") == "that spell's controller":
+            return None
+        dealer = _dealer_target(source_text)
+        if dealer is None:
+            return None
+        params["from_target_kind"] = dealer[0]
+        if dealer[1]:
+            params["from_creature_filter"] = dealer[1]
+    if m.group("combat"):
+        params["combat_only"] = True
+    return [EffectSpec("redirect_damage_shield", params)]
+
+
+#: Reflect Damage: "the next time a source of your choice would deal damage this turn, that damage is dealt to that
+#: source's controller instead" (the recipient is read off the chosen source when the damage is replaced).
+_NEXT_TIME_TO_SOURCE_CONTROLLER_RE = compile_clause(
+    r"the next time an? (?:(?P<color>white|blue|black|red|green) )?source of your choice would deal damage this turn, "
+    r"that damage is dealt to that source'?s controller instead"
+)
+
+
+def _next_time_to_source_controller(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict[str, Any] = {"once": True, "recipient": "source_controller"}
+    if m.group("color"):
+        params["source_filter"] = {"color": _CHOSEN_SOURCE_COLORS[m.group("color").lower()]}
+    return [EffectSpec("request_redirect_damage_source", params)]
+
+
+#: Harm's Way: "the next N damage that a source of your choice would deal to you and/or permanents you control this turn
+#: is dealt to any target instead" -- a budget on one chosen source, redirected to an announced recipient.
+_NEXT_N_CHOSEN_SOURCE_REDIRECT_RE = compile_clause(
+    r"the next (?P<n>\d+) damage that an? source of your choice would deal to you and/or (?P<scope>permanents|creatures) "
+    r"you control this turn is dealt to any target instead"
+)
+
+
+def _next_n_chosen_source_redirect(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("request_redirect_damage_source", {
+        "amount": int(m.group("n")), "protected_scope": m.group("scope"), "recipient": "target", "target_kind": "any",
+    })]
+
+
+# --- Moonmist's lead clause: "transform all <class>" ---------------------------------------------------------------------
+
+#: RULE 712.8: every battlefield permanent of one class (the shared object phrase, plural) flips; a permanent without a
+#: back face is untouched ("Only double-faced cards can be transformed"). Band-limited to a bare class: Glissa's
+#: "Incubator tokens you control" and That's No Moonmist's "on their front face" stay with their own rows / unclaimed.
+_TRANSFORM_ALL_RE = compile_clause(r"transform all (?P<cls>[a-z]+)")
+
+
+def _transform_all(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    parsed = parse_object_phrase(m.group("cls"), plural=True)
+    if parsed is None or parsed[1] is not None:
+        return None
+    return [EffectSpec("transform", {"object_filter": parsed[0]})]
+
+
 ROWS: list[EffectHandler] = [
     EffectHandler("prevent_combat_damage_to_and_by_target", _TO_AND_BY_TARGET_RE, _to_and_by_target),
     EffectHandler("prevent_combat_damage_to_and_by_self", _TO_AND_BY_SELF_RE, _to_and_by_self),
@@ -549,7 +689,11 @@ ROWS: list[EffectHandler] = [
         "prevent_combat_damage_to_and_by_previous", _TO_AND_BY_PREVIOUS_RE, _to_and_by_previous,
         requires=ClauseReading(previous_subject=True),
     ),
-    EffectHandler("prevent_all_damage_dealt_by_target", _PREVENT_DEALT_BY_TARGET_RE, _prevent_dealt_by_target),
+    EffectHandler(
+        "prevent_all_damage_dealt_by_target", _PREVENT_DEALT_BY_TARGET_RE, _prevent_dealt_by_target,
+        # "prevent all combat damage target creature would deal this turn" is the older row's (it flags the creature itself).
+        fallback_for=("prevent_all_combat_damage_dealt_self",),
+    ),
     EffectHandler("prevent_damage_by_source_class", _SOURCES_BY_RE, _prevent_by_sources),
     EffectHandler("prevent_damage_source_class_would_deal", _SOURCES_WOULD_DEAL_RE, _prevent_by_sources),
     EffectHandler(
@@ -582,4 +726,8 @@ ROWS: list[EffectHandler] = [
         fallback_for=("redirect_damage_to_self",),
     ),
     EffectHandler("redirect_damage_once", _REDIRECT_ONCE_RE, _redirect_once, reading_aware=True),
+    EffectHandler("transform_all_objects", _TRANSFORM_ALL_RE, _transform_all),
+    EffectHandler("redirect_all_damage_from_target", _REDIRECT_FROM_TARGET_RE, _redirect_from_target),
+    EffectHandler("redirect_next_time_to_source_controller", _NEXT_TIME_TO_SOURCE_CONTROLLER_RE, _next_time_to_source_controller),
+    EffectHandler("redirect_next_n_chosen_source", _NEXT_N_CHOSEN_SOURCE_REDIRECT_RE, _next_n_chosen_source_redirect),
 ]

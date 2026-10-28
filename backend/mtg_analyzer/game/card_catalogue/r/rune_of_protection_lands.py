@@ -18,7 +18,7 @@ from ...card_registry.families import register_family
 register_family(
     ability_kind="activated",
     effect_type="request_prevent_damage_source",
-    base_params={"amount": "all"},
+    base_params={"amount": "all", "once": True},
     base_cost={"mana": "{W}"},
     entries=[
         ("Rune of Protection: Lands", {"source_filter": {"card_type": "land"}}),

@@ -36,17 +36,13 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-axis tickets (PAR-216…224), from the v792 scan (9,179 open Commander cards, 13,440 open
+Fragment-axis tickets (PAR-217…224), from the v792 scan (9,179 open Commander cards, 13,440 open
 sentences; the best exact template unlocks 5 cards, so each ticket is a shared grammar axis over
 the PAR-210 object phrase, not template rows). Counts are `touched` / `only` (open cards with the
 axis / cards whose every open sentence has it; an overlapping upper bound). Each ticket re-scans
 with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
 claimed cards.
 
-- **PAR-216 · Damage prevention and redirection over the shared object phrase.** `prevent all
-  [combat] damage that would be dealt to / by <object> [this turn]`, `a source of your choice`,
-  `excess damage is dealt to <player> instead`, `all damage that would be dealt to <object> is dealt
-  to ~ instead`, reusing `game/effects/replacements.py`. 229 / 170.
 - **PAR-217 · Type- and characteristic-changing "becomes".** `<object> becomes an artifact creature
   [with power and toughness each equal to its mana value]`, `becomes a <colour> <subtype> with base
   power and toughness N/M`, `becomes an aura with enchant creature`, `becomes the color / basic land

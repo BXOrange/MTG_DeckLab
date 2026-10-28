@@ -15,6 +15,7 @@ def _greater_realm_of_preservation() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "source_filter": {"color_any": ["B", "R"]}, "amount": "all",
             })],
             cost={"mana": "{1}{W}"},

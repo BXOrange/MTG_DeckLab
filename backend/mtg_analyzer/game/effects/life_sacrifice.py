@@ -605,6 +605,14 @@ class PreventDamageEffect(GameEffect):
                     if not chosen_players:
                         return
                     source_filter["controller_id"] = chosen_players[0].id
+                if source_filter.pop("except_target", False):
+                    # "creatures other than target creature" (Terrifying Presence): every source but the announced one.
+                    chosen_dealer = _chosen_targets(targets, 1, self.target) if self.target_spec is not None else []
+                    if not chosen_dealer:
+                        return
+                    source_filter["object_filter"] = {
+                        **source_filter.get("object_filter", {}), "without_instance_id": chosen_dealer[0].instance_id,
+                    }
                 if source_filter.pop("other", False) and self.source is not None:
                     # "other creatures" (Haze Frog): every source but this ability's own permanent.
                     source_filter["object_filter"] = {
@@ -1092,8 +1100,12 @@ class RequestRedirectDamageSourceEffect(GameEffect):
         once: bool = False,
         target_kind: str = "creature",
         protected_target_kind: Optional[str] = None,
+        protected_scope: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: Harm's Way / Shining Shoal: "... would deal damage to **you and/or permanents | creatures you control**": the
+        #: shielded recipients are this controller plus the named class of their permanents (RULE 109.4).
+        self.protected_scope = protected_scope
         self.source_filter = dict(source_filter or {})
         self.amount = amount
         #: "the **next time** a source of your choice would deal damage to you this turn" (Beacon of Destiny): ends
@@ -1130,8 +1142,9 @@ class RequestRedirectDamageSourceEffect(GameEffect):
                 return
             protected_obj, picks = picks[0], picks[1:]
         recipient_obj: Any = src if self.recipient == "self" else (picks[0] if picks else None)
-        if recipient_obj is None:
+        if recipient_obj is None and self.recipient != "source_controller":
             return
+        recipient_is_player = recipient_obj is not None and not hasattr(recipient_obj, "instance_id")
         from .. import combat  # local: avoid the combat<->effects import cycle
 
         candidates = [
@@ -1143,10 +1156,16 @@ class RequestRedirectDamageSourceEffect(GameEffect):
             prompt=f"{src.name}: Quelle wählen",
             source=src,
             redirect_shield={
-                "recipient_id": recipient_obj.instance_id,
-                "recipient_is_player": False,
+                "recipient_id": (
+                    None if recipient_obj is None
+                    else recipient_obj.id if recipient_is_player else recipient_obj.instance_id
+                ),
+                "recipient_is_player": recipient_is_player,
+                "protected_scope": self.protected_scope,
+                "recipient_is_source_controller": self.recipient == "source_controller",
                 "amount": self.amount,
                 "only_to_player_id": player.id if self.only_to_you else None,
+                "scope_player_id": player.id if self.protected_scope else None,
                 "only_to_object_id": protected_obj.instance_id if protected_obj is not None else None,
                 "once": self.once,
             },
@@ -1196,6 +1215,9 @@ class RedirectDamageShieldEffect(GameEffect):
         source_filter: Optional[dict] = None,
         source: Optional["GameObject"] = None,
         recipient_target_kind: Optional[str] = None,
+        from_target_kind: Optional[str] = None,
+        from_creature_filter: Optional[dict] = None,
+        from_spell_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -1208,14 +1230,24 @@ class RedirectDamageShieldEffect(GameEffect):
             TargetSpec(kind=target_kind, optional=optional, creature_filter=creature_filter)
             if target_kind is not None else None
         )
+        #: Mirror Strike / Shimian Night Stalker / Reverberation: "... that would be dealt [to you] this turn **by target
+        #: `<creature | spell>`** is dealt to `<recipient>` instead" -- the one announced target is the damage *source*
+        #: (RULE 115.1), so neither the protected nor the recipient role is a target.
+        self.from_target_kind = from_target_kind
+        if from_target_kind is not None:
+            self.target_spec = TargetSpec(
+                kind=from_target_kind, creature_filter=from_creature_filter, spell_filter=from_spell_filter,
+            )
         #: Carom / Razia ("... to target creature ... is dealt to **another target** creature instead"): both roles are
         #: announced targets, the protected one first (RULE 115.1, printed order) and the recipient a different object
         #: (RULE 115.3 "another").
-        self.two_targets = protected == "target" and recipient == "target"
+        self.two_targets = protected == "target" and recipient == "target" and from_target_kind is None
         if self.two_targets and recipient_target_kind is not None:
             self.extra_target_specs = (TargetSpec(kind=recipient_target_kind, distinct_from_others=True),)
 
     def _resolve(self, role: str, context: GameContext, controller: Any, chosen: list[Any]) -> Any:
+        if role == "source_controller":
+            return None  # read per damage event (`RulesEngine._redirect_damage_shield`)
         if role == "target":
             return chosen[0] if chosen else None
         if role == "you":
@@ -1230,10 +1262,16 @@ class RedirectDamageShieldEffect(GameEffect):
         if controller is None:
             return
         chosen = _chosen_targets(targets, 2 if self.two_targets else 1, None) if self.target_spec is not None else []
+        source_filter = dict(self.source_filter)
+        if self.from_target_kind is not None:
+            if not chosen:
+                return  # RULE 608.2b: the announced source is gone, nothing to redirect
+            source_filter["source_instance_id"] = chosen[0].instance_id
+            chosen = []  # the target was the damage source, not a protected / recipient role
         if self.two_targets and len(chosen) < 2:
             return
         recipient = self._resolve(self.recipient, context, controller, chosen[1:] if self.two_targets else chosen)
-        if recipient is None:
+        if recipient is None and self.recipient != "source_controller":
             return
         protected_ids: set[Any] = set()
         scope_permanents = self.protected == "you_and_permanents"
@@ -1246,7 +1284,8 @@ class RedirectDamageShieldEffect(GameEffect):
             protected_ids.add(getattr(obj, "instance_id", None) or obj.id)  # a permanent's instance id or a player's id
         context.engine._redirect_damage_shield(
             controller, self.source, recipient, protected_ids, scope_permanents,
-            amount=self.amount, once=self.once, combat_only=self.combat_only, source_filter=self.source_filter,
+            amount=self.amount, once=self.once, combat_only=self.combat_only, source_filter=source_filter,
+            protect_any=self.protected == "any",
         )
 
 
@@ -1311,10 +1350,13 @@ class PreventDamageFromTargetEffect(GameEffect):
         count_max: Optional[int] = None,
         count_selector: Optional[str] = None,
         combat_only: bool = False,
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.amount = amount
+        #: "prevent all combat damage that would be dealt by target **blocked** creature" (Benalish Missionary,
+        #: Songstitcher's "attacking creature with flying"): the announced source is narrowed by the RULE 115 filter.
         #: "prevent all **combat** damage X target creatures would deal this turn" (Serene Sunset, RULE 510.2).
         self.combat_only = bool(combat_only)
         self.rider = list(rider) if isinstance(rider, list) else (dict(rider) if rider else None)
@@ -1322,7 +1364,7 @@ class PreventDamageFromTargetEffect(GameEffect):
         #: spell on the stack, narrowed by `targeting.TargetSpec.spell_filter`.
         self.target_spec = TargetSpec(
             kind=target_kind, count=count, count_max=count_max, count_selector=count_selector,
-            optional=count_selector is not None, spell_filter=spell_filter,
+            optional=count_selector is not None, spell_filter=spell_filter, creature_filter=creature_filter,
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:

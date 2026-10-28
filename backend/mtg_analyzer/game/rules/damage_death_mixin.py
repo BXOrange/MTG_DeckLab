@@ -78,6 +78,10 @@ from ..effects.core import (
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
 from .. import continuations
 
+#: A redirect scope naming only the controller's creatures ("you and/or creatures you control", Shining Shoal); any
+#: other scope word means every permanent of theirs (Harm's Way).
+PROTECTED_SCOPE_CREATURES = "creatures"
+
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
 
@@ -1939,6 +1943,7 @@ class DamageDeathMixin:
     def redirect_damage_from_source(
         self, source: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
         only_to_player_id: Optional[str] = None, once: bool = False, only_to_object_id: Optional[int] = None,
+        protected_scope: Optional[str] = None, scope_player_id: Optional[str] = None,
     ) -> None:
         """RULE 616.1c "the next time a source of your choice would deal
         damage this turn, that damage is dealt to `<X>` instead" (Opal-Eye,
@@ -1963,7 +1968,6 @@ class DamageDeathMixin:
             return
         watched_source_id = source.instance_id
         remaining = None if amount == "all" else int(amount)
-        new_is_player = not hasattr(new_recipient, "instance_id")
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
@@ -1975,6 +1979,9 @@ class DamageDeathMixin:
                 # Kor Chant: "...to target creature by a source of your choice": only damage headed for that permanent.
                 only_to_object_id is None
                 or (not e.get("is_player") and e.get("target_id") == only_to_object_id)
+            ) and (
+                # Harm's Way / Shining Shoal: "... to you and/or permanents | creatures you control".
+                protected_scope is None or self._in_protected_scope(e, scope_player_id, protected_scope)
             ),
             description=f"{source.name}: Schadensumleitung",
         )
@@ -1992,8 +1999,11 @@ class DamageDeathMixin:
                 redirected = dealt
             if once and effect in controller.player_effects:
                 controller.player_effects.remove(effect)
-            if redirected <= 0:
+            # ``new_recipient`` ``None``: "that source's controller" (Reflect Damage), read off the watched source now.
+            recipient = new_recipient if new_recipient is not None else self.state.player_by_id(source.controller_id)
+            if redirected <= 0 or recipient is None:
                 return event
+            new_is_player = not hasattr(recipient, "instance_id")
             leftover = dealt - redirected
             if leftover > 0:
                 # A finite redirect budget can be exhausted mid-event: the
@@ -2014,15 +2024,24 @@ class DamageDeathMixin:
                     )
             overrides: dict[str, Any] = {
                 "amount": redirected,
-                "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
+                "target_id": recipient.id if new_is_player else recipient.instance_id,
                 "is_player": new_is_player,
             }
             if not new_is_player:
-                overrides["target_controller_id"] = new_recipient.controller_id
+                overrides["target_controller_id"] = recipient.controller_id
             return event.copy_with(**overrides)
 
         effect.replacement_fn = _replace
         controller.player_effects.append(effect)
+
+    def _in_protected_scope(self, event: GameEvent, player_id: Optional[str], scope: str) -> bool:
+        """Whether a DAMAGE event is headed for ``player_id`` or one of their permanents of the ``scope`` class."""
+        if event.get("is_player"):
+            return event.get("target_id") == player_id
+        target = self.state.find_object(event.get("target_id"))
+        if target is None or target.controller_id != player_id:
+            return False
+        return scope != PROTECTED_SCOPE_CREATURES or bool(target.is_creature)
 
     def redirect_damage_from_target(
         self, protected: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
@@ -2076,9 +2095,13 @@ class DamageDeathMixin:
     def _redirect_damage_shield(
         self, controller: Player, shield_source: Optional[GameObject], new_recipient: Any, protected_ids: set,
         include_permanents: bool = False, *, amount: Union[int, str] = "all", once: bool = False,
-        combat_only: bool = False, source_filter: Optional[dict] = None,
+        combat_only: bool = False, source_filter: Optional[dict] = None, protect_any: bool = False,
     ) -> None:
         """RULE 616.1: a turn-scoped one-shot redirect (PAR-216, `RedirectDamageShieldEffect`).
+
+        ``new_recipient`` ``None`` means "that source's controller" (Mirror Strike, Reverberation): read off the damage
+        source when the event is replaced. ``protect_any`` shields every recipient (the damage is limited by
+        ``source_filter`` alone: "all damage that would be dealt this turn by target sorcery spell").
 
         ``protected_ids`` holds player ids and permanent instance ids whose incoming damage is rewritten to
         ``new_recipient``; ``include_permanents`` widens it to every permanent ``controller`` controls ("you and permanents
@@ -2089,11 +2112,16 @@ class DamageDeathMixin:
         from ..effects.replacements import _source_relation_matches  # function-scoped: the effects package imports the engine
 
         remaining = None if amount == "all" else int(amount)
-        new_is_player = isinstance(new_recipient, Player)
+
+        def _recipient_for(event: GameEvent) -> Any:
+            if new_recipient is not None:
+                return new_recipient
+            controller_id = event.get("source_controller_id")  # a resolving spell is off the stack (RULE 608.2)
+            return self.state.player_by_id(controller_id) if controller_id is not None else None
 
         def _protected(event: GameEvent, context: Any) -> bool:
             target_id = event.get("target_id")
-            if target_id in protected_ids:
+            if protect_any or target_id in protected_ids:
                 return True
             if not include_permanents or event.get("is_player"):
                 return False
@@ -2120,7 +2148,9 @@ class DamageDeathMixin:
                 remaining -= redirected
             if (once or (remaining is not None and remaining <= 0)) and effect in controller.player_effects:
                 controller.player_effects.remove(effect)
-            if redirected <= 0 or (not new_is_player and new_recipient not in context.state.permanents()):
+            recipient = _recipient_for(event)
+            new_is_player = isinstance(recipient, Player)
+            if redirected <= 0 or recipient is None or (not new_is_player and recipient not in context.state.permanents()):
                 return event
             leftover = dealt - redirected
             if leftover > 0:
@@ -2136,11 +2166,11 @@ class DamageDeathMixin:
                     )
             overrides: dict[str, Any] = {
                 "amount": redirected,
-                "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
+                "target_id": recipient.id if new_is_player else recipient.instance_id,
                 "is_player": new_is_player,
             }
             if not new_is_player:
-                overrides["target_controller_id"] = new_recipient.controller_id
+                overrides["target_controller_id"] = recipient.controller_id
             return event.copy_with(**overrides)
 
         effect.replacement_fn = _replace

@@ -29,7 +29,7 @@ def _rhystic_circle() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("all_players_decline_or", {
                 "cost": "{1}",
-                "effects": [{"type": "request_prevent_damage_source", "params": {"amount": "all"}}],
+                "effects": [{"type": "request_prevent_damage_source", "params": {"once": True, "amount": "all"}}],
             })],
             cost={"mana": "{1}"},
         ),

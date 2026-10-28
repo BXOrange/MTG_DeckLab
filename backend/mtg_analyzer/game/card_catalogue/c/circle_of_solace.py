@@ -22,6 +22,7 @@ def _circle_of_solace() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "source_filter": {"card_type": "creature", "subtype_from_source": True},
                 "amount": "all",
             })],

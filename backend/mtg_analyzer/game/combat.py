@@ -598,6 +598,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
         "blocking", "attacking_or_blocking",
+        # "target blocked creature" / "target unblocked creature" (Benalish Missionary, Gossamer Chains) -- RULE 506.4
+        # and 509.1h: an attacking creature that has / has no creature blocking it.
+        "blocked", "unblocked",
         # "each creature blocking it" / "…blocking ~" (PAR-128) — RULE 509.1a: a
         # creature declared as a blocker *of the reference object* (the attacker whose
         # `blocked_by` names it), unlike ``blocking``, which is any attacker.
@@ -860,6 +863,11 @@ def matches_object_filter(
     # a bespoke target kind.
     # ``False`` is "nonattacking" (Ruthless Instincts), the `tapped` idiom.
     if filt.get("attacking") is not None and bool(getattr(obj, "attacking", False)) != bool(filt["attacking"]):
+        return False
+    # RULE 506.4 / 509.1h: an attacker is "blocked" once a creature blocks it, "unblocked" until then.
+    if filt.get("blocked") and not (getattr(obj, "attacking", False) and getattr(obj, "blocked_by", None)):
+        return False
+    if filt.get("unblocked") and not (getattr(obj, "attacking", False) and not getattr(obj, "blocked_by", None)):
         return False
     # "…that's blocking" / "…that's attacking or blocking" (Surge of
     # Righteousness) — RULE 509.1: a creature is blocking once it has been

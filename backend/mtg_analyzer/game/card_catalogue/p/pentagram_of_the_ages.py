@@ -11,7 +11,7 @@ def _pentagram_of_the_ages() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
+            [EffectSpec("request_prevent_damage_source", {"once": True, "amount": "all"})],
             cost={"text": "{4}, {T}"},
         ),
     ]

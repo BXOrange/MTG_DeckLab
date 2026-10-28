@@ -828,3 +828,7 @@ damage_then_excess_to_controller
 damage_then_unpreventable
 redirect_damage_shield
 redirect_damage_once
+transform_all_objects
+redirect_all_damage_from_target
+redirect_next_time_to_source_controller
+redirect_next_n_chosen_source

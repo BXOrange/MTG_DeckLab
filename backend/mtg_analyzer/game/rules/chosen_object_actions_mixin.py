@@ -192,16 +192,21 @@ class ChosenObjectActionsMixin:
             # MEC-30 (RULE 616.1c "that damage is dealt to `<X>` instead" —
             # Opal-Eye, Konda's Yojimbo): the pick becomes a redirect's own
             # watched source.
+            # Reflect Damage: "... is dealt to that source's controller instead" -- the recipient is read off the chosen
+            # source when the damage is replaced (``None``), not fixed now.
             recipient = (
-                self.state.player_by_id(redirect_shield["recipient_id"])
+                None if redirect_shield.get("recipient_is_source_controller")
+                else self.state.player_by_id(redirect_shield["recipient_id"])
                 if redirect_shield.get("recipient_is_player")
                 else self._object_by_instance_id(redirect_shield["recipient_id"])
             )
-            if recipient is not None:
+            if recipient is not None or redirect_shield.get("recipient_is_source_controller"):
                 self.redirect_damage_from_source(
                     obj, recipient, redirect_shield.get("amount", "all"),
                     only_to_player_id=redirect_shield.get("only_to_player_id"),
                     only_to_object_id=redirect_shield.get("only_to_object_id"), once=bool(redirect_shield.get("once")),
+                    protected_scope=redirect_shield.get("protected_scope"),
+                    scope_player_id=redirect_shield.get("scope_player_id"),
                 )
         elif action == "select_referent":
             self.context.previous_targets = [obj]

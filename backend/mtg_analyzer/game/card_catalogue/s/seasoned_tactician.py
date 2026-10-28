@@ -22,7 +22,7 @@ def _seasoned_tactician() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
+            [EffectSpec("request_prevent_damage_source", {"once": True, "amount": "all"})],
             cost={"text": "{3}, Exile the top four cards of your library"},
         ),
     ]

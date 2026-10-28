@@ -19,6 +19,7 @@ def _bone_mask() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "amount": "all", "rider": {"kind": "exile_top_of_library_scaled"},
             })],
             cost={"text": "{2}, {T}"},

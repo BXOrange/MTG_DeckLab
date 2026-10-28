@@ -18,6 +18,7 @@ def _new_way_forward() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "amount": "all",
                 "rider": [
                     {"kind": "deal_damage_to_source_controller"},

@@ -9,7 +9,8 @@ from ...card_registry.families import register_family
 # choose_objects`'s interactive "choose a source" pick over every
 # battlefield permanent matching `source_filter`, then a `RulesEngine.
 # prevent_damage_to_player`-shaped shield scoped to whichever one gets
-# picked; repeatable — nothing marks the ability itself once-per-turn,
+# picked; ``once`` ends it after that source's first hit (RULE 615.7 "the next
+# time"); repeatable — nothing marks the ability itself once-per-turn,
 # matching the real printed text) across all seven members, differing only
 # in `source_filter`, one member's own cost (Artifacts is {2} where the
 # rest of the cycle is {1}). The Rune of Protection cycle (same
@@ -22,7 +23,7 @@ from ...card_registry.families import register_family
 register_family(
     ability_kind="activated",
     effect_type="request_prevent_damage_source",
-    base_params={"amount": "all"},
+    base_params={"amount": "all", "once": True},
     base_cost={"mana": "{1}"},
     entries=[
         ("Circle of Protection: Shadow", {"source_filter": {"card_type": "creature", "keyword": "shadow"}}),

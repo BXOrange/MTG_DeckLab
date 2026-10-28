@@ -16,11 +16,15 @@ def _source_relation_matches(source_filter: dict, event: GameEvent, context: Gam
     by enchanted creature", RULE 303.4); ``self_source`` -- it is the shield's own permanent ("damage that ~ would
     deal"); ``blocked_by_self`` / ``blocking_self`` -- a creature ``shield_source`` is blocking / that is blocking it
     (RULE 509.1); ``unblocked`` -- an attacking creature no creature blocks (RULE 509.1h); ``object_filter`` -- any
-    `combat.matches_object_filter` class; ``max_amount`` -- only a hit of at most that much ("if a source would deal
+    `combat.matches_object_filter` class; ``source_instance_id`` -- exactly one announced object ("damage that would be
+    dealt to you this turn by target unblocked creature", Mirror Strike); ``max_amount`` -- only a hit of at most that much ("if a source would deal
     3 or less damage to ~", the amount the event carries).
     """
     object_keys = ("attached", "self_source", "blocked_by_self", "blocking_self", "unblocked", "object_filter")
     if source_filter.get("max_amount") is not None and int(event.get("amount", 0) or 0) > int(source_filter["max_amount"]):
+        return False
+    # Compared on the event's own id: a resolving spell is no longer on the stack or battlefield (RULE 608.2).
+    if source_filter.get("source_instance_id") is not None and event.get("source_id") != source_filter["source_instance_id"]:
         return False
     if not any(source_filter.get(k) for k in object_keys):
         return True
