@@ -316,9 +316,18 @@ def parse_absent_quality(text: str) -> Optional[dict[str, Any]]:
     return {"without_keyword": keyword} if keyword else None
 
 
+def parse_stat_relation(text: str) -> Optional[str]:
+    """RULE 208: compare two derived characteristics of the same object."""
+    m = re.fullmatch(r"(power|toughness) (?:is )?(greater|less) than (?:its|their) (power|toughness)", text)
+    return m[1] + ('>' if m[2] == 'greater' else '<') + m[3] if m else None
+
+
 def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     """The text after "with " → filter keys, or ``None``."""
     qualifier = qualifier.strip().lower()
+    relation = parse_stat_relation(qualifier)
+    if relation:
+        return {"stat_relation": relation}
     m = _WITH_MANA_VALUE.match(qualifier)
     if m:
         return _bound("mana_value", int(m.group("n")), m.group("dir"))

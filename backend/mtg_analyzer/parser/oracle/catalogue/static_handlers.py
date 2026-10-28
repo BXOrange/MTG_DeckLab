@@ -78,7 +78,10 @@ from .subgrammars import (
     devotion_selector,
     scope_adjective as _scope_adjective,
 )
-from .characteristic_phrase import KEYWORD_WORDS, parse_object_phrase
+from .characteristic_phrase import KEYWORD_WORDS, parse_object_phrase, parse_stat_relation
+from .combat_phrase import combat_tail
+from .quantifier_scope import object_set
+from .clause_reading import ClauseReading
 from .clause_hooks import register_static_condition, segment_line, trigger_condition_dict
 from .count_phrase import parse_amount_phrase, parse_count_condition, parse_count_phrase
 from .history_phrase import parse_history_condition
@@ -1681,18 +1684,6 @@ def object_filter(text: str) -> Optional[dict]:
     return filt
 
 
-#: A basic land type / permanent type "defending player controls …" may name.
-_CONTROLS_FILTERS: dict[str, dict] = {
-    **{
-        f"a{'n' if t[0] in 'aeiou' else ''} {t}": {"subtype": t.capitalize()}
-        for t in ("plains", "island", "swamp", "mountain", "forest")
-    },
-    **{
-        f"a{'n' if t[0] in 'aeiou' else ''} {t}": {"card_type": t}
-        for t in ("creature", "artifact", "enchantment", "land")
-    },
-}
-
 #: Number words a "you control three or more creatures" count may use.
 _NUMBER_WORDS: dict[str, int] = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
@@ -1724,16 +1715,24 @@ def _you_control_condition(m: "re.Match[str]") -> Optional[dict]:
     return condition
 
 
+def _defending_controls_condition(text: str) -> Optional[dict]:
+    parsed = parse_object_phrase(re.sub(r'^an? ', '', text))
+    if parsed is None or parsed[1] is not None:
+        return None
+    filt = dict(parsed[0])
+    # Retain the existing basic-land spelling in emitted specs.
+    if filt.get('subtype') in ('plains', 'island', 'swamp', 'mountain', 'forest'):
+        filt['subtype'] = filt['subtype'].capitalize()
+    return {'kind': 'defending_player_controls', 'filter': filt}
+
+
 #: "unless <condition>" → a `GameEngine._combat_condition_met` condition dict.
 #: A closed list, ordered most-specific-first; anything unlisted fails closed
 #: (the whole clause stays unclaimed).
 _CONDITION_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[dict]]]] = [
     (
         re.compile(r"defending player controls (?P<what>.+)", re.I),
-        lambda m: (
-            {"kind": "defending_player_controls", "filter": _CONTROLS_FILTERS[m.group("what")]}
-            if m.group("what") in _CONTROLS_FILTERS else None
-        ),
+        lambda m: _defending_controls_condition(m.group("what")),
     ),
     (
         re.compile(r"defending player is the monarch", re.I),
@@ -4131,6 +4130,9 @@ _ATTACHED_STATE_CONDITION_RE = re.compile(
 
 def _attached_state_condition(text: str) -> Optional[dict]:
     """"enchanted creature is attacking" → its ``active_if`` dict (`_ATTACHED_STATE_KINDS`)."""
+    relation = re.fullmatch(rf"(?:{_ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", text.strip().rstrip('.'))
+    if relation and (comparison := parse_stat_relation(relation['relation'])):
+        return {'kind': 'stat_relation', 'name': comparison, 'of': 'attached'}
     m = _ATTACHED_STATE_CONDITION_RE.fullmatch(text.strip().rstrip("."))
     if m is None:
         return None
@@ -4251,6 +4253,15 @@ def static_condition(text: str) -> Optional[dict]:
     worse than an unmodeled card.
     """
     stripped = text.strip().rstrip(".").strip()
+    host_keyword = re.fullmatch(rf"(?:{_ATTACHED_SUBJECT_PATTERN}) has (?P<keyword>.+)", stripped)
+    if host_keyword and host_keyword['keyword'] in KEYWORD_WORDS:
+        return {'kind': 'has_keyword', 'keyword': KEYWORD_WORDS[host_keyword['keyword']], 'of': 'attached'}
+    relation = re.fullmatch(rf"(?P<who>~|{_ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", stripped)
+    if relation:
+        comparison = parse_stat_relation(relation['relation'])
+        if comparison:
+            return {'kind': 'stat_relation', 'name': comparison,
+                    'of': 'source' if relation['who'] == '~' else 'attached'}
     crew = re.fullmatch(r"an? (?P<quality>[a-z ]+) crewed (?:it|~) this turn", stripped)
     if crew is not None:
         parsed = parse_object_phrase(crew['quality'])
@@ -6458,12 +6469,81 @@ def _static_cant_be_blocked(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _combat_object_specs(text: str) -> Optional[list[EffectSpec]]:
+    """RULE 508/509/510: one subject grammar for all standing combat tails.
+
+    Legacy rows win for their existing shapes. New compositions retain every
+    conjunct; neither an unknown condition nor an unknown subject is dropped.
+    """
+    unquoted = re.sub(r'"[^"]*"', '', text)
+    if not re.search(r"\b(?:attacks?|blocks?|assigns? combat damage)\b", unquoted):
+        return None
+    m = re.fullmatch(r"(?P<subject>.+?) (?P<tail>(?:attacks?|blocks?|assigns?|can|can\'t|gets?|has|have) .+)", text)
+    if m is None:
+        return None
+    subject, tail = m['subject'], m['tail']
+    if subject == '~' or re.fullmatch(_ATTACHED_SUBJECT_PATTERN, subject):
+        affects = {'affects': _combat_restriction_affects(subject)}
+    else:
+        phrase = re.sub(r'^(?:each|all) ', '', subject)
+        selector = object_set(phrase, ClauseReading())
+        if selector is None or selector.get('controller_ref') or selector.get('of') == 'context':
+            return None
+        affects = {'affects': selector}
+    condition = None
+    conditional = re.fullmatch(r"(?P<body>can'?t (?:attack|block|attack or block)) if (?P<condition>.+)", tail)
+    if conditional:
+        if affects['affects'] not in ('self', 'attached_permanent'):
+            return None  # a per-member condition must never become a source gate
+        phrase = conditional['condition']
+        if affects['affects'] == 'attached_permanent':
+            phrase = re.sub(r"^it(?:'s| is) ", subject + ' is ', phrase)
+        condition = static_condition(phrase)
+        if condition is None:
+            combat_condition = _combat_condition(phrase)
+            if combat_condition is None:
+                return None
+            verbs = ['attack', 'block'] if conditional['body'] == "can't attack or block" else [conditional['body'].split()[-1]]
+            return [EffectSpec('combat_restriction', {
+                'kind': 'cant_' + verb + '_unless',
+                'condition': {'kind': 'not', 'condition': combat_condition}, **affects,
+            }) for verb in verbs]
+        tail = conditional['body']
+    operation = combat_tail(tail, temporary=False)
+    if operation is not None:
+        kind, params = operation
+        if kind == 'both_requirements':
+            specs = [EffectSpec('grant_keyword', {'keywords': ['attacks_if_able'], **affects}),
+                     EffectSpec('combat_restriction', {'kind': 'must_block_if_able', **affects})]
+        else:
+            specs = [EffectSpec(kind, {**params, **affects})]
+        if condition:
+            for spec in specs:
+                spec.params['active_if'] = condition
+        return specs
+    # A shared subject may govern several independently understood predicates
+    # (Aura pumps, keyword grants, combat permissions). Reparse each entire
+    # predicate; a failed half fails the complete sentence closed.
+    for connector in (', and ', ' and ', ', '):
+        for split in re.finditer(re.escape(connector), tail):
+            if tail[:split.start()].count(chr(34)) % 2:
+                continue
+            left, right = tail[:split.start()], tail[split.end():]
+            before = static_effect_specs(subject + ' ' + left)
+            if not before:
+                continue
+            after = static_effect_specs(subject + ' ' + right)
+            if after:
+                return [*before, *after]
+    return None
+
+
 def _static_attacks_if_able(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _ATTACKS_IF_ABLE_RE.fullmatch(text)
     if m is not None:
         return _claim(_combat_restriction_specs(m.group("subject"), ["attacks_if_able"]))
-    return None
+    return _combat_object_specs(text)
 
 
 # RULE 509.1c/d combat requirements — "~ must be blocked if able."/"All

@@ -1008,7 +1008,7 @@ class CombatMixin:
     #: attack" rather than quietly deleting the restriction.
     _COMBAT_CONDITIONS: frozenset[str] = frozenset(
         {
-            "defending_player_controls",
+            "defending_player_controls", "not",
             "you_control",
             "more_creatures_than_opponent",
             "more_lands_than_opponent",
@@ -1041,6 +1041,12 @@ class CombatMixin:
         kind = str(condition.get("kind", ""))
         if kind not in self._COMBAT_CONDITIONS:
             return False
+        if kind == 'not':
+            # RULE 508.1c/509.1b: "can't ... if C" is "can't ... unless not C".
+            # Unknown nested conditions must still fail closed before negation.
+            inner = condition.get('condition')
+            return bool(isinstance(inner, dict) and inner.get('kind') in self._COMBAT_CONDITIONS
+                        and not self._combat_condition_met(obj, inner, defending_player, attacker))
         try:
             controller = self.state.player_by_id(obj.controller_id)
         except KeyError:

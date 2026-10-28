@@ -510,6 +510,7 @@ cant_be_blocked_by_this_turn
 cant_block_source_this_turn
 blocks_source_this_turn_if_able
 attacks_this_turn_if_able
+combat_instruction_this_turn
 must_be_blocked_this_turn_if_able
 pump_target_two_color
 pump_x_nonland_permanents

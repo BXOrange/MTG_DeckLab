@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+from .catalogue.combat_phrase import combat_tail
 from .catalogue.clause_reading import (
     COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, EXILED_REFERENT, REVEALED, REVEALED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
     ClauseReading, Referent, PLAYER,
@@ -1728,7 +1729,7 @@ _REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset(
 #: a longer window would only be a slower way of failing.
 _MAX_SENTENCE_WINDOW = 4
 _MAY_HAVE_TARGET_GET_RE = re.compile(
-    r"(\byou may )have (target (?:[a-z-]+ )*?creature) (get|gain) ", re.IGNORECASE
+    r"(\byou may )have (target (?:[a-z-]+ )*?creature|it|that creature) (get|gain) ", re.IGNORECASE
 )
 _AND_CONNECTOR = r"\s+and\s+"
 #: PAR-208: the commas of a series "A, B, and C" ("target player mills 2 cards, draws 2 cards, and loses 2 life"; "you
@@ -7369,6 +7370,12 @@ def _parse_effect_body_inner(
                             part,
                             reading=_sequel_reading(reading, carry_self, referents),
                         )
+                if sub is None and sep == _AND_CONNECTOR and idx and combat_tail(part, temporary=True):
+                    # RULE 608.2c: "it gets +2/+2 ... and can block an additional creature this turn".
+                    # The elided combat predicate keeps the established object, never invents a target.
+                    sequel = _sequel_reading(reading, carry_self, referents)
+                    plural = any(r.group for r in referents if r.kind in (TARGET, CREATED)) or referent_selector
+                    sub = parse_effect_body(('they ' if plural else 'it ') + part, reading=sequel)
                 if sub is None and sep == _AND_CONNECTOR and idx:
                     # "~ deals 3 damage to X if … **and 3 damage to Y** if …" / "you gain X life if … **and X life**
                     # if …": the second conjunct repeats only the amount noun, the verb is the first one's.

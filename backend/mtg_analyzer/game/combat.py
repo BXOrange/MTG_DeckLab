@@ -588,7 +588,7 @@ _PRINTED_ONLY_KEYWORDS: frozenset[str] = frozenset({"flashback", "disturb"})
 
 _FILTER_KEYS: frozenset[str] = frozenset(
     {
-        "all_of", "not_basic_land",
+        "all_of", "not_basic_land", "stat_relation",
         "crewed_reference_this_turn",
         "min_power", "max_power", "min_toughness", "max_toughness",
         "keyword", "keyword_any", "without_keyword",
@@ -709,6 +709,16 @@ _FILTER_KEYS: frozenset[str] = frozenset(
 )
 
 
+def matches_stat_relation(obj: Any, relation: str) -> bool:
+    """RULE 208/613: compare the same object's current derived P/T."""
+    match = re.fullmatch(r"(power|toughness)([<>])(power|toughness)", str(relation))
+    if match is None or obj is None:
+        return False
+    left = getattr(obj, match[1], 0) or 0
+    right = getattr(obj, match[3], 0) or 0
+    return left > right if match[2] == '>' else left < right
+
+
 def matches_object_filter(
     obj: "GameObject",
     filt: "Optional[dict[str, Any]]",
@@ -729,6 +739,8 @@ def matches_object_filter(
     """
     if not filt:
         return True
+    if "stat_relation" in filt and not matches_stat_relation(obj, filt["stat_relation"]):
+        return False
     if filt.get('crewed_reference_this_turn'):
         # RULE 702.122b-c / 400.7: only the very creature visit that paid crew.
         if (reference is None or getattr(reference, 'crewed_turn', None) is None

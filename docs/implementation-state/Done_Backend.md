@@ -2824,6 +2824,30 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 - **What:** RULE 509.1c/d requirements ("must be blocked if able"/"all creatures able to block ~ do so") as synthetic layer-6 flag keywords, checked by `_enforce_block_requ…
 - **Files:** `game/game_engine.py`, `game/combat.py`, `models/game_object.py`
 
+- **Shared combat-object grammar (PAR-218, PARSER_VERSION 805):** Standing
+  attack/block requirements, additional blocks, attack/block prohibitions and
+  toughness-based combat damage compose over the shared filtered object sets,
+  source and attached subjects. Temporary instructions use the same operation
+  grammar with PAR-210 target/group/reference binding; additional blocks stack
+  and expire at cleanup. Compound Aura/Equipment pumps and keyword grants retain
+  every predicate, while elided combat predicates keep their established object.
+  Same-object derived P/T comparisons serve both filters and source/host static
+  conditions. Conditional prohibitions preserve source/host gates or the combat's
+  defending-player condition. Unknown conditions, durations and conjuncts remain
+  unclaimed; quoted ability bodies are excluded from outer combat splitting.
+  `test_par218_combat_object_family.py` executes requirements, counter/controller
+  filters, activated stacking, compound target retention, live P/T comparisons,
+  combat damage, host changes and cleanup. Against v804 the complete card pool
+  gains **100 parser-modeled names, zero lost, zero changed existing specs**
+  (excluding version metadata); two names were already authored. Authoritative
+  coverage: **23,851/35,051 (68.0%)**, Commander **23,234/32,068 (72.5%)**.
+  The fresh Commander scan has **8,714 open cards / 12,830 fragments**, down from
+  **8,812 / 12,947**. Independent controller-reference, pairwise combat-object
+  and future-duration gaps remain outside these shared operations.
+  Validation: **17,985 full-cache checks passed** including the final parser-lock
+  recheck, **1 skipped**; final family/quoted-spec regressions pass separately.
+  Both localized Engine-Status modules load in Chromium.
+
 ### Combat Statics — Count-Selector Threshold + Qualified Group Scope
 
 - **What:** `matches_object_filter` gained a `power_lt_count_selector` key (a board-count threshold re-evaluated at combat time, e.g.

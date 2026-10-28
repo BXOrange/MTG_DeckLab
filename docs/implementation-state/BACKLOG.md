@@ -36,17 +36,13 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-axis tickets (PAR-218…224), from the v792 scan (9,179 open Commander cards, 13,440 open
+Fragment-axis tickets (PAR-219…224), from the v792 scan (9,179 open Commander cards, 13,440 open
 sentences; the best exact template unlocks 5 cards, so each ticket is a shared grammar axis over
 the PAR-210 object phrase, not template rows). Counts are `touched` / `only` (open cards with the
 axis / cards whose every open sentence has it; an overlapping upper bound). Each ticket re-scans
 with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
 claimed cards.
 
-- **PAR-218 · Combat requirements and restrictions over the shared object phrase.** `<object>
-  blocks / attacks [each combat] [this turn] if able`, `can block an additional creature [this turn /
-  each combat]`, `can't block [if <condition>]`, `assigns combat damage equal to its toughness rather
-  than its power`, on existing `must_attack` / `must_block` / `additional_block`. 162 / 118.
 - **PAR-219 · Name references.** `with the same name as <reference>`, `a card named <name>` searches
   including `your library and/or graveyard` with the `if you search your library this way, shuffle`
   tail, and `can't cast spells with the same name as <reference>`. 212+63 / 107+37.

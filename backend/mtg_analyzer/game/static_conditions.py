@@ -130,6 +130,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # ("as long as enchanted permanent is a creature"/"…is red"/"…is a
         # Vehicle"), i.e. with ``of="attached"`` — but the kinds themselves
         # are subject-agnostic like every other row here.
+        "stat_relation",  # same-object derived P/T comparison (RULE 208/613)
         "is_card_type",  # + ``card_type``
         "is_color",  # + ``color`` (a WUBRG letter)
         "is_subtype",  # + ``subtype``
@@ -808,6 +809,9 @@ def condition_holds(
         if subject is None or name not in SUBJECT_FLAGS:
             return False
         return bool(getattr(subject, name, False))
+    if kind == 'stat_relation':
+        from .combat import matches_stat_relation
+        return matches_stat_relation(subject, condition.get('name', ''))
     if kind == "power":
         # Derived power (the layer engine's output), so a pump/anthem that
         # already resolved counts — the same read every other characteristic

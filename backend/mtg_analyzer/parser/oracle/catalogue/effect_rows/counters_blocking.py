@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from ..clause_reading import ClauseReading
+from ..combat_phrase import combat_tail
 from typing import Optional
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
@@ -1129,6 +1130,24 @@ def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", {"keywords": ["attacks_if_able"], "target_kind": kind})]
 
 
+def _combat_instruction_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    operation = combat_tail((m['prefix'] or '') + m['tail'], temporary=True)
+    kind = resolve_target_kind(m['target'])
+    if operation is None or not target_kind_allowed(kind, ('creature', 'creature_you_control', 'creature_you_dont_control')):
+        return None
+    effect_type, params = operation
+    common = {'target_kind': kind, **optional_param(m)}
+    if effect_type == 'grant_keyword':
+        return [EffectSpec('pump', {**params, **common})]
+    if effect_type == 'both_requirements':
+        return [EffectSpec('grant_until', {
+            'static': {'type': 'grant_keyword', 'params': {'keywords': ['attacks_if_able']}},
+            'extra_statics': [{'type': 'combat_restriction', 'params': {'kind': 'must_block_if_able'}}],
+            'duration': 'end_of_turn', **common,
+        })]
+    return [EffectSpec('combat_restriction_this_turn', {'restriction': params, **common})]
+
+
 #: "Target creature must be blocked this turn if able." (Irresistible Prey/
 #: Goldenhide Ox/Head Banger/Satyr Piper) / "~ must be blocked this turn if
 #: able." (Loathsome Catoblepas) — the bare (no P/T delta, no "and gains …"
@@ -1501,6 +1520,12 @@ ROWS: list[EffectHandler] = [
         "attacks_this_turn_if_able",
         _ATTACKS_TURN_IF_ABLE_RE,
         _attacks_turn_if_able,
+    ),
+    EffectHandler(
+        "combat_instruction_this_turn",
+        compile_clause(rf"(?P<prefix>until end of turn, )?{TARGET} (?P<tail>(?:attacks?|blocks?|assigns?|can|can\'t) .+)"),
+        _combat_instruction_turn,
+        fallback_for=("attacks_this_turn_if_able", "cant_block_this_turn"),
     ),
     # "Target creature must be blocked this turn if able."/"~ must be
     # blocked this turn if able." (RULE 509.1c, resolve-time, PAR-124).
