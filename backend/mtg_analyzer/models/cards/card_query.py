@@ -137,6 +137,14 @@ def names_overlap(first: str, second: str) -> bool:
         return {part.strip().casefold() for part in str(text or '').split('//') if part.strip()}
     return bool(names(first) & names(second))
 
+def _query_name(card: Card) -> str:
+    # RULE 712.8a / 709.4a: a library/hand/graveyard search sees only
+    # the front of a double-faced card, but both names of a split card.
+    if getattr(card, 'layout', '') in {'transform', 'modal_dfc', 'meld', 'double_faced_token', 'flip', 'adventure', 'prepare'}:
+        return card.name.split('//')[0].strip()
+    return card.name
+
+
 def matches(card: Card, criteria: Criteria) -> bool:
     """Whether ``card`` satisfies ``criteria`` (all conditions AND-combined)."""
     crit = normalize(criteria)
@@ -179,14 +187,14 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if "min_toughness" in crit and (card.toughness is None or card.toughness < crit["min_toughness"]):
         return False
-    if "same_name_as" in crit and not names_overlap(card.name, crit["same_name_as"]):
+    if "same_name_as" in crit and not names_overlap(_query_name(card), crit["same_name_as"]):
         return False
-    if "name" in crit and card.name.lower() != str(crit["name"]).lower():
+    if "name" in crit and not name_matches(_query_name(card), crit["name"]):
         return False
     # The negated form ("a nonland card with a **different name** than that
     # spell" — Tibalt's Trickery). Kept as its own key rather than allowing a
     # magic value in ``name``, so a criteria dict stays literal data.
-    if "not_name" in crit and card.name.lower() == str(crit["not_name"]).lower():
+    if "not_name" in crit and name_matches(_query_name(card), crit["not_name"]):
         return False
     if not _color_matches(card, crit.get("color")):
         return False

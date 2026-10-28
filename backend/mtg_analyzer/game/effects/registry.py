@@ -5173,6 +5173,7 @@ EffectRegistry.register(
         "cast_prohibition",
         affects="all",
         params={
+            **({"name_reference": p["name_reference"]} if p.get("name_reference") else {}),
             "scope": p.get("scope", "opponents"),
             "noncreature": bool(p.get("noncreature", False)),
             "max_mana_value_selector": p.get("max_mana_value_selector"),

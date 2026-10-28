@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "805"
+PARSER_VERSION = "807"
 
 
 def parser_source_hash() -> str:
@@ -1844,6 +1844,19 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     # ``ExileEffect(remember=True)`` populates — so, seeing both halves on
     # one card, stamp ``remember`` onto the companion ETB exile here.
     nodes = list(_effect_nodes(effect_specs))
+    def reads_linked_name(value):
+        if isinstance(value, dict):
+            return value.get('name_reference', {}).get('kind') == 'linked_exile' or any(
+                reads_linked_name(child) for child in value.values())
+        if isinstance(value, list):
+            return any(reads_linked_name(child) for child in value)
+        return False
+    if any(reads_linked_name(params) for _, params in nodes):
+        # RULE 607.2a: the name reader and its exile-producing ability share
+        # exact source/card visits, including composite and library exiles.
+        for kind, params in nodes:
+            if kind in {'exile', 'exile_top_of_library'} or (kind == 'search' and params.get('destination') == 'exile'):
+                params['track_exiled_with'] = True
     if any(kind == "return_all_exiled_with" for kind, _ in nodes):
         for kind, params in nodes:
             if kind in {"exile", "exile_top_of_library", "search"}:

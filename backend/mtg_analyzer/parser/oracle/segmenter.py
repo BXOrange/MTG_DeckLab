@@ -7362,6 +7362,12 @@ def _parse_effect_body_inner(
                             sub = match_clause(
                                 window, reading=_sequel_reading(reading, carry_self, referents),
                             )
+                            if (sub is None and (idx > 0 or end < len(parts))
+                                    and 'search your library' in window
+                                    and 'if you search' in window):
+                                # RULE 608.2c: keep an optional search and its conditional
+                                # shuffle tail together inside a larger sequence.
+                                sub = parse_effect_body(window, reading=_sequel_reading(reading, carry_self, referents))
                             if sub is not None:
                                 skip_until = end
                                 break

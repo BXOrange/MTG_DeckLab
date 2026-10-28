@@ -16,7 +16,7 @@ _GROUP_TYPES = frozenset({"creature", "enchantment", "artifact", "land"})
 
 _NAME_GROUP_PHRASE = re.compile(
     r"target (?P<t>creature|artifact|enchantment|land|nonland permanent|permanent) and "
-    r"all other (?P<others>creatures|artifacts|enchantments|lands|permanents) with the same name as that "
+    r"(?P<quant>all|each) other (?P<others>creatures?|artifacts?|enchantments?|lands?|permanents?) with the same name as that "
     r"(?:creature|artifact|enchantment|land|permanent)(?P<verb> (?:gain|get)\b)?"
 )
 
@@ -42,6 +42,8 @@ def target_group_specs(body: str, parse: Callable[..., Optional[list[EffectSpec]
     same_name = pattern is _NAME_GROUP_PHRASE
     if not same_name and m.group("t") not in _GROUP_TYPES:
         return None
+    if same_name and (m['quant'] == 'all') != m['others'].endswith('s'):
+        return None
     then_effects: list[dict] = []
     plain = body
     if plain.endswith(_LIFE_FROM_DAMAGE):
@@ -62,7 +64,7 @@ def target_group_specs(body: str, parse: Callable[..., Optional[list[EffectSpec]
         return None
     params: dict = {
         "shares": "name" if same_name else "color",
-        "filter": ({"card_type": m['others'][:-1]} if m['others'] != 'permanents' else {})
+        "filter": ({"card_type": m['others'].removesuffix('s')} if m['others'] != 'permanents' else {})
                   if same_name else {"card_type": m.group("t")},
         "effects": [spec.to_dict() for spec in inner],
     }

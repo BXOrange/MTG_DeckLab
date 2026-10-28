@@ -5638,6 +5638,10 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
         scope = ability.params.get("scope", "opponents")
         if scope == "opponents" and player.id in (None, controller_id):
             continue
+        if ability.params.get("name_reference"):
+            from .name_reference import matches_name_reference
+            if not matches_name_reference(card, ability.params["name_reference"], state, ability.source):
+                continue
         if ability.params.get("noncreature") and getattr(card, "is_creature", False):
             continue
         if ability.params.get("nonartifact") and getattr(card, "is_artifact", False):

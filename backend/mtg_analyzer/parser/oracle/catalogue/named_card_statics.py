@@ -29,6 +29,7 @@ import re
 from typing import Any, Optional
 
 from ..spec import EffectSpec
+from .name_atoms import name_reference
 
 _MANA_ABILITY_RIDER = r"(?P<unless> unless they'?re mana abilities)?"
 
@@ -60,6 +61,13 @@ _ANY_COLOR_MANA: list[dict[str, int]] = [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1},
 def named_card_static_specs(text: str) -> Optional[list[EffectSpec]]:
     """The specs for a static clause that reads "the chosen name", or ``None`` when ``text`` is none of the table's shapes."""
     text = text.strip().rstrip(".").strip().lower()
+    prohibition = re.fullmatch(r"(?P<who>your opponents|players) can't cast spells with the same name as (?P<ref>.+)", text)
+    if prohibition:
+        reference = name_reference(prohibition['ref'])
+        return [EffectSpec("cast_prohibition", {
+            "scope": "opponents" if prohibition['who'] == 'your opponents' else 'all',
+            "name_reference": reference,
+        })] if reference else None
     if "the chosen" not in text:
         return None
     if _SPELLS_CANT_BE_CAST.fullmatch(text):

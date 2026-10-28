@@ -122,8 +122,14 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         if first is None or second is None or first.get("zone") == second.get("zone"):
             return None
         return {"terms": [first, second]}
+    name_tail = re.search(r" with the same name as (.+)$", text)
+    name_extra = None
+    if name_tail:
+        name_extra = parse_qualifier('the same name as ' + name_tail[1])
+        if name_extra is not None:
+            text = text[:name_tail.start()]
     selector: dict[str, Any] = {}
-    extra: dict[str, Any] = {}
+    extra: dict[str, Any] = dict(name_extra or {})
     # PAR-153: RULE 700.9 "attacking modified creature you control" (Mirror-Style Master) -- a permanent with a counter,
     # Equipment or controlled Aura on it (`continuous.is_modified`). Read here, in a live count/iteration, and not in
     # `characteristic_phrase`'s shared adjectives: a trigger head ("whenever a modified creature you control dies") would

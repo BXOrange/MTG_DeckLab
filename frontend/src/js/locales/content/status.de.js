@@ -467,7 +467,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (68,0 % · 23.851 / 35.051, PARSER_VERSION 805)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (68,2 % · 23.900 / 35.051, PARSER_VERSION 807)'],
               ['partial', 'Davon Commander-legal (72,5 % · 23.234 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

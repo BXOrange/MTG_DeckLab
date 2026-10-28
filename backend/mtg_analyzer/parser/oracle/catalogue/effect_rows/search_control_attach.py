@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from ..clause_reading import ClauseReading
+from ..name_atoms import CARD_NAME
 from ..clause_hooks import match_clause
 from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
@@ -71,10 +72,7 @@ from .shared import (
 #: found but left unclaimed): any qualifier after the noun phrase such as
 #: "with mana value X or less" (Green Sun's Zenith/Chord of Calling/Finale
 #: of Devastation — X is a spell's own cast-time choice, not a static
-#: criterion this grammar can express), a name criterion whose own name
-#: contains a comma ("a card named Angrath, Minotaur Pirate" —
-#: indistinguishable from the following put-clause's own comma without a
-#: name dictionary), and a searched-for subtype not in `_SEARCH_TYPE_WORD`'s
+#: criterion this grammar can express), a searched-for subtype not in `_SEARCH_TYPE_WORD`'s
 #: vocabulary ("a Shrine card"/"an Ally creature card").
 #:
 #: The type-word vocabulary intentionally also carries the five basic land
@@ -178,7 +176,7 @@ _SEARCH_CRITERIA = (
     r"(?P<permanent>permanent )?"
     rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
     r"cards?"
-    r"(?: named (?P<name>~|[a-z][a-z' -]*?))?"
+    rf"(?: named (?P<name>{CARD_NAME}))?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
     + _SEARCH_MV_QUALIFIER
 )
@@ -332,7 +330,7 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
     return resolve_color_word(word)
 
 
-def _search_criteria_from_match(m: re.Match[str]) -> dict:
+def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     crit: dict = {}
     if m.groupdict().get("name"):
         crit["name"] = m.group("name").strip()
@@ -369,9 +367,18 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     crit.update(_search_mv_qualifier_from_match(m))
     name = crit.get("name")
     if name and " or " in name:
-        # RULE 201.2: each alternative is a literal English name. Reuse
-        # criteria OR and retain every other restriction on each branch.
-        return {"or": [{**crit, "name": part.strip()} for part in name.split(" or ")]}
+        branches = []
+        for part in name.split(" or "):
+            if re.match(r'an? ', part):
+                alternative = re.fullmatch(_SEARCH_CRITERIA, part)
+                branch = _search_criteria_from_match(alternative) if alternative else None
+                if branch is None:
+                    return None
+                branches.append(branch)
+            else:
+                branches.append({**crit, "name": part.strip()})
+        return {"or": branches}
+
     return crit
 
 
@@ -383,10 +390,13 @@ def _search_count_from_match(m: re.Match[str]) -> "Optional[int | str]":
 
 
 def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
-    params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
+    params: dict = {"criteria": criteria, "destination": destination}
     # RULE 701.20: revealing a named find is public information before it
     # enters the hand; the search continuation owns that complete move.
     if m.groupdict().get("name"):
@@ -415,10 +425,13 @@ _SEARCH_OTHER_LIBRARY_RE = compile_clause(
 
 
 def _search_other_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     if m.group("mv") is not None or m.group("count") == "x":
         return None  # a dynamic amount / mana-value bound needs its own binding; fail closed
     params: dict = {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "destination": "battlefield" if m.group("field") else "graveyard" if m.group("grave") else "exile",
         "player_from_target": True,
     }
@@ -449,11 +462,14 @@ def _elfhame_sanctuary(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _search_put_then_shuffle_share_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
     params: dict = {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "destination": destination,
         "share_land_type": True,
     }
@@ -518,11 +534,14 @@ _SEARCH_LESSER_MV_RE = compile_clause(
 
 
 def _search_lesser_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
     return [EffectSpec("search", {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "mana_value_from": {"source": "trigger_subject", "plus": -1, "cmp": "le"},
         "destination": destination,
     })]
@@ -542,11 +561,14 @@ _SEARCH_MV_SACRIFICED_RE = compile_clause(
 
 
 def _search_mv_sacrificed(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
     return [EffectSpec("search", {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "mana_value_from": {"plus": int(m.group("plus") or 0), "cmp": "eq"},
         "destination": destination,
     })]
@@ -620,8 +642,11 @@ _SEARCH_PUT_ATTACH_THEN_SHUFFLE_RE = compile_clause(
 
 
 def _search_put_attach_then_shuffle(m: re.Match[str]) -> list[EffectSpec]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     params: dict = {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "destination": "battlefield",
         "attach_to_creature_you_control": True,
     }
@@ -632,8 +657,11 @@ def _search_put_attach_then_shuffle(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _search_shuffle_then_put_top(m: re.Match[str]) -> list[EffectSpec]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = "library_third" if m.groupdict().get("third") else "library_top"
-    params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
+    params: dict = {"criteria": criteria, "destination": destination}
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
@@ -658,12 +686,15 @@ _SEARCH_SPLIT_DESTINATION_RE = compile_clause(
 
 
 def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     dest1 = _search_destination_kind(m.group("dest1"))
     dest2 = _search_destination_kind(m.group("dest2"))
     if dest1 is None or dest2 is None:
         return None
     params: dict = {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "destination": dest1,
         "destinations": [dest1, dest2],
     }
@@ -707,22 +738,9 @@ def _search_two_cards_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     ]
 
 
-#: The criteria noun phrase for a "library and/or graveyard" search — same
-#: basic-land/type-list alternatives as `_SEARCH_CRITERIA`, plus a bare-name
-#: alternative ("a card named <Name>") this family's real cards lean on
-#: heavily (planeswalker/background tutors); restricted to a name with no
-#: internal comma (see the module docstring above for why).
-_SEARCH_ZONE_CRITERIA = (
-    r"(?:up to (?P<count>\d+)|an?)\s+"
-    rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
-    r"(?:"
-    r"(?P<basic>basic land) cards?"
-    rf"|card named (?P<name>[a-z][a-z' -]*?)"
-    rf"|(?P<types>{_SEARCH_TYPE_LIST}) cards?"
-    r"|cards?"
-    r")"
-    + _SEARCH_MV_QUALIFIER
-)
+#: Library-only and combined-zone searches share every criterion atom,
+#: including named cards with internal punctuation and subtype/type intersections.
+_SEARCH_ZONE_CRITERIA = _SEARCH_CRITERIA
 #: "search your library and/or graveyard for <criteria>, [reveal <pronoun>,]
 #: [and] put <pronoun> <destination>. If you search[ed] your library this
 #: way, shuffle." (RULE 701.19 "and/or" combined-zone search — the
@@ -734,40 +752,31 @@ _SEARCH_ZONE_CRITERIA = (
 #: simplification: it doesn't track which specific zone the chosen card(s)
 #: actually came from).
 _SEARCH_ZONE_PUT_RE = compile_clause(
-    rf"search your library and/or graveyard for {_SEARCH_ZONE_CRITERIA},?\s*"
-    rf"{_SEARCH_REVEAL}"
-    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})\.\s*"
-    r"if you search(?:ed)? your library this way,?\s*shuffle"
+    rf"search your (?P<zones>(?:library|graveyard|hand)(?:(?:, |,? and/or |,? and )(?:library|graveyard|hand)){{1,2}}) for {_SEARCH_ZONE_CRITERIA},?\s*"
+    rf"{_SEARCH_REVEAL}(?:then )?"
+    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?:\.\s*"
+    r"if you search(?:ed)? your library this way,?\s*shuffle|, then shuffle)"
 )
 
 
-def _search_zone_criteria_from_match(m: re.Match[str]) -> dict:
-    if m.groupdict().get("basic"):
-        crit: dict = {"basic": True}
-    else:
-        name = m.groupdict().get("name")
-        if name:
-            return {"name": name.strip()}  # a named-card search ignores colour/mv qualifiers
-        crit = {}
-        types = m.groupdict().get("types")
-        if types:
-            words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
-            crit["type"] = words if len(words) > 1 else words[0]
-    color = _search_color_from_match(m)
-    if color:
-        crit["color"] = color
-    crit.update(_search_mv_qualifier_from_match(m))
-    return crit
+def _search_zone_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
+    return _search_criteria_from_match(m)
 
 
 def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_zone_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
+    zones = re.findall(r'library|graveyard|hand', m['zones'])
+    if 'library' not in zones or len(set(zones)) != len(zones):
+        return None
     params: dict = {
-        "criteria": _search_zone_criteria_from_match(m),
+        "criteria": criteria,
         "destination": destination,
-        "zones": ["library", "graveyard"],
+        "zones": zones,
     }
     count = _search_count_from_match(m)
     if count is not None:

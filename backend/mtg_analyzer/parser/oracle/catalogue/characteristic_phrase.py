@@ -27,6 +27,7 @@ import re
 from typing import Any, Optional
 
 from .subtype_vocabulary import SUBTYPES
+from .name_atoms import name_reference
 from .trigger_context import CONTROLLER_TAILS
 
 #: Main card types a phrase may name (RULE 300.1).
@@ -325,6 +326,9 @@ def parse_stat_relation(text: str) -> Optional[str]:
 def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     """The text after "with " → filter keys, or ``None``."""
     qualifier = qualifier.strip().lower()
+    if qualifier.startswith("the same name as "):
+        reference = name_reference(qualifier.removeprefix("the same name as "))
+        return {"name_reference": reference} if reference else None
     relation = parse_stat_relation(qualifier)
     if relation:
         return {"stat_relation": relation}

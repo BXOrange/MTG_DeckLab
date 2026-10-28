@@ -692,7 +692,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "without_snow",
         # RULE 201.2: "the number of creatures **named ~** on the battlefield"
         # (Plague Rats) — the same English name as the *reference* object.
-        "named_as_reference",
+        "named_as_reference", "name_reference",
         # PAR-123: "…that shares a creature type with it" — the object and the reference object have a
         # creature subtype in common (RULE 205.3m; Shared Animosity).
         "shares_creature_type_with_reference",
@@ -1209,6 +1209,10 @@ def matches_object_filter(
         return False
     if filt.get("without_snow") and obj.has_supertype("snow"):
         return False
+    if filt.get("name_reference"):
+        from .name_reference import matches_name_reference
+        if state is None or not matches_name_reference(obj, filt["name_reference"], state, reference):
+            return False
     if filt.get("named_as_reference") and (reference is None or not set(obj.names) & set(reference.names)):
         return False
     if filt.get("shares_creature_type_with_reference"):

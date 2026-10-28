@@ -14,9 +14,18 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-28 at PARSER_VERSION 805: **23,851 / 35,051 cards (68.0%)**,
+Measured on 2026-10-28 at PARSER_VERSION 807: **23,900 / 35,051 cards (68.2%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,234 / 32,068 (72.5%)**.
+Commander-legal coverage: **23,283 / 32,068 (72.6%)**.
+PAR-219 adds shared name operands to object filters, same-name searches and
+cast prohibitions, including linked exile visits; named searches accept internal
+commas and reuse one criteria grammar across library and combined-zone searches.
+Against v805, the complete pool gains **51 parser-modeled names, zero lost**,
+with **zero changed existing specs** (excluding version metadata); covered names
+increase by 49 because two cards already had authored implementations. The v807
+Commander scan records **8,665 open cards and 12,733 fragments**, versus 8,714 and
+12,830 at v805. Unsupported reference bindings and unrelated card clauses remain
+fail-closed.
 PAR-218 composes standing and turn-limited combat requirements/restrictions,
 additional blocks and toughness-based combat damage over shared object subjects,
 including attached compound grants and live same-object P/T comparisons.

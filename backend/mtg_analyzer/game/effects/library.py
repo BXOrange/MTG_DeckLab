@@ -304,8 +304,10 @@ class SearchLibraryEffect(GameEffect):
         else:
             player = self.player or context.active_player
         chooser = _controller_of(self.source, context) if self.player_from_target else None
+        from ..name_reference import resolve_search_names
+        criteria = resolve_search_names(self._resolved_criteria(context), context, self.source, targets)
         context._request_search(
-            player, self._resolved_criteria(context), self.destination, self.count, self.optional,
+            player, criteria, self.destination, self.count, self.optional,
             zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
             extra_counters=self.extra_counters, destination_if=self.destination_if,
             attach_to_creature_you_control=self.attach_to_creature_you_control,
