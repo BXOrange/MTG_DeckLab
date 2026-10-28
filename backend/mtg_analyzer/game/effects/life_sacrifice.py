@@ -490,9 +490,13 @@ class PreventDamageEffect(GameEffect):
         recipient_filter: Optional[dict] = None,
         attached_only: bool = False,
         previous_subject: bool = False,
+        by_sources_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "Prevent all damage that would be dealt **by creatures** this turn." (Chant of Vitu-Ghazi, PAR-215): no
+        #: recipient at all, only ``source_filter`` decides what is prevented (`RulesEngine._prevent_damage_by_sources`).
+        self.by_sources_only = bool(by_sources_only)
         #: "Untap target creature. Prevent all damage that would be dealt
         #: to **it** this turn." (PAR-78, Djeru's Resolve/Leap of Faith) —
         #: "it"/"that creature" naming the *preceding* clause's own RULE
@@ -561,6 +565,13 @@ class PreventDamageEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         amount = self._measured(self.amount, context, targets)
+        if self.by_sources_only:
+            player = _controller_of(self.source, context)
+            if player is not None:
+                context.engine._prevent_damage_by_sources(
+                    player, self.source_filter, rider=self.rider, shield_source=self.source,
+                )
+            return
         if self.attached_only:
             host_id = getattr(self.source, "attached_to", None)
             host = context.state.find_object(host_id) if host_id is not None else None
@@ -600,11 +611,13 @@ class PreventDamageEffect(GameEffect):
                     context.engine.prevent_damage_to_player_and_their_creatures(
                         player, amount, watched_source_id=watched_source_id,
                         rider=self.rider, scope=self.recipient_scope, source_filter=self.source_filter,
+                        shield_source=self.source,
                     )
                 else:
                     context.prevent_damage_to_player(
                         player, amount, watched_source_id=watched_source_id,
                         rider=self.rider, combat_only=self.combat_only, source_filter=self.source_filter,
+                        shield_source=self.source,
                     )
             return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
@@ -623,6 +636,7 @@ class PreventDamageEffect(GameEffect):
                     target, share, source_filter=self.source_filter, rider=self.rider,
                     combat_only=self.combat_only,
                     shield_controller_id=controller.id if controller is not None else None,
+                    shield_source=self.source,
                 )
 
 

@@ -1084,7 +1084,9 @@ def _creature_matches_filter(
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
 
 
-def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:
+def _spell_matches_filter(
+    obj: GameObject, spell_filter: dict[str, Any], state: Optional[GameState] = None,
+) -> bool:
     """Whether a stack spell's underlying ``obj`` satisfies a "spell" target's
     ``spell_filter`` (RULE 601.2c/115) — see `TargetSpec.spell_filter`.
 
@@ -1131,6 +1133,8 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
         return False
     # "…spell with mana value 4 or less" (Expansion // Explosion).
     max_mana_value = spell_filter.get("max_mana_value")
+    if isinstance(max_mana_value, dict):
+        max_mana_value = _candidate_mana_value_bound(state, max_mana_value, obj)
     if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
     # "…spell with mana value 4 or greater" (PAR-215): the floor sibling of the ceiling above.
@@ -1138,6 +1142,28 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
     if min_mana_value is not None and obj.mana_value < min_mana_value:
         return False
     return True
+
+
+def _candidate_mana_value_bound(state: Optional[GameState], bound: dict[str, Any], candidate: GameObject) -> int:
+    """PAR-215: a mana-value ceiling measured *per candidate*, as the candidate's own controller -- "target spell with
+    mana value less than or equal to the number of cards in **its controller's** graveyard" (Drown in the Loch). It
+    cannot be fixed once for the whole offer (RULE 601.2c): every candidate answers to a different player. Without a
+    state or a recognised bound nothing qualifies (-1), the fail-closed answer."""
+    selector = bound.get("candidate_controller_count")
+    if state is None or selector is None:
+        return -1
+    from .continuous import count_selector  # function-scoped: continuous imports this module
+
+    return count_selector(state, candidate.controller_id, selector, None)
+
+
+def _within_mana_value_ceiling(state: Optional[GameState], ceiling: Any, obj: GameObject) -> bool:
+    """RULE 202.3: ``obj``'s mana value is within ``ceiling`` -- no ceiling, an int, or a per-candidate bound dict."""
+    if ceiling is None:
+        return True
+    if isinstance(ceiling, dict):
+        ceiling = _candidate_mana_value_bound(state, ceiling, obj)
+    return obj.mana_value <= ceiling
 
 
 # --- ENG-34 S0b: the battlefield target frame ------------------------------
@@ -1703,7 +1729,11 @@ def _legal_from_frame(
             continue
         if frame.apply_color and not _color_ok(spec, obj.colors):
             continue
-        if frame.apply_max_mana_value and spec.max_mana_value is not None and (
+        if frame.apply_max_mana_value and isinstance(spec.max_mana_value, dict) \
+                and "candidate_controller_count" in spec.max_mana_value \
+                and obj.mana_value > _candidate_mana_value_bound(state, spec.max_mana_value, obj):
+            continue
+        if frame.apply_max_mana_value and isinstance(spec.max_mana_value, (int, float)) and (
             obj.mana_value > spec.max_mana_value
         ):
             continue
@@ -2200,7 +2230,7 @@ def _legal_targets_for(
             and (allow_self or o is not source)
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.mana_value <= spec.max_mana_value)
+            and _within_mana_value_ceiling(state, spec.max_mana_value, o)
             and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
             and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
             and (
@@ -2353,7 +2383,7 @@ def _legal_targets_for(
             if type_filter(o)
             and (not spec.subtype or spec.subtype.lower() in o.card.type_line.lower())
             and not (spec.exclude_legendary and o.card.is_legendary)
-            and (spec.max_mana_value is None or o.mana_value <= spec.max_mana_value)
+            and _within_mana_value_ceiling(state, spec.max_mana_value, o)
             and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
             # "…creature card with mana value X from your graveyard" (Isareth the Awakener, PAR-139).
             and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
@@ -2394,7 +2424,7 @@ def _legal_targets_for(
             if card_filter.pop("single_target", False):
                 items = [item for item in items if len(item.targets) == 1]
             if card_filter:
-                items = [item for item in items if _spell_matches_filter(item.obj, card_filter)]
+                items = [item for item in items if _spell_matches_filter(item.obj, card_filter, state)]
         return [
             {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
             for item in items
@@ -2424,7 +2454,7 @@ def _legal_targets_for(
                 {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
                 for item in state.stack
                 if item.kind == "spell" and item.obj is not None and item.obj is not source
-                and (not spec.spell_filter or _spell_matches_filter(item.obj, dict(spec.spell_filter)))
+                and (not spec.spell_filter or _spell_matches_filter(item.obj, dict(spec.spell_filter), state))
             ] + options
         return options
     return []

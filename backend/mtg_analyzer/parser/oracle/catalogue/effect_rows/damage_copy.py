@@ -1061,12 +1061,42 @@ def _prevent_damage_player_planeswalker_or_subtype(m: re.Match[str]) -> list[Eff
 #: (Security Blockade). The existing shield effect defaults to the ability's
 #: controller; unlike the adjacent any-target row, this has no target choice.
 _PREVENT_NEXT_DAMAGE_TO_YOU_RE = compile_clause(
-    r"prevent the next (?P<n>\d+) damage that would be dealt to you this turn"
+    # PAR-215: "the next X damage" and the "you and/or permanents you control" recipient union (Divine Deflection).
+    r"prevent the next (?P<n>\d+|x) damage that would be dealt to you"
+    r"(?: and/or (?P<scope>creatures|permanents) you control)? this turn"
 )
 
 
 def _prevent_next_damage_to_you(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n"))})]
+    n = m.group("n").lower()
+    params: dict = {"amount": "x" if n == "x" else int(n)}
+    if m.group("scope"):
+        params["recipient_scope"] = m.group("scope")
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-215: a shield followed by "If damage is prevented this way, ~ deals that much damage to <target>." (Divine
+#: Deflection, Vengeful Archon, Channel Harm) -- the amount actually prevented is the damage dealt, through the
+#: `reflexive_damage` rider (`RulesEngine.apply_prevent_rider`, RULE 603.12): a fresh triggered ability whose target is
+#: chosen when it is put on the stack. "you may have" makes the target optional.
+_PREVENT_REFLEXIVE_TARGETS: dict[str, str] = {
+    "any target": "any", "target player or planeswalker": "player_or_planeswalker", "target creature": "creature",
+}
+_PREVENT_SHIELD_THEN_REFLEXIVE_RE = compile_clause(
+    r"(?P<shield>prevent (?:the next (?:\d+|x)|all) damage that would be dealt to [^.]+?(?: this turn)?(?: by [^.]+?)?)\.\s+"
+    r"if damage is prevented this way, (?P<may>you may have )?~ (?:deals|deal) that much damage to "
+    rf"(?P<tgt>{'|'.join(_PREVENT_REFLEXIVE_TARGETS)})"
+)
+
+
+def _prevent_shield_then_reflexive(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    shield = match_clause(m.group("shield"))
+    if shield is None or len(shield) != 1 or shield[0].type != "prevent_damage_shield" or "rider" in shield[0].params:
+        return None
+    rider: dict = {"kind": "reflexive_damage", "target_kind": _PREVENT_REFLEXIVE_TARGETS[m.group("tgt")]}
+    if m.group("may"):
+        rider["optional"] = True
+    return [EffectSpec("prevent_damage_shield", {**shield[0].params, "rider": rider})]
 
 
 #: RULE 615's unscoped Fog-shaped form — "Prevent all combat damage that
@@ -1182,6 +1212,25 @@ def _prevent_all_damage_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if source_filter is None:
             return None
         params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-215: "Prevent all damage that would be dealt **by creatures** this turn. You gain life equal to the damage
+#: prevented this way." (Chant of Vitu-Ghazi) -- a recipient-less shield on a source class
+#: (`RulesEngine._prevent_damage_by_sources`), with the optional gain-life tally rider.
+_PREVENT_ALL_DAMAGE_BY_SOURCES_RE = compile_clause(
+    rf"prevent all damage that would be dealt by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}) this turn"
+    r"(?:\.\s+(?P<life>you gain life equal to the damage prevented this way))?"
+)
+
+
+def _prevent_all_damage_by_sources(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    source_filter = _parse_prevent_source_filter(m.group("filter"))
+    if source_filter is None:
+        return None
+    params: dict = {"amount": "all", "by_sources_only": True, "source_filter": source_filter}
+    if m.group("life"):
+        params["rider"] = {"kind": "gain_life", "recipient": "you"}
     return [EffectSpec("prevent_damage_shield", params)]
 
 
@@ -2176,6 +2225,16 @@ ROWS: list[EffectHandler] = [
         "prevent_shield_then_rider",
         _PREVENT_SHIELD_THEN_RIDER_RE,
         _prevent_shield_then_rider,
+    ),
+    EffectHandler(
+        "prevent_all_damage_by_sources",
+        _PREVENT_ALL_DAMAGE_BY_SOURCES_RE,
+        _prevent_all_damage_by_sources,
+    ),
+    EffectHandler(
+        "prevent_shield_then_reflexive",
+        _PREVENT_SHIELD_THEN_REFLEXIVE_RE,
+        _prevent_shield_then_reflexive,
     ),
     EffectHandler(
         "prevent_damage_player_planeswalker_or_subtype",

@@ -528,6 +528,30 @@ def _search_lesser_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-215: "search your library for a creature card with mana value equal to 1 plus the sacrificed creature's mana
+#: value, put that card onto the battlefield, then shuffle." (Prime Speaker Vannifar, Vivien on the Hunt) -- the
+#: Birthing Pod measurement as an oracle clause: `mana_value_from` with no source reads what this ability's own
+#: sacrifice stamped (`RulesEngine.note_sacrificed`, RULE 608.2h last known mana value), ``plus`` the literal offset.
+_SEARCH_MV_SACRIFICED_RE = compile_clause(
+    rf"search your library for an? (?P<types>{_SEARCH_TYPE_LIST}) card with mana value equal to "
+    r"(?:(?P<plus>\d+) plus )?the sacrificed (?:creature|permanent)'?s mana value,?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_mv_sacrificed(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    return [EffectSpec("search", {
+        "criteria": _search_criteria_from_match(m),
+        "mana_value_from": {"plus": int(m.group("plus") or 0), "cmp": "eq"},
+        "destination": destination,
+    })]
+
+
 #: "search your library for a snow permanent card, a legendary card, or a
 #: Saga card, [reveal <pronoun>,] put <pronoun> <destination>, then
 #: shuffle." (Search for Glory, MEC-43 round 3) — a three-way OR across
@@ -1777,6 +1801,7 @@ ROWS: list[EffectHandler] = [
     ),
     # "search your library for a creature card with lesser mana value, ..." (Rushed Rebirth).
     EffectHandler("search_lesser_mv", _SEARCH_LESSER_MV_RE, _search_lesser_mv),
+    EffectHandler("search_mv_sacrificed", _SEARCH_MV_SACRIFICED_RE, _search_mv_sacrificed),
     # "return a creature card from its owner's graveyard to the battlefield under the control of that creature's
     # owner." (Reincarnation).
     EffectHandler(

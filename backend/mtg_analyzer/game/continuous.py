@@ -4169,6 +4169,18 @@ def _spell_type_matches(obj: "GameObject", spell_type: Union[str, list]) -> bool
     return _has_card_type(obj, spell_type)
 
 
+def _spell_mana_value_in_bounds(params: dict[str, Any], obj: Optional["GameObject"]) -> bool:
+    """Whether ``obj``'s mana value satisfies a cost static's ``spell_min_mana_value`` / ``spell_max_mana_value``
+    (RULE 202.3). With no bound it always holds; with a bound and no spell (offer-time probe) it does not."""
+    low, high = params.get("spell_min_mana_value"), params.get("spell_max_mana_value")
+    if low is None and high is None:
+        return True
+    if obj is None:
+        return False
+    value = obj.mana_value
+    return (low is None or value >= int(low)) and (high is None or value <= int(high))
+
+
 def turn_cost_reduction_applies(entry: dict[str, Any], obj: Optional["GameObject"]) -> bool:
     """Whether a `GameState.turn_cost_reductions` entry discounts ``obj``.
 
@@ -4287,6 +4299,11 @@ def cost_reduction_for(
             printed = getattr(getattr(obj, "card", None), "power", None)
             if not isinstance(printed, int) or printed < int(spell_min_power):
                 continue
+        # "Spells you cast with mana value 5 or greater cost {1} less to cast." (Spectacle Mage, PAR-215) -- RULE 202.3:
+        # the spell's own mana value (X counted only on the stack, RULE 202.3e); an offer-time probe without a spell
+        # leaves the discount off so affordability is not overstated.
+        if not _spell_mana_value_in_bounds(ability.params, obj):
+            continue
         # "Spells you cast from anywhere other than your hand cost {N} less."
         # (Advanced Reconstruction level 3, PAR-60) — the spell's own
         # cast-origin flags; ``obj is None`` (offer-time probe) leaves the
@@ -4336,7 +4353,9 @@ def cost_reduction_for(
         if spell_color:
             if obj is None:
                 continue
-            if str(spell_color).lower() == "colorless":
+            # RULE 105.2c: the parser spells "colorless" as the symbol ``C`` (Herald of Kozilek, It That Heralds the
+            # End); a colorless spell has no colours, so ``C`` can never be a member of ``obj.colors``.
+            if str(spell_color).lower() in ("colorless", "c"):
                 if obj.colors:
                     continue
             elif spell_color.upper() not in (obj.colors or set()):

@@ -414,6 +414,55 @@ _POWER_DAMAGE_PREVIOUS_ROLE_RE = compile_clause(rf"{THEN}{PREVIOUS_SUBJECT} {_DE
 _POWER_DAMAGE_PRONOUN_ROLE_RE = compile_clause(rf"it {_DEALS_POWER} {_POWER_ROLE_RECIPIENT}")
 _POWER_DAMAGE_SELF_ROLE_RE = compile_clause(rf"{re.escape(SELF)} {_DEALS_POWER} (?P<recip>you)")
 _POWER_ROLES_ALL = frozenset({"dealer_controller", "ability_controller", "source", "selector"})
+#: PAR-215: "<N target X> each deal damage equal to their power to <recipient>" (Band Together, Common Goal) — several
+#: announced dealers, one recipient — and its pronoun form "they each deal damage equal to their power to <recipient>"
+#: over the preceding clause's targets (Coordinated Clobbering, Terrific Team-Up).
+_EACH_DEALS_POWER = r"each deal damage equal to their (?P<stat>power|toughness) to"
+_POWER_DAMAGE_MULTI_DEALER_RE = compile_clause(
+    rf"{MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT}) {_EACH_DEALS_POWER} {TARGET_B}"
+)
+_POWER_DAMAGE_GROUP_DEALER_RE = compile_clause(rf"they {_EACH_DEALS_POWER} {TARGET}")
+
+
+def _multi_dealer_recipient(m: re.Match[str], suffix: str) -> Optional[tuple[str, bool]]:
+    """The recipient kind of a multi-dealer clause and whether it must differ from the dealers ("another").
+    A declinable ("up to one") recipient is refused: the recipient is read as the last announced pick."""
+    phrase = m.group(f"target{suffix}")
+    kind = _power_recipient(phrase)
+    if kind is None or target_is_optional(m, suffix):
+        return None
+    return kind, phrase.lower().startswith("another ")
+
+
+def _damage_equal_to_power_multi_dealer(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dealers = multi_target_params(m)
+    recipient = _multi_dealer_recipient(m, "_b")
+    if dealers is None or recipient is None or dealers["target_kind"] not in _MULTI_DEALER_KINDS:
+        return None
+    params: dict = {
+        "dealer_kind": dealers["target_kind"], "dealer_count": dealers["count"], "target_kind": recipient[0],
+        **_stat_param(m),
+    }
+    if "count_max" in dealers:
+        params["dealer_count_max"] = dealers["count_max"]
+    if dealers.get("optional"):
+        params["dealer_optional"] = True
+    if recipient[1]:
+        params["distinct"] = True
+    return [EffectSpec("damage_equal_to_power", params)]
+
+
+def _damage_equal_to_power_group_dealer(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    recipient = _multi_dealer_recipient(m, "")
+    if recipient is None:
+        return None
+    return [EffectSpec("damage_equal_to_power", {
+        "dealer_group": "previous_targets", "target_kind": recipient[0], **_stat_param(m),
+    })]
+
+
+#: Dealer pools a plural "each deal damage" clause may name (creatures only: damage is dealt by their power).
+_MULTI_DEALER_KINDS = frozenset({"creature", "creature_you_control", "creature_you_dont_control"})
 
 
 def _damage_equal_to_power_target_role(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -538,6 +587,11 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "damage_equal_to_power_self_role", _POWER_DAMAGE_SELF_ROLE_RE,
         _damage_equal_to_power_role(None, frozenset({"ability_controller"})), {},
+    ),
+    ("damage_equal_to_power_multi_dealer", _POWER_DAMAGE_MULTI_DEALER_RE, _damage_equal_to_power_multi_dealer, {}),
+    (
+        "damage_equal_to_power_group_dealer", _POWER_DAMAGE_GROUP_DEALER_RE, _damage_equal_to_power_group_dealer,
+        {"requires": ClauseReading(previous_subject=True)},
     ),
     # "… deals damage to itself equal to its power." — dealer == recipient.
     (

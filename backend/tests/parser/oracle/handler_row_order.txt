@@ -45,6 +45,8 @@ prevent_divided_damage
 prevent_damage_single_target
 prevent_next_damage_target_creature
 prevent_shield_then_rider
+prevent_all_damage_by_sources
+prevent_shield_then_reflexive
 prevent_damage_player_planeswalker_or_subtype
 prevent_next_damage_to_you
 prevent_all_combat_damage_dealt_self
@@ -249,6 +251,7 @@ tap_and_stun
 exile_trigger_referent
 tap
 tap_multi_target
+tap_multi_target_state
 tap_multi_target_keyword_filter
 tap_all_group
 tap_all_player_group
@@ -318,6 +321,7 @@ search_put_then_shuffle
 search_put_attach_then_shuffle
 search_mv_lands_qualifier
 search_lesser_mv
+search_mv_sacrificed
 return_creature_to_dead_creature_owner
 search_snow_legendary_saga
 gain_life_per_snow_spent
@@ -400,6 +404,8 @@ damage_equal_to_power_previous_role
 damage_equal_to_power_pronoun_role
 damage_equal_to_power_group_pronoun_role
 damage_equal_to_power_self_role
+damage_equal_to_power_multi_dealer
+damage_equal_to_power_group_dealer
 damage_to_self_equal_to_power
 damage_to_self_equal_to_power_each
 pay_energy_then

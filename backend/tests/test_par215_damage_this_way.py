@@ -37,9 +37,9 @@ def test_excess_damage_gate_is_a_tally_comparison():
 
 
 def test_unknown_damage_phrases_stay_unclaimed():
-    # "that much" after a prevention shield has no tally behind it
-    assert not _parse("Prevent the next 3 damage that would be dealt to you this turn. If damage is prevented "
-                      "this way, Probe Card deals that much damage to any target.").modeled
+    # "that much" with no prevention shield before it has no tally behind it (a shield's tally is the
+    # `reflexive_damage` rider, test_par215_prevent_reflexive.py)
+    assert not _parse("If damage is prevented this way, Probe Card deals that much damage to any target.").modeled
 
 
 def test_syphon_soul_gains_what_every_opponent_lost_in_total():

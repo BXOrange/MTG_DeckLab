@@ -832,6 +832,9 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: "return all **Elf** creature cards from your graveyard …" (PAR-203, a chosen creature type): the mass mode's
         #: creature-subtype narrowing, read by `apply`'s ``players`` branch (a targeted return hands it to the TargetSpec).
         self._mass_subtype = subtype if players is not None else None
+        #: "return all creature cards **with mana value 2 or less** from your graveyard …" (PAR-215, Raise the Past):
+        #: the mass mode's mana-value ceiling (RULE 202.3); ``"x"`` is the resolving spell's announced X.
+        self._mass_max_mana_value = max_mana_value if players is not None else None
         spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number, total_power_max=total_power_max,
@@ -1193,7 +1196,11 @@ class ReturnFromGraveyardEffect(GameEffect):
                 for player in players:
                     # "return all **land** cards from your graveyard to the battlefield tapped"
                     # (Aftermath Analyst, Lumra): the kind's own type filter, not just creature/any.
+                    ceiling = self._mass_max_mana_value
+                    if ceiling == "x":
+                        ceiling = int(getattr(self.source, "x_paid", 0) or 0)
                     cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)
+                             and (not isinstance(ceiling, int) or o.mana_value <= ceiling)
                              and (not self._mass_subtype
                                   or str(self._mass_subtype).lower() in o.card.type_line.lower().split()
                                   or continuous.has_subtype(o, str(self._mass_subtype)))]

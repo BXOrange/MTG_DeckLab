@@ -132,7 +132,8 @@ class CounterSpellEffect(GameEffect):
         # PAR-215: "counter target spell with mana value 2 or less / 4 or greater" (RULE 202.3) -- a ceiling / floor
         # on the target spell, enforced at offer time like the exact value above.
         if max_mana_value is not None:
-            spell_filter["max_mana_value"] = int(max_mana_value)
+            # An int ceiling, or a per-candidate bound dict (`targeting._candidate_mana_value_bound`).
+            spell_filter["max_mana_value"] = max_mana_value if isinstance(max_mana_value, dict) else int(max_mana_value)
         if min_mana_value is not None:
             spell_filter["min_mana_value"] = int(min_mana_value)
         if color:

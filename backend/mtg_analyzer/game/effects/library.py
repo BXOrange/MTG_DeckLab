@@ -3312,8 +3312,17 @@ class DamageEqualToPowerEffect(GameEffect):
         distinct: bool = False,
         recipient: Optional[str] = None,
         characteristic: str = "power",
+        dealer_count: int = 1,
+        dealer_count_max: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        #: "Up to two target creatures you control **each** deal damage equal to their power to target creature
+        #: an opponent controls." (Band Together, Common Goal) — RULE 115.1a / 601.2c: several dealers announced
+        #: by one requirement (``dealer_count``, ``dealer_count_max`` for "one or two", ``dealer_optional`` for
+        #: "up to"); the clause's single recipient is the **last** pick, so a dealer group of any size
+        #: (including none) leaves the recipient unambiguous in the flat list.
+        self.dealer_count = max(1, int(dealer_count))
+        self.dealer_count_max = int(dealer_count_max) if dealer_count_max else None
         #: The amount is the dealer's ``power`` or, for "equal to its toughness" (Creature Bond), its
         #: ``toughness`` — read as the dealer last existed (RULE 608.2h).
         self.characteristic = characteristic if characteristic in _DEALER_AMOUNT_CHARACTERISTICS else "power"
@@ -3343,9 +3352,12 @@ class DamageEqualToPowerEffect(GameEffect):
             to_self and self.selector is not None
         )
         if need_dealer_target:
-            specs.append(TargetSpec(kind=dealer_kind, optional=dealer_optional))
-        if (not to_self and self.selector is None and self.recipient is None and target_kind is not None
-                and self.dealer_group is None):
+            specs.append(TargetSpec(
+                kind=dealer_kind, optional=dealer_optional, count=self.dealer_count, count_max=self.dealer_count_max,
+            ))
+        # A previous-group dealer ("they each deal damage equal to their power to target creature …", Coordinated
+        # Clobbering) still announces its own single recipient; the untargeted-recipient forms never do.
+        if (not to_self and self.selector is None and self.recipient is None and target_kind is not None):
             specs.append(TargetSpec(kind=target_kind, optional=optional, distinct_from_others=distinct))
         if specs:
             self.target_spec = specs[0]
@@ -3353,16 +3365,12 @@ class DamageEqualToPowerEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.dealer_group is not None:
-            recipient = self.source
-            if recipient is None or recipient not in context.state.permanents():
-                return  # RULE 608.2b: a permanent that left the battlefield takes no damage
-            for dealer in list(context.previous_targets):
-                # Players have no power; a creature's power is read as it last existed (RULE 608.2h).
-                amount = getattr(dealer, "power", None) or 0
-                if hasattr(dealer, "instance_id") and amount > 0:
-                    context.deal_damage(recipient, amount, dealer)
+            self._apply_group_dealers(context, targets)
             return
         picks = list(targets or [])
+        if self.dealer_count > 1 or self.dealer_count_max:
+            self._apply_multi_dealers(context, picks)
+            return
         chosen = iter(picks)
         # "each creature deals damage to itself equal to its power." — no
         # dealer target; every creature damages itself for its *own* power
@@ -3432,6 +3440,49 @@ class DamageEqualToPowerEffect(GameEffect):
                     context.deal_damage(context.state.player_by_id(recipient.controller_id), excess, dealer)
                 return
         context.deal_damage(recipient, amount, dealer)
+
+    def _apply_group_dealers(self, context: GameContext, targets: Optional[list[Any]]) -> None:
+        """"Each of those creatures / they each deal damage equal to their power to ~ / target X" — every object
+        the preceding clause targeted deals its own power, simultaneously (RULE 120.1)."""
+        if self.target_spec is not None:
+            # The clause's own announced recipient (its only pick); a declined/illegal one deals nothing.
+            recipient = next(iter(targets or []), None)
+        else:
+            recipient = self.source
+        if recipient is None:
+            return
+        if hasattr(recipient, "instance_id") and recipient not in context.state.permanents():
+            return  # RULE 608.2b: a permanent that left the battlefield takes no damage
+        with context.engine.damage_batch():
+            for dealer in list(context.previous_targets):
+                # Players have no power; a creature's power is read as it last existed (RULE 608.2h).
+                amount = getattr(dealer, self.characteristic, None) or 0
+                if hasattr(dealer, "instance_id") and amount > 0 and dealer is not recipient:
+                    context.deal_damage(recipient, amount, dealer)
+
+    def _apply_multi_dealers(self, context: GameContext, picks: list[Any]) -> None:
+        """Several announced dealers, one recipient (the last pick). Each dealer must still be a legal target of
+        the dealer requirement (RULE 608.2b) and deals its own power simultaneously (RULE 120.1)."""
+        if not picks:
+            return
+        # Positional slots (a declined "up to" round is a ``None`` hole), so the recipient is always the last slot.
+        *dealers, recipient = picks
+        dealers = [d for d in dealers if d is not None]
+        if recipient is None:
+            return
+        if hasattr(recipient, "instance_id") and recipient not in context.state.permanents():
+            return
+        from ..targeting import legal_targets
+        controller_id = _controller_of(self.source, context).id
+        legal = {
+            entry.get("instance_id")
+            for entry in legal_targets(context.state, controller_id, self.target_spec, self.source)
+        }
+        with context.engine.damage_batch():
+            for dealer in dealers:
+                amount = getattr(dealer, self.characteristic, None) or 0
+                if getattr(dealer, "instance_id", None) in legal and amount > 0 and dealer is not recipient:
+                    context.deal_damage(recipient, amount, dealer)
 
     def _implied_recipient(self, context: GameContext, dealer: Any) -> Optional[Any]:
         """The single recipient a role phrase names (see ``recipient``); None when it is gone."""

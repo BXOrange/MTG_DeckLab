@@ -208,8 +208,14 @@ def _multi_target_kind_with_spell(phrase: str) -> Optional[str]:
     return _multi_target_kind(phrase)
 
 
+#: PAR-215: a plural target phrase's state qualifier ("tap 1 or 2 target untapped creatures you control") — the kind
+#: is the plain pool; the caller turns the word into a `creature_filter` (RULE 115.1 precision-loss convention shared
+#: with the singular "target untapped creature").
+MULTI_TARGET_STATE_RE = re.compile(r"^target (?P<state>untapped|tapped) ", re.IGNORECASE)
+
+
 def _multi_target_kind(phrase: str) -> Optional[str]:
-    text = phrase.strip()
+    text = MULTI_TARGET_STATE_RE.sub("target ", phrase.strip())
     scoped = re.fullmatch(rf"(?P<base>.*?)(?P<tail>{MULTI_TARGET_SCOPE_TAIL})", text, re.IGNORECASE)
     if scoped is not None:
         base = _MULTI_TARGET_SCOPED_KINDS.get(scoped.group("base").lower())
@@ -773,7 +779,7 @@ UNLESS_COST = (
 GRAVEYARD_TYPE_WORD = (
     r"equipment, instant, or sorcery|noncreature, nonland|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
-    r"instant, sorcery, or battle|creature or planeswalker|creature or battle|zombie|"
+    r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent"
@@ -809,6 +815,8 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "zombie": "zombie_card",
         "creature or battle": "creature_or_battle",
         "creature or planeswalker": "creature_or_planeswalker",
+        # PAR-215: "creature and planeswalker cards" lists the two card types, a card of either (Ascend from Avernus).
+        "creature and planeswalker": "creature_or_planeswalker",
         "instant, sorcery, or battle": "instant_sorcery_or_battle",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"

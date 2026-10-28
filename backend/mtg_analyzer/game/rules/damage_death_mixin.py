@@ -1575,6 +1575,7 @@ class DamageDeathMixin:
         rider: Optional[dict] = None,
         combat_only: bool = False,
         source_filter: Optional[dict] = None,
+        shield_source: Optional[GameObject] = None,
     ) -> None:
         """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
         (Riot Control's "all", Thought Lash's repeatable "the next 1") —
@@ -1641,7 +1642,7 @@ class DamageDeathMixin:
                 remaining -= prevented
                 if remaining <= 0 and effect in player.player_effects:
                     player.player_effects.remove(effect)
-            self.apply_prevent_rider(rider, prevented, event, player.id)
+            self.apply_prevent_rider(rider, prevented, event, player.id, shield_source)
             if remaining is None:
                 return None  # "all" — every point prevented, shield persists
             new_amount = dealt - prevented
@@ -1712,6 +1713,7 @@ class DamageDeathMixin:
         rider: Optional[dict] = None,
         scope: str = "creatures",
         source_filter: Optional[dict] = None,
+        shield_source: Optional[GameObject] = None,
     ) -> None:
         """RULE 615/616.1d's "…would deal damage to you **and/or creatures
         you control** this turn" (Shadowbane, MEC-30) — the recipient-union
@@ -1758,7 +1760,7 @@ class DamageDeathMixin:
                 remaining -= prevented
                 if remaining <= 0 and effect in player.player_effects:
                     player.player_effects.remove(effect)
-            self.apply_prevent_rider(rider, prevented, event, player.id)
+            self.apply_prevent_rider(rider, prevented, event, player.id, shield_source)
             if remaining is None:
                 return None
             new_amount = dealt - prevented
@@ -1776,6 +1778,7 @@ class DamageDeathMixin:
         source_filter: Optional[dict] = None,
         shield_controller_id: Optional[str] = None,
         combat_only: bool = False,
+        shield_source: Optional[GameObject] = None,
     ) -> None:
         """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
         (PAR-15's "prevent the next N damage ... to any number of targets,
@@ -1829,6 +1832,7 @@ class DamageDeathMixin:
             self.apply_prevent_rider(
                 rider, prevented, event,
                 shield_controller_id or (target_id if is_player else getattr(target, "controller_id", None)),
+                shield_source,
             )
             if remaining is None:
                 return None  # "all" — every point prevented, shield persists
@@ -2185,7 +2189,10 @@ class DamageDeathMixin:
             # chosen when it is put on the stack), sized by the amount actually prevented.
             if shield_source is not None:
                 self.enqueue_reflexive_trigger(
-                    [{"type": "damage", "params": {"amount": prevented, "target_kind": "any"}}],
+                    [{"type": "damage", "params": {
+                        "amount": prevented, "target_kind": rider.get("target_kind", "any"),
+                        **({"optional": True} if rider.get("optional") else {}),
+                    }}],
                     shield_source, event,
                 )
             return
@@ -2337,6 +2344,34 @@ class DamageDeathMixin:
         )
         effect.damage_prevention_shield = True
         effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
+        controller.player_effects.append(effect)
+
+    def _prevent_damage_by_sources(
+        self, controller: Player, source_filter: Optional[dict] = None, rider: Optional[dict] = None,
+        shield_source: Optional[GameObject] = None,
+    ) -> None:
+        """RULE 615: "Prevent all damage that would be dealt **by creatures** this turn. You gain life equal to the
+        damage prevented this way." (Chant of Vitu-Ghazi) -- every damage event whose *source* matches
+        ``source_filter`` is prevented whoever or whatever it hits, so (unlike the recipient shields above) no
+        recipient is named. ``rider`` is told the amount actually prevented (`apply_prevent_rider`); the shield
+        lives on the resolving spell's controller like every other RULE 615 shield (swept at cleanup)."""
+        def _condition(e: GameEvent, c: Any) -> bool:
+            return _damage_source_matches(c.state, e, source_filter, controller.id)
+
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: None,  # replaced below once `effect` exists
+            condition=_condition,
+            description=f"{controller.name}: Schadensverhinderung",
+        )
+        effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            self.apply_prevent_rider(rider, int(event.get("amount", 0) or 0), event, controller.id, shield_source)
+            return None  # "all" -- every point prevented, the shield persists
+
+        effect.replacement_fn = _replace
         controller.player_effects.append(effect)
 
     def _prevent_damage_to_creatures(

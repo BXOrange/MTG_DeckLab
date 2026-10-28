@@ -4907,6 +4907,8 @@ _WHERE_X_THEN_RE = re.compile(
 
 
 _MINUS_TAIL_RE = re.compile(r"\s+minus (?P<n>\d+)$")
+#: "`<N>` minus `<count>`" -- a literal minuend (The Rack: "3 minus the number of cards in their hand").
+_MINUS_HEAD_RE = re.compile(r"^(?P<n>\d+) minus (?P<rest>the number of .+)$")
 
 #: RULE 706 (PAR-147): the number a die roll just produced, as the amount a sentence measures —
 #: "`<effect with x>`, where x is **the result**" (Numbing Jellyfish), "`<verb>` life/cards/damage
@@ -5053,8 +5055,11 @@ def _mana_value_bound_is_resolve_time(specs: "list[EffectSpec]") -> bool:
 #: (Drown in the Loch) is a per-candidate comparison and stays unclaimed.
 _MV_COUNT_BOUND_RE = re.compile(
     r"^(?P<head>.+? target [^,]+? with mana value) (?P<cmp>equal to|less than or equal to) "
-    r"the number of (?P<phrase>[^,.]+? you control)(?P<tail>.*)$", re.IGNORECASE,
+    r"the number of (?P<phrase>[^,.]+? you control|cards in its controller's graveyard)(?P<tail>.*)$", re.IGNORECASE,
 )
+#: "the number of cards in **its controller's** graveyard" (Drown in the Loch): the count belongs to each candidate's
+#: own controller, so the bound is compared per candidate (`targeting._candidate_mana_value_bound`).
+_CANDIDATE_CONTROLLER_GRAVEYARD = "cards in its controller's graveyard"
 #: The placeholder bound the existing rows parse; it never appears in printed text next to "the number of".
 _MV_COUNT_PLACEHOLDER = 0
 
@@ -5063,22 +5068,71 @@ def _mana_value_count_bound_specs(body: str, *, reading: ClauseReading = STANDAL
     m = _MV_COUNT_BOUND_RE.match(body.strip().rstrip(".").strip())
     if m is None:
         return None
-    selector = parse_count_phrase(m.group("phrase"))
-    if not isinstance(selector, dict) or selector.get("of") != "you" or selector.get("zone") != "battlefield" \
+    per_candidate = m.group("phrase").lower() == _CANDIDATE_CONTROLLER_GRAVEYARD
+    selector = parse_count_phrase("cards in your graveyard" if per_candidate else m.group("phrase"))
+    if not isinstance(selector, dict) or selector.get("of") != "you" \
+            or selector.get("zone") != ("graveyard" if per_candidate else "battlefield") \
             or "distinct" in selector or "aggregate" in selector:
         return None
     exact = m.group("cmp").lower() == "equal to"
+    if per_candidate and exact:
+        return None  # only the ceiling is a printed shape
     placeholder = f"{_MV_COUNT_PLACEHOLDER}" if exact else f"{_MV_COUNT_PLACEHOLDER} or less"
     specs = parse_effect_body(f"{m.group('head')} {placeholder}{m.group('tail')}", reading=reading)
     key = "exact_mana_value" if exact else "max_mana_value"
     if not specs or len(specs) != 1 or specs[0].params.get(key) != _MV_COUNT_PLACEHOLDER \
             or isinstance(specs[0].params.get(key), bool):
         return None
-    params = {**specs[0].params, key: {"count_selector": selector}}
+    bound = {"candidate_controller_count": selector} if per_candidate else {"count_selector": selector}
+    params = {**specs[0].params, key: bound}
     return [EffectSpec(specs[0].type, params, condition=specs[0].condition)]
 
 
+#: Effects whose target requirement reads a `TargetSpec.max_mana_value` count-selector dict (RULE 601.2c): a
+#: "mana value X or less, where X is <count>" ceiling has to be known while the target is offered, before the
+#: ability resolves, so it cannot ride the resolve-time `bind` that other where-X sentences use.
+_ANNOUNCE_TIME_MANA_VALUE_EFFECTS = frozenset({"return_from_graveyard"})
+
+
+def _inline_announce_time_mana_value(specs: "Optional[list[EffectSpec]]") -> "Optional[list[EffectSpec]]":
+    """PAR-215: ``bind(n = <amount>) { return_from_graveyard(max_mana_value=$n) }`` -> the effect with that amount as
+    its own announce-time ceiling (Celestine, the Living Saint; Unforgiving One; Guardian Scalelord). An amount the
+    target offer cannot measure (anything but a count selector or the source's own power) is refused: a bare
+    ``$n`` left in a target bound would never resolve."""
+    if not specs or len(specs) != 1 or specs[0].type != "bind":
+        return specs
+    bind = specs[0]
+    inner = bind.params.get("effects") or []
+    amount = bind.params.get("amount") or {}
+    if len(inner) != 1 or bind.condition is not None:
+        return specs
+    effect = inner[0]
+    params = effect.get("params") if isinstance(effect, dict) else None
+    placeholder = f"${bind.params.get('name')}"
+    if effect.get("type") not in _ANNOUNCE_TIME_MANA_VALUE_EFFECTS or not params \
+            or params.get("max_mana_value") != placeholder:
+        return specs
+    if amount.get("kind") == "count_selector" and set(amount) <= {"kind", "selector"}:
+        bound: Any = {"count_selector": amount["selector"]}
+    elif amount.get("kind") == "characteristic" and amount.get("of") == "source" \
+            and amount.get("characteristic") == "power":
+        bound = "source_power"  # `TargetSpec.max_mana_value`'s existing sentinel (RULE 208.1)
+    else:
+        return None
+    return [EffectSpec(effect["type"], {**params, "max_mana_value": bound})]
+
+
 def _where_x_specs(
+    body: str, *, reading: ClauseReading = STANDALONE,
+    several: bool = False,
+    divide_by: "Optional[tuple[int, bool]]" = None,
+) -> "Optional[list[EffectSpec]]":
+    return _inline_announce_time_mana_value(
+        _where_x_specs_raw(body, reading=reading, several=several, divide_by=divide_by)
+    )
+
+
+def _where_x_specs_raw(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
     divide_by: "Optional[tuple[int, bool]]" = None,
@@ -5239,6 +5293,14 @@ def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]
     an iteration) is refused here rather than guessed. A phrase naming its *own* "target opponent" is a second
     target the body does not announce, so only the pronoun spellings are read."""
     phrase = phrase.strip().lower()
+    # "3 minus the number of cards in their hand" (The Rack, Wheel of Torture): the count is subtracted from a
+    # literal, so it is the negated count plus that literal, floored at 0 (RULE 107.1b).
+    head_minus = _MINUS_HEAD_RE.match(phrase)
+    if head_minus is not None:
+        measured = _relative_player_amount(head_minus.group("rest"), body)
+        if measured is None or "multiply" in measured or "minus" in measured:
+            return None
+        return {**measured, "multiply": -1, "plus": int(head_minus.group("n")), "minimum": 0}
     # "...the number of cards in their hand minus 4" (Iron Maiden): a negative X counts as 0 (RULE 107.1b).
     minus = _MINUS_TAIL_RE.search(phrase)
     if minus is not None:

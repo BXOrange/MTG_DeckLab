@@ -640,10 +640,11 @@ class GameContext:
         rider: Optional[dict] = None,
         combat_only: bool = False,
         source_filter: Optional[dict] = None,
+        shield_source: Optional["GameObject"] = None,
     ) -> None:
         self.engine.prevent_damage_to_player(
             player, amount, watched_source_id=watched_source_id,
-            rider=rider, combat_only=combat_only, source_filter=source_filter,
+            rider=rider, combat_only=combat_only, source_filter=source_filter, shield_source=shield_source,
         )
 
     def prevent_life_gain_this_turn(self, players: list["Player"]) -> None:
@@ -659,10 +660,11 @@ class GameContext:
         self, target: Any, amount: Union[int, str] = "all", source_filter: Optional[dict] = None,
         rider: Optional[dict] = None, shield_controller_id: Optional[str] = None,
         combat_only: bool = False,
+        shield_source: Optional["GameObject"] = None,
     ) -> None:
         self.engine.prevent_damage_to_target(
             target, amount, source_filter=source_filter, rider=rider, shield_controller_id=shield_controller_id,
-            combat_only=combat_only,
+            combat_only=combat_only, shield_source=shield_source,
         )
 
     def prevent_all_combat_damage_this_turn(

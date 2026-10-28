@@ -582,6 +582,7 @@ EffectRegistry.register(
         recipient_filter=p.get("recipient_filter"),
         attached_only=bool(p.get("attached_only", False)),
         previous_subject=bool(p.get("previous_subject", False)),
+        by_sources_only=bool(p.get("by_sources_only", False)),
     ),
 )
 EffectRegistry.register(
@@ -2020,7 +2021,8 @@ EffectRegistry.register(
     "damage_equal_to_power",
     lambda p: DamageEqualToPowerEffect(
         dealer_kind=p.get("dealer_kind"),
-        target_kind=p.get("target_kind", "any"),
+        # A previous-group dealer has no recipient target unless the spec names one (Polukranos hits ~).
+        target_kind=p.get("target_kind", None if p.get("dealer_group") else "any"),
         selector=p.get("selector"),
         dealer_optional=bool(p.get("dealer_optional", False)),
         optional=bool(p.get("optional", False)),
@@ -2030,6 +2032,8 @@ EffectRegistry.register(
         distinct=bool(p.get("distinct", False)),
         recipient=p.get("recipient"),
         characteristic=p.get("characteristic", "power"),
+        dealer_count=int(p.get("dealer_count", 1) or 1),
+        dealer_count_max=p.get("dealer_count_max"),
     ),
 )
 EffectRegistry.register(
@@ -4975,6 +4979,9 @@ EffectRegistry.register(
             **({"spell_legendary": True} if p.get("spell_legendary") else {}),
             # "Creature spells you cast with power 4 or greater cost {2} less to cast." (Goreclaw)
             **({"spell_min_power": int(p["spell_min_power"])} if p.get("spell_min_power") is not None else {}),
+            # "Spells you cast with mana value 5 or greater cost {1} less to cast." (Spectacle Mage)
+            **({"spell_min_mana_value": int(p["spell_min_mana_value"])} if p.get("spell_min_mana_value") is not None else {}),
+            **({"spell_max_mana_value": int(p["spell_max_mana_value"])} if p.get("spell_max_mana_value") is not None else {}),
             # "Spells your opponents cast **that target ~** cost {N} more to
             # cast." (Icefall Regent / Boreal Elemental / Charix / Elderwood
             # Scion / Pursued Whale) — a battlefield permanent taxing spells

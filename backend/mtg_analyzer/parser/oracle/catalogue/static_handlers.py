@@ -494,7 +494,9 @@ _SPELL_COST_TAX_RE = re.compile(
 # different filter kind, still deliberately left unclaimed rather than
 # silently ignoring the qualifier.
 _SPELL_COST_TAX_YOU_CAST_RE = re.compile(
-    r"(?:(?P<word1>[a-z]+)(?: and (?P<word2>[a-z]+))? )?spells you cast cost "
+    r"(?:(?P<word1>[a-z]+)(?: and (?P<word2>[a-z]+))? )?spells you cast"
+    # PAR-215: "…with mana value 5 or greater cost {1} less" (Spectacle Mage, Krosan Drover) -- the spell's own mana value.
+    r"(?: with mana value (?P<mv>\d+) or (?P<mvdir>greater|less))? cost "
     r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",
     re.IGNORECASE,
 )
@@ -508,7 +510,8 @@ _SPELL_COST_TAX_YOU_CAST_RE = re.compile(
 # its handler fails closed (returns ``None``, claiming nothing) on a word
 # outside `_SPELL_TYPE_WORDS` rather than falling through to try this one.
 _SPELL_COST_TAX_COLOR_RE = re.compile(
-    r"(?P<color>white|blue|black|red|green|colorless) spells you cast cost "
+    r"(?P<color>white|blue|black|red|green|colorless) spells you cast"
+    r"(?: with mana value (?P<mv>\d+) or (?P<mvdir>greater|less))? cost "
     r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",
     re.IGNORECASE,
 )
@@ -5418,6 +5421,13 @@ def _static_spell_cost_tax(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _spell_mana_value_bound(m: "re.Match[str]") -> dict:
+    """RULE 202.3: "with mana value N or greater/less" on a cost-modified spell -> the spell's own mana-value bound."""
+    if m.group("mv") is None:
+        return {}
+    return {"spell_min_mana_value" if m.group("mvdir").lower() == "greater" else "spell_max_mana_value": int(m.group("mv"))}
+
+
 def _static_spell_cost_tax_color(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _SPELL_COST_TAX_COLOR_RE.fullmatch(text)
@@ -5426,6 +5436,7 @@ def _static_spell_cost_tax_color(ctx: StaticContext) -> StaticResult:
             "generic": int(m.group("n")),
             "increase": m.group("dir") == "more",
             "spell_color": _COLOR_WORDS[m.group("color").lower()],
+            **_spell_mana_value_bound(m),
         }
         return [EffectSpec("cost_reduction", params)]
     return None
@@ -5474,6 +5485,7 @@ def _static_spell_cost_tax_you_cast(ctx: StaticContext) -> StaticResult:
         params = {
             "generic": int(m.group("n")),
             "increase": m.group("dir") == "more",
+            **_spell_mana_value_bound(m),
         }
         # A single subtype word ("Aura/Dragon/Equipment spells you cast cost
         # {1} less…" — the Banneret/Warchief tribal-discount cycle) routes to

@@ -102,9 +102,16 @@ def test_target_bound_by_a_count_of_your_own_permanents_parses_as_a_target_restr
         "count_selector": {"zone": "battlefield", "of": "you", "filter": {"subtype": "plains"}}}
 
 
-def test_a_count_taken_as_the_targets_controller_stays_unclaimed():
-    assert not _parse("Counter target spell with mana value less than or equal to the number of cards in its "
-                      "controller's graveyard.").modeled
+def test_a_count_taken_as_the_targets_controller_is_a_per_candidate_bound():
+    # Drown in the Loch: each candidate answers to its own controller's graveyard (test_par215_candidate_controller_bounds.py)
+    result = _parse("Counter target spell with mana value less than or equal to the number of cards in its "
+                    "controller's graveyard.")
+    assert result.modeled
+    params = result.specs[0].to_dict()["effects"][0]["params"]
+    assert params["max_mana_value"] == {"candidate_controller_count": {"zone": "graveyard", "of": "you"}}
+    # ... but only for the ceiling and the controller's graveyard; other relative counts stay unclaimed
+    assert not _parse("Counter target spell with mana value less than or equal to the number of lands its "
+                      "controller controls.").modeled
 
 
 def test_lay_down_arms_only_exiles_creatures_within_the_plains_count():
