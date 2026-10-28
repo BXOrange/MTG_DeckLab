@@ -1446,12 +1446,14 @@ class RevealUntilMatchingEffect(GameEffect):
             revealers = [p for p in context.state.players if p.id != player.id and not p.has_lost]
         count = self.count if isinstance(self.count, int) else 0
         for revealer in revealers:
-            context.engine.reveal_until_matching(
+            hits = context.engine.reveal_until_matching(
                 revealer, self.criteria, count=count,
                 hit_destination=self.hit_destination,
                 rest_destination=self.rest_destination, tapped=self.tapped,
                 entry_choices=self.entry_choices,
             )
+            if self.hit_destination == "library_bottom_random":
+                context.revealed_card = hits[0] if hits else None
 
 
 class ExileCreaturesRevealThatManyEffect(GameEffect):

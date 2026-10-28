@@ -79,6 +79,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from .creature_types import CREATURE_SUBTYPES
+from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
 from ..models.cards.card_colors import effective_colors
 from ..models.cards.card_query import name_matches
 from .rooms import unlocked_door_names
@@ -383,9 +384,16 @@ def group_selector_objects(
         # others.
         wanted = set(params.get("object_ids") or [])
         incarnations = params.get("object_incarnations") or {}
-        result = [o for o in battlefield if o.instance_id in wanted
-                  and (not incarnations or o.zone_incarnation == incarnations.get(
-                      o.instance_id, incarnations.get(str(o.instance_id))))]
+        objects = list(battlefield)
+        if params.get("include_stack"):
+            objects += [item.obj for item in state.stack if item.kind == "spell" and item.obj is not None]
+        def same_visit(obj):
+            stamp = incarnations.get(obj.instance_id, incarnations.get(str(obj.instance_id)))
+            # RULE 400.7a: a characteristic change to a permanent spell continues on the permanent it becomes.
+            return (not incarnations or obj.zone_incarnation == stamp or
+                    (params.get("include_stack") and obj in battlefield and stamp is not None
+                     and obj.zone_incarnation == stamp + 1))
+        result = [o for o in objects if o.instance_id in wanted and same_visit(o)]
     elif affects == "self":
         result = [src] if src is not None and src in battlefield else []
     elif affects == "all_creatures":
@@ -997,7 +1005,7 @@ DEPENDENCY_POOL_LIMIT: int = 16
 #: probe saves and restores exactly these around a tentative application.
 _DEPENDENCY_SCRATCH_FIELDS: tuple[str, ...] = (
     "_added_types", "_removed_types", "_added_subtypes", "_derived_subtypes",
-    "_derived_colors", "_loses_all_abilities", "_granted_legendary", "static_trace",
+    "_derived_colors", "_derived_name", "_loses_all_abilities", "_granted_legendary", "static_trace",
     "_derived_power", "_derived_toughness",
 )
 
@@ -2897,14 +2905,43 @@ def _apply_layer_3_text(state: "GameState", abilities: list) -> None:
     # timestamp order if 2+ apply to the same object.
     for ability in _in_layer(abilities, "text"):
         replace = {str(k): str(v) for k, v in (ability.params.get("replace") or {}).items()}
-        if not replace:
-            continue
         for obj in affected_objects(state, ability):
+            if ability.params.get("name"):
+                obj._derived_name = ability.params["name"]  # RULE 612.8
             text = obj._derived_oracle_text if obj._derived_oracle_text is not None else obj.effective_oracle_text
             for old, new in replace.items():
                 text = re.sub(rf"\b{re.escape(old)}\b", new, text, flags=re.IGNORECASE)
             obj._derived_oracle_text = text
             _trace(obj, 3, _source_name(ability), f"text: {replace}")
+
+
+#: The `type_change` / `pt_set` ``pt_selector`` value that reads each affected object's own mana value.
+PT_SELECTOR_MANA_VALUE = "mana_value"
+
+
+def _current_subtypes(obj: "GameObject") -> set[str]:
+    """The subtypes ``obj`` has so far in the layer-4 pass: an earlier overwrite, else the printed line plus additions."""
+    if obj._derived_subtypes is not None:
+        return set(obj._derived_subtypes)
+    return set(obj.card.type_line.partition("\u2014")[2].split()) | set(obj._added_subtypes)
+
+
+def _replace_land_types(obj: "GameObject", new_types, *, basic_strips_abilities: bool = True) -> None:
+    """RULE 205.3i / 613.1d: replace ``obj``'s land subtypes with ``new_types``, keeping every other subtype.
+
+    RULE 305.7: setting a land's subtype to a basic land type also strips its rules text and abilities; the new
+    type's intrinsic mana ability comes back from `mana_abilities_for` (RULE 305.6)."""
+    kept = {t for t in _current_subtypes(obj) if t.lower() not in _LAND_TYPES}
+    obj._derived_subtypes = kept | {str(t) for t in new_types}
+    if basic_strips_abilities and obj.is_land and any(str(t).lower() in _BASIC_LAND_TYPES for t in new_types):
+        obj._loses_all_abilities = True
+
+
+def _replace_creature_types(obj: "GameObject", new_types) -> None:
+    """RULE 205.1a / 205.3m: "becomes a Dragon" replaces the creature types and keeps every other subtype (an
+    animated land stays a Forest, an Equipment stays an Equipment)."""
+    kept = {t for t in _current_subtypes(obj) if t.lower() not in CREATURE_SUBTYPES}
+    obj._derived_subtypes = kept | {str(t) for t in new_types}
 
 
 def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[int, int]]:
@@ -2953,6 +2990,13 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                 add_subtypes.append(chosen)
         power, toughness = ability.params.get("power"), ability.params.get("toughness")
         pt_selector = ability.params.get("pt_selector")
+        # RULE 205.1a: "becomes a 4/4 Horror creature" sets the card types, so the
+        # object stops being any card type the effect does not name (Lurking Evil is no longer an enchantment).
+        set_types = ability.params.get("set_types")
+        # RULE 205.1a + 305.7: "becomes an Island" / "the basic land type of your choice" replaces the *land* types only
+        # (an animated land keeps its creature types) and, for a basic type, the land's own rules text goes.
+        set_land_types = ability.params.get("set_land_types")
+        set_creature_types = ability.params.get("set_creature_types")
         if ability.params.get("from_linked_exile"):
             # "As long as a card exiled with this creature is a creature card, this creature has the power,
             # toughness, and creature types of the last creature card exiled with it." (Duplicant) — read off
@@ -2968,7 +3012,7 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                 power = toughness = None
             add_subtypes += linked.card.type_line.partition("—")[2].split()
         for obj in affected_objects(state, ability):
-            if pt_selector == "mana_value":
+            if pt_selector == PT_SELECTOR_MANA_VALUE:
                 obj_power = obj_toughness = getattr(obj, "mana_value", 0) or 0
             elif pt_selector == "vehicle":
                 # "Target Vehicle becomes an artifact creature until end of turn." (Mech Hangar, Peacewalker Colossus)
@@ -2989,6 +3033,21 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             # word from the opposite set is what makes a later add/remove
             # actually override an earlier one instead of the two
             # silently coexisting forever.
+            if set_types is not None:
+                for type_name in card_types_of(obj) - set(set_types) - {"instant", "sorcery"}:
+                    obj._removed_types.add(type_name)
+                    obj._added_types.discard(type_name)
+                # RULE 205.1a/205.3c: a subtype survives only if one of its owning card types survives.
+                allowed_types = set(set_types) | (card_types_of(obj) & {"instant", "sorcery"})
+                allowed_subtypes = set().union(*(SUBTYPES_BY_CARD_TYPE.get(t, ()) for t in allowed_types))
+                obj._derived_subtypes = {t for t in _current_subtypes(obj) if t.lower() in allowed_subtypes}
+                for type_name in set_types:
+                    obj._added_types.add(type_name)
+                    obj._removed_types.discard(type_name)
+            if set_land_types is not None:
+                _replace_land_types(obj, set_land_types)
+            if set_creature_types is not None:
+                _replace_creature_types(obj, set_creature_types)
             for type_name in added:
                 obj._added_types.add(type_name)
                 obj._removed_types.discard(type_name)
@@ -3030,14 +3089,9 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                     obj._loses_all_abilities = True
             if ability.params.get("remove_land_types"):
                 # RULE 205.3i / 613.1d: "lose all land types" (Alpine Moon) strips only the land subtypes; any other
-                # subtype (an animated land's creature types) stays. Built from whatever the layer has so far (an earlier
-                # overwrite, else the printed line plus earlier additions); RULE 305.6's intrinsic mana abilities follow
+                # subtype (an animated land's creature types) stays; RULE 305.6's intrinsic mana abilities follow
                 # from the remaining set, so the five basic types stop producing mana.
-                if obj._derived_subtypes is not None:
-                    current = set(obj._derived_subtypes)
-                else:
-                    current = set(obj.card.type_line.partition("—")[2].split()) | set(obj._added_subtypes)
-                obj._derived_subtypes = {t for t in current if t.lower() not in _LAND_TYPES}
+                _replace_land_types(obj, (), basic_strips_abilities=False)
             if obj_power is not None and obj_toughness is not None:
                 animation_pt[obj.instance_id] = (obj_power, obj_toughness)
             if ability.params.get("legendary"):
@@ -3757,8 +3811,12 @@ def _apply_layer_7_pt(
             toughness = _count_selector(state, ability, ability.params["toughness_count"])
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
-                new_p = base[obj.instance_id][0] if power is None else power
-                new_t = base[obj.instance_id][1] if toughness is None else toughness
+                obj_power, obj_toughness = power, toughness
+                if ability.params.get("pt_selector") == PT_SELECTOR_MANA_VALUE:
+                    # RULE 613.4b: "power and toughness each equal to its mana value" -- the affected object's own.
+                    obj_power = obj_toughness = getattr(obj, "mana_value", 0) or 0
+                new_p = base[obj.instance_id][0] if obj_power is None else obj_power
+                new_t = base[obj.instance_id][1] if obj_toughness is None else obj_toughness
                 base[obj.instance_id] = [new_p, new_t]
                 _trace(obj, 7, _source_name(ability), f"set to {new_p}/{new_t}", new_p, new_t)
 
@@ -4101,6 +4159,10 @@ def recompute(state: "GameState") -> None:
             obj.controller_id = obj._control_base
             obj._control_base = None
         obj.reset_derived()
+
+    for item in state.stack:
+        if item.kind == "spell" and item.obj is not None:
+            item.obj._derived_colors = None
 
     # -- Layer 1: copy effects (RULE 707) — must run before `abilities` is
     # gathered below, so a permanent that just became a copy has its freshly

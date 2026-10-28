@@ -1743,6 +1743,12 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         expected = m.group("kind")
         if retained != expected and not (retained == "land" and expected in {"plains", "island", "swamp", "mountain", "forest", "creature or land"}):
             return None
+    named_kind = m.groupdict().get("kind")
+    if named_kind is not None and named_kind != "creature" and not (
+            retained or named_kind in add_types or "in addition to" in m.group(0)):
+        # RULE 205.1a: "target enchantment becomes a 4/4 Beast creature" *replaces* the card types, which is not an
+        # addition; only the stated-retention spellings stay here, the replacement is `becomes.py`'s row.
+        return None
     kind = None if previous or self_subject or attached else resolve_target_kind(
         "target " + m.group("kind") + (m.group("you_control") or "")
     )

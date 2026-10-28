@@ -42,6 +42,7 @@ from .effect_rows import counters_blocking
 from .effect_rows import pump_stats
 from .effect_rows import pump_keywords
 from .effect_rows import ability_loss
+from .effect_rows import becomes
 from .effect_rows import keyword_actions
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
@@ -193,6 +194,8 @@ HANDLERS: list[EffectHandler] = [
     *delayed_steps.ROWS,
     # PAR-216: last, so it only ever claims clauses no older row reads (the older en-Kor redirect row keeps its IR).
     *damage_prevention.ROWS,
+    # PAR-217: last, so it only claims the "becomes" clauses the older animation rows decline (their IR is unchanged).
+    *becomes.ROWS,
 ]
 
 

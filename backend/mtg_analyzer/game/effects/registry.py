@@ -4017,6 +4017,8 @@ EffectRegistry.register(
         affects=p.get("affects", "all_creatures"),
         params={"power": p.get("power", 0), "toughness": p.get("toughness", 0),
                 "power_count": p.get("power_count"), "toughness_count": p.get("toughness_count"),
+                # "...base power and toughness each equal to its mana value": read per affected object (RULE 613.4b)
+                **({"pt_selector": p["pt_selector"]} if p.get("pt_selector") else {}),
                 **_selectors(p)},
     ),
 )
@@ -4572,6 +4574,13 @@ EffectRegistry.register(
             "legendary": bool(p.get("legendary", False)),
             # RULE 205.3i "…lose all land types" (Alpine Moon, MEC-134): drops the land subtypes, keeps every other one.
             **({"remove_land_types": True} if p.get("remove_land_types") else {}),
+            # RULE 205.1a: replacement card types ("becomes a 4/4 Horror creature").
+            # Artifact-creature animation instead uses add_types under RULE 205.1b.
+            **({"set_types": list(p["set_types"])} if p.get("set_types") else {}),
+            # RULE 205.3i / 305.7: the land types the land has instead of its own ("becomes an Island").
+            **({"set_land_types": list(p["set_land_types"])} if p.get("set_land_types") else {}),
+            # RULE 205.1a / 205.3m: the creature types the object has instead of its own ("becomes a Dragon").
+            **({"set_creature_types": list(p["set_creature_types"])} if p.get("set_creature_types") else {}),
             "power": p.get("power"),
             "toughness": p.get("toughness"),
             # "…becomes an artifact creature with power and toughness each
@@ -5720,6 +5729,8 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "creature") if "target_kind" in p else "creature",
         optional=bool(p.get("optional", False)),
         count=int(p.get("count", 1) or 1),
+        count_max=p.get("count_max"),
+        spell_filter=p.get("spell_filter"),
         condition=p.get("condition"),
         previous_subject=bool(p.get("previous_subject", False)),
         referent=p.get("referent"),
@@ -5865,3 +5876,8 @@ for _kind, _factory in _FLICKER_ATTACHMENT_FACTORIES.items():
 from .physical_flicker import EFFECT_FACTORIES as _PHYSICAL_FLICKER_FACTORIES
 for _kind, _factory in _PHYSICAL_FLICKER_FACTORIES.items():
     EffectRegistry.register(_kind, _factory)
+
+# RULE 612.8 / 613.1c: a name change is a reversible layer-3 text effect.
+EffectRegistry.register("name_change", lambda p: StaticAbility(
+    layer="text", affects=p.get("affects", "self"), params={"name": str(p.get("name", "")), **_selectors(p)},
+))

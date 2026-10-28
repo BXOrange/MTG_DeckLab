@@ -36,18 +36,13 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-axis tickets (PAR-217…224), from the v792 scan (9,179 open Commander cards, 13,440 open
+Fragment-axis tickets (PAR-218…224), from the v792 scan (9,179 open Commander cards, 13,440 open
 sentences; the best exact template unlocks 5 cards, so each ticket is a shared grammar axis over
 the PAR-210 object phrase, not template rows). Counts are `touched` / `only` (open cards with the
 axis / cards whose every open sentence has it; an overlapping upper bound). Each ticket re-scans
 with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
 claimed cards.
 
-- **PAR-217 · Type- and characteristic-changing "becomes".** `<object> becomes an artifact creature
-  [with power and toughness each equal to its mana value]`, `becomes a <colour> <subtype> with base
-  power and toughness N/M`, `becomes an aura with enchant creature`, `becomes the color / basic land
-  type of your choice`, durations from the shared grammar. Includes RULE 205.1a type replacement for
-  non-creature subjects if the engine lacks it (PAR-214 refused that form). 189+126 / 148+73.
 - **PAR-218 · Combat requirements and restrictions over the shared object phrase.** `<object>
   blocks / attacks [each combat] [this turn] if able`, `can block an additional creature [this turn /
   each combat]`, `can't block [if <condition>]`, `assigns combat damage equal to its toughness rather

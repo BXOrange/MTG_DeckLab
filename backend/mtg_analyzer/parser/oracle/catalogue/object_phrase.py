@@ -158,7 +158,7 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
             tail = ' ' + tail.removeprefix(' may ')
         if not text[:start].strip() and operand.kind in _PLURAL_KINDS:
             # RULE 608.2c: the plural subject changes agreement, never the duration.
-            tail = re.sub(r'^ (get|gain|lose|draw|discard|mill)\b', lambda m: ' ' + m[1] + 's', tail)
+            tail = re.sub(r'^ (get|gain|lose|draw|discard|mill|become)\b', lambda m: ' ' + m[1] + 's', tail)
         rewritten = text[:start] + phrase + tail
         rewritten = re.sub(r"\bto their owners?' hands\b", "to its owner's hand", rewritten)
         if rewritten == text:

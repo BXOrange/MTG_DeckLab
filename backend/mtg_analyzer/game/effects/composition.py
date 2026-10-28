@@ -99,12 +99,16 @@ def _resolve_chosen(value: Any, source: Optional[GameObject]) -> Any:
     """PAR-203 (RULE 608.2d): swap the "the chosen type/color/name" placeholders for what the ``choose_for_source``
     effect stamped on ``source`` earlier in this resolution. A placeholder with no answer stays as it is, so the
     filter that carries it matches nothing rather than everything."""
-    from ...parser.oracle.spec import CHOSEN_COLOR_SENTINEL, CHOSEN_NAME_SENTINEL, CHOSEN_TYPE_SENTINEL
+    from ...parser.oracle.spec import (
+        CHOSEN_COLOR_SENTINEL, CHOSEN_COLORS_SENTINEL, CHOSEN_LAND_TYPE_SENTINEL, CHOSEN_NAME_SENTINEL, CHOSEN_TYPE_SENTINEL,
+    )
 
     answers = {
         CHOSEN_TYPE_SENTINEL: getattr(source, "chosen_type", None),
         CHOSEN_COLOR_SENTINEL: getattr(source, "chosen_color", None),
         CHOSEN_NAME_SENTINEL: getattr(source, "chosen_card_name", None),
+        CHOSEN_LAND_TYPE_SENTINEL: getattr(source, "chosen_land_type", None),
+        CHOSEN_COLORS_SENTINEL: list(getattr(source, "chosen_colors", []) or []),
     }
 
     def walk(node: Any) -> Any:
@@ -116,7 +120,14 @@ def _resolve_chosen(value: Any, source: Optional[GameObject]) -> Any:
         if isinstance(node, dict):
             return {k: walk(v) for k, v in node.items()}
         if isinstance(node, list):
-            return [walk(v) for v in node]
+            resolved = []
+            for value in node:
+                # The color-subset placeholder occupies a list slot like every other color sentinel.
+                if value == CHOSEN_COLORS_SENTINEL and answers[CHOSEN_COLORS_SENTINEL]:
+                    resolved.extend(answers[CHOSEN_COLORS_SENTINEL])
+                else:
+                    resolved.append(walk(value))
+            return resolved
         return node
 
     return walk(value)
@@ -393,6 +404,10 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
             return
         if self.referent != 'trigger_subject':
             subject = effect_conditions.subject_of(self.referent, context, self.source, targets)
+            if subject is None and self.referent == 'previous_subject' and context.created_objects:
+                # RULE 608.2c: "Manifest the top card of your library and attach ~ to it" -- the earlier instruction
+                # made rather than chose its object, and that object is the one "it" names.
+                subject = context.created_objects[-1]
             object_id = getattr(subject, 'instance_id', None)
         elif self.event_key == REMEMBERED_EVENT_KEY:
             # A body that runs after the trigger's window closed (a payment's "if you do"): the

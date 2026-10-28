@@ -487,7 +487,7 @@ class ChooseForSourceEffect(GameEffect):
     creature types a "...other than Wall" wording rules out, ``card_filter`` is a `card_query` filter for
     "a nonland card name"."""
 
-    KINDS = ("creature_type", "color", "card_name")
+    KINDS = ("creature_type", "color", "card_name", "basic_land_type", "colors")
 
     def __init__(
         self,

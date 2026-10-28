@@ -14,10 +14,18 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-28 at PARSER_VERSION 792: **23,370 / 35,051 cards (66.7%)**,
+Measured on 2026-10-28 at PARSER_VERSION 804: **23,753 / 35,051 cards (67.8%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **22,755 / 32,068 (71.0%)**. The paragraphs below record
-how PAR-211…214 moved the slot counts from v783 on.
+Commander-legal coverage: **23,136 / 32,068 (72.1%)**.
+PAR-217 adds characteristic-changing bodies over the shared object phrase,
+including layered type/color/base-P/T changes, named forms, quoted grants,
+keyword loss and resolution-time choices. Against v799, the complete pool gains
+**145 parser-modeled names, zero lost**, with five reviewed existing-spec changes
+that retain target restrictions. The v804 Commander scan records **8,812 open
+cards and 12,947 fragments**, down from **8,949 and 13,133** at v799. Independent
+name-reference, optional-payment and unsupported quoted-body gaps stay distinct
+from the delivered characteristic-change grammar.
+The paragraphs below record how earlier batches moved the slot counts from v783 on.
 PAR-212 extends the shared object-state predicates (counter thresholds, chosen
 types, per-player count comparisons and payment-time crew history) and composes
 destination wording and exile-counter riders through the existing move effects.

@@ -115,11 +115,28 @@ def test_attached_animation_and_source_duration_are_independent_axes():
     assert parse_oracle(_named("Awakener Druid")).modeled
 
 
-def test_animation_rejects_empty_grant_and_mismatched_retention():
+def test_animation_rejects_empty_grant():
     assert parse_effect_body("~ becomes a 2/2 creature with  until end of turn") is None
-    assert parse_effect_body("target artifact becomes a 2/2 creature that's still a land") is None
-    assert parse_effect_body("target artifact becomes a 2/2 creature. it's still a land") is None
-    assert parse_effect_body("until end of turn, target artifact becomes a 2/2 creature. it's still a land") is None
+
+
+@pytest.mark.parametrize("body", [
+    "target artifact becomes a 2/2 creature that's still a land",
+    "target artifact becomes a 2/2 creature. it's still a land",
+    "until end of turn, target artifact becomes a 2/2 creature. it's still a land",
+])
+def test_par217_retention_preserves_types_without_inventing_land(body):
+    from mtg_analyzer.models.cards.card import Card
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.game.effects.core import GameContext
+    eng = make_engine([], [], hand=0)
+    artifact = Card(id="Rock", name="Rock", type_line="Artifact")
+    rock = obj_on_battlefield(eng.state, eng, artifact, controller="p1")
+    specs = parse_effect_body(body)
+    assert specs
+    build_effects(specs, rock)[0].apply(GameContext(eng.state, eng.rules), [rock])
+    eng.recompute_continuous_effects()
+    assert rock.is_artifact and rock.is_creature and not rock.is_land
+    assert (rock.power, rock.toughness) == (2, 2)
 
 
 def test_multi_target_animation_uses_one_optional_target_group():

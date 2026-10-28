@@ -3275,7 +3275,8 @@ class SearchMixin:
                 obj.zone = Zone.GRAVEYARD
                 player.graveyard.append(obj)
 
-        rest = [o for o in revealed if o not in hits]
+        # RULE 701.20: a reveal can return every revealed card, including its hit, to the library.
+        rest = list(revealed) if hit_destination == "library_bottom_random" else [o for o in revealed if o not in hits]
         if entry_choices:
             for obj in rest:
                 player.library.remove(obj)

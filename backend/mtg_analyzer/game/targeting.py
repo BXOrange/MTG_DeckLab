@@ -333,7 +333,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target spell or creature" (Unsubstantiate, MEC-43).
         "spell_or_creature",
         # PAR-161: "target spell or nonland permanent" (Sudden Setback) / "target creature or spacecraft" (Guidance Failure).
-        "spell_or_nonland_permanent", "creature_or_spacecraft",
+        "spell_or_nonland_permanent", "spell_or_permanent", "creature_or_spacecraft",
         # "target spell you don't control" (Hullbreaker Horror) — the
         # controller-scoped mirror of the plain ``"spell"`` kind.
         "spell_you_control", "spell_you_dont_control",
@@ -810,6 +810,7 @@ class TargetSpec:
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
             "spell_or_creature": "Zauberspruch oder Kreatur",
+            "spell_or_permanent": "Zauberspruch oder bleibende Karte",
             "spell_or_nonland_permanent": "Zauberspruch oder nichtländliche bleibende Karte",
             "creature_or_spacecraft": "Kreatur oder Raumschiff",
             "commander_entered_this_turn": "Commander, der in diesem Zug ins Spiel kam",
@@ -2270,9 +2271,9 @@ def _legal_targets_for(
             if o.is_creature and o.blocking == source.instance_id
             and _targetable_by(o, source)
         ]
-    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent"):
+    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent", "spell_or_permanent"):
         # PAR-161 (Sudden Setback): ``spell_or_nonland_permanent`` is the same union with no controller restriction.
-        unscoped = kind == "spell_or_nonland_permanent"
+        unscoped = kind in ("spell_or_nonland_permanent", "spell_or_permanent")
         # "Return target spell or nonland permanent an opponent controls to
         # its owner's hand." (Sink into Stupor) — the union of the plain
         # ``"spell"`` branch's own options (any spell on the stack; nothing
@@ -2290,7 +2291,7 @@ def _legal_targets_for(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             # RULE 110.4: every nonland permanent qualifies, battles included -- not a re-enumeration of types.
-            if not o.is_land
+            if (kind == "spell_or_permanent" or not o.is_land)
             and (unscoped or o.controller_id not in (None, controller_id))
             and o is not source
             and _targetable_by(o, source)

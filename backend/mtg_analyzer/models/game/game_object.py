@@ -887,6 +887,9 @@ class GameObject:
         #: `reset_as_new_object` clears both.
         self.chosen_type: Optional[str] = None
         self.chosen_color: Optional[str] = None
+        #: "...the basic land type of your choice" (RULE 305.6's five types), picked mid-resolution by a
+        #: `choose_for_source` effect and read back through the ``$chosen_land_type`` placeholder.
+        self.chosen_land_type: Optional[str] = None
         #: "As ~ enters, choose two colors." (Tablet of the Guilds) — every colour picked, in pick order;
         #: `chosen_color` stays the first one. Cleared with the other ETB picks (RULE 400.7).
         self.chosen_colors: list[str] = []
@@ -1255,6 +1258,7 @@ class GameObject:
         #: `combat.protections_of_text` via `effective_oracle_text` below —
         #: bound abilities are still derived from the *printed* text once at
         #: bind time, unaffected (a live full re-parse is out of scope).
+        self._derived_name: Optional[str] = None
         self._derived_oracle_text: Optional[str] = None
         #: Timestamp for within-a-layer ordering (RULE 613.7b), stamped when the
         #: object enters the battlefield. Later timestamp = applied later.
@@ -1439,6 +1443,7 @@ class GameObject:
         self._removed_types = set()
         self._derived_subtypes = None
         self._derived_colors = None
+        self._derived_name = None
         self._derived_oracle_text = None
         self.static_trace = []
 
@@ -1669,6 +1674,7 @@ class GameObject:
         #: choose a creature type/color" pick yet either.
         self.chosen_type = None
         self.chosen_color = None
+        self.chosen_land_type = None
         self.chosen_colors = []
         self.protector_id = None
         self.pending_siege_defeats = 0
@@ -1747,6 +1753,9 @@ class GameObject:
     @zone.setter
     def zone(self, value: Zone) -> None:
         if value != self._zone:
+            # RULE 400.7: derived text/color is recomputed for the new zone visit.
+            self._derived_colors = None
+            self._derived_name = None
             self.zone_incarnation += 1
             self.granted_suspend = False
             if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
@@ -1765,6 +1774,8 @@ class GameObject:
 
     @property
     def name(self) -> str:
+        if self._derived_name is not None:
+            return self._derived_name
         # RULE 709.5: only unlocked halves contribute names on the battlefield.
         if self._room_characteristics_apply():
             return " // ".join(self.names)
@@ -1784,6 +1795,8 @@ class GameObject:
         """RULE 201/709.5: each actual name; a fully locked Room has none."""
         from ...game import rooms
 
+        if self._derived_name is not None:
+            return (self._derived_name,)
         if self._room_characteristics_apply():
             return tuple(rooms.unlocked_door_names(self))
         if rooms.has_doors(self.card):

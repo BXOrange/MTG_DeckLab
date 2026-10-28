@@ -259,6 +259,7 @@ GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
 CHOSEN_TYPE_SENTINEL = "$chosen_type"
 CHOSEN_COLOR_SENTINEL = "$chosen_color"
 CHOSEN_NAME_SENTINEL = "$chosen_name"
+CHOSEN_LAND_TYPE_SENTINEL = "$chosen_land_type"
 
 #: PAR-120's structured count selector — ``{"zone", "of", "filter", "distinct"}`` —
 #: validated by shape only (the zone/scope/`distinct` vocabularies are named here
@@ -1794,3 +1795,6 @@ def contains_marker(node: Any, marker: str) -> bool:
     if isinstance(node, list):
         return any(contains_marker(v, marker) for v in node)
     return False
+
+#: RULE 105.1: the nonempty color subset selected during resolution.
+CHOSEN_COLORS_SENTINEL = "$chosen_colors"

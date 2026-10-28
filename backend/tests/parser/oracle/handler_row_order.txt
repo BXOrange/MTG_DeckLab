@@ -832,3 +832,8 @@ transform_all_objects
 redirect_all_damage_from_target
 redirect_next_time_to_source_controller
 redirect_next_n_chosen_source
+becomes_reveal_measured_pt
+becomes_measured_pt
+becomes_characteristics
+becomes_aura_self
+becomes_aura_pronoun

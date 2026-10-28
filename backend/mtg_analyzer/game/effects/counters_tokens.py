@@ -645,6 +645,8 @@ class GrantUntilEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         optional: bool = False,
         count: int = 1,
+        count_max: Optional[int] = None,
+        spell_filter: Optional[dict[str, Any]] = None,
         condition: Optional[dict[str, Any]] = None,
         previous_subject: bool = False,
         referent: Optional[str] = None,
@@ -686,7 +688,7 @@ class GrantUntilEffect(GameEffect):
         self.self_subject = self_subject
         self.target_spec = (
             TargetSpec(
-                kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+                kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter, spell_filter=spell_filter,
             )
             if target_kind is not None and not previous_subject and not self_subject
             else None
@@ -751,7 +753,8 @@ class GrantUntilEffect(GameEffect):
         for payload in payloads:
             # RULE 611.2b: an affected-object condition ends separately for
             # each member of a multi-object grant, never for the whole group.
-            if chosen_ids and self.condition and self.condition.get("of") == "affected":
+            measured_pt = (payload.get("params") or {}).get("pt_selector") == "mana_value"
+            if chosen_ids and (measured_pt or (self.condition and self.condition.get("of") == "affected")):
                 for chosen_id in chosen_ids:
                     self._park_static(context, durations, payload, controller_id, [chosen_id])
             else:
@@ -797,6 +800,11 @@ class GrantUntilEffect(GameEffect):
                 params[k] = x_paid
             elif params.get(k) == "-x":
                 params[k] = -x_paid
+        if params.get("pt_selector") == "mana_value" and chosen_ids:
+            # RULE 611.2d / 608.2h: a resolving animation measures this value once for each affected object.
+            obj = context.state.find_object(chosen_ids[0])
+            params["power"] = params["toughness"] = getattr(obj, "mana_value", 0) or 0
+            params.pop("pt_selector", None)
         ability = EffectRegistry.create(str(spec_type), params)
         if not isinstance(ability, StaticAbility):
             return
@@ -832,6 +840,9 @@ class GrantUntilEffect(GameEffect):
             # whether via a RULE 115 target, ``previous_subject`` ("Tap
             # target land. **It** doesn't untap … for as long as ~ remains
             # tapped."), or ``self_subject`` (MEC-46, this ability's source).
+            # RULE 611.2c: color changes may affect a spell while it is on the stack.
+            if any((o := context.state.find_object(iid)) is not None and o.zone == Zone.STACK for iid in chosen_ids):
+                ability.params["include_stack"] = True
             ability.affects = "objects"
             ability.object_ids = list(chosen_ids)
             ability.params["object_incarnations"] = {

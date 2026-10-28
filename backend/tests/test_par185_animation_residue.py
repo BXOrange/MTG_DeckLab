@@ -101,13 +101,13 @@ def test_pending_obuun_animation_measures_departed_source_visit_through_clone(de
 
 
 @pytest.mark.parametrize("name", ["Sarkhan, the Dragonspeaker", "Lurking Evil", "Chimeric Coils", "Chimeric Staff"])
-def test_new_no_retention_nonland_forms_stay_fail_closed(name):
+def test_nonland_type_replacement_is_supported_by_par217(name):
     eng = make_engine([], [], hand=0)
     card = _named(name)
-    assert not parse_oracle(card).modeled
+    assert parse_oracle(card).modeled
     source = obj_on_battlefield(eng.state, eng, card, controller="p1")
     bind_from_catalogue(source)
-    assert not source.activated_abilities
+    assert source.activated_abilities
 
 
 @pytest.mark.parametrize("name", [
@@ -115,13 +115,13 @@ def test_new_no_retention_nonland_forms_stay_fail_closed(name):
     "Opal Archangel", "Opal Caryatid", "Opal Champion", "Opal Gargoyle",
     "Veil of Birds", "Veiled Apparition", "Veiled Serpent", "Iron Man Armor",
 ])
-def test_source_pronoun_does_not_claim_enchantment_type_replacement(name):
+def test_source_pronoun_binds_enchantment_type_replacement_after_par217(name):
     eng = make_engine([], [], hand=0)
     card = _named(name)
-    assert not parse_oracle(card).modeled
+    assert parse_oracle(card).modeled
     source = obj_on_battlefield(eng.state, eng, card, controller="p1")
     bind_from_catalogue(source)
-    assert not source.triggered_abilities
+    assert source.triggered_abilities
     eng.recompute_continuous_effects()
     assert not source.is_creature
 
@@ -132,19 +132,19 @@ def test_source_pronoun_does_not_claim_enchantment_type_replacement(name):
     "it becomes a 0/0 construct hero artifact creature with flying until end of turn",
     'it becomes a 3/3 illusion creature with flying and "at the beginning of your upkeep, sacrifice ~ unless you pay {1}{u}."',
 ])
-def test_source_pronoun_requires_retention_instead_of_guessing_a_type_overwrite(body):
+def test_source_pronoun_replacement_requires_a_bound_source_reading(body):
     from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
-    assert parse_effect_body(body, reading=ClauseReading(self_subject=True)) is None
+    assert parse_effect_body(body, reading=ClauseReading(self_subject=True))
+    assert parse_effect_body(body) is None
 
 
 @pytest.mark.parametrize("body", [
     "target land becomes an x/x creature until end of turn",
     "it becomes a legendary 4/4 dragon creature until end of turn",
-    "all lands become x/x construct artifact creatures until end of turn",
 ])
-def test_new_target_previous_and_mass_forms_do_not_guess_retention(body):
+def test_singular_target_and_previous_forms_can_replace_types_after_par217(body):
     from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
-    assert parse_effect_body(body, reading=ClauseReading(previous_subject=True)) is None
+    assert parse_effect_body(body, reading=ClauseReading(previous_subject=True))
 
 
 def test_liege_counter_durations_expire_independently_and_never_restart():
@@ -306,7 +306,11 @@ def test_paid_x_animation_enforces_its_printed_minimum():
 
 
 @pytest.mark.parametrize("name", ["Genju of the Fields",
-                                  "Awakening of Vitu-Ghazi", "Hunting Wilds", "Hive of the Eye Tyrant"])
+                                  "Hunting Wilds", "Hive of the Eye Tyrant"])
 # Cyclone Sire / Noyan Dar left this list in PAR-204 (targeted antecedent + "if you do", test_par204_optional_payment.py).
 def test_independent_outer_or_inner_grammar_stays_fail_closed(name):
     assert not parse_oracle(_named(name)).modeled
+
+
+def test_unsupported_plural_body_still_fails_closed():
+    assert parse_effect_body("all lands become x/x construct artifact creatures until end of turn") is None

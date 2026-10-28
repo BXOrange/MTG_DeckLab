@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from itertools import combinations
 from typing import Any, Optional
 from ...models.cards import card_query
 from ...models.game.events import EventType, GameEvent
@@ -154,7 +155,10 @@ class SourceChoicesMixin:
     #: PAR-203: which stamp on the source each "choose a ..." kind writes, and the filter sentinel that reads it.
     _NAMED_CHOICE_ATTRS: dict[str, str] = {
         "creature_type": "chosen_type", "color": "chosen_color", "card_name": "chosen_card_name",
+        "basic_land_type": "chosen_land_type", "colors": "chosen_colors",
     }
+    #: RULE 305.6: the five basic land types a "basic land type of your choice" can name.
+    _BASIC_LAND_TYPE_OPTIONS: tuple[str, ...] = ("Plains", "Island", "Swamp", "Mountain", "Forest")
 
     def _named_choice_options(
         self, player: Player, kind: str, other_than: list[str], card_filter: Optional[dict[str, Any]],
@@ -166,8 +170,15 @@ class SourceChoicesMixin:
         card name, so the offered options are suggestions drawn from what is in the game (public zones plus the
         chooser's own hidden ones), exactly like the as-it-enters `choose_creature_type` pick; colours are the
         five of RULE 105.1."""
+        if kind == "colors":
+            # RULE 105.1: any nonempty subset of the five colors is legal.
+            colors = list(self._ANY_COLOR_LABELS)
+            return [{"id": "".join(cs), "label": ", ".join(self._ANY_COLOR_LABELS[c] for c in cs)}
+                    for size in range(1, len(colors) + 1) for cs in combinations(colors, size)]
         if kind == "color":
             return [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
+        if kind == "basic_land_type":
+            return [{"id": t, "label": t} for t in self._BASIC_LAND_TYPE_OPTIONS]
         if kind == "creature_type":
             seen: set[str] = set()
             for obj in self._named_choice_cards(player):
@@ -223,7 +234,7 @@ class SourceChoicesMixin:
             return
         # A pick left over from an earlier use of this object (a flashed-back spell, a repeatable ability) must never
         # stand in for this resolution's answer.
-        setattr(source, self._NAMED_CHOICE_ATTRS[kind], None)
+        setattr(source, self._NAMED_CHOICE_ATTRS[kind], [] if kind == "colors" else None)
         other = [str(t) for t in (other_than or [])]
         options = self._named_choice_options(player, kind, other, card_filter)
         if kind == "creature_type" and not options:
@@ -236,7 +247,7 @@ class SourceChoicesMixin:
             "kind": "choose_for_source",
             "player_id": player.id,
             "prompt": {"creature_type": "Kreaturentyp wählen", "color": "Farbe wählen",
-                       "card_name": "Kartennamen wählen"}[kind],
+                       "card_name": "Kartennamen wählen", "basic_land_type": "Standardland-Typ wählen", "colors": "Eine oder mehrere Farben wählen"}[kind],
             "options": options,
             # A type or a name can be any legal answer, not just a suggestion (RULE 205.3m, RULE 201.3).
             **({"free_text": True} if kind in ("creature_type", "card_name") else {}),
@@ -275,7 +286,7 @@ class SourceChoicesMixin:
             chosen = raw if raw in options else (options[0] if options else None)
         source = self._object_by_instance_id(choice.get("source_id"))
         if source is not None and chosen is not None:
-            setattr(source, self._NAMED_CHOICE_ATTRS[kind], chosen)
+            setattr(source, self._NAMED_CHOICE_ATTRS[kind], list(chosen) if kind == "colors" else chosen)
 
     def _request_sacrifice_unless_pay(
         self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
