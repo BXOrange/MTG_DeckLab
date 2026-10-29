@@ -14,9 +14,11 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-29 at PARSER_VERSION 811: **23,929 / 35,051 cards (68.3%)**,
+Measured on 2026-10-29 at PARSER_VERSION 812: **23,931 / 35,051 cards (68.3%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,312 / 32,068 (72.7%)**.
+Commander-legal coverage: **23,314 / 32,068 (72.7%)**.
+MEC-135 adds exact-card graveyard/library play windows; the v811→812 pool
+comparison adds Ark of Hunger and Tablet of Discovery with zero coverage losses.
 PAR-220 supplies linked-exile operands for counts, card selection/returns and
 standing, temporary or resolution-local cast/play permissions. Source and card
 zone visits govern the new readers and migrated Imprint/ability-borrowing readers;

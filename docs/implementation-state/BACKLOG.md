@@ -56,10 +56,6 @@ claimed cards.
 
 ## MEC — Game mechanic
 
-- **MEC-135 · Play windows from graveyard and library.** `Mill a card. You may play that card this
-  turn` (Ark of Hunger, Tablet of Discovery) and reveal-then-cast follow-ups: `_has_temp_play_permission`
-  honours only exile, so the permission is recorded but never offered (verified in PAR-214). Engine
-  window plus parser rows. 15 / 3.
 
 ## PLR — Player management
 

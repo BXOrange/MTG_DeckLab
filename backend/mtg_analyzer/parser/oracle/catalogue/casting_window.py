@@ -56,7 +56,7 @@ _WILD_TAIL = (
 )
 
 _CAST_PAIR_RE = re.compile(
-    r"(?P<exile>(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+?)(?:\.\s+|, then (?:you may )?)"
+    r"(?P<exile>(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+?)(?:\.\s+|, then (?:you may )?)"
     # PAR-214: "If it's a Goblin or an artifact card, you may play it this turn." -- for a one-card pool the condition
     # on the card is the pool's filter (nothing else is in the pool to be told apart from it).
     r"(?:if (?:it(?:'s| is)|that card is) (?:an? )?(?P<cond>[^,.]+?)(?: card)?, )?"
@@ -79,12 +79,14 @@ _CAST_PAIR_RE = re.compile(
 def parse_exile_cast_window(
     text: str, match_clause: Callable[..., Optional[list[EffectSpec]]],
 ) -> Optional[list[EffectSpec]]:
-    """The exile clause plus its casting window, or ``None`` when any axis is outside the vocabulary."""
+    """An exile, mill or single-card reveal plus its play window; unknown axes fail closed."""
     m = _CAST_PAIR_RE.fullmatch(text.strip())
     if m is None:
         return None
-    exile = match_clause(m.group("exile"))
-    if not exile or len(exile) != 1 or exile[0].type not in _EXILING_TYPES | {"mill"} or exile[0].params.get("face_down"):
+    is_reveal = m.group("exile").lower() == "reveal the top card of your library"
+    exile = ([EffectSpec("reveal_top", {"whose": "you"})] if is_reveal
+             else match_clause(m.group("exile")))
+    if not exile or len(exile) != 1 or exile[0].type not in _EXILING_TYPES | {"mill", "reveal_top"} or exile[0].params.get("face_down"):
         return None
     is_mill = exile[0].type == "mill"
     # The PAR-163 window row already owns "[until the end of your next turn,] you may play/cast that card [...]" after
@@ -92,7 +94,7 @@ def parse_exile_cast_window(
     earlier = match_clause(text.strip()[len(m["exile"]):].lstrip(". ").rstrip("."))
     # PAR-169: only for an exile that leaves its cards as the previous clause's referent (`ExileEffect`); a library
     # exile (`exile_top_of_library`) records exact zone visits instead, which `cast_window_exiled_pool` reads.
-    if (not is_mill and earlier and len(earlier) == 1 and earlier[0].type == "grant_play_window_previous_exiled"
+    if (not is_mill and not is_reveal and earlier and len(earlier) == 1 and earlier[0].type == "grant_play_window_previous_exiled"
             and exile[0].type != "exile_top_of_library"):
         return [exile[0], earlier[0]]
     window = (m.group("pre") or "").strip(), (m.group("post") or "").strip()
@@ -109,14 +111,17 @@ def parse_exile_cast_window(
     params: dict = {}
     if verb == "cast":
         params["only_spells"] = True
-    # The pool: a lone card is only ever the answer to a one-card exile.
-    if m.group("singular") and (is_mill or not _exiles_one_card(exile[0])):
+    # A singular pronoun must name exactly one produced card.
+    single = (is_reveal or (is_mill and exile[0].params.get("count") == 1
+                           and not exile[0].params.get("selector"))
+              or (not is_mill and _exiles_one_card(exile[0])))
+    if m.group("singular") and not single:
         return None
     card_filter: dict = {}
     any_number = False
     if m.group("cond"):
         # Only a single exiled card can be "it"; a pool-wide condition is not a filter on any card among many.
-        if not m.group("singular") or is_mill or not _exiles_one_card(exile[0]):
+        if not m.group("singular") or not single:
             return None
         condition = parse_object_phrase(m.group("cond").lower() + " card")
         if condition is None or condition[1] is not None:
@@ -148,10 +153,12 @@ def parse_exile_cast_window(
         elif lowered.startswith("for as long as"):
             params["standing"] = True
         # "until the end of your next turn" is the effect's default window.
-    if is_mill:
-        if word or verb != "cast":
-            return None  # standing mill windows need a per-pool cast-count permission
-        params["pool_zone"] = "graveyard"
+    if is_mill or is_reveal:
+        if word.lower().startswith("for as long as"):
+            return None  # "remains exiled" cannot describe these pools.
+        if is_reveal and not m.group("singular"):
+            return None
+        params["pool_zone"] = "library" if is_reveal else "graveyard"
     if card_filter:
         params["card_filter"] = card_filter
     if free:

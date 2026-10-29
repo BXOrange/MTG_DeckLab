@@ -197,6 +197,7 @@ export default [
               ['full', 'damage / destroy / regenerate / counter'],
               ['full', 'draw / discard / gain_life'],
               ['full', 'mill / exile / tap'],
+              ['full', 'Zeitlich begrenzte Spiel-/Wirkerlaubnis für bestimmte Friedhofs- oder Bibliothekskarten, auch nach Mill/Vorzeigen; normale Zeitregeln, Kosten und Landlimits gelten'],
               ['full', 'add_counters (+1/+1 / −1/−1)'],
               ['full', 'Schlüsselwort-Marken (122.1b) — eine Flying-/First-Strike-/Double-Strike-/Deathtouch-/Haste-/Hexproof-/Indestructible-/Lifelink-/Menace-/Reach-/Shadow-/Trample-/Vigilance-Marke gewährt ihr Schlüsselwort; „lege eine … Marke und eine … Marke“, „deine Wahl aus einer … Marke oder einer … Marke“ (bei Auflösung und beim Ins-Spiel-Kommen), „entferne eine … Marke“'],
               ['full', 'Marken legen (122): „eine Marke auf eine Kreatur, die du kontrollierst“ (Wahl, kein Ziel), „entferne eine … Marke von ~“ als Kosten von „du darfst … wenn du das tust“, Bedingungen und Filter „hat keine / ohne … Marke“, „wird zusätzlich zu seinen anderen Typen ein <Typ>“'],
@@ -468,7 +469,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (68,3 % · 23.929 / 35.051, PARSER_VERSION 811)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (68,3 % · 23.931 / 35.051, PARSER_VERSION 812)'],
               ['partial', 'Davon Commander-legal (72,7 % · 23.312 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

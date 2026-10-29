@@ -488,7 +488,7 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: PAR-167: an exile clause plus the casting window it opens ("Exile the top 4 cards of your library. Until end of turn,
 #: you may cast noncreature spells from among those cards without paying their mana costs."). The whole pair is one
 #: row so the pronoun can only name what the first sentence exiled; `casting_window.py` owns every axis of the window.
-_EXILE_CAST_WINDOW_RE = compile_clause(r"(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
+_EXILE_CAST_WINDOW_RE = compile_clause(r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
 
 
 def _exile_cast_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:

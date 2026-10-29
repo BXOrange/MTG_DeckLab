@@ -197,6 +197,7 @@ export default [
               ['full', 'damage / destroy / regenerate / counter'],
               ['full', 'draw / discard / gain_life'],
               ['full', 'mill / exile / tap'],
+              ['full', 'Temporary play/cast permissions for specific graveyard or library cards, including mill/reveal follow-ups; ordinary timing, costs and land limits apply'],
               ['full', 'add_counters (+1/+1 / −1/−1)'],
               ['full', 'Keyword counters (122.1b) — a flying / first strike / double strike / deathtouch / haste / hexproof / indestructible / lifelink / menace / reach / shadow / trample / vigilance counter grants its keyword; "put a … counter and a … counter", "your choice of a … counter or a … counter" (at resolution and as it enters), "remove a … counter"'],
               ['full', 'Counter placement (122): "a counter on a creature you control" (a pick, not a target), "remove a … counter from ~" as a cost of "you may … when you do", "doesn\'t have / without a … counter" conditions and filters, "it becomes a <type> in addition to its other types"'],
@@ -468,7 +469,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (68.3% · 23,929 / 35,051, PARSER_VERSION 811)'],
+              ['partial', 'Total oracle-parser coverage (68.3% · 23,931 / 35,051, PARSER_VERSION 812)'],
               ['partial', 'Of which Commander-legal (72.7% · 23,312 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

@@ -83,6 +83,9 @@ class LandsMixin:
         in_playable_zone = (
             obj in player.hand
             or self._has_resolution_play_permission(player, obj)
+            or (obj.zone in (Zone.EXILE, Zone.GRAVEYARD, Zone.LIBRARY)
+                and obj.instance_id not in self.state.temp_play_spells_only
+                and self._has_temp_play_permission(obj, player, face=face))
             or (
                 bool(player.library)
                 and obj is player.library[-1]
@@ -183,8 +186,9 @@ class LandsMixin:
         from ..mayhem import permits_land
         return permits_land(self.state, obj)
     def _has_temp_play_permission(self, obj: GameObject, player: Player, face: Optional[str] = None) -> bool:
-        """RULE 601.3b analogue: a temporary "you may play this card"
-        permission (Light Up the Stage-shaped impulsive draw,
+        """RULE 601.3: a temporary "you may play this card" permission
+        for its recorded zone visit, including graveyard and library
+        (Light Up the Stage-shaped impulsive draw,
         `RulesEngine.exile_with_play_permission`,
         `GameState.temp_play_permissions`) — swept once its "until the end
         of your next turn" (or, Ragavan/Mnemonic Betrayal-shaped, "until

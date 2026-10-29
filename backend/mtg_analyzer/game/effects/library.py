@@ -535,8 +535,9 @@ class CastWindowFromExiledPoolEffect(GameEffect):
     """PAR-167: "[Until end of turn,] you may cast `<spells>` from among the cards exiled this way [without paying
     their mana costs]" -- the casting-window half after an exile clause, one grammar over its independent axes.
 
-    The pool is the exact zone visits exiled by the immediately preceding paired instruction
-    (`GameContext.latest_exiled_visits`), kept only while still in that exile visit.  Two permission shapes, never mixed:
+    The pool is the exact zone visits exiled or milled by the preceding paired instruction,
+    or the single library card just revealed. A grant retains that zone incarnation (RULE 400.7).
+    Two permission shapes, never mixed:
 
     * ``resolution_local`` (no window word, RULE 608.2g): the casting is offered now, during this resolution,
       through `RulesEngine._request_resolution_play` -- once, or for any number of the cards (``any_number``).
@@ -563,7 +564,7 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         self.card_filter = dict(card_filter or {})
         self.resolution_local = bool(resolution_local)
         self.any_number = bool(any_number)
-        self.pool_zone = "graveyard" if pool_zone == "graveyard" else "exile"
+        self.pool_zone = pool_zone if pool_zone in ("graveyard", "library") else "exile"
         self.linked = linked
         self.own_only = own_only
         self.only_lands = only_lands
@@ -573,6 +574,12 @@ class CastWindowFromExiledPoolEffect(GameEffect):
             from ..linked_exile import linked_cards
             return [obj for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)
                     if not obj.face_down_in_exile]
+        if self.pool_zone == "library":
+            obj = context.revealed_card
+            if obj is None or obj.zone != Zone.LIBRARY:
+                return []
+            owner = context.state.player_by_id(obj.owner_id)
+            return [obj] if owner.library and owner.library[-1] is obj else []
         pool: list[Any] = []
         visits = (context.latest_milled_visits
                   if self.pool_zone == "graveyard" else context.latest_exiled_visits)

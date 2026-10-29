@@ -1260,9 +1260,27 @@ class LegalActionsMixin:
                 if castable and self.can_play_land(player, obj):
                     actions.append(self._land_action(obj))
 
+        # RULE 601.3 / 400.7: a temporary grant follows the exact card's
+        # current visit, independently of its owner or its library position.
+        for owner in self.state.players:
+            for obj in list(owner.graveyard) + list(owner.library):
+                if not self._has_temp_play_permission(obj, player):
+                    continue
+                if self._castable_now_or_via_potential(player, obj):
+                    self._offer_cast(actions, player, obj)
+                if self.can_play_land(player, obj):
+                    actions.append(self._land_action(obj))
+                if obj.card.back_face() is not None:
+                    if self._castable_now_or_via_potential(player, obj, face="back"):
+                        actions.append(self._cast_action(player, obj, face="back"))
+                    if self.can_play_land(player, obj, face="back"):
+                        actions.append(self._land_action(obj, face="back"))
+
         from ..blitz import graveyard_permission as blitz_graveyard_permission
 
         for obj in list(player.graveyard):
+            if self._has_temp_play_permission(obj, player):
+                continue
             # RULE 702.34 / 702.138: Flashback/Escape let a card be cast
             # from the graveyard for an alternative cost — or some other
             # permanent may grant a standing permission instead (Lurrus of
@@ -1296,12 +1314,14 @@ class LegalActionsMixin:
             if other is player:
                 continue
             for obj in list(other.graveyard):
+                if self._has_temp_play_permission(obj, player):
+                    continue
                 if ((has_targeted_graveyard_permission(player, self.state, obj)
                      or temporary_graveyard_pool_grant(player, self.state, obj) is not None)
                         and self._castable_now_or_via_potential(player, obj)):
                     self._offer_cast(actions, player, obj)
 
-        if player.library:
+        if player.library and not self._has_temp_play_permission(player.library[-1], player):
             # Oracle of Mul Daya/Glarb, Calamity's Augur-shaped: a permanent
             # may grant playing lands and/or casting spells straight off the
             # top of the library — see `game/top_library.py`. Only the top

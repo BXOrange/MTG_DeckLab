@@ -93,6 +93,10 @@ re-exported from `misc_mixin.py` for existing callers.
   measured return choices; source returns use the same entry batch as blink.
   Standing exile-play permissions retain the exile visit and filter the
   selected card face, including MDFC land faces.
+  Temporary exact-card play permissions also cover graveyard and library
+  visits, independently of owner or library position. Mill/reveal pairs use
+  the shared casting-window grammar; ordinary costs, timing, land limits and
+  cast prohibitions still apply. No-duration offers remain resolution-local.
 - Saga completion checks chapter abilities waiting for stack placement as
   well as those already on the stack (RULE 704.5s / 714.4). An unrelated
   trigger or a chapter from an older source visit does not protect a Saga.
