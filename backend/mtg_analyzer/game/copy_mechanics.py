@@ -161,15 +161,19 @@ def become_copy(
 def expire_copies(state, window: str) -> bool:
     """End timed copy layers without removing a later permanent or timed copy."""
     duration = {'cleanup': 'end_of_turn', 'end_step': 'next_end_step'}.get(window)
-    if duration is None:
-        return False
     changed = False
     for obj in state.battlefield:
         layers = obj._duration_copy_layers
         index = 0
         while index < len(layers):
             layer = layers[index]
-            if layer['duration'] != duration:
+            from types import SimpleNamespace
+            from .durations import is_expired
+            expired = (is_expired(SimpleNamespace(duration=layer['duration'],
+                duration_data=layer['duration_data'], source=state.find_object(layer.get('source_id')),
+                object_ids=layer.get('object_ids', [])), state, window) if 'duration_data' in layer
+                else duration is not None and layer['duration'] == duration)
+            if not expired:
                 index += 1
                 continue
             # RULE 613.7: newer copy effects still win. If the removed

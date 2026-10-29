@@ -499,7 +499,7 @@ class TurnLoopMixin:
             self.state.first_draw_done_this_step[self.state.active_player.id] = False
         # RULE 611.2: durations end as the step begins, before checking
         # beginning-of-step triggers against the resulting characteristics.
-        if step.name == "end" and durations.sweep(self.state, "end_step"):
+        if step.name in ("end", "upkeep") and durations.sweep(self.state, "end_step" if step.name == "end" else "upkeep"):
             self.recompute_continuous_effects()
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
         if phase.steps and step is phase.steps[0] and getattr(phase, "untap_controller_id", None):

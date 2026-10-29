@@ -494,8 +494,10 @@ class PreventDamageEffect(GameEffect):
         and_dealt_by: bool = False,
         count_max: Optional[int] = None,
         count_selector: Optional[str] = None,
+        duration: Optional[str] = None, condition: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.duration, self.duration_condition = duration, condition
         self.amount = amount
         #: "Prevent all combat damage that would be dealt to **and dealt by** that creature this turn." (Maze of Ith,
         #: Fog Bank, PAR-216): the recipient shield below plus the same creature's own combat damage (RULE 615.1).
@@ -573,6 +575,9 @@ class PreventDamageEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..durations import apply_timed_prevention
+        if apply_timed_prevention(self, context, targets):
+            return
         self._apply_shield(context, targets)
         if not self.and_dealt_by:
             return
@@ -1351,8 +1356,10 @@ class PreventDamageFromTargetEffect(GameEffect):
         count_selector: Optional[str] = None,
         combat_only: bool = False,
         creature_filter: Optional[dict] = None,
+        duration: Optional[str] = None, condition: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.duration, self.duration_condition = duration, condition
         self.target = target
         self.amount = amount
         #: "prevent all combat damage that would be dealt by target **blocked** creature" (Benalish Missionary,
@@ -1368,6 +1375,9 @@ class PreventDamageFromTargetEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..durations import apply_timed_prevention
+        if apply_timed_prevention(self, context, targets):
+            return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         for obj in chosen:
             context.engine.prevent_damage_from_source(obj, self.amount, rider=self.rider, combat_only=self.combat_only)

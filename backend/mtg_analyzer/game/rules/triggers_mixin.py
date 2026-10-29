@@ -233,6 +233,11 @@ class TriggerCollectionMixin:
 
     def _collect_triggers(self, event: GameEvent) -> None:
         if event.type == EventType.ENTERS_BATTLEFIELD:
+            entering = self.state.find_object(event.get("instance_id"))
+            host = self.state.find_object(getattr(entering, "attached_to", None)) if entering else None
+            if host is not None:
+                self._attachment_event(entering, host)
+        if event.type == EventType.ENTERS_BATTLEFIELD:
             # RULE 603.6a: continuous effects apply before entry triggers
             # inspect the entrant (Maskwood Nexus changes its creature types).
             entrant = self.state.find_object(event.get("instance_id"))

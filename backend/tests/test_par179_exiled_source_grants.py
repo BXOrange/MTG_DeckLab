@@ -58,11 +58,11 @@ def test_real_cluster_cards_model_and_bind(name):
     assert any(a.cost.exile_self_from_hand for a in obj.activated_abilities)
 
 
-def test_spara_keeps_its_separate_restriction_gap():
+def test_spara_restriction_gap_is_closed_by_shared_duration_grammar():
     card = CardDatabase(DEFAULT_DB_PATH).get_card("Spara's Adjudicators")
     result = parse_oracle(card)
-    assert not result.modeled
-    assert all('until this card is cast from exile' not in line for line in result.unclaimed)
+    assert result.modeled, result.unclaimed
+    assert not result.unclaimed
 
 
 def test_activation_uses_stack_and_can_grant_to_opponents_land():

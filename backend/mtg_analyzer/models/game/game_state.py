@@ -691,6 +691,8 @@ class GameState:
         # and belongs to this zone visit rather than a future exile visit.
         self.temp_play_permission_filters: dict[int, dict[str, Any]] = {}
         self.temp_play_permission_visits: dict[int, int] = {}
+        # RULE 611.2a: exact step/condition clocks, including next-turn-only activity.
+        self.temp_play_permission_clocks: dict[int, dict[str, Any]] = {}
 
         #: Which `temp_play_permissions` entries carry the *shorter*,
         #: flat "until end of turn" window (Ragavan, Nimble Pilferer/

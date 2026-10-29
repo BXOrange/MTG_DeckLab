@@ -111,6 +111,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_blocking",
         "source_has_blockers",  # PAR-176: "at least one creature is blocking ~"
         "source_paired",  # RULE 702.94b soulbond
+        "source_attached_to_affected",
         "source_attached",  # "as long as ~ is attached to a creature"
         "source_equipped",  # "as long as ~ is equipped"
         "source_enchanted",  # "as long as ~ is enchanted"
@@ -287,6 +288,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
         # makes.
+        "captured_player_is_monarch",
         "is_monarch",  # "as long as you're the monarch"
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
@@ -766,6 +768,9 @@ def condition_holds(
         )
     if kind == "source_paired":
         return getattr(subject, "paired_with", None) is not None
+    if kind == "source_attached_to_affected":
+        return (source is not None and affected is not None
+                and source.attached_to == affected.instance_id)
     if kind == "source_attached":
         return getattr(subject, "attached_to", None) is not None
     if kind in ("source_equipped", "source_enchanted"):
@@ -987,6 +992,8 @@ def condition_holds(
         is_yours = active is not None and controller_id is not None and active.id == controller_id
         return is_yours if kind == "your_turn" else not is_yours
 
+    if kind == "captured_player_is_monarch":
+        return condition.get("player_id") is not None and state.monarch_id == condition["player_id"]
     if kind == "is_monarch":
         return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
     if kind == "has_initiative":
@@ -1599,6 +1606,7 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_blocking": "blockend",
         "source_paired": "verbündet",
         "source_attached": "angelegt",
+        "source_attached_to_affected": "an das betroffene Objekt angelegt",
         "source_equipped": "ausgerüstet",
         "source_enchanted": "verzaubert",
         "source_attacked_this_turn": "hat diesen Zug angegriffen",

@@ -14,18 +14,25 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-29 at PARSER_VERSION 815: **23,972 / 35,051 cards (68.4%)**,
+Measured on 2026-10-29 at PARSER_VERSION 817: **24,007 / 35,051 cards (68.5%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,355 / 32,068 (72.8%)**.
+Commander-legal coverage: **23,390 / 32,068 (72.9%)**.
+PAR-223 composes source/counter/monarch/attachment-bound lifetimes and exact
+upkeep/end-step/next-turn windows across continuous grants, control, prevention,
+copies and exile play. Against v815: **36 newly parser-modeled names / 35 newly
+covered names, zero lost**. Thirteen existing-spec changes retain opponent-choice
+control semantics, correct source-control lockdown conditions and replace the
+old end-step permission approximation. Duration composition preserves successful
+handlers and never retimes earlier sentences or a different named object.
 PAR-221 composes counter movement/removal with shared targets, exact-X mana-value
 bounds and source/count-relative power bounds. Source-controlled/tapped windows
 and continuing target enchanted/power conditions end independently; already-ended
 source visits never begin a control effect. Against v813, the full pool gains
 **21 parser-modeled names / 18 covered names, zero lost**. Eight existing-spec
 changes replace artifact-or-creature operand wrappers with direct target effects,
-retaining scope and improving blink/paid-reflexive binding. The v815 Commander
-scan records **8,593 open cards / 12,601 fragments**. Broader duration conditions
-and time windows remain tracked by PAR-223.
+retaining scope and improving blink/paid-reflexive binding. The v817 Commander
+scan records **8,558 open cards / 12,558 fragments**. Broader duration conditions
+and time windows subsequently compose through PAR-223.
 MEC-135 adds exact-card graveyard/library play windows; the v811→812 pool
 comparison adds Ark of Hunger and Tablet of Discovery with zero coverage losses.
 PAR-220 supplies linked-exile operands for counts, card selection/returns and

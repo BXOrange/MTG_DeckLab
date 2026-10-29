@@ -403,21 +403,11 @@ def _library_exile(m: re.Match[str], reading) -> Optional[list[EffectSpec]]:
 #: ``count_or_x_of`` covers "the top x cards" (Commune with Lava) via the
 #: same ``"x"``-sentinel/`RulesEngine._substitute_x` idiom every other
 #: X-scaled one-shot effect already uses.
-#: "…until your next end step." (Opera Love Song) accepted as a third
-#: duration word alongside "this turn"/"until the end of your next turn" —
-#: **documented simplification**: `ImpulsiveDrawEffect`'s window is turn-
-#: scoped (`_grant_temp_play_permission`'s ``same_turn_only`` sweeps at
-#: *this* turn's own cleanup, the finest granularity it has), so this maps
-#: to ``same_turn_only=True`` rather than a genuine step-scoped expiry.
-#: Exact when cast during the caster's own turn (their next end step
-#: *is* later this same turn); an instant-speed cast on an opponent's turn
-#: would close the window at that turn's cleanup instead of carrying it
-#: into the caster's own next end step — narrower than RAW, not wider.
 #: PAR-137 widened the row: the window word may also be "until end of turn", and a *choice* of one
 #: of the exiled cards is accepted — "exile the top 2 cards of your library[,] [then] choose 1 of
 #: them. You may play that card this turn" and "… you may play 1 of those cards this turn" — which
 #: keeps the play permission on the pick alone (`ImpulsiveDrawEffect.choose_one`).
-_EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|for as long as (?:they|it) remain(?:s)? exiled"
+_EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|until your next upkeep|during your next turn|for as long as (?:they|it) remain(?:s)? exiled"
 _EXILE_TOP_PLAY_RE = compile_clause(
     r"(?:exile the top (?:(?P<n>\d+|x) cards?|card) of (?:your|(?P<each>each player'?s)) library"
     r"|(?P<damaged>that player) exiles that many cards from the top of their library)(?:\.|, then) "
@@ -433,7 +423,7 @@ _EXILE_TOP_PLAY_RE = compile_clause(
 
 def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     dur = (m.groupdict().get("dur_pre") or m.groupdict().get("dur_post") or "").strip()
-    same_turn_only = dur in ("this turn", "until end of turn", "until the end of turn", "until your next end step")
+    same_turn_only = dur in ("this turn", "until end of turn", "until the end of turn")
     n = m.group("n")
     what = m.group("what")
     choose_one = bool(m.group("choose")) or what == "1 of those cards"
@@ -447,6 +437,10 @@ def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("choose") and what != "that card":
         return None
     params: dict = {"count": count, "same_turn_only": same_turn_only}
+    clock = {"until your next end step": "your_next_end_step", "until your next upkeep": "your_next_upkeep",
+             "during your next turn": "during_your_next_turn"}.get(dur)
+    if clock:
+        params["duration"] = clock
     if m.group('damaged'):
         params['library_of'] = 'that_player'
     if dur.startswith('for as long as '):

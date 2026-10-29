@@ -414,8 +414,10 @@ class ImpulsiveDrawEffect(GameEffect):
         only_spells: bool = False,
         standing: bool = False,
         card_filter: Optional[dict[str, Any]] = None,
+        duration: Optional[str] = None, condition: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.duration, self.condition = duration, condition
         #: "Look at the top X cards of your library. Exile one of those cards and put the rest on the bottom of your library
         #: in a random order. You may play the exiled card this turn." (Florian, Voldaren Scion) — with ``choose_one``, the
         #: cards not picked go back to the bottom at random instead of staying exiled.
@@ -481,6 +483,8 @@ class ImpulsiveDrawEffect(GameEffect):
                 context.state.temp_play_permission_standing.add(obj.instance_id)
             if self.card_filter:
                 context.state.temp_play_permission_filters[obj.instance_id] = dict(self.card_filter)
+        for obj in exiled:
+            _arm_play_clock(self, context, obj)
         if self.choose_one and exiled:
             context.engine._request_choose_objects(
                 permission_player, exiled,
@@ -510,8 +514,10 @@ class GrantPlayWindowToPreviousExiledEffect(GameEffect):
     def __init__(
         self, same_turn_only: bool = False, only_spells: bool = False, mana_wildcard: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        duration: Optional[str] = None, condition: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.duration, self.condition = duration, condition
         self.same_turn_only = bool(same_turn_only)
         self.only_spells = bool(only_spells)
         self.mana_wildcard = mana_wildcard
@@ -527,6 +533,7 @@ class GrantPlayWindowToPreviousExiledEffect(GameEffect):
             context.engine._grant_temp_play_permission(
                 obj, player, source_name, self.same_turn_only, self.mana_wildcard,
             )
+            _arm_play_clock(self, context, obj)
             if self.only_spells:
                 context.state.temp_play_spells_only.add(obj.instance_id)
 
@@ -554,8 +561,10 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         mana_wildcard: Optional[str] = None, free: bool = False, card_filter: Optional[dict[str, Any]] = None,
         resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile",
         linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
+        duration: Optional[str] = None, condition: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.duration, self.condition = duration, condition
         self.same_turn_only = bool(same_turn_only)
         self.standing = bool(standing)
         self.only_spells = bool(only_spells)
@@ -620,6 +629,7 @@ class CastWindowFromExiledPoolEffect(GameEffect):
             context.engine._grant_temp_play_permission(
                 obj, player, source_name, self.same_turn_only, self.mana_wildcard,
             )
+            _arm_play_clock(self, context, obj)
             if self.only_spells:
                 context.state.temp_play_spells_only.add(obj.instance_id)
             if self.standing:
@@ -3960,6 +3970,17 @@ class MultiplyDamageFromTargetEffect(GameEffect):
         effect.until_next_turn_of = controller_id
         target.replacement_effects.append(effect)
 
+
+
+def _arm_play_clock(effect, context, obj):
+    if not effect.duration:
+        return
+    from ..durations import arm_play_clock
+    duration = effect.duration
+    arm_play_clock(context, obj, "end_of_your_next_turn" if duration == "during_your_next_turn" else duration,
+                   effect.condition, effect.source)
+    if duration == "during_your_next_turn":
+        context.state.temp_play_permission_clocks[obj.instance_id]["next_turn_only"] = True
 
 
 register(globals())

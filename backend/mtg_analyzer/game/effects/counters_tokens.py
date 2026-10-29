@@ -754,7 +754,7 @@ class GrantUntilEffect(GameEffect):
             # RULE 611.2b: an affected-object condition ends separately for
             # each member of a multi-object grant, never for the whole group.
             measured_pt = (payload.get("params") or {}).get("pt_selector") == "mana_value"
-            if chosen_ids and (measured_pt or (self.condition and self.condition.get("of") == "affected")):
+            if chosen_ids and (measured_pt or (self.condition and (self.condition.get("of") == "affected" or self.condition.get("kind") == "source_attached_to_affected"))):
                 for chosen_id in chosen_ids:
                     self._park_static(context, durations, payload, controller_id, [chosen_id])
             else:
@@ -819,21 +819,13 @@ class GrantUntilEffect(GameEffect):
         # long after the Aura already attached, must apply *after* the
         # Aura's own "loses all other card types" layer-4 static).
         ability.timestamp = context.state.next_timestamp()
-        ability.duration = durations.normalize_duration(self.duration)
-        # "turn" anchors "until the end of your NEXT turn" (RULE 611.2) to the creating turn.
-        ability.duration_data = {"player_id": controller_id, "turn": context.state.internal_turn.number}
+        durations.stamp(ability, context, self.source, durations.normalize_duration(self.duration), self.condition)
         if self.duration == "until_source_cast_from_exile":
             # RULE 400.7j / 611.2a: track the exile visit created by the cost,
             # independently of the source's subsequent movements.
             event = context.trigger_event or {}
             ability.duration_data["source_id"] = getattr(self.source, "instance_id", None)
             ability.duration_data["source_exile_incarnation"] = event.get("cost_exiled_source_incarnation")
-        if self.condition is not None:
-            # RULE 611.2b's condition-bounded duration: the effect *ends*
-            # when this stops holding, unlike an ``active_if`` gate, which
-            # merely lies dormant and can come back on.
-            ability.duration = "for_as_long_as"
-            ability.duration_data["condition"] = dict(self.condition)
         if chosen_ids is not None:
             # A targeted grant applies to exactly the permanents chosen once
             # in `apply` (`affects="objects"` reads the ids off the ability),

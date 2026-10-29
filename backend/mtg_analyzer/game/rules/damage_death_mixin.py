@@ -1846,6 +1846,7 @@ class DamageDeathMixin:
             ),
             description="Schadensverhinderung",
         )
+        effect.duration_subject_id = target_id if not is_player else None
         effect.damage_prevention_shield = True
         effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
         holder = target.player_effects if is_player else target.replacement_effects
@@ -2207,6 +2208,7 @@ class DamageDeathMixin:
             condition=lambda e, c: e.get("source_id") == watched_source_id and (not combat_only or bool(e.get("combat"))),
             description=f"{source.name}: Schadensverhinderung",
         )
+        effect.duration_subject_id = watched_source_id
         effect.damage_prevention_shield = True
         effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
 

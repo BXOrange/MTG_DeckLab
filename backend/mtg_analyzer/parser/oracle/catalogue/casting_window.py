@@ -26,13 +26,14 @@ from ..spec import EffectSpec
 from .characteristic_phrase import parse_object_phrase
 from .clause_reading import EXILE_POOL
 from .count_phrase import parse_count_phrase
+from .duration_phrase import CONDITIONAL_DURATION_PATTERN, condition_phrase
 
 #: First-sentence effect types that really exile cards this resolution (`GameContext.exiled_objects`).
 _EXILING_TYPES = frozenset({"exile_top_of_library", "exile"})
 
 _WINDOW = (
-    r"this turn|until (?:the )?end of turn|until the end of your next turn|"
-    r"for as long as (?:that card|they|it) remain(?:s)? exiled"
+    r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|until your next upkeep|during your next turn|"
+    rf"for as long as (?:(?:that card|they|it) remain(?:s)? exiled|{CONDITIONAL_DURATION_PATTERN})"
 )
 _PLURAL_POOL = r"them|those cards|the exiled cards|those exiled cards|cards exiled this way|the cards exiled this way"
 #: PAR-214: "the exiled card" names the one card of a single-card exile as plainly as "that card" does.
@@ -151,7 +152,17 @@ def parse_exile_cast_window(
         if lowered in ("this turn", "until end of turn", "until the end of turn"):
             params["same_turn_only"] = True
         elif lowered.startswith("for as long as"):
-            params["standing"] = True
+            condition = condition_phrase(lowered[len("for as long as "):])
+            if condition:
+                # A pronoun here names the exile pool, never a battlefield object.
+                if condition.get("of") == "affected" or condition.get("kind") in ("source_attached_to_affected", "captured_player_is_monarch"):
+                    return None
+                params.update(duration="for_as_long_as", condition=condition)
+            else:
+                params["standing"] = True
+        elif lowered in ("until your next end step", "until your next upkeep", "during your next turn"):
+            params["duration"] = {"until your next end step": "your_next_end_step",
+                "until your next upkeep": "your_next_upkeep", "during your next turn": "during_your_next_turn"}[lowered]
         # "until the end of your next turn" is the effect's default window.
     if is_mill or is_reveal:
         if word.lower().startswith("for as long as"):

@@ -205,6 +205,18 @@ class LandsMixin:
         """
         if obj.instance_id not in self.state.temp_play_permissions:
             return False
+        clock = self.state.temp_play_permission_clocks.get(obj.instance_id)
+        if clock:
+            from ..durations import play_clock_expired
+            if play_clock_expired(self.state, obj, clock):
+                self.state.temp_play_permission_clocks.pop(obj.instance_id, None)
+                self.state.temp_play_permissions.pop(obj.instance_id, None)
+                return False
+            if clock.get("next_turn_only") and not (
+                self.state.active_player.id == clock["duration_data"]["player_id"]
+                and self.state.internal_turn.number > clock["duration_data"]["turn"]
+            ):
+                return False
         visit = self.state.temp_play_permission_visits.get(obj.instance_id)
         if visit is not None and obj.zone_incarnation != visit:
             return False

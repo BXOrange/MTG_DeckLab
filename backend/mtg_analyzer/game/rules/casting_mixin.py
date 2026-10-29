@@ -1554,12 +1554,24 @@ class CastingResolutionMixin:
         if not self._attachment_legal(obj, target, check_control, allow_planeswalker):
             return False
         attached_to = target.id if isinstance(target, Player) else target.instance_id
-        if obj.attached_to != attached_to:
+        changed = obj.attached_to != attached_to
+        if changed:
             # RULE 613.7e / 701.3c: becoming attached gives the attachment
             # a new timestamp; attaching to its current host changes nothing.
             obj.timestamp = self.state.next_timestamp()
         obj.attached_to = attached_to
+        if changed:
+            obj.attachment_generation += 1
+            self._attachment_event(obj, target)
         return True
+
+    def _attachment_event(self, obj, target):
+        # RULE 701.3b / 603.2: attaching to the existing host is no event.
+        if getattr(target, "is_creature", False):
+            self.state.fire_event(GameEvent(EventType.ATTACHED_TO_CREATURE,
+                instance_id=obj.instance_id, controller_id=obj.controller_id,
+                target_id=target.instance_id, target_incarnation=target.zone_incarnation,
+                attachment_generation=obj.attachment_generation))
 
     def _begin_bestow(self, obj: GameObject) -> None:
         """RULE 702.103b: reshape ``obj`` into a bestowed Aura spell — an

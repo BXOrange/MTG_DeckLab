@@ -157,6 +157,14 @@ re-exported from `misc_mixin.py` for existing callers.
   control effect keeps its own timestamp/window even if its recipient already
   controls the permanent; ending one window exposes the latest surviving effect.
 
+- Continuous lifetimes share `game/durations.py` across floating statics,
+  control records, timed copy layers, prevention shields and exile play grants.
+  Upkeep/end-step clocks expire before beginning-of-step triggers; next-turn-only
+  play permissions remain inactive until the holder's next played turn. A
+  condition-bound lifetime ends permanently, preserving exact source/affected
+  visits; attachment triggers retain their original host and attachment generation.
+  Duration grammar retimes only represented continuous effects in its own sentence.
+
 - Loss replacements use `PLAYER_WOULD_LOSE`; `PLAYER_LOST` announces only an
   actual loss. State-owned APNAP loss batches defer game-over checks until all
   choices and recovery instructions finish. Replacement descriptors preserve

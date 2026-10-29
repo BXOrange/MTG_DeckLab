@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "815"
+PARSER_VERSION = "817"
 
 
 def parser_source_hash() -> str:
@@ -1856,7 +1856,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             return any(reads_linked_name(child) for child in value)
         return False
     if reads_linked_name(effect_specs) or any(kind in {'linked_exile_permission', 'linked_exile_move'} or
-           (kind == 'cast_window_exiled_pool' and params.get('linked')) for kind, params in nodes):
+           (kind == 'cast_window_exiled_pool' and params.get('linked')) or
+           (kind == 'copy_for_duration' and params.get('template') == 'linked') for kind, params in nodes):
         # A mana line is otherwise handled by the mana subsystem. Its unsupported
         # spend-to-exile rider cannot silently create a linked pool (Forger's Foundry).
         for line in normalized.splitlines():

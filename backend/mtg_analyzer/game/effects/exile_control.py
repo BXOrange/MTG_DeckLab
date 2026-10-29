@@ -1440,8 +1440,10 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         while_target_filter: Optional[dict] = None,
         group: Optional[dict] = None,
         group_player: Optional[str] = None,
+        condition: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.duration_condition = condition
         self.target = target
         self.group = dict(group) if group is not None else None
         self.group_player = group_player
@@ -1521,7 +1523,16 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         return "harmful"
 
     def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
-        if self.duration == "permanent":
+        from .. import durations
+        if self.duration_condition or self.duration in ("your_next_turn", "your_next_upkeep", "your_next_end_step", "next_end_step", "end_of_combat"):
+            from types import SimpleNamespace
+            clock = durations.stamp(SimpleNamespace(), context, self.source, self.duration, self.duration_condition, target)
+            if durations.is_expired(clock, context.state, "recompute"):
+                return
+            data = {"duration": clock.duration, "duration_data": clock.duration_data,
+                    "object_ids": clock.object_ids, "source_id": getattr(self.source, "instance_id", None)}
+            gain_control(context.state, target, controller.id, duration="clock", window=data)
+        elif self.duration == "permanent":
             window = None
             if self.while_source or self.while_target_filter:
                 from ..control import control_window_active

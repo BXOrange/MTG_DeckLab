@@ -105,6 +105,7 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     # strictly wrong, over-firing trigger). Its own aggregate event, fired
     # once combat locks in — see `EventType.ATTACKS_ALONE`.
     ("attacks alone", "ATTACKS_ALONE"),
+    ("becomes attached to a creature", "ATTACHED_TO_CREATURE"),
     # RULE 708.8: "when ~ is turned face up" — the morph/megamorph/disguise
     # trigger family (`game/face_down.py`), and the single largest verb the
     # engine could already fire but the grammar couldn't name.

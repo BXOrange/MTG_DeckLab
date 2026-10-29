@@ -2150,6 +2150,10 @@ class ReplacementEffect(GameEffect):
         self.suppressed = False
 
     def can_replace(self, event: GameEvent, context: GameContext) -> bool:
+        if getattr(self, "duration", None):
+            from ..durations import is_expired
+            if is_expired(self, context.state, "recompute"):
+                return False
         if self.suppressed:
             return False
         if event.type != self.event_type:

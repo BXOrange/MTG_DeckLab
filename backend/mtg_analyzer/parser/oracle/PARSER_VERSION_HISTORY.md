@@ -4489,3 +4489,19 @@ control effects survive earlier windows ending. Exchange-control retains the sec
 
 Dynamic power comparisons reuse `parse_count_phrase` structured selectors for controlled
 object nouns, including creature and land subtypes. Unknown count nouns remain unclaimed.
+
+## Version 816 — PAR-223: condition-bound and next-turn durations
+
+Duration composition retains the existing verb/object grammar and changes only represented
+continuous leaves in a single sentence. Upkeep/end-step clocks, next-turn-only exile play,
+source presence/control/tapped state, recipient counters, monarch status and exact attachment
+visits compose with characteristic/ability grants, control, prevention and copies. Existing
+successful handlers keep precedence. Attachment events retain the original host visit; linked
+copy readers use the shared exact-visit exile pool. Exile play now ends at the printed step
+instead of a cleanup approximation. Unknown bodies, conditions and competing clocks decline.
+
+## Version 817 — PAR-223: constrain duration scope
+
+A trailing duration never retimes previous sentences or a different named object.
+Target announcement nodes may accompany a continuous effect but cannot carry a
+lifetime on their own. Successful older handlers retain precedence over composition.

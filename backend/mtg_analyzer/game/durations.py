@@ -72,6 +72,8 @@ DURATIONS: frozenset[str] = frozenset(
         "your_next_turn",
         "end_of_your_next_turn",
         "next_end_step",
+        "your_next_upkeep",
+        "your_next_end_step",
         "for_as_long_as",
         "until_source_cast_from_exile",
         "rest_of_game",
@@ -125,7 +127,9 @@ def _affected_object(ability: Any, state: "GameState") -> Any:
         return None
     for obj in state.permanents():
         if getattr(obj, "instance_id", None) == object_ids[0]:
-            return obj
+            visits = (getattr(ability, "params", None) or {}).get("object_incarnations", {})
+            visit = visits.get(obj.instance_id, visits.get(str(obj.instance_id)))
+            return obj if visit is None or obj.zone_incarnation == visit else None
     return None
 
 
@@ -146,11 +150,26 @@ def is_expired(ability: Any, state: "GameState", window: str) -> bool:
     if duration in (None, "rest_of_game") or duration not in DURATIONS:
         return False
 
+    data = getattr(ability, "duration_data", None) or {}
+    if data.get("affected_incarnation") is not None:
+        affected = _affected_object(ability, state)
+        if affected is None or affected.zone_incarnation != data["affected_incarnation"]:
+            return True
     if duration == "for_as_long_as":
         # Checked at *every* window including the recompute pass: this is a
         # board condition, so it can stop holding at any moment, not only at
         # a step boundary.
         data = getattr(ability, "duration_data", None) or {}
+        source = getattr(ability, "source", None)
+        # RULE 400.7 / 611.2b: a source-bound clock follows one visit.
+        if data.get("source_incarnation") is not None and (
+            source is None or source.zone_incarnation != data["source_incarnation"]
+            or source not in state.permanents()
+        ):
+            return True
+        if (data.get("attachment_generation") is not None and
+                getattr(source, "attachment_generation", None) != data["attachment_generation"]):
+            return True
         return not static_conditions.condition_holds(
             data.get("condition"),
             state,
@@ -170,6 +189,10 @@ def is_expired(ability: Any, state: "GameState", window: str) -> bool:
     if window == "end_of_combat":
         # "Until end of turn" outlives combat; only the combat-scoped one ends.
         return duration == "end_of_combat"
+    if (window, duration) in (("upkeep", "your_next_upkeep"), ("end_step", "your_next_end_step")):
+        data = getattr(ability, "duration_data", None) or {}
+        active = getattr(state, "active_player", None)
+        return active is not None and active.id == data.get("player_id")
     if window == "end_step":
         return duration == "next_end_step"
     if window == "turn_begin":
@@ -196,6 +219,27 @@ def sweep(state: "GameState", window: str) -> bool:
     from .copy_mechanics import expire_copies
 
     copies_ended = expire_copies(state, window)
+    from types import SimpleNamespace
+    from .control import end_control_effects
+    for obj in state.battlefield:
+        if end_control_effects(obj, lambda record: record["duration"] == "clock"
+            and is_expired(SimpleNamespace(**record["window"], source=state.find_object(record["window"].get("source_id"))), state, window)):
+            copies_ended = True
+    for obj in state.battlefield:
+        kept = [e for e in obj.replacement_effects if not is_expired(e, state, window)]
+        if len(kept) != len(obj.replacement_effects):
+            obj.replacement_effects = kept
+            copies_ended = True
+    for player in state.players:
+        kept_effects = [e for e in player.player_effects if not is_expired(e, state, window)]
+        if len(kept_effects) != len(player.player_effects):
+            player.player_effects = kept_effects
+            copies_ended = True
+    for iid, clock in list(state.temp_play_permission_clocks.items()):
+        if play_clock_expired(state, state.find_object(iid), clock, window):
+            state.temp_play_permission_clocks.pop(iid, None)
+            state.temp_play_permissions.pop(iid, None)
+            copies_ended = True
     floating = getattr(state, "floating_statics", None)
     if not floating:
         return copies_ended
@@ -249,6 +293,8 @@ def describe(ability: Any) -> str:
         "your_next_turn": "bis zu deinem nächsten Zug",
         "end_of_your_next_turn": "bis zum Ende deines nächsten Zuges",
         "next_end_step": "bis zum nächsten Endsegment",
+        "your_next_upkeep": "bis zu deinem nächsten Versorgungssegment",
+        "your_next_end_step": "bis zu deinem nächsten Endsegment",
     }[duration]
 
 
@@ -273,3 +319,73 @@ def end_on_exile_cast(state, source_id, exile_incarnation):
         and ability.duration_data.get("source_id") == source_id
         and ability.duration_data.get("source_exile_incarnation") == exile_incarnation
     )]
+
+
+def arm_play_clock(context, obj, duration, condition=None, source=None):
+    """Attach an exact lifetime to the ordinary zone-visit play permission."""
+    from types import SimpleNamespace
+    clock = stamp(SimpleNamespace(), context, source, duration, condition)
+    context.state.temp_play_permission_clocks[obj.instance_id] = {
+        "duration": clock.duration, "duration_data": clock.duration_data,
+        "source_id": getattr(source, "instance_id", None), "visit": obj.zone_incarnation,
+    }
+    context.state.temp_play_permission_standing.add(obj.instance_id)
+    context.state.temp_play_permission_same_turn_only.discard(obj.instance_id)
+
+
+def play_clock_expired(state, obj, clock, window="recompute"):
+    from types import SimpleNamespace
+    if obj is None or obj.zone_incarnation != clock["visit"]:
+        return True
+    return is_expired(SimpleNamespace(duration=clock["duration"], duration_data=clock["duration_data"],
+        source=state.find_object(clock.get("source_id")), object_ids=[obj.instance_id]), state, window)
+
+
+def stamp(effect, context, source, duration, condition=None, affected=None):
+    """RULE 611.2: capture the controller, source visit and affected visit once."""
+    from .effects.core import _controller_of
+    controller = _controller_of(source, context)
+    effect.source, effect.duration = source, duration
+    effect.duration_data = {"player_id": controller.id if controller else None,
+                            "turn": context.state.internal_turn.number}
+    effect.object_ids = [affected.instance_id] if affected is not None else []
+    if condition:
+        effect.duration = "for_as_long_as"
+        effect.duration_data["condition"] = dict(condition)
+        if condition.get("kind") == "source_attached_to_affected":
+            effect.duration_data["attachment_generation"] = condition.get("attachment_generation",
+                (context.trigger_event or {}).get("attachment_generation", getattr(source, "attachment_generation", None)))
+        if condition.get("kind") == "captured_player_is_monarch":
+            from .targeting import trigger_player_antecedent
+            effect.duration_data["condition"]["player_id"] = trigger_player_antecedent(context.state, context.trigger_event)
+        def uses_source(cond):
+            if cond.get("kind") in ("all", "any"):
+                return any(uses_source(c) for c in cond.get("conditions", []))
+            return cond.get("kind", "").startswith("source_") and cond.get("of", "source") == "source"
+        if uses_source(condition):
+            effect.duration_data["source_incarnation"] = (context.resolving_source_incarnation
+                if context.resolving_source_incarnation is not None else getattr(source, "zone_incarnation", None))
+    if affected is not None:
+        effect.duration_data["affected_incarnation"] = affected.zone_incarnation
+    return effect
+
+
+def apply_timed_prevention(effect, context, targets):
+    """Keep the existing prevention construction, replacing only its clock."""
+    if effect.duration is None:
+        return False
+    from copy import copy
+    def shields():
+        return [e for p in context.state.players for e in p.player_effects] + [
+            e for o in context.state.battlefield for e in o.replacement_effects]
+    before = {id(e) for e in shields()}
+    plain = copy(effect)
+    plain.duration = None
+    plain.apply(context, targets)
+    for shield in shields():
+        if id(shield) not in before:
+            affected = context.state.find_object(getattr(shield, "duration_subject_id", None))
+            stamp(shield, context, effect.source, effect.duration, effect.duration_condition, affected)
+            shield.damage_prevention_shield = False
+    sweep(context.state, "recompute")
+    return True

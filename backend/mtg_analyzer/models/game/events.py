@@ -40,6 +40,7 @@ class EventType:
     #: ruling for e.g. Kambal-style triggers, and Dionus, Elvish Archdruid's
     #: "whenever this creature becomes tapped").
     TAPPED = "TAPPED"
+    ATTACHED_TO_CREATURE = "ATTACHED_TO_CREATURE"  # RULE 701.3 / 603.2
     #: The mirror image of `TAPPED`: a permanent transitions tapped →
     #: untapped (RULE 701.22), fired once per genuine transition by
     #: `RulesEngine.set_tapped` — every real untap route (the untap step's

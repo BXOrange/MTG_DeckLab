@@ -740,6 +740,7 @@ class GameObject:
         #: attached. Drives the "attached cards grouped around their host"
         #: display; set by the (future) equip/enchant resolution.
         self.attached_to: Optional[int] = None
+        self.attachment_generation = 0  # RULE 611.2b: continuous attachment visit
         #: The host this object was just detached from, stamped by
         #: `GameEngine._pay_activation_cost`'s ``unattach_self`` cost
         #: component (Sunforger/Akiri, Fearless Voyager) the instant before
@@ -1611,6 +1612,7 @@ class GameObject:
         self.dealt_deathtouch_damage = False
         self.prevent_combat_damage_this_combat = False
         self.attached_to = None
+        self.attachment_generation = 0
         self.last_unattached_from_id = None
         self.control_origin = None
         self.control_effects = []

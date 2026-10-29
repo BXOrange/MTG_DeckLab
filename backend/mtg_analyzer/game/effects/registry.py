@@ -568,6 +568,7 @@ EffectRegistry.register(
     # `"prevent_damage_from_target"` just below for the *chosen-source*
     # one-shot family (Circle/Rune of Protection).
     lambda p: PreventDamageEffect(
+        duration=p.get("duration"), condition=p.get("condition"),
         amount=p.get("amount", "all"),
         target_kind=p.get("target_kind"),
         creature_filter=p.get("creature_filter"),
@@ -738,6 +739,7 @@ EffectRegistry.register(
     # Reflection: "the next time **target creature** would deal damage this
     # turn, prevent that damage") — see `PreventDamageFromTargetEffect`.
     lambda p: PreventDamageFromTargetEffect(
+        duration=p.get("duration"), condition=p.get("condition"),
         target_kind=p.get("target_kind", "creature"),
         target=p.get("target"),
         count=p.get("count", 1),
@@ -1358,6 +1360,7 @@ EffectRegistry.register(
     # family instead (RULE 611.2 no-duration control change, PAR-60).
     "gain_control_until_eot",
     lambda p: GainControlUntilEndOfTurnEffect(
+        condition=p.get("condition"),
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
         haste=bool(p.get("haste", True)), max_mana_value=p.get("max_mana_value"),
         exact_mana_value=p.get("exact_mana_value"),
@@ -3580,6 +3583,7 @@ EffectRegistry.register(
     # PAR-163: "Until the end of your next turn, you may play/cast that card." after an exile clause.
     "grant_play_window_previous_exiled",
     lambda p: GrantPlayWindowToPreviousExiledEffect(
+        duration=p.get("duration"), condition=p.get("condition"),
         same_turn_only=bool(p.get("same_turn_only", False)),
         only_spells=bool(p.get("only_spells", False)),
         mana_wildcard=p.get("mana_wildcard"),
@@ -3589,6 +3593,7 @@ EffectRegistry.register(
     # PAR-167: the casting window after an exile clause -- pool, filter, free/normal, window/standing/resolution-local.
     "cast_window_exiled_pool",
     lambda p: CastWindowFromExiledPoolEffect(
+        duration=p.get("duration"), condition=p.get("condition"),
         same_turn_only=bool(p.get("same_turn_only", False)), standing=bool(p.get("standing", False)),
         only_spells=bool(p.get("only_spells", False)), mana_wildcard=p.get("mana_wildcard"),
         free=bool(p.get("free", False)), card_filter=p.get("card_filter"),
@@ -5891,3 +5896,5 @@ for _kind, _factory in _PHYSICAL_FLICKER_FACTORIES.items():
 EffectRegistry.register("name_change", lambda p: StaticAbility(
     layer="text", affects=p.get("affects", "self"), params={"name": str(p.get("name", "")), **_selectors(p)},
 ))
+
+from . import duration_copy  # registers the shared clock-bound copy effect

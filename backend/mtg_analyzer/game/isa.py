@@ -525,6 +525,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "unattach": "attach",
     "attacker_creates_attacking_token": "create",
     "become_copy_until_eot": "copy_object",
+    "copy_for_duration": "copy_object",  # PAR-223: shared clock/recipient/template axes
     "become_copy_of_imprinted_until_eot": "copy_object",  # Dermotaxi — the copied object is the Imprint-exiled card
     "become_copy_of_target_until_eot": "copy_object",
     "become_prepared": "set_status",

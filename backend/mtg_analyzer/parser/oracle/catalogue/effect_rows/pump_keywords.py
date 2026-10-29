@@ -1160,7 +1160,7 @@ def _grant_until_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: matched against `game/static_conditions.py`'s vocabulary.
 _LOCKDOWN_CONDITIONS: list[tuple[re.Pattern[str], dict]] = [
     (re.compile(r"~ remains tapped", re.I), {"kind": "source_tapped"}),
-    (re.compile(r"you control ~", re.I), {"kind": "source_on_battlefield"}),
+    (re.compile(r"you control ~", re.I), {"kind": "source_controlled_by_you"}),
     (re.compile(r"~ remains on the battlefield", re.I), {"kind": "source_on_battlefield"}),
 ]
 
