@@ -150,6 +150,12 @@ re-exported from `misc_mixin.py` for existing callers.
   duration, untap and haste parameters. Group selection uses the resolving
   ability controller even after its source changes controller. Untargeted
   land choices distinguish unrestricted pools from lands you control.
+  Source-bound control windows validate the resolving source's exact zone visit
+  before starting (RULE 611.2b), combine control/tapped requirements, and can
+  retain a live target filter (enchanted status or source-relative power).
+  Target-only windows remain independent of the ability source. Each resolved
+  control effect keeps its own timestamp/window even if its recipient already
+  controls the permanent; ending one window exposes the latest surviving effect.
 
 - Loss replacements use `PLAYER_WOULD_LOSE`; `PLAYER_LOST` announces only an
   actual loss. State-owned APNAP loss batches defer game-over checks until all

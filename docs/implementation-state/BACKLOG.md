@@ -43,11 +43,10 @@ axis / cards whose every open sentence has it; an overlapping upper bound). Each
 with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
 claimed cards.
 
-- **PAR-221 · Control change and counter movement.** Open: `for as long as …` steals, `exchange control` over
-  `artifact or creature you control`, `with mana value x` / dynamic power bounds, remaining counter-removal costs-as-effects.
-- **PAR-223 · Condition-bound and next-turn durations.** `for as long as <condition>`, `until your
-  next upkeep / end step`, `during your next turn`, `until the end of your next turn`; `your_next_turn`
-  exists, the others need engine windows (included). 138+105 / 57+40.
+- **PAR-223 · Condition-bound and next-turn durations.** Remaining `for as long as <condition>`
+  windows over linked attachments, monarch/counter status and non-control effects; `until your
+  next upkeep / end step`, `during your next turn`, `until the end of your next turn` across effect
+  families. Reuse existing source-presence/control/tapped and target enchanted/power control windows.
 - **PAR-224 · Small rows for existing effects.** `target player takes an extra turn after this one`
   (only `you take` is claimed; Time Warp), `you skip your next turn`, `activate no more than twice each
   turn`, `put <object> on top / bottom of its owner's library` over the shared object phrase.

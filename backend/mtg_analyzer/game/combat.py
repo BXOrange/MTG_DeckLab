@@ -645,7 +645,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # object's controller (the ability's own source — Kraken, not the
         # blocker being checked — RULE 613.7c "you" always means the source's
         # controller), rather than a fixed int baked in at parse time.
-        "power_lt_count_selector",
+        "power_lt_count_selector", "power_le_count_selector",
         # "**another** Dinosaur you control" (Temple Altisaur's own
         # damage-prevention recipient scoping) — the negated sibling of
         # ``instance_id`` above, excluding one specific object (always the
@@ -1098,6 +1098,8 @@ def matches_object_filter(
             return False
         if relation == "less" and (obj.power or 0) >= (reference.power or 0):
             return False
+    if relation == "less_equal" and (obj.power or 0) > (reference.power or 0):
+        return False
     # "…with toughness less than ~'s toughness" (Thunderkin Awakener) — the toughness sibling of the key above.
     toughness_relation = filt.get("toughness_vs_reference")
     if toughness_relation is not None:
@@ -1125,8 +1127,16 @@ def matches_object_filter(
             return False
         from .continuous import count_selector  # function-scoped: see `_has_subtype` above
 
-        threshold = count_selector(state, reference.controller_id, str(lt_selector))
+        threshold = count_selector(state, reference.controller_id, lt_selector)
         if (obj.power or 0) >= threshold:
+            return False
+    le_selector = filt.get("power_le_count_selector")
+    if le_selector is not None:
+        if state is None or reference is None:
+            return False
+        from .continuous import count_selector
+
+        if (obj.power or 0) > count_selector(state, reference.controller_id, le_selector):
             return False
     # "…each green creature that **entered this turn**." (Oran-Rief, the
     # Vastwood) — RULE 603.6e-adjacent history read: `GameObject.turn_entered`

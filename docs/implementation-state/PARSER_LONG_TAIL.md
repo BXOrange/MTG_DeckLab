@@ -14,9 +14,18 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-29 at PARSER_VERSION 812: **23,931 / 35,051 cards (68.3%)**,
+Measured on 2026-10-29 at PARSER_VERSION 815: **23,972 / 35,051 cards (68.4%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,314 / 32,068 (72.7%)**.
+Commander-legal coverage: **23,355 / 32,068 (72.8%)**.
+PAR-221 composes counter movement/removal with shared targets, exact-X mana-value
+bounds and source/count-relative power bounds. Source-controlled/tapped windows
+and continuing target enchanted/power conditions end independently; already-ended
+source visits never begin a control effect. Against v813, the full pool gains
+**21 parser-modeled names / 18 covered names, zero lost**. Eight existing-spec
+changes replace artifact-or-creature operand wrappers with direct target effects,
+retaining scope and improving blink/paid-reflexive binding. The v815 Commander
+scan records **8,593 open cards / 12,601 fragments**. Broader duration conditions
+and time windows remain tracked by PAR-223.
 MEC-135 adds exact-card graveyard/library play windows; the v811→812 pool
 comparison adds Ark of Hunger and Tablet of Discovery with zero coverage losses.
 PAR-220 supplies linked-exile operands for counts, card selection/returns and

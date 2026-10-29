@@ -196,18 +196,8 @@ class StateBasedActionsMixin:
         reverted = False
         for obj in list(self.state.battlefield):
             def expired(window):
-                source = self.state.find_object(window["source_id"])
-                alive = (
-                    source is not None and source.zone == Zone.BATTLEFIELD
-                    and source.zone_incarnation == window["incarnation"]
-                    and (not window["needs_control"] or source.controller_id == window["player_id"])
-                    and (not window.get("needs_tapped") or source.tapped)
-                    and not self.state.player_by_id(window["player_id"]).has_lost
-                )
-                if window.get("needs_haunted"):
-                    from ..effects.haunted import is_haunted
-                    alive = alive and is_haunted(self.state, obj)
-                return not alive
+                from ..control import control_window_active
+                return not control_window_active(self.state, obj, window)
 
             window = obj.control_change_while_source
             ended = end_control_effects(obj, lambda record: record["duration"] == "while_source"

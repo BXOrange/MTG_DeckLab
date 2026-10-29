@@ -1370,6 +1370,7 @@ EffectRegistry.register(
         player_from_trigger_event=p.get("player_from_trigger_event"),
         count=p.get("target_count", 1), count_max=p.get("target_count_max"),  # PAR-150: "up to 3 target creatures"
         optional=bool(p.get("optional", False)), while_source=p.get("while_source"),
+        while_target_filter=p.get("while_target_filter"),
         group=p.get('group'), group_player=p.get('group_player'),
     ),
 )

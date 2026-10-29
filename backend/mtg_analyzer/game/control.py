@@ -59,3 +59,24 @@ def exchange_control(state, first, second):
     gain_control(state, first, second_controller)
     gain_control(state, second, first_controller)
     return True
+
+
+def control_window_active(state, obj, window):
+    """RULE 611.2b / 400.7: source visit and target condition must still hold."""
+    from ..models.game.game_object import Zone
+    source = state.find_object(window["source_id"])
+    if (source is None or source.zone != Zone.BATTLEFIELD
+            or source.zone_incarnation != window["incarnation"]
+            or (window["needs_control"] and source.controller_id != window["player_id"])
+            or (window.get("needs_tapped") and not source.tapped)
+            or state.player_by_id(window["player_id"]).has_lost):
+        return False
+    if window.get("needs_haunted"):
+        from .effects.haunted import is_haunted
+        if not is_haunted(state, obj):
+            return False
+    if window.get("target_filter"):
+        from .combat import matches_object_filter
+        if not matches_object_filter(obj, window["target_filter"], reference=source, state=state):
+            return False
+    return True

@@ -31,6 +31,7 @@ from ..subgrammars import (
     resolve_target_kind,
     TARGET,
     target_is_optional,
+    target_quality_filter,
     target_kind_allowed,
 )
 from ...normalize import SELF
@@ -186,6 +187,8 @@ def _exchange_control_two_explicit(m: re.Match[str]) -> Optional[list[EffectSpec
     return [EffectSpec("exchange_control", {
         "first_target_kind": first, "target_kind": second,
         **_exchange_xtarget_params(m),
+        **({"second_creature_filter": target_quality_filter(m.group("target_b"))}
+           if target_quality_filter(m.group("target_b")) else {}),
     })]
 
 

@@ -4475,3 +4475,17 @@ whose antecedent is not represented remain unclaimed.
 `remove <qty|all> <kind> counters from target <object>`, and `gain control of any number of / up to N target
 creatures until end of turn` with its untap/haste tail. `MoveCountersEffect` gained `kind`, `source_is_self` and
 `dest_is_self`. Up-to-one move ends and symmetric `+2/+2` counters stay unclaimed.
+
+## Version 814 — PAR-221: remaining control targets, bounds and durations
+
+The shared controller scope accepts artifact-or-creature targets you control.
+Permanent steals distinguish exact mana value (including announced X) from ceilings;
+shared target qualities compare power against controlled-creature/Island counts or source power.
+Control windows combine source control and tapped state, or follow the target's enchanted status
+and a continuing source-power bound. Already-ended windows never begin (RULE 611.2b), and later
+control effects survive earlier windows ending. Exchange-control retains the second target's qualities.
+
+## Version 815 — PAR-221: compose dynamic bounds with shared counts
+
+Dynamic power comparisons reuse `parse_count_phrase` structured selectors for controlled
+object nouns, including creature and land subtypes. Unknown count nouns remain unclaimed.

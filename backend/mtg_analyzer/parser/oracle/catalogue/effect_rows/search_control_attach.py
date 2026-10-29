@@ -910,7 +910,7 @@ def _untap_and_gain_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _GAIN_CONTROL_PERMANENT_RE = compile_clause(
     rf"gain control of (?P<another>another )?{TARGET}"
     # PAR-215: "x" is the announced {X} (`targeting` resolves the sentinel at offer time, RULE 107.3).
-    r"(?: with mana value (?P<mv>\d+|x) or less)?"
+    r"(?: with mana value (?P<mv>\d+|x)(?P<mv_max> or less)?)?"
     r"(?P<untap>\.\s*untap (?:it|that (?:creature|permanent|artifact|land)))?"
 )
 #: What a permanent steal may take — permanents only (a spell is
@@ -930,7 +930,7 @@ def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "duration": "permanent", "haste": False, "untap": bool(m.group("untap")),
     }
     if m.group("mv"):
-        params["max_mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
+        params["max_mana_value" if m.group("mv_max") else "exact_mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
     quality = target_quality_filter(m.group("target"))  # PAR-160: "with power N or less" (TARGET's quality slot)
     if quality:
         params["creature_filter"] = quality
@@ -942,8 +942,11 @@ def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: The no-duration steal plus a source-bound end (`GainControlUntilEndOfTurnEffect.while_source`).
 _GAIN_CONTROL_WHILE_SOURCE_RE = compile_clause(
     rf"(?P<per_opp>for each opponent, )?gain control of {TARGET}(?P<lesser> with lesser power)?"
-    r" for as long as (?:(?P<ctl>you control (?:~|this (?:creature|saga|artifact|permanent|enchantment)))"
-    r"|(?:~|this (?:creature|saga|artifact|permanent|enchantment)) remains on the battlefield)"
+    r" for as long as (?:(?P<ctl>you control (?:~|this (?:creature|saga|artifact|permanent|enchantment|vehicle)))"
+    r"(?P<and_tapped> and (?:~|this (?:creature|artifact|permanent)) remains tapped)?"
+    r"|(?:~|this (?:creature|saga|artifact|permanent|enchantment|aura|vehicle)) remains (?P<remains>on the battlefield|tapped)"
+    r"(?P<power_window> and that creature's power remains less than or equal to ~'s power)?"
+    r"|(?P<enchanted>that creature is enchanted))"
 )
 
 
@@ -953,8 +956,14 @@ def _gain_control_while_source(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params: dict = {
         "target_kind": kind, **optional_param(m), "duration": "permanent", "haste": False, "untap": False,
-        "while_source": "controlled" if m.group("ctl") else "on_battlefield",
+        "while_source": ("controlled_tapped" if m.group("and_tapped") else "controlled")
+        if m.group("ctl") else ("tapped" if m.group("remains") == "tapped" else "on_battlefield"),
     }
+    if m.group("enchanted"):
+        params.pop("while_source")
+        params["while_target_filter"] = {"enchanted": True}
+    if m.group("power_window"):
+        params["while_target_filter"] = {"power_vs_reference": "less_equal"}
     quality = target_quality_filter(m.group("target"))
     if "legendary" in m.group("target").lower() and not quality:
         return None  # the scoped "that player controls" kind drops the legendary qualifier: fail closed

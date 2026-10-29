@@ -1409,9 +1409,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
     the next cleanup (`GameEngine._step_cleanup`, `GameObject.control_
     change_until_eot` remembers the original controller) — the haste grant
     is a `temp_keywords` entry, cleared at that same cleanup, matching
-    "until end of turn" exactly. RULE 302.6's own "summoning sickness
-    resets under a new controller" isn't separately modeled, since the
-    haste grant makes the distinction unobservable either way. Doesn't move
+    "until end of turn" exactly. `gain_control` resets summoning sickness
+    when the controller changes (RULE 302.6); the optional haste grant
+    permits immediate attacks and tap abilities. Doesn't move
     the object zones at all (unlike `blink`), so counters/attachments/
     damage marked all carry over exactly as the permanent itself would
     expect.
@@ -1437,6 +1437,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         count_max: Optional[int] = None,
         optional: bool = False,
         while_source: Optional[str] = None,
+        while_target_filter: Optional[dict] = None,
         group: Optional[dict] = None,
         group_player: Optional[str] = None,
     ) -> None:
@@ -1449,7 +1450,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         #: stops qualifying (`RulesEngine._revert_source_bound_control`). Meaningful with ``duration="permanent"``.
         #: ``"tapped"`` is "...for as long as ~ remains tapped" (Preacher): the source must be tapped, which it is
         #: whenever the ability's {T} cost was paid, and the control change ends the moment it untaps.
-        self.while_source = while_source if while_source in ("controlled", "on_battlefield", "tapped") else None
+        self.while_target_filter = dict(while_target_filter or {})
+        self.while_source = while_source if while_source in ("controlled", "on_battlefield", "tapped", "controlled_tapped") else None
         #: PAR-150: RULE 115.1a "gain control of up to 3 target creatures" (Jace, Ingenious Mind-Mage) -- the
         #: `TargetSpec` count/range/optional triple every multi-target effect carries.
         self.count, self.count_max, self.optional = count, count_max, optional
@@ -1519,39 +1521,43 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         return "harmful"
 
     def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
-        if target.controller_id != controller.id:
-            if self.duration == "permanent":
-                # RULE 611.2 no-duration continuous effect — cleanup must not
-                # revert it, so don't stamp ``control_change_until_eot``.
-                if self.while_source == "tapped" and (self.source is None or not self.source.tapped):
-                    # Untapped before the ability resolved: "remains tapped" already failed, so nothing happens.
+        if self.duration == "permanent":
+            window = None
+            if self.while_source or self.while_target_filter:
+                from ..control import control_window_active
+                anchor = self.source if self.while_source else target
+                if anchor is None:
                     return
-                if self.while_source and self.source is not None:
-                    target.control_change_while_source = {
-                        "revert_to": (target.control_change_while_source or {}).get("revert_to", target.controller_id),
-                        "player_id": controller.id, "source_id": self.source.instance_id,
-                        "incarnation": self.source.zone_incarnation,
-                        "needs_control": self.while_source == "controlled",
-                        "needs_tapped": self.while_source == "tapped",
-                    }
-                gain_control(context.state, target, controller.id,
-                             duration="while_source" if self.while_source else "permanent",
-                             window=target.control_change_while_source if self.while_source else None)
-                target.summoning_sick = True  # RULE 302.6 under a new controller
-            elif self.duration == "end_of_your_next_turn":
-                # RULE 611.2: lasts through the cleanup of the taker's next turn (`durations.py`'s shared clock).
-                window = target.control_change_until_owner_turn
-                target.control_change_until_owner_turn = {
-                    "revert_to": window["revert_to"] if window else target.controller_id,
-                    "player_id": controller.id,
-                    "turn": context.state.internal_turn.number,
+                window = {
+                    "revert_to": target.controller_id,
+                    "player_id": controller.id, "source_id": anchor.instance_id,
+                    "incarnation": (context.resolving_source_incarnation
+                                    if self.while_source and context.resolving_source_incarnation is not None
+                                    else anchor.zone_incarnation),
+                    "needs_control": self.while_source in ("controlled", "controlled_tapped"),
+                    "needs_tapped": self.while_source in ("tapped", "controlled_tapped"),
+                    "target_filter": self.while_target_filter,
                 }
-                gain_control(context.state, target, controller.id, duration=self.duration,
-                             window=target.control_change_until_owner_turn)
-            else:
-                if target.control_change_until_eot is None:
-                    target.control_change_until_eot = target.controller_id
-                gain_control(context.state, target, controller.id, duration="end_of_turn")
+                # RULE 611.2b: an already-ended duration must never begin.
+                if not control_window_active(context.state, target, window):
+                    return
+                target.control_change_while_source = window
+            # RULE 613.7: record the new effect even if we already control the target;
+            # an older effect ending must not erase this later control change.
+            gain_control(context.state, target, controller.id,
+                         duration="while_source" if window else "permanent", window=window)
+        elif self.duration == "end_of_your_next_turn":
+            window = target.control_change_until_owner_turn
+            target.control_change_until_owner_turn = {
+                "revert_to": window["revert_to"] if window else target.controller_id,
+                "player_id": controller.id, "turn": context.state.internal_turn.number,
+            }
+            gain_control(context.state, target, controller.id, duration=self.duration,
+                         window=target.control_change_until_owner_turn)
+        else:
+            if target.control_change_until_eot is None:
+                target.control_change_until_eot = target.controller_id
+            gain_control(context.state, target, controller.id, duration="end_of_turn")
         if self.untap:
             context.set_tapped(target, tapped=False)
         if self.haste:

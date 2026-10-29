@@ -192,7 +192,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Spear of Heliod | `<cost>, <cost>: destroy target creature that dealt damage to you this turn.` |  |
 | Spinerock Tyrant | `whenever you cast an instant or sorcery spell with a single target, you may copy it. if you do, those spells gain wither. you may choose new targets for the copy.` |  |
 | Synchronized Charge | `distribute <n> +<n>/+<n> counters among <n> or <n> target creatures you control. creatures you control with counters on them gain vigilance and trample until end of turn.` |  |
-| Teleportation Circle | `at the beginning of your end step, exile up to <n> target artifact or creature you control, then return that card to the battlefield under its owner's control.` |  |
 | The Eternal Wanderer | Compound gap — `+<n>: exile up to <n> target artifact or creature. return that card to the battlefield under its owner's control at the beginning of that player's next end step.`; `no more than <n> creature can attack <name> each combat.`; `−<n>: for each player, choose a creature that player controls. each player sacrifices all creatures they control not chosen this way.` |  |
 | The Raven Man | `at the beginning of each end step, if a player discarded a card this turn, create a <n>/<n> black bird creature token with flying and <name>` |  |
 | Thousand Moons Smithy // Barracks of the Thousand | `at the beginning of your first main phase, you may tap <n> untapped artifacts and/or creatures you control. if you do, transform <name>.` |  |

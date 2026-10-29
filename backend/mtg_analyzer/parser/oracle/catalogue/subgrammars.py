@@ -493,7 +493,8 @@ _ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
 #: announce by `targeting`, and again at resolution, RULE 608.2b). "Power or toughness N" is a disjunction
 #: (a different shape) and is deliberately outside it.
 #: Ungrouped here (the tail is embedded in handler regexes that may carry two `TARGET`s); `_STAT_BOUND_RE` reads it.
-_STAT_BOUND_TAIL = r" with (?:power|toughness) \d+ or (?:less|greater)"
+_DYNAMIC_POWER_TAIL = r" with power less than(?: or equal to)? (?:the number of [a-z]+ you control|~'s power)"
+_STAT_BOUND_TAIL = rf"(?: with (?:power|toughness) \d+ or (?:less|greater)|{_DYNAMIC_POWER_TAIL})"
 _STAT_BOUND_RE = re.compile(r" with (?P<stat>power|toughness) (?P<stat_n>\d+) or (?P<stat_cmp>less|greater)", re.IGNORECASE)
 TARGET_QUALITY_TAIL = (
     r"(?: (?:without|that doesn't have|that has no) "
@@ -746,6 +747,7 @@ YOU_TARGET_KINDS: dict[str, str] = {
     "token": "token_you_control",
     "other_land": "other_land_you_control",
     "artifact": "artifact_you_control",
+    "artifact_or_creature": "artifact_or_creature_you_control",
     "enchantment": "enchantment_you_control",
     "artifact_or_enchantment": "artifact_or_enchantment_you_control",
     "creature_or_planeswalker": "targetable_creature_or_planeswalker_you_control",
@@ -860,7 +862,14 @@ def target_quality_filter(phrase: str) -> dict:
         head = _QUALITY_OBJECT_RE.match(quality.group(0))
         isnt = _ISNT_A_RE.match(quality.group(0))
         stat = _STAT_BOUND_RE.fullmatch(quality.group(0))
-        if stat is not None:
+        if re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE):
+            inclusive = " or equal to " in quality.group(0)
+            if quality.group(0).endswith("~'s power"):
+                fragment["power_vs_reference"] = "less_equal" if inclusive else "less"
+            else:
+                selector = parse_count_phrase(quality.group(0).split("the number of ", 1)[1])
+                fragment["power_le_count_selector" if inclusive else "power_lt_count_selector"] = selector
+        elif stat is not None:
             bound = "min" if stat.group("stat_cmp").lower() == "greater" else "max"
             fragment[f"{bound}_{stat.group('stat').lower()}"] = int(stat.group("stat_n"))
         elif head:
@@ -887,6 +896,10 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         if _TARGET_QUALITY_RE.search(rest) is not None or _ATTACKING_YOU_RE.search(rest) is not None:
             return None  # one slot of each per target phrase
         base = resolve_target_kind(rest)
+        if (quality is not None and re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE)
+                and "the number of " in quality.group(0)
+                and parse_count_phrase(quality.group(0).split("the number of ", 1)[1]) is None):
+            return None
         isnt = _ISNT_A_RE.match(quality.group(0)) if quality is not None else None
         if isnt is not None:
             # PAR-135: an unknown word would drop the filter; "any target" is the one extra pool it may narrow.
