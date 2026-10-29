@@ -1,5 +1,24 @@
 // DE catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.chat.categories': 'Emoji-Kategorien',
+  'bd.chat.sendEmoji': '{emoji} senden',
+  'bd.chat.category.faces': 'Gesichter',
+  'bd.chat.category.gestures': 'Gesten & Personen',
+  'bd.chat.category.nature': 'Tiere & Natur',
+  'bd.chat.category.food': 'Essen & Trinken',
+  'bd.chat.category.objects': 'Spiele & Objekte',
+  'bd.chat.category.symbols': 'Symbole & Flaggen',
+
+  'bd.chat.custom': 'Freies Emoji wählen',
+
+  'settings.board.layout': 'Spielfeld-Layout',
+  'bd.statics.close': 'Statische Effekte schließen',
+  'bd.zone.emptyCommand': 'Leere Commandzone',
+  'bd.layout.battlefield': 'Mehr Battlefield',
+  'bd.layout.banner': 'Banner',
+  'bd.layout.next': 'Zum nächsten der vier Anzeige-Modi wechseln',
+  'bd.layout.label': '{layout} · Zonen: {zones}',
+
   'bd.menu.noActions': 'Keine Spielaktionen verfügbar',
   'bd.menu.unavailable': 'Momentan nicht verfügbar',
 

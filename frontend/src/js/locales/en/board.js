@@ -1,5 +1,24 @@
 // EN catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.chat.categories': 'Emoji categories',
+  'bd.chat.sendEmoji': 'Send {emoji}',
+  'bd.chat.category.faces': 'Faces',
+  'bd.chat.category.gestures': 'Gestures & people',
+  'bd.chat.category.nature': 'Animals & nature',
+  'bd.chat.category.food': 'Food & drink',
+  'bd.chat.category.objects': 'Games & objects',
+  'bd.chat.category.symbols': 'Symbols & flags',
+
+  'bd.chat.custom': 'Choose any emoji',
+
+  'settings.board.layout': 'Board layout',
+  'bd.statics.close': 'Close static effects',
+  'bd.zone.emptyCommand': 'Empty command zone',
+  'bd.layout.battlefield': 'More battlefield',
+  'bd.layout.banner': 'Banner',
+  'bd.layout.next': 'Switch to the next of four display modes',
+  'bd.layout.label': '{layout} · Zones: {zones}',
+
   'bd.menu.noActions': 'No play actions available',
   'bd.menu.unavailable': 'Currently unavailable',
 

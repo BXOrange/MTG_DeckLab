@@ -6,6 +6,7 @@
 // the choice in a cookie and reloads the page so the whole app is in one
 // language.
 
+import { BOARD_LAYOUT_MODES, getBoardLayout, setBoardLayout } from './boardLayout.js';
 import { getSettings, saveSettings, BOT_SPEED_MS_OPTIONS } from './settings.js';
 import {
   getComboDatabaseStatus,
@@ -30,6 +31,27 @@ const STATUS_LABELS = {
   connected: 'settings.status.connected',
   disconnected: 'settings.status.disconnected',
 };
+
+function boardLayoutOptionsHtml() {
+  const { moreBattlefield, zonesInside } = getBoardLayout();
+  const current = `${moreBattlefield ? 'battlefield' : 'banner'}-${zonesInside ? 'inside' : 'outside'}`;
+  return `<fieldset class="settings-board-layout"><legend>${t('settings.board.layout')}</legend>
+    <div class="settings-layout-options">${BOARD_LAYOUT_MODES.map(mode => {
+      const [layout, zones] = mode.split('-');
+      const label = t('bd.layout.label', { layout: t(`bd.layout.${layout}`), zones: t(zones === 'inside' ? 'bd.zonesSide.podInner' : 'bd.zonesSide.podOuter') });
+      const seats = Array.from({ length: 4 }, (_, i) => {
+        const right = zones === 'inside' ? i % 2 === 0 : i % 2 !== 0;
+        return `<div class="layout-mini-seat${i < 2 ? ' upper' : ''}${layout === 'battlefield' ? ' compact' : ''}">
+          ${layout === 'banner' ? '<span class="layout-mini-banner"></span>' : ''}
+          <div class="layout-mini-play${right ? ' zones-right' : ''}">
+            <div class="layout-mini-zones">${layout === 'battlefield' ? '<span class="layout-mini-banner"></span>' : ''}<span></span></div>
+            <div class="layout-mini-main"><span class="layout-mini-field"></span><span class="layout-mini-hand"></span></div>
+          </div></div>`;
+      }).join('');
+      return `<label class="settings-layout-option"><input type="radio" name="board-layout" value="${mode}" ${mode === current ? 'checked' : ''} />
+        <span>${label}</span><span class="layout-mini-table" aria-hidden="true">${seats}</span></label>`;
+    }).join('')}</div></fieldset>`;
+}
 
 export function renderConnectionSettingsView(container) {
   const audio = getGameAudio();
@@ -86,6 +108,7 @@ export function renderConnectionSettingsView(container) {
 
       <div class="deck-section">
         <h3>${t('settings.board.heading')}</h3>
+        ${boardLayoutOptionsHtml()}
         <label for="settings-bot-speed">${t('bd.botSpeed.label')}</label>
         <select id="settings-bot-speed">
           ${BOT_SPEED_MS_OPTIONS.map((ms) => `<option value="${ms}">${t(ms === 0 ? 'bd.botSpeed.instant' : ms === 900 ? 'bd.botSpeed.normal' : 'bd.botSpeed.slow')}</option>`).join('')}
@@ -145,6 +168,9 @@ export function renderConnectionSettingsView(container) {
   const themeSelect = container.querySelector('#theme-select');
   const showOpponentHand = container.querySelector('#show-opponent-hand');
   const compactView = container.querySelector('#compact-view');
+  container.querySelectorAll('[name="board-layout"]').forEach(input => {
+    input.addEventListener('change', () => { if (input.checked) setBoardLayout(input.value); });
+  });
   const botSpeed = container.querySelector('#settings-bot-speed');
   botSpeed.value = String(getSettings().botSpeedMs);
   botSpeed.addEventListener('change', () => {

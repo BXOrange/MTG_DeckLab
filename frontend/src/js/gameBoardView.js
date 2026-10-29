@@ -16,6 +16,7 @@
 // you switch back to it).
 
 import { getState } from './state.js';
+import { getBoardLayout } from './boardLayout.js';
 import { getGameAudio, gameAudioEvents } from './gameAudio.js';
 import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
@@ -33,7 +34,15 @@ import {
 import { t, tPlural } from './i18n.js';
 import { setHeaderMessage } from './headerMessage.js';
 
-const TABLE_EMOTES = ['👍', '👏', 'GG', '🤔', '⏳']; // Server-approved table reactions.
+const TABLE_EMOTES = ['👍', '👏', 'GG', '🤔', '⏳']; // Quick table reactions.
+const EMOJI_CATEGORIES = [
+  { key: 'faces', icon: '😀', emoji: '😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 🙃 😉 😍 🥰 😘 😎 🤓 🧐 🤔 🤨 😐 😑 🙄 😏 😴 🤯 🥳 😇 😈 😬 😱 😭 😢 😤 😡 🤬 🥺 🫡 🤗 🤫 🤭 🫠 🫢 🫣 🤩 😋 🤤 🤮 🤒 🥶 🥵 💀 👻 👽 🤖 💩'.split(' ') },
+  { key: 'gestures', icon: '👋', emoji: '👋 🤚 ✋ 🖐️ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 💪 🦾 🫶 🫵 ✍️ 👀 🧠 👑 🧙 🧝 🧛 🧟 🧚 🦸 🦹 👩‍💻 👨‍💻 👩‍🚀 👨‍🚀'.split(' ') },
+  { key: 'nature', icon: '🐱', emoji: '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🦋 🐌 🐞 🦂 🕷️ 🐢 🐍 🦎 🐉 🐲 🦖 🦕 🐙 🦑 🦀 🐠 🦈 🐬 🐳 🌵 🌲 🌳 🌴 🌱 🍀 🍄 🌹 🌻 🌞 🌙 ⭐ 🌈 🔥 💧 ❄️ ⚡ 🌪️'.split(' ') },
+  { key: 'food', icon: '🍕', emoji: '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍒 🍑 🥭 🍍 🥝 🥑 🥦 🥕 🌽 🌶️ 🥔 🍞 🥐 🥨 🧀 🍳 🥞 🥓 🍔 🍟 🍕 🌭 🌮 🌯 🍜 🍣 🍙 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍿 ☕ 🍵 🧋 🍺 🍻 🥂 🍷 🧃 🥤'.split(' ') },
+  { key: 'objects', icon: '🎲', emoji: '🎲 🃏 🎴 ♟️ 🎯 🏆 🥇 🎮 🕹️ 🎭 🎨 🎸 🎵 🎶 🎧 🎤 🎬 📷 📱 💻 💡 🔦 🕯️ 📚 📖 📜 ✉️ 📦 🎁 🎈 🎉 🎊 🪄 🔮 🧿 💎 💰 🪙 ⚔️ 🛡️ 🏹 🪓 🔨 🔧 ⚙️ 🧪 ⚗️ 🧬 💣 🧨 🚀 🛸 🏰 🏔️ 🗺️ ⛵ ✈️ 🏎️ ⏳ ⌛ ⏰'.split(' ') },
+  { key: 'symbols', icon: '❤️', emoji: '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 🩷 🩵 🩶 💔 ❤️‍🔥 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💤 ✅ ❌ ❎ ❗ ❓ 🛑 🚸 ⚠️ 🚫 ⛔ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔶 🔷 ✨ ♻️ ♾️ ⚔️ 🏳️ 🏴 🏳️‍🌈 🇩🇪 🇦🇹 🇨🇭 🇺🇸 🇬🇧 🇫🇷 🇪🇸 🇮🇹 🇯🇵 🇨🇦 🇧🇷 🇦🇺'.split(' ') },
+];
 const CHAT_BOTTOM_THRESHOLD_PX = 24; // Keep reading position unless near the newest message.
 
 const PHASE_LABELS = {
@@ -196,22 +205,16 @@ export function createGameBoardView(opts = {}) {
   // promotes lands to their own third row (persisted client-side).
   let threeRows = getCookie('gf_board_rows') === '3';
   let compactView = getCompactView();
-  // Optional, default-hidden "static effects / layer trace" panel (RULE 613).
-  let showStatics = getCookie('gf_show_statics') === '1';
-  // Play-area layout: the static-zone column (command/library/graveyard/
-  // exile) sits on one side, battlefield+hand on the other; toggleable side.
-  let zonesLeft = getCookie('gf_zones_side') === 'left';
-  // The same choice, but for the pod grid (3+ boards, see `podGrid`), where
-  // a fixed "left"/"right" would put one column's zones against the screen
-  // edge and the other's in the middle. There the two columns mirror each
-  // other instead, so the setting is *inside* (both zone columns meet in the
-  // middle) or *outside* (they hug the outer edges and the battlefields face
-  // each other). Outside by default: that's the physical table it models —
-  // your library and graveyard sit at your own edge, the boards meet in the
-  // middle — and it puts the two things you compare next to each other.
-  // Persisted separately from `zonesLeft` because they mean different things
-  // and a player wants both remembered.
-  let zonesInside = getCookie('gf_zones_pod') === 'inside';
+  // Static-effect inspection is a session-local modal, shared by all boards.
+  let showStatics = false;
+  let staticsAside = false;
+  // Four persisted layouts combine full-width/compact banners with mirrored
+  // inner/outer zones. Stacked boards map the same zone choice to left/right.
+  let { zonesInside, moreBattlefield } = getBoardLayout();
+  window.addEventListener('board-layout-changed', () => {
+    ({ zonesInside, moreBattlefield } = getBoardLayout());
+    render();
+  });
   //: Below this the pod grid's two columns are narrower than they are
   //: useful, so it falls back to the stacked layout (and the zone toggle
   //: back to plain left/right — `zonesSideFor`). A *viewport* query rather
@@ -256,21 +259,13 @@ export function createGameBoardView(opts = {}) {
   const attackMenuOpen = new Set();
   let attackDraft = new Map();
   let attackDraftKey = null;
-  // Opponents whose board is folded away to just its header. Only offered at
-  // a table of 3+ (`services/lobby.py` opens up to four seats): three full
-  // opponent boards stacked above your own is a lot of scrolling, and most
-  // of the time only one of them is the one you're thinking about. Purely a
-  // client-side view state — nothing about the game changes, and an
-  // opponent's hidden zones were never on the wire to begin with (RULE
-  // 400.2). Starts empty, so nothing is hidden unless asked for.
-  const collapsedBoards = new Set();
   // Friedhof / Exil zone bodies the player has expanded. Both zones are
   // collapsed to just their header by default so a full graveyard (60+
   // entries) can't stretch the fixed-width side column and push the rest of
   // the board around — clicking the header toggles the list open, and the
   // open list is height-capped and scrolls inside itself. Keyed
   // `${playerId}:graveyard` / `${playerId}:exile`; purely a client-side
-  // view state, same shape as `collapsedBoards`.
+  // view state.
   const expandedZones = new Set();
   // Double-faced permanents a player has clicked "🔄" on to *preview* the
   // other face — purely a client-side view toggle (RULE 712 has no such
@@ -923,6 +918,8 @@ export function createGameBoardView(opts = {}) {
 
   let chatSending = false;
   let chatError = '';
+  let customEmojiOpen = false;
+  let emojiCategory = EMOJI_CATEGORIES[0].key;
 
   function chatPanelHtml() {
     const messages = (view.table_messages || []).map((message) => {
@@ -945,13 +942,25 @@ export function createGameBoardView(opts = {}) {
       <ol class="gf-chat-messages" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
         ${messages || `<li class="hint">${escapeHtml(t('bd.chat.empty'))}</li>`}
       </ol>
-      ${view.observer ? '' : `<div class="gf-chat-emotes">${TABLE_EMOTES.map((text, index) => `<button type="button" data-chat-emote="${escapeAttr(text)}" title="${escapeAttr(t(`bd.chat.emote${index}`))}" aria-label="${escapeAttr(t(`bd.chat.emote${index}`))}" ${chatSending ? 'disabled' : ''}>${escapeHtml(text)}</button>`).join('')}</div>`}
+      ${view.observer ? '' : `<div class="gf-chat-emotes">${TABLE_EMOTES.map((text, index) => `<button type="button" data-chat-emote="${escapeAttr(text)}" title="${escapeAttr(t(`bd.chat.emote${index}`))}" aria-label="${escapeAttr(t(`bd.chat.emote${index}`))}" ${chatSending ? 'disabled' : ''}>${escapeHtml(text)}</button>`).join('')}<button type="button" data-chat-custom aria-expanded="${customEmojiOpen}" title="${escapeAttr(t('bd.chat.custom'))}" aria-label="${escapeAttr(t('bd.chat.custom'))}">☺️＋</button></div>
+      ${customEmojiOpen ? emojiPickerHtml() : ''}`}
       ${chatError ? `<p class="gf-chat-error" role="alert">${escapeHtml(chatError)}</p>` : ''}
     </section>`;
   }
 
+  function emojiPickerHtml() {
+    const selected = EMOJI_CATEGORIES.find(category => category.key === emojiCategory) || EMOJI_CATEGORIES[0];
+    return `<section class="gf-emoji-picker" aria-label="${escapeAttr(t('bd.chat.custom'))}">
+      <div class="gf-emoji-categories" aria-label="${escapeAttr(t('bd.chat.categories'))}">${EMOJI_CATEGORIES.map(category =>
+        `<button type="button" data-emoji-category="${category.key}" aria-pressed="${category.key === selected.key}" title="${escapeAttr(t(`bd.chat.category.${category.key}`))}" aria-label="${escapeAttr(t(`bd.chat.category.${category.key}`))}">${category.icon}</button>`
+      ).join('')}</div>
+      <h5>${escapeHtml(t(`bd.chat.category.${selected.key}`))}</h5>
+      <div class="gf-emoji-grid">${selected.emoji.map(emoji => `<button type="button" data-chat-emote="${escapeAttr(emoji)}" aria-label="${escapeAttr(t('bd.chat.sendEmoji', { emoji }))}" ${chatSending ? 'disabled' : ''}>${emoji}</button>`).join('')}</div>
+    </section>`;
+  }
+
   async function sendChat(emote) {
-    if (!sessionId || chatSending || !TABLE_EMOTES.includes(emote)) return;
+    if (!sessionId || chatSending || typeof emote !== 'string' || !emote.trim()) return;
     chatSending = true;
     chatError = '';
     render();
@@ -960,6 +969,7 @@ export function createGameBoardView(opts = {}) {
       const res = transport.sendAction ? await transport.sendAction(action)
         : await sendGameAction(sessionId, action);
       if (res.ok) {
+        customEmojiOpen = false;
         if (res.data) applyView(res.data);
       } else {
         chatError = t('bd.chat.failed');
@@ -974,8 +984,12 @@ export function createGameBoardView(opts = {}) {
   function start(sid, initialView) {
     const isNewSession = sid !== sessionId;
     if (isNewSession) {
+      showStatics = false;
+      staticsAside = false;
       zoneOrder.clear();
       chatError = '';
+      customEmojiOpen = false;
+      emojiCategory = EMOJI_CATEGORIES[0].key;
       waitingChoiceAside = false;
     }
     sessionId = sid;
@@ -1378,6 +1392,7 @@ export function createGameBoardView(opts = {}) {
             <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.internal_turn.number }))}">${escapeHtml(t('bd.turn.label', { n: s.turn_nr }))}</span>
             <span class="gf-step">${escapeHtml(labelPhase(s.current_phase))} · ${escapeHtml(labelStep(s.current_step))}</span>
             ${s.day_night ? `<span class="gf-daynight gf-daynight-${s.day_night}">${s.day_night === 'night' ? '🌙 Nacht' : '☀️ Tag'}</span>` : ''}
+          ${interactivePriority() && view.perspective && !gameOver ? `<div class="gf-rail-priority-actions">${yieldButtonsHtml(busy || !!pending)}${passButtonHtml(busy || !!pending || !hasPriority())}</div>` : ''}
           </div>
 
           ${railTimerHtml()}
@@ -1403,6 +1418,7 @@ export function createGameBoardView(opts = {}) {
           ${waitingOnChoiceHtml(s)}
           ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
           ${castTargeting ? castTargetModalHtml() : ''}
+          ${showStatics ? staticEffectsModalHtml(s) : ''}
 
           ${attackerPanelHtml(actions, s)}
           ${blockerPanelHtml(actions, s)}
@@ -1511,7 +1527,7 @@ export function createGameBoardView(opts = {}) {
   /**
    * Which side one board's zone column sits on, as a `gf-zones-*` suffix.
    *
-   * Stacked: the plain left/right toggle, same for every board. Pod grid:
+   * Stacked: inside/outside maps to left/right for every board. Pod grid:
    * mirrored per column so "innen"/"außen" means the same thing on both
    * sides of the grid — see `zonesInside`.
    *
@@ -1522,22 +1538,14 @@ export function createGameBoardView(opts = {}) {
    *   clockwise slot.
    */
   function zonesSideFor(index, total) {
-    if (!podGrid()) return zonesLeft ? 'left' : 'right';
+    if (!podGrid()) return zonesInside ? 'left' : 'right';
     const spansTheRow = total % 2 === 1 && index === total - 1;
     const leftColumn = spansTheRow || POD_COLUMNS[index] === 'left';
     return zonesInside === leftColumn ? 'right' : 'left';
   }
 
-  // One control, three toolbars (observer / priority / plain), so it's a
-  // helper rather than three copies. In the pod grid the label reads out the
-  // current state ("Zonen: innen") because there are only two of them and
-  // which one you're in isn't otherwise obvious at a glance; the tooltip
-  // says what the click does. Stacked, the side is plain to see, so the
-  // label stays the action it always was.
-  function zonesSideButtonHtml() {
-    return podGrid()
-      ? `<button id="gf-zones-side" type="button" title="${escapeAttr(t('bd.zonesSide.podTitle', { where: zonesInside ? t('bd.zonesSide.podOutside') : t('bd.zonesSide.podInside') }))}">${escapeHtml(t('bd.zonesSide.podLabel', { state: zonesInside ? t('bd.zonesSide.podInner') : t('bd.zonesSide.podOuter') }))}</button>`
-      : `<button id="gf-zones-side" type="button" title="${escapeAttr(t('bd.zonesSide.plainTitle'))}">${t('bd.zonesSide.plainLabel')}</button>`;
+  function staticEffectsButtonHtml() {
+    return `<button type="button" data-statics-open aria-haspopup="dialog" aria-expanded="${showStatics}">🔍 ${escapeHtml(t('bd.bf.statics'))}</button>`;
   }
 
   function controlsHtml(stackNonEmpty, pending, gameOver) {
@@ -1553,7 +1561,7 @@ export function createGameBoardView(opts = {}) {
     if (view.observer) {
       return `
         <div class="gf-controls gf-rail-controls">
-          ${zonesSideButtonHtml()}
+          ${staticEffectsButtonHtml()}
           ${extra}
         </div>`;
     }
@@ -1573,7 +1581,7 @@ export function createGameBoardView(opts = {}) {
         ${allowFastForward ? `<button id="gf-next-decision" type="button" title="${escapeAttr(t('bd.ctrl.nextDecisionTitle2'))}" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.nextDecision')}</button>` : ''}
         ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>${t('bd.ctrl.passResolveStack')}</button>` : ''}
         ${allowRewind ? `<button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>${t('bd.ctrl.rewind')}</button>` : ''}
-        ${zonesSideButtonHtml()}
+        ${staticEffectsButtonHtml()}
         ${extra}
       </div>`;
   }
@@ -1608,21 +1616,16 @@ export function createGameBoardView(opts = {}) {
   // when every player passes in succession on an empty stack (RULE 117.4),
   // so there is deliberately no "advance the turn" button to press.
   function priorityControlsHtml(pending, gameOver, extra) {
-    // "Passen" / "Nächste Aktion" are deliberately *not* here — they live on
-    // this client's own board banner (`playerBoardHtml`'s `priorityBits`),
-    // next to the cards you're actually looking at. The rail keeps only the
-    // layout/table controls.
+    // Priority actions sit directly below the phase display; this section
+    // retains layout and table controls.
     return `
       <div class="gf-controls gf-rail-controls gf-priority-controls">
-        ${zonesSideButtonHtml()}
+        ${staticEffectsButtonHtml()}
         ${extra}
       </div>`;
   }
 
-  // "Passen" lives only on the priority holder's own board banner
-  // (`playerBoardHtml`) now — right next to the cards, not off in the rail.
-  // Still a data attribute rather than an id so `wire()` can bind however
-  // many the page ends up with.
+  // Shared pass action, rendered below the phase display in the left rail.
   function passButtonHtml(disabled, extraClass = '') {
     // With an empty stack, say where passing leads ("To combat →") rather
     // than a bare "Pass"; with something on it, passing resolves it.
@@ -1865,7 +1868,6 @@ export function createGameBoardView(opts = {}) {
     // Keep status separate from the fixed action slots on the left.
     const holdsPriority = interactivePriority() && !s.pending_choice && !s.waiting_on_choice
       && view.priority?.player_id === p.id;
-    const priorityDisabled = busy || !!pending || !hasPriority();
     // "Zurücknehmen (n)" only for this client's own banner, only when the
     // table configured a take-back budget and this seat has some left, and
     // only when the transport actually offers a take-back (multiplayer).
@@ -1878,24 +1880,13 @@ export function createGameBoardView(opts = {}) {
       : !interactivePriority()
         ? takebackBtn
         : isMe
-          ? `<div class="gf-banner-actions"><span>${yieldButtonsHtml(busy || !!pending, ' gf-banner-yield')}</span>${passButtonHtml(priorityDisabled, ' gf-banner-pass')}</div>${takebackBtn}`
+          ? takebackBtn
           : yieldBadgeHtml(p.id);
-    // Folding an opponent away is only offered at a pod-sized table — with
-    // one opponent there is nothing to scroll past.
-    const opponents = s.players.filter((o) => !o.is_dummy && o.id !== seatId).length;
-    const foldable = seatId != null && !isMe && opponents > 1;
-    const folded = foldable && collapsedBoards.has(p.id);
-    return `
-      <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${folded ? ' gf-board-folded' : ''}" data-player-id="${escapeAttr(p.id)}">
-        <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
+    const upper = total > 1 && (podGrid() ? index < 2 : index < Math.floor(total / 2));
+    const banner = `        <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
           <div class="gf-banner-identity">
-          ${
-            foldable
-              ? `<button type="button" class="gf-board-fold" data-fold-board="${escapeAttr(p.id)}" title="${folded ? escapeAttr(t('bd.fold.expand')) : escapeAttr(t('bd.fold.collapse'))}" aria-expanded="${folded ? 'false' : 'true'}">${folded ? '▸' : '▾'}</button>`
-              : ''
-          }
-          <h3>${escapeHtml(p.name)}${badges}</h3>
-            ${priorityBits ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
+          <h3 title="${escapeAttr(p.name)}">${escapeHtml(p.name)}${badges}</h3>
+            ${priorityBits && !moreBattlefield ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
           </div>
           <div class="gf-banner-center">
             <div class="gf-banner-status">
@@ -1903,19 +1894,24 @@ export function createGameBoardView(opts = {}) {
               <span>${priorityBadgeHtml(holdsPriority, isMe, p.name)}</span>
             </div>
           </div>
+          ${priorityBits && moreBattlefield ? `<div class="gf-banner-priority gf-banner-outer-status">${priorityBits}</div>` : ''}
           <div class="gf-banner-stats">
+            ${moreBattlefield ? '<div class="gf-banner-mana">' : ''}
             ${manaPoolHtml(p.mana_pool)}
             ${manaPotentialHtml(view.mana_potential?.[p.id])}
+            ${moreBattlefield ? '</div>' : ''}
             ${lifeBox(t('bd.zone.life'), p.life)}
-            ${playerCountersHtml(p, s)}
+            ${moreBattlefield ? `<div class="gf-banner-extra">${playerCountersHtml(p, s)}</div>` : playerCountersHtml(p, s)}
           </div>
-        </header>
-        ${folded ? foldedBoardHtml(p, bf) : ''}
-        <div class="gf-play gf-zones-${zonesSideFor(index, total)}"${folded ? ' hidden' : ''}>
+        </header>`;
+    return `
+      <section class="gf-player-board${upper ? ' gf-upper-board' : ''}${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${moreBattlefield ? ' gf-more-battlefield' : ' gf-banner-layout'}" data-player-id="${escapeAttr(p.id)}">
+        ${moreBattlefield ? '' : banner}
+        <div class="gf-play gf-zones-${zonesSideFor(index, total)}">
           <aside class="gf-side">
-            <div class="gf-zone gf-command">
-              <h4>${t('bd.zone.commandZone')}</h4>
-              ${objGrid(p.command, '–', byInstance, pending)}
+            ${moreBattlefield ? banner : ''}
+            <div class="gf-zone gf-command" aria-label="${escapeAttr(t('bd.zone.commandZone'))}">
+              ${p.command.length ? objGrid(p.command, '–', byInstance, pending) : `<div class="card-grid"><div class="gf-card-slot gf-command-placeholder">${faceDownCardHtml(t('bd.zone.emptyCommand'))}</div></div>`}
             </div>
             <div class="gf-zone gf-library">
               <h4>${t('bd.zone.library')}</h4>
@@ -1936,37 +1932,16 @@ export function createGameBoardView(opts = {}) {
                   <input type="checkbox" class="gf-rows-toggle" ${threeRows ? 'checked' : ''} />
                   ${t('bd.bf.landsOwnRow')}
                 </label>
-                <label class="gf-bf-toggle" title="${escapeAttr(t('bd.bf.staticsTitle'))}">
-                  <input type="checkbox" class="gf-statics-toggle" ${showStatics ? 'checked' : ''} />
-                  ${t('bd.bf.statics')}
-                </label>
+
               </div>
               ${battlefieldHtml(s.battlefield, p.id, byInstance, pending)}
             </div>
 
-            ${showStatics ? staticEffectsPanelHtml(view, s) : ''}
 
             ${handAreaHtml(p, s, byInstance, pending, ownHand)}
           </div>
         </div>
       </section>`;
-  }
-
-  // What a folded-away opponent still shows: how much of everything they
-  // have. Enough to know whether they're worth unfolding, and all of it is
-  // public information the board prints anyway (a hidden zone is only ever
-  // a count here, same as when the board is open — RULE 400.2).
-  function foldedBoardHtml(p, bf) {
-    const creatures = bf.filter((o) => o.is_creature).length;
-    const counts = [
-      tPlural('bd.fold.permanents', bf.length),
-      tPlural('bd.fold.creatures', creatures),
-      t('bd.fold.hand', { count: p.hand_count != null ? p.hand_count : p.hand.length }),
-      t('bd.fold.library', { count: p.library_count }),
-      t('bd.fold.graveyard', { count: p.graveyard.length }),
-      t('bd.fold.exile', { count: p.exile.length }),
-    ];
-    return `<p class="gf-board-fold-summary">${counts.map(escapeHtml).join(' · ')}</p>`;
   }
 
   // A hand the server redacted (RULE 400.2 — an opponent's hand never
@@ -2010,11 +1985,11 @@ export function createGameBoardView(opts = {}) {
 
   // One face-down card: the player's own chosen sleeve if they uploaded one
   // (Einstellungen tab, `setAssets`), otherwise a plain patterned back.
-  function faceDownCardHtml() {
+  function faceDownCardHtml(label = t('bd.hand.faceDownAlt')) {
     if (assetsSleeveImageUrl) {
-      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="${escapeAttr(t('bd.hand.faceDownAlt'))}" /></div>`;
+      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="${escapeAttr(label)}" /></div>`;
     }
-    return `<div class="card gf-face-down" title="${escapeAttr(t('bd.hand.faceDownAlt'))}"></div>`;
+    return `<div class="card gf-face-down" title="${escapeAttr(label)}"></div>`;
   }
 
   // The top card of a library is normally face-down (`library_count` is
@@ -2574,13 +2549,32 @@ export function createGameBoardView(opts = {}) {
       });
     });
     wireEffectPopovers();
+    root.querySelector('[data-chat-custom]')?.addEventListener('click', () => {
+      customEmojiOpen = !customEmojiOpen;
+      render();
+      root.querySelector('.gf-emoji-categories button')?.focus();
+    });
+    root.querySelectorAll('[data-emoji-category]').forEach(button => {
+      button.addEventListener('click', () => {
+        emojiCategory = button.dataset.emojiCategory;
+        render();
+        root.querySelector(`[data-emoji-category="${emojiCategory}"]`)?.focus();
+      });
+    });
+    root.querySelector('.gf-emoji-picker')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        customEmojiOpen = false;
+        render();
+        root.querySelector('[data-chat-custom]')?.focus();
+      }
+    });
     root.querySelectorAll('[data-chat-emote]').forEach((button) => {
       button.addEventListener('click', () => sendChat(button.dataset.chatEmote));
     });
     root.querySelector('#gf-advance')?.addEventListener('click', () => act({ type: 'advance_step' }));
     root.querySelector('#gf-next-decision')?.addEventListener('click', () => act({ type: 'advance_to_decision' }));
     root.querySelector('#gf-rewind')?.addEventListener('click', rewind);
-    // Every pass button on the page (toolbar + each own-board banner).
+    // Priority action below the phase display.
     root.querySelectorAll('[data-pass-priority]').forEach((el) => {
       el.addEventListener('click', () => act({ type: 'pass_priority' }));
     });
@@ -2599,15 +2593,6 @@ export function createGameBoardView(opts = {}) {
     // the table configured a budget and this client has some left).
     root.querySelector('[data-banner-takeback]')?.addEventListener('click', () => {
       if (transport.takeBack) transport.takeBack();
-    });
-    // Fold an opponent's board away at a table of 3+ (see `collapsedBoards`).
-    root.querySelectorAll('[data-fold-board]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const id = el.dataset.foldBoard;
-        if (collapsedBoards.has(id)) collapsedBoards.delete(id);
-        else collapsedBoards.add(id);
-        render();
-      });
     });
     // Expand / collapse a Friedhof or Exil zone body (see `expandedZones`).
     root.querySelectorAll('[data-zone-toggle]').forEach((el) => {
@@ -2863,28 +2848,27 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
-    // Static-effects / layer-trace panel toggle (persisted client-side).
-    root.querySelectorAll('.gf-statics-toggle').forEach((el) => {
-      el.addEventListener('change', (e) => {
-        showStatics = e.target.checked;
-        setCookie('gf_show_statics', showStatics ? '1' : '0', 365);
-        render();
-      });
-    });
-
-    // Flip the static-zone column (library/graveyard/…) to the other side —
-    // or, in the pod grid, between the middle and the outer edges. Two
-    // separate persisted settings because the layouts they describe are
-    // different (see `zonesInside`), one button because it's one question.
-    root.querySelector('#gf-zones-side')?.addEventListener('click', () => {
-      if (podGrid()) {
-        zonesInside = !zonesInside;
-        setCookie('gf_zones_pod', zonesInside ? 'inside' : 'outside', 365);
-      } else {
-        zonesLeft = !zonesLeft;
-        setCookie('gf_zones_side', zonesLeft ? 'left' : 'right', 365);
-      }
+    const focusStatics = () => root.querySelector('.gf-statics-modal .gf-modal')?.focus();
+    root.querySelector('[data-statics-open]')?.addEventListener('click', () => {
+      showStatics = true;
+      staticsAside = false;
       render();
+      focusStatics();
+    });
+    const closeStatics = () => {
+      showStatics = false;
+      staticsAside = false;
+      render();
+      root.querySelector('[data-statics-open]')?.focus();
+    };
+    root.querySelector('[data-statics-close]')?.addEventListener('click', closeStatics);
+    root.querySelector('[data-statics-aside]')?.addEventListener('click', () => {
+      staticsAside = !staticsAside;
+      render();
+      focusStatics();
+    });
+    root.querySelector('.gf-statics-modal')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeStatics(); }
     });
 
     // Push a pending-choice popup aside (or bring it back).
@@ -3288,7 +3272,7 @@ export function createGameBoardView(opts = {}) {
           || root.querySelector(`[data-stack-instance-id="${id}"] > .card`);
       } else if (pick.playerId != null) {
         const id = CSS.escape(String(pick.playerId));
-        el = root.querySelector(`.gf-player-board[data-player-id="${id}"] > .gf-player-board-head`)
+        el = root.querySelector(`.gf-player-board[data-player-id="${id}"] .gf-player-board-head`)
           || root.querySelector(`.gf-opponent[data-player-id="${id}"]`);
       }
       if (!el) continue;
@@ -4837,12 +4821,19 @@ export function createGameBoardView(opts = {}) {
   }
 
   function commanderDamageHtml(commanderDamage) {
-    const entries = Object.values(commanderDamage || {});
+    const entries = Object.entries(commanderDamage || {});
     if (!entries.length) return '';
     return entries
-      .map((e) => {
+      .map(([sourceId, e]) => {
+        const state = view?.state;
+        const visible = [...(state?.battlefield || []), ...(state?.players || []).flatMap(p =>
+          [...(p.command || []), ...(p.graveyard || []), ...(p.exile || []), ...(p.hand || [])])];
+        const source = visible.find(o => String(o.instance_id) === sourceId);
+        const owner = state?.players?.find(p => p.id === source?.owner_id);
+        const name = e.name || source?.name || `#${sourceId}`;
+        const identity = owner ? `${name} · ${owner.name}` : `${name} · #${sourceId}`;
         const lethal = e.amount >= 21 ? ' gf-cmd-dmg--lethal' : '';
-        return `<span class="gf-cmd-dmg${lethal}" title="${escapeAttr(t('bd.cmdDmg.title', { name: e.name }))}">👑 ${e.amount}/21</span>`;
+        return `<span class="gf-cmd-dmg${lethal}" data-commander-source="${escapeAttr(sourceId)}" data-hover-card="${escapeAttr(name)}" title="${escapeAttr(t('bd.cmdDmg.title', { name: identity }))}">👑 <span class="gf-cmd-source">${escapeHtml(identity)}</span> ${e.amount}/21</span>`;
       })
       .join('');
   }
@@ -4997,6 +4988,19 @@ export function createGameBoardView(opts = {}) {
       return t('bd.delayed.whenAny', { step: stepLabel });
     }
     return t('bd.delayed.whenPlayer', { name: playerName(dt.controller_id), step: stepLabel });
+  }
+
+  function staticEffectsModalHtml(s) {
+    return `<div class="gf-modal-overlay gf-statics-modal${staticsAside ? ' aside' : ''}">
+      <div class="gf-modal" role="dialog" aria-modal="${!staticsAside}" aria-label="${escapeAttr(t('bd.bf.statics'))}" tabindex="-1">
+        <div class="gf-modal-head">
+          <div><h4>${escapeHtml(t('bd.bf.statics'))}</h4></div>
+          <button type="button" class="gf-modal-aside" data-statics-aside title="${escapeAttr(t('bd.choice.asideTitle'))}">${escapeHtml(t(staticsAside ? 'bd.choice.asideShow' : 'bd.choice.asidePush'))}</button>
+          <button type="button" data-statics-close aria-label="${escapeAttr(t('bd.statics.close'))}">×</button>
+        </div>
+        ${staticEffectsPanelHtml(view, s)}
+      </div>
+    </div>`;
   }
 
   function staticEffectsPanelHtml(view, s) {

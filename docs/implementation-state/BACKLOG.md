@@ -63,6 +63,15 @@ claimed cards.
 
 ## VIS — Visuals
 
+- **VIS-17 · Revealed cards: shared popup and zone visibility.** Show publicly
+  revealed cards to the other players in a side-positioned, dismissible popup.
+  Afterwards, retain the revealed information in the relevant zone: known cards
+  on top of the library as list items below its card count, revealed hand cards
+  face up among the otherwise hidden hand, and analogous displays elsewhere.
+  Extend the existing public reveal feed with perspective-safe shared state;
+  preserve visibility only while the card and its position remain identifiable,
+  clearing stale associations after shuffles or other information-hiding changes.
+
 - **VIS-15 · Deck building tool.** Add a dedicated navigation section for creating and editing
   Commander decks with card search/filtering, commander selection, card quantities, live deck
   metrics, server-authoritative legality feedback and saved drafts/decks for analysis and play;

@@ -1,11 +1,31 @@
 """Session-local table conversation and public action announcements (VIS-4)."""
 
+import unicodedata
+
 from mtg_analyzer.models.game.events import EventType
 
 # Bound memory and view payloads even in long games with many mana activations.
 MAX_TABLE_MESSAGES = 200
-# Fixed emotes only; the table has no free-text messaging.
+# Quick reactions remain available alongside bounded custom emoji sequences.
 TABLE_EMOTES = ("👍", "👏", "GG", "🤔", "⏳")
+MAX_EMOTE_CODEPOINTS = 64  # Room for joined families/flags without unbounded chat payloads.
+
+
+def valid_emote(value):
+    if not isinstance(value, str) or not value or len(value) > MAX_EMOTE_CODEPOINTS:
+        return False
+    if value in TABLE_EMOTES:
+        return True
+    # Symbols plus emoji composition characters: skin tones, variation selectors,
+    # joined families, regional/tag flags and keycaps. No ordinary text messages.
+    keycap = "\u20e3" in value
+    return any(unicodedata.category(c) in ("So", "Sk") or c == "\u20e3" for c in value) and all(
+        unicodedata.category(c) in ("So", "Sk", "Mn") or c in ("\u200d", "\u20e3")
+        or 0xE0020 <= ord(c) <= 0xE007F
+        or (keycap and c in "0123456789#*")
+        for c in value
+    )
+
 
 ANNOUNCED_EVENTS = {
     EventType.LAND_PLAYED: ("play_land", "land"),
@@ -31,7 +51,7 @@ class TableFeed:
         del self.messages[:-MAX_TABLE_MESSAGES]
 
     def emote(self, actor, emote, turn):
-        if not isinstance(emote, str) or emote not in TABLE_EMOTES:
+        if not valid_emote(emote):
             raise ValueError("unknown table emote")
         self.append(kind="emote", actor_id=actor.id, author=actor.name,
                     text=emote, turn=turn)

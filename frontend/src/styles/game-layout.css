@@ -427,3 +427,11 @@
   background: #2a2f52;
   color: #d7dcff;
 }
+
+.gf-emoji-picker { margin-top: .4rem; padding: .4rem; min-width: 0; border: 1px solid var(--border); border-radius: .4rem; background: var(--panel); }
+.gf-emoji-categories { display: flex; gap: .1rem; flex-wrap: wrap; }
+.gf-emoji-categories button { flex: 1; padding: .2rem; min-width: 1.5rem; }
+.gf-emoji-categories button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-alt); }
+.gf-emoji-picker h5 { margin: .4rem 0; }
+.gf-emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(1.8rem, 1fr)); gap: .15rem; max-height: 12rem; overflow-y: auto; }
+.gf-emoji-grid button { padding: .25rem .1rem; font-size: 1.2rem; line-height: 1.4; }

@@ -10,6 +10,67 @@ the code lands here (Ctrl+F/grep the exact phrase). Entries written before
 exists; both were merged into `BACKLOG.md`, and those mentions have been
 repointed there.
 
+## Custom table emoji reactions
+
+- The “☺️＋” chat button opens a click-only emoji palette with six categories:
+  faces, gestures/people, nature, food, games/objects and symbols/flags. Each
+  category offers a scrollable emoji grid; clicking sends directly and closes
+  the palette on success. The five quick reactions remain available.
+- No text input or OS keyboard is involved. Category controls have accessible
+  labels and selected state; Escape closes the palette and restores focus.
+- Unicode sequences use the existing bounded, server-validated emote channel;
+  observers receive reactions but cannot send. Service/API tests cover composed
+  emoji and invalid input. Chromium verifies category selection and click-send.
+
+## Static effects inspection modal
+
+- A button in the rail controls (the former layout-selection position) opens
+  one shared static-effects/layer-trace modal,
+  replacing the battlefield checkbox and repeated inline panels. Existing active
+  effects, per-permanent derivations and cost adjustments remain available.
+- Close with × or Escape; move aside and restore with the existing modal controls.
+  Aside mode permits board interaction. Contents refresh with the game view;
+  opening is session-local and resets for a new game.
+
+## Player board layout and commander damage (VIS-18, VIS-19, VIS-20)
+
+- Upper player boards mirror hand and battlefield row order: hand first,
+  lands/noncreature permanents next, creatures nearest the table center.
+  Upper side columns and banner contents also reverse so player identity faces
+  the table center. Boards stretch to the table row height and upper battlefield
+  columns anchor to the center-facing bottom edge, even with taller side zones.
+  Names center across the full banner independently of fold
+  controls. Two- and three-row configurations preserve upright card art. The upper row
+  follows pod placement at wide viewports and the upper half of stacked boards
+  below the pod breakpoint, independently of the local player's identity.
+- Player banners occupy the library/command side column, allowing the main
+  battlefield/hand area to start at the top of the board. Identity, life, mana
+  and counters wrap within that column; pass and yield buttons sit directly
+  below the phase display in the upper-left rail; changing sides
+  moves the banner together with its zones. The layout control cycles through
+  banner/inner zones, banner/outer zones, more battlefield/inner zones and more
+  battlefield/outer zones. Selection lives in Settings with four small schematic
+  previews; changes persist and update mounted boards immediately. Banner mode restores the
+  full-width player header; more battlefield uses the side-column banner.
+  Empty battlefields retain a 7.5rem minimum height. Command zones omit their
+  visible heading (retaining an accessible label); empty command zones display
+  a sleeve/card-back placeholder matching hidden opponent hand cards.
+  Player info boxes use automatic height in banner mode and a fixed 7.5rem
+  height in battlefield mode. Compact boxes read from table center outward:
+  centered name, life, a shared mana/potential row, then turn/priority side by
+  side, followed outward by yield status (to end step / passing the turn);
+  upper boxes mirror this order. Excess stats scroll, and centered player names remain on one line with ellipsis and
+  their full text in a tooltip. Player-board folding has been removed; pass/yield remain under the phase
+  display in every layout.
+- Each commander-damage entry visibly names its source commander and supports
+  the existing card hover preview. Publicly visible source objects supply the
+  owner's name; otherwise the source instance ID distinguishes entries. Partner
+  sources retain independent values and the existing lethal-damage highlight.
+- Chromium verified four-player upper/lower placement, two/three battlefield rows,
+  four-mode cycle, mirrored zone sides, pod/stacked and narrow layouts, distinct commander
+  sources and lethal damage. Existing menu, damage display and attack-line checks
+  also pass, including the life-total endpoint after moving the banner.
+
 ## Card context menus and combat connections (VIS-16)
 
 - Shared Goldfish, Solo, Multiplayer and Replay board: right-click a card to

@@ -405,3 +405,82 @@
 .gf-proliferate-option { display: flex; align-items: center; gap: .75rem; padding: .65rem; border: 1px solid var(--border, #555); border-radius: .35rem; cursor: pointer; }
 .gf-proliferate-option input { flex: 0 0 auto; }
 .gf-proliferate-option small { overflow-wrap: anywhere; }
+
+/* Compact player identity belongs to the library/command column. */
+.gf-side > .gf-player-board-head { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; margin: 0; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.gf-side .gf-banner-identity { flex-wrap: wrap; }
+.gf-side .gf-banner-identity > h3 { flex: 1 1 auto; width: auto; }
+.gf-side .gf-banner-center { display: block; }
+.gf-side .gf-banner-status { justify-content: flex-start; flex-wrap: wrap; padding: 0; }
+.gf-side .gf-banner-stats { margin: 0; justify-content: flex-start; gap: .5rem; }
+.gf-side .gf-banner-priority { width: 100%; min-width: 0; flex-wrap: wrap; }
+.gf-side .gf-banner-actions { width: 100%; grid-template-columns: minmax(0, 1fr); }
+.gf-side .gf-banner-actions > span { flex-wrap: wrap; }
+.gf-side .gf-banner-actions button { height: auto; min-height: 2rem; white-space: normal; }
+.gf-cmd-source { overflow-wrap: anywhere; }
+.gf-cmd-dmg { white-space: normal; }
+/* Opponents at the top face the center with creatures, keeping art upright. */
+.gf-upper-board .gf-main { flex-direction: column-reverse; }
+.gf-upper-board .gf-bf-rows { flex-direction: column-reverse; }
+@media (max-width: 760px) {
+  .gf-play > .gf-side { width: 100%; min-width: 0; }
+}
+
+.gf-player-board .gf-play[hidden] { display: none; }
+
+.gf-rail-priority-actions { display: flex; flex-direction: column; gap: .4rem; }
+.gf-rail-priority-actions button { width: 100%; min-width: 0; white-space: normal; }
+
+.gf-player-board-head .gf-banner-identity > h3 { text-align: center; }
+
+/* Upper side zones mirror the lower seats, with identity toward table center. */
+.gf-upper-board .gf-side { flex-direction: column-reverse; align-self: stretch; }
+.gf-upper-board .gf-side > .gf-player-board-head { flex-direction: column-reverse; }
+/* Center the name against the entire banner, independently of the fold button. */
+.gf-player-board-head .gf-banner-identity { position: relative; display: flex; flex-direction: column; align-items: stretch; }
+.gf-player-board-head .gf-banner-identity > h3 { flex: none; width: 100%; box-sizing: border-box; padding-inline: 1.8rem; text-align: center; }
+.gf-player-board-head .gf-banner-identity > .gf-board-fold { position: absolute; inset: 0 auto auto 0; }
+
+/* Fill each table row so upper creature rows reach its center-facing edge. */
+.gf-pod-grid { align-items: stretch; }
+.gf-player-board { display: flex; flex-direction: column; }
+.gf-player-board > .gf-play { flex: 1 1 auto; }
+@media (min-width: 761px) {
+  .gf-player-board > .gf-play { align-items: stretch; }
+}
+
+/* Full-width banners face the center, while priority actions stay in the rail. */
+.gf-upper-board.gf-banner-layout > .gf-player-board-head { order: 1; margin: .6rem 0 0; }
+.gf-banner-layout > .gf-player-board-head .gf-banner-identity { min-width: 0; }
+
+/* Reserve a stable info area; surplus counters scroll instead of growing it. */
+.gf-player-board {
+  --gf-info-column-height: 7.5rem; /* Compact info area; surplus stats scroll. */
+}
+.gf-player-board-head { flex-shrink: 0; box-sizing: border-box; }
+.gf-side > .gf-player-board-head { height: var(--gf-info-column-height); min-height: var(--gf-info-column-height); max-height: var(--gf-info-column-height); overflow: auto; }
+.gf-player-board-head .gf-banner-identity { flex-shrink: 0; }
+.gf-player-board-head .gf-banner-identity > h3 { min-width: 0; padding-inline: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gf-side .gf-banner-stats { flex: 1 1 auto; min-height: 0; overflow: auto; align-content: flex-start; }
+.gf-side .gf-banner-center { flex-shrink: 0; }
+
+/* Compact box reads from table center outward: name, life, mana, status. */
+.gf-more-battlefield .gf-side > .gf-player-board-head { gap: .15rem; padding: .35rem .5rem; text-align: center; }
+.gf-more-battlefield .gf-banner-stats { display: contents; }
+.gf-more-battlefield .gf-banner-identity { order: 0; }
+.gf-more-battlefield .gf-life { order: 1; flex-shrink: 0; }
+.gf-more-battlefield .gf-banner-mana { order: 2; display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: .35rem; flex-shrink: 0; }
+.gf-more-battlefield .gf-banner-mana > * { margin: 0; }
+.gf-more-battlefield .gf-banner-center { order: 3; }
+.gf-more-battlefield .gf-banner-status { justify-content: center; flex-wrap: nowrap; gap: .35rem; }
+.gf-more-battlefield .gf-banner-extra { order: 4; min-height: 0; overflow: auto; flex-shrink: 1; }
+.gf-more-battlefield .gf-banner-extra:empty { display: none; }
+
+.gf-more-battlefield .gf-life-label { display: none; }
+
+.gf-more-battlefield .gf-side > .gf-player-board-head { flex-wrap: nowrap; }
+.gf-more-battlefield .gf-life .life-total { font-size: 1.4rem; line-height: 1.1; }
+.gf-more-battlefield .gf-banner-status { min-height: 0; font-size: .7rem; }
+
+.gf-more-battlefield .gf-banner-outer-status { order: 4; justify-content: center; flex-shrink: 0; }
+.gf-more-battlefield .gf-banner-extra { order: 5; }

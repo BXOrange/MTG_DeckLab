@@ -451,3 +451,8 @@
 .gf-connection--block { stroke: #3b82f6; }
 
 .gf-card-menu .gf-card-action:disabled { opacity: .5; cursor: not-allowed; filter: grayscale(1); }
+
+/* Keep an empty battlefield at least as tall as the compact player info. */
+.gf-battlefield { min-height: 7.5rem; box-sizing: border-box; }
+
+.gf-command .card-grid { justify-content: center; }

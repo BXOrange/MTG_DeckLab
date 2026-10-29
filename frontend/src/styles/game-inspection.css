@@ -181,3 +181,7 @@
   color: var(--text-dim);
   font-style: italic;
 }
+
+.gf-statics-modal .gf-statics { margin: 0; }
+.gf-statics-modal:not(.aside) .gf-modal { width: min(48rem, 95vw); max-width: 95vw; }
+.gf-statics-modal .gf-modal-head { position: sticky; top: 0; background: var(--panel); z-index: 1; }
