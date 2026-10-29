@@ -42,5 +42,6 @@ Block template (do not change this, copy below the line, fill in there):
 - **Next step:** <concrete next action>
 - **Decisions:** <choices made and why, so they aren't re-litigated>
 - **Baselines / artefacts:** <snapshot paths, measured numbers, PARSER_VERSION>
-- **Known failures (corrected; final full-cache recheck pending):** none in the default tier.
-- **Residue:** none yet.
+- **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
+- **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
+```

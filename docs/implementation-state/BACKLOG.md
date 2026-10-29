@@ -43,11 +43,6 @@ axis / cards whose every open sentence has it; an overlapping upper bound). Each
 with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
 claimed cards.
 
-- **PAR-224 · Small rows for existing effects.** `target player takes an extra turn after this one`
-  (only `you take` is claimed; Time Warp), `you skip your next turn`, `activate no more than twice each
-  turn`, `put <object> on top / bottom of its owner's library` over the shared object phrase.
-  29+43+256 / 21+22+65.
-
 ## MEC — Game mechanic
 
 
