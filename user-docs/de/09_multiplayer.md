@@ -241,6 +241,20 @@ Manafähigkeiten. Passen erzeugt keine Nachricht. Mit **👍, 👏, GG, 🤔 ode
 Beobachter können mitlesen. Die letzten 200 Einträge bleiben beim
 Wiederverbinden erhalten; ein Neustart der Partie leert den Feed.
 
+### Aufgedeckte Karten
+
+Öffentlich aufgedeckte Karten erscheinen mit Bild im Tischchat und in einem
+seitlichen Popup. Mit **×** oder Escape schließt du es; über das Auge im
+Feed öffnest du den Eintrag erneut. Der Popup-Button wechselt zwischen der
+seitlichen und der großen Anzeige.
+
+Bekannte Bibliothekskarten stehen unter der Kartenanzahl als nummerierte Liste
+(1 ist die oberste Karte). Gelangt eine bekannte Karte auf die Hand, bleibt
+sie für die anderen offen sichtbar; der Rest der Hand bleibt verdeckt. Nach
+Mischen, privatem Umordnen oder nicht mehr nachvollziehbaren Zonenwechseln
+verschwindet diese Zuordnung. Private „Look at“-Effekte sind nur für den
+berechtigten Spieler sichtbar.
+
 ### Priorität
 
 Magic geht nicht Schritt für Schritt weiter, weil jemand auf "weiter"

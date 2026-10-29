@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Optional
 
 from . import turn_history
+from .public_knowledge import PublicCardKnowledge
 from .events import EventType, GameEvent
 from .game_object import GameObject, Zone
 from .player import Player
@@ -622,6 +623,7 @@ class GameState:
         #: clashing player has decided whether to put theirs on the bottom.
         #: Instance ids keep snapshots/rewind independent of live objects.
         self.clash_revealed: list[int] = []
+        self.public_card_knowledge = PublicCardKnowledge()
 
         #: RULE 608.2: effect lists suspended mid-resolution because one of
         #: their effects opened `pending_choice`, innermost last (a LIFO
@@ -1725,6 +1727,13 @@ class GameState:
         else:
             self.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=[card]))
 
+    def reveal_card(self, obj: GameObject, player_id: Optional[str] = None) -> None:
+        """RULE 701.20: publish one actual card, without changing its zone."""
+        self.fire_event(GameEvent(EventType.REVEAL, player_id=player_id or obj.owner_id,
+                                  instance_id=obj.instance_id, object=obj.name, card_id=obj.card.id,
+                                  revealed_card=self.public_card_knowledge.face_snapshot(obj),
+                                  from_zone=obj.zone.value if obj.zone else None))
+
     def fire_event(self, event: GameEvent) -> GameEvent:
         """Record ``event`` and notify subscribers. Returns the event.
 
@@ -1733,6 +1742,7 @@ class GameState:
         ``fire_event`` (the event here is what actually happened), and
         triggered abilities are queued by subscribers.
         """
+        self.public_card_knowledge.observe(self, event)
         if event.type == EventType.LEAVES_BATTLEFIELD:
             departed = self.find_object(event.get("instance_id"))
             if departed is not None:
@@ -1998,7 +2008,9 @@ class GameState:
 
     def to_dict(self) -> dict[str, Any]:
         self.internal_turn.player_id = self.active_player.id
+        known_cards = self.public_card_knowledge.view(self)
         return {
+            "known_cards": known_cards,
             "id": self.id,
             "internal_turn": self.internal_turn.to_dict(),
             "turn_nr": self.turn_nr,

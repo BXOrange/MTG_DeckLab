@@ -645,9 +645,7 @@ class DrawRevealCastOneFreeEffect(GameEffect):
     paying its mana cost." (RULE 121/601.3b combo — Dungeon of the Mad
     Mage's own "Mad Wizard's Lair" room, PAR-13).
 
-    Reveal is purely informational (RULE 701.28 — no hidden-zone state to
-    model, since `services/game_session.py`'s own redaction already keeps
-    a hand private otherwise), so this only draws, then offers
+    Publish each actual draw as a public reveal, then offer
     `RulesEngine._request_choose_objects`'s ``"cast_free"`` action over
     *exactly* the cards this draw put into hand (never the rest of the
     hand) — snapshotting the hand before/after rather than assuming a
@@ -666,6 +664,8 @@ class DrawRevealCastOneFreeEffect(GameEffect):
         before = list(player.hand)
         context.draw(player, self.count)
         drawn = [c for c in player.hand if c not in before]
+        for obj in drawn:
+            context.state.reveal_card(obj, player.id)
         if drawn:
             context.choose_objects(
                 player, drawn, "cast_free", count=1, optional=True, source=self.source,
@@ -2049,8 +2049,8 @@ class RevealHandDiscardAllEffect(GameEffect):
     name. If they can't, you draw a card" (``draw_if_none``). ``player_from_trigger_event`` reads the player a
     combat-damage trigger names ("that player reveals their hand and discards all cards of that color", Crosis).
 
-    Revealing is not modelled as a hidden-information transfer (the same stance as `RevealRandomHandCardIfNamedEffect`):
-    only the discard has an effect on the game."""
+    Public reveal events preserve the shown hand identities separately from
+    the discard, which changes the matching cards' zones."""
 
     def __init__(
         self,
@@ -2076,6 +2076,8 @@ class RevealHandDiscardAllEffect(GameEffect):
             return
         from ...models.cards import card_query
 
+        for obj in owner.hand:
+            context.state.reveal_card(obj, owner.id)
         wanted = [obj for obj in list(owner.hand) if card_query.matches(obj.card, self.card_filter)]
         if self.count != "all":
             wanted = wanted[: int(self.count)]

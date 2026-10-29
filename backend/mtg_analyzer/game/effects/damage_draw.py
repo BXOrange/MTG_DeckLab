@@ -2105,6 +2105,9 @@ class RevealHandChooseDiscardEffect(GameEffect):
         caster = _controller_of(self.source, context)
         if caster is None:
             return
+        if self.reveal:
+            for obj in revealed_player.hand:
+                context.state.reveal_card(obj, revealed_player.id)
         candidates = [obj for obj in revealed_player.hand if self._matches(obj)]
         if self.include_graveyard:
             candidates.extend(revealed_player.graveyard)
@@ -2207,6 +2210,7 @@ class RevealRandomHandCardIfNamedEffect(GameEffect):
         if not player.hand:
             return
         revealed = random.choice(player.hand)
+        context.state.reveal_card(revealed, player.id)
         if revealed.name.casefold() == self.named_card.casefold():
             context.discard_specific(revealed, cause=self.source)
 
@@ -2237,6 +2241,8 @@ class RevealRandomHandCardEffect(GameEffect):
             return
         player = chosen[0]
         context.revealed_card = context.engine.random_choice(list(player.hand))
+        if context.revealed_card is not None:
+            context.state.reveal_card(context.revealed_card, player.id)
 
 
 class PutHandCardsOnTopEffect(GameEffect):

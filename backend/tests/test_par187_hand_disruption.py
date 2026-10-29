@@ -54,7 +54,9 @@ def test_real_exile_filters_and_revealed_hand(name, eligible, kind, mv):
         assert eng.state.pending_choice['kind'] == 'look_hand'
         eng.resolve_pending_choice('decline'); eng.resolve_until_stable()
         assert pick in eng.state.players[1].hand
-    assert not names(session.view(perspective='p3')) and not names(session.observer_view())
+    expected = {'Other'} if eligible else {'Pick', 'Other'}
+    assert names(session.view(perspective='p3')) == expected
+    assert names(session.observer_view()) == expected
 
 
 @pytest.mark.parametrize('from_graveyard', [False, True])

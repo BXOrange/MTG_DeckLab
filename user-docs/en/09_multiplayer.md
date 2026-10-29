@@ -236,6 +236,18 @@ react even when you do not have priority. There is no free-text input.
 Spectators can read the feed. The latest 200 entries remain available
 when reconnecting; restarting the game clears them.
 
+### Revealed cards
+
+Publicly revealed cards appear with artwork in the table feed and a side popup.
+Close it with **×** or Escape; the eye button in the feed reopens that entry.
+The popup toggle switches between the side view and the larger display.
+
+Known library cards appear below the card count as a numbered list (1 is the
+top card). A known card moved to hand remains face up to the other players;
+the rest of the hand stays hidden. Shuffling, private ordering and untrackable
+zone changes remove stale associations. Private “look at” effects remain
+visible only to the authorized player.
+
 ### Priority
 
 Magic doesn't move a step at a time because somebody clicks "next" — it

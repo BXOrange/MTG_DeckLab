@@ -71,7 +71,7 @@ def test_reveal_only_after_all_keep_public_until_first_turn_and_payoff_once():
         assert [o['name'] for o in view['state']['players'][0]['hand']]==['Chancellor of the Forge']
     s.engine.advance_step()
     assert not state.opening_hand_revealed
-    assert s.view('p2')['state']['players'][0]['hand']==[]
+    assert [o['name'] for o in s.view('p2')['state']['players'][0]['hand']]==['Chancellor of the Forge']
     assert len(state.delayed_triggers)==1
     s.engine.advance_step()
     s.engine.resolve_until_stable()

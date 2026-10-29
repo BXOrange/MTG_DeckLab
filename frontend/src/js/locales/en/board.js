@@ -1,5 +1,9 @@
 // EN catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.reveal.heading': 'Revealed cards',
+  'bd.reveal.close': 'Close revealed cards',
+  'bd.reveal.library': 'Known cards in the library',
+
   'bd.chat.categories': 'Emoji categories',
   'bd.chat.sendEmoji': 'Send {emoji}',
   'bd.chat.category.faces': 'Faces',

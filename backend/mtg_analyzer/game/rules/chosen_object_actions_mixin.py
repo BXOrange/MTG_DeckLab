@@ -141,6 +141,7 @@ class ChosenObjectActionsMixin:
             # library (RULE 401.7 for "third from the top"); ``player`` here is the chooser, who need not own it.
             self.return_to_library(obj, "top", 3 if action == "hand_to_library_third" else 1)
         elif action == "reveal":
+            self.state.reveal_card(obj, obj.owner_id)
             # PAR-80 (Ivy Seer/Scent of Ivy): reveal has no mechanical
             # weight of its own (`RevealTopEffect`'s own docstring) — the
             # pick stays in hand. Only accumulates onto `source`'s own

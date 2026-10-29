@@ -21,9 +21,20 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
   priority is played out for real.
 - `Seat.banner_color` is cosmetic, lives in the lobby (Setup shows it before a
   game), reaches the board via `seatStatus`; palette derived in `bannerColors.js`.
-- Table feed (VIS-4, `services/table_feed.py`): preset emotes plus engine-event
-  announcements, no priority passes; `view()` carries the latest 200 entries;
-  emotes never advance gameplay or drive bots.
+- Table feed (`services/table_feed.py`): quick/custom emoji reactions plus
+  engine-event announcements, no priority passes; `view()` carries the latest
+  200 entries. Emotes never advance gameplay or drive bots. Public reveals
+  include a face snapshot captured before the card can leave its zone, for
+  feed thumbnails and the shared board's dismissible side popup (VIS-17).
+- `models/game/public_knowledge.py` stores public observations in `GameState`,
+  independently of rules permissions to look at hidden zones. Views expose
+  `state.known_cards` with exact library positions; redaction keeps these cards
+  in otherwise hidden hands/libraries for seats and observers. Exact zone visits
+  and order-preserving removals let a revealed library card remain known in
+  hand. Shuffles (including unchanged permutations), private ordering choices,
+  unknown library insertions/reorders and later zone visits discard stale
+  associations. Clones/undo retain knowledge without shared mutable state;
+  private look-at choices never create public observations.
 - Concession and committed player losses apply RULE 800.4a immediately: owned
   objects leave, control effects end, departed-controller abilities/copies
   cease, and remaining controlled objects are exiled. Priority passes to the

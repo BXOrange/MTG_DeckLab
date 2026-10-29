@@ -517,6 +517,7 @@ class SourceChoicesMixin:
             visit = (player.id, obj.instance_id, obj.zone_incarnation)
             if visit in self.state.opening_hand_revealed:
                 return
+            self.state.reveal_card(obj, player.id)
             self.state.opening_hand_revealed.append(visit)
             self._arm_opening_hand_reveal(player, obj, permission)
             return

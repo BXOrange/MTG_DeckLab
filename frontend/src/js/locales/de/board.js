@@ -1,5 +1,9 @@
 // DE catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.reveal.heading': 'Aufgedeckte Karten',
+  'bd.reveal.close': 'Aufgedeckte Karten schließen',
+  'bd.reveal.library': 'Bekannte Karten in der Bibliothek',
+
   'bd.chat.categories': 'Emoji-Kategorien',
   'bd.chat.sendEmoji': '{emoji} senden',
   'bd.chat.category.faces': 'Gesichter',

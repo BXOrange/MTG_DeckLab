@@ -462,8 +462,7 @@ class SearchMixin:
         if top is None:
             self._fire_explored(inst, controller_id, found_land=False)
             return
-        # RULE 701.20a: revealing is a public move; no hidden-zone bookkeeping
-        # is needed here since the card immediately changes zone either way.
+        self.state.reveal_card(top, player.id)
         if top.card.is_land:
             player.library.pop()
             player.add_to_zone(top, Zone.HAND)
@@ -756,6 +755,7 @@ class SearchMixin:
         flag cleared, on top of the ordinary reordering every other kind
         already does in place.
         """
+        self.state.public_card_knowledge.forget_library_order(player.id, [*away, *top])
         self.state.pending_choice = None
         if kind == "hand_bottom":
             # `top` is topmost first, matching every other ordering choice.
@@ -2446,6 +2446,7 @@ class SearchMixin:
             self.state.free_cast_ignore_timing_instance_ids.add(obj.instance_id)
     def shuffle_library(self, player: Player) -> None:
         """Shuffle a player's library and announce it (RULE 701.20)."""
+        self.state.public_card_knowledge.sync(self.state)
         player.shuffle_library()
         self.state.fire_event(GameEvent(EventType.SHUFFLE, player_id=player.id))
     def shuffle_hand_and_graveyard_into_library(self, player: Player) -> None:
@@ -2799,7 +2800,9 @@ class SearchMixin:
         player = self.state.player_by_id(choice["player_id"])
         if not player.library:
             return
-        top = player.library.pop()
+        top = player.library[-1]
+        self.state.reveal_card(top, player.id)
+        player.library.pop()
         top.zone = Zone.HAND
         player.hand.append(top)
         self.lose_life(player, top.mana_value, cause="effect")
@@ -3184,7 +3187,7 @@ class SearchMixin:
         hits: list[GameObject] = []
         revealed: list[GameObject] = []
         while player.library and len(hits) < count:
-            obj = player.library.pop()
+            obj = player.library[-1]
             revealed.append(obj)
             self.state.fire_event(
                 GameEvent(
@@ -3195,6 +3198,7 @@ class SearchMixin:
                     from_zone="library",
                 )
             )
+            player.library.pop()
             if obj.is_creature:
                 has_changeling = "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords
                 if has_changeling:
@@ -3258,13 +3262,13 @@ class SearchMixin:
         for obj in list(reversed(player.library)):
             if len(hits) >= count:
                 break
-            if not entry_choices:
-                player.library.remove(obj)
             revealed.append(obj)
             self.state.fire_event(
                 GameEvent(EventType.REVEAL, player_id=player.id, object=obj.name,
                           instance_id=obj.instance_id, from_zone="library")
             )
+            if not entry_choices:
+                player.library.remove(obj)
             if card_query.matches(obj.card, criteria):
                 hits.append(obj)
 

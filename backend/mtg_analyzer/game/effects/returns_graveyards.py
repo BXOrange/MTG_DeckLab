@@ -1598,12 +1598,13 @@ class RevealOpponentLibraryStealEffect(GameEffect):
         revealed: list[Any] = []
         hit = None
         while opponent.library and hit is None:
-            obj = opponent.library.pop()
+            obj = opponent.library[-1]
             revealed.append(obj)
             context.state.fire_event(
                 GameEvent(EventType.REVEAL, player_id=opponent.id, object=obj.name,
                           instance_id=obj.instance_id, from_zone="library")
             )
+            opponent.library.pop()
             if card_query.matches(obj.card, self.criteria) and not (obj.card.is_instant or obj.card.is_sorcery):
                 hit = obj
         rest = [o for o in revealed if o is not hit]
@@ -2087,12 +2088,11 @@ class BudgetDigOntoBattlefieldEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or not player.library:
             return
-        looked = [player.library.pop() for _ in range(min(self.look, len(player.library)))]
-        for o in looked:
-            context.state.fire_event(GameEvent(
-                EventType.REVEAL, player_id=player.id, object=o.name,
-                instance_id=o.instance_id, from_zone="library",
-            ))
+        looked = []
+        for _ in range(min(self.look, len(player.library))):
+            obj = player.library[-1]
+            context.state.reveal_card(obj, player.id)
+            looked.append(player.library.pop())
         cands = sorted(
             (o for o in looked if _is_permanent_card_obj(o) and not o.card.is_land),
             key=lambda o: int(getattr(o, "mana_value", 0) or 0),
@@ -2351,12 +2351,10 @@ class AnimistsAwakeningEffect(GameEffect):
         for _ in range(count):
             if not player.library:
                 break
-            obj = player.library.pop()
+            obj = player.library[-1]
+            context.state.reveal_card(obj, player.id)
+            player.library.pop()
             revealed.append(obj)
-            context.state.fire_event(GameEvent(
-                EventType.REVEAL, player_id=player.id, object=obj.name,
-                instance_id=obj.instance_id, from_zone="library",
-            ))
         lands = [o for o in revealed if o.card.is_land]
         rest = [o for o in revealed if o not in lands]
         placed: list[GameObject] = []

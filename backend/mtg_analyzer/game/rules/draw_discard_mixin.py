@@ -551,6 +551,7 @@ class DrawDiscardMixin:
             from ...parser.oracle.spec import EffectSpec
             from ..effects.core import TriggeredAbility
 
+            self.state.reveal_card(obj, player.id)
             obj.miracle_revealed_incarnation = obj.zone_incarnation
             effect = EffectSpec("miracle_cast", {"cost": choice["cost"], "incarnation": choice["incarnation"],
                                                  "granted": choice["granted"]})

@@ -583,6 +583,8 @@ class KeywordActionsMixin:
                 # multiplayer simplification.
                 break
         won = top is not None and all(my_mv > mv for mv in other_mvs)
+        for revealer, obj in revealed:
+            self.state.reveal_card(obj, revealer.id)
         self.state.clash_revealed = [obj.instance_id for _, obj in revealed]
         self.state.fire_event(GameEvent(
             EventType.CLASHED, player_id=player.id, controller_id=player.id, won=won,

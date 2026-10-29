@@ -980,7 +980,9 @@ class MutualRevealCompareManaValueEffect(GameEffect):
         def _reveal(p: Any) -> Optional[Any]:
             if not p.library:
                 return None
-            obj = p.library.pop()
+            obj = p.library[-1]
+            context.state.reveal_card(obj, p.id)
+            p.library.pop()
             obj.zone = Zone.HAND
             p.hand.append(obj)
             return obj
@@ -1279,7 +1281,10 @@ class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
         amount = self._measured(self.amount, context, targets)
         if amount <= 0 or not player.library:
             return
-        revealed = [player.library.pop() for _ in range(min(amount, len(player.library)))]
+        revealed = []
+        for _ in range(min(amount, len(player.library))):
+            context.state.reveal_card(player.library[-1], player.id)
+            revealed.append(player.library.pop())
         if not revealed:
             return
         random.shuffle(revealed)

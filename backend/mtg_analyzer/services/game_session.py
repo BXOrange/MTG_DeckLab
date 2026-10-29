@@ -416,6 +416,8 @@ def _redact_hidden_zones(
     # decisions). Modelled as an extra hand-reveal here; the finer
     # 720.3-720.7 hidden-info edges are an accepted simplification.
     reveal_hands = set(also_visible_hand_ids or ())
+    known_ids = {card['instance_id'] for card in state_dict.get('known_cards', [])}
+
     for player in state_dict.get("players", []):
         # RULE 723.4: turn control reveals in-game information only.
         if perspective != player.get("id"):
@@ -427,12 +429,14 @@ def _redact_hidden_zones(
             opening_revealed = {obj["instance_id"] for obj in state_dict.get("opening_hand_revealed", [])}
             player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")
                               or obj.get("instance_id") in opening_revealed
+                              or obj.get("instance_id") in known_ids
                               or obj.get("instance_id") in (resolution_visible_hand_ids or set())]
         # A library is hidden even from its owner (they don't know their own
-        # draw order); only a card an effect actually reveals is kept.
+        # draw order); retain only explicit public knowledge or a scoped look permission.
         top_visible = own and (top_library_visible or {}).get(player.get("id"))
         visible_top = player["library"][-1:] if top_visible and player["library"] else []
         player["library"] = [obj for obj in player["library"] if obj in visible_top
+                             or obj.get("instance_id") in known_ids
                              or obj.get("instance_id") in (resolution_visible_library_ids or set())]
 
     _redact_face_down_exile(state_dict, perspective)

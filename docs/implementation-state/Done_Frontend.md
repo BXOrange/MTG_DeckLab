@@ -503,7 +503,22 @@ repointed there.
 
 - **What:** The shared board shows a table feed below the stack/trigger feed in the left rail. Players send only preset emotes (👍, 👏, GG, 🤔, ⏳), without a free-text input or a priority requirement. Public land plays, spell casts and ability activations are announced with player names; priority passes are omitted. Observers can read the feed. New messages follow the scroll position only when the reader is already near the bottom.
 - **Files:** `gameBoardView.js`, `soloView.js`, `locales/en.js`, `locales/de.js`, `main.css`.
-- **Public reveals (RULE 701.20):** REVEAL announcements show the named card and, when its card ID is available, a thumbnail in the table feed for players and observers. Transmute emits this announcement before the searched card moves to hand; the rest of the hand and library remain hidden. Verified in Chromium for the searching player and an observer.
+- **Public reveals (VIS-17, RULE 701.20):** Feed entries carry a face snapshot
+  and thumbnail even after the card leaves its original zone. New reveals open
+  a dismissible side popup for players and observers; move aside/restore and
+  Escape work like other board popups. The feed's eye button reopens a reveal.
+  Repeated state pushes do not reopen dismissed entries; undo removes stale
+  popup entries together with their feed messages.
+- **Known cards (VIS-17):** Library observations appear as numbered list items
+  below the library count, top card numbered 1. Known hand cards render face up
+  alongside the remaining hidden-card count or card backs. Library-to-hand moves
+  retain the shown identity; shuffles, private ordering and untrackable zone
+  changes clear it server-side. Ended Miracle/opening-hand permissions are
+  distinct from remembered identity. Private look-at instructions stay private.
+- **Validation (VIS-17):** Chromium checked popup close/restore/reopen, feed
+  thumbnail, known library positions, partial hand visibility and undo/dedup.
+  Multiplayer API execution checks both seats and an observer. Regular backend
+  suite: 17,759 passed / 489 skipped; final related `--full-cache` tests: 196 passed.
 - **Layout:** On desktop and landscape tablets the left rail fills the available viewport height, accounting for board zoom. The message feed expands into remaining space; short viewports keep controls reachable through scrolling. Narrow screens retain the horizontal layout above the board. Verified in Chromium at desktop/tablet widths and 75–150% board zoom.
 
 ### Redacted opponent hands + observer mode

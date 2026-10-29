@@ -464,6 +464,29 @@ including copy replacements and entry choices. Revealed cards remain library
 objects while choices are pending; this path emits reveal events without
 transient exile events.
 
+### Public reveal observations and views (VIS-17)
+
+- `GameState` owns cloneable `PublicCardKnowledge`: public reveal events capture
+  exact card faces and zone visits, without granting rules permissions to see
+  hidden zones. `state.known_cards` contains only explicitly observed cards and
+  their known library positions. Session redaction retains those cards for
+  opponents/observers while preserving hidden counts and all unrelated privacy.
+- Order-preserving library removals allow revealed finds/draws to remain known
+  in hand, including multi-card batches. Library shuffle serials invalidate
+  observations even for an unchanged permutation; private ordering, unknown
+  insertions/reorders and later zone visits discard stale associations. Undo,
+  clones and turn changes retain independent knowledge.
+- Existing reveal primitives now publish identity-bearing events for public
+  hands, random hand reveals, explore, clash, Miracle, opening-hand reveals,
+  reveal-and-compare and draw/reveal/free-cast effects. Batch reveals capture
+  their face before removal so feed pictures survive later movement. Private
+  look-at choices never create public observations. Parser specs and card
+  coverage are unchanged.
+- Tests: `services/test_public_reveals.py`, `api/test_api_public_reveals.py` and
+  existing Transmute, Miracle, opening-reveal and hand-disruption regressions.
+  Related `--full-cache` selection: 463 passed; final focused checks: 196 passed.
+  The regular backend suite passed (17,759 tests; 489 skipped).
+
 ### Public revealed-card piles (RULE 608.2d)
 
 `reveal_split_piles` reveals library cards without moving them, lets the
@@ -480,7 +503,7 @@ gameplay and rewind regressions live in
 
 - **What:** "Choose a creature type / color / card name. `<tail>`" (with an optional leading "if" gate, "other than Wall" and card-name qualifiers such as nonland or other than a basic land) parses in `parser/oracle/catalogue/named_choice.py` into one `seq`: `choose_for_source` followed by the tail. The tail is read with a stand-in value through the existing grammar, then carries `$chosen_type|color|name` placeholders that `composition._build` resolves lazily from the source's fresh answer (not inside nested `seq`s, so an earlier resolution's answer cannot leak). `choose_for_source` validates creature types (RULE 205.3m), colours and names against the card filter, accepts typed answers and clears the stamp when it opens; bots answer it through their normal choice path. New effects `exile_named_from_zones` (Cranial Extraction family, with per-copy draw/damage follow-ups) and `reveal_hand_discard_all` (Cabal Therapy, Persecute, Brain Pry).
 - **Fixes and widenings:** `pay_cost_then` now announces targets inside a `seq`/`bind` reflexive body (RULE 603.12; Armix, the Go-Shintai, Tiger-Tribe Hunter). Controller-less subtype/colour/non-X pump groups, shrinking "−N/−N for each" pumps, subtype mass graveyard returns, "shuffle all … from your graveyard into your library", count-phrase protection groups and any dig criterion in `reveal_until_type` were widened.
-- **Measured:** full-pool diff against v760 **+90, zero regressions**; a full spec-hash comparison changed only the four reflexive-target fixes. Simplifications: a revealed hand is not modelled as a hidden-information transfer, "up to N" named copies are taken hand → graveyard → library, and a typed card name is only refused when the game knows the card and it breaks the filter.
+- **Measured:** full-pool diff against v760 **+90, zero regressions**; a full spec-hash comparison changed only the four reflexive-target fixes. Simplifications (the revealed-hand visibility gap was closed by VIS-17): "up to N" named copies are taken hand → graveyard → library, and a typed card name is only refused when the game knows the card and it breaks the filter.
 - **Left on separate shapes:** as-enters card-name statics (Meddling Mage, Nevermore, Sorcerous Spyglass, Runed Halo and similar) need card-name entry choices plus name-keyed cast/cost statics → MEC-134; reveal-and-compare (Mise, Cursed Scroll, Predict, Conundrum Sphinx and similar); turn-scoped name locks (Conjurer's Ban); copy-by-name (Ersta, Garth One-Eye); "any one colour × amount" mana abilities (Selvala, Three Tree City, Rhystic Cave); fixed-colour protection on a target or self (Prismatic Boon, Kabira Evangel); per-player tallies (Searing Rays, Oona, Darigaaz); graveyard activation (Glory, Carrionette); as-the-game-begins choices (Faceless One, The Prismatic Piper); and type-choice singletons (Caller of the Hunt, Kindred Charge, Pact of the Serpent, Peer Pressure, Tsabo's Decree, Banner of Kinship). Crosis stays unclaimed because the damaged player is not kept across the choice pause.
 - **Tests:** `tests/test_par203_named_choices.py`.
 

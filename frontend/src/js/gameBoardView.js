@@ -921,6 +921,39 @@ export function createGameBoardView(opts = {}) {
   let customEmojiOpen = false;
   let emojiCategory = EMOJI_CATEGORIES[0].key;
 
+  let revealItems = [];
+  let lastRevealId = 0;
+  let revealAside = true;
+
+  function updateRevealPopup(data) {
+    const messages = (data.table_messages || []).filter(message => message.action === 'reveal');
+    const available = new Set(messages.map(message => message.id));
+    revealItems = revealItems.filter(message => available.has(message.id));
+    const fresh = messages.filter(message => message.id > lastRevealId);
+    if (fresh.length) {
+      revealItems.push(...fresh);
+      lastRevealId = Math.max(lastRevealId, ...fresh.map(message => message.id));
+      revealAside = true;
+    }
+  }
+
+  function revealPopupHtml() {
+    if (!revealItems.length) return '';
+    return `<div class="gf-modal-overlay gf-revealed-modal${revealAside ? ' aside' : ''}">
+      <section class="gf-modal" role="dialog" aria-modal="${!revealAside}" aria-label="${escapeAttr(t('bd.reveal.heading'))}" tabindex="-1">
+        <div class="gf-modal-head"><div><h4>${escapeHtml(t('bd.reveal.heading'))}</h4></div>
+          <button type="button" class="gf-modal-aside" data-reveal-aside>${escapeHtml(t(revealAside ? 'bd.choice.asideShow' : 'bd.choice.asidePush'))}</button>
+          <button type="button" data-reveal-close aria-label="${escapeAttr(t('bd.reveal.close'))}">×</button>
+        </div>
+        <ul class="gf-revealed-list">${revealItems.map(message => {
+          const card = message.revealed_card || { name: message.card_name, card_id: message.card_id };
+          const image = resolveImageUrl(card, getState().imageCache);
+          return `<li><span>${escapeHtml(message.author)}</span><strong data-hover-card="${escapeAttr(card.name || '')}">${escapeHtml(card.name || '')}</strong>
+            ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(card.name || '')}" loading="lazy" data-hover-card="${escapeAttr(card.name || '')}" />` : ''}</li>`;
+        }).join('')}</ul>
+      </section></div>`;
+  }
+
   function chatPanelHtml() {
     const messages = (view.table_messages || []).map((message) => {
       const card = message.card_name || t('bd.chat.faceDownSpell');
@@ -934,6 +967,7 @@ export function createGameBoardView(opts = {}) {
       return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">`
         + `<span class="gf-chat-author">${escapeHtml(message.author)}</span>`
         + `<span>${renderOracleText(text)}</span>`
+        + (message.action === 'reveal' ? `<button type="button" data-reveal-open="${message.id}" aria-label="${escapeAttr(t('bd.reveal.heading'))}">👁</button>` : '')
         + reveal
         + '</li>';
     }).join('');
@@ -986,6 +1020,9 @@ export function createGameBoardView(opts = {}) {
     if (isNewSession) {
       showStatics = false;
       staticsAside = false;
+      revealItems = [];
+      lastRevealId = 0;
+      revealAside = true;
       zoneOrder.clear();
       chatError = '';
       customEmojiOpen = false;
@@ -1077,6 +1114,7 @@ export function createGameBoardView(opts = {}) {
     const prevStack = view?.state?.stack || [];
     const samePriorSessionForStack = sessionId === lastDraftSessionId;
     view = data;
+    updateRevealPopup(data);
     if (root) root.dataset.bugReportSession = sessionId || "";
     // Ghost-trail: entries that were on the stack last view and aren't now
     // (resolved or countered) linger briefly so it stays visible what just
@@ -1419,6 +1457,7 @@ export function createGameBoardView(opts = {}) {
           ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
           ${castTargeting ? castTargetModalHtml() : ''}
           ${showStatics ? staticEffectsModalHtml(s) : ''}
+          ${revealPopupHtml()}
 
           ${attackerPanelHtml(actions, s)}
           ${blockerPanelHtml(actions, s)}
@@ -1916,6 +1955,7 @@ export function createGameBoardView(opts = {}) {
             <div class="gf-zone gf-library">
               <h4>${t('bd.zone.library')}</h4>
               <p class="library-count">${escapeHtml(t('bd.zone.libraryCount', { count: p.library_count }))}</p>
+              ${knownLibraryHtml(p)}
               ${libraryTopHtml(p, byInstance, pending)}
             </div>
             ${collapsibleZoneHtml('gf-graveyard', t('bd.zone.graveyard'), `${p.id}:graveyard`, p.graveyard.length, zoneListHtml(p.graveyard, t('bd.zone.empty')))}
@@ -1951,6 +1991,13 @@ export function createGameBoardView(opts = {}) {
   // has `hand_count === 0` and falls through to the normal "leer".
   function handHtml(p, byInstance, pending, isOwn = true) {
     const count = p.hand_count != null ? p.hand_count : p.hand.length;
+    if (!isOwn && p.hand.length && count > p.hand.length) {
+      const hidden = count - p.hand.length;
+      const backs = getShowOpponentHand()
+        ? `<div class="card-grid">${Array.from({ length: hidden }, () => `<div class="gf-card-slot">${faceDownCardHtml()}</div>`).join('')}</div>`
+        : `<p class="empty-state gf-hand-hidden">${escapeHtml(tPlural('bd.hand.hiddenCount', hidden))}</p>`;
+      return objGrid(p.hand, '–', byInstance, pending) + backs;
+    }
     if (!p.hand.length && count > 0) {
       // Nothing here is information — the cards themselves never left the
       // server — so an opponent's row of backs is off unless asked for.
@@ -2003,6 +2050,15 @@ export function createGameBoardView(opts = {}) {
   // whatever `play_land`/`cast_spell` buttons `legal_actions` offered for
   // that instance_id, same as any hand card — a look-only permission (no
   // matching legal action) simply shows the card with no buttons.
+  function knownLibraryHtml(p) {
+    const known = (view.state.known_cards || []).filter(card => card.owner_id === p.id && card.zone === 'library')
+      .sort((a, b) => a.library_position - b.library_position);
+    if (!known.length) return '';
+    return `<ol class="gf-known-library" aria-label="${escapeAttr(t('bd.reveal.library'))}">${known.map(card =>
+      `<li value="${card.library_position}" data-hover-card="${escapeAttr(card.name)}">${escapeHtml(card.name)}</li>`
+    ).join('')}</ol>`;
+  }
+
   function libraryTopHtml(p, byInstance, pending) {
     if (!view.top_library_visible?.[p.id] || !p.library.length) return '';
     const top = p.library[p.library.length - 1];
@@ -2848,6 +2904,27 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    const closeReveal = () => {
+      revealItems = [];
+      render();
+    };
+    root.querySelector('[data-reveal-close]')?.addEventListener('click', closeReveal);
+    root.querySelector('[data-reveal-aside]')?.addEventListener('click', () => {
+      revealAside = !revealAside;
+      render();
+      root.querySelector('.gf-revealed-modal .gf-modal')?.focus();
+    });
+    root.querySelector('.gf-revealed-modal')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { event.stopPropagation(); closeReveal(); }
+    });
+    root.querySelectorAll('[data-reveal-open]').forEach(button => button.addEventListener('click', () => {
+      const message = (view.table_messages || []).find(item => item.id === Number(button.dataset.revealOpen));
+      if (!message) return;
+      revealItems = [message];
+      revealAside = true;
+      render();
+      root.querySelector('.gf-revealed-modal .gf-modal')?.focus();
+    }));
     const focusStatics = () => root.querySelector('.gf-statics-modal .gf-modal')?.focus();
     root.querySelector('[data-statics-open]')?.addEventListener('click', () => {
       showStatics = true;
