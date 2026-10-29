@@ -26,6 +26,12 @@ function genericManaEmoji(amount) {
     .join('');
 }
 
+// {T}/{Q} are the tap/untap symbols (RULE 107.5), not mana: shown as the
+// clockwise/anticlockwise arrow pair (same ⟳ the board's tap buttons use)
+// so an activation cost reads "⟳, 2️⃣: ..." instead of a bare "T".
+const TAP_SYMBOL_EMOJI = '⟳';
+const UNTAP_SYMBOL_EMOJI = '⟲';
+
 const MANA_TOKEN_RE = /\{([^}]+)\}/g;
 
 // One `{...}` token (already stripped of braces) to its faithful display.
@@ -39,6 +45,8 @@ function renderManaToken(token) {
   if (/^\d+$/.test(symbol)) return genericManaEmoji(Number(symbol));
   if (symbol === 'X' || symbol === 'Y' || symbol === 'Z') return symbol;
   if (MANA_SYMBOL_EMOJI[symbol]) return MANA_SYMBOL_EMOJI[symbol];
+  if (symbol === 'T') return TAP_SYMBOL_EMOJI;
+  if (symbol === 'Q') return UNTAP_SYMBOL_EMOJI;
 
   if (symbol.includes('/')) {
     const parts = symbol.split('/');

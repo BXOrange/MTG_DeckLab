@@ -24,7 +24,26 @@
   outline-offset: 1px;
 }
 
-/* Only the current action is visible; full source cards remain on hover. */
+/* Ability on the stack: the source's art with only the current ability text
+   overlaid at the bottom (full card on hover). */
+.gf-stack-item .card.gf-stack-art {
+  position: relative;
+}
+
+.gf-stack-ability-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  max-height: 70%;
+  overflow-y: auto;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.55) 70%, transparent);
+  color: #fff;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  padding: 0.6rem 0.35rem 0.3rem;
+  white-space: normal;
+}
+
+/* No art available: a plain text box with the same content. */
 .gf-stack-item .card.gf-stack-action {
   width: 100%;
   height: auto;

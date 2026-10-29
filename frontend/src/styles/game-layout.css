@@ -260,6 +260,24 @@
   width: 100%;
 }
 
+/* Stack cards are 20% larger than the default 100px thumbnail so the stack is
+   readable at a glance; the rail's 216px width still fits them. */
+.gf-rail-stack-cards .card.has-image.gf-stack-art {
+  width: 120px;
+}
+
+.gf-rail-stack-cards .gf-stack-ability-overlay {
+  font-size: 0.74rem;
+}
+
+.gf-rail-stack-cards .gf-stack-source-name {
+  font-size: 0.86rem;
+}
+
+.gf-rail-stack-cards .gf-stack-action-text {
+  font-size: 0.94rem;
+}
+
 .gf-rail-stack-cards .gf-stack-badge {
   max-width: 100%;
 }

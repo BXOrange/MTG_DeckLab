@@ -3656,7 +3656,33 @@ def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
 def _ability_description(source: Any, spec: AbilitySpec) -> str:
     """Use canonical card text; parser provenance is a fallback."""
     card = getattr(source, "card", source)
-    return str(getattr(card, "oracle_text", "") or spec.raw_text or "")
+    oracle = str(getattr(card, "oracle_text", "") or "")
+    # RULE 606.1: a planeswalker's loyalty abilities are separate printed
+    # lines. The stack shows only the one being activated, not the whole card.
+    loyalty_line = _loyalty_oracle_line(oracle, spec)
+    if loyalty_line:
+        return loyalty_line
+    return oracle or spec.raw_text or ""
+
+
+_LOYALTY_LINE_RE = re.compile(r"^\s*([+\u2212\-\u2013]?)\s*(\d+|X)\s*:", re.IGNORECASE)
+
+
+def _loyalty_oracle_line(oracle: str, spec: AbilitySpec) -> str:
+    """The oracle line of this spec's loyalty ability ("" if not one / no match)."""
+    cost = spec.cost if isinstance(spec.cost, dict) else None
+    if not cost or "loyalty" not in cost or "\n" not in oracle:
+        return ""
+    wanted = str(cost["loyalty"]).lower().lstrip("+")
+    for line in oracle.split("\n"):
+        m = _LOYALTY_LINE_RE.match(line)
+        if not m:
+            continue
+        sign = "-" if m.group(1) in ("\u2212", "-", "\u2013") else ""
+        magnitude = m.group(2).lower()
+        if (sign + magnitude).lstrip("0") == wanted.lstrip("0") or (sign + magnitude) == wanted:
+            return line.strip()
+    return ""
 
 
 def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[ActivatedAbility]:

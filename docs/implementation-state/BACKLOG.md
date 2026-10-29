@@ -45,9 +45,9 @@ claimed cards.
 
 ## MEC — Game mechanic
 
+-No Tickets-
 
 ## PLR — Player management
-
 
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
@@ -92,4 +92,3 @@ claimed cards.
 ## BUG — Bugs
 
 -No Tickets-
-

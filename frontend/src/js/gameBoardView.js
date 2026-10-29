@@ -21,7 +21,7 @@ import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KE
 import { getCookie, setCookie } from './cookies.js';
 import { getBoardScale, onBoardScaleChange } from './boardScale.js';
 import { bannerColorLabel, bannerStyle } from './bannerColors.js';
-import { MANA_SYMBOL_EMOJI } from './cardTile.js';
+import { MANA_SYMBOL_EMOJI, renderOracleText } from './cardTile.js';
 import {
   getBotSpeedMs,
   getShowOpponentHand,
@@ -154,7 +154,19 @@ export function createGameBoardView(opts = {}) {
   let view = null;
   let latestByInstance = {};
   let dragSource = null;
-  const handOrder = new Map(); // Local presentation order; never changes game zones.
+  // Local presentation order per drag-reorderable zone (hand, battlefield rows);
+  // never changes game zones. Keyed by `data-order-zone`.
+  const zoneOrder = new Map();
+
+  // `objs` in the player's own drag-and-drop order for `zoneKey`; cards the
+  // order doesn't know yet (just drawn / entered) go to the end.
+  function orderedByLocal(zoneKey, objs) {
+    const byId = new Map(objs.map((o) => [o.instance_id, o]));
+    const order = (zoneOrder.get(zoneKey) || []).filter((id) => byId.has(id));
+    for (const o of objs) if (!order.includes(o.instance_id)) order.push(o.instance_id);
+    zoneOrder.set(zoneKey, order);
+    return order.map((id) => byId.get(id));
+  }
   let dragHandlersInstalled = false;
   let busy = false;
   let status = '';
@@ -924,7 +936,7 @@ export function createGameBoardView(opts = {}) {
       // template-literal indentation would render as leading space.
       return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">`
         + `<span class="gf-chat-author">${escapeHtml(message.author)}</span>`
-        + `<span>${escapeHtml(text)}</span>`
+        + `<span>${renderOracleText(text)}</span>`
         + reveal
         + '</li>';
     }).join('');
@@ -962,7 +974,7 @@ export function createGameBoardView(opts = {}) {
   function start(sid, initialView) {
     const isNewSession = sid !== sessionId;
     if (isNewSession) {
-      handOrder.clear();
+      zoneOrder.clear();
       chatError = '';
       waitingChoiceAside = false;
     }
@@ -1363,7 +1375,7 @@ export function createGameBoardView(opts = {}) {
     if (!plane) return '';
     const roll = (actions || []).find((a) => a.type === 'roll_planar_die');
     const rollButton = roll
-      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="${escapeAttr(t('bd.planar.rollTitle'))}">${escapeHtml(t('bd.planar.rollButton', { cost: roll.cost_label || '{0}' }))}</button>`
+      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="${escapeAttr(t('bd.planar.rollTitle'))}">${renderOracleText(t('bd.planar.rollButton', { cost: roll.cost_label || '{0}' }))}</button>`
       : '';
     return `
       <div class="gf-planechase">
@@ -1920,14 +1932,9 @@ export function createGameBoardView(opts = {}) {
     // server chose to send, i.e. revealed — always shown, whatever the
     // toggle says.
     if (!isOwn || !p.hand.length) return objGrid(p.hand, 'leer', byInstance, pending);
-    const previous = handOrder.get(p.id) || [];
-    const cards = new Map(p.hand.map(o => [o.instance_id, o]));
-    const order = previous.filter(id => cards.has(id));
-    for (const o of p.hand) if (!order.includes(o.instance_id)) order.push(o.instance_id);
-    handOrder.set(p.id, order);
     const imageCache = getState().imageCache;
-    return `<div class="card-grid" data-hand-player="${escapeAttr(p.id)}">${order.map(id =>
-      objCard(cards.get(id), imageCache, pending ? [] : byInstance[id] || [], true)
+    return `<div class="card-grid" data-order-zone="${escapeAttr(`hand:${p.id}`)}">${orderedByLocal(`hand:${p.id}`, p.hand).map(o =>
+      objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || [], true)
     ).join('')}</div>`;
   }
 
@@ -2672,13 +2679,24 @@ export function createGameBoardView(opts = {}) {
         if (!target) return;
       });
       root.addEventListener('drop', (e) => {
-        const hand = e.target.closest('[data-hand-player]');
-        if (dragSource && hand && hand.dataset.handPlayer === dragSource.playerId) {
+        // A drop on a specific valid target (equip onto a creature) is a real
+        // game action; any other drop inside the card's own zone only re-sorts
+        // the local presentation order.
+        const zoneEl = e.target.closest('[data-order-zone]');
+        if (dragSource && zoneEl && zoneEl.dataset.orderZone === dragSource.zone
+            && !['instance', 'player'].includes(maybeReadDropTargetData(e.target)?.type)) {
           e.preventDefault();
-          const order = handOrder.get(dragSource.playerId) || [];
-          const targetId = e.target.closest('[data-instance-id]')?.dataset.instanceId;
-          const from = order.indexOf(dragSource.instanceId);
-          const to = targetId ? order.indexOf(targetId) : order.length - 1;
+          const order = zoneOrder.get(dragSource.zone) || [];
+          let targetSlot = e.target.closest('[data-instance-id]');
+          // Dropped on an attachment: its host is what sits in the row.
+          // `dataset` values are strings, instance ids on the wire may be numbers.
+          const indexOfId = (id) => order.findIndex((known) => String(known) === String(id));
+          if (targetSlot && indexOfId(targetSlot.dataset.instanceId) < 0) {
+            targetSlot = targetSlot.closest('.gf-attach-group')?.querySelector('[data-instance-id]') || null;
+          }
+          const targetId = targetSlot?.dataset.instanceId;
+          const from = indexOfId(dragSource.instanceId);
+          const to = targetId ? indexOfId(targetId) : order.length - 1;
           if (from >= 0 && to >= 0 && from !== to) {
             order.splice(to, 0, order.splice(from, 1)[0]);
           }
@@ -2709,7 +2727,11 @@ export function createGameBoardView(opts = {}) {
         // in `boardOrder` (every board but this client's own, which is drawn
         // last/nearest), highlighting — and, worse, accepting a drop onto —
         // some other player's battlefield whenever they aren't that first one.
-        dragSource = { instanceId, playerId: slot.closest('[data-player-id]')?.dataset.playerId || null };
+        dragSource = {
+          instanceId,
+          playerId: slot.closest('[data-player-id]')?.dataset.playerId || null,
+          zone: slot.closest('[data-order-zone]')?.dataset.orderZone || null,
+        };
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', '');
         highlightDragTargets();
@@ -3355,28 +3377,28 @@ export function createGameBoardView(opts = {}) {
 
     const renderObj = (o) => {
       const actions = pending ? [] : byInstance[o.instance_id] || [];
-      const host = objCard(o, imageCache, actions);
+      const host = objCard(o, imageCache, actions, true);
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
       const attached = atts.map(renderAttached).join('');
       return `<div class="gf-attach-group" title="${escapeAttr(t('bd.bf.attachTitle'))}">${host}${attached}</div>`;
     };
 
-    const rowHtml = (label, list) =>
+    const rowHtml = (rowKey, label, list) =>
       `<div class="gf-bf-row">
         <span class="gf-bf-row-label">${label} (${list.length})</span>
-        ${list.length ? `<div class="card-grid">${list.map(renderObj).join('')}</div>` : '<p class="empty-state">–</p>'}
+        ${list.length ? `<div class="card-grid" data-order-zone="${escapeAttr(`bf:${controllerId}:${rowKey}`)}">${orderedByLocal(`bf:${controllerId}:${rowKey}`, list).map(renderObj).join('')}</div>` : '<p class="empty-state">–</p>'}
       </div>`;
 
     const rows = threeRows
       ? [
-          rowHtml(t('bd.bf.rowCreatures'), creatures),
-          rowHtml(t('bd.bf.rowArtEnch'), other),
-          rowHtml(t('bd.bf.rowLands'), lands),
+          rowHtml('creatures', t('bd.bf.rowCreatures'), creatures),
+          rowHtml('other', t('bd.bf.rowArtEnch'), other),
+          rowHtml('lands', t('bd.bf.rowLands'), lands),
         ]
       : [
-          rowHtml(t('bd.bf.rowCreatures'), creatures),
-          rowHtml(t('bd.bf.rowLandsPermanents'), other.concat(lands)),
+          rowHtml('creatures', t('bd.bf.rowCreatures'), creatures),
+          rowHtml('mixed', t('bd.bf.rowLandsPermanents'), other.concat(lands)),
         ];
     return `<div class="gf-bf-rows">${rows.join('')}</div>`;
   }
@@ -3407,9 +3429,9 @@ export function createGameBoardView(opts = {}) {
       .join('')}</div>`;
   }
 
-  // Keep the current action separate from the full source card, which is
-  // still available on hover. Use the stack description, never Oracle text:
-  // a source can have several unrelated abilities.
+  // The source card's art as a mini card; an ability overlays only its own
+  // description (never the whole Oracle text: a source can have several
+  // unrelated abilities). Without art, a text box shows the same content.
   function stackItemHtml(item, index, total, opts = {}) {
     const isAbility = item.kind === 'ability';
     const visual = item.object || item.source;
@@ -3418,6 +3440,7 @@ export function createGameBoardView(opts = {}) {
       ? (item.description && item.description !== visual?.name ? item.description : badge.label)
       : item.kind === 'spell' ? 'Cast' : (item.description || item.kind);
     const displayName = visual?.name || '';
+    const imageUrl = visual ? resolveImageUrl(visual, getState().imageCache) : null;
     const isTop = !opts.ghost && index === total - 1;
     // `opts.ghost` = a just-resolved entry lingering for a moment: no LIFO
     // position, just an "aufgelöst" caption.
@@ -3430,10 +3453,15 @@ export function createGameBoardView(opts = {}) {
     return `
       <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
-        <div class="card gf-stack-action"${displayName ? ` data-hover-card="${escapeAttr(displayName)}"` : ''}>
+        ${imageUrl
+          ? `<div class="card has-image gf-stack-art"${displayName ? ` data-hover-card="${escapeAttr(displayName)}" title="${escapeAttr(displayName)}"` : ''}>
+          <img src="${imageUrl}" alt="${escapeAttr(displayName)}" loading="lazy" />
+          ${isAbility ? `<div class="gf-stack-ability-overlay">${renderOracleText(actionText)}</div>` : ''}
+        </div>`
+          : `<div class="card gf-stack-action"${displayName ? ` data-hover-card="${escapeAttr(displayName)}"` : ''}>
           ${displayName ? `<strong class="gf-stack-source-name">${escapeHtml(displayName)}</strong>` : ''}
-          <span class="gf-stack-action-text">${escapeHtml(actionText)}</span>
-        </div>
+          <span class="gf-stack-action-text">${renderOracleText(actionText)}</span>
+        </div>`}
         ${order}
       </div>`;
   }
@@ -4043,7 +4071,7 @@ export function createGameBoardView(opts = {}) {
     // creature cast, so it gets a short "(Bestow — <cost>)" suffix rather
     // than a redundant repeated name, the same treatment as Fuse above.
     if (a.face === 'bestow') {
-      return a.bestow_cost_label ? ` (Bestow — ${escapeHtml(a.bestow_cost_label)})` : ' (Bestow)';
+      return a.bestow_cost_label ? ` (Bestow — ${renderOracleText(a.bestow_cost_label)})` : ' (Bestow)';
     }
     // RULE 702.37a/702.168a: the morph/disguise offer casts the card FACE
     // DOWN as a nameless 2/2 for its face-down cost ({3}) — a wholly
@@ -4137,7 +4165,7 @@ export function createGameBoardView(opts = {}) {
           gift_opponent_id: a.gift_opponent_id,
         });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${escapeHtml(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: '', face: faceHint(a) }))}</button>`
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: '', face: faceHint(a) }))}</button>`
         );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
@@ -4153,7 +4181,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${escapeHtml(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -4171,7 +4199,7 @@ export function createGameBoardView(opts = {}) {
           )
         );
       } else if (a.type === 'suspend') {
-        const label = `⏳ Suspend (${escapeHtml(a.cost_label || '')})`;
+        const label = `⏳ Suspend (${renderOracleText(a.cost_label || '')})`;
         if (a.has_x) {
           // Suspend announces its own X, independently of casting this card.
           buttons.push(`
@@ -4194,7 +4222,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
+            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)</button>
           </div>
         `);
       } else if (a.type === 'activate_ability' && (a.tap_cost || a.exile_cost)) {
@@ -4202,20 +4230,20 @@ export function createGameBoardView(opts = {}) {
         // which ones is the player's own choice, not an engine auto-pick.
         const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
         );
       } else if (a.type === 'activate_ability' && a.sacrifice_cost) {
         // Cost includes "Sacrifice a <type>" (RULE 602.1) — which permanent
         // pays it is the player's own choice, not an engine auto-pick.
         const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
         );
       } else if (a.type === 'activate_ability') {
         buttons.push(
           actionButton(
             { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, name: a.name },
-            `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}`,
+            `⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}`,
             loyaltyModifierClass(a.cost_label)
           )
         );
@@ -4231,13 +4259,13 @@ export function createGameBoardView(opts = {}) {
           if (optsList.length > 1) {
             buttons.push(manaChoiceControlHtml(
               a, optsList, 'tap_for_mana',
-              `⟳ ${escapeHtml(a.cost_label || '')} → X`,
+              `⟳ ${renderOracleText(a.cost_label || '')} → X`,
               { hasX: true },
             ));
           } else {
             const colorButtons = optsList.map((opt) => {
               const info = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, option_index: opt.index });
-              return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${escapeHtml(a.cost_label || '')} → X·${escapeHtml(opt.label || '⟳')}</button>`;
+              return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${renderOracleText(a.cost_label || '')} → X·${escapeHtml(opt.label || '⟳')}</button>`;
             }).join('');
             buttons.push(`
               <div class="gf-cast-x">
@@ -4251,7 +4279,7 @@ export function createGameBoardView(opts = {}) {
         }
         if (optsList.length > 1) {
           const text = extraCost
-            ? `⟳ ${escapeHtml(a.cost_label)} →`
+            ? `⟳ ${renderOracleText(a.cost_label)} →`
             : '⟳ Tappen';
           buttons.push(manaChoiceControlHtml(
             a, optsList, 'tap_for_mana', text,
@@ -4261,7 +4289,7 @@ export function createGameBoardView(opts = {}) {
           for (const opt of optsList) {
             const glyph = opt.label || '⟳';
             const text = extraCost
-              ? `⟳ ${escapeHtml(a.cost_label)} → ${glyph}`
+              ? `⟳ ${renderOracleText(a.cost_label)} → ${glyph}`
               : '⟳ Tappen';
             if (a.tap_cost) {
               // Which Elves pay the "tap N" part is the player's own choice
@@ -4308,12 +4336,12 @@ export function createGameBoardView(opts = {}) {
         if (optsList.length > 1) {
           buttons.push(manaChoiceControlHtml(
             a, optsList, 'activate_hand_mana',
-            `📤 ${escapeHtml(a.cost_label || 'Exilieren')} →`,
+            `📤 ${renderOracleText(a.cost_label || 'Exilieren')} →`,
           ));
         } else {
           for (const opt of optsList) {
             const glyph = opt.label || '⟳';
-            const text = `📤 ${escapeHtml(a.cost_label || 'Exilieren')} → ${glyph}`;
+            const text = `📤 ${renderOracleText(a.cost_label || 'Exilieren')} → ${glyph}`;
             buttons.push(
               actionButton(
                 { type: 'activate_hand_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
@@ -4345,7 +4373,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           actionButton(
             { type: 'turn_face_up', instance_id: a.instance_id, option_index: a.option_index },
-            `🔎 Aufdecken (${escapeHtml(a.cost_label || '')})`
+            `🔎 Aufdecken (${renderOracleText(a.cost_label || '')})`
           )
         );
       } else if (a.type === 'unlock_door') {
@@ -4354,7 +4382,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           actionButton(
             { type: 'unlock_door', instance_id: a.instance_id, door: a.door },
-            `🚪 ${escapeHtml(t('bd.action.unlockDoor', { door: a.door_name || a.door, cost: a.cost_label || '' }))}`
+            `🚪 ${renderOracleText(t('bd.action.unlockDoor', { door: a.door_name || a.door, cost: a.cost_label || '' }))}`
           )
         );
       } else if (a.type === 'attack') {
@@ -4434,8 +4462,8 @@ export function createGameBoardView(opts = {}) {
       bargained: a.bargained, gift_opponent_id: a.gift_opponent_id,
     });
     const label = a.type === 'activate_ability'
-      ? t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') })
-      : `${t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) })}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
+      ? renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))
+      : `${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     const lockedHint = a.locked ? `<span class="hint">Ohne Kicker: ${escapeHtml(a.lock_reason || t('bd.cast.noValidTarget'))}</span>` : '';
     return `<div class="gf-cast-targets">${lockedHint}${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
