@@ -1543,11 +1543,8 @@ class CurrencyConverterCashOutEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        ids = list(getattr(self.source, "exiled_with_ids", None) or [])
-        cands = [
-            o for o in (context.state.find_object(i) for i in ids)
-            if o is not None and o.zone == Zone.EXILE
-        ]
+        from ..linked_exile import linked_cards
+        cands = linked_cards(context.state, self.source, context.resolving_source_incarnation)
         if not cands:
             return
         if len(cands) == 1:

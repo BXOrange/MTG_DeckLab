@@ -60,6 +60,15 @@ re-exported from `misc_mixin.py` for existing callers.
   transfers copy these exact visits; returns never reconstruct them from IDs.
   Ability sources retain their pre-cost incarnation. Crew and saddle attack
   events freeze participant visits; later zone changes break membership.
+  `game/linked_exile.py` is the shared reader for counts, Imprint, borrowed
+  abilities, linked selections and play permissions. Remembered IDs only
+  narrow that reader; they never restore a severed link. Casting-cost and
+  as-enters links transfer once from the spell to its resulting permanent.
+  Historical "exiled this way" counts remain separate from live linked counts.
+  Standing play grants are read from the current source and controller;
+  resolving grants freeze the linked pool and outlive their source. Without
+  duration wording, cast/play offers exist only during resolution, including
+  land plays through the ordinary land-limit checks (RULE 608.2g).
 - Timed copies use ordered `copy_mechanics` snapshot layers. Cleanup and
   next-end-step expiration remove only the matching layers, preserving newer
   permanent copies and independent durations. Zone changes discard the layers;

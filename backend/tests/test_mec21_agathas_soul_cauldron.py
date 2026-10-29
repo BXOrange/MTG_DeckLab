@@ -79,7 +79,7 @@ def exile_with(eng, cauldron_obj, target_obj):
     ``ExileEffect(track_exiled_with=True)`` — without needing a full target
     round-trip through `activate_ability`."""
     eng.rules.exile(target_obj)
-    cauldron_obj.exiled_with_ids.append(target_obj.instance_id)
+    eng.state.track_exiled_with(cauldron_obj, target_obj)
 
 
 # ---------------------------------------------------------------------------

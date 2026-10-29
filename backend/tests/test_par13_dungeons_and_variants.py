@@ -372,9 +372,10 @@ def test_create_named_legendary_token_end_to_end():
 
 
 def test_exile_top_play_bare_form_is_recognized():
-    (spec,) = match_clause("exile the top 2 cards of your library. you may play them")
-    assert spec.type == "impulsive_draw"
-    assert spec.params == {"count": 2, "same_turn_only": False}
+    exile, window = match_clause("exile the top 2 cards of your library. you may play them")
+    assert exile.type == "exile_top_of_library"
+    assert window.type == "cast_window_exiled_pool"
+    assert window.params == {"resolution_local": True, "any_number": True}
 
 
 def test_exile_top_play_this_turn_variant():
@@ -415,8 +416,11 @@ def test_runestone_caverns_end_to_end_exiles_with_play_permission():
     eng.resolve_until_stable()
 
     assert len(p1.library) == library_before - 2
-    exiled = [o for o in p1.exile if o.instance_id in eng.state.temp_play_permissions]
-    assert len(exiled) == 2
+    assert len(p1.exile) == 2
+    assert eng.state.pending_choice['kind'] == 'play_during_resolution'
+    assert not eng.state.temp_play_permissions
+    eng.resolve_pending_choice('decline')
+    assert not eng.state.temp_play_permissions
 
 
 # ---------------------------------------------------------------------------

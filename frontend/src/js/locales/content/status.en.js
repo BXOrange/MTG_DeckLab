@@ -230,6 +230,7 @@ export default [
               ['full', 'Scaling with the {X} paid'],
               ['full', '"Look at the top N, take a matching one"'],
               ['full', '"Exile, you may play it until end of turn"'],
+              ['full', '"Exiled with this card" (607): count, select, return and play/cast linked cards; validate the source and exile zone visits'],
               ['full', 'Phasing — single & for all permanents you control (702.26)'],
               ['full', 'Control swap (701.10, Gilded Drake)'],
               ['full', 'Name a card + dig until a hit'],
@@ -467,8 +468,8 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (68.2% · 23,913 / 35,051, PARSER_VERSION 809)'],
-              ['partial', 'Of which Commander-legal (72.5% · 23,234 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
+              ['partial', 'Total oracle-parser coverage (68.3% · 23,929 / 35,051, PARSER_VERSION 811)'],
+              ['partial', 'Of which Commander-legal (72.7% · 23,312 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],
             ],

@@ -521,8 +521,8 @@ class GrantPlayWindowToPreviousExiledEffect(GameEffect):
         if player is None:
             return
         source_name = self.source.name if self.source is not None else None
-        for obj in list(context.previous_targets or []):
-            if obj is None or obj.zone != Zone.EXILE:
+        for obj, visit in context.latest_exiled_visits:
+            if obj is None or obj.zone != Zone.EXILE or obj.zone_incarnation != visit:
                 continue
             context.engine._grant_temp_play_permission(
                 obj, player, source_name, self.same_turn_only, self.mana_wildcard,
@@ -551,7 +551,8 @@ class CastWindowFromExiledPoolEffect(GameEffect):
     def __init__(
         self, same_turn_only: bool = False, standing: bool = False, only_spells: bool = False,
         mana_wildcard: Optional[str] = None, free: bool = False, card_filter: Optional[dict[str, Any]] = None,
-        resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile", source: Optional["GameObject"] = None,
+        resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile",
+        linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.same_turn_only = bool(same_turn_only)
@@ -563,8 +564,15 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         self.resolution_local = bool(resolution_local)
         self.any_number = bool(any_number)
         self.pool_zone = "graveyard" if pool_zone == "graveyard" else "exile"
+        self.linked = linked
+        self.own_only = own_only
+        self.only_lands = only_lands
 
     def _pool(self, context: GameContext) -> list[Any]:
+        if self.linked:
+            from ..linked_exile import linked_cards
+            return [obj for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)
+                    if not obj.face_down_in_exile]
         pool: list[Any] = []
         visits = (context.latest_milled_visits
                   if self.pool_zone == "graveyard" else context.latest_exiled_visits)
@@ -588,11 +596,15 @@ class CastWindowFromExiledPoolEffect(GameEffect):
             obj for obj in self._pool(context)
             if not card_filter or combat.matches_object_filter(obj, card_filter, state=context.state)
         ]
+        if self.own_only:
+            pool = [obj for obj in pool if obj.owner_id == player.id]
+        if self.only_lands:
+            pool = [obj for obj in pool if obj.card.is_land]
         if self.only_spells:
             pool = [obj for obj in pool if not obj.card.is_land]
         if self.resolution_local:
             context.engine._request_resolution_play(
-                player, pool, zone=self.pool_zone, free=self.free, only_spells=True, repeat=self.any_number,
+                player, pool, zone=self.pool_zone, free=self.free, only_spells=self.only_spells, repeat=self.any_number,
                 mana_wildcard=self.mana_wildcard,
             )
             return
@@ -2523,14 +2535,9 @@ class ExileCastSpellIntoImprintPoolEffect(GameEffect):
         # imprint already used, so a later cast sees every card ever
         # exiled this way, not just the newest one.
         context.state.track_exiled_with(self.source, spell, context.resolving_source_incarnation)
-        candidates = [
-            obj for obj in (
-                context.state.find_object(iid)
-                for iid in self.source.exiled_with_ids
-                if iid != spell.instance_id
-            )
-            if obj is not None and obj.zone == Zone.EXILE
-        ]
+        from ..linked_exile import linked_cards
+        candidates = [obj for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)
+                      if obj.instance_id != spell.instance_id]
         if not candidates:
             return
         context.engine._request_choose_objects(
@@ -3082,7 +3089,9 @@ class ExileTopPlayUntilNextExileEffect(GameEffect):
         if player is None or self.source is None:
             return
         state = context.state
-        for old_id in list(self.source.exiled_with_ids):
+        from ..linked_exile import linked_cards
+        for old in linked_cards(state, self.source, context.resolving_source_incarnation):
+            old_id = old.instance_id
             state.temp_play_permissions.pop(old_id, None)
             state.temp_play_permission_standing.discard(old_id)
             state.temp_play_permission_player.pop(old_id, None)

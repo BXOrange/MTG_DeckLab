@@ -490,8 +490,8 @@ def _context_holds(
         event = getattr(context, "trigger_event", None) or {}
         played_id = event.get("instance_id")
         played = context.state.find_object(played_id) if played_id is not None else None
-        exiled_id = getattr(source, "linked_exile_id", None)
-        exiled = context.state.find_object(exiled_id) if exiled_id is not None else None
+        from .linked_exile import remembered_card
+        exiled = remembered_card(context.state, source, context)
         if played is None or exiled is None:
             return None
         # RULE 205.2a's real card types only — `type_words` always carries
@@ -736,6 +736,8 @@ def pin_source_reference(value: Any, source: Any, incarnation: Optional[int] = N
     """RULE 400.7: an effect's "other" refers to its original source visit."""
     if isinstance(value, dict):
         result = {key: pin_source_reference(child, source, incarnation) for key, child in value.items()}
+        if result.get("linked_exile") and incarnation is not None:
+            result["linked_source_incarnation"] = incarnation
         if result.get("not_reference") and source is not None:
             result.pop("not_reference")
             result["without_object_visit"] = [source.instance_id,

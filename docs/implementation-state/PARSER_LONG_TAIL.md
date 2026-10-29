@@ -14,9 +14,20 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-10-28 at PARSER_VERSION 809: **23,913 / 35,051 cards (68.2%)**,
+Measured on 2026-10-29 at PARSER_VERSION 811: **23,929 / 35,051 cards (68.3%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,296 / 32,068 (72.6%)**.
+Commander-legal coverage: **23,312 / 32,068 (72.7%)**.
+PAR-220 supplies linked-exile operands for counts, card selection/returns and
+standing, temporary or resolution-local cast/play permissions. Source and card
+zone visits govern the new readers and migrated Imprint/ability-borrowing readers;
+Delve links survive casting and entry. Nested static gates retain both conditions,
+and a skipped conditional exile clears its latest-batch receipt. Against v809,
+**21 newly parser-modeled names, 16 additional covered names, zero lost**.
+Three existing spec changes were reviewed: Cloud retains its equipment gate;
+Impossible Inferno and Kirk bind their permission to the actual exile batch.
+The v811 Commander scan records **8,636 open cards / 12,660 fragments**, down from
+8,652 / 12,708 at v809. Unbound "other" exclusions and unsupported mana-spend
+exile riders remain fail-closed.
 PAR-222 composes phase-player instructions and qualified player sets through
 the shared quantifier scopes. Resolution-local action payoffs bind a clone-stable
 current-turn event cursor and wait for all antecedent choices. Against v807,

@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "809"
+PARSER_VERSION = "811"
 
 
 def parser_source_hash() -> str:
@@ -1845,13 +1845,25 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     # one card, stamp ``remember`` onto the companion ETB exile here.
     nodes = list(_effect_nodes(effect_specs))
     def reads_linked_name(value):
+        if isinstance(value, AbilitySpec):
+            return reads_linked_name(value.effects) or reads_linked_name(value.modes)
+        if isinstance(value, EffectSpec):
+            return reads_linked_name(value.params) or reads_linked_name(value.condition)
         if isinstance(value, dict):
-            return value.get('name_reference', {}).get('kind') == 'linked_exile' or any(
+            return value.get('linked_exile') is True or value.get('name_reference', {}).get('kind') == 'linked_exile' or any(
                 reads_linked_name(child) for child in value.values())
         if isinstance(value, list):
             return any(reads_linked_name(child) for child in value)
         return False
-    if any(reads_linked_name(params) for _, params in nodes):
+    if reads_linked_name(effect_specs) or any(kind in {'linked_exile_permission', 'linked_exile_move'} or
+           (kind == 'cast_window_exiled_pool' and params.get('linked')) for kind, params in nodes):
+        # A mana line is otherwise handled by the mana subsystem. Its unsupported
+        # spend-to-exile rider cannot silently create a linked pool (Forger's Foundry).
+        for line in normalized.splitlines():
+            if re.search(r"when you spend this mana[^.]+exile", line):
+                all_claimed = False
+                if line not in unclaimed:
+                    unclaimed.append(line)
         # RULE 607.2a: the name reader and its exile-producing ability share
         # exact source/card visits, including composite and library exiles.
         for kind, params in nodes:

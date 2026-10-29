@@ -294,7 +294,9 @@ class TestBacklogSizes:
         # transformed-return compatibility alias are continuations (net -2).
         # PAR-213 adds one shared bounded-inspection adapter: independent
         # selections and ordered disposal retain the exact same inspected set.
-        assert n <= 120, f"continuation types grew to {n}"
+        # PAR-220 adds one linked-card selector over existing choose_objects
+        # and entry-batch frames; no new answer protocol (120 -> 121).
+        assert n <= 121, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

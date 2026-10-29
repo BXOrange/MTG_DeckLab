@@ -250,7 +250,7 @@ class ChosenObjectActionsMixin:
                 # after this resolves" shape, same field `ExileEffect
                 # (remember=True)` uses for the unrelated O-Ring return.
                 source.linked_exile_id = obj.instance_id
-            if track_exiled_with and source is not None:
+            if (track_exiled_with or remember) and source is not None:
                 # MEC-12: Abdel Adrian's own "exile any number of…" —
                 # `remember`'s accumulating sibling, same field
                 # `ExileEffect(track_exiled_with=True)` uses.

@@ -1650,15 +1650,9 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         # not a colour to choose from).
         if state is None:
             return []
-        imprinted_ids = list(getattr(obj, "linked_exile_ids", None) or [])
-        if getattr(obj, "linked_exile_id", None) is not None:
-            imprinted_ids.append(obj.linked_exile_id)
+        from .linked_exile import remembered_cards
         colors: set[str] = set()
-        for imprinted_id in set(imprinted_ids):
-            imprinted = state.find_object(imprinted_id)
-            if imprinted is None:
-                continue
-            card = getattr(imprinted, "card", imprinted)
+        for imprinted in remembered_cards(state, obj):
             colors |= set(effective_colors(imprinted)) & set(_ALL_COLORS)
         return [{color: 1} for color in sorted(colors)]
     if ability.color_selector in (

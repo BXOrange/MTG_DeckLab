@@ -43,9 +43,6 @@ axis / cards whose every open sentence has it; an overlapping upper bound). Each
 with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
 claimed cards.
 
-- **PAR-220 · Linked exile and cast windows.** `cards exiled with ~` (RULE 607) as a reference and
-  count, `you may cast / play <exiled reference> [this turn / for as long as …]` and `without paying
-  its mana cost` follow-ups over exile. 184+338 / 56+71.
 - **PAR-221 · Control change and counter movement.** `gain control of <object> [for as long as …]`,
   `exchange control of <object> and <object>`, `any number of target creatures` (counted steal),
   `move / remove <quantity> <counter> counters from <object> [onto <object>]`. 140+125 / 65+66.
@@ -62,7 +59,7 @@ claimed cards.
 - **MEC-135 · Play windows from graveyard and library.** `Mill a card. You may play that card this
   turn` (Ark of Hunger, Tablet of Discovery) and reveal-then-cast follow-ups: `_has_temp_play_permission`
   honours only exile, so the permission is recorded but never offered (verified in PAR-214). Engine
-  window plus parser rows. 15 / 3, more once PAR-220 claims the leads.
+  window plus parser rows. 15 / 3.
 
 ## PLR — Player management
 

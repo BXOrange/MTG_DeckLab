@@ -1217,6 +1217,11 @@ def _structured_selector_objects(
         players = [p for p in state.players if p.id == defending_id]
     zone = spec.get("zone", "battlefield")
     filt = spec.get("filter") or None
+    if spec.get('linked_exile'):
+        from .linked_exile import linked_cards
+        return [obj for obj in linked_cards(state, source, spec.get('linked_source_incarnation'))
+                if (scope != 'you' or obj.owner_id == controller_id)
+                and matches_object_filter(obj, filt, reference=source, state=state)]
     matched: list[Any] = []
     for player in players:
         if zone == "battlefield":
@@ -3001,7 +3006,8 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             # "As long as a card exiled with this creature is a creature card, this creature has the power,
             # toughness, and creature types of the last creature card exiled with it." (Duplicant) — read off
             # the source's own Imprint link (`linked_exile_id`) fresh every pass; no creature card there, no effect.
-            linked = state.find_object(getattr(ability.source, "linked_exile_id", None))
+            from .linked_exile import remembered_card
+            linked = remembered_card(state, ability.source)
             if (
                 linked is None or getattr(getattr(linked, "zone", None), "value", None) != "exile"
                 or not linked.card.is_creature
@@ -4044,14 +4050,9 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
         source_mode = ability.params.get("source_mode", "exiled_with")
         donors: list["GameObject"] = []
         if source_mode == "exiled_with":
-            exiled_ids = getattr(source, "exiled_with_ids", None) or []
-            for iid in exiled_ids:
-                card_obj = state.find_object(iid)
-                if card_obj is None or getattr(card_obj, "zone", None) != "exile":
-                    continue
-                if creature_only and not getattr(card_obj.card, "is_creature", False):
-                    continue
-                donors.append(card_obj)
+            from .linked_exile import linked_cards
+            donors = [card for card in linked_cards(state, source)
+                      if not creature_only or card.card.is_creature]
         elif source_mode == "group":
             controller_id = getattr(source, "controller_id", None)
             donors = group_selector_objects(
@@ -6318,6 +6319,11 @@ def _active_free_cast_permission(
     third param just to turn its own controller check off for everyone
     else's benefit too.
     """
+    if obj is not None:
+        from .linked_exile import play_grant
+        grant = play_grant(state, player, obj, card=card, feature="free")
+        if grant is not None and grant.params.get('free'):
+            return grant
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "free_cast_permission":
             continue
@@ -6841,7 +6847,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: UI's layer-trace panel rather than a bare "99", same treatment "cost"
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
-    {"loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition", "damage_source_prevention",
+    {"linked_exile_permission", "loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition", "damage_source_prevention",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",

@@ -110,6 +110,9 @@ library_exile
 exile_discard_play_next_turn
 self_adventure_from_graveyard
 play_window_previous
+linked_exile_move
+exile_play_followup
+linked_exile_play
 exile_cast_window
 exile_top_play
 draw_reveal_cast_free

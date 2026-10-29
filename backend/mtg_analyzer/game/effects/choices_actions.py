@@ -3553,7 +3553,8 @@ class ScrollRackFinishEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        ids = list(getattr(self.source, "exiled_with_ids", None) or [])
+        from ..linked_exile import linked_cards
+        ids = [obj.instance_id for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)]
         self.source.exiled_with_ids = []
         if not ids:
             return

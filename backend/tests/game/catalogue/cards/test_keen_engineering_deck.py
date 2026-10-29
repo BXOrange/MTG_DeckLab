@@ -384,6 +384,7 @@ def test_duplicant_reverts_when_the_imprinted_card_leaves_exile_or_is_not_a_crea
     victim = _filler(engine, "Big Bear", "Creature — Bear", "p2", power=5, toughness=6)
     engine.rules.exile(victim)
     dup.linked_exile_id = victim.instance_id
+    engine.state.track_exiled_with(dup, victim)
     engine.recompute_continuous_effects()
     assert (dup.power, dup.toughness) == (5, 6)
     p2.remove_from_zone(victim, Zone.EXILE)

@@ -1929,6 +1929,13 @@ class SearchMixin:
         if shuffle and not to_library:
             self.shuffle_library(player)
 
+        if remember_source_id is not None:
+            remembered_source = self.state.find_object(remember_source_id)
+            if remembered_source is not None:
+                for obj, dest in zip(chosen, effective_destinations):
+                    if dest == 'exile':
+                        self.state.track_exiled_with(remembered_source, obj, self.context.resolving_source_incarnation)
+
         if track_exiled_with and track_source_id is not None:
             # "…exile them, then incubate 2 **that many times**." (Phyrexian
             # Incubator) — record every card this search sent to exile onto

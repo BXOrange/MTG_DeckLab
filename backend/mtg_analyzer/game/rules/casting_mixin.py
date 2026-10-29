@@ -18,6 +18,8 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+from .. import linked_exile
+
 import copy
 import dataclasses
 import re
@@ -946,6 +948,7 @@ class CastingResolutionMixin:
             # one exiled card — see `GameState.mana_wildcard_permission`.
             wildcard = (
                 self.state.mana_wildcard_permission.get(obj.instance_id)
+                or linked_exile.mana_wildcard(self.state, player, obj)
                 or continuous.standing_mana_wildcard(self.state, player)
             )
             # PAR-19: "Spend only mana produced by basic lands/creatures to
@@ -2625,7 +2628,13 @@ class CastingResolutionMixin:
             self._pending_read_ahead_count = None
             from ..blitz import resolve_blitz
 
+            previous_visit = obj.zone_incarnation
             self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
+            # RULE 400.7 / 607.2q: links established by casting costs or
+            # an as-enters replacement belong to the resulting permanent.
+            linked = self.state.linked_exile_visits.get((obj.instance_id, previous_visit))
+            if linked:
+                self.state.linked_exile_visits[(obj.instance_id, obj.zone_incarnation)] = list(linked)
             resolve_blitz(self.state, obj, item.controller_id)
             if self._attachment_kind(obj) == "enchant":
                 targets = [t for t in target_slots if isinstance(t, (GameObject, Player))]

@@ -549,7 +549,8 @@ class CastExiledWithSourceEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        cards = [context.state.find_object(iid) for iid in self.source.exiled_with_ids]
+        from ..linked_exile import linked_cards
+        cards = linked_cards(context.state, self.source, context.resolving_source_incarnation)
         cards = [obj for obj in cards if obj is not None and obj.zone == Zone.EXILE
                  and (obj.card.is_instant or obj.card.is_sorcery)]
         context.engine._request_resolution_play(player, cards, only_spells=True, free=False,

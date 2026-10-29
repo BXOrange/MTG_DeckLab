@@ -8,6 +8,9 @@ from typing import Any, Optional
 from ..casting_window import (
     parse_dig_cast_free,
     parse_exile_cast_window,
+    parse_linked_play,
+    parse_linked_move,
+    parse_exile_followup,
     parse_exile_copy_cast,
     parse_free_cast_zone,
     parse_graveyard_play_window,
@@ -32,6 +35,7 @@ from ..subtype_vocabulary import SUBTYPES
 from ...normalize import SELF
 from ...spec import EffectSpec
 from ..clause_hooks import match_clause
+from ..clause_reading import PLAYER
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
     CAST_WINDOW_COLORS,
@@ -346,18 +350,28 @@ def _choose_land_of_each_type(m: re.Match[str]) -> list[EffectSpec]:
 # Library slices share one deterministic exile primitive: whose library,
 # which edge to remove from, and how many cards to remove or retain.
 _LIBRARY_EXILE_RE = compile_clause(
-    r"exile (?:(?P<all>all cards)|all but the (?P<keep_edge>top|bottom) "
+    r"(?:(?P<who>that player) exiles|exile) (?:(?P<all>all cards)|all but the (?P<keep_edge>top|bottom) "
     r"(?:(?P<keep_n>\d+) cards?|(?P<keep_one>card))|the (?P<edge>top|bottom) "
     r"(?:(?P<n>\d+) cards?|(?P<one>card))) (?:of|from) "
-    r"(?P<owner>your|target player'?s|target opponent'?s|each player'?s|each opponent'?s) library"
+    r"(?P<owner>your|their|that player'?s|target player'?s|target opponent'?s|each player'?s|each opponent'?s) library"
     r"(?P<face_down> face down)?"
 )
 
 
-def _library_exile(m: re.Match[str]) -> list[EffectSpec]:
+def _library_exile(m: re.Match[str], reading) -> Optional[list[EffectSpec]]:
     owner = m.group("owner").replace("'", "")
     params: dict = {"face_down": bool(m.group("face_down"))}
-    if owner.startswith("target "):
+    if owner in ('their', 'that players'):
+        if (owner == 'their') != bool(m['who']):
+            return None
+        previous = any(ref.kind == PLAYER for ref in reading.referents)
+        params['player'] = {'of': 'previous_player' if previous else 'trigger_player', 'as': 'self'}
+        if not previous:
+            params['event_player_events'] = ['DAMAGE', 'ATTACKS', 'SPELL_CAST', 'STEP_BEGIN',
+                                              'CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER']
+    elif m['who']:
+        return None
+    elif owner.startswith("target "):
         params.update(player_selector="target", target_kind=resolve_target_kind(owner[:-1]))
     else:
         params["player_selector"] = {"your": "controller", "each players": "each_player",
@@ -1732,7 +1746,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("players_cant_cast_types_until", _PLAYERS_CANT_CAST_TYPES_UNTIL_RE, _players_cant_cast_types_until),
     EffectHandler("draw_per_opponent_with_more_cards", _DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE,
                   _draw_per_opponent_with_more_cards),
-    EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
+    EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile, reading_aware=True),
     EffectHandler(
         "exile_discard_play_next_turn",
         _EXILE_DISCARD_PLAY_NEXT_TURN_RE,
@@ -1750,6 +1764,12 @@ ROWS: list[EffectHandler] = [
         _play_window_previous,
     ),
     # PAR-167: the exile clause plus a casting window over its pool (cast/play, filter, free or wild mana, window).
+    EffectHandler("linked_exile_move", compile_clause(r"(?:return|put) [^.]+exiled with (?:~|it) [^.]+\.?"),
+                  lambda m: parse_linked_move(m.group(0))),
+    EffectHandler("exile_play_followup", compile_clause(r"(?:[^.]+, )?(?:you may )?(?:cast|play) [^.]+\.?"),
+                  lambda m, reading: parse_exile_followup(m.group(0), reading), reading_aware=True),
+    EffectHandler("linked_exile_play", compile_clause(r"(?:[^.]+, )?(?:you may )?(?:cast|play) [^.]+exiled with (?:~|it)[^.]*\.?"),
+                  lambda m: parse_linked_play(m.group(0))),
     EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive

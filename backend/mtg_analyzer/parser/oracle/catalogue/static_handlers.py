@@ -55,6 +55,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any, Callable, NamedTuple, Optional, Union
 
+from .casting_window import parse_linked_play
 from .library_permission import parse_graveyard_cast_permission, parse_top_library_permission
 from .named_card_statics import named_card_static_specs
 from .named_choice import enter_card_name_specs
@@ -4785,7 +4786,9 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
             # A `combat_restriction` keeps its own ``condition`` param for the
             # combat-time vocabulary; the RULE 613.6 gate is always
             # ``active_if``, on every spec shape alike.
-            spec.params["active_if"] = dict(condition)
+            previous = spec.params.get("active_if")
+            spec.params["active_if"] = ({"kind": "all", "conditions": [previous, dict(condition)]}
+                                        if previous else dict(condition))
         return specs
 
     m = _DURING_YOUR_TURN_LEADING_RE.fullmatch(text)
@@ -4796,7 +4799,9 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
             return None
         kind = "your_turn" if m.group("which").lower() == "your turn" else "not_your_turn"
         for spec in specs:
-            spec.params["active_if"] = {"kind": kind}
+            previous = spec.params.get("active_if")
+            spec.params["active_if"] = ({"kind": "all", "conditions": [previous, {"kind": kind}]}
+                                        if previous else {"kind": kind})
         return specs
     m = _DURING_YOUR_TURN_TRAILING_KEYWORD_RE.fullmatch(text)
     if m is not None:
@@ -5788,6 +5793,10 @@ def _static_radiation_life_gain(ctx: StaticContext) -> StaticResult:
     if _RADIATION_LIFE_GAIN_RE.fullmatch(text):
         return [EffectSpec("radiation_life_gain", {})]
     return None
+
+
+def _static_linked_exile_permission(ctx: StaticContext) -> StaticResult:
+    return parse_linked_play(ctx.text, static=True)
 
 
 def _static_top_library_permission(ctx: StaticContext) -> StaticResult:
@@ -7226,6 +7235,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("graveyard_library_cast_prohibition", _static_graveyard_library_cast_prohibition),
     StaticMatcher("graveyard_library_entry_prohibition", _static_graveyard_library_entry_prohibition),
     StaticMatcher("radiation_life_gain", _static_radiation_life_gain),
+    StaticMatcher("linked_exile_permission", _static_linked_exile_permission),
     StaticMatcher("top_library_permission", _static_top_library_permission),
     StaticMatcher("top_library", _static_top_library),
     StaticMatcher("graveyard_cast", _static_graveyard_cast),

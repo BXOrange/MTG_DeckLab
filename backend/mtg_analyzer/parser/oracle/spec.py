@@ -1423,6 +1423,10 @@ class AbilitySpec:
         for key, value in selector.items():
             if key == "zone":
                 ok = isinstance(value, str) and value in SELECTOR_ZONES
+            elif key == "linked_source_incarnation":
+                ok = type(value) is int and value >= 0
+            elif key == "linked_exile":
+                ok = isinstance(value, bool)
             elif key == "of":
                 ok = isinstance(value, str) and value in SELECTOR_SCOPES
             elif key == "distinct":

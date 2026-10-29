@@ -21,7 +21,7 @@ import json
 import re
 from .catalogue.combat_phrase import combat_tail
 from .catalogue.clause_reading import (
-    COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, EXILED_REFERENT, REVEALED, REVEALED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
+    COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, EXILED_REFERENT, EXILE_POOL, REVEALED, REVEALED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
     ClauseReading, Referent, PLAYER,
 )
 from dataclasses import dataclass, field, replace
@@ -7570,7 +7570,11 @@ def _parse_effect_body_inner(
                 # A revealed / exiled library card stays nameable until another clause replaces it (RULE 701.20).
                 revealed_refs = tuple(r for r in produces(sub) if r.kind == REVEALED) or tuple(
                     r for r in prev_referents if r.kind == REVEALED)
-                referents = _referents_from(referent, referent_selector, made, target_refs) + player_refs + revealed_refs
+                pool_refs = tuple(r for r in produces(sub) if r.kind == EXILE_POOL)
+                if not pool_refs and all(s.type in {'gain_life', 'lose_life', 'add_mana'} for s in sub):
+                    pool_refs = tuple(r for r in prev_referents if r.kind == EXILE_POOL)
+                referents = (_referents_from(referent, referent_selector, made, target_refs)
+                             + player_refs + revealed_refs + pool_refs)
             if ok:
                 return collected
 
@@ -7907,6 +7911,15 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
         out.append(SELECTOR_REFERENT)
     if specs and specs[-1].type == "counter" and not specs[-1].params.get("destination"):
         out.append(COUNTERED_REFERENT)
+    exile_cores = list(specs)
+    while exile_cores and exile_cores[-1].type in {'gain_life', 'lose_life', 'add_mana'}:
+        exile_cores.pop()
+    if exile_cores and exile_cores[-1].type in {'exile', 'exile_top_of_library'} and not exile_cores[-1].params.get('face_down'):
+        last = exile_cores[-1]
+        group = (last.params.get('count', 1) != 1 or bool(last.params.get('selector'))
+                 or last.params.get('any_number', False)
+                 or last.params.get('player_selector') in ('each_player', 'each_opponent'))
+        out.append(Referent(EXILE_POOL, group=group))
     out.extend(_revealed_card_referent(specs))
     # The creation may be followed, inside the same clause, by riders that already consumed it ("create a token that's a
     # copy of …, except it has "…"" is a copy plus a grant on the copy): the last spec that is not such a rider decides.

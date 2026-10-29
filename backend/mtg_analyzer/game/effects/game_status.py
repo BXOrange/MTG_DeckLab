@@ -1157,6 +1157,8 @@ class ConditionalEffect(GameEffect):
 
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if getattr(self.inner, 'resets_exile_pool', False):
+            context.latest_exiled_visits = []
         if self.inner.source is None:
             self.inner.source = self.source
         if self._condition_holds(context, targets):
@@ -1897,7 +1899,9 @@ class PlayCardsExiledWithSourceEffect(GameEffect):
         if source is None or player is None:
             return
         event = context.trigger_event or {}
-        ids = event.get("cost_exiled_ids", []) if self.from_activation_cost else list(source.exiled_with_ids)
+        from ..linked_exile import linked_cards
+        ids = (event.get("cost_exiled_ids", []) if self.from_activation_cost else
+               [obj.instance_id for obj in linked_cards(context.state, source, context.resolving_source_incarnation)])
         incarnations = event.get("cost_exiled_incarnations", {})
         cards = [
             obj for obj in (context.state.find_object(i) for i in ids)

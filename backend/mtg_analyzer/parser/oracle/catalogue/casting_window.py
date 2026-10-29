@@ -24,6 +24,8 @@ from typing import Callable, Optional
 
 from ..spec import EffectSpec
 from .characteristic_phrase import parse_object_phrase
+from .clause_reading import EXILE_POOL
+from .count_phrase import parse_count_phrase
 
 #: First-sentence effect types that really exile cards this resolution (`GameContext.exiled_objects`).
 _EXILING_TYPES = frozenset({"exile_top_of_library", "exile"})
@@ -50,11 +52,11 @@ _TYPE_FILTERS: dict[str, dict] = {
 _TYPE_WORD = "|".join(sorted(map(re.escape, _TYPE_FILTERS), key=len, reverse=True))
 _WILD_TAIL = (
     r"(?P<wild>,? and (?:you may spend mana as though it were mana of any (?P<wild_what>color|type) to cast "
-    r"(?:that|those) spells?|mana of any (?P<wild_what2>color|type) can be spent to cast (?:that|those) spells?))"
+    r"(?:that|those) spells?|mana of any (?P<wild_what2>color|type) can be spent to cast (?:(?:that|those) spells?|it|them)))"
 )
 
 _CAST_PAIR_RE = re.compile(
-    r"(?P<exile>(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+)\.\s+"
+    r"(?P<exile>(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+?)(?:\.\s+|, then (?:you may )?)"
     # PAR-214: "If it's a Goblin or an artifact card, you may play it this turn." -- for a one-card pool the condition
     # on the card is the pool's filter (nothing else is in the pool to be told apart from it).
     r"(?:if (?:it(?:'s| is)|that card is) (?:an? )?(?P<cond>[^,.]+?)(?: card)?, )?"
@@ -66,6 +68,7 @@ _CAST_PAIR_RE = re.compile(
     r"(?: with mana value (?P<cap>\d+|x) or less)? "
     rf"from among (?:{_PLURAL_POOL})"
     r")"
+    r"(?P<free_before> without paying (?:its|their) mana costs?)?"
     rf"(?P<post> (?:{_WINDOW}))?"
     r"(?P<free> without paying (?:its|their) mana costs?)?"
     rf"(?:{_WILD_TAIL})?\.?",
@@ -86,7 +89,7 @@ def parse_exile_cast_window(
     is_mill = exile[0].type == "mill"
     # The PAR-163 window row already owns "[until the end of your next turn,] you may play/cast that card [...]" after
     # an exile clause; keep its spec rather than restating it here.
-    earlier = match_clause(text.strip().split(".", 1)[1].strip().rstrip("."))
+    earlier = match_clause(text.strip()[len(m["exile"]):].lstrip(". ").rstrip("."))
     # PAR-169: only for an exile that leaves its cards as the previous clause's referent (`ExileEffect`); a library
     # exile (`exile_top_of_library`) records exact zone visits instead, which `cast_window_exiled_pool` reads.
     if (not is_mill and earlier and len(earlier) == 1 and earlier[0].type == "grant_play_window_previous_exiled"
@@ -97,7 +100,9 @@ def parse_exile_cast_window(
         return None  # one window phrase only
     word = window[0] or window[1]
     verb = m.group("verb").lower()
-    free = bool(m.group("free"))
+    if m["free"] and m["free_before"]:
+        return None
+    free = bool(m["free"] or m["free_before"])
     wild = m.group("wild_what") or m.group("wild_what2")
     if free and wild:
         return None
@@ -130,10 +135,7 @@ def parse_exile_cast_window(
         any_number = True
     one_of = quant in ("a", "an")
     if not word:
-        # RULE 608.2g: no window word -- the casting is offered during this resolution (spells only: a land is played,
-        # not cast, and "play" here would need the land-drop machinery).
-        if verb != "cast":
-            return None
+        # RULE 608.2g: no duration word -- offer spells and land plays only during this resolution.
         params["resolution_local"] = True
         if any_number or (m.group("plural") and not one_of):
             params["any_number"] = True
@@ -385,3 +387,114 @@ def parse_exile_copy_cast(
     if not m.group("free"):
         params["free"] = False
     return [exile[0], EffectSpec("copy_imprinted_card", params)]
+
+
+# RULE 607.2a: unlike a pronoun, this pool explicitly names the source's linked cards.
+_LINKED_PLAY_RE = re.compile(
+    rf"(?:(?P<pre>{_WINDOW}), )?(?:you may )?(?P<verb>cast|play) "
+    r"(?:(?P<quant>an?|any number of) )?(?:(?P<type>(?:(?!\bfrom\b)[^.,])+?) )?"
+    r"(?P<noun>cards?|spells?|lands?)"
+    r"(?: from among (?:the )?cards)? (?P<own>you own )?exiled with (?:~|it)"
+    r"(?P<free_before> without paying (?:its|their) mana costs?)?"
+    rf"(?P<post> (?:{_WINDOW}))?"
+    r"(?P<free> without paying (?:its|their) mana costs?)?"
+    rf"(?:{_WILD_TAIL})?\.?", re.IGNORECASE,
+)
+
+
+def parse_linked_play(text: str, *, static: bool = False) -> Optional[list[EffectSpec]]:
+    text = re.sub(r"^(you may )?play lands and cast spells from among (?:the )?cards exiled with ",
+                  r"\1play cards exiled with ", text.strip(), flags=re.I)
+    m = _LINKED_PLAY_RE.fullmatch(text)
+    if m is None or (m['pre'] and m['post']):
+        return None
+    word = (m['pre'] or m['post'] or '').strip().lower()
+    if static and word:
+        return None
+    noun, quant = m['noun'].lower(), (m['quant'] or '').lower()
+    if noun.endswith('s') == (quant in ('a', 'an')):
+        return None
+    if static and quant:
+        return None
+    if m['free'] and m['free_before']:
+        return None
+    if (m['free'] or m['free_before']) and m['wild']:
+        return None
+    filt = {}
+    if m['type']:
+        parsed = parse_object_phrase(m['type'].lower() + ' cards', plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        filt = parsed[0]
+    params = {'linked': True}
+    if m['own']:
+        params['own_only'] = True
+    if filt:
+        params['card_filter'] = filt
+    if m['verb'].lower() == 'cast' or noun.startswith('spell'):
+        params['only_spells'] = True
+    if noun.startswith('land'):
+        params['only_lands'] = True
+    if m['free'] or m['free_before']:
+        params['free'] = True
+    if m['wild']:
+        params['mana_wildcard'] = (m['wild_what'] or m['wild_what2']).lower()
+    if static:
+        return [EffectSpec('linked_exile_permission', params)]
+    if not word:
+        params['resolution_local'] = True
+        params['any_number'] = noun.endswith('s')
+    else:
+        if quant in ('a', 'an'):
+            return None  # a single-use window needs an explicit shared use counter
+        if word.startswith('for as long as'):
+            params['standing'] = True
+        elif word != 'until the end of your next turn':
+            params['same_turn_only'] = True
+    return [EffectSpec('cast_window_exiled_pool', params)]
+
+
+def parse_exile_followup(text, reading):
+    """A pronoun needs an actual preceding exile producer, never a bare 'it'."""
+    pools = [ref for ref in reading.referents if ref.kind == EXILE_POOL]
+    if len(pools) != 1:
+        return None
+    producer = EffectSpec('exile_top_of_library', {
+        'count': 2 if pools[0].group else 1, 'player_selector': 'controller',
+    })
+    def synthetic(clause):
+        return [producer] if clause == 'exile the batch' else None
+    specs = parse_exile_cast_window('exile the batch. ' + text, synthetic)
+    return specs[1:] if specs else None
+
+
+_LINKED_MOVE_RE = re.compile(
+    r"(?:return|put) (?P<quant>an?|all|each|the) (?P<what>.+?) exiled with (?:~|it) "
+    r"(?:(?:to|into) (?P<hand>their owners?' hands|its owner's hand|their owner's hand)"
+    r"|(?:to|into) (?P<graveyard>their owners?' graveyards|its owner's graveyard|their owner's graveyard)"
+    r"|(?:to|onto) the battlefield(?P<tapped> tapped)?(?: under (?P<control>your|their owners?'|its owner's) control)?)\.?",
+    re.I,
+)
+
+
+def parse_linked_move(text):
+    m = _LINKED_MOVE_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    singular = m['quant'] in ('a', 'an')
+    noun_plural = m['what'].split()[-1] == 'cards'
+    if singular == noun_plural:
+        return None
+    selector = parse_count_phrase(m['what'] + ' exiled with ~')
+    if selector is None or not selector.get('linked_exile') or selector.get('filter', {}).get('not_reference'):
+        return None
+    params = {'destination': 'hand' if m['hand'] else 'graveyard' if m['graveyard'] else 'battlefield'}
+    if selector.get('filter'):
+        params['card_filter'] = selector['filter']
+    if not singular:
+        params['all_cards'] = True
+    if params['destination'] == 'battlefield' and m['control'] in (None, 'your'):
+        params['under_your_control'] = True
+    if m['tapped']:
+        params['tapped'] = True
+    return [EffectSpec('linked_exile_move', params)]

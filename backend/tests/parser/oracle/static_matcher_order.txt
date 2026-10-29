@@ -63,6 +63,7 @@ skip_your_step
 graveyard_library_cast_prohibition
 graveyard_library_entry_prohibition
 radiation_life_gain
+linked_exile_permission
 top_library_permission
 top_library
 graveyard_cast

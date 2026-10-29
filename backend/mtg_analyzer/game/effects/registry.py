@@ -36,6 +36,8 @@ EffectRegistry.register("delay_return_dying_subject", lambda p: DelayReturnDying
     tapped=bool(p.get('tapped', False)), extra_counters=p.get('extra_counters'),
 ))
 EffectRegistry.register("recover_instead_of_losing", lambda p: RecoverInsteadOfLosingEffect())
+EffectRegistry.register('linked_exile_permission', lambda p: StaticAbility(
+    'linked_exile_permission', affects='controller', params=dict(p)))
 EffectRegistry.register("opponent_draw_step", lambda p: StaticAbility("opponent_draw_step", affects="controller"))
 EffectRegistry.register("sideboard_cast_permission", lambda p: StaticAbility("sideboard_cast_permission", affects="controller"))
 EffectRegistry.register("loyalty_instant_timing", lambda p: StaticAbility("loyalty_instant_timing", affects="controller"))
@@ -1210,6 +1212,7 @@ EffectRegistry.register(
     lambda p: ExileTopOfLibraryEffect(
         face_down=bool(p.get("face_down", False)),
         player_selector=p.get("player_selector", "controller"),
+        player=p.get("player"),
         count=p["count"] if isinstance(p.get("count"), dict) else int(p.get("count", 1) or 1),
         keep_bottom=p.get("keep_bottom"),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
@@ -3589,6 +3592,8 @@ EffectRegistry.register(
         only_spells=bool(p.get("only_spells", False)), mana_wildcard=p.get("mana_wildcard"),
         free=bool(p.get("free", False)), card_filter=p.get("card_filter"),
         pool_zone=p.get("pool_zone", "exile"),
+        linked=bool(p.get('linked', False)), own_only=bool(p.get('own_only', False)),
+        only_lands=bool(p.get('only_lands', False)),
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
     ),
 )

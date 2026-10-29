@@ -61,3 +61,54 @@ EFFECT_FACTORIES = {
         p.get('stage', 'pay'), p.get('source_visit'), p.get('visits'), p.get('player_id'), cost=p.get('cost')),
     'return_exile_counter_pool': lambda p: ReturnExileCounterPoolEffect(str(p.get('counter', ''))),
 }
+
+
+class LinkedExileMoveEffect(GameEffect):
+    """An untargeted linked-card operand, with serializable exact-visit choices."""
+    def __init__(self, destination='hand', card_filter=None, all_cards=False,
+                 under_your_control=False, tapped=False, visits=None, source=None):
+        super().__init__(source)
+        self.destination, self.card_filter = destination, card_filter
+        self.all_cards, self.under_your_control, self.tapped = all_cards, under_your_control, tapped
+        self.visits = visits
+
+    def apply(self, context, targets=None):
+        from ..linked_exile import linked_cards
+        from ..combat import matches_object_filter
+        player = _controller_of(self.source, context)
+        if self.source is None or player is None:
+            return
+        if self.visits is None:
+            pool = [obj for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)
+                    if matches_object_filter(obj, self.card_filter, state=context.state, reference=self.source)]
+            visits = [(obj.instance_id, obj.zone_incarnation) for obj in pool]
+            if not self.all_cards:
+                context.choose_objects(player, pool, 'select_referent', count=1, source=self.source,
+                    then_specs=[{'type': 'linked_exile_move', 'params': {
+                        'destination': self.destination, 'visits': visits,
+                        'under_your_control': self.under_your_control, 'tapped': self.tapped}}])
+                return
+        else:
+            picked = {obj.instance_id for obj in context.previous_targets}
+            visits = [(iid, visit) for iid, visit in self.visits if iid in picked]
+        # RULE 607.2a / 400.7: never act on a later visit after a pending choice.
+        if self.destination == 'battlefield':
+            start_exile_return_batch(context.engine, visits,
+                controller_id=player.id if self.under_your_control else None,
+                entry_options={'tapped': self.tapped}, source=self.source,
+                source_incarnation=context.resolving_source_incarnation)
+            return
+        for iid, visit in visits:
+            obj = context.state.find_object(iid)
+            if obj is None or obj.zone != Zone.EXILE or obj.zone_incarnation != visit:
+                continue
+            if self.destination == 'hand':
+                context.engine.return_to_hand(obj)
+            elif self.destination == 'graveyard':
+                context.put_into_graveyard(obj)
+
+
+EFFECT_FACTORIES['linked_exile_move'] = lambda p: LinkedExileMoveEffect(
+    destination=p.get('destination', 'hand'), card_filter=p.get('card_filter'),
+    all_cards=bool(p.get('all_cards')), under_your_control=bool(p.get('under_your_control')),
+    tapped=bool(p.get('tapped')), visits=p.get('visits'))

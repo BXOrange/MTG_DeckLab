@@ -1257,6 +1257,8 @@ class LegalActionsMixin:
                 )
                 if castable and self._castable_now_or_via_potential(player, obj):
                     self._offer_cast(actions, player, obj)
+                if castable and self.can_play_land(player, obj):
+                    actions.append(self._land_action(obj))
 
         from ..blitz import graveyard_permission as blitz_graveyard_permission
 

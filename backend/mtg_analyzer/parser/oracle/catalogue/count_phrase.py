@@ -192,6 +192,20 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
             return None
         extra.update(qualifier)
         text = text[: zone_counter.start()]
+    linked = re.fullmatch(r"(?P<head>.+?) exiled with (?:~|it)", text)
+    if linked:
+        head = linked['head']
+        own = head.endswith(' you own')
+        if own:
+            head = head[:-len(' you own')]
+        parsed = parse_object_phrase(head, plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        filt = _merge_filters(parsed[0], extra)
+        if filt is None:
+            return None
+        return {**selector, 'zone': 'exile', 'of': 'you' if own else 'any',
+                'linked_exile': True, **({'filter': filt} if filt else {})}
     for suffix, keys in _ZONE_SUFFIXES:
         if text.endswith(suffix):
             parsed = parse_object_phrase(text[: -len(suffix)], plural=True)
@@ -293,6 +307,9 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
     `<phrase>`" counts the phrase's own location ("… in your graveyard").
     """
     text = text.strip().lower().rstrip(".")
+    linked_exists = re.fullmatch(r"(?P<head>an? .+?) (?:is|are) exiled with (?P<source>~|it)", text)
+    if linked_exists:
+        text = f"there is {linked_exists['head']} exiled with {linked_exists['source']}"
     m = _YOU_MOST.fullmatch(text)
     if m is not None:
         selector = parse_count_phrase(m['phrase'])

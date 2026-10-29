@@ -4172,10 +4172,10 @@ class CopyPermanentEffect(GameEffect):
                             target = candidate
                             break
             elif self.referent == "linked_exile":
-                iid = getattr(self.source, "linked_exile_id", None)
+                from ..linked_exile import remembered_card
+                target = remembered_card(context.state, self.source, context)
                 if self.source is not None:
                     self.source.linked_exile_id = None
-                target = context.state.find_object(iid) if iid is not None else None
             else:
                 target = self.source
         if target is None:

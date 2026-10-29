@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from .. import linked_exile
+
 import itertools
 from copy import copy
 from contextlib import contextmanager
@@ -91,7 +93,7 @@ class LandsMixin:
                 and obj.instance_id not in self.state.temp_play_spells_only
                 and (
                     self._has_temp_play_permission(obj, player, face=face)
-                    or self._has_conditional_exile_permission(obj, player)
+                    or self._has_conditional_exile_permission(obj, player, face=face, land=True)
                 )
             )
             or (
@@ -214,12 +216,17 @@ class LandsMixin:
                 return False
         holder_id = self.state.temp_play_permission_player.get(obj.instance_id)
         return holder_id is None or holder_id == player.id
-    def _has_conditional_exile_permission(self, obj: GameObject, player: Player) -> bool:
+    def _has_conditional_exile_permission(self, obj: GameObject, player: Player,
+                                          face: Optional[str] = None, land: Optional[bool] = None) -> bool:
         """"You may cast this card from exile as long as `<condition>`."
         (Lukka, Coppercoat Outcast) — `GameState.exile_cast_condition`'s
         standing, never-turn-swept sibling of `_has_temp_play_permission`;
         see that field's own docstring for why the two are kept apart.
         """
+        card = self._face_card(obj, face) if face is not None else obj.card
+        if linked_exile.play_grant(self.state, player, obj, card=card,
+                                   land=card.is_land if land is None else land) is not None:
+            return True
         entry = self.state.exile_cast_condition.get(obj.instance_id)
         if entry is None:
             return False
@@ -231,7 +238,7 @@ class LandsMixin:
             source = self.state.find_object(condition["linked_source_id"])
             if (source is None or source.zone != Zone.BATTLEFIELD
                     or source.controller_id != player.id or source.loses_all_abilities
-                    or obj.instance_id not in source.exiled_with_ids):
+                    or not any(obj is card for card in linked_exile.linked_cards(self.state, source))):
                 return False
         return static_conditions.condition_holds(condition, self.state, source, player.id)
     def _graveyard_cast_keyword(self, obj: GameObject) -> Optional[str]:

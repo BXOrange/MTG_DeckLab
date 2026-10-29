@@ -59,6 +59,9 @@ class ExileEffect(GameEffect):
     no-op.
     """
 
+    # RULE 608.2c: even a skipped conditional instruction produces an empty batch.
+    resets_exile_pool = True
+
     def __init__(
         self,
         target: Any = None,
@@ -227,7 +230,7 @@ class ExileEffect(GameEffect):
 
     def _exile_object(self, context: GameContext, obj: Any) -> None:
         source_visit = None
-        if self.track_exiled_with and self.source is not None:
+        if (self.track_exiled_with or self.remember) and self.source is not None:
             incarnation = context.resolving_source_incarnation
             source_visit = (self.source.instance_id, self.source.zone_incarnation
                             if incarnation is None else incarnation)
@@ -391,7 +394,7 @@ class ExileEffect(GameEffect):
             )
             if item is not None and item.obj is not None:
                 context.engine.move_spell_off_stack(item, "exile")
-                if self.track_exiled_with and self.source is not None:
+                if (self.track_exiled_with or self.remember) and self.source is not None:
                     context.state.track_exiled_with(self.source, item.obj, context.resolving_source_incarnation)
             else:
                 self._exile_object(context, target)
@@ -492,6 +495,9 @@ class ExileTopOfLibraryEffect(GameEffect):
     targeted exile adds.
     """
 
+    # RULE 608.2c: even a skipped conditional instruction produces an empty batch.
+    resets_exile_pool = True
+
     def __init__(
         self, face_down: bool = False, player_selector: str = "controller",
         count: int = 1, keep_bottom: Optional[int] = None,
@@ -499,9 +505,11 @@ class ExileTopOfLibraryEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         position: str = "top",
+        player: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.face_down = face_down
+        self.player = player
         self.player_selector = player_selector
         #: "Exile the **bottom** card of each opponent's library face down." (Arvinox, the Mind Flail) — which end of
         #: the library the cards come from (`Player.library`: index 0 is the bottom, ``[-1]`` the top).
@@ -524,7 +532,10 @@ class ExileTopOfLibraryEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         before = len(context.exiled_objects)
-        if self.player_selector == "target":
+        if self.player is not None:
+            from ..effect_operands import player_for
+            players = [player_for(self.player, context, self.source, targets)]
+        elif self.player_selector == "target":
             players = [targets[0]] if targets and hasattr(targets[0], "library") else []
         elif self.player_selector == "active_player":
             players = [context.state.active_player]
@@ -845,10 +856,8 @@ class CopyImprintedCardEffect(GameEffect):
                 player, [copy_obj], free=self.free and not bool(self.cast_cost), only_spells=True,
             )
             return
-        exiled_id = getattr(source, "linked_exile_id", None)
-        if exiled_id is None:
-            return
-        exiled = context.state.find_object(exiled_id)
+        from ..linked_exile import remembered_card
+        exiled = remembered_card(context.state, source, context)
         if exiled is None or exiled.zone != Zone.EXILE:
             return
         controller_id = getattr(source, "controller_id", None)
@@ -2150,16 +2159,11 @@ class ReturnLinkedExileEffect(GameEffect):
                 if obj is not None and obj.zone == Zone.EXILE and obj.zone_incarnation == visit:
                     context.return_from_graveyard(obj, self.destination)
             return
-        linked_id = getattr(self.source, "linked_exile_id", None)
-        linked_ids = list(getattr(self.source, "linked_exile_ids", None) or [])
+        from ..linked_exile import remembered_cards
+        cards = remembered_cards(context.state, self.source, context)
         self.source.linked_exile_id = None
         self.source.linked_exile_ids = []
-        if linked_id is not None and linked_id not in linked_ids:
-            linked_ids.append(linked_id)
-        for instance_id in linked_ids:
-            card_obj = context.state.find_object(instance_id)
-            if card_obj is None or card_obj.zone != Zone.EXILE:
-                continue
+        for card_obj in cards:
             context.return_from_graveyard(card_obj, self.destination)
 
 
@@ -2297,11 +2301,9 @@ class CreateTokenForLinkedExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        linked_id = getattr(self.source, "linked_exile_id", None)
+        from ..linked_exile import remembered_card
+        card_obj = remembered_card(context.state, self.source, context)
         self.source.linked_exile_id = None
-        if linked_id is None:
-            return
-        card_obj = context.state.find_object(linked_id)
         if card_obj is None or card_obj.zone != Zone.EXILE:
             return
         from ...services.token_database import synthesize_token_card
@@ -2391,11 +2393,9 @@ class CreateTokenCopyOfLinkedExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        linked_id = getattr(self.source, "linked_exile_id", None)
+        from ..linked_exile import remembered_card
+        card_obj = remembered_card(context.state, self.source, context)
         self.source.linked_exile_id = None
-        if linked_id is None:
-            return
-        card_obj = context.state.find_object(linked_id)
         if card_obj is None or card_obj.zone != Zone.EXILE:
             return
         controller_id = self.source.controller_id
@@ -3427,7 +3427,8 @@ class BecomeCopyOfImprintedUntilEndOfTurnEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
-        imprinted = context.state.find_object(getattr(source, "linked_exile_id", None)) if source is not None else None
+        from ..linked_exile import remembered_card
+        imprinted = remembered_card(context.state, source, context)
         if source is None or imprinted is None or imprinted is source:
             return
         context.become_copy_until_end_of_turn(source, imprinted, self.add_types or None, self.add_subtypes or None)

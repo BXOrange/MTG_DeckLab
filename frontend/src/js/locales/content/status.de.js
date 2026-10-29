@@ -230,6 +230,7 @@ export default [
               ['full', 'Skalierung mit gewirktem {X}'],
               ['full', '„Sieh dir oberste N an, nimm eine passende"'],
               ['full', '„Exiliere, du darfst bis Zugende spielen"'],
+              ['full', '„Mit dieser Karte exiliert“ (607): verknüpfte Karten zählen, auswählen, zurückbringen und spielen/wirken; Quelle und Exilaufenthalt werden geprüft'],
               ['full', 'Phasing — einzeln & für alle eigenen bleibenden Karten (702.26)'],
               ['full', 'Kontroll-Tausch (701.10, Gilded Drake)'],
               ['full', 'Kartennamen nennen + Graben bis Treffer'],
@@ -467,8 +468,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (68,2 % · 23.913 / 35.051, PARSER_VERSION 809)'],
-              ['partial', 'Davon Commander-legal (72,5 % · 23.234 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (68,3 % · 23.929 / 35.051, PARSER_VERSION 811)'],
+              ['partial', 'Davon Commander-legal (72,7 % · 23.312 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

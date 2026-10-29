@@ -4453,3 +4453,18 @@ in PAR-211 loops. Resolution-local discard/draw/sacrifice outcomes capture an
 current-turn event cursor through the existing `bind` node into continuation
 specs; later payoffs filter the shared player set by actual actions, including
 typed discards, after all antecedent choices.
+
+
+## Versions 810–811 — PAR-220: linked exile references and play windows
+
+Shared linked-exile selectors feed counts, conditions, card selection and
+standing/resolution-local cast or play permissions. Exile follow-ups require
+an actual exile-pool antecedent; player-relative library exiles reuse player
+operands and event-antecedent validation. Legacy linked readers validate exact
+source/card zone visits. Bare play instructions are resolution-local, including
+lands; unsupported mana-spend-to-exile riders remain fail-closed.
+
+Nested static conditions are conjoined instead of overwritten. Untargeted
+linked battlefield returns default to the acting player's control; explicit
+owner-control wording stays distinct. Relative "other" linked-card operands
+whose antecedent is not represented remain unclaimed.

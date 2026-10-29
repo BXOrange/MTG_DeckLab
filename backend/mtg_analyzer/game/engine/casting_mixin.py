@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from .. import linked_exile
+
 from .. import physical_properties
 
 import itertools
@@ -858,7 +860,7 @@ class CastingMixin:
             or self._has_warp_permission(player, obj)
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player, face=face))
-            or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player))
+            or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player, face=face, land=False))
             or self._can_cast_foretold(player, obj)
             or (obj in player.graveyard and blitz is None and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
@@ -1203,6 +1205,7 @@ class CastingMixin:
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = (
                 self.state.mana_wildcard_permission.get(obj.instance_id)
+                or linked_exile.mana_wildcard(self.state, player, obj)
                 or continuous.standing_mana_wildcard(self.state, player)
             )
             require_source_kind = getattr(obj, "mana_source_kind_restriction", None)
@@ -2196,6 +2199,9 @@ class CastingMixin:
                 break
             if res.zone == Zone.GRAVEYARD:
                 self.rules.exile(res)  # RULE 702.66: "Each card you exile … pays for {1}."
+                # RULE 607.2q: Delve's exiles belong to the spell's ensuing
+                # stack visit; resolving it transfers the link to the permanent.
+                self.state.track_exiled_with(obj, res, obj.zone_incarnation + 1)
             else:
                 self.rules.set_tapped(res, True)  # RULE 702.51c/702.126b
                 if self._help_pay_keyword(obj) == "convoke":
@@ -3148,6 +3154,7 @@ class CastingMixin:
                 ))
                 self.rules.exile(victim)
                 obj.linked_exile_id = victim.instance_id
+                self.state.track_exiled_with(obj, victim)
         if cost.behold_two_shared_type:
             # RULE 701.4a (PAR-30, Celestial Reunion): "choose a creature type
             # and behold two creatures of that type." Optional — only reached

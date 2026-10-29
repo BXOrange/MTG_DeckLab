@@ -51,6 +51,9 @@ REVEALED = "revealed"
 REVEALED_CARD = "revealed"
 EXILED_CARD = "created"
 
+# The exact batch a preceding instruction put into exile, for cast/play follow-ups.
+EXILE_POOL = "exile_pool"
+
 
 @dataclass(frozen=True)
 class Referent:

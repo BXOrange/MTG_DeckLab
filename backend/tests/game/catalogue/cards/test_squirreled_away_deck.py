@@ -283,7 +283,7 @@ def test_brewmaster_food_borrows_mana_abilities_as_well_as_stack_abilities():
     elf = GameObject(CardDatabase(DB_PATH).get_card('Llanowar Elves'), owner_id='p1', zone=Zone.EXILE)
     bind_from_catalogue(elf)
     player.exile.append(elf)
-    brew.exiled_with_ids.append(elf.instance_id)
+    engine.state.track_exiled_with(brew, elf)
     from mtg_analyzer.services.token_database import default_token_database
     food = engine.rules.create_token('p1', default_token_database().get_token('Food'))[0]
     engine.recompute_continuous_effects()

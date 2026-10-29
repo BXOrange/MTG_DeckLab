@@ -18,10 +18,8 @@ def reference_names(spec, state, source, candidate=None, context=None, targets=N
         incarnation = getattr(context, 'resolving_source_incarnation', None) if context is not None else None
         if incarnation is None:
             incarnation = source.zone_incarnation
-        visits = state.linked_exile_visits.get((source.instance_id, incarnation), [])
-        objects = [obj for iid, incarnation in visits
-                   if (obj := state.find_object(iid)) is not None
-                   and obj.zone == Zone.EXILE and obj.zone_incarnation == incarnation]
+        from .linked_exile import linked_cards
+        objects = linked_cards(state, source, incarnation)
     elif kind == 'set':
         zone, scope = spec.get('zone'), spec.get('of')
         zone_owner_id = (getattr(source, 'controller_id', None) if scope == 'you'
