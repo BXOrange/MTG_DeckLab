@@ -437,3 +437,17 @@
   gap: 0.2rem;
   width: 100%;
 }
+
+/* Shared board card menus and relations. Popovers remain above the lines. */
+.gf-card-menu { position: fixed; margin: 0; padding: .65rem; width: max-content; max-width: calc(100vw - 1rem); box-sizing: border-box; max-height: 80vh; overflow: auto; background: var(--bg, #202530); color: inherit; border: 1px solid #8793a5; border-radius: .5rem; }
+.gf-menu-option { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.gf-card-menu .gf-card-actions { max-width: none; min-width: 0; justify-content: flex-start; }
+.gf-card-menu .gf-card-action { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.gf-menu-cost { white-space: nowrap; }
+.gf-connection-lines { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 40; overflow: visible; }
+.gf-connection-lines line { stroke-width: 2.5; stroke-dasharray: 7 5; }
+.gf-connection--attack,
+.gf-connection--target { stroke: #ef4444; }
+.gf-connection--block { stroke: #3b82f6; }
+
+.gf-card-menu .gf-card-action:disabled { opacity: .5; cursor: not-allowed; filter: grayscale(1); }

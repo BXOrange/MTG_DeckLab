@@ -10,6 +10,31 @@ the code lands here (Ctrl+F/grep the exact phrase). Entries written before
 exists; both were merged into `BACKLOG.md`, and those mentions have been
 repointed there.
 
+## Card context menus and combat connections (VIS-16)
+
+- Shared Goldfish, Solo, Multiplayer and Replay board: right-click a card to
+  open its legal actions with spell/ability costs and existing payment controls.
+  Attack selection is available both directly under the card and in the menu. Shift+F10 also opens the menu;
+  Escape and clicking outside dismiss it. Cards without legal actions also open
+  a menu: printed activated abilities and applicable cast/land options appear
+  disabled with their costs; cards without such options show a disabled empty
+  state. These informational entries never carry action payloads. Full mana-ability costs
+  render their own tap symbol without an additional decorative tap prefix.
+  Context menus size to their content instead of the card-action column; long
+  labels wrap at the viewport edge.
+- Red dashed lines connect stack targets to their source (or stack card);
+  red dashed attack lines connect selected and declared attackers to the
+  defender’s life total (or attacked permanent); blue dashed lines show draft
+  and declared blocker assignments, including
+  additional attackers blocked by one creature. Geometry follows scrolling,
+  resizing and image loads; subscriptions are released on board stop/repaint.
+- Creature badges display current power / (current toughness minus marked damage)
+  in both board sizes. The Σ breakdown includes marked damage and the resulting
+  display value alongside counters and continuous effects. Engine toughness is
+  unchanged; the display restores when marked damage clears.
+- Chromium verified: menu opening/dismissal, ability dispatch, target/block lines,
+  damage subtraction and reset after a refreshed state.
+
 ## Hand order and playable highlights
 
 - Own visible hands on the shared board can be reordered by drag-and-drop,

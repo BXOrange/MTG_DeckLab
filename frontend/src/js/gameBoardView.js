@@ -1273,6 +1273,64 @@ export function createGameBoardView(opts = {}) {
 
   // --- Rendering ------------------------------------------------------------
 
+  let boardGeometryCleanup = () => {};
+  let cardMenuSerial = 0;
+
+  function wireBoardGeometry() {
+    boardGeometryCleanup();
+    const svg = root.querySelector('.gf-connection-lines');
+    const find = (attr, id) => root.querySelector(`[${attr}="${CSS.escape(String(id))}"]`);
+    const card = id => find('data-instance-id', id)?.querySelector('.card');
+    const stack = id => find('data-stack-id', id)?.querySelector('.card');
+    const draw = () => {
+      if (!svg || !view) return;
+      const lines = [];
+      const connect = (from, to, kind) => {
+        if (!from || !to) return;
+        const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+        if (!a.width || !b.width) return;
+        const offset = kind === 'block' ? 5 : 0;
+        lines.push(`<line class="gf-connection--${kind}" x1="${a.x + a.width / 2 + offset}" y1="${a.y + a.height / 2 + offset}" x2="${b.x + b.width / 2 + offset}" y2="${b.y + b.height / 2 + offset}" />`);
+      };
+      for (const item of view.state.stack || []) {
+        const source = card(item.source?.instance_id) || stack(item.stack_id);
+        for (const target of item.targets || []) {
+          const destination = target.instance_id != null ? card(target.instance_id) || find('data-stack-instance-id', target.instance_id)?.querySelector('.card')
+            : target.player_id != null ? find('data-player-id', target.player_id)?.querySelector('.gf-player-board-head') || find('data-player-id', target.player_id)
+            : stack(target.stack_id);
+          connect(source, destination, 'target');
+        }
+      }
+      for (const object of view.state.battlefield || []) {
+        const draft = attackDraft.get(object.instance_id);
+        const defender = draft ? draft.defender : object.attacking ? object.combat_defender : null;
+        if (defender) {
+          const destination = defender.kind === 'player'
+            ? find('data-player-id', defender.id)?.querySelector('.life-total, .gf-opp-life')
+            : card(defender.instance_id);
+          connect(card(object.instance_id), destination, 'attack');
+        }
+        const attackers = blockDraft.has(object.instance_id) ? [blockDraft.get(object.instance_id)]
+          : [object.blocking, ...(object.additional_blocking || [])].filter(id => id != null);
+        for (const attacker of attackers) connect(card(object.instance_id), card(attacker), 'block');
+      }
+      svg.innerHTML = lines.join('');
+    };
+    const controller = new AbortController();
+    const closeMenus = event => root.querySelectorAll('.gf-card-menu:popover-open').forEach(menu => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !menu.contains(event.target)) menu.hidePopover();
+    });
+    document.addEventListener('pointerdown', closeMenus, { signal: controller.signal });
+    document.addEventListener('keydown', closeMenus, { signal: controller.signal });
+    window.addEventListener('scroll', draw, { capture: true, signal: controller.signal });
+    window.addEventListener('resize', draw, { signal: controller.signal });
+    const observer = new ResizeObserver(draw);
+    observer.observe(root);
+    root.addEventListener('load', draw, { capture: true, signal: controller.signal });
+    boardGeometryCleanup = () => { controller.abort(); observer.disconnect(); };
+    draw();
+  }
+
   function render() {
     if (!root || !view) return;
     const previousChat = root.querySelector('.gf-chat-messages');
@@ -1294,8 +1352,7 @@ export function createGameBoardView(opts = {}) {
     const pending = s.pending_choice;
     syncAttackDraft(actions, s);
 
-    // Index the per-object actions so each card can show its own buttons
-    // directly underneath it. `legal_actions` is already scoped server-side
+    // Index per-object actions for each card’s context menu and attack selection. `legal_actions` is already scoped server-side
     // to the active player, so this naturally only lights up whoever's turn
     // it is — works the same whether there's one live player (goldfish) or
     // two (a Replay puzzle's play mode).
@@ -1315,6 +1372,7 @@ export function createGameBoardView(opts = {}) {
 
     root.innerHTML = `
       <div class="goldfish${compactView ? ' compact-view' : ''}${(pending && !choiceAside) || (castTargeting && !castTargetAside) ? ' choosing' : ''}${pickablesForBoard().length ? ' picking-target' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
+        <svg class="gf-connection-lines" aria-hidden="true"></svg>
         <aside class="gf-rail">
           <div class="gf-rail-turn">
             <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.internal_turn.number }))}">${escapeHtml(t('bd.turn.label', { n: s.turn_nr }))}</span>
@@ -1356,6 +1414,7 @@ export function createGameBoardView(opts = {}) {
       </div>
     `;
     wire();
+    wireBoardGeometry();
     const chatList = root.querySelector('.gf-chat-messages');
     if (chatList) chatList.scrollTop = chatAtBottom ? chatList.scrollHeight : chatScrollTop;
     syncAutoPass();
@@ -2495,6 +2554,25 @@ export function createGameBoardView(opts = {}) {
   }
 
   function wire() {
+    root.querySelectorAll('[data-card-menu]').forEach(slot => {
+      const open = (event) => {
+        if (event.target.closest('.gf-card-menu')) return;
+        event.preventDefault();
+        const menu = document.getElementById(slot.dataset.cardMenu);
+        if (!menu) return;
+        root.querySelectorAll('.gf-card-menu:popover-open').forEach(other => { if (other !== menu) other.hidePopover(); });
+        menu.showPopover();
+        const bounds = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(0, Math.min(event.clientX || slot.getBoundingClientRect().left, window.innerWidth - bounds.width))}px`;
+        menu.style.top = `${Math.max(0, Math.min(event.clientY || slot.getBoundingClientRect().bottom, window.innerHeight - bounds.height))}px`;
+      };
+      slot.addEventListener('contextmenu', open);
+      const tile = slot.querySelector('.card');
+      tile.tabIndex = 0;
+      tile.addEventListener('keydown', event => {
+        if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) open(event);
+      });
+    });
     wireEffectPopovers();
     root.querySelectorAll('[data-chat-emote]').forEach((button) => {
       button.addEventListener('click', () => sendChat(button.dataset.chatEmote));
@@ -3451,7 +3529,7 @@ export function createGameBoardView(opts = {}) {
         : '';
     const order = orderText ? `<span class="gf-stack-order">${escapeHtml(orderText)}</span>` : '';
     return `
-      <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
+      <div data-stack-id="${escapeAttr(item.stack_id)}" class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
         ${imageUrl
           ? `<div class="card has-image gf-stack-art"${displayName ? ` data-hover-card="${escapeAttr(displayName)}" title="${escapeAttr(displayName)}"` : ''}>
@@ -3736,6 +3814,32 @@ export function createGameBoardView(opts = {}) {
     return cardImageUrl(o.card_id, 'small', showBack ? 'back' : 'front');
   }
 
+  // Unavailable options are informational only: never manufacture legal actions
+  // or action payloads from Oracle text. Keep costs and ability text visible.
+  function unavailableCardActionsHtml(o) {
+    const labels = [];
+    if (o.zone === 'hand' || o.zone === 'command' || o.adventure_castable || o.prepared_copy) {
+      labels.push(o.is_land ? t('bd.cast.playLand', { face: '' })
+        : `${t('bd.cast.castPlain', { mode: '', hint: '', face: '' })} ${o.mana_cost || '{0}'}`);
+    }
+    if (!o.face_down) {
+      for (const line of (o.oracle_text || '').split('\n')) {
+        // A printed activated ability has a cost before the colon. Exclude
+        // colons inside reminder text rather than displaying those as actions.
+        const text = line.replace(/\([^)]*\)/g, '').trim();
+        if (text.includes(':')) labels.push(text);
+      }
+      if (o.zone === 'battlefield' && o.is_land && !labels.length) {
+        const basicMana = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
+        for (const [subtype, symbol] of Object.entries(basicMana)) {
+          if ((o.type_line || '').split(/\s+/).includes(subtype)) labels.push(`{T}: {${symbol}}`);
+        }
+      }
+    }
+    if (!labels.length) labels.push(t('bd.menu.noActions'));
+    return `<div class="gf-card-actions">${labels.map(label => `<button type="button" class="gf-card-action" disabled title="${escapeAttr(t('bd.menu.unavailable'))}">${renderOracleText(label)}</button>`).join('')}</div>`;
+  }
+
   function objCard(o, imageCache, cardActions, reorderable = false) {
     const imageUrl = resolveImageUrl(o, imageCache);
     const inner = imageUrl
@@ -3771,15 +3875,20 @@ export function createGameBoardView(opts = {}) {
     if (playableNow) {
       classes.push('castable-highlight');
     }
-    const pt = o.power != null && o.toughness != null ? ` (${o.power}/${o.toughness})` : '';
+    const remainingToughness = o.toughness - (o.damage_marked || 0);
+    const pt = o.power != null && o.toughness != null ? ` (${o.power}/${remainingToughness})` : '';
     const hasBasePt = o.base_power != null && o.base_toughness != null;
     const ptChanged = o.power != null && o.toughness != null && hasBasePt
-      && (o.power !== o.base_power || o.toughness !== o.base_toughness);
-    const compactPt = compactView && o.zone === 'battlefield' && o.is_creature
+      && (o.power !== o.base_power || remainingToughness !== o.base_toughness);
+    const compactPt = o.zone === 'battlefield' && o.is_creature
       && o.power != null && o.toughness != null
-      ? `<span class="gf-compact-pt${ptChanged ? ' is-changed' : ''}" title="${escapeAttr(`${o.power}/${o.toughness}`)}">${o.power}/${o.toughness}</span>`
+      ? `<span class="gf-compact-pt${ptChanged ? ' is-changed' : ''}" title="${escapeAttr(`${o.power}/${remainingToughness}`)}">${o.power}/${remainingToughness}</span>`
       : '';
-    const buttons = cardActionButtons(cardActions);
+    const attackActions = (cardActions || []).filter(a => a.type === 'attack');
+    const menuActions = cardActions || [];
+    const menuId = `gf-card-menu-${o.instance_id}-${++cardMenuSerial}`;
+    const buttons = cardActionButtons(attackActions);
+    const menu = `<div id="${menuId}" popover="manual" class="gf-card-menu" aria-label="${escapeAttr(o.name)}">${menuActions.map(a => `<div class="gf-menu-option">${cardActionButtons([a])}${a.type === 'cast_spell' ? `<span class="gf-menu-cost">${renderOracleText(a.effective_cost || a.cost_label || a.base_cost || o.mana_cost || '{0}')}</span>` : ''}</div>`).join('') || unavailableCardActionsHtml(o)}</div>`;
     const attackBadge = attackDraft.has(o.instance_id)
       ? `<span class="gf-attacking-badge">⚔️ ${escapeHtml(t('bd.attack.selected'))}${attackDraft.get(o.instance_id).defender_label ? ` → ${escapeHtml(attackDraft.get(o.instance_id).defender_label)}` : ''}</span>`
       : o.attacking
@@ -3874,9 +3983,9 @@ export function createGameBoardView(opts = {}) {
     const draggable = reorderable || (cardActions && cardActions.some(isPlayableCardAction));
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
-      <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">
+      <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}"${menu ? ` data-card-menu="${menuId}"` : ''}>
         <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${roomBadge}${effectsSummary}</div>
-        ${buttons}
+        ${buttons}${menu}
       </div>`;
   }
 
@@ -4000,10 +4109,11 @@ export function createGameBoardView(opts = {}) {
   // positioned at the badge by `wire()`'s `toggle` handler (the top layer
   // otherwise centres it).
   function effectSummaryHtml(o) {
-    const trace = o.static_trace || [];
+    const trace = [...(o.static_trace || [])];
+    if (o.is_creature && o.damage_marked) trace.push({ source: 'Schaden in diesem Zug', description: `−${o.damage_marked} Widerstandskraft (Anzeige)`, power: o.power, toughness: o.toughness - o.damage_marked, duration: 'end_of_turn' });
     if (!trace.length || o.instance_id == null) return '';
     const popId = `gf-eff-pop-${o.instance_id}`;
-    const ptResult = o.power != null && o.toughness != null ? `${o.power}/${o.toughness}` : null;
+    const ptResult = o.power != null && o.toughness != null ? `${o.power}/${o.toughness - (o.damage_marked || 0)}` : null;
     const keywords = (o.keywords || []).join(', ');
     const resultParts = [];
     if (ptResult) resultParts.push(`<strong>${escapeHtml(ptResult)}</strong>`);
@@ -4259,7 +4369,7 @@ export function createGameBoardView(opts = {}) {
           if (optsList.length > 1) {
             buttons.push(manaChoiceControlHtml(
               a, optsList, 'tap_for_mana',
-              `⟳ ${renderOracleText(a.cost_label || '')} → X`,
+              `${renderOracleText(a.cost_label || '{T}')} → X`,
               { hasX: true },
             ));
           } else {
@@ -4279,7 +4389,7 @@ export function createGameBoardView(opts = {}) {
         }
         if (optsList.length > 1) {
           const text = extraCost
-            ? `⟳ ${renderOracleText(a.cost_label)} →`
+            ? `${renderOracleText(a.cost_label)} →`
             : '⟳ Tappen';
           buttons.push(manaChoiceControlHtml(
             a, optsList, 'tap_for_mana', text,
@@ -4289,7 +4399,7 @@ export function createGameBoardView(opts = {}) {
           for (const opt of optsList) {
             const glyph = opt.label || '⟳';
             const text = extraCost
-              ? `⟳ ${renderOracleText(a.cost_label)} → ${glyph}`
+              ? `${renderOracleText(a.cost_label)} → ${glyph}`
               : '⟳ Tappen';
             if (a.tap_cost) {
               // Which Elves pay the "tap N" part is the player's own choice
@@ -4979,6 +5089,7 @@ export function createGameBoardView(opts = {}) {
    * otherwise keep ticking against a game this client is no longer in.
    */
   function stop() {
+    boardGeometryCleanup();
     audio.stop();
     audioView = null;
     audioSession = null;

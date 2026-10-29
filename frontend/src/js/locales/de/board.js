@@ -1,5 +1,8 @@
 // DE catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.menu.noActions': 'Keine Spielaktionen verfügbar',
+  'bd.menu.unavailable': 'Momentan nicht verfügbar',
+
   // --- Mulligan (mulligan.js) -------------------------------
   'mulligan.style.london': "London-Mulligan (neue 7, dann N Karten unterlegen)",
   'mulligan.style.next7': "Next 7 (neue 7, nichts unterlegen)",
