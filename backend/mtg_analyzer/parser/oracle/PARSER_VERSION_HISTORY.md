@@ -4468,3 +4468,10 @@ Nested static conditions are conjoined instead of overwritten. Untargeted
 linked battlefield returns default to the acting player's control; explicit
 owner-control wording stays distinct. Relative "other" linked-card operands
 whose antecedent is not represented remain unclaimed.
+
+## Version 813 — PAR-221: counter movement and counted steals
+
+`move <qty> [<kind>] counters from <object> onto <object>` (two targets, or one end the source itself), targeted
+`remove <qty|all> <kind> counters from target <object>`, and `gain control of any number of / up to N target
+creatures until end of turn` with its untap/haste tail. `MoveCountersEffect` gained `kind`, `source_is_self` and
+`dest_is_self`. Up-to-one move ends and symmetric `+2/+2` counters stay unclaimed.

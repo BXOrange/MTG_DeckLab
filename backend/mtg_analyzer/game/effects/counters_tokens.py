@@ -2377,24 +2377,45 @@ class MoveCountersEffect(GameEffect):
         move_all_kinds: bool = False,
         any_number: bool = False,
         choose_kind: bool = False,
+        kind: Optional[str] = None,
+        source_is_self: bool = False,
+        dest_is_self: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = int(count)
+        #: "Move a **+1/+1** counter …" (PAR-221) — only counters of this kind move; ``None`` keeps the
+        #: first-kind-by-iteration reading above.
+        self.kind = kind
+        #: "Move a counter from ~ onto target creature" / "from target creature onto ~": the named source
+        #: is one end of the move and is never targeted (RULE 115.1), so only the other end is announced.
+        self.source_is_self, self.dest_is_self = bool(source_is_self), bool(dest_is_self)
         #: "Move **all** counters from target … onto another target …."
         #: (Nexus Mentality, PAR-60) — every counter of every kind, not just
         #: ``count`` of the first kind.
         self.move_all_kinds = bool(move_all_kinds)
         self.any_number, self.choose_kind = bool(any_number), bool(choose_kind)
-        self.target_spec = TargetSpec(kind=source_target_kind)
-        self.extra_target_specs = (TargetSpec(kind=dest_target_kind, distinct_from_others=True),)
+        if self.source_is_self:
+            self.target_spec = TargetSpec(kind=dest_target_kind)
+        elif self.dest_is_self:
+            self.target_spec = TargetSpec(kind=source_target_kind)
+        else:
+            self.target_spec = TargetSpec(kind=source_target_kind)
+            self.extra_target_specs = (TargetSpec(kind=dest_target_kind, distinct_from_others=True),)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         picks = list(targets or [])
-        src = picks[0] if picks else None
-        dst = picks[1] if len(picks) > 1 else None
+        if self.source_is_self:
+            src, dst = self.source, (picks[0] if picks else None)
+        elif self.dest_is_self:
+            src, dst = (picks[0] if picks else None), self.source
+        else:
+            src = picks[0] if picks else None
+            dst = picks[1] if len(picks) > 1 else None
         if src is None or dst is None or src is dst:
             return
-        available = {k: n for k, n in src.counters.items() if n > 0}
+        available = {k: n for k, n in src.counters.items() if n > 0 and (self.kind is None or k == self.kind)}
+        if not available:
+            return  # RULE 122.3: nothing of that kind to move
         if self.any_number or (self.choose_kind and len(available) > 1):
             _offer_counter_move(context.engine, {
                 "kind": "move_counter_selection", "player_id": _controller_of(self.source, context).id,
@@ -2405,14 +2426,12 @@ class MoveCountersEffect(GameEffect):
             })
             return
         if self.move_all_kinds:
-            for kind, n in list((src.counters or {}).items()):
+            for kind, n in list(available.items()):
                 if n and n > 0:
                     context.add_counters(src, -n, kind, source=self.source)
                     context.add_counters(dst, n, kind, source=self.source)
             return
-        kind = next((k for k, n in (src.counters or {}).items() if n > 0), None)
-        if kind is None:
-            return
+        kind = next(iter(available))
         moved = min(self.count, int(src.counters.get(kind, 0)))
         if moved <= 0:
             return

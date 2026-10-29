@@ -342,6 +342,7 @@ gain_control_while_source
 tap_and_fight
 gain_control_while_tapped
 gain_control_multi_target
+gain_control_multi_eot
 gain_control_permanent
 gain_control_all
 gain_control_eot_per_opponent
@@ -464,6 +465,10 @@ activate_only_if
 activate_only_compound
 win_game
 win_if_empty_library
+remove_named_counter_target
+move_counters_two
+move_counters_from_self
+move_counters_onto_self
 defender_attack_this_turn
 add_counters_devotion
 add_counters_suspected_target

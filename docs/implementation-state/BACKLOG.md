@@ -43,9 +43,8 @@ axis / cards whose every open sentence has it; an overlapping upper bound). Each
 with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
 claimed cards.
 
-- **PAR-221 · Control change and counter movement.** `gain control of <object> [for as long as …]`,
-  `exchange control of <object> and <object>`, `any number of target creatures` (counted steal),
-  `move / remove <quantity> <counter> counters from <object> [onto <object>]`. 140+125 / 65+66.
+- **PAR-221 · Control change and counter movement.** Open: `for as long as …` steals, `exchange control` over
+  `artifact or creature you control`, `with mana value x` / dynamic power bounds, remaining counter-removal costs-as-effects.
 - **PAR-223 · Condition-bound and next-turn durations.** `for as long as <condition>`, `until your
   next upkeep / end step`, `during your next turn`, `until the end of your next turn`; `your_next_turn`
   exists, the others need engine windows (included). 138+105 / 57+40.

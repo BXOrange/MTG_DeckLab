@@ -47,6 +47,7 @@ from .shared import (
     signed_int,
     SINGLE_TYPE_PERMANENT_KINDS,
     SUBJECT,
+    TARGET_B,
 )
 
 
@@ -1185,7 +1186,103 @@ def _defender_attack_turn(m: re.Match[str], reading: ClauseReading) -> Optional[
     })]
 
 
+#: PAR-221, RULE 122.3: "move a +1/+1 counter from target creature onto another target creature", "move all +1/+1
+#: counters from target land you control onto target creature", "move any number of +1/+1 counters from ~ onto target
+#: creature", "move a counter from target creature onto ~". One end may be the source itself (never announced, RULE
+#: 115.1); the other end(s) are targets. `MoveCountersEffect` moves a fixed ``count`` of ``kind`` (any kind when the
+#: counter is unnamed), every counter of ``kind``, or an ``any_number`` choice.
+_MOVE_PERMANENT_KINDS = frozenset({
+    "permanent", "permanent_you_control", "creature", "creature_you_control", "creature_you_dont_control",
+    "artifact", "land", "land_you_control", "nonland_permanent", "enchantment", "planeswalker",
+})
+_MOVE_COUNTERS_HEAD = (
+    r"move (?P<qty>an? |\d+ |all |any number of )"
+    rf"(?:(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) )?counters? from "
+)
+_MOVE_COUNTERS_TWO_RE = compile_clause(rf"{_MOVE_COUNTERS_HEAD}{TARGET} (?:onto|to) (?:another |a second )?{TARGET_B}")
+_MOVE_COUNTERS_FROM_SELF_RE = compile_clause(rf"{_MOVE_COUNTERS_HEAD}~ (?:onto|to) (?:another )?{TARGET}")
+_MOVE_COUNTERS_ONTO_SELF_RE = compile_clause(rf"{_MOVE_COUNTERS_HEAD}{TARGET} (?:onto|to) ~")
+
+
+def _move_counters_params(m: re.Match[str]) -> Optional[dict]:
+    qty = m.group("qty").strip()
+    params: dict = {}
+    ckind = m.group("ckind")
+    if ckind:
+        if ckind[0] in "+-−":
+            kind, multiplier = _counter_kind_and_multiplier(ckind)
+            if multiplier != 1:
+                return None  # a symmetric "+2/+2" counter is not modeled as one counter
+        else:
+            kind = ckind
+        params["kind"] = kind
+    if qty == "all":
+        params["move_all_kinds"] = True  # restricted to ``kind`` by the effect when one is named
+    elif qty == "any number of":
+        params["any_number"] = True
+    else:
+        params["count"] = count_of(qty)
+    return params
+
+
+def _move_end_kind(m: re.Match[str], suffix: str = "") -> Optional[str]:
+    if target_is_optional(m, suffix):
+        return None  # an "up to one target" end is an optional announcement; no printed card needs one here
+    kind = resolve_target_kind(m.group("target" + suffix))
+    return kind if target_kind_allowed(kind, _MOVE_PERMANENT_KINDS) else None
+
+
+def _move_counters_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params, first, second = _move_counters_params(m), _move_end_kind(m), _move_end_kind(m, "_b")
+    if params is None or first is None or second is None:
+        return None
+    return [EffectSpec("move_counters", {**params, "source_target_kind": first, "dest_target_kind": second})]
+
+
+def _move_counters_from_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params, dest = _move_counters_params(m), _move_end_kind(m)
+    if params is None or dest is None:
+        return None
+    return [EffectSpec("move_counters", {**params, "dest_target_kind": dest, "source_is_self": True})]
+
+
+def _move_counters_onto_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params, source = _move_counters_params(m), _move_end_kind(m)
+    if params is None or source is None:
+        return None
+    return [EffectSpec("move_counters", {**params, "source_target_kind": source, "dest_is_self": True})]
+
+
+#: PAR-221, RULE 122.1: the targeted sibling of `_REMOVE_NAMED_COUNTER_SELF_RE` -- "remove a -1/-1 counter from target
+#: creature", "remove all +1/+1 counters from target creature". Exactly ``count`` of the one named ``kind`` (all of it
+#: for "all"); `RemoveCountersEffect` already strips by kind on a target.
+_REMOVE_NAMED_COUNTER_TARGET_RE = compile_clause(
+    rf"remove (?P<qty>an? |\d+ |all )(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) counters? from {TARGET}"
+)
+
+
+def _remove_named_counter_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if target_is_optional(m) or not target_kind_allowed(kind, _MOVE_PERMANENT_KINDS):
+        return None
+    ckind = m.group("ckind")
+    if ckind[0] in "+-−":
+        counter, multiplier = _counter_kind_and_multiplier(ckind)
+        if multiplier != 1:
+            return None
+    else:
+        counter = ckind
+    params: dict = {"target_kind": kind, "kind": counter}
+    if m.group("qty").strip() != "all":
+        params["count"] = count_of(m.group("qty").strip())
+    return [EffectSpec("remove_counters", params)]
+
+
 ROWS: list[EffectHandler] = [
+    EffectHandler("remove_named_counter_target", _REMOVE_NAMED_COUNTER_TARGET_RE, _remove_named_counter_target),
+    EffectHandler("move_counters_two", _MOVE_COUNTERS_TWO_RE, _move_counters_two),
+    EffectHandler("move_counters_from_self", _MOVE_COUNTERS_FROM_SELF_RE, _move_counters_from_self),
+    EffectHandler("move_counters_onto_self", _MOVE_COUNTERS_ONTO_SELF_RE, _move_counters_onto_self),
     EffectHandler("defender_attack_this_turn", _DEFENDER_ATTACK_TURN_RE, _defender_attack_turn, reading_aware=True),
     # MEC-27: "put x +1/+1 counters on target creature, where x is the
     # number of Elves you control." — tried before the plain `add_counters`

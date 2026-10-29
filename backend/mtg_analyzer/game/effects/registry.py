@@ -3855,6 +3855,9 @@ EffectRegistry.register(
         move_all_kinds=bool(p.get("move_all_kinds", False)),
         any_number=bool(p.get("any_number", False)),
         choose_kind=bool(p.get("choose_kind", False)),
+        kind=p.get("kind"),
+        source_is_self=bool(p.get("source_is_self", False)),
+        dest_is_self=bool(p.get("dest_is_self", False)),
     ),
 )
 EffectRegistry.register(

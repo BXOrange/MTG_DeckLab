@@ -1672,6 +1672,20 @@ def _gain_control_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("gain_control_until_eot", params)]
 
 
+#: PAR-221: the temporary sibling -- "gain control of any number of target creatures until end of turn" (Harness by
+#: Force). The same `GainControlUntilEndOfTurnEffect` (untap + haste, RULE 611.2) over several announced targets.
+_GAIN_CONTROL_MULTI_EOT_RE = compile_clause(
+    rf"gain control of {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT}) until end of turn"
+)
+
+
+def _gain_control_multi_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = multi_target_params(m)
+    if params is None or not target_kind_allowed(params["target_kind"], ("creature", "creature_you_dont_control", "permanent", "artifact")):
+        return None
+    return [EffectSpec("gain_control_until_eot", renamed_target_count(params))]
+
+
 #: "those creatures can't block this turn." (Sontaran General, Sparkmage's Gambit) -- the plural pronoun of
 #: `_IF_PREV_CREATURE_CANT_BLOCK_RE`: every creature the previous clause targeted (`CantBlockEffect.previous_subject`).
 _CANT_BLOCK_PREVIOUS_PLURAL_RE = compile_clause(r"(?:those creatures|them) can'?t block this turn")
@@ -1910,6 +1924,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("gain_control_while_tapped", _GAIN_CONTROL_WHILE_TAPPED_RE, _gain_control_while_tapped),
     # PAR-150: "gain control of up to three target creatures" (no duration; Jace, Ingenious Mind-Mage).
     EffectHandler("gain_control_multi_target", _GAIN_CONTROL_MULTI_RE, _gain_control_multi),
+    EffectHandler("gain_control_multi_eot", _GAIN_CONTROL_MULTI_EOT_RE, _gain_control_multi_eot),
     # "gain control of target <permanent> [. untap it]" with no duration —
     # the RULE 611.2 indefinite steal (Keiga, Blatant Thievery; PAR-130).
     EffectHandler(
