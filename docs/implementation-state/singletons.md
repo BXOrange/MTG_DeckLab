@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Current queue (2026-10-07, PARSER_VERSION 618): 181 distinct cards remain UNMODELED in 180 rows. Every listed card resolves in the local 35,099-card cache and is neither MODELED nor AUTHORED.** This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
+**Historical baseline (2026-10-07, PARSER_VERSION 618; later batches below are additional): 181 distinct cards remain UNMODELED in 180 rows. Every listed card resolves in the local 35,099-card cache and is neither MODELED nor AUTHORED.** This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -140,7 +140,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Ignite the Future | `exile the top <n> cards of your library. until the end of your next turn, you may play those cards. if this spell was cast from a graveyard, you may play cards this way without paying their mana costs.` |  |
 | Improvisation Capstone | `exile cards from the top of your library until you exile cards with total mana value <n> or greater. you may cast any number of spells from among them without paying their mana costs.` |  |
 | Increasing Devotion | `create <n> <n>/<n> white human creature tokens. if this spell was cast from a graveyard, create <n> of those tokens instead.` |  |
-| Invasion of Tarkir // Defiant Thundermaw | `when <name> enters, reveal any number of dragon cards from your hand. when you do, <name> deals x plus <n> damage to any other target, where x is the number of cards revealed this way.` |  |
 | Ironsoul Enforcer | `whenever <name> or a commander you control attacks alone, return target artifact card from your graveyard to the battlefield.` |  |
 | Jalira, Master Polymorphist | `<cost>, <cost>, sacrifice another creature: reveal cards from the top of your library until you reveal a nonlegendary creature card. put that card onto the battlefield and the rest on the bottom of your library in a random order.` |  |
 | Jinnie Fay, Jetmir's Second | `if you would create <n> or more tokens, you may instead create that many <n>/<n> green cat creature tokens with haste or that many <n>/<n> green dog creature tokens with vigilance.` |  |
@@ -333,3 +332,58 @@ Each card's "Activate only …" sentence is otherwise claimed; only its conditio
 | Rocket Launcher | controlled continuously since your most recent turn began | Summoning-sickness-style control timestamp for a noncreature. |
 | Sarevok's Tome | "only if you've completed a dungeon" | Completed-dungeon flag per player. |
 
+## Batch 11 — 2026-10-29 status audit: flip cards, battles, Rooms and dungeons (PARSER_VERSION 809)
+
+Explicitly queued from the open card-text coverage in `status.de.js` / `status.en.js`. Current cache data was read without modification; every actionable card below is UNMODELED and not AUTHORED. These are card-specific follow-ups, **not yet verified singletons**: no cache-wide sibling/cluster admission check was performed. Before implementation, recheck the current verdict and shared shapes; route shared work to an existing or new parser ticket. The existing Invasion of Tarkir row was moved here to avoid duplication. Counts cover this batch only, not the historical queue above.
+
+### Flip cards (10 cards)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Akki Lavarunner // Tok-Tok, Volcano Born | `if a red source would deal damage to a player, it deals that much damage plus 1 to that player instead.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Budoka Gardener // Dokai, Weaver of Life | `{4}{g}{g}, {t}: create an x/x green elemental creature token, where x is the number of lands you control.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Curse of the Fire Penguin // Curse of the Fire Penguin Creature | `~ consumes and confuses enchanted creature.`; `when ~ dies, return curse of the fire penguin to the battlefield.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Erayo, Soratami Ascendant // Erayo's Essence | `whenever the fourth spell of a turn is cast, flip ~.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Homura, Human Ascendant // Homura's Essence | `when ~ dies, return it to the battlefield flipped.`; `creatures you control get +2/+2 and have flying and "{r}: ~ gets +1/+0 until end of turn."` | Current unclaimed clauses; singleton/cluster check pending. |
+| Kitsune Mystic // Autumn-Tail, Kitsune Sage | `at the beginning of the end step, if ~ is enchanted by 2 or more auras, flip it.`; `{1}: attach target aura attached to a creature to another creature.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Nezumi Graverobber // Nighteyes the Desecrator | `{1}{b}: exile target card from an opponent's graveyard. if no cards are in that graveyard, flip ~.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Nezumi Shortfang // Stabwhisker the Odious | `{1}{b}, {t}: target opponent discards a card. then if that player has no cards in hand, flip ~.`; `at the beginning of each opponent's upkeep, that player loses 1 life for each card fewer than 3 in their hand.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Sasaya, Orochi Ascendant // Sasaya's Essence | `reveal your hand: if you have 7 or more land cards in your hand, flip ~.`; `whenever a land you control is tapped for mana, add an additional 1 mana of any type that land produced for each other land you control with the same name as it.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Student of Elements // Tobita, Master of Winds | `when ~ has flying, flip it.` | Current unclaimed clauses; singleton/cluster check pending. |
+
+### Battles (11 cards)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Invasion of Alara // Awaken the Maelstrom | `when ~ enters, exile cards from the top of your library until you exile 2 nonland cards with mana value 4 or less. you may cast 1 of those 2 cards without paying its mana cost. put 1 of them into your hand. then put the other cards exiled this way on the bottom of your library in a random order.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Arcavios // Invocation of the Founders | `when ~ enters, search your library, graveyard, and/or outside the game for an instant or sorcery card you own, reveal it, and put it into your hand. if you search your library this way, shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Azgol // Ashen Reaper | `when ~ enters, target player sacrifices a creature or planeswalker of their choice and loses 1 life.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Gobakhan // Lightshield Array | `when ~ enters, look at target opponent's hand. you may exile a nonland card from it. for as long as that card remains exiled, its owner may play it. a spell cast this way costs {2} more to cast.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Lorwyn // Winnowing Forces | `when ~ enters, destroy target non-elf creature an opponent controls with power x or less, where x is the number of lands you control.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Pyrulea // Gargantuan Slabhorn | `when ~ enters, scry 3, then reveal the top card of your library. if it's a land or double-faced card, draw a card.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Ravnica // Guildpact Paragon | `when ~ enters, exile target nonland permanent an opponent controls that isn't exactly 2 colors.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Tarkir // Defiant Thundermaw | `when ~ enters, reveal any number of dragon cards from your hand. when you do, ~ deals x plus 2 damage to any other target, where x is the number of cards revealed this way.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Theros // Ephara, Ever-Sheltering | `when ~ enters, search your library for an aura, god, or demigod card, reveal it, put it into your hand, then shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Invasion of Tolvada // The Broken Sky | `when ~ enters, return target nonbattle permanent card from your graveyard to the battlefield.` | Current unclaimed clauses; singleton/cluster check pending. |
+| The Battle of Dragon Brothers // Fate Reforged | `when ~ enters, choose bolas or ugin.`; `• bolas — destroy all creatures.`; `• ugin — manifest the top 3 cards of your library.` | Current unclaimed clauses; singleton/cluster check pending. |
+
+### Rooms (6 cards)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Central Elevator // Promising Stairs | `when you unlock this door, search your library for a room card that doesn't have the same name as a room you control, reveal it, put it into your hand, then shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Charred Foyer // Warped Space | `once each turn, you may pay {0} rather than pay the mana cost for a spell you cast from exile.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Dazzling Theater // Prop Room | `creature spells you cast have convoke.`; `untap each creature you control during each other player's untap step.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Dollmaker's Shop // Porcelain Gallery | `creatures you control have base power and toughness each equal to the number of creatures you control.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Greenhouse // Rickety Gazebo | `when you unlock this door, mill 4 cards, then return up to 2 permanent cards from among them to your hand.` | Current unclaimed clauses; singleton/cluster check pending. |
+| Walk-In Closet // Forgotten Cellar | `when you unlock this door, you may cast spells from your graveyard this turn, and if a card would be put into your graveyard from anywhere this turn, exile it instead.` | Current unclaimed clauses; singleton/cluster check pending. |
+
+### Dungeon room text (1 room)
+
+| Card / room | Gap | Notes |
+| --- | --- | --- |
+| Undercity — Throne of the Dead Three | `Reveal the top ten cards of your library. Put a creature card from among them onto the battlefield with three +1/+1 counters on it. It gains hexproof until your next turn. Then shuffle.` | Room effect body remains unmodeled; the dungeon engine and room graph exist. Singleton/cluster check pending. |
+
+### Unsupported Rooms (reference only; not actionable queue entries)
+
+These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

@@ -154,6 +154,7 @@ export function createGameBoardView(opts = {}) {
   let view = null;
   let latestByInstance = {};
   let dragSource = null;
+  const handOrder = new Map(); // Local presentation order; never changes game zones.
   let dragHandlersInstalled = false;
   let busy = false;
   let status = '';
@@ -961,6 +962,7 @@ export function createGameBoardView(opts = {}) {
   function start(sid, initialView) {
     const isNewSession = sid !== sessionId;
     if (isNewSession) {
+      handOrder.clear();
       chatError = '';
       waitingChoiceAside = false;
     }
@@ -1917,7 +1919,16 @@ export function createGameBoardView(opts = {}) {
     // Cards actually *in* the array for someone else's hand are ones the
     // server chose to send, i.e. revealed — always shown, whatever the
     // toggle says.
-    return objGrid(p.hand, 'leer', byInstance, pending);
+    if (!isOwn || !p.hand.length) return objGrid(p.hand, 'leer', byInstance, pending);
+    const previous = handOrder.get(p.id) || [];
+    const cards = new Map(p.hand.map(o => [o.instance_id, o]));
+    const order = previous.filter(id => cards.has(id));
+    for (const o of p.hand) if (!order.includes(o.instance_id)) order.push(o.instance_id);
+    handOrder.set(p.id, order);
+    const imageCache = getState().imageCache;
+    return `<div class="card-grid" data-hand-player="${escapeAttr(p.id)}">${order.map(id =>
+      objCard(cards.get(id), imageCache, pending ? [] : byInstance[id] || [], true)
+    ).join('')}</div>`;
   }
 
   // Only rendered on a hand that isn't yours (see `ownHand`) — in
@@ -2661,6 +2672,21 @@ export function createGameBoardView(opts = {}) {
         if (!target) return;
       });
       root.addEventListener('drop', (e) => {
+        const hand = e.target.closest('[data-hand-player]');
+        if (dragSource && hand && hand.dataset.handPlayer === dragSource.playerId) {
+          e.preventDefault();
+          const order = handOrder.get(dragSource.playerId) || [];
+          const targetId = e.target.closest('[data-instance-id]')?.dataset.instanceId;
+          const from = order.indexOf(dragSource.instanceId);
+          const to = targetId ? order.indexOf(targetId) : order.length - 1;
+          if (from >= 0 && to >= 0 && from !== to) {
+            order.splice(to, 0, order.splice(from, 1)[0]);
+          }
+          dragSource = null;
+          clearDragHighlights();
+          render();
+          return;
+        }
         const target = maybeReadDropTargetData(e.target);
         e.preventDefault();
         if (target) {
@@ -3682,7 +3708,7 @@ export function createGameBoardView(opts = {}) {
     return cardImageUrl(o.card_id, 'small', showBack ? 'back' : 'front');
   }
 
-  function objCard(o, imageCache, cardActions) {
+  function objCard(o, imageCache, cardActions, reorderable = false) {
     const imageUrl = resolveImageUrl(o, imageCache);
     const inner = imageUrl
       ? `<img src="${imageUrl}" alt="${escapeHtml(o.name)}" loading="lazy" />`
@@ -3710,16 +3736,13 @@ export function createGameBoardView(opts = {}) {
     // at a glance.
     if (mutualTargetPairIds.has(o.instance_id)) classes.push('gf-mutual-target');
     if (abilitySourceInstanceIds.has(o.instance_id)) classes.push('gf-ability-source');
-    // "Mana-Potenzial": server-computed (`services/game_session.py`'s
-    // `_annotate_castable`) — whether this hand card could be paid for by
-    // tapping/exiling untapped mana sources, purely a mana-affordability
-    // signal (it does *not* imply the play is otherwise legal right now —
-    // timing/targets can still block it). A real "✨ Zaubern"/"⚡
-    // Aktivieren" button, when `legal_actions` offers one, now silently
-    // auto-taps exactly what's missing on click (`GameEngine.cast_spell`/
-    // `activate_ability`'s own `_auto_tap_for_*_if_needed` hook) — so this
-    // highlight is a preview of that, not a separate action to trigger.
-    if (o.castable) classes.push('castable-highlight');
+    // RULE 117.1a / 307.1: the server's legal actions include timing and
+    // priority checks; mana potential alone must never light up a card.
+    const playableNow = (cardActions || []).some(a =>
+      (a.type === 'cast_spell' || a.type === 'play_land') && !selectedKickerAction(a).locked);
+    if (playableNow) {
+      classes.push('castable-highlight');
+    }
     const pt = o.power != null && o.toughness != null ? ` (${o.power}/${o.toughness})` : '';
     const hasBasePt = o.base_power != null && o.base_toughness != null;
     const ptChanged = o.power != null && o.toughness != null && hasBasePt
@@ -3820,7 +3843,7 @@ export function createGameBoardView(opts = {}) {
     const flipButton = o.has_back_face
       ? `<button type="button" class="gf-card-flip" data-flip-toggle="${o.instance_id}" title="Andere Seite ansehen" aria-label="Andere Seite ansehen">🔄</button>`
       : '';
-    const draggable = cardActions && cardActions.some(isPlayableCardAction);
+    const draggable = reorderable || (cardActions && cardActions.some(isPlayableCardAction));
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
       <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">

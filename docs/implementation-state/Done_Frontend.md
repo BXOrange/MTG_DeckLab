@@ -10,6 +10,18 @@ the code lands here (Ctrl+F/grep the exact phrase). Entries written before
 exists; both were merged into `BACKLOG.md`, and those mentions have been
 repointed there.
 
+## Hand order and playable highlights
+
+- Own visible hands on the shared board can be reordered by drag-and-drop,
+  including cards without legal actions. The local order survives view updates;
+  new cards append and a new session resets it. Dropping outside the hand keeps
+  the existing cast/play targeting flow.
+- Green borders follow unlocked server `cast_spell`/`play_land` actions,
+  including priority, phase, stack timing and alternative payment methods,
+  instead of the mana-only `castable` annotation.
+- Verified in Chromium: native hand drag, retained order after a view update,
+  and no highlight for locked or absent actions.
+
 ## Game audio
 
 - Optional synthesized Web Audio effects in the shared board: tap/untap,
