@@ -460,7 +460,7 @@ _NTH_FROM_TOP_WORDS = {"second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _NTH_FROM_TOP = r"(?P<nth>" + "|".join(_NTH_FROM_TOP_WORDS) + r") from the top"
 #: Where "put … into/on … its owner's library" lands: on top, on the bottom, or Nth from the top.
 _LIBRARY_PLACEMENT = (
-    rf"(?:on (?:top|the (?P<pos>bottom)) of (?:its owner's|your) library|into (?:its owner's|your) library {_NTH_FROM_TOP})"
+    rf"(?:on (?:top|(?:the )?(?P<pos>bottom)) of (?:its owner's|your) library|into (?:its owner's|your) library {_NTH_FROM_TOP})"
 )
 
 
@@ -475,12 +475,13 @@ def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     # PAR-104: the three-type pool ("put target artifact, creature, or enchantment on the bottom of its owner's
     # library" — Banishing Stroke, Banishment Decree) has its own frame; before it, it read as any permanent.
-    if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS | {"artifact_creature_or_enchantment"}):
+    if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS | {"artifact_creature_or_enchantment", "attacking_or_blocking_creature"}):
         return None
     return [
         EffectSpec(
             "return_to_library",
-            {"target_kind": kind, **_library_placement_params(m), **optional_param(m)},
+            {"target_kind": kind, **_library_placement_params(m), **optional_param(m),
+             **({"creature_filter": filt} if (filt := resolve_target_creature_state_filter(m.group("target"))) else {})},
         )
     ]
 
@@ -723,7 +724,7 @@ _RETURN_TO_HAND_TWO_COLOR_RE = compile_clause(
 )
 _RETURN_TO_LIBRARY_TWO_COLOR_RE = compile_clause(
     rf"put target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature "
-    rf"on (?:top|the (?P<pos>bottom)) of its owner's library"
+    rf"on (?:top|(?:the )?(?P<pos>bottom)) of its owner's library"
 )
 _RETURN_FROM_GRAVEYARD_TWO_COLOR_RE = compile_clause(
     rf"return target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature card from "

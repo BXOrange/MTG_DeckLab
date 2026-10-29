@@ -3546,6 +3546,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                         source=obj,
                         description=ability.description or "granted activated ability",
                         once_per_turn=bool(ability.params.get("once_per_turn", False)),
+                        per_turn_limit=int(ability.params.get("per_turn_limit", 0)),
                     )
                     state._granted_ability_cache[key] = granted_activated
                 obj._granted_activated_abilities.append(granted_activated)
@@ -4134,6 +4135,7 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
                             source=obj,
                             description=base.description,
                             once_per_turn=base.once_per_turn,
+                            per_turn_limit=base.per_turn_limit,
                         )
                         state._borrowed_ability_cache[key] = granted
                     obj._granted_activated_abilities.append(granted)

@@ -490,7 +490,7 @@ class GameContext:
     def take_extra_turn(self, player: "Player") -> None:
         # RULE 500.7: queue an extra turn for ``player``, taken after the
         # current one (`GameEngine.begin_turn` consumes `state.extra_turns`).
-        self.state.extra_turns.append(player.id)
+        self.state.extra_turns.insert(0, player.id)
 
     def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
         self.engine.set_tapped(target, tapped)
@@ -1776,7 +1776,7 @@ class SkipNextStepEffect(GameEffect):
             chosen = targets[0] if targets else None
             players = [chosen] if chosen is not None and getattr(chosen, "instance_id", None) is None else []
         else:
-            players = [context.state.player_by_id(self.source.controller_id)]
+            players = [_controller_of(self.source, context)]
         for player in players:
             player.player_effects.append(
                 StaticEffect("skip_phase", {"phase": self.step}, duration="once", source=self.source)
@@ -2217,6 +2217,7 @@ class ActivatedAbility(GameEffect):
         modes: Optional[list[dict[str, Any]]] = None,
         once_per_game: bool = False,
         keyword_label: Optional[str] = None,
+        per_turn_limit: int = 0,
     ) -> None:
         super().__init__(source)
         self.effects = effects
@@ -2231,6 +2232,8 @@ class ActivatedAbility(GameEffect):
         self.cost = cost
         self.description = description
         self.once_per_turn = once_per_turn
+        self.per_turn_limit = max(0, int(per_turn_limit))
+        self._activations_this_turn = 0
         self._last_activated_turn: Optional[int] = None
         self.modes = modes
         #: PAR-28 / RULE 702.177a: Exhaust & Power-up — "Activate only once".

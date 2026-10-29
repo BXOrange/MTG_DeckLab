@@ -1731,6 +1731,7 @@ EffectRegistry.register(
         colors=p.get("colors"),
         depth=p.get("depth", 1),
         group=p.get("group"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register("put_hand_on_bottom", lambda p: PutHandOnBottomEffect())
@@ -2568,7 +2569,7 @@ EffectRegistry.register(
     # see its own docstring (PAR-67: a `bind`-measured count reads as an
     # uncoerced ``"$n"`` sentinel the one time `target_specs` builds this
     # effect before substitution runs).
-    lambda p: TakeExtraTurnEffect(count=p.get("count", 1)),
+    lambda p: TakeExtraTurnEffect(count=p.get("count", 1), target_kind=p.get("target_kind")),
 )
 EffectRegistry.register(
     "extra_combat_phase",
@@ -4425,6 +4426,7 @@ EffectRegistry.register(
         affects=p.get("affects", "attached_permanent"),
         params={
             "activated_cost": dict(p.get("cost") or {}),
+            "per_turn_limit": int(p.get("per_turn_limit", 0)),
             "grant_effects": list(p.get("grant_effects", [])),
             "once_per_turn": bool(p.get("once_per_turn", False)),
             "sorcery_speed_only": bool(p.get("sorcery_speed_only", False)),

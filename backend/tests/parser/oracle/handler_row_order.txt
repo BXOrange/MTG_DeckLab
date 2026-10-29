@@ -682,6 +682,7 @@ clashed_opp_creatures_no_untap
 planeswalk
 chaos_ensues
 take_extra_turn
+skip_next_turn
 control_player
 vote_majority
 vote_winner_protection

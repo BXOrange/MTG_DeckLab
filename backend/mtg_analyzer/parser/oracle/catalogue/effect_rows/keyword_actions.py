@@ -654,11 +654,12 @@ def _control_player(m: re.Match[str]) -> list[EffectSpec]:
 # coin that comes up heads" / "…if an opponent cast a blue spell this
 # turn" don't fullmatch this row either — those keep their own count /
 # condition and are their own tickets.
-_TAKE_EXTRA_TURN_RE = compile_clause(r"(?:you )?take an extra turn after this 1")
+_TAKE_EXTRA_TURN_RE = compile_clause(r"(?:(?:you )?take|(?P<target>target player|target opponent) takes) an extra turn after this 1")
 
 
 def _take_extra_turn(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("take_extra_turn", {})]
+    params = {"target_kind": "opponent" if m.group("target") == "target opponent" else "player"} if m.group("target") else {}
+    return [EffectSpec("take_extra_turn", params)]
 
 
 # "Incubate N." (RULE 701.53, PAR-29) — create an Incubator token (a
@@ -2066,6 +2067,11 @@ ROWS: list[EffectHandler] = [
         "take_extra_turn",
         _TAKE_EXTRA_TURN_RE,
         _take_extra_turn,
+    ),
+    # RULE 614.10: one-shot whole-turn replacement, sharing the step-skip primitive.
+    EffectHandler(
+        "skip_next_turn", compile_clause(r"(?:you )?skip your next turn"),
+        lambda m: [EffectSpec("skip_next_step", {"step": "turn"})],
     ),
     # "you control target opponent/player during that player's next
     # turn / combat phase" (RULE 720, MEC-51).

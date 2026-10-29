@@ -39,7 +39,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects.core import ActivatedAbility, GrantSkipExtraTurnsEffect
+from ..effects.core import ActivatedAbility, GrantSkipExtraTurnsEffect, StaticEffect
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -216,22 +216,40 @@ class TurnLoopMixin:
             # turn falls through to the next queued extra turn (or,
             # failing that, normal rotation) rather than handing the
             # skipped player anything.
-            while self.state.extra_turns and any(
-                isinstance(e, GrantSkipExtraTurnsEffect) and permanent.controller_id != self.state.extra_turns[0]
-                for permanent in self.state.battlefield
-                for e in getattr(permanent, "static_effects", None) or []
-            ):
-                self.state.extra_turns.pop(0)
-            if self.state.extra_turns:
-                taker_id = self.state.extra_turns.pop(0)
-                self.state.active_player_index = next(
-                    (i for i, p in enumerate(self.state.players) if p.id == taker_id),
-                    self.state.next_active_index(),
-                )
-            else:
-                # Rotate to the next player, skipping the passive goldfish dummy
-                # (UC3) so a solo game keeps handing turns back to the human.
-                self.state.active_player_index = self.state.next_active_index()
+            resume_id = self.state.extra_turn_resume_player_id
+            normal_index = next(
+                (i for i, p in enumerate(self.state.players) if p.id == resume_id),
+                self.state.next_active_index(),
+            )
+            if self.state.players[normal_index].has_lost:
+                self.state.active_player_index = normal_index
+                normal_index = self.state.next_active_index()
+            while True:
+                is_extra = bool(self.state.extra_turns)
+                if is_extra:
+                    taker_id = self.state.extra_turns.pop(0)
+                    self.state.active_player_index = next(
+                        (i for i, p in enumerate(self.state.players) if p.id == taker_id), normal_index,
+                    )
+                else:
+                    self.state.active_player_index = normal_index
+                candidate = self.state.active_player
+                if is_extra and any(
+                    isinstance(e, GrantSkipExtraTurnsEffect) and permanent.controller_id != candidate.id
+                    for permanent in self.state.battlefield
+                    for e in getattr(permanent, "static_effects", None) or []
+                ):
+                    continue
+                # RULE 614.10a: one replacement skips one whole turn; the
+                # other replacements wait for the next occurrence.
+                skip = next((e for e in candidate.player_effects if isinstance(e, StaticEffect) and e.skips_step("turn")), None)
+                if skip is None:
+                    self.state.extra_turn_resume_player_id = self.state.players[normal_index].id if is_extra else None
+                    break
+                if skip.duration == "once":
+                    candidate.player_effects.remove(skip)
+                if not is_extra:
+                    normal_index = self.state.next_active_index()
             self._advance_turn_nr()
         active = self.state.active_player
         active.turns_taken += 1  # RULE 500.1: this begins one more of the player's own turns

@@ -161,6 +161,7 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
             tail = re.sub(r'^ (get|gain|lose|draw|discard|mill|become|attack|block|assign)\b', lambda m: ' ' + m[1] + 's', tail)
         rewritten = text[:start] + phrase + tail
         rewritten = re.sub(r"\bto their owners?' hands\b", "to its owner's hand", rewritten)
+        rewritten = re.sub(r"\bof their owners?' libraries\b", "of its owner's library", rewritten)
         if rewritten == text:
             continue
         effects = match(rewritten, reading=reading)

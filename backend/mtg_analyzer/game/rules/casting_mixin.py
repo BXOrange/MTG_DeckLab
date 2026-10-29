@@ -2490,7 +2490,7 @@ class CastingResolutionMixin:
                 for token in made:
                     self.set_tapped(token, True)
         elif quality == "extra turn":                    # 702.174g
-            self.state.extra_turns.append(recipient.id)
+            self.state.extra_turns.insert(0, recipient.id)
         else:
             return False
         self.state.fire_event(GameEvent(

@@ -225,7 +225,9 @@ class ActivationMixin:
             # here — a detained permanent's mana ability staying usable is a
             # known minor deviation, no detain target in the cache has one.)
             return False
-        if ability.once_per_turn and ability._last_activated_turn == self.state.internal_turn.number:
+        limit = 1 if ability.once_per_turn else ability.per_turn_limit
+        if (limit and ability._last_activated_turn == self.state.internal_turn.number
+                and (ability.once_per_turn or ability._activations_this_turn >= limit)):
             return False
         once_key = id(ability)
         used_once = getattr(source, "used_once_per_game_abilities", set())
@@ -1943,7 +1945,10 @@ class ActivationMixin:
         # enough (no shipped card depends on two X-cost activations of the
         # same permanent racing on the stack) to accept as-is.
         source.x_paid = x
-        if ability.once_per_turn:
+        if ability.once_per_turn or ability.per_turn_limit:
+            if ability._last_activated_turn != self.state.internal_turn.number:
+                ability._activations_this_turn = 0
+            ability._activations_this_turn += 1
             ability._last_activated_turn = self.state.internal_turn.number
         if getattr(ability, "once_per_game", False):
             # PAR-28 / RULE 702.177a: mark this Exhaust/Power-up ability used

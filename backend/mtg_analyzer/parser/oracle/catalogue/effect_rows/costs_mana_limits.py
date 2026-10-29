@@ -1784,11 +1784,11 @@ def _win_if_empty_library(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("win_game", {"if_empty_library": True})]
 
 
-_ONCE_PER_TURN_RE = compile_clause(r"activate (?:this ability )?only once each turn")
+_ONCE_PER_TURN_RE = compile_clause(r"activate (?:this ability )?(?:only once|no more than (?P<twice>twice)) each turn")
 
 
 def _once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec(ONCE_PER_TURN_MARKER, {})]
+    return [EffectSpec(ONCE_PER_TURN_MARKER, {"count": 2} if m.group("twice") else {})]
 
 
 _TRIGGER_ONCE_PER_TURN_RE = compile_clause(r"this ability triggers only once each turn")

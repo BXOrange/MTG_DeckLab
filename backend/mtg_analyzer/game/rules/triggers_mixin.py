@@ -759,7 +759,7 @@ class TriggerCollectionMixin:
                     and getattr(tc, "grant_extra_turn_after", False)
                     and tc.controlled_id not in self.state.extra_turns
                 ):
-                    self.state.extra_turns.append(tc.controlled_id)
+                    self.state.extra_turns.insert(0, tc.controlled_id)
             return
         if event.type != EventType.TURN_BEGIN:
             return

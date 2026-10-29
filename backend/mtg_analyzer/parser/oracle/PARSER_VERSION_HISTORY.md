@@ -4505,3 +4505,15 @@ instead of a cleanup approximation. Unknown bodies, conditions and competing clo
 A trailing duration never retimes previous sentences or a different named object.
 Target announcement nodes may accompany a continuous effect but cannot carry a
 lifetime on their own. Successful older handlers retain precedence over composition.
+
+## Version 818 — PAR-224: existing-effect grammar and counted activation caps
+
+Targeted extra turns carry their player target; next-turn skips install the shared
+one-shot skip primitive. Twice-per-turn activation markers bind a counted cap,
+including quoted grants and borrowed abilities. Library operations reuse shared
+object operands and retain combat/tapped target restrictions.
+
+## Version 819 — PAR-224: explicit turn-skip row and stable grant specs
+
+Whole-turn skips have their own handler row. Unrestricted and once-per-turn
+quoted grants retain their established spec shape; counted caps carry a limit.

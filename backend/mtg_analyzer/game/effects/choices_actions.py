@@ -3844,8 +3844,11 @@ class TakeExtraTurnEffect(GameEffect):
     the number of "time" votes.
     """
 
-    def __init__(self, count: Any = 1, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, count: Any = 1, source: Optional["GameObject"] = None,
+                 target_kind: Optional[str] = None) -> None:
         super().__init__(source)
+        if target_kind in ("player", "opponent"):
+            self.target_spec = TargetSpec(kind=target_kind)
         # Not cast to ``int`` here (PAR-67, Sage of Hours): a `bind`
         # (RULE 608.2) node substitutes its sentinel only at `apply()` time,
         # so a `bind`-measured ``count`` still reads as ``"$n"`` while
@@ -3855,7 +3858,7 @@ class TakeExtraTurnEffect(GameEffect):
         self.count = count
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
+        player = (targets[0] if targets else None) if self.target_spec is not None else _controller_of(self.source, context)
         if player is None:
             return
         try:

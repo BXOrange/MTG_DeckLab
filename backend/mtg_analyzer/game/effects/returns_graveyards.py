@@ -480,9 +480,12 @@ class ReturnToLibraryEffect(GameEffect):
         colors: Optional[list[str]] = None,
         depth: int = 1,
         group: Optional[dict[str, Any]] = None,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Put target attacking creature on the bottom of its owner's library." (Condemn) — narrows the target.
+        self.creature_filter = dict(creature_filter) if creature_filter else None
         #: "Put all creatures on the bottom of their owners' libraries." (Terminus, Hallowed Burial) — a structured
         #: battlefield selector (`_group_objects`), `ReturnToHandEffect.group`'s library sibling. Each owner's cards
         #: go in the order found (RULE 401.4 lets them arrange them; the engine keeps one fixed order).
@@ -501,7 +504,8 @@ class ReturnToLibraryEffect(GameEffect):
         #: from the top." (Shattered Ego): the Aura's host, not a target.
         self.attached = target_kind == "attached_permanent"
         self.target_spec = (
-            TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors)
+            TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors,
+                       creature_filter=self.creature_filter)
             if target_kind and self.group is None and not self.attached else None
         )
 

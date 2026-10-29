@@ -3272,6 +3272,7 @@ def bind_ability(
     # effects and fold it into `ActivatedAbility.once_per_turn` instead
     # (mirroring `TriggeredAbility.once_per_turn`'s RULE 603.2 stamp).
     once_per_turn = False
+    per_turn_limit = 0
     sorcery_speed_only = False
     only_during_your_turn = False
     only_before_attackers = False
@@ -3299,8 +3300,10 @@ def bind_ability(
         x_color_marker = next((e for e in effect_specs if e.type == X_SPEND_COLOR_MARKER), None)
         if x_color_marker is not None:
             x_spend_color = str(x_color_marker.params.get("color") or "") or None
-        if any(e.type == ONCE_PER_TURN_MARKER for e in effect_specs):
-            once_per_turn = True
+        limits = [int(e.params.get("count", 1)) for e in effect_specs if e.type == ONCE_PER_TURN_MARKER]
+        if limits:
+            per_turn_limit = min(limits)
+            once_per_turn = per_turn_limit == 1
         if any(e.type == SORCERY_SPEED_MARKER for e in effect_specs):
             sorcery_speed_only = True
         if any(e.type == ONLY_DURING_YOUR_TURN_MARKER for e in effect_specs):
@@ -3594,6 +3597,7 @@ def bind_ability(
         source=source,
         description=description,
         once_per_turn=once_per_turn,
+        per_turn_limit=per_turn_limit,
         modes=activated_modes,
         once_per_game=once_per_game,
         attach_kind=cost.attach_kind,

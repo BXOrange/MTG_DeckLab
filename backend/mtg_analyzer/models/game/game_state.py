@@ -933,13 +933,11 @@ class GameState:
         #: deep-copies with `clone`.
         self.forced_vote_controller_id: Optional[str] = None
 
-        #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
-        #: "take an extra turn after this one" (Final Fortune, the Time Warp
-        #: family) appends here; `GameEngine.begin_turn` pops the front instead
-        #: of rotating the normal round-robin, so an inserted turn is taken
-        #: right after the current one (and before the next player's) — RULE
-        #: 500.7. Plain board state — deep-copies with `clone`.
+        #: RULE 500.7: the most recently inserted extra turn is taken first.
+        #: The saved regular successor is retained across every inserted turn
+        #: (including an opponent's) and deep-copies with clone/undo.
         self.extra_turns: list[str] = []
+        self.extra_turn_resume_player_id: Optional[str] = None
 
         #: RULE 500.4-adjacent "after this combat phase, there is an
         #: additional combat phase[, followed by an additional main

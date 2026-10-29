@@ -2654,7 +2654,9 @@ def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
         # marker EffectSpec into `grant_effects` for `build_effects` to choke
         # on) — this nested parse doesn't go through `bind_ability` itself.
         effect_specs = spec.effects
-        once_per_turn = any(e.type == ONCE_PER_TURN_MARKER for e in effect_specs)
+        limits = [int(e.params.get("count", 1)) for e in effect_specs if e.type == ONCE_PER_TURN_MARKER]
+        per_turn_limit = min(limits) if limits else 0
+        once_per_turn = per_turn_limit == 1
         sorcery_speed_only = any(e.type == SORCERY_SPEED_MARKER for e in effect_specs)
         effect_specs = [
             e for e in effect_specs
@@ -2670,6 +2672,7 @@ def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
             "cost": cost,
             "grant_effects": [{"type": e.type, "params": e.params} for e in effect_specs],
             "once_per_turn": once_per_turn,
+            **({"per_turn_limit": per_turn_limit} if per_turn_limit > 1 else {}),
             "sorcery_speed_only": sorcery_speed_only,
             "affects": "attached_permanent",
         })]
