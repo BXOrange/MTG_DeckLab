@@ -4649,10 +4649,17 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
   missing/revoked tokens are rejected, and public snapshots omit secrets.
 - **Token API and adapter:** `/api/mcp-seat` provides redacted view/wait,
   actor-validated action/concede and setup-only name/own-decklist routes.
-  Optional `mtg_mcp` stdio exposes six tools with MCP SDK 1.x/2.x import support;
+  Optional `mtg_mcp` stdio exposes gameplay tools with MCP SDK 1.x/2.x import support;
   it normalizes legal attack offers and requires explicit ambiguous defenders.
   Tokens are configured by the host outside MCP tools. Solo rejects MCP seats
   because it has no lobby/token lifecycle. See [MCP.md](../Reference/MCP.md).
+- **Passing unused windows:** MCP state text identifies pass-only and mana-only
+  windows and directs the client to pass rather than wait while holding priority.
+  `yield_priority` exposes the existing opponent-turn and own-end-step controls
+  from the seat's view, guarded by priority, an empty stack and no pending choice.
+  The stdio match checks that an end-step yield still permits later combat victory.
+  Validation: 111 adapter/stdio/multiplayer checks passed; regular backend suite:
+  17,796 passed, 489 skipped.
 - **Validation:** MCP SDK 2.3.0 client/subprocess against an isolated HTTP server
   verified all tools, hidden opponent hands and a shortened complete match ending
   in combat victory. Final adapter/token/stdio/Solo checks: 21 passed; broader

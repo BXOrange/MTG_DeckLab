@@ -4,7 +4,7 @@ import json
 import pytest
 
 from mtg_mcp.client import SeatClient, SeatError, action_payload
-from mtg_mcp.render import render_state
+from mtg_mcp.render import render_state, yield_modes
 
 
 def _payload(view):
@@ -25,6 +25,41 @@ def test_render_lists_actions_by_index_and_hides_them_from_state():
 
 def test_render_without_actions_says_so():
     assert "none" in render_state(_payload({"state": {}, "legal_actions": []}))
+
+
+@pytest.mark.parametrize('active,step,expected', [
+    ('bot:1', 'main2', ['end_step']), ('opponent', 'main1', ['turn']),
+    ('bot:1', 'end', []),
+])
+def test_yield_controls_and_pass_guidance(active, step, expected):
+    payload = _payload({'state': {'active_player_id': active, 'current_step': step},
+                        'priority': {'interactive': True},
+                        'legal_actions': [{'type': 'pass_priority'}]})
+    assert yield_modes(payload) == expected
+    text = render_state(payload)
+    assert 'No non-pass actions' in text
+    assert "submit_action(index=0, expected_type='pass_priority')" in text
+    for mode in expected:
+        assert f"yield_priority(mode='{mode}')" in text
+
+
+@pytest.mark.parametrize('change', [
+    {'state': {'active_player_id': 'bot:1', 'stack': [{}]}},
+    {'pending_choice': {'id': 'choice'}}, {'legal_actions': []},
+    {'priority': {'interactive': False}},
+])
+def test_yield_not_offered_during_stack_choice_or_without_priority(change):
+    payload = _payload({'state': {'active_player_id': 'bot:1', 'current_step': 'main2'},
+                        'priority': {'interactive': True},
+                        'legal_actions': [{'type': 'pass_priority'}], **change})
+    assert yield_modes(payload) == []
+
+
+def test_mana_only_is_not_mistaken_for_useful_plays():
+    text = render_state(_payload({'legal_actions': [
+        {'type': 'tap_for_mana'}, {'type': 'pass_priority'}]}))
+    assert 'Only mana actions' in text
+    assert 'No non-pass actions' not in text
 
 
 def test_unreachable_server_is_a_seat_error():

@@ -45,7 +45,7 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
             async with ClientSession(read, write) as mcp:
                 await mcp.initialize()
                 assert {tool.name for tool in (await mcp.list_tools()).tools} == {
-                    'select_seat', 'get_state', 'wait_for_turn', 'submit_action', 'set_name', 'get_decklist', 'concede'}
+                    'select_seat', 'get_state', 'wait_for_turn', 'submit_action', 'yield_priority', 'set_name', 'get_decklist', 'concede'}
 
                 async def call(name, arguments=None):
                     result = await mcp.call_tool(name, arguments or {})
@@ -56,6 +56,7 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
 
                 assert 'not started' in await call('select_seat', {'seat_token': token})
                 assert 'not started' in await call('get_state')
+                assert 'yield mode unavailable' in await call('yield_priority', {'mode': 'end_step'})
                 assert 'stdio player' in await call('set_name', {'name': 'stdio player'})
                 assert '99 Forest' in await call('get_decklist')
                 http.post(f'/api/multiplayer/games/{gid}/ready', json={'playerId': host})
@@ -66,6 +67,7 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
                 # commander play normally; two combat hits finish the game.
                 session.engine.state.player_by_id(host).life = 2
                 did_attack = False
+                did_yield = False
                 for _ in range(MAX_MATCH_ACTIONS):
                     payload = await call('wait_for_turn', {'timeout_seconds': 0})
                     encoded = payload.split('## State\n', 1)[1].split('\n## Legal actions', 1)[0]
@@ -74,6 +76,7 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
                     if state['game_over']:
                         assert state['winner_id'] == seat_id
                         assert did_attack
+                        assert did_yield
                         return
                     opponent = next(player for player in state['players'] if player['id'] == host)
                     assert opponent['hand'] == []
@@ -83,6 +86,13 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
                             index, encoded_action = line[1:].split('] ', 1)
                             actions.append((int(index), json.loads(encoded_action)))
                     if actions:
+                        if (state['active_player_id'] == seat_id and state['current_step'] == 'main2'
+                                and not state.get('stack') and not view.get('pending_choice')
+                                and all(action['type'] in {'pass_priority', 'tap_for_mana'} for _, action in actions)):
+                            result = await call('yield_priority', {'mode': 'end_step'})
+                            assert result.startswith('Yield applied.'), result
+                            did_yield = True
+                            continue
                         preference = {'keep_hand': 0, 'play_land': 1, 'cast_spell': 2, 'attack': 3, 'pass_priority': 9}
                         index, action = min(actions, key=lambda pair: preference.get(pair[1]['type'], 8))
                         args = {'index': index, 'expected_type': action['type']}

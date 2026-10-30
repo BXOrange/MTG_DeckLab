@@ -5,7 +5,7 @@ import os
 from typing import Any, Optional
 
 from .client import SeatClient, SeatError, action_payload
-from .render import render_state
+from .render import render_state, yield_modes
 
 #: Default long-poll length of `wait_for_turn`; the server caps it anyway.
 DEFAULT_WAIT_SECONDS = 20.0
@@ -14,7 +14,12 @@ PLAY_INSTRUCTIONS = (
     "Use select_seat with the seat token given by the user before playing. You play one Magic seat. Loop: wait_for_turn, read the state, pick one entry of "
     "'Legal actions' and call submit_action with its index (add params only when the "
     "action needs a choice, e.g. targets). If the server rejects an action, read the "
-    "reason and choose again. Only offered actions are possible; never invent one."
+    "reason and choose again. Only offered actions are possible; never invent one. "
+    "When finished acting, submit the offered pass_priority instead of waiting while holding priority. "
+    "Use yield_priority('turn') to pass unused windows on an opponent's turn, or "
+    "yield_priority('end_step') when finished with your own plays and combat. "
+    "Yielding still stops for opponent stack items and pending choices. At your end step, pass_priority to finish. "
+    "With no legal actions, call wait_for_turn. Mana actions alone are not a reason to keep acting."
 )
 
 
@@ -104,6 +109,26 @@ def build_server(base_url: str, server_token: str):
             return "Action applied.\n" + render_state(result)
         except Exception as exc:  # the action is already applied; never report it as failed
             return f"Action applied, but the new state could not be rendered ({exc!r}). Call get_state."
+
+    @server.tool()
+    def yield_priority(mode: str) -> str:
+        """Pass unused windows: 'turn' on an opponent's turn, 'end_step' on yours.
+
+        Use only when finished with plays and combat. Stops for opponent stack
+        items and choices; end_step holds at your end step. Use submit_action
+        with pass_priority to pass just one window or resolve the current stack.
+        """
+        try:
+            payload = client.view()
+            if mode not in yield_modes(payload):
+                return "Not played: yield mode unavailable. Call get_state and use an offered action."
+            result = client.action({"type": "set_yield", "mode": mode})
+        except SeatError as exc:
+            return f"Rejected: {exc}"
+        try:
+            return "Yield applied.\n" + render_state(result)
+        except Exception as exc:
+            return f"Yield applied, but the new state could not be rendered ({exc!r}). Call get_state."
 
     @server.tool()
     def concede() -> str:
