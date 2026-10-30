@@ -260,7 +260,8 @@ export function createSoloView() {
   async function loadBotKinds() {
     botKinds = [];
     const res = await fetchBotKinds();
-    botKinds = res.ok ? res.data?.bots || [] : [];
+    // MCP seats need a host-issued lobby token; Solo has no such seat lifecycle.
+    botKinds = res.ok ? (res.data?.bots || []).filter(bot => bot.kind !== 'mcp') : [];
     // Default every empty row to the first kind (usually the Goldfisch-Bot).
     if (botKinds.length) {
       for (const row of opponents) if (!row.kind) row.kind = botKinds[0].kind;

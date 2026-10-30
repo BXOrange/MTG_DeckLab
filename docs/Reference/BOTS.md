@@ -19,7 +19,8 @@ Architecture and driver rules for bot seats. Policy detail lives elsewhere:
   `play()` only if it holds priority. Subclasses override policy only.
 - Policies (`services/bot_policies/`, one class per file; `services/bots.py`
   reexports them and owns the registry and driver): `GoldfishBot`, `GreedyBot`,
-  `ManaMaximizerBot`, `SmartBot`, `SmartBot2`, `AIBot`. `prepare(session)` attaches policy
+  `ManaMaximizerBot`, `SmartBot`, `SmartBot2`, `AIBot`, `McpBot` (seat played by an external
+  MCP client, see [MCP.md](MCP.md); falls back to Smart Bot while the client is silent). `prepare(session)` attaches policy
   context before each fresh view.
 - `SmartBot2` uses a separate mechanic/style profile, action utility and
   bounded combat/timing/choice planning; see [SMART_BOT.md](SMART_BOT.md).

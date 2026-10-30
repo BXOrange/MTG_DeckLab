@@ -55,7 +55,9 @@ lobby.
 
 from __future__ import annotations
 
+import hmac
 import random
+import secrets
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -63,9 +65,24 @@ from typing import Any, Optional
 
 from mtg_analyzer.config import (
     CLIENT_TOKEN_VALIDITY_SECONDS,
+    MCP_SEAT_STALE_SECONDS,
     MULTIPLAYER_DISCONNECT_GRACE_SECONDS,
     MULTIPLAYER_IDLE_TIMEOUT_SECONDS,
 )
+
+#: `Seat.bot_kind` of a seat an external MCP client plays (`mtg_mcp`). Lives
+#: here, not in `services/bots.py`, because the seat's readiness depends on it
+#: and this module stays free of bot policies.
+MCP_BOT_KIND = "mcp"
+
+#: Entropy of an MCP seat token. The app has no auth, so the token is the
+#: only thing standing between the LAN and a seat; 32 bytes is far beyond
+#: guessable.
+MCP_SEAT_TOKEN_BYTES = 32
+
+#: Longest display name an MCP client may give its seat; the name is shown on
+#: every browser's lobby and board, so an unbounded one could flood them.
+MCP_SEAT_NAME_MAX_LENGTH = 40
 
 
 def normalize_name(name: str) -> str:
@@ -254,13 +271,34 @@ class Seat:
     ready: bool = False
     bot_kind: Optional[str] = None
     banner_color: Optional[str] = None
+    #: MCP seats only: the secret the host copies into the MCP client's
+    #: configuration. Never serialized by `to_dict` (the snapshot goes to
+    #: every connected browser); the host fetches it via `Lobby.mcp_seat_token`.
+    seat_token: Optional[str] = None
+    #: MCP seats only: `time.monotonic()` of the client's last call.
+    mcp_last_seen: Optional[float] = None
 
     @property
     def is_bot(self) -> bool:
         return bool(self.bot_kind)
 
     @property
+    def is_mcp(self) -> bool:
+        return self.bot_kind == MCP_BOT_KIND
+
+    @property
+    def mcp_connected(self) -> bool:
+        """Whether the client behind an MCP seat has been heard from lately."""
+        if not self.is_mcp or self.mcp_last_seen is None:
+            return False
+        return time.monotonic() - self.mcp_last_seen <= MCP_SEAT_STALE_SECONDS
+
+    @property
     def is_ready(self) -> bool:
+        if self.is_mcp:
+            # A client that never connected has not "accepted" anything, so
+            # unlike other bots it can hold the table back.
+            return bool(self.deck_id) and self.mcp_connected
         return bool(self.deck_id) if self.is_bot else self.ready
 
     def to_dict(self) -> dict[str, Any]:
@@ -273,6 +311,7 @@ class Seat:
             "bot_kind": self.bot_kind,
             "is_bot": self.is_bot,
             "banner_color": self.banner_color,
+            "mcp_connected": self.mcp_connected if self.is_mcp else None,
         }
 
 
@@ -730,9 +769,56 @@ class Lobby:
             is_bot=True,
         )
         self._players[bot.id] = bot
-        game.seats.append(Seat(player_id=bot.id, name=bot.name, bot_kind=kind))
+        seat = Seat(player_id=bot.id, name=bot.name, bot_kind=kind)
+        if seat.is_mcp:
+            seat.seat_token = secrets.token_urlsafe(MCP_SEAT_TOKEN_BYTES)
+        game.seats.append(seat)
         self._unready(game)
         return game
+
+    def mcp_seat_token(self, game_id: str, requester_id: str, bot_id: str) -> str:
+        """The token of an MCP seat, for the host to paste into the client."""
+        game = self.game(game_id)
+        if game.host_id != requester_id:
+            raise LobbyError("only the host can read a seat token")
+        seat = game.seat_for(bot_id)
+        if seat is None or not seat.seat_token:
+            raise LobbyError("that seat is not an MCP seat")
+        return seat.seat_token
+
+    def rename_mcp_seat(self, game: LobbyGame, seat: Seat, name: str) -> str:
+        """Let the client behind an MCP seat choose its display name (setup only)."""
+        if game.status != SETUP:
+            raise LobbyError("the seat can only be renamed before the game starts")
+        clean = " ".join((name or "").split())[:MCP_SEAT_NAME_MAX_LENGTH]
+        if not clean:
+            raise LobbyError("the name must not be empty")
+        seat.name = clean
+        player = self._players.get(seat.player_id)
+        if player is not None:
+            player.name = clean
+        return clean
+
+    def seat_for_token(self, token: str) -> Optional[tuple[LobbyGame, Seat]]:
+        """Find the MCP seat a token belongs to (constant-time compare)."""
+        if not token or not token.isascii():
+            return None
+        found: Optional[tuple[LobbyGame, Seat]] = None
+        for game in self._games.values():
+            for seat in game.seats:
+                if seat.seat_token and hmac.compare_digest(seat.seat_token, token):
+                    found = (game, seat)
+        return found
+
+    def mcp_heartbeat(self, game: LobbyGame, seat: Seat) -> bool:
+        """Mark an MCP seat as heard from. True when it was not connected before.
+
+        A returning client changes what the lobby shows (and, while the table
+        is forming, whether it can start), so the caller broadcasts on True.
+        """
+        was_connected = seat.mcp_connected
+        seat.mcp_last_seen = time.monotonic()
+        return not was_connected
 
     def remove_bot(self, game_id: str, requester_id: str, bot_id: str) -> LobbyGame:
         """Take a bot back off the table (host only)."""

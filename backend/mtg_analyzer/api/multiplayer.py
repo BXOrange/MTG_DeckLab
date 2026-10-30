@@ -50,6 +50,8 @@ no human at it.)
 from __future__ import annotations
 
 import random
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -246,6 +248,34 @@ async def add_bot(
     name = request.name or BOT_TYPES[request.kind].label
     game = _guard(lambda: lobby.add_bot(game_id, request.player_id, request.kind, name))
     return await _game_response(lobby, game)
+
+
+def _mcp_launch_hint() -> dict[str, str]:
+    """Where the adapter (`backend/mtg_mcp`) can be started from, for the host.
+
+    The MCP client launches it from whatever directory it was opened in, and
+    `python -m mtg_mcp` only resolves from `backend/`, so the setup command
+    has to carry the interpreter and `PYTHONPATH` explicitly. Prefers the
+    project venv (where `requirements-mcp.txt` is installed) over the
+    interpreter running the server.
+    """
+    backend_dir = Path(__file__).resolve().parents[2]
+    venv_python = backend_dir / "venv" / "bin" / "python"
+    python = venv_python if venv_python.exists() else Path(sys.executable)
+    return {"python": str(python), "backend_dir": str(backend_dir)}
+
+
+@router.post("/games/{game_id}/bots/token")
+def mcp_seat_token(
+    game_id: str, request: MultiplayerBotRemoveRequest, lobby: Lobby = Depends(get_lobby)
+) -> dict[str, Any]:
+    """An MCP seat's token, for the host to copy into the client (host only).
+
+    Deliberately not part of any lobby snapshot or broadcast: the token is
+    the seat's only credential.
+    """
+    token = _guard(lambda: lobby.mcp_seat_token(game_id, request.player_id, request.bot_id))
+    return {"seat_token": token, **_mcp_launch_hint()}
 
 
 @router.post("/games/{game_id}/bots/remove")

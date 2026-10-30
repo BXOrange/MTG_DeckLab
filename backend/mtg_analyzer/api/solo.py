@@ -41,6 +41,7 @@ from mtg_analyzer.api.game import resolve_seat_deck
 from mtg_analyzer.api.schemas import GameActionRequest, SoloStartRequest
 from mtg_analyzer.models.decks.formats import FORMATS
 from mtg_analyzer.services.bots import BOT_ID_PREFIX, BOT_TYPES, create_bot, run_bots
+from mtg_analyzer.services.lobby import MCP_BOT_KIND
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
@@ -74,6 +75,8 @@ def start(
     if request.game_format is not None and request.game_format not in FORMATS:
         raise HTTPException(400, f'Unknown format "{request.game_format}"')
     for opp in opponents:
+        if opp.kind == MCP_BOT_KIND:
+            raise HTTPException(400, 'MCP seats require the multiplayer lobby and a seat token')
         if opp.kind not in BOT_TYPES:
             raise HTTPException(400, f'Unknown bot kind "{opp.kind}"')
 

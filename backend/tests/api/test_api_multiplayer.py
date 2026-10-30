@@ -861,7 +861,7 @@ class TestBots:
     def test_the_catalogue_lists_every_bot_kind(self, env):
         bots = env["client"].get("/api/multiplayer/bots").json()["bots"]
         kinds = {b["kind"]: b for b in bots}
-        assert set(kinds) == {"goldfish", "greedy", "smart", "smart2", "ai", "mana_maximizer"}
+        assert set(kinds) == {"goldfish", "greedy", "smart", "smart2", "ai", "mana_maximizer", "mcp"}
         assert kinds["goldfish"]["label"] and kinds["goldfish"]["description"]
 
     def test_the_host_can_seat_a_bot(self, env):
@@ -1386,3 +1386,149 @@ class TestWatchdog:
             pong = _drain_until(socket, "pong")
             assert pong == {"type": "pong"}
         assert env["lobby"].player(ann).last_action_at > before
+
+
+class TestMcpSeat:
+    """PLR-16: a seat an external MCP client plays through its seat token."""
+
+    def _table(self, env):
+        client, decks = env["client"], env["decks"]
+        ann = _connect(client, "Ann")
+        deck = _legal_deck(decks)
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/bots", json={"playerId": ann, "kind": "mcp"}
+        ).json()
+        seat_id = body["game"]["seats"][1]["player_id"]
+        for seat in (None, seat_id):
+            payload = {"playerId": ann, "deckId": deck.id}
+            if seat:
+                payload["seatId"] = seat
+            client.post(f"/api/multiplayer/games/{gid}/deck", json=payload)
+        client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": ann})
+        token = client.post(
+            f"/api/multiplayer/games/{gid}/bots/token", json={"playerId": ann, "botId": seat_id}
+        ).json()["seat_token"]
+        return gid, ann, seat_id, token, {"Authorization": f"Bearer {token}"}
+
+    def test_token_is_never_in_the_public_snapshot(self, env):
+        gid, ann, seat_id, token, _ = self._table(env)
+        assert token not in str(env["client"].get("/api/multiplayer/lobby").json())
+        assert token not in str(env["client"].get(f"/api/multiplayer/games/{gid}?player_id={ann}").json())
+
+    def test_token_comes_with_a_launch_hint_that_resolves_the_adapter(self, env):
+        from pathlib import Path
+
+        client = env["client"]
+        gid, ann, seat_id, token, _ = self._table(env)
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/bots/token", json={"playerId": ann, "botId": seat_id}
+        ).json()
+        assert body["seat_token"] == token
+        # The adapter is only importable from `backend/`, which the MCP client
+        # does not run in, so the hint has to name that directory.
+        assert (Path(body["backend_dir"]) / "mtg_mcp" / "__main__.py").is_file()
+        assert Path(body["python"]).is_file()
+
+    def test_only_the_host_can_read_the_token(self, env):
+        client = env["client"]
+        gid, ann, seat_id, _, _ = self._table(env)
+        bob = _connect(client, "Bob")
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/bots/token", json={"playerId": bob, "botId": seat_id}
+        )
+        assert response.status_code == 400
+
+    def test_seat_is_not_ready_until_the_client_connects(self, env):
+        client = env["client"]
+        gid, ann, seat_id, _, headers = self._table(env)
+        game = client.get(f"/api/multiplayer/games/{gid}?player_id={ann}").json()["game"]
+        assert game["seats"][1]["ready"] is False
+        assert game["seats"][1]["mcp_connected"] is False
+        assert client.get("/api/mcp-seat/view", headers=headers).status_code == 200
+        game = client.get(f"/api/multiplayer/games/{gid}?player_id={ann}").json()["game"]
+        assert game["seats"][1]["ready"] is True
+        assert game["seats"][1]["mcp_connected"] is True
+
+    def test_a_wrong_or_missing_token_is_rejected(self, env):
+        client = env["client"]
+        self._table(env)
+        assert client.get("/api/mcp-seat/view").status_code == 401
+        assert client.get("/api/mcp-seat/view", headers={"Authorization": "Bearer nope"}).status_code == 401
+
+    def test_client_plays_its_own_seat_and_cannot_act_out_of_turn(self, env):
+        client = env["client"]
+        gid, ann, seat_id, _, headers = self._table(env)
+        client.get("/api/mcp-seat/view", headers=headers)
+        client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": ann})
+        started = client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        assert started.status_code == 200
+        view = client.get("/api/mcp-seat/view", headers=headers).json()
+        assert view["seat_id"] == seat_id
+        # Opponent hand stays hidden from the MCP seat (RULE 400.2).
+        assert view["view"] is not None
+        waited = client.get("/api/mcp-seat/wait?timeout=0", headers=headers).json()
+        assert "timed_out" in waited
+        rejected = client.post(
+            "/api/mcp-seat/action", headers=headers, json={"action": {"type": "no_such_action"}}
+        )
+        assert rejected.status_code == 400
+
+    def test_a_silent_client_is_replaced_by_smart_bot(self, env):
+        from mtg_analyzer.services.bots import bots_for_game
+
+        gid, ann, seat_id, _, headers = self._table(env)
+        env["client"].get("/api/mcp-seat/view", headers=headers)
+        game = env["lobby"].game(gid)
+        assert [b.kind for b in bots_for_game(game).values()] == ["mcp"]
+        game.seats[1].mcp_last_seen = None  # the client went away
+        assert [b.kind for b in bots_for_game(game).values()] == ["smart"]
+
+    def test_action_and_concede_responses_carry_the_seat_id(self, env):
+        client = env["client"]
+        gid, ann, seat_id, _, headers = self._table(env)
+        client.get("/api/mcp-seat/view", headers=headers)
+        client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": ann})
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        view = client.get("/api/mcp-seat/view", headers=headers).json()["view"]
+        action = (view.get("legal_actions") or [None])[0]
+        if action is not None:
+            response = client.post("/api/mcp-seat/action", headers=headers, json={"action": action})
+            assert response.status_code == 200
+            assert response.json()["seat_id"] == seat_id
+        conceded = client.post("/api/mcp-seat/concede", headers=headers)
+        assert conceded.status_code == 200
+        assert conceded.json()["seat_id"] == seat_id
+
+    def test_client_can_name_its_seat_in_setup_only(self, env):
+        client = env["client"]
+        gid, ann, seat_id, _, headers = self._table(env)
+        named = client.post("/api/mcp-seat/name", headers=headers, json={"name": "  Claude   Opus "})
+        assert named.status_code == 200 and named.json()["name"] == "Claude Opus"
+        game = client.get(f"/api/multiplayer/games/{gid}?player_id={ann}").json()["game"]
+        assert game["seats"][1]["name"] == "Claude Opus"
+        assert client.post("/api/mcp-seat/name", headers=headers, json={"name": "  "}).status_code == 409
+        long_name = client.post("/api/mcp-seat/name", headers=headers, json={"name": "x" * 500}).json()["name"]
+        assert len(long_name) == 40
+        client.get("/api/mcp-seat/view", headers=headers)
+        client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": ann})
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        assert client.post("/api/mcp-seat/name", headers=headers, json={"name": "Late"}).status_code == 409
+
+    def test_client_reads_its_own_decklist_and_needs_the_token(self, env):
+        client = env["client"]
+        gid, ann, seat_id, _, headers = self._table(env)
+        deck = client.get("/api/mcp-seat/deck", headers=headers)
+        assert deck.status_code == 200
+        body = deck.json()
+        assert "Test Commander" in body["commander"] and "99 Forest" in body["mainboard"]
+        assert client.get("/api/mcp-seat/deck").status_code == 401
+
+
+    def test_non_ascii_and_revoked_mcp_tokens_are_rejected(self, env):
+        gid, host, seat_id, token, headers = self._table(env)
+        assert env['lobby'].seat_for_token('🤖') is None
+        removed = env['client'].post(f'/api/multiplayer/games/{gid}/bots/remove',
+                                     json={'playerId': host, 'botId': seat_id})
+        assert removed.status_code == 200
+        assert env['client'].get('/api/mcp-seat/view', headers=headers).status_code == 401

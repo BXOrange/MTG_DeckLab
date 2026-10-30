@@ -1,0 +1,2 @@
+# Optional: only for the MCP seat adapter (backend/mtg_mcp), not for the app.
+mcp>=1.0

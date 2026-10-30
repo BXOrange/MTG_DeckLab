@@ -264,6 +264,15 @@ MULTIPLAYER_IDLE_TIMEOUT_SECONDS = _cfg_float(
     "MTG_MULTIPLAYER_IDLE_TIMEOUT", "multiplayer", "idle_timeout_seconds", 120, minimum=0.0
 )
 
+#: How long an MCP-controlled seat (`services/lobby.MCP_BOT_KIND`) may stay
+#: silent before Smart Bot plays for it. The adapter's long-poll and every
+#: action count as a sign of life; the window must outlast one slow LLM
+#: "thinking" turn between two calls, or the seat would flap between the
+#: client and the fallback. 0 means the seat never counts as connected.
+MCP_SEAT_STALE_SECONDS = _cfg_float(
+    "MTG_MCP_SEAT_STALE", "multiplayer", "mcp_seat_stale_seconds", 120, minimum=0.0
+)
+
 #: How long a disconnected player's seat is held open. Reconnecting within
 #: this window (same player name — see `services/lobby.py`) puts them back in
 #: the same seat with the game as they left it; letting it lapse concedes

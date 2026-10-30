@@ -329,6 +329,18 @@ class MultiplayerReadyRequest(MultiplayerPlayerRequest):
     ready: bool = True
 
 
+class McpSeatActionRequest(BaseModel):
+    """Body of POST /api/mcp-seat/action; the seat comes from the token."""
+
+    action: dict
+
+
+class McpSeatNameRequest(BaseModel):
+    """Body of POST /api/mcp-seat/name."""
+
+    name: str
+
+
 class MultiplayerActionRequest(MultiplayerPlayerRequest):
     """Request body for POST /api/multiplayer/games/{id}/action.
 

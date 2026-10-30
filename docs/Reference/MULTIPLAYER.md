@@ -19,6 +19,10 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
   zones server-side (RULE 400.2; `observer_view()` hides everyone's); `/ws/lobby`
   is presence and push channel and sends each participant their own view; and
   priority is played out for real.
+- External MCP-controlled bot seats use a host-issued seat token, redacted views
+  and the same action/priority checks as other seats. A silent client falls back
+  to Smart Bot and can reclaim the seat by reconnecting. Setup, token API and
+  the optional stdio adapter are documented in [MCP.md](MCP.md).
 - `Seat.banner_color` is cosmetic, lives in the lobby (Setup shows it before a
   game), reaches the board via `seatStatus`; palette derived in `bannerColors.js`.
 - Table feed (`services/table_feed.py`): quick/custom emoji reactions plus

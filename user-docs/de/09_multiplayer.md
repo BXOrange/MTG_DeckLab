@@ -182,6 +182,13 @@ Checkbox ändern, niemanden wählen oder die Empfehlung wiederherstellen. Erst
 Spieler erhält eine weitere Marke **jeder** vorhandenen Art – auch bei gemischten
 positiven und negativen Marken. Bei mehrfacher Proliferation wählst du jedes Mal neu.
 
+**MCP-Client** ist eine weitere Option im Multiplayer: Der Host wählt das
+Deck und kopiert über **🔑** den angezeigten Startbefehl in die Konfiguration
+des externen MCP-Clients. Der Sitz ist erst bereit, wenn der Client verbunden
+ist. Der Client kann seinen Namen vor Spielbeginn ändern und seine Deckliste
+lesen; nach längerer Funkstille übernimmt Smart Bot. Die technischen Schritte
+stehen in [MCP-Sitz und Adapter](../../docs/Reference/MCP.md).
+
 Ein Bot sitzt danach wie jeder andere in der Platzliste (mit 🤖 markiert).
 Zwei Dinge macht der Host für ihn, weil ein Bot keine eigene Ansicht hat:
 

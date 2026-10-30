@@ -657,6 +657,11 @@ export async function addMultiplayerBot(gameId, playerId, kind) {
   return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/bots`, { playerId, kind });
 }
 
+/** Host only: the secret of an MCP seat, to paste into the MCP client's config. Same `{ok,status,data}` shape as the other game calls; `data.seat_token` on success. */
+export async function getMultiplayerSeatToken(gameId, playerId, botId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/bots/token`, { playerId, botId });
+}
+
 /** Host only: take a bot back off the table. */
 export async function removeMultiplayerBot(gameId, playerId, botId) {
   return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/bots/remove`, { playerId, botId });

@@ -77,6 +77,7 @@ from mtg_analyzer.services.bot_policies.smart import SmartBot
 from mtg_analyzer.services.bot_policies.smart2 import SmartBot2
 from mtg_analyzer.services.bot_policies.ai import AIBot
 from mtg_analyzer.services.bot_policies.mana_maximizer import ManaMaximizerBot
+from mtg_analyzer.services.bot_policies.mcp import McpBot
 from mtg_analyzer.services.game_session import GameActionError, GameSession
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -107,6 +108,7 @@ BOT_TYPES: dict[str, type[Bot]] = {
     GreedyBot.kind: GreedyBot,
     AIBot.kind: AIBot,
     ManaMaximizerBot.kind: ManaMaximizerBot,
+    McpBot.kind: McpBot,
 }
 
 
@@ -133,8 +135,13 @@ def bots_for_game(game: "LobbyGame") -> dict[str, Bot]:
     for seat in game.seats:
         if not seat.bot_kind:
             continue
+        kind = seat.bot_kind
+        if seat.is_mcp and not seat.mcp_connected:
+            # A silent MCP client must not stall the table: Smart Bot plays
+            # until the client calls the token API again.
+            kind = SmartBot.kind
         try:
-            bots[seat.player_id] = create_bot(seat.bot_kind, seat.player_id, seat.name)
+            bots[seat.player_id] = create_bot(kind, seat.player_id, seat.name)
         except KeyError:
             logger.warning("seat %s has unknown bot kind %r", seat.player_id, seat.bot_kind)
     return bots

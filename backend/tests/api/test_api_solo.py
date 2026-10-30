@@ -189,6 +189,15 @@ def test_start_rejects_an_unknown_bot_kind(env):
     assert res.status_code == 400
 
 
+
+def test_start_rejects_mcp_without_a_lobby_seat_token(env):
+    client, decks = env['client'], env['decks']
+    deck = _legal_deck(decks)
+    response = _start(client, deck.id, opponents=[{'kind': 'mcp', 'deckId': deck.id}])
+    assert response.status_code == 400
+    assert 'multiplayer lobby' in response.json()['detail']
+
+
 def test_the_bots_hand_is_redacted_from_the_human_view(env):
     client, decks = env["client"], env["decks"]
     deck = _legal_deck(decks)

@@ -370,3 +370,7 @@
 .mp-board-empty {
   max-width: 640px;
 }
+
+/* PLR-16: MCP seat status, token button and the copyable setup command. */
+.mp-seat-mcp { font-size: 0.85em; opacity: 0.8; }
+.mp-seat-mcp-command { flex-basis: 100%; overflow-wrap: anywhere; user-select: all; font-size: 0.8em; }

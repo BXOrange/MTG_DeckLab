@@ -29,7 +29,8 @@ def pregame_session(kind, *, human_cards=()):
     return session
 
 
-@pytest.mark.parametrize("kind", BOT_TYPES)
+# The MCP seat is played by an external client, never by `run_bots` itself.
+@pytest.mark.parametrize("kind", [k for k in BOT_TYPES if k != "mcp"])
 def test_bots_use_all_opening_cards_and_complete_caverns_exile(kind, monkeypatch):
     session = pregame_session(kind)
     if kind == "ai":

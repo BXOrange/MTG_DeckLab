@@ -33,6 +33,7 @@ import {
   listSavedDecks,
   observeMultiplayerGame,
   removeMultiplayerBot,
+  getMultiplayerSeatToken,
   sendMultiplayerAction,
   setMultiplayerBannerColor,
   setMultiplayerDeck,
@@ -103,6 +104,8 @@ const DROP_REASONS = {
  */
 export function createMultiplayerView(hooks = {}) {
   let setupRoot = null;
+  // Shown MCP setup commands by seat id; only ever fetched on the host's click.
+  const mcpCommands = {};
   let boardRoot = null;
 
   let socket = null;
@@ -614,6 +617,37 @@ export function createMultiplayerView(hooks = {}) {
     await withBusy(t('mp.addingBot'), async () => {
       applyLobbyResult(await addMultiplayerBot(game.id, playerId, kind), t('mp.botAdded'));
     });
+    if (kind === 'mcp') {
+      // The host has just made this seat and has to paste its secret into the
+      // client next, so show the command right away instead of behind the 🔑.
+      const fresh = (game?.seats || []).filter((s) => s.bot_kind === 'mcp' && !mcpCommands[s.player_id]).pop();
+      if (fresh) await showMcpCommand(fresh.player_id);
+    }
+  }
+
+  async function showMcpCommand(botId) {
+    if (!game || !botId) return;
+    await withBusy(t('mp.mcpFetching'), async () => {
+      const res = await getMultiplayerSeatToken(game.id, playerId, botId);
+      const token = res.data?.seat_token;
+      if (!res.ok || !token) {
+        applyLobbyResult(res);
+        return;
+      }
+      // The client starts the adapter from its own working directory, so the
+      // interpreter and PYTHONPATH come from the server instead of `python -m`.
+      const quote = (value) => (/[^\w@%+=:,./-]/.test(value) ? `'${value.replace(/'/g, `'\\''`)}'` : value);
+      const python = res.data.python || 'python';
+      const pythonPath = res.data.backend_dir ? ` -e PYTHONPATH=${quote(res.data.backend_dir)}` : '';
+      const command = `claude mcp add mtg -e MTG_SEAT_TOKEN=${token} -e MTG_BASE_URL=${location.origin}${pythonPath} -- ${quote(python)} -m mtg_mcp`;
+      mcpCommands[botId] = command;
+      try {
+        await navigator.clipboard.writeText(command);
+      } catch {
+        // Clipboard access can be denied; the command stays visible to copy by hand.
+      }
+      renderSetup();
+    });
   }
 
   async function removeBot(botId) {
@@ -1018,6 +1052,17 @@ export function createMultiplayerView(hooks = {}) {
             : `<em>${t('mp.noDeck')}</em>`
       }</span>
       <span class="mp-seat-ready">${conceded ? t('mp.seatConceded') : seat.ready ? t('mp.seatReady') : '…'}</span>
+      ${seat.bot_kind === 'mcp' ? `<span class="mp-seat-mcp">${seat.mcp_connected ? t('mp.mcpConnected') : t('mp.mcpWaiting')}</span>` : ''}
+      ${
+        seat.bot_kind === 'mcp' && canManage
+          ? `<button type="button" class="mp-seat-mcp-token" data-mcp-token="${escapeAttr(seat.player_id)}" title="${escapeAttr(t('mp.mcpTokenTitle'))}" ${busy ? 'disabled' : ''}>🔑</button>`
+          : ''
+      }
+      ${
+        mcpCommands[seat.player_id] && canManage
+          ? `<code class="mp-seat-mcp-command">${escapeHtml(mcpCommands[seat.player_id])}</code>`
+          : ''
+      }
       ${
         canManage
           ? `<button type="button" class="mp-seat-remove" data-remove-bot="${escapeAttr(seat.player_id)}" title="${escapeAttr(t('mp.removeBotTitle'))}" ${busy ? 'disabled' : ''}>✕</button>`
@@ -1194,6 +1239,9 @@ export function createMultiplayerView(hooks = {}) {
       ?.addEventListener('click', () => addBot(botKindToAdd || botKinds?.[0]?.kind));
     setupRoot.querySelectorAll('[data-bot-deck]').forEach((el) => {
       el.addEventListener('change', () => chooseDeck(el.value, el.dataset.botDeck));
+    });
+    setupRoot.querySelectorAll('[data-mcp-token]').forEach((el) => {
+      el.addEventListener('click', () => showMcpCommand(el.dataset.mcpToken));
     });
     setupRoot.querySelectorAll('[data-remove-bot]').forEach((el) => {
       el.addEventListener('click', () => removeBot(el.dataset.removeBot));

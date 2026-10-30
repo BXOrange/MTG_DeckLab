@@ -26,6 +26,7 @@ from mtg_analyzer.api.game import router as game_router
 from mtg_analyzer.api.game_ws import router as game_ws_router
 from mtg_analyzer.api.images import router as images_router
 from mtg_analyzer.api.import_external import router as import_external_router
+from mtg_analyzer.api.mcp_seat import router as mcp_seat_router
 from mtg_analyzer.api.multiplayer import router as multiplayer_router
 from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby, get_player_asset_store
 from mtg_analyzer.api.multiplayer_ws import router as multiplayer_ws_router
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(player_assets_router)
     app.include_router(import_external_router)
     app.include_router(multiplayer_router)
+    app.include_router(mcp_seat_router)
     app.include_router(multiplayer_ws_router)
     app.include_router(solo_router)
     app.include_router(stats_router)

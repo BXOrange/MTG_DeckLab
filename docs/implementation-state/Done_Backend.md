@@ -4642,6 +4642,22 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 
 - **What:** A bot is an ordinary `LobbyPlayer`/`Seat` (plus `Seat.bot_kind`, opaque to the lobby) so the rules engine never learns bots exist; a bot seat with a deck counts…
 - **Files:** `services/lobby.py`, `api/multiplayer.py`
+- **MCP-controlled seats (PLR-16):** `mcp` is a lobby bot kind whose external
+  controller authenticates with a per-seat host-issued token. Deck plus client
+  heartbeat gates readiness; the normal watchdog uses Smart Bot after the stale
+  interval and a returning client takes over again. Token lookup is constant-time,
+  missing/revoked tokens are rejected, and public snapshots omit secrets.
+- **Token API and adapter:** `/api/mcp-seat` provides redacted view/wait,
+  actor-validated action/concede and setup-only name/own-decklist routes.
+  Optional `mtg_mcp` stdio exposes six tools with MCP SDK 1.x/2.x import support;
+  it normalizes legal attack offers and requires explicit ambiguous defenders.
+  Tokens are configured by the host outside MCP tools. Solo rejects MCP seats
+  because it has no lobby/token lifecycle. See [MCP.md](../Reference/MCP.md).
+- **Validation:** MCP SDK 2.3.0 client/subprocess against an isolated HTTP server
+  verified all tools, hidden opponent hands and a shortened complete match ending
+  in combat victory. Final adapter/token/stdio/Solo checks: 21 passed; broader
+  Multiplayer/Solo/bot regressions: 181 passed. The regular backend suite
+  passed with 17,782 tests and 489 skips.
 
 ### Cast-action `mana_value` exposed
 

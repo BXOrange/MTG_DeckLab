@@ -479,6 +479,16 @@ repointed there.
 - **What:** The host fills a free seat with a bot from a server-driven kind picker (`GET /api/multiplayer/bots`); a bot seat renders like any other (🤖 badge, dashed border) with host-only deck-pick and remove controls before the game starts.
 - **Files:** `multiplayerView.js`
 
+- **MCP seats (PLR-16):** The Multiplayer bot picker includes MCP-Client.
+  Its seat row shows waiting/connected state and readiness requires both a deck
+  and the external client. The host's 🔑 button reveals/copies a launch command
+  containing the seat token, interpreter, backend URL and module path; it remains
+  copyable if clipboard access is denied. Commands never appear for non-hosts.
+  Solo filters this lobby-only kind out of its picker. [MCP setup](../Reference/MCP.md).
+- **Validation:** Chromium with isolated API fixtures verified status changes,
+  deck/client start gating, host-only key/command, module paths and non-host
+  secrecy, with no JavaScript errors.
+
 ### Per-seat take-backs
 
 - **What:** A host-set "Take-backs je Spieler" field in Setup and, in-game, a "↩️ Zug zurücknehmen (N)" button showing the caller's own remaining count.
