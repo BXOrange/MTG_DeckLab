@@ -1,9 +1,8 @@
 """Token-authenticated API for the one seat an MCP client plays (PLR-16).
 
-The seat token the host copied into the client's configuration is the whole
-identity: it names the table and the seat, so a client can only ever act for
-its own seat, and the engine still decides whether that seat may do the thing
-right now (RULE 117 priority, RULE 601.3a timing) exactly as for a human.
+The persistent server token authenticates the adapter; the seat token supplied
+at play time identifies its table and seat. The engine still enforces priority
+and timing (RULE 117, RULE 601.3a) exactly as for a human.
 The client sees only `session.view(perspective=<seat>)` (RULE 400.2).
 """
 from __future__ import annotations
@@ -21,8 +20,14 @@ from mtg_analyzer.api.schemas import McpSeatActionRequest, McpSeatNameRequest
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lobby import Lobby, LobbyError, LobbyGame, Seat
+from mtg_analyzer.services import mcp_credentials
 
-router = APIRouter(prefix="/api/mcp-seat", tags=["mcp-seat"])
+def _require_server_token(x_mcp_server_token: Optional[str] = Header(default=None)) -> None:
+    if not mcp_credentials.matches(x_mcp_server_token):
+        raise HTTPException(401, "invalid MCP server token")
+
+
+router = APIRouter(prefix="/api/mcp-seat", tags=["mcp-seat"], dependencies=[Depends(_require_server_token)])
 
 #: Longest a single `wait` call may block. Kept below common client/tool
 #: timeouts so the adapter re-polls instead of the transport giving up.

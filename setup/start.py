@@ -130,9 +130,21 @@ def run_backend_tests(python) -> None:
     subprocess.run([str(python), "-m", "pytest", "tests/"], cwd=str(BACKEND_DIR), check=True)
 
 
-def wait_for_port(host: str, port: int, timeout: float = 15.0) -> bool:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+# Importing the full card catalogue can take longer on cold or slow disks.
+# A finite limit still catches a server that remains alive but never binds.
+BACKEND_START_TIMEOUT_SECONDS = 300.0
+BACKEND_START_NOTICE_SECONDS = 15.0
+
+
+def wait_for_port(host: str, port: int, timeout: float = 15.0, *, process=None, notice_after=None) -> bool:
+    deadline = time.monotonic() + timeout
+    notice = time.monotonic() + notice_after if notice_after is not None else None
+    while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            return False
+        if notice is not None and time.monotonic() >= notice:
+            print("Backend is still starting; loading the card catalogue can take a while ...", flush=True)
+            notice = None
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
             sock.settimeout(0.3)
             if sock.connect_ex((host, port)) == 0:
@@ -285,8 +297,12 @@ def run_servers(
     )
     frontend_proc = None
     try:
-        if not wait_for_port("127.0.0.1", backend_port):
-            raise RuntimeError(f"Backend API did not become ready on port {backend_port}.")
+        if not wait_for_port("127.0.0.1", backend_port, timeout=BACKEND_START_TIMEOUT_SECONDS,
+                             process=backend_proc, notice_after=BACKEND_START_NOTICE_SECONDS):
+            exit_code = backend_proc.poll()
+            if exit_code is not None:
+                raise RuntimeError(f"Backend API exited with code {exit_code} before becoming ready on port {backend_port}; see the error above.")
+            raise RuntimeError(f"Backend API did not become ready on port {backend_port} after {BACKEND_START_TIMEOUT_SECONDS:.0f} seconds.")
 
         # open_browser=False here even when the caller wants a browser
         # opened: the frontend is now an internal proxy target, not

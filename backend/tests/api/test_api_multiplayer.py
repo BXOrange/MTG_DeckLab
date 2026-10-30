@@ -60,7 +60,10 @@ class _FakeLoader:
 
 
 @pytest.fixture
-def env():
+def env(tmp_path, monkeypatch):
+    from mtg_analyzer.services import mcp_credentials
+    monkeypatch.setattr(mcp_credentials, "_path", lambda: tmp_path / "mcp_token")
+    server_token = mcp_credentials.rotate_token()
     """A fresh lobby/session manager/deck database wired into the app."""
     lobby = Lobby()
     sessions = GameSessionManager()
@@ -71,7 +74,8 @@ def env():
     app.dependency_overrides[get_deck_database] = lambda: decks
     app.dependency_overrides[get_lazy_card_loader] = lambda: loader
     yield {
-        "client": TestClient(app),
+        "client": TestClient(app, headers={"X-MCP-Server-Token": server_token}),
+        "mcp_server_token": server_token,
         "lobby": lobby,
         "sessions": sessions,
         "decks": decks,
@@ -1532,3 +1536,17 @@ class TestMcpSeat:
                                      json={'playerId': host, 'botId': seat_id})
         assert removed.status_code == 200
         assert env['client'].get('/api/mcp-seat/view', headers=headers).status_code == 401
+
+
+def test_mcp_server_credential_rotation_and_seat_are_both_required(env):
+    client = env['client']
+    _, _, _, seat_token, headers = TestMcpSeat()._table(env)
+    assert client.get('/api/mcp-seat/view', headers=headers).status_code == 200
+    assert client.get('/api/mcp-seat/view', headers={**headers, 'X-MCP-Server-Token': 'wrong'}).status_code == 401
+    assert client.get('/api/mcp-seat/view', headers={'Authorization': 'Bearer invalid'}).status_code == 401
+    rotated = client.post('/api/mcp-settings/rotate').json()['server_token']
+    assert rotated != env['mcp_server_token']
+    assert client.get('/api/mcp-seat/view', headers=headers).status_code == 401
+    assert client.get('/api/mcp-seat/view', headers={**headers, 'X-MCP-Server-Token': rotated}).status_code == 200
+    assert seat_token not in str(client.get('/api/mcp-settings').json())
+    assert rotated not in str(client.get('/api/mcp-settings').json())

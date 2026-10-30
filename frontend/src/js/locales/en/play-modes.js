@@ -253,7 +253,7 @@ export default {
   'mp.removeBotTitle': "Remove bot",
   'mp.mcpWaiting': "waiting for client",
   'mp.mcpConnected': "client connected",
-  'mp.mcpTokenTitle': "Show the MCP setup command (copies it, contains the seat secret)",
+  'mp.mcpTokenTitle': "Show and copy the MCP seat token",
   'mp.mcpFetching': "Fetching MCP seat token…",
   'mp.bannerNoColor': "no color yet – taken from the deck",
   'mp.bannerTitle': "Banner color: {label}",

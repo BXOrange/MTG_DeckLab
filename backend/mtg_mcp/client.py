@@ -36,9 +36,10 @@ def action_payload(offer: dict[str, Any], params: dict[str, Any] | None = None) 
 
 
 class SeatClient:
-    def __init__(self, base_url: str, token: str) -> None:
+    def __init__(self, base_url: str, token: str, server_token: str = "") -> None:
         self._base = base_url.rstrip("/")
         self._token = token
+        self._server_token = server_token
 
     def _call(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         data = json.dumps(body).encode() if body is not None else None
@@ -46,7 +47,7 @@ class SeatClient:
             f"{self._base}/api/mcp-seat{path}",
             data=data,
             method=method,
-            headers={"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {self._token}", "Content-Type": "application/json", "X-MCP-Server-Token": self._server_token},
         )
         try:
             with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:

@@ -1,85 +1,59 @@
-# MCP seat (PLR-16)
+# MCP seats
 
-An external MCP client (e.g. Claude) can play one table seat instead of the
-server-side LLM `AIBot`. MCP seats are available in Multiplayer, not Solo
-(which has no host-issued seat tokens). No engine change: the seat is a bot seat
-(`Seat.bot_kind = "mcp"`) whose actions arrive over a token API.
+An MCP client can play a Multiplayer bot seat. Configure its connection once
+in **Settings → MCP connection**, then select a different seat for each game.
+The MCP adapter uses stdio and does not require a network listener of its own.
 
-## Flow
+## Setup
 
-1. Host adds a bot of kind **MCP-Client** in the lobby. The seat is not ready.
-2. Host picks the seat's deck and clicks 🔑: the UI fetches the seat token
-   (`POST /api/multiplayer/games/{id}/bots/token`, host only), copies a
-   `claude mcp add ... -e MTG_SEAT_TOKEN=...` command and shows it. The host
-   pastes it into the client by hand. The token is never in a lobby
-   snapshot, broadcast or `Seat.to_dict()`, and is never sent to a client over
-   MCP. It dies with the seat.
-3. The adapter's first call (`/api/mcp-seat/view`) marks the seat connected;
-   with a deck it now counts as ready (`Seat.is_ready`).
-4. A client silent for `MCP_SEAT_STALE_SECONDS` (config, default 120) is
-   replaced by Smart Bot in `bots_for_game`; its next call takes the seat back.
-   Configure this via `multiplayer.mcp_seat_stale_seconds` in `config.json` or
-   `MTG_MCP_SEAT_STALE` in the environment.
-
-## API (`api/mcp_seat.py`, `Authorization: Bearer <token>`)
-
-`GET /view`, `GET /wait?timeout=` (long poll, capped by `MCP_WAIT_MAX_SECONDS`;
-"something to do" = non-empty `legal_actions`, as in the bot driver),
-`POST /action`, `POST /concede`, `POST /name` (display name, setup only, max `MCP_SEAT_NAME_MAX_LENGTH`), `GET /deck` (the seat's own saved decklist, i.e. before any shuffle; a player knows their own list). Actions run through `GameSession.apply_action`
-with the seat as actor, so priority and timing are enforced like for humans;
-views are perspective-redacted (RULE 400.2).
-
-## Adapter (`backend/mtg_mcp/`)
-
-Stdlib HTTP client plus FastMCP stdio server (`pip install -r
-backend/requirements-mcp.txt`, optional; the app does not need it). Run from
-`backend/`: `python -m mtg_mcp` with `MTG_SEAT_TOKEN` and `MTG_BASE_URL`. One
-adapter serves one seat. Starting without a token exits with a clear error;
-the host must configure it before launch, rather than passing credentials
-through an MCP tool. Tools: `get_state`, `wait_for_turn`, `submit_action`
-(index into the listed legal actions, optional `params`, optional `expected_type` guard;
-`attack` offers are translated to attacker declarations), `set_name`, `get_decklist`, `concede`.
-
-The app has no auth: the token is the only credential, so keep the server on
-localhost unless the LAN is trusted (see OPERATIONS.md).
-
-## Installation and launch
-
-The SDK is optional for the application; only the stdio adapter needs it:
+Install the optional adapter SDK on the machine running the MCP client:
 
 ```sh
 backend/venv/bin/python -m pip install -r backend/requirements-mcp.txt
 ```
 
-The host's 🔑 command includes the Python interpreter, backend URL and
-`PYTHONPATH`, so the adapter can launch from any working directory. This
-command assumes the MCP client runs on the backend machine. For a client on
-another machine, install `backend/mtg_mcp` and the optional requirements there,
-use that machine's Python/module path and point `MTG_BASE_URL` at the backend.
-The host supplies `MTG_SEAT_TOKEN` by hand in the MCP client's environment.
+In Settings, generate a server token and copy the displayed Claude or Codex
+command into a terminal on the backend machine. The command configures the
+client's stdio adapter, backend URL and server token. Restart the client after
+registering it. For a different machine, install the adapter there and adapt
+its Python, PYTHONPATH and backend URL. Commands contain the server token;
+protect the client configuration and avoid sharing commands. Use “Show setup
+commands” to retrieve them again without rotating the token. Generate a new
+server token to revoke old connections, then reconfigure each client.
 
-The adapter accepts MCP SDK 1.x (`FastMCP`) and 2.x (`MCPServer`); the stdio
-integration was verified with SDK 2.3.0. No public tunnel or LAN listener is
-required for a local client.
+The backend stores the server token in `DATA_DIR/mcp_server_token` (ignored by
+Git by default) using an atomic file with mode 0600 on POSIX. This is a local
+file, not an OS keychain. Treat the data directory and client configurations as
+credentials, especially when relocating `MTG_DATA_DIR`. The application has
+no general authentication, so its settings and credential generation endpoint
+are reachable by anyone who can access it. Keep the backend on localhost unless
+the LAN is trusted; see OPERATIONS.md.
 
-## Playing and validation
+## Play
 
-Read `get_state` or `wait_for_turn`, then submit an offered action by its index.
-Use `expected_type` to detect a changed action type at that index. Targeted
-spells/abilities require the selected targets in `params`, and an attacker with
-multiple legal defenders requires `params.defender`. A single defender is
-filled automatically; the adapter translates `attack` to `declare_attackers`.
-The server remains responsible for all legality and actor checks.
+1. The host adds an **MCP-Client** bot in Multiplayer and chooses its deck.
+2. The host clicks the seat's 🔑 and gives the copied `bot seat <token>` to
+   Codex or Claude. The token is unique to that seat and expires with it. It is
+   absent from lobby snapshots and broadcasts.
+3. The client calls `select_seat` with the token. The successful call connects
+   the seat and makes it ready once its deck is set. A client can select a new
+   seat without re-registering the MCP server.
+4. The model calls `get_state` or `wait_for_turn`, then `submit_action` with an
+   offered index, parameters when needed, and preferably `expected_type`. It
+   may also call `set_name`, `get_decklist` and `concede`. The engine checks
+   legality and returns only the selected seat's perspective.
 
-`tests/test_mcp_stdio.py` uses a real SDK client, adapter subprocess and isolated
-local HTTP server. It verifies all six tools, setup/name/decklist, perspective
-redaction, normal actions and a complete shortened match ending in combat
-victory. It skips when the optional SDK is absent. Run it with:
+A client silent for `MCP_SEAT_STALE_SECONDS` (default 120) is replaced by Smart
+Bot until its next call. An invalid or revoked server token or seat token is
+rejected. Rotating the server token invalidates existing adapters immediately.
+
+ChatGPT can connect a local stdio adapter through a Secure MCP Tunnel; it needs
+its own OpenAI tunnel configuration. A bare localhost URL cannot connect the
+ChatGPT service to this stdio adapter.
+
+Run the adapter and multiplayer checks with:
 
 ```sh
 cd backend
 venv/bin/python -m pytest tests/test_mcp_adapter.py tests/test_mcp_stdio.py tests/api/test_api_multiplayer.py -q
 ```
-
-Chromium verification covers the waiting/connected seat row, deck/client ready
-gating and host-only key/start command, including an unavailable clipboard.

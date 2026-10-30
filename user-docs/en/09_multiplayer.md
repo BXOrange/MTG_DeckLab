@@ -177,12 +177,7 @@ only after **Confirm selection**. Each chosen permanent or player gets one
 more counter of **every** kind already present, including mixed beneficial
 and harmful kinds. Repeated proliferation opens a fresh selection each time.
 
-**MCP-Client** is another Multiplayer option: the host selects its deck and
-uses **🔑** to copy the displayed setup command into the external MCP client's
-configuration. The seat becomes ready once the client connects. Before play,
-the client can change its name and read its decklist; after prolonged silence,
-Smart Bot takes over. See [MCP seat and adapter](../../docs/Reference/MCP.md)
-for technical setup.
+**MCP-Client** is another Multiplayer option. Configure the persistent connection once under **Settings → MCP connection**. The host chooses the deck and copies the seat token with **🔑**. Give the copied text to the connected client to select that seat. The seat is ready after connecting. See [MCP seat and adapter](../../docs/Reference/MCP.md).
 
 A bot then sits in the seat list like anyone else (marked 🤖). Two things
 the host does *for* it, since a bot has no screen of its own:

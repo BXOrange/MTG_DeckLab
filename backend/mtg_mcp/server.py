@@ -1,4 +1,4 @@
-"""FastMCP stdio server: one adapter serves exactly one seat (its token)."""
+"""FastMCP stdio server: select one multiplayer seat at a time."""
 from __future__ import annotations
 
 import os
@@ -11,14 +11,14 @@ from .render import render_state
 DEFAULT_WAIT_SECONDS = 20.0
 
 PLAY_INSTRUCTIONS = (
-    "You play one Magic seat. Loop: wait_for_turn, read the state, pick one entry of "
+    "Use select_seat with the seat token given by the user before playing. You play one Magic seat. Loop: wait_for_turn, read the state, pick one entry of "
     "'Legal actions' and call submit_action with its index (add params only when the "
     "action needs a choice, e.g. targets). If the server rejects an action, read the "
     "reason and choose again. Only offered actions are possible; never invent one."
 )
 
 
-def build_server(base_url: str, token: str):
+def build_server(base_url: str, server_token: str):
     # Optional dependency (requirements-mcp.txt). mcp 2.x renamed FastMCP to
     # MCPServer; the tool/run API is the same, so both are accepted.
     try:
@@ -26,8 +26,20 @@ def build_server(base_url: str, token: str):
     except ImportError:
         from mcp.server.fastmcp import FastMCP as ServerClass
 
-    client = SeatClient(base_url, token)
+    client = SeatClient(base_url, "", server_token)
     server = ServerClass("mtg-seat", instructions=PLAY_INSTRUCTIONS)
+
+    @server.tool()
+    def select_seat(seat_token: str) -> str:
+        """Connect to the multiplayer seat identified by the user's seat token."""
+        candidate = SeatClient(base_url, seat_token.strip(), server_token)
+        try:
+            state = candidate.view()
+        except SeatError as exc:
+            return f"Error: {exc}"
+        nonlocal client
+        client = candidate
+        return "Seat connected.\n" + render_state(state)
 
     @server.tool()
     def get_state() -> str:
@@ -109,8 +121,8 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(prog="mtg_mcp", description="MCP adapter for one MTG seat")
     parser.add_argument("--base-url", default=os.environ.get("MTG_BASE_URL", "http://localhost:8000"))
-    parser.add_argument("--token", default=os.environ.get("MTG_SEAT_TOKEN", ""))
+    parser.add_argument("--token", default=os.environ.get("MTG_MCP_SERVER_TOKEN", ""))
     args = parser.parse_args(argv)
     if not args.token:
-        parser.error("seat token missing: set MTG_SEAT_TOKEN (copied from the lobby by the host)")
+        parser.error("server token missing: set MTG_MCP_SERVER_TOKEN from settings")
     build_server(args.base_url, args.token).run()

@@ -40,12 +40,12 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
     async def play():
         params = StdioServerParameters(command=sys.executable, args=['-m', 'mtg_mcp'], cwd=str(tmp_path),
                                        env={'PYTHONPATH': str(Path(__file__).resolve().parents[1]),
-                                            'MTG_BASE_URL': base_url, 'MTG_SEAT_TOKEN': token})
+                                            'MTG_BASE_URL': base_url, 'MTG_MCP_SERVER_TOKEN': env['mcp_server_token']})
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as mcp:
                 await mcp.initialize()
                 assert {tool.name for tool in (await mcp.list_tools()).tools} == {
-                    'get_state', 'wait_for_turn', 'submit_action', 'set_name', 'get_decklist', 'concede'}
+                    'select_seat', 'get_state', 'wait_for_turn', 'submit_action', 'set_name', 'get_decklist', 'concede'}
 
                 async def call(name, arguments=None):
                     result = await mcp.call_tool(name, arguments or {})
@@ -54,6 +54,7 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
                     assert not text.startswith(('Error:', 'Rejected:')), text
                     return text
 
+                assert 'not started' in await call('select_seat', {'seat_token': token})
                 assert 'not started' in await call('get_state')
                 assert 'stdio player' in await call('set_name', {'name': 'stdio player'})
                 assert '99 Forest' in await call('get_decklist')

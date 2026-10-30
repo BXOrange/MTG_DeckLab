@@ -65,3 +65,40 @@ def test_restart_keeps_options_and_stops_each_process(launcher, monkeypatch):
     assert calls[0][:2] == calls[1][:2]
     assert calls[0][0] == ("python", 8123)
     assert stopped == [call[2] for call in calls]
+
+
+def test_wait_for_port_stops_when_backend_exits(launcher, monkeypatch):
+    class FailedSocket:
+        def settimeout(self, timeout):
+            pass
+
+        def connect_ex(self, address):
+            return 1
+
+        def close(self):
+            pass
+
+    states = iter([None, 2])
+    monkeypatch.setattr(launcher.socket, 'socket', lambda *args: FailedSocket())
+    monkeypatch.setattr(launcher.time, 'sleep', lambda seconds: None)
+    assert not launcher.wait_for_port('127.0.0.1', 8000, process=SimpleNamespace(poll=lambda: next(states)))
+
+
+def test_wait_for_port_allows_slow_backend_to_finish(launcher, monkeypatch, capsys):
+    class Socket:
+        def settimeout(self, timeout):
+            pass
+
+        def connect_ex(self, address):
+            return next(results)
+
+        def close(self):
+            pass
+
+    results = iter([1, 0])
+    ticks = iter([0, 0, 0, 16, 16, 16])
+    monkeypatch.setattr(launcher.socket, 'socket', lambda *args: Socket())
+    monkeypatch.setattr(launcher.time, 'monotonic', lambda: next(ticks))
+    monkeypatch.setattr(launcher.time, 'sleep', lambda seconds: None)
+    assert launcher.wait_for_port('127.0.0.1', 8000, timeout=300, process=SimpleNamespace(poll=lambda: None), notice_after=15)
+    assert 'still starting' in capsys.readouterr().out

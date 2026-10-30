@@ -898,6 +898,10 @@ async function deleteRequest(path) {
   return response.ok;
 }
 
+export async function getMcpSettings() { return gameRequest('GET', '/api/mcp-settings'); }
+export async function getMcpSetup() { return gameRequest('POST', '/api/mcp-settings/setup', {}); }
+export async function rotateMcpToken() { return gameRequest('POST', '/api/mcp-settings/rotate', {}); }
+
 // Server-side LLM credentials are write-only; they never enter cookies.
 export async function getLLMSettings() {
   return gameRequest('GET', '/api/llm/settings');

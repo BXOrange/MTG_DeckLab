@@ -16,6 +16,10 @@ or the test setup.
   and uploads and join any game. Never make it the default.
   `settings.js` `DEFAULT_SERVER_URL` is `window.location.origin` so LAN browsers
   call the same host.
+- Backend startup allows up to 300 seconds for the card catalogue to load on a
+  cold or slow disk. After 15 seconds it reports that startup is still in
+  progress; if the process exits, the launcher fails immediately with its exit
+  code and the backend's error output.
 - **Starting must stay offline-safe.** `ensure_backend_venv()` installs with
   `pip --no-index` first and only falls back to an index run; a fresh venv can be
   built from `setup/wheels/` (`setup/install.py --download-wheels`). Nothing else

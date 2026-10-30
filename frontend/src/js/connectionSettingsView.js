@@ -10,6 +10,9 @@ import { BOARD_LAYOUT_MODES, getBoardLayout, setBoardLayout } from './boardLayou
 import { getSettings, saveSettings, BOT_SPEED_MS_OPTIONS } from './settings.js';
 import {
   getComboDatabaseStatus,
+  getMcpSettings,
+  getMcpSetup,
+  rotateMcpToken,
   getLLMSettings,
   fetchLLMModels,
   saveLLMSettings,
@@ -125,6 +128,16 @@ export function renderConnectionSettingsView(container) {
         </label>
       </div>
     </div>
+      <section class="connection-settings-panel" aria-labelledby="mcp-heading">
+        <h2 id="mcp-heading">${t('settings.mcp.heading')}</h2>
+        <p class="hint">${t('settings.mcp.hint')}</p>
+        <button id="mcp-generate" type="button">${t('settings.mcp.generate')}</button>
+        <button id="mcp-show" type="button">${t('settings.mcp.show')}</button>
+        <p id="mcp-status" class="server-status" aria-live="polite"></p>
+        <p class="hint">${t('settings.mcp.commandsHint')}</p>
+        <label>Claude <textarea id="mcp-claude" readonly rows="3"></textarea></label>
+        <label>Codex <textarea id="mcp-codex" readonly rows="3"></textarea></label>
+      </section>
       <section class="connection-settings-panel llm-settings-panel" aria-labelledby="llm-settings-heading">
         <h2 id="llm-settings-heading">${t('settings.llm.heading')}</h2>
         <p class="hint">${t('settings.llm.hint')}</p>
@@ -253,6 +266,32 @@ export function renderConnectionSettingsView(container) {
         })
       );
     }
+  });
+
+  const mcpStatus = container.querySelector('#mcp-status');
+  const mcpGenerate = container.querySelector('#mcp-generate');
+  getMcpSettings().then(result => {
+    mcpStatus.textContent = result.ok ? t(result.data.configured ? 'settings.mcp.configured' : 'settings.mcp.missing') : t('common.serverUnreachable');
+    mcpStatus.dataset.configured = result.ok && result.data.configured ? 'yes' : 'no';
+  });
+  async function showMcpCommands(result) {
+    if (!result.ok) { mcpStatus.textContent = t('settings.mcp.missing'); return; }
+    const {server_token: token, python, backend_dir: backendDir} = result.data;
+    const quote = value => `'${String(value).replace(/'/g, `'\\''`)}'`;
+    const env = [['MTG_MCP_SERVER_TOKEN', token], ['MTG_BASE_URL', location.origin], ['PYTHONPATH', backendDir]];
+    const command = `${quote(python)} -m mtg_mcp`;
+    container.querySelector('#mcp-claude').value = `claude mcp add mtg ${env.map(([k,v]) => `-e ${k}=${quote(v)}`).join(' ')} -- ${command}`;
+    container.querySelector('#mcp-codex').value = `codex mcp add mtg ${env.map(([k,v]) => `--env ${k}=${quote(v)}`).join(' ')} -- ${command}`;
+    mcpStatus.dataset.configured = 'yes';
+    mcpStatus.textContent = t('settings.mcp.configured');
+  }
+  container.querySelector('#mcp-show').addEventListener('click', async () => showMcpCommands(await getMcpSetup()));
+  mcpGenerate.addEventListener('click', async () => {
+    if (mcpStatus.dataset.configured === 'yes' && !window.confirm(t('settings.mcp.rotateConfirm'))) return;
+    mcpGenerate.disabled = true;
+    const result = await rotateMcpToken();
+    mcpGenerate.disabled = false;
+    showMcpCommands(result);
   });
 
   const llm = (id) => container.querySelector(`#llm-${id}`);

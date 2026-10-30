@@ -253,7 +253,7 @@ export default {
   'mp.removeBotTitle': "Bot entfernen",
   'mp.mcpWaiting': "wartet auf Client",
   'mp.mcpConnected': "Client verbunden",
-  'mp.mcpTokenTitle': "MCP-Setup-Befehl anzeigen (wird kopiert, enthält das Sitz-Geheimnis)",
+  'mp.mcpTokenTitle': "Sitz-Token für den MCP-Client anzeigen und kopieren",
   'mp.mcpFetching': "MCP-Sitz-Token wird geholt…",
   'mp.bannerNoColor': "noch keine Farbe – wird aus dem Deck übernommen",
   'mp.bannerTitle': "Banner-Farbe: {label}",

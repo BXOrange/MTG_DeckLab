@@ -634,17 +634,14 @@ export function createMultiplayerView(hooks = {}) {
         applyLobbyResult(res);
         return;
       }
-      // The client starts the adapter from its own working directory, so the
-      // interpreter and PYTHONPATH come from the server instead of `python -m`.
-      const quote = (value) => (/[^\w@%+=:,./-]/.test(value) ? `'${value.replace(/'/g, `'\\''`)}'` : value);
-      const python = res.data.python || 'python';
-      const pythonPath = res.data.backend_dir ? ` -e PYTHONPATH=${quote(res.data.backend_dir)}` : '';
-      const command = `claude mcp add mtg -e MTG_SEAT_TOKEN=${token} -e MTG_BASE_URL=${location.origin}${pythonPath} -- ${quote(python)} -m mtg_mcp`;
+      // The persistent client connection is configured in Settings; only this
+      // game's seat token is shared with the player at the table.
+      const command = `bot seat ${token}`;
       mcpCommands[botId] = command;
       try {
         await navigator.clipboard.writeText(command);
       } catch {
-        // Clipboard access can be denied; the command stays visible to copy by hand.
+        // Clipboard access can be denied; the token stays visible to copy by hand.
       }
       renderSetup();
     });

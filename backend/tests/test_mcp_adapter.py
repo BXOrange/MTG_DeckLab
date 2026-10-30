@@ -58,8 +58,27 @@ def test_attack_with_multiple_defenders_requires_an_explicit_choice():
 
 def test_adapter_without_token_fails_clearly_before_starting_sdk(monkeypatch, capsys):
     from mtg_mcp.server import main
-    monkeypatch.delenv('MTG_SEAT_TOKEN', raising=False)
+    monkeypatch.delenv('MTG_MCP_SERVER_TOKEN', raising=False)
     with pytest.raises(SystemExit) as result:
         main([])
     assert result.value.code == 2
-    assert 'seat token missing' in capsys.readouterr().err
+    assert 'server token missing' in capsys.readouterr().err
+
+
+def test_server_token_is_persistent_private_and_rotatable(tmp_path, monkeypatch):
+    import os
+    import stat
+    from mtg_analyzer.services import mcp_credentials
+
+    path = tmp_path / 'token'
+    monkeypatch.setattr(mcp_credentials, '_path', lambda: path)
+    assert not mcp_credentials.matches('')
+    first = mcp_credentials.rotate_token()
+    assert mcp_credentials.matches(first)
+    assert mcp_credentials.read_token() == first
+    if os.name == 'posix':
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    second = mcp_credentials.rotate_token()
+    assert first != second
+    assert not mcp_credentials.matches(first)
+    assert mcp_credentials.matches(second)
