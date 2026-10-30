@@ -43,15 +43,20 @@ the LAN is trusted; see OPERATIONS.md.
    may also call `set_name`, `get_decklist` and `concede`. The engine checks
    legality and returns only the selected seat's perspective.
 
-When finished acting, submit the offered `pass_priority`; `wait_for_turn` does
-not advance a window in which the client still holds priority. The state text
+The server automatically passes MCP windows with only passing or mana actions,
+and uses the other bots' yield gates to pass an opponent's turn or skip to its
+own end step. Own-turn yields preserve possible attackers. Setup, choices,
+combat declarations and windows with other available plays stay with the client.
+When declining available optional plays, submit `pass_priority`; `wait_for_turn`
+does not pass those windows for the client. The state text
 identifies pass-only and mana-only windows. Mana alone does not mean there is
 a useful play, and optional plays need not all be taken before passing.
 `yield_priority(mode="turn")` passes unused windows on an opponent's turn;
 `yield_priority(mode="end_step")` skips the client's own remaining windows
 to its end step once its plays and combat are finished. It still stops for
 opponent stack items and pending choices, using the same session controls as
-the other bots. Pass priority at the end step to finish. The adapter offers
+the other bots. These explicit controls remain available in addition to automatic
+yielding. The adapter offers
 these controls only with priority, an empty stack and no pending choice.
 
 A client silent for `MCP_SEAT_STALE_SECONDS` (default 120) is replaced by Smart

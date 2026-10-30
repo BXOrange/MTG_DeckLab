@@ -21,6 +21,7 @@ from mtg_analyzer.services.bots import (
     GoldfishBot,
     GreedyBot,
     ManaMaximizerBot,
+    McpBot,
     SmartBot,
     _one_bot_action,
     bot_catalogue,
@@ -766,6 +767,44 @@ class TestPlayingFair:
         assert moved is True
 
 
+class TestMcpAutomaticPassing:
+    def test_empty_own_turn_yields_and_finishes_without_client_round_trips(self):
+        session = make_game()
+        keep(session, 'ann', 'bob')
+        state = session.engine.state
+        while state.current_step != 'main1':
+            session.apply_action({'type': 'pass_priority'}, actor_id=state.priority_player.id)
+        offered = session.legal_actions(perspective='ann')
+        session.apply_action(next(a for a in offered if a['type'] == 'play_land'), actor_id='ann')
+        bots = {'ann': McpBot('ann')}
+        for _ in range(40):
+            run_bots(session, bots)
+            if state.active_player.id != 'ann':
+                break
+            assert state.priority_player.id == 'bob'
+            session.apply_action({'type': 'pass_priority'}, actor_id='bob')
+        assert state.active_player.id == 'bob'
+        assert 'set_yield' in session.move_log
+
+    @pytest.mark.parametrize('action', [
+        'play_land', 'cast_spell', 'activate_ability', 'attack', 'declare_blockers', 'choose', 'keep_hand',
+    ])
+    def test_meaningful_decisions_stay_with_client(self, action):
+        view = {'setup': {'complete': True}, 'state': {'active_player_id': 'bob', 'priority_player_id': 'ann'},
+                'priority': {'interactive': True, 'player_id': 'ann'}}
+        assert McpBot('ann').decide(view, [{'type': action}, {'type': 'pass_priority'}]) is None
+
+    def test_pending_choice_is_never_passed(self):
+        view = {'setup': {'complete': True}, 'pending_choice': {'id': 'choice'}}
+        assert McpBot('ann').decide(view, [{'type': 'pass_priority'}]) is None
+
+    def test_mana_only_opponent_window_yields_without_tapping(self):
+        view = {'setup': {'complete': True}, 'state': {'active_player_id': 'bob', 'priority_player_id': 'ann'},
+                'priority': {'interactive': True, 'player_id': 'ann'}}
+        actions = [{'type': 'tap_for_mana'}, {'type': 'pass_priority'}]
+        assert McpBot('ann').decide(view, actions) == {'type': 'set_yield', 'mode': 'turn'}
+
+
 class TestPassThisTurn:
     """VIS-12: a bot accepts "Pass this turn" when its policy says it would
     pass every remaining window — and the server still hands it priority for
@@ -779,7 +818,7 @@ class TestPassThisTurn:
         assert state.priority_player.id == "ann"  # Ann (the "human") is on the play
         return session, bots, state
 
-    @pytest.mark.parametrize("bot_cls", [GoldfishBot, GreedyBot, SmartBot, ManaMaximizerBot])
+    @pytest.mark.parametrize("bot_cls", [GoldfishBot, GreedyBot, SmartBot, ManaMaximizerBot, McpBot])
     def test_it_arms_the_yield_at_the_first_window_and_skips_the_rest(self, bot_cls):
         session, bots, state = self._human_turn(bot_cls)
         seen = []

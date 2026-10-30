@@ -37,6 +37,9 @@ Architecture and driver rules for bot seats. Policy detail lives elsewhere:
 - "Pass this turn" (VIS-12): `Bot.decide` posts `set_yield` on an opponent's turn
   when the policy's `can_pass_turn` says every empty-stack window would be a pass.
   The server still gives it priority for opponent stack items.
+- Connected MCP seats also pass mana-only/empty windows internally and use the
+  shared opponent-turn/end-step yield gates. Actual plays, setup, choices and
+  combat decisions stay with the MCP client; its explicit yield tool remains available.
 
 ## Driver and lobby
 

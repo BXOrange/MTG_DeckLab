@@ -4657,9 +4657,13 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
   windows and directs the client to pass rather than wait while holding priority.
   `yield_priority` exposes the existing opponent-turn and own-end-step controls
   from the seat's view, guarded by priority, an empty stack and no pending choice.
+  The MCP bot policy also handles pass/mana-only windows internally through the
+  shared yield gates, preserving possible attackers and leaving all meaningful
+  plays and choices with the client. Explicit yielding remains available.
   The stdio match checks that an end-step yield still permits later combat victory.
-  Validation: 111 adapter/stdio/multiplayer checks passed; regular backend suite:
-  17,796 passed, 489 skipped.
+  Validation: automatic passing, client decision retention and explicit yielding
+  exercised through bot tests and a complete stdio match; regular backend suite:
+  17,807 passed, 489 skipped.
 - **Validation:** MCP SDK 2.3.0 client/subprocess against an isolated HTTP server
   verified all tools, hidden opponent hands and a shortened complete match ending
   in combat victory. Final adapter/token/stdio/Solo checks: 21 passed; broader

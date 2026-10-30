@@ -16,9 +16,9 @@ PLAY_INSTRUCTIONS = (
     "action needs a choice, e.g. targets). If the server rejects an action, read the "
     "reason and choose again. Only offered actions are possible; never invent one. "
     "When finished acting, submit the offered pass_priority instead of waiting while holding priority. "
-    "Use yield_priority('turn') to pass unused windows on an opponent's turn, or "
+    "The server automatically passes empty windows and yields when no useful plays remain. "
+    "You can also explicitly use yield_priority('turn') on an opponent's turn or "
     "yield_priority('end_step') when finished with your own plays and combat. "
-    "Yielding still stops for opponent stack items and pending choices. At your end step, pass_priority to finish. "
     "With no legal actions, call wait_for_turn. Mana actions alone are not a reason to keep acting."
 )
 
@@ -112,11 +112,11 @@ def build_server(base_url: str, server_token: str):
 
     @server.tool()
     def yield_priority(mode: str) -> str:
-        """Pass unused windows: 'turn' on an opponent's turn, 'end_step' on yours.
+        """Explicitly pass unused windows: 'turn' on an opponent's turn, 'end_step' on yours.
 
-        Use only when finished with plays and combat. Stops for opponent stack
-        items and choices; end_step holds at your end step. Use submit_action
-        with pass_priority to pass just one window or resolve the current stack.
+        Routine empty windows are passed automatically. Use this when finished
+        with optional plays and combat. Stops for opponent stack items and choices;
+        end_step holds at your end step. Use pass_priority for just one window.
         """
         try:
             payload = client.view()

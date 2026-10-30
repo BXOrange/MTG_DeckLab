@@ -67,7 +67,7 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
                 # commander play normally; two combat hits finish the game.
                 session.engine.state.player_by_id(host).life = 2
                 did_attack = False
-                did_yield = False
+                did_explicit_yield = False
                 for _ in range(MAX_MATCH_ACTIONS):
                     payload = await call('wait_for_turn', {'timeout_seconds': 0})
                     encoded = payload.split('## State\n', 1)[1].split('\n## Legal actions', 1)[0]
@@ -76,7 +76,8 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
                     if state['game_over']:
                         assert state['winner_id'] == seat_id
                         assert did_attack
-                        assert did_yield
+                        assert did_explicit_yield
+                        assert "set_yield" in session.move_log
                         return
                     opponent = next(player for player in state['players'] if player['id'] == host)
                     assert opponent['hand'] == []
@@ -86,12 +87,12 @@ def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
                             index, encoded_action = line[1:].split('] ', 1)
                             actions.append((int(index), json.loads(encoded_action)))
                     if actions:
-                        if (state['active_player_id'] == seat_id and state['current_step'] == 'main2'
-                                and not state.get('stack') and not view.get('pending_choice')
-                                and all(action['type'] in {'pass_priority', 'tap_for_mana'} for _, action in actions)):
+                        if (not did_explicit_yield and state['active_player_id'] == seat_id
+                                and state['current_step'] == 'main1' and not state.get('stack')
+                                and not view.get('pending_choice')):
                             result = await call('yield_priority', {'mode': 'end_step'})
                             assert result.startswith('Yield applied.'), result
-                            did_yield = True
+                            did_explicit_yield = True
                             continue
                         preference = {'keep_hand': 0, 'play_land': 1, 'cast_spell': 2, 'attack': 3, 'pass_priority': 9}
                         index, action = min(actions, key=lambda pair: preference.get(pair[1]['type'], 8))
