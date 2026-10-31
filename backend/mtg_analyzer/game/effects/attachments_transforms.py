@@ -57,6 +57,10 @@ def previous_group_objects(context: GameContext, source: Optional["GameObject"],
     """The battlefield objects ``selector`` (a `GameContext.previous_selector`
     value) names — the damaged set for `DAMAGED_GROUP_SENTINEL`, else
     `continuous.group_selector_objects`."""
+    if isinstance(selector, dict) and "zone_visits" in selector:
+        return [obj for object_id, incarnation in selector["zone_visits"]
+                if (obj := context.state.find_object(object_id)) is not None
+                and obj.zone_incarnation == incarnation and obj in context.state.battlefield]
     if selector == DAMAGED_GROUP_SENTINEL:
         return [o for o in context.damaged_this_way if o in context.state.battlefield]
     from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -1138,12 +1142,23 @@ class TransformEffect(GameEffect):
         self,
         target_kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        object_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
+        #: "Transform all Humans." (Moonmist): every battlefield permanent matching this `combat.matches_object_filter`
+        #: class; a permanent with no back face is left alone (RULE 712.8 -- only double-faced cards can transform).
+        self.object_filter = dict(object_filter) if object_filter else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.object_filter is not None:
+            from .. import combat  # local: avoid the combat<->effects import cycle
+
+            for obj in list(context.state.battlefield):
+                if combat.matches_object_filter(obj, self.object_filter, reference=self.source, state=context.state):
+                    context.engine.transform_permanent(obj)
+            return
         if self.target_spec is not None:
             target = targets[0] if targets else None
         else:
@@ -1166,7 +1181,12 @@ class FlipEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         src = self.source
-        if src is None or (self.source_incarnation is not None and src.zone_incarnation != self.source_incarnation):
+        # RULE 400.7: ordinary triggered flips and resumed optional flips must
+        # refer to the same battlefield visit as the resolving ability too.
+        incarnation = self.source_incarnation
+        if incarnation is None:
+            incarnation = context.resolving_source_incarnation
+        if src is None or (incarnation is not None and src.zone_incarnation != incarnation):
             return
         context.engine._flip_permanent(src)
 
@@ -1275,7 +1295,7 @@ class MeldEffect(GameEffect):
 
 
 class SiegeDefeatedEffect(GameEffect):
-    """A Siege's intrinsic defeat ability (RULE 310.11b): "exile it, then you
+    """A Siege's intrinsic defeat ability (RULE 310.12b): "exile it, then you
     may cast it transformed without paying its mana cost."
 
     Untargeted and always self, like `ExileReturnTransformedEffect` above —
@@ -1283,15 +1303,22 @@ class SiegeDefeatedEffect(GameEffect):
     **exile and stays there**, and its back face becomes castable from
     exile for free. It does *not* come back to the battlefield on its own.
 
-    Never bound from oracle text or the catalogue: RULE 310.11b is
+    Never bound from oracle text or the catalogue: RULE 310.12b is
     intrinsic to the Siege subtype, so `RulesEngine.check_state_based_
-    actions` builds this per firing when a Siege's defense hits 0. That's
+    actions` builds this per recorded removal of the last defense counter. That's
     also why it takes its source at construction rather than relying on a
     bind-time one.
     """
 
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.source_incarnation = source.zone_incarnation if source is not None else None
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is not None:
+        # RULE 400.7: another defeat trigger cannot exile/flip the card
+        # again after this battlefield visit has ended.
+        if (self.source is not None and self.source in context.state.battlefield
+                and self.source.zone_incarnation == self.source_incarnation):
             context.engine.exile_siege_for_transformed_cast(self.source)
 
 
@@ -1335,8 +1362,12 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
         extra_counters: Optional[dict[str, Any]] = None,
         attach_to_previous: bool = False,
         face_choice: bool = False,
+        attach_to_trigger_subject: bool = False,
     ):
         super().__init__(source)
+        #: "…to the battlefield attached to that creature" (Dragon Breath, Smoke Shroud) — the host is the
+        #: object named by the firing trigger event, resolved when this resolves.
+        self.attach_to_trigger_subject = bool(attach_to_trigger_subject)
         #: "…return this card from your graveyard to the battlefield **face up or face down**." (Deathmist Raptor) —
         #: the controller picks (`RulesEngine._request_return_face_choice`); a card with no morph can only return
         #: face up, so no question is asked for it.
@@ -1363,6 +1394,13 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
                     or self.source.hideaway_incarnation != self.source_incarnation
                     or not context.engine._attachment_legal(self.source, host, False)):
                 return  # RULE 303.4i / 603.7c: an invalid or new host prevents entry.
+        if self.attach_to_trigger_subject:
+            host = context.state.find_object((context.trigger_event or {}).get("instance_id"))
+            # RULE 303.4i: an Aura put onto the battlefield attached to an object that is gone or that
+            # it cannot enchant stays in the graveyard.
+            if (host is None or host is self.source or host.zone != Zone.BATTLEFIELD
+                    or not context.engine._attachment_legal(self.source, host, False)):
+                return
         destination = "battlefield_tapped" if self.tapped else "battlefield"
         controller_id = (context.resolving_controller_id or self.source.controller_id) if host is not None else None
         from .. import face_down  # function-scoped: face_down is imported by the rules mixins above this package

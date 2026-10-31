@@ -143,6 +143,9 @@ class GameContext:
         #: names for a per-object follow-up ("for each creature destroyed this way, its controller creates …").
         #: Unlike `moved_objects` it is only destruction.
         self.destroyed_objects: list[Any] = []
+        #: RULE 608.2h: instance_id -> controller a destroyed permanent had on the battlefield (the graveyard
+        #: copy is back under its owner), for "that artifact's controller" riders.
+        self.destroyed_controllers: dict[Any, Optional[str]] = {}
         #: MEC-28: the `continuous.group_selector_objects` name the last
         #: mass-*selector* effect of this same resolution acted on (RULE
         #: 601.2c, untargeted — "untap all attacking creatures. **They**
@@ -189,6 +192,11 @@ class GameContext:
         #: RULE 120.9: actual damage beyond the amount needed to be lethal.
         self.fight_results: list[dict] = []
         self.excess_damage_this_way: int = 0
+        #: "You gain life equal to the damage dealt this way." (Corrupt, Syphon Soul) -- the damage this
+        #: resolution actually dealt (RULE 120.3, after prevention), summed over every hit. Unlike the tallies
+        #: `_apply_effects_partitioned` saves and restores per nested body, this one runs for the whole
+        #: resolution (loops and branches included) and is zeroed when a stack item starts resolving.
+        self.damage_dealt_this_way: int = 0
         #: "Destroy each nonland permanent with mana value 2 or less. Add
         #: {B} or {G} for each permanent destroyed this way." (Culling
         #: Ritual, MEC-40) — `life_lost_this_way`'s sibling for a *count* of
@@ -308,6 +316,11 @@ class GameContext:
                 remaining = min(remaining, 1)
         event_start = len(self.state.event_log)
         self.engine.deal_damage(target, amount, source, single_target_hint=single_target_hint)
+        hit_id = target.instance_id if hasattr(target, "instance_id") else getattr(target, "id", None)
+        self.damage_dealt_this_way += sum(
+            int(e.get("amount", 0)) for e in self.state.event_log[event_start:]
+            if e.type == EventType.DAMAGE and e.get("target_id") == hit_id
+            and e.get("source_id") == getattr(source, "instance_id", None))
         if remaining is not None:
             dealt = sum(int(e.get("amount", 0)) for e in self.state.event_log[event_start:]
                         if e.type == EventType.DAMAGE and e.get("target_id") == target.instance_id
@@ -381,6 +394,7 @@ class GameContext:
 
     def destroy(self, target: "GameObject", can_be_regenerated: bool = True) -> None:
         was_on_battlefield = target in self.state.battlefield
+        last_controller = target.controller_id
         self.engine.destroy(target, can_be_regenerated=can_be_regenerated)
         # `self.permanents_destroyed_this_way`'s own bookkeeping — only an
         # *actual* destruction (not a regeneration shield/indestructible
@@ -391,6 +405,7 @@ class GameContext:
             # destroyed is one of the "moved this way" pools a later clause may read.
             self.moved_objects.append(target)
             self.destroyed_objects.append(target)
+            self.destroyed_controllers[target.instance_id] = last_controller
 
     def regenerate(self, target: "GameObject") -> None:
         self.engine.regenerate(target)
@@ -475,7 +490,7 @@ class GameContext:
     def take_extra_turn(self, player: "Player") -> None:
         # RULE 500.7: queue an extra turn for ``player``, taken after the
         # current one (`GameEngine.begin_turn` consumes `state.extra_turns`).
-        self.state.extra_turns.append(player.id)
+        self.state.extra_turns.insert(0, player.id)
 
     def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
         self.engine.set_tapped(target, tapped)
@@ -625,10 +640,11 @@ class GameContext:
         rider: Optional[dict] = None,
         combat_only: bool = False,
         source_filter: Optional[dict] = None,
+        shield_source: Optional["GameObject"] = None,
     ) -> None:
         self.engine.prevent_damage_to_player(
             player, amount, watched_source_id=watched_source_id,
-            rider=rider, combat_only=combat_only, source_filter=source_filter,
+            rider=rider, combat_only=combat_only, source_filter=source_filter, shield_source=shield_source,
         )
 
     def prevent_life_gain_this_turn(self, players: list["Player"]) -> None:
@@ -643,9 +659,12 @@ class GameContext:
     def prevent_damage_to_target(
         self, target: Any, amount: Union[int, str] = "all", source_filter: Optional[dict] = None,
         rider: Optional[dict] = None, shield_controller_id: Optional[str] = None,
+        combat_only: bool = False,
+        shield_source: Optional["GameObject"] = None,
     ) -> None:
         self.engine.prevent_damage_to_target(
             target, amount, source_filter=source_filter, rider=rider, shield_controller_id=shield_controller_id,
+            combat_only=combat_only, shield_source=shield_source,
         )
 
     def prevent_all_combat_damage_this_turn(
@@ -1356,6 +1375,7 @@ def _apply_effects_partitioned(
     objects_exiled_this_way: int = 0,
     counters_removed_this_way: int = 0,
     damaged_this_way: Optional[list[Any]] = None,
+    proliferated_objects: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
     revealed_card: Optional[Any] = None,
     clash_won: Optional[bool] = None,
@@ -1448,6 +1468,8 @@ def _apply_effects_partitioned(
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
     outer_counters_removed = getattr(context, "counters_removed_this_way", 0)
+    outer_proliferated = getattr(context, "proliferated_objects", [])
+    context.proliferated_objects = list(proliferated_objects or [])
     outer_damaged_this_way = getattr(context, "damaged_this_way", [])
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_revealed_card = getattr(context, "revealed_card", None)
@@ -1563,6 +1585,8 @@ def _apply_effects_partitioned(
                     selector = (getattr(selecting, "static", {}) or {}).get("params", {}).get("affects")
                 if selector and not getattr(selecting, "selector_player", None):
                     context.previous_selector = selector  # a player-scoped one set its own
+            elif isinstance(getattr(selecting, "over", None), dict) and selecting.over.get("remember"):
+                context.previous_selector = selecting.over["selector"]
             elif (
                 isinstance(selecting, AddCountersEffect)
                 and selecting.selector in ADD_COUNTERS_GROUP_AFFECTS
@@ -1626,6 +1650,7 @@ def _apply_effects_partitioned(
                         "objects_exiled_this_way": context.objects_exiled_this_way,
                         "counters_removed_this_way": context.counters_removed_this_way,
                         "damaged_this_way": list(context.damaged_this_way),
+                        "proliferated_objects": list(context.proliferated_objects),
                         "previous_selector": context.previous_selector,
                         "revealed_card": context.revealed_card,
                         "clash_won": context.clash_won,
@@ -1659,6 +1684,7 @@ def _apply_effects_partitioned(
         context.permanents_destroyed_this_way = outer_permanents_destroyed
         context.objects_exiled_this_way = outer_objects_exiled
         context.counters_removed_this_way = outer_counters_removed
+        context.proliferated_objects = outer_proliferated
         context.damaged_this_way = outer_damaged_this_way
         context.previous_selector = outer_previous_selector
         context.revealed_card = outer_revealed_card
@@ -1750,11 +1776,22 @@ class SkipNextStepEffect(GameEffect):
             chosen = targets[0] if targets else None
             players = [chosen] if chosen is not None and getattr(chosen, "instance_id", None) is None else []
         else:
-            players = [context.state.player_by_id(self.source.controller_id)]
+            players = [_controller_of(self.source, context)]
         for player in players:
             player.player_effects.append(
                 StaticEffect("skip_phase", {"phase": self.step}, duration="once", source=self.source)
             )
+
+
+class SetDayNightEffect(GameEffect):
+    """RULE 731.1: a resolving instruction establishes day or night."""
+
+    def __init__(self, designation: str):
+        super().__init__()
+        self.designation = designation
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.engine.set_day_night(self.designation)
 
 
 class EstablishDayOnEntryEffect(GameEffect):
@@ -2106,8 +2143,19 @@ class ReplacementEffect(GameEffect):
         self.replacement_fn = replacement_fn
         self.condition = condition
         self.description = description
+        #: The whitelisted `ReplacementRegistry` name this was bound from (set by the binder);
+        #: lets "~ loses '<that ability>'" find the replacement it names (MEC-130).
+        self.spec_type: Optional[str] = None
+        #: Switched off until end of turn by `LoseOwnReplacementEffect`; cleared in the cleanup step.
+        self.suppressed = False
 
     def can_replace(self, event: GameEvent, context: GameContext) -> bool:
+        if getattr(self, "duration", None):
+            from ..durations import is_expired
+            if is_expired(self, context.state, "recompute"):
+                return False
+        if self.suppressed:
+            return False
         if event.type != self.event_type:
             return False
         if self.condition is not None and not self.condition(event, context):
@@ -2168,9 +2216,14 @@ class ActivatedAbility(GameEffect):
         attach_kind: Optional[str] = None,
         modes: Optional[list[dict[str, Any]]] = None,
         once_per_game: bool = False,
+        keyword_label: Optional[str] = None,
+        per_turn_limit: int = 0,
     ) -> None:
         super().__init__(source)
         self.effects = effects
+        #: PAR-207: the keyword this ability was printed under ("exhaust", RULE 702.177; "power-up"), so a trigger
+        #: on "an exhaust ability" can tell it from another once-per-game ability.
+        self.keyword_label = keyword_label
         if cost is None:
             # Back-compat: build a cost from the old mana/tap parameters.
             from ..costs import ActivationCost
@@ -2179,6 +2232,8 @@ class ActivatedAbility(GameEffect):
         self.cost = cost
         self.description = description
         self.once_per_turn = once_per_turn
+        self.per_turn_limit = max(0, int(per_turn_limit))
+        self._activations_this_turn = 0
         self._last_activated_turn: Optional[int] = None
         self.modes = modes
         #: PAR-28 / RULE 702.177a: Exhaust & Power-up — "Activate only once".

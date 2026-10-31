@@ -48,13 +48,17 @@ def combat_cast_window_allows(engine, player, restriction):
                         return False
             else:
                 return False
-    if state.current_step == 'declare_blockers':
-        # RULE 509.1 / 509.2: finish every defending player's declaration
-        # before anyone receives the step's first casting opportunity.
-        defenders = {defender.id for obj in state.battlefield
-                     if getattr(obj, 'attacking', False)
-                     and (defender := engine._defending_player(obj.combat_defender)) is not None
-                     and not defender.is_dummy}
-        if not defenders <= state.declared_blockers_this_combat:
-            return False
+    if state.current_step == 'declare_blockers' and not all_blockers_declared(engine):
+        return False
     return True
+
+
+def all_blockers_declared(engine) -> bool:
+    """RULE 509.1 / 509.2: every defending player has finished declaring blockers, so the declare blockers
+    step's first priority window (and an attacker's "unblocked" status, RULE 509.1h) exists."""
+    state = engine.state
+    defenders = {defender.id for obj in state.battlefield
+                 if getattr(obj, 'attacking', False)
+                 and (defender := engine._defending_player(obj.combat_defender)) is not None
+                 and not defender.is_dummy}
+    return defenders <= state.declared_blockers_this_combat

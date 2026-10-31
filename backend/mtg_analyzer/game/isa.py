@@ -238,6 +238,8 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("end_the_turn", "724", ROLE_AGENT),
         _ins("end_combat_phase", "724.2", ROLE_AGENT),
         _ins("skip_step", "500.8", ROLE_AGENT, ROLE_PATIENT),
+        _ins("set_day_night", "731.1", ROLE_PATIENT,
+             note="the game gains the day or night designation"),
         _ins("create_continuous_effect", "611", ROLE_PATIENT, ROLE_DURATION,
              note="a resolving instruction creating a RULE 611 continuous "
                   "effect (pump, an until-end-of-turn keyword grant). NOT a "
@@ -357,6 +359,13 @@ class TypeEntry:
 
 #: INSTRUCTION — type name -> the ISA operation it realises one-to-one.
 _INSTRUCTION_TYPES: dict[str, str] = {
+    # PAR-203: "choose a creature type / color / card name" mid-resolution (RULE 608.2d) stamps the answer on the source
+    # and suspends only through the ordinary `seq` body that follows it (no answer protocol of its own to count).
+    "choose_for_source": "choose",
+    "exile_named_from_zones": "search",
+    "same_name_search": "search",  # a reference operand over the existing search continuation
+
+    "reveal_hand_discard_all": "discard",
     "complete_turn_life_loss": "lose_life",
     "reveal_opponents_hands": "reveal",
     "creature_damage_life_floor": "deal_damage",
@@ -366,6 +375,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "delay_return_dying_subject": "create_delayed_trigger",
     "adapt": "adapt",
     "add_counters": "put_counter",
+    "add_counters_up_to_capped": "put_counter",
     "add_entry_counters": "put_counter",
     "add_mana": "add_mana",
     "amass": "amass",
@@ -439,6 +449,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "random_number": "random_number",
     "recruit": "recruit",
     "redirect_damage_to_target_creature": "redirect_damage",
+    "redirect_damage_shield": "redirect_damage",  # PAR-216: the general one-shot redirect (RULE 616.1)
     "regenerate": "regenerate",
     "remove_counters": "remove_counter",
     "roll_die": "roll_die",
@@ -447,6 +458,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "look_reorder_top": "scry",
     "search": "search",
     "set_life": "set_life",
+    "set_day_night": "set_day_night",
     "shuffle": "shuffle",
     "skip_step": "skip_step",
     "surveil": "surveil",
@@ -513,6 +525,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "unattach": "attach",
     "attacker_creates_attacking_token": "create",
     "become_copy_until_eot": "copy_object",
+    "copy_for_duration": "copy_object",  # PAR-223: shared clock/recipient/template axes
     "become_copy_of_imprinted_until_eot": "copy_object",  # Dermotaxi — the copied object is the Imprint-exiled card
     "become_copy_of_target_until_eot": "copy_object",
     "become_prepared": "set_status",
@@ -533,6 +546,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "cast_target_elemental_from_graveyard_free": "cast",
     "cheat_creature_from_hand": "move_object",
     "combat_restriction_this_turn": "create_continuous_effect",
+    # RULE 611 / 510.1: a resolving turn-scoped combat-assignment restriction.
+    "assign_no_combat_damage": "create_continuous_effect",
     "copy_ability": "copy_object",
     "copy_target_ability": "copy_object",
     "counter_ability": "counter",
@@ -550,6 +565,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # fusion. This is `create` with a copy-descriptor operand.
     "create_token_copy_of_named": "create",
     "damage_equal_to_counters": "deal_damage",
+    "damage_specific": "deal_damage",
     "damage_equal_to_power": "deal_damage",
     "damage_life_floor": "deal_damage",
     "deal_damage_to_chosen_player": "deal_damage",
@@ -683,6 +699,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # The source-scoped sibling of `prevent_all_combat_damage`'s player-scoped
     # Fog effect — "prevent all combat damage this effect's source would deal".
     "prevent_combat_damage_dealt": "prevent_damage",
+    "prevent_combat_damage_to_and_by": "prevent_damage",
     "prevent_attacking_player_this_turn": "create_continuous_effect",
     "prevent_damage_from_target": "prevent_damage",
     "prevent_damage_shield": "prevent_damage",
@@ -819,12 +836,14 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+
     # Bounded flicker compositions suspend on existing entry/die/selection
     # continuations; physical reports are explicit player observations.
     "drive_to_work": "608.2d",
     "exile_attached_group": "614.12",
     "conditional_flicker": "608.2d",
     "return_captured_exile_visits": "614.12",
+    "linked_exile_move": "614.12",
     "return_all_exiled_with": "614.12",
     "linked_pool_return_one": "607.2a",
     "return_exile_counter_pool": "614.12",
@@ -901,6 +920,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "gift_give": "702.174",
     "impulsive_look": "601.2b",
     "inspect_top_choose": "601.2b",
+    "inspect_cards": "701.20",
     "play_hideaway_card": "608.2g",
     "intuition_search": "701.23",
     "land_or_free_cast": "601.2b",
@@ -956,7 +976,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "loyalty_instant_timing", "sideboard_cast_permission", "opponent_draw_step",
     "grant_blitz", "blitz_cost_reduction", "blitz_graveyard_permission",
     "activation_prohibition", "anthem", "attack_tax", "block_tax", "cant_attack_defender", "cant_lose_game", "opponents_cant_win",
-    "cant_be_countered", "cant_be_copied", "cast_limit", "cast_prohibition", "color_change",
+    "cant_be_countered", "cant_be_copied", "cast_limit", "cast_prohibition", "color_change", "name_change", "prevent_damage_from_chosen_name",
     "combat_restriction", "commander_damage_multiplier", "cost_reduction", "cost_restriction",
     "damage_cant_be_prevented", "disable_damage_prevention", "draw_limit",
     # ENG-37 re-derivation: not an `exile`+`create_continuous_effect` weld.
@@ -970,13 +990,13 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana", "unspent_mana_colorless", "grant_help_pay_to_spells",
     "counter_placement_prohibition",
     "enters_with_counters_count",
-    "free_cast_permission", "goaded", "grant_any_color_for_activation",
+    "linked_exile_permission", "free_cast_permission", "goaded", "grant_any_color_for_activation",
     "grant_graveyard_to_library_replacement",
     "grant_protection_static", "grant_search_limited_to_top_n",
     "grant_search_prohibited", "granted_alt_cast_cost",
     "graveyard_cast_permission", "graveyard_library_cast_prohibition",
-    "graveyard_library_entry_prohibition", "hand_size_modifier",
-    "ignore_legend_rule", "no_max_hand_size", "no_max_hand_size_rest_of_game",
+    "graveyard_library_entry_prohibition", "hand_size_modifier", "hand_size_set",
+    "ignore_legend_rule", "no_max_hand_size", "no_max_hand_size_rest_of_game", "lose_own_replacement",
     "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "player_cast_restriction", "pt_cda",
     "self_graveyard_or_exile_cast_permission", "set_max_life_total",
     "sorcery_speed_only", "top_library_permission", "trigger_prohibition", "proliferate_twice", "pip_life_option", "lands_enter_untapped",

@@ -246,7 +246,12 @@ class TestPublicSurfaceShrank:
         count = len(self._public_methods())
         # PAR-157: return_from_exile is called by effect implementations;
         # it is the exact-visit public sibling of return_from_graveyard.
-        assert count <= 177, f"RulesEngine still exposes {count} public methods"
+        # BUG-22: deal_combat_damage is called by GameEngine._apply_combat_damage.
+        # BUG-23: damage_batch is called by DealDamageEffect and the implicit-fight effect.
+        # PAR-183: set_day_night is called by SetDayNightEffect as the shared
+        # RULE 731.1 operation; untap checks and resolving effects must use the
+        # same public transition primitive to notify triggers consistently.
+        assert count <= 180, f"RulesEngine still exposes {count} public methods"
 
     def test_the_dispatcher_is_no_longer_a_cascade(self) -> None:
         source = inspect.getsource(GameEngine.resolve_pending_choice)

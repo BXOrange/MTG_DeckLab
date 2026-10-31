@@ -103,9 +103,10 @@ def test_when_first_unless_ring_bearer_rider_adds_the_condition():
 
 
 def test_when_first_fail_closed_on_unrelated_end_step_clause():
-    assert match_clause(
-        "at the beginning of the next end step, draw a card"
-    ) is None
+    # The `-> exile it unless ring-bearer` rider is the when-first row's; an unrelated referent-free body is the
+    # step-named delayed row's (PAR-207), not a half-claimed rider.
+    (spec,) = match_clause("at the beginning of the next end step, draw a card")
+    assert spec.type == "create_delayed_trigger" and spec.params["step"] == "end" and spec.params["scope"] == "any"
 
 
 # --- engine: the condition gate ---------------------------------------

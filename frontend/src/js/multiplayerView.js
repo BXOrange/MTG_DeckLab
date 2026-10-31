@@ -59,7 +59,7 @@ import { createGameBoardView } from './gameBoardView.js';
 import { t } from './i18n.js';
 import { analysisHtml } from './gameStats.js';
 import { getState, setState } from './state.js';
-import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
+import { preloadCardImages, preloadTokenArt } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { MULLIGAN_LABELS, SEAT_COUNTS, mulliganText } from './mulligan.js';
 import {
@@ -786,20 +786,12 @@ export function createMultiplayerView(hooks = {}) {
   // key. Mirrors goldfishView.js's/soloView.js's own `preloadDeckTokens`.
   // Best-effort: a failed fetch just means a token lazy-loads later.
   async function preloadDecksTokens(decks, merged) {
+    const tokensById = new Map();
     for (const deck of decks) {
       const res = await fetchDeckTokens({ deckId: deck.id });
-      const tokens = res.ok ? res.data?.tokens || [] : [];
-      for (const tok of tokens) {
-        if (!tok.image_small && !tok.image_normal) continue;
-        const entry = { small: tok.image_small || null, normal: tok.image_normal || null, card: tok };
-        if (tok.id) merged.set(tok.id, entry);
-        const key = (tok.name || '').toLowerCase();
-        if (key && !merged.has(key)) {
-          merged.set(key, entry);
-          cacheResolvedCard(key, entry);
-        }
-      }
+      for (const t of res.ok ? res.data?.tokens || [] : []) tokensById.set(t.id || `${deck.id}:${t.name}`, t);
     }
+    await preloadTokenArt(Array.from(tokensById.values()), merged);
   }
 
   // --- Setup screen -------------------------------------------------------

@@ -131,6 +131,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    from mtg_analyzer.api.console_status import router as console_status_router
+    app.include_router(console_status_router)
     app.include_router(decks_router)
     app.include_router(saved_decks_router)
     app.include_router(archetypes_router)

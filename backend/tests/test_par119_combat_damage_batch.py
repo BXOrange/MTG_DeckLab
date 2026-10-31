@@ -125,11 +125,12 @@ def test_combat_damage_batch_head_across_all_opponents_is_one_trigger():
     ("ninja or rogue creatures you control",
      ({"subtype_any": ["ninja", "rogue"], "card_type": "creature"}, "you")),
     ("ninja or rogue creature", ({"subtype_any": ["ninja", "rogue"], "card_type": "creature"}, None)),
-    # Only subtypes share the trailing noun — a colour or type before it is ambiguous.
-    ("red or blue creatures", None),
+    # Subtypes and colours (RULE 105.2, "a green or white creature" — PAR-202) share the trailing noun; a card type
+    # before it is ambiguous.
+    ("red or blue creatures", ({"color_any": ["R", "U"], "card_type": "creature"}, None)),
     ("artifact or rogue creatures", None),
 ])
-def test_a_trailing_type_noun_is_shared_by_the_subtypes_before_it(phrase, expected):
+def test_a_trailing_type_noun_is_shared_by_the_subtypes_and_colours_before_it(phrase, expected):
     assert parse_object_phrase(phrase, plural=True) == expected
 
 

@@ -54,7 +54,7 @@ from .core import EffectRegistry, GameContext, GameEffect, _apply_effects_partit
 #: How a `for_each` names the players it iterates, in APNAP order (RULE
 #: 101.4). Deliberately the same three words `SacrificeEffect.selector` and
 #: `MillEffect.player_selector` already use, rather than a fourth spelling.
-PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "you", "each_opponent_except_defending"})
+PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "each_other_player", "you", "each_opponent_except_defending"})
 
 
 def _as_spec_dicts(raw: Any) -> list[dict[str, Any]]:
@@ -95,22 +95,95 @@ def _resolve_x(value: Any, x_paid: int) -> Any:
     return value
 
 
+def _resolve_chosen(value: Any, source: Optional[GameObject]) -> Any:
+    """PAR-203 (RULE 608.2d): swap the "the chosen type/color/name" placeholders for what the ``choose_for_source``
+    effect stamped on ``source`` earlier in this resolution. A placeholder with no answer stays as it is, so the
+    filter that carries it matches nothing rather than everything."""
+    from ...parser.oracle.spec import (
+        CHOSEN_COLOR_SENTINEL, CHOSEN_COLORS_SENTINEL, CHOSEN_LAND_TYPE_SENTINEL, CHOSEN_NAME_SENTINEL, CHOSEN_TYPE_SENTINEL,
+    )
+
+    answers = {
+        CHOSEN_TYPE_SENTINEL: getattr(source, "chosen_type", None),
+        CHOSEN_COLOR_SENTINEL: getattr(source, "chosen_color", None),
+        CHOSEN_NAME_SENTINEL: getattr(source, "chosen_card_name", None),
+        CHOSEN_LAND_TYPE_SENTINEL: getattr(source, "chosen_land_type", None),
+        CHOSEN_COLORS_SENTINEL: list(getattr(source, "chosen_colors", []) or []),
+    }
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, str):
+            # "$chosen_type" in a filter key is the lowercase subtype word the filters compare with.
+            if node == CHOSEN_TYPE_SENTINEL and answers[node]:
+                return str(answers[node]).lower()
+            return answers.get(node) or node
+        if isinstance(node, dict):
+            return {k: walk(v) for k, v in node.items()}
+        if isinstance(node, list):
+            resolved = []
+            for value in node:
+                # The color-subset placeholder occupies a list slot like every other color sentinel.
+                if value == CHOSEN_COLORS_SENTINEL and answers[CHOSEN_COLORS_SENTINEL]:
+                    resolved.extend(answers[CHOSEN_COLORS_SENTINEL])
+                else:
+                    resolved.append(walk(value))
+            return resolved
+        return node
+
+    return walk(value)
+
+
 def _build(specs: list[dict[str, Any]], source: Optional[GameObject]) -> list[GameEffect]:
     from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
     from ...parser.oracle.spec import EffectSpec
 
     x_paid = int(getattr(source, "x_paid", 0) or 0)
+
+    def params_of(spec: dict[str, Any]) -> dict[str, Any]:
+        params = _resolve_x(dict(spec.get("params") or {}), x_paid)
+        if spec["type"] == "seq":
+            # A nested ``seq`` builds its own body when *it* runs. Resolving the "$chosen_*" placeholders in that body
+            # here would read whatever an earlier use of the source left stamped, before this resolution's choice (a
+            # sibling ahead of it in this list) has been answered (PAR-203).
+            return {**_resolve_chosen({k: v for k, v in params.items() if k != "effects"}, source),
+                    **({"effects": params["effects"]} if "effects" in params else {})}
+        return _resolve_chosen(params, source)
+
     return build_effects(
         [
             EffectSpec(
                 type=spec["type"],
-                params=_resolve_x(dict(spec.get("params") or {}), x_paid),
+                params=params_of(spec),
                 condition=spec.get("condition"),
             )
             for spec in specs
         ],
         source,
     )
+
+
+def antecedent_impossible(antecedent: list[dict[str, Any]], source: Optional[GameObject], context: GameContext) -> bool:
+    """An "if you do" antecedent that cannot be performed in full is not offered (RULE 609.3 applies to the
+    instruction, but the question is only worth asking when "if you do" can come true): "exile two cards from
+    your graveyard" needs two."""
+    for spec in antecedent:
+        if spec.get("type") == "choose_objects":
+            # "tap two other untapped creatures": fewer than two to pick cannot do it, so "if you do" cannot hold.
+            chooser = _build([spec], source)[0]
+            pooled = chooser.pool_candidates(context)
+            needed = chooser.count
+            if pooled is None or (isinstance(needed, int) and len(pooled[1]) < needed):
+                return True
+        if spec.get("type") == "exile_own_graveyard_cards":
+            controller = effect_conditions._player_by_id(context, effect_conditions._controller_id(source, context))
+            params = spec.get("params") or {}
+            needed = max(1, int(params.get("count", 1)))
+            card_type = str(params.get("card_type") or "").lower()
+            pool = [o for o in (controller.graveyard if controller is not None else [])
+                    if not card_type or card_type in (o.card.type_line or "").lower().split("—")[0]]
+            if controller is None or len(pool) < needed:
+                return True
+    return False
 
 
 class _CompositeEffect(GameEffect):
@@ -130,6 +203,14 @@ class _CompositeEffect(GameEffect):
         super().__init__(source)
         self.inner_specs = _as_spec_dicts(effects)
 
+    @property
+    def created_objects_are_referent(self) -> bool:
+        # Copy-producing compositions retain the copy effect's existing referent contract.
+        if not self.inner_specs:
+            return False
+        last = _build(self.inner_specs[-1:], self.source)
+        return bool(last and getattr(last[-1], "created_objects_are_referent", False))
+
     def _run(
         self,
         specs: list[dict[str, Any]],
@@ -148,7 +229,9 @@ class _CompositeEffect(GameEffect):
         if not specs:
             return False
         return _apply_effects_partitioned(
-            _build(specs, self.source),
+            _build(effect_conditions.pin_source_reference(
+                specs, self.source, context.resolving_source_incarnation,
+            ), self.source),
             context,
             targets,
             None,
@@ -201,8 +284,46 @@ class SeqEffect(_CompositeEffect):
             specs.extend(effect.target_specs)
         return specs
 
+    def __init__(
+        self,
+        effects: Optional[list[Any]] = None,
+        source: Optional[GameObject] = None,
+        if_you_do_from: Optional[int] = None,
+        else_effects: Optional[list[Any]] = None,
+    ) -> None:
+        super().__init__(effects, source)
+        #: PAR-208 (RULE 608.2c): "A. If you do, B. **Otherwise / If you don't**, C." -- C runs when A could not be
+        #: performed or changed nothing. Only meaningful beside ``if_you_do_from``.
+        self.else_specs = _as_spec_dicts(else_effects) if if_you_do_from else []
+        #: RULE 608.2c / 603.12 "A. **When/If you do**, B." with no "you may" of its own: the number of leading
+        #: ``effects`` that are A. B (the rest) waits behind `IfYouDoEffect`'s check that A changed the game --
+        #: the unconditional sibling of `OptionalEffect.if_you_do_from` (the optional question is the ability's).
+        self.if_you_do_from = (
+            if_you_do_from if isinstance(if_you_do_from, int) and 0 < if_you_do_from < len(self.inner_specs) else None
+        )
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        self._run(self.inner_specs, context, targets)
+        split = self.if_you_do_from
+        if not split:
+            self._run(self.inner_specs, context, targets)
+            return
+        antecedent, payoff = self.inner_specs[:split], self.inner_specs[split:]
+        if antecedent_impossible(antecedent, self.source, context):
+            # "exile 5 cards from your graveyard" with 3 there cannot come true: B never runs, C ("otherwise") does.
+            self._run(self.else_specs, context, targets)
+            return
+        built = _build(effect_conditions.pin_source_reference(
+            antecedent, self.source, context.resolving_source_incarnation), self.source)
+        if not all(spec.get("type") in ALWAYS_DONE_ANTECEDENTS for spec in antecedent):
+            built.append(IfYouDoEffect(game_fingerprint(context, self.source), payoff, self.source, self.else_specs))
+        else:
+            built += _build(payoff, self.source)
+        _apply_effects_partitioned(
+            built, context, targets, None, source=self.source,
+            previous_targets=list(getattr(context, "previous_targets", []) or []),
+            created_objects=list(getattr(context, "created_objects", []) or []),
+            created_sink=context.created_objects,
+        )
 
 
 #: `TriggerSubjectReferentEffect.event_key` naming the remembered subject rather than an event field.
@@ -240,7 +361,9 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
         referent: str = 'trigger_subject',
     ) -> None:
         super().__init__(effects, source)
-        if referent not in effect_conditions.EFFECT_SUBJECTS:
+        # "attached" is RULE 303.4/301.5's host of an Aura/Equipment source (`subject_of` resolves it); it stays out of
+        # EFFECT_SUBJECTS so a standing condition's ``of: attached`` keeps resolving through `static_conditions`.
+        if referent not in effect_conditions.EFFECT_SUBJECTS and referent != 'attached':
             raise ValueError('Unknown body referent')
         self.referent = referent
         self.event_key = event_key or "instance_id"
@@ -281,6 +404,10 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
             return
         if self.referent != 'trigger_subject':
             subject = effect_conditions.subject_of(self.referent, context, self.source, targets)
+            if subject is None and self.referent == 'previous_subject' and context.created_objects:
+                # RULE 608.2c: "Manifest the top card of your library and attach ~ to it" -- the earlier instruction
+                # made rather than chose its object, and that object is the one "it" names.
+                subject = context.created_objects[-1]
             object_id = getattr(subject, 'instance_id', None)
         elif self.event_key == REMEMBERED_EVENT_KEY:
             # A body that runs after the trigger's window closed (a payment's "if you do"): the
@@ -288,7 +415,13 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
             object_id = getattr(self.source, "remembered_instance_id", None)
         else:
             object_id = (context.trigger_event or {}).get(self.event_key)
-        firing = context.state.find_object(object_id) if object_id is not None else None
+        firing = (subject if self.referent != 'trigger_subject'
+                  else context.state.find_object(object_id) if object_id is not None else None)
+        # RULE 400.7: a damage recipient / targeted host that left and returned is a new object.
+        incarnation_key = {"target_id": "target_zone_incarnation", "instance_id": "instance_zone_incarnation"}.get(self.event_key)
+        incarnation = (context.trigger_event or {}).get(incarnation_key) if incarnation_key else None
+        if firing is not None and incarnation is not None and firing.zone_incarnation != incarnation:
+            firing = None
         context.previous_targets = [firing] if firing is not None else []
         if firing is None or not self.inner_specs:
             return
@@ -441,29 +574,14 @@ class OptionalEffect(_CompositeEffect):
         self.player = player
 
     def _antecedent_impossible(self, context: GameContext) -> bool:
-        """An "if you do" antecedent that cannot be performed in full is not offered (RULE 609.3 applies to the
-        instruction, but the question is only worth asking when "if you do" can come true): "exile two cards from
-        your graveyard" needs two."""
-        for spec in self.inner_specs[: self.if_you_do_from]:
-            if spec.get("type") == "choose_objects":
-                # "tap two other untapped creatures": fewer than two to pick cannot do it, so "if you do" cannot hold.
-                chooser = _build([spec], self.source)[0]
-                pooled = chooser.pool_candidates(context)
-                needed = chooser.count
-                if pooled is None or (isinstance(needed, int) and len(pooled[1]) < needed):
-                    return True
-            if spec.get("type") == "exile_own_graveyard_cards":
-                controller = effect_conditions._player_by_id(
-                    context, effect_conditions._controller_id(self.source, context))
-                needed = max(1, int((spec.get("params") or {}).get("count", 1)))
-                if controller is None or len(controller.graveyard) < needed:
-                    return True
-        return False
+        return antecedent_impossible(self.inner_specs[: self.if_you_do_from], self.source, context)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.inner_specs and not self.else_specs:
             return
         if self.if_you_do_from and self._antecedent_impossible(context):
+            # PAR-208: an antecedent that cannot come true is not offered, and "if you don't" then holds.
+            self._run(self.else_specs, context, targets)
             return
         referent_subject_id = None
         if self.player == "target":
@@ -563,6 +681,11 @@ class OptionalEffect(_CompositeEffect):
                 for obj in (getattr(context, "previous_targets", []) or [])
                 if getattr(obj, "instance_id", None) is not None
             ],
+            # RULE 400.7: an optional rider keeps the creations' exact zone visits across its question.
+            "created_object_visits": [
+                {"instance_id": obj.instance_id, "zone_incarnation": obj.zone_incarnation}
+                for obj in context.created_objects
+            ],
             # Same, for a `reveal_top` clause's stashed card — "you may put
             # **that card** onto the battlefield" (Nissa) is the body here.
             "revealed_card_id": getattr(
@@ -609,9 +732,14 @@ class IfYouDoEffect(_CompositeEffect):
     an empty library, tapping what is already tapped, exiling a card that has left -- leaves Y undone.
     """
 
-    def __init__(self, before: tuple, effects: Optional[list[Any]] = None, source: Optional[GameObject] = None) -> None:
+    def __init__(
+        self, before: tuple, effects: Optional[list[Any]] = None, source: Optional[GameObject] = None,
+        else_effects: Optional[list[Any]] = None,
+    ) -> None:
         super().__init__(effects, source)
         self.before = before
+        #: PAR-208: the "otherwise / if you don't" branch, run when X changed nothing.
+        self.else_specs = _as_spec_dicts(else_effects)
 
     @property
     def target_specs(self) -> list[TargetSpec]:
@@ -620,6 +748,8 @@ class IfYouDoEffect(_CompositeEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if game_fingerprint(context, self.source) != self.before:
             self._run(self.inner_specs, context, targets)
+        elif self.else_specs:
+            self._run(self.else_specs, context, targets)
 
 
 class ForEachEffect(_CompositeEffect):
@@ -650,6 +780,10 @@ class ForEachEffect(_CompositeEffect):
         self.over = dict(over or {})
 
     def _items(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
+        if self.over.get("created_objects"):
+            return list(context.created_objects)
+        if self.over.get("previous_targets"):
+            return list(context.previous_targets)
         if self.over.get("targets"):
             return list(targets or [])
         if self.over.get("batch_members"):
@@ -669,6 +803,13 @@ class ForEachEffect(_CompositeEffect):
             living = list(context.state.living_players_apnap())
             if scope == "each_opponent":
                 return [p for p in living if p.id != controller_id]
+            if scope == "each_other_player":
+                # RULE 608.2c: "other" excludes the player just named (e.g. the
+                # caster in Zenith Chronicler), otherwise the ability's controller.
+                ref = self.over.get("except_player_ref")
+                excluded = effect_conditions.subject_of(ref or "trigger_player", context, self.source, targets)
+                excluded_id = getattr(excluded, "id", None) if excluded is not None else controller_id
+                return [p for p in living if p.id != excluded_id]
             if scope == "each_opponent_except_defending":
                 # RULE 702.116a (Myriad): "each opponent other than defending player".
                 defending = (getattr(context, "trigger_event", None) or {}).get("defending_player_id")
@@ -676,21 +817,34 @@ class ForEachEffect(_CompositeEffect):
             if scope == "you":
                 return [p for p in living if p.id == controller_id]
             return living
+        if self.over.get("previous_selector"):
+            from .attachments_transforms import previous_group_objects
+
+            return previous_group_objects(context, self.source, context.previous_selector)
         selector = self.over.get("selector")
+        controller_id = effect_conditions._controller_id(self.source, context)
+        if isinstance(selector, dict) and selector.get("of") == "context":
+            # RULE 608.2h: the earlier player, or the earlier permanent's controller.
+            subject = effect_conditions.subject_of(selector.get("controller_ref"), context, self.source, targets)
+            controller_id = (getattr(subject, "id", None) if hasattr(subject, "life")
+                             else getattr(subject, "controller_id", None))
+            if controller_id is None:
+                return []
+            selector = {**selector, "of": "you"}
         if isinstance(selector, dict) and selector.get("zone", "battlefield") != "battlefield":
             # PAR-153: "for each creature card you own in exile with a memory counter on it" (Altaïr) — a card
             # zone, which `group_selector_objects` (battlefield statics) does not read.
             from ..continuous import _structured_selector_objects  # function-scoped: cycle
 
             return list(_structured_selector_objects(
-                context.state, effect_conditions._controller_id(self.source, context), selector, self.source,
+                context.state, controller_id, selector, self.source,
             ))
         if selector:
             from ..continuous import group_selector_objects  # function-scoped: cycle
 
             return list(group_selector_objects(
                 context.state,
-                effect_conditions._controller_id(self.source, context),
+                controller_id,
                 selector, {}, src=self.source,
             ))
         return []
@@ -715,8 +869,41 @@ class ForEachEffect(_CompositeEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         items = self._items(context, targets)
+        # RULE 608.2h: snapshot the qualified player set before any member's
+        # instruction changes state; "you" in the payoff remains unchanged.
+        result = self.over.get("action_result")
+        if isinstance(result, dict):
+            start = result.get("start")
+            event_type = result.get("event")
+            if not isinstance(start, int) or start < 0 or event_type not in ('DISCARD_CARD', 'DRAW', 'SACRIFICE', 'LIBRARY_SEARCHED'):
+                return
+            counts = {}
+            events = list(context.state.events_this_turn())
+            for event in list(reversed(events))[start:]:
+                if event.type != event_type:
+                    continue
+                types = event.get('object_types') or []
+                card_type = result.get('card_type')
+                if card_type and ((card_type.removeprefix('non') in types) == card_type.startswith('non')):
+                    continue
+                player_id = event.get('player_id')
+                counts[player_id] = counts.get(player_id, 0) + 1
+            minimum = result.get('count', 1)
+            items = [p for p in items if (counts.get(p.id, 0) >= minimum) != bool(result.get('negated'))]
+        predicate = self.over.get("player_condition")
+        if predicate is not None:
+            from ..static_conditions import condition_holds
+
+            items = [p for p in items if hasattr(p, "life") and condition_holds(
+                predicate, context.state, self.source, p.id,
+            )]
         if not items or not self.inner_specs:
             return
+        # RULE 603.2c: a plural object action is one instruction even if a member opens a choice.
+        owns_hold = bool(self.over.get("simultaneous")) and not context.state._batch_hold
+        if owns_hold:
+            context.state.hold_batches()
+            context.state.deferred_effects.append({"kind": context.engine.DEFERRED_BATCH_END})
         # Park the whole loop and run it here: `resume_deferred_effects`
         # drains an iteration frame one item at a time, and draining it now
         # (rather than leaving it for `resolve_until_stable`) is what keeps
@@ -729,14 +916,20 @@ class ForEachEffect(_CompositeEffect):
             not context.state.pending_choice
             and context.state.deferred_effects
             and context.state.deferred_effects[-1].get("kind")
-            == context.engine.DEFERRED_ITERATION
+            in (context.engine.DEFERRED_ITERATION, context.engine.DEFERRED_BATCH_END)
         ):
             context.engine.resume_deferred_effects()
+        if self.over.get("remember"):
+            context.previous_targets = list(items)
+            if isinstance(self.over.get("selector"), dict) and self.over["selector"].get("of") == "context":
+                # RULE 400.7: later "those creatures" remembers the selected zone visits,
+                # not a controller reference which the loop's body may have overwritten.
+                context.previous_selector = {"zone_visits": [(o.instance_id, o.zone_incarnation) for o in items]}
 
 
 #: `TargetGroupEffect.shares` vocabulary → the `combat.matches_object_filter` relative key that implements it.
 #: Closed like every other whitelisted name; an unlisted word makes the node do nothing (fail closed).
-TARGET_GROUP_SHARES: dict[str, str] = {"color": "shares_color_with_reference"}
+TARGET_GROUP_SHARES: dict[str, str] = {"color": "shares_color_with_reference", "name": "named_as_reference"}
 
 #: The `TargetGroupEffect.then_effects` sentinel for the total damage the group's loop actually dealt
 #: ("You gain life equal to the damage dealt this way" — Brightflame). Substituted like a `bind` name.
@@ -814,6 +1007,10 @@ class TargetGroupEffect(_CompositeEffect):
         if not items:
             return
         log_start = len(context.state.event_log)
+        # RULE 603.2c: all members of this single instruction move as one batch.
+        if not context.state._batch_hold:
+            context.state.hold_batches()
+            context.state.deferred_effects.append({"kind": context.engine.DEFERRED_BATCH_END})
         context.engine.defer_iteration(
             [], items, source=self.source,
             specs=[dict(spec) for spec in self.inner_specs], item_as_target=True,
@@ -821,7 +1018,8 @@ class TargetGroupEffect(_CompositeEffect):
         while (
             not context.state.pending_choice
             and context.state.deferred_effects
-            and context.state.deferred_effects[-1].get("kind") == context.engine.DEFERRED_ITERATION
+            and context.state.deferred_effects[-1].get("kind") in (
+                context.engine.DEFERRED_ITERATION, context.engine.DEFERRED_BATCH_END)
         ):
             context.engine.resume_deferred_effects()
         if not self.then_specs:
@@ -915,7 +1113,9 @@ class BindEffect(_CompositeEffect):
 EffectRegistry.register(
     # A list as a value — see `SeqEffect`.
     "seq",
-    lambda p: SeqEffect(effects=p.get("effects")),
+    lambda p: SeqEffect(
+        effects=p.get("effects"), if_you_do_from=p.get("if_you_do_from"), else_effects=p.get("else_effects"),
+    ),
 )
 EffectRegistry.register("entry_effect", lambda p: EntryEffect(effects=p.get("effects")))
 EffectRegistry.register(

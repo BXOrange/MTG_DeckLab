@@ -71,6 +71,7 @@ class Player:
         self.zones: dict[Zone, list[GameObject]] = {zone: [] for zone in self.PERSONAL_ZONES}
         # RULE 400.11: outside the game is not a zone.
         self.sideboard: list[GameObject] = []
+        self.library_shuffle_serial = 0
 
         #: Per-turn flags, reset by the engine at the start of each turn.
         self.lands_played_this_turn = 0
@@ -253,6 +254,7 @@ class Player:
         (so a "whenever a player shuffles" trigger can see it) and to keep
         library-searching (RULE 701.19e "then shuffle") in one place.
         """
+        self.library_shuffle_serial += 1
         random.shuffle(self.library)
 
     def draw(self, count: int = 1) -> list[GameObject]:

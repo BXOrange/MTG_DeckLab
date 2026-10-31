@@ -120,8 +120,9 @@ def test_transmute_reveal_is_public_without_exposing_the_remaining_hand_or_libra
     assert reveal["card_name"] == "Artifact 2"
     assert reveal["card_id"] == "2"
     assert observer["table_messages"][-1] == reveal
-    assert observer["state"]["players"][0]["hand"] == []
+    assert [card['instance_id'] for card in observer["state"]["players"][0]["hand"]] == [picked]
     assert observer["state"]["players"][0]["library"] == []
+    assert reveal['revealed_card']['instance_id'] == picked
     session.rewind()
     assert session.observer_view()["table_messages"] == []
 

@@ -100,10 +100,12 @@ class CombatMixin:
             obj.additional_blocking = []
             obj.blocked_by = []
             obj.dealt_deathtouch_damage = False
+            obj.prevent_combat_damage_this_combat = False  # RULE 615 "this combat" shields end with it
         # RULE 509.1a: nobody has "already declared blockers" for a combat
         # that hasn't happened yet — reset alongside the per-object flags
         # above (`GameState.declared_blockers_this_combat`'s own docstring).
         self.state.declared_blockers_this_combat.clear()
+        self.state.first_strike_step_combatants = None
     def _enforce_attacks_if_able(self) -> None:
         """RULE 508.1a: a creature under an "attacks each combat if able"
         static must be declared as an attacker if it's able to.
@@ -269,6 +271,8 @@ class CombatMixin:
                         player_id=obj.controller_id,
                         instance_id=obj.instance_id,
                         object_types=sorted(obj.type_words),
+                        # RULE 508.1b: "defending player discards ..." (PAR-208) names the player this attacker attacks.
+                        defending_player_id=getattr(self._defending_player(obj.combat_defender), "id", None),
                     )
                 )
     def _fire_player_attacked_events(self) -> None:
@@ -393,28 +397,44 @@ class CombatMixin:
     def _combat_has_first_strikers(self) -> bool:
         """Whether any attacker or blocker has first or double strike (→ two
         damage steps, RULE 702.7e)."""
-        combatants = list(self.attackers) + [
+        return any(
+            combat.has_first_strike(c) or combat.has_double_strike(c)
+            for c in self._combat_creatures()
+        )
+
+    def _combat_creatures(self) -> list[GameObject]:
+        """Every attacking or blocking creature (RULE 510.4's "attacking or
+        blocking creature")."""
+        return list(self.attackers) + [
             b for b in self.state.battlefield if combat.blocking_attacker_ids(b)
         ]
-        return any(
-            combat.has_first_strike(c) or combat.has_double_strike(c) for c in combatants
-        )
-    @staticmethod
-    def _deals_in_step(obj: GameObject, first_strike_step: bool) -> bool:
+    def _deals_in_step(self, obj: GameObject, first_strike_step: bool) -> bool:
         """Whether ``obj`` deals damage in this combat-damage step.
 
-        First-strike step: first strike *or* double strike. Regular step:
-        double strike (again) or a creature with neither — a pure first-striker
-        has already dealt and deals nothing more.
+        First-strike step: first strike *or* double strike (as the step
+        begins). Regular step, RULE 510.4: a creature deals damage if it
+        currently has double strike, or if it did *not* take part in the
+        first-strike step. That participation is the exact record kept on
+        ``GameState.first_strike_step_combatants`` (instance + zone visit, so
+        a creature that left and returned is a new object, RULE 400.7), not
+        its current keywords: a pure first-striker that lost first strike
+        deals nothing more, and an ordinary creature that gained first strike
+        since still deals its regular damage. With no first-strike step this
+        combat (record ``None``), every combatant is ordinary.
         """
-        fs = combat.has_first_strike(obj)
-        ds = combat.has_double_strike(obj)
-        return (fs or ds) if first_strike_step else (ds or not fs)
+        if first_strike_step:
+            return combat.has_first_strike(obj) or combat.has_double_strike(obj)
+        if combat.has_double_strike(obj):
+            return True
+        record = self.state.first_strike_step_combatants
+        return record is None or (obj.instance_id, obj.zone_incarnation) not in record
     def _deal_combat_damage_step(self, first_strike_step: bool) -> None:
         # (target, amount, source) gathered before anything is dealt.
         assignments: list[tuple[Any, int, GameObject]] = []
+        # RULE 510.1: prohibited sources assign nothing, even if damage cannot be prevented.
         for attacker in self.attackers:
-            if not self._deals_in_step(attacker, first_strike_step):
+            if (getattr(attacker, "temp_assign_no_combat_damage", False)
+                    or not self._deals_in_step(attacker, first_strike_step)):
                 continue
             power = (
                 attacker.toughness or 0
@@ -441,7 +461,8 @@ class CombatMixin:
         # Blockers strike the attacker(s) they're blocking (RULE 510.1c).
         for blocker in self.state.battlefield:
             attacker_ids = combat.blocking_attacker_ids(blocker)
-            if not attacker_ids or not self._deals_in_step(blocker, first_strike_step):
+            if (not attacker_ids or getattr(blocker, "temp_assign_no_combat_damage", False)
+                    or not self._deals_in_step(blocker, first_strike_step)):
                 continue
             power = (
                 blocker.toughness or 0
@@ -563,112 +584,16 @@ class CombatMixin:
     def _apply_combat_damage(
         self, assignments: list[tuple[Any, int, GameObject]]
     ) -> None:
-        """Deal one damage step's gathered assignments, applying protection,
-        deathtouch and lifelink to each."""
-        # MEC-29/RULE 603.1: "whenever one or more creatures you control
-        # [with `<characteristic>`] deal combat damage to a player" is an
-        # aggregate condition over this whole step, not a per-hit one — see
-        # `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s docstring.
-        # Tracked live alongside the ordinary per-hit `DAMAGE` firing below
-        # (every assignment whose ``target`` is a `Player` is by
-        # construction an attacking creature's own damage — RULE 510.1c
-        # blockers only ever strike the attacker(s) they're blocking, never
-        # a player, so no blocker-sourced entry can reach this branch), then
-        # fired once per (contributing controller, player hit) pair after
-        # the loop.
-        # ``subtypes`` per pair is the union of every contributing creature's
-        # own subtypes. A trigger's per-creature qualifiers ("with power 7 or
-        # greater", "Pirates", "with base power 0") are *not* stamped here: the
-        # composed batch head re-reads each of ``contributor_ids`` as its own
-        # per-creature damage event (`binding.core._contributor_members`).
-        player_hits: dict[tuple[Optional[str], Any], dict[str, Any]] = {}
-        for target, amount, source in assignments:
-            # Protection prevents the damage from a source of the named quality
-            # (RULE 702.16c; `rules.deal_damage` enforces this too, so no
-            # damage lands even if a caller skips this check) — checked here
-            # as well so deathtouch/lifelink below don't fire off damage that
-            # never happened. Players carry no protection in this model.
-            if isinstance(target, GameObject) and combat.is_protected_from(target, source):
-                continue
-            self.rules.deal_damage(target, amount, source=source, combat=True)
-            if amount <= 0:
-                continue
-            # Deathtouch: mark any creature damaged by a deathtouch source for
-            # the SBA to destroy (RULE 702.2b).
-            if isinstance(target, GameObject) and combat.has_deathtouch(source):
-                target.dealt_deathtouch_damage = True
-            # Lifelink: the source's controller gains that much life (702.15b).
-            if combat.has_lifelink(source):
-                self.rules.gain_life(self.state.player_by_id(source.controller_id), amount)
-            if not isinstance(target, GameObject):
-                key = (source.controller_id, target.id)
-                entry = player_hits.setdefault(
-                    key, {
-                        "amount": 0, "subtypes": set(), "contributor_ids": [], "contributor_amounts": [],
-                        "base_power_0_amount": 0,
-                    }
-                )
-                entry["contributor_ids"].append(source.instance_id)
-                entry["contributor_amounts"].append(amount)
-                # "…creatures you control **with base power 0**…" (Primo, the
-                # Unbounded, PAR-60) — "base power" is the printed/copied
-                # value (`Card.power`, RULE 707.2), not the derived
-                # `source.power`. ``base_power_0_amount`` is the combat damage
-                # those creatures dealt to this player this step (Primo's "the
-                # damage dealt"), read by `base0_combat_damage_fractal`.
-                if int(getattr(source.card, "power", 0) or 0) == 0:
-                    entry["base_power_0_amount"] += amount
-                # The actual combat damage total dealt to this player this
-                # step ("…the damage those creatures dealt").
-                entry["amount"] += amount
-                # `GameObject.type_words` is *main* types only ("creature",
-                # "legendary permanent") — a tribal filter needs the actual
-                # subtype words after the em dash, honouring a layer-4
-                # subtype overwrite/add the same way `continuous._has_
-                # subtype` does (its own logic inlined here since that
-                # function tests one subtype at a time, not the whole set;
-                # RULE 702.73 Changeling is the one thing it handles that
-                # this aggregate doesn't — a vanishingly rare combination
-                # with a tribal aggregate payoff).
-                derived = getattr(source, "_derived_subtypes", None)
-                if derived is not None:
-                    entry["subtypes"].update(s.lower() for s in derived)
-                else:
-                    entry["subtypes"].update(
-                        s.lower() for s in (getattr(source, "_added_subtypes", None) or set())
-                    )
-                    entry["subtypes"].update(
-                        source.card.type_line.lower().partition("—")[2].split()
-                    )
-        # MEC-104: what each contributing controller dealt to *every* player it hit this step, so
-        # an "…to one or more of your opponents" trigger fires once for the whole step rather than
-        # once per (controller, player) pair (`binding.core._contributor_members`).
-        hits_by_controller: dict[Optional[str], list[dict[str, Any]]] = {}
-        for (controller_id, target_id), entry in player_hits.items():
-            hits_by_controller.setdefault(controller_id, []).append({
-                "target_id": target_id, "ids": entry["contributor_ids"],
-                "amounts": entry["contributor_amounts"],
-            })
-        for (controller_id, target_id), entry in player_hits.items():
-            self.state.fire_event(
-                GameEvent(
-                    EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
-                    player_id=controller_id,
-                    target_id=target_id,
-                    # The recipient is always a player by construction — set
-                    # so a "target … that player controls" target kind
-                    # (`targeting`) can scope to it (Popular Entertainer).
-                    is_player=True,
-                    amount=entry["amount"],
-                    subtypes=sorted(entry["subtypes"]),
-                    contributor_ids=entry["contributor_ids"],
-                    # Parallel to ``contributor_ids``: what each one dealt this
-                    # player ("the damage those creatures dealt", PAR-119).
-                    contributor_amounts=entry["contributor_amounts"],
-                    base_power_0_amount=entry["base_power_0_amount"],
-                    hits=hits_by_controller[controller_id],
-                )
-            )
+        """Deal one damage step's gathered assignments.
+
+        RULE 120.3f/615.1/616: the *assignments* are only what combat tried to deal. Lifelink
+        gain, the deathtouch mark and the aggregate "one or more creatures deal combat damage to
+        a player" events (MEC-29/MEC-104, RULE 603.1) are derived from damage receipts written by
+        `RulesEngine._finish_damage` -- recipient after redirection, amount after prevention -- and
+        settled once per step by `RulesEngine.settle_damage_receipts`, even if a RULE 616.1e
+        ordering choice suspends part of the step (the ledger lives on ``GameState``).
+        """
+        self.rules.deal_combat_damage(assignments)
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:
         """Turn a stored ``combat_defender`` spec back into the live target.
 
@@ -841,48 +766,82 @@ class CombatMixin:
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
             self.rules.check_dethrone(obj)
             self.rules._check_myriad(obj)  # RULE 702.116a
-    def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
-        """RULE 702.49a Ninjutsu — "[cost], Return an unblocked attacker you
-        control to hand: Put this card onto the battlefield from your hand
-        tapped and attacking." A RULE 702.49b special action, legal only for
-        the active player during the declare-blockers step (PAR-26).
+    #: RULE 702.49c: an unblocked attacker exists from the declare blockers
+    #: step through the end of combat step (BUG-30 keeps combat state until
+    #: the end of combat step is left).
+    NINJUTSU_STEPS = ("declare_blockers", "first_strike_damage", "combat_damage", "end_combat")
 
-        The ninja takes the returned attacker's place in combat — same
-        defender, tapped and attacking, and it doesn't tap for its own
-        attack (it's *put* there, not declared). RULE 508.3a therefore does
-        not fire its ``ATTACKS`` triggers or mark it as having attacked.
-        ETB fires normally.
+    def ninjutsu_unblocked_attackers(self, player: Player) -> list[GameObject]:
+        """RULE 702.49a/c: the attackers ``player`` controls that count as
+        unblocked right now (none outside the declare-blockers..end-of-combat
+        window, none while a split-second spell is on the stack)."""
+        if self.state.current_step not in self.NINJUTSU_STEPS:
+            return []
+        # RULE 509.1h: no attacker is "unblocked" until blockers are declared.
+        if self.state.current_step == "declare_blockers":
+            from ..cast_timing import all_blockers_declared  # function-scoped: cast_timing reads engine state
+
+            if not all_blockers_declared(self):
+                return []
+        if continuous.split_second_active(self.state):  # RULE 702.61b
+            return []
+        return [
+            o for o in self.state.battlefield
+            if o.attacking and o.controller_id == player.id and not o.blocked_by
+        ]
+
+    def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
+        """RULE 702.49a Ninjutsu: an *activated* ability (RULE 602) that
+        functions only while the card is in hand: "[cost], Reveal this card
+        from your hand, Return an unblocked attacking creature you control to
+        its owner's hand: Put this card onto the battlefield from your hand
+        tapped and attacking."
+
+        The costs are paid now (RULE 602.2b); the ability goes on the stack
+        and the Ninja enters on resolution (`NinjutsuEffect`), so the
+        opponent can respond (RULE 117). It is not a special action, so it
+        needs priority (enforced in the session) and split second forbids it
+        (RULE 702.61b). The Ninja attacks whatever the returned creature was
+        attacking (RULE 702.49d, captured here).
         """
         cost = getattr(ninja, "ninjutsu_cost", None)
         if cost is None:
             raise ValueError(f"{ninja.name} has no ninjutsu")
-        if player is not self.state.active_player or self.state.current_step != "declare_blockers":
-            raise ValueError("ninjutsu can only be used during your declare-blockers step")
-        if ninja not in player.hand:
+        if ninja not in player.hand or ninja.owner_id != player.id:
             raise ValueError(f"{ninja.name} is not in hand")
-        if not (returned_attacker.attacking and returned_attacker.controller_id == player.id
-                and not returned_attacker.blocked_by):
+        if returned_attacker not in self.ninjutsu_unblocked_attackers(player):
             raise ValueError(f"{returned_attacker.name} is not an unblocked attacker you control")
         if not player.mana_pool.can_pay(cost):
             raise ValueError("cannot pay the ninjutsu cost")
 
+        # RULE 602.2b: pay every cost on activation.
         player.mana_pool.pay(cost)
-        defender = returned_attacker.combat_defender
+        defender = returned_attacker.combat_defender  # RULE 702.49d, before leaving combat
         self.rules.return_to_hand(returned_attacker)  # RULE 702.49a's own cost
+        # RULE 702.49a: revealing the Ninja is a cost; it stays in hand.
 
-        player.remove_from_zone(ninja, Zone.HAND)
-        ninja.tapped = True
-        ninja.summoning_sick = False
-        self.state.add_to_battlefield(ninja)
-        self.rules.put_onto_battlefield_attacking(ninja, defender=defender)
+        from ..effects.ninjutsu import NinjutsuEffect  # function-scoped: effects import engine types
+
+        item = StackItem(
+            kind="ability",
+            controller_id=player.id,
+            effects=[NinjutsuEffect(ninja.instance_id, player.id, ninja.zone_incarnation, defender)],
+            description=f"Ninjutsu: put {ninja.name} onto the battlefield tapped and attacking",
+            source=ninja,
+            category="activated_ability",
+        )
+        self.state.stack.append(item)
         self.state.fire_event(
             GameEvent(
-                EventType.ENTERS_BATTLEFIELD, controller_id=ninja.controller_id,
-                from_zone=Zone.HAND.value,
-                card_id=ninja.card.id, object=ninja.name, instance_id=ninja.instance_id,
+                EventType.ACTIVATED_ABILITY,
+                player_id=player.id, controller_id=player.id,
+                instance_id=ninja.instance_id,
                 object_types=sorted(ninja.type_words),
+                stack_id=item.stack_id,
             )
         )
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        self.give_priority(player)
     def _assign_defender(
         self, obj: GameObject, defender: Any, legal: list[dict[str, Any]]
     ) -> Optional[dict[str, Any]]:
@@ -1049,7 +1008,7 @@ class CombatMixin:
     #: attack" rather than quietly deleting the restriction.
     _COMBAT_CONDITIONS: frozenset[str] = frozenset(
         {
-            "defending_player_controls",
+            "defending_player_controls", "not",
             "you_control",
             "more_creatures_than_opponent",
             "more_lands_than_opponent",
@@ -1082,6 +1041,12 @@ class CombatMixin:
         kind = str(condition.get("kind", ""))
         if kind not in self._COMBAT_CONDITIONS:
             return False
+        if kind == 'not':
+            # RULE 508.1c/509.1b: "can't ... if C" is "can't ... unless not C".
+            # Unknown nested conditions must still fail closed before negation.
+            inner = condition.get('condition')
+            return bool(isinstance(inner, dict) and inner.get('kind') in self._COMBAT_CONDITIONS
+                        and not self._combat_condition_met(obj, inner, defending_player, attacker))
         try:
             controller = self.state.player_by_id(obj.controller_id)
         except KeyError:
@@ -1291,12 +1256,14 @@ class CombatMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.BLOCKS,
+                    instance_zone_incarnation=blocker.zone_incarnation,
                     blocker=blocker.name,
                     player_id=player.id,  # RULE 509.1b: the blocker's controller
                     instance_id=blocker.instance_id,
                     object_types=sorted(blocker.type_words),
                     # "…blocks a creature with flying" — the attacker on the other side.
                     related_ids=[attacker.instance_id],
+                    related_incarnations={attacker.instance_id: attacker.zone_incarnation},
                 )
             )
 
@@ -1306,12 +1273,19 @@ class CombatMixin:
                 GameEvent(
                     EventType.BECOMES_BLOCKED,
                     attacker=attacker.name,
+                    instance_zone_incarnation=attacker.zone_incarnation,
                     player_id=attacker.controller_id,  # the attacker's own controller
+                    # RULE 508.1b: the player the blocked attacker attacks (PAR-208, "defending player discards").
+                    defending_player_id=getattr(self._defending_player(attacker.combat_defender), "id", None),
                     instance_id=attacker.instance_id,
                     object_types=sorted(attacker.type_words),
                     blocker_count=blocker_count,
                     # "…becomes blocked by a creature with flying" — the blockers.
                     related_ids=list(attacker.blocked_by),
+                    related_incarnations={
+                        iid: obj.zone_incarnation for iid in attacker.blocked_by
+                        if (obj := self.state.find_object(iid)) is not None
+                    },
                 )
             )
             # RULE 702.23: Rampage's own per-firing dynamic pump — see

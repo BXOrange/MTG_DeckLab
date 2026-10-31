@@ -23,16 +23,21 @@ import re
 from typing import Callable, Optional
 
 from ..spec import EffectSpec
+from .characteristic_phrase import parse_object_phrase
+from .clause_reading import EXILE_POOL
+from .count_phrase import parse_count_phrase
+from .duration_phrase import CONDITIONAL_DURATION_PATTERN, condition_phrase
 
 #: First-sentence effect types that really exile cards this resolution (`GameContext.exiled_objects`).
 _EXILING_TYPES = frozenset({"exile_top_of_library", "exile"})
 
 _WINDOW = (
-    r"this turn|until (?:the )?end of turn|until the end of your next turn|"
-    r"for as long as (?:that card|they|it) remain(?:s)? exiled"
+    r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|until your next upkeep|during your next turn|"
+    rf"for as long as (?:(?:that card|they|it) remain(?:s)? exiled|{CONDITIONAL_DURATION_PATTERN})"
 )
 _PLURAL_POOL = r"them|those cards|the exiled cards|those exiled cards|cards exiled this way|the cards exiled this way"
-_SINGULAR_POOL = r"that card|it"
+#: PAR-214: "the exiled card" names the one card of a single-card exile as plainly as "that card" does.
+_SINGULAR_POOL = r"that card|it|the exiled card|that exiled card"
 #: "`<type>` spells" words -> the `combat.matches_object_filter` fragment they mean.
 _TYPE_FILTERS: dict[str, dict] = {
     "creature": {"card_type": "creature"},
@@ -48,11 +53,14 @@ _TYPE_FILTERS: dict[str, dict] = {
 _TYPE_WORD = "|".join(sorted(map(re.escape, _TYPE_FILTERS), key=len, reverse=True))
 _WILD_TAIL = (
     r"(?P<wild>,? and (?:you may spend mana as though it were mana of any (?P<wild_what>color|type) to cast "
-    r"(?:that|those) spells?|mana of any (?P<wild_what2>color|type) can be spent to cast (?:that|those) spells?))"
+    r"(?:that|those) spells?|mana of any (?P<wild_what2>color|type) can be spent to cast (?:(?:that|those) spells?|it|them)))"
 )
 
 _CAST_PAIR_RE = re.compile(
-    r"(?P<exile>(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+)\.\s+"
+    r"(?P<exile>(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+?)(?:\.\s+|, then (?:you may )?)"
+    # PAR-214: "If it's a Goblin or an artifact card, you may play it this turn." -- for a one-card pool the condition
+    # on the card is the pool's filter (nothing else is in the pool to be told apart from it).
+    r"(?:if (?:it(?:'s| is)|that card is) (?:an? )?(?P<cond>[^,.]+?)(?: card)?, )?"
     rf"(?:(?P<pre>{_WINDOW}), )?(?:you may )?(?P<verb>cast|play) "
     r"(?:"
     rf"(?P<singular>{_SINGULAR_POOL})"
@@ -61,6 +69,7 @@ _CAST_PAIR_RE = re.compile(
     r"(?: with mana value (?P<cap>\d+|x) or less)? "
     rf"from among (?:{_PLURAL_POOL})"
     r")"
+    r"(?P<free_before> without paying (?:its|their) mana costs?)?"
     rf"(?P<post> (?:{_WINDOW}))?"
     r"(?P<free> without paying (?:its|their) mana costs?)?"
     rf"(?:{_WILD_TAIL})?\.?",
@@ -71,20 +80,22 @@ _CAST_PAIR_RE = re.compile(
 def parse_exile_cast_window(
     text: str, match_clause: Callable[..., Optional[list[EffectSpec]]],
 ) -> Optional[list[EffectSpec]]:
-    """The exile clause plus its casting window, or ``None`` when any axis is outside the vocabulary."""
+    """An exile, mill or single-card reveal plus its play window; unknown axes fail closed."""
     m = _CAST_PAIR_RE.fullmatch(text.strip())
     if m is None:
         return None
-    exile = match_clause(m.group("exile"))
-    if not exile or len(exile) != 1 or exile[0].type not in _EXILING_TYPES | {"mill"} or exile[0].params.get("face_down"):
+    is_reveal = m.group("exile").lower() == "reveal the top card of your library"
+    exile = ([EffectSpec("reveal_top", {"whose": "you"})] if is_reveal
+             else match_clause(m.group("exile")))
+    if not exile or len(exile) != 1 or exile[0].type not in _EXILING_TYPES | {"mill", "reveal_top"} or exile[0].params.get("face_down"):
         return None
     is_mill = exile[0].type == "mill"
     # The PAR-163 window row already owns "[until the end of your next turn,] you may play/cast that card [...]" after
     # an exile clause; keep its spec rather than restating it here.
-    earlier = match_clause(text.strip().split(".", 1)[1].strip().rstrip("."))
+    earlier = match_clause(text.strip()[len(m["exile"]):].lstrip(". ").rstrip("."))
     # PAR-169: only for an exile that leaves its cards as the previous clause's referent (`ExileEffect`); a library
     # exile (`exile_top_of_library`) records exact zone visits instead, which `cast_window_exiled_pool` reads.
-    if (not is_mill and earlier and len(earlier) == 1 and earlier[0].type == "grant_play_window_previous_exiled"
+    if (not is_mill and not is_reveal and earlier and len(earlier) == 1 and earlier[0].type == "grant_play_window_previous_exiled"
             and exile[0].type != "exile_top_of_library"):
         return [exile[0], earlier[0]]
     window = (m.group("pre") or "").strip(), (m.group("post") or "").strip()
@@ -92,18 +103,31 @@ def parse_exile_cast_window(
         return None  # one window phrase only
     word = window[0] or window[1]
     verb = m.group("verb").lower()
-    free = bool(m.group("free"))
+    if m["free"] and m["free_before"]:
+        return None
+    free = bool(m["free"] or m["free_before"])
     wild = m.group("wild_what") or m.group("wild_what2")
     if free and wild:
         return None
     params: dict = {}
     if verb == "cast":
         params["only_spells"] = True
-    # The pool: a lone card is only ever the answer to a one-card exile.
-    if m.group("singular") and (is_mill or not _exiles_one_card(exile[0])):
+    # A singular pronoun must name exactly one produced card.
+    single = (is_reveal or (is_mill and exile[0].params.get("count") == 1
+                           and not exile[0].params.get("selector"))
+              or (not is_mill and _exiles_one_card(exile[0])))
+    if m.group("singular") and not single:
         return None
     card_filter: dict = {}
     any_number = False
+    if m.group("cond"):
+        # Only a single exiled card can be "it"; a pool-wide condition is not a filter on any card among many.
+        if not m.group("singular") or not single:
+            return None
+        condition = parse_object_phrase(m.group("cond").lower() + " card")
+        if condition is None or condition[1] is not None:
+            return None
+        card_filter.update(condition[0])
     if m.group("type"):
         card_filter.update(_TYPE_FILTERS[m.group("type").lower()])
     if m.group("cap"):
@@ -117,10 +141,7 @@ def parse_exile_cast_window(
         any_number = True
     one_of = quant in ("a", "an")
     if not word:
-        # RULE 608.2g: no window word -- the casting is offered during this resolution (spells only: a land is played,
-        # not cast, and "play" here would need the land-drop machinery).
-        if verb != "cast":
-            return None
+        # RULE 608.2g: no duration word -- offer spells and land plays only during this resolution.
         params["resolution_local"] = True
         if any_number or (m.group("plural") and not one_of):
             params["any_number"] = True
@@ -131,12 +152,24 @@ def parse_exile_cast_window(
         if lowered in ("this turn", "until end of turn", "until the end of turn"):
             params["same_turn_only"] = True
         elif lowered.startswith("for as long as"):
-            params["standing"] = True
+            condition = condition_phrase(lowered[len("for as long as "):])
+            if condition:
+                # A pronoun here names the exile pool, never a battlefield object.
+                if condition.get("of") == "affected" or condition.get("kind") in ("source_attached_to_affected", "captured_player_is_monarch"):
+                    return None
+                params.update(duration="for_as_long_as", condition=condition)
+            else:
+                params["standing"] = True
+        elif lowered in ("until your next end step", "until your next upkeep", "during your next turn"):
+            params["duration"] = {"until your next end step": "your_next_end_step",
+                "until your next upkeep": "your_next_upkeep", "during your next turn": "during_your_next_turn"}[lowered]
         # "until the end of your next turn" is the effect's default window.
-    if is_mill:
-        if word or verb != "cast":
-            return None  # standing mill windows need a per-pool cast-count permission
-        params["pool_zone"] = "graveyard"
+    if is_mill or is_reveal:
+        if word.lower().startswith("for as long as"):
+            return None  # "remains exiled" cannot describe these pools.
+        if is_reveal and not m.group("singular"):
+            return None
+        params["pool_zone"] = "library" if is_reveal else "graveyard"
     if card_filter:
         params["card_filter"] = card_filter
     if free:
@@ -372,3 +405,114 @@ def parse_exile_copy_cast(
     if not m.group("free"):
         params["free"] = False
     return [exile[0], EffectSpec("copy_imprinted_card", params)]
+
+
+# RULE 607.2a: unlike a pronoun, this pool explicitly names the source's linked cards.
+_LINKED_PLAY_RE = re.compile(
+    rf"(?:(?P<pre>{_WINDOW}), )?(?:you may )?(?P<verb>cast|play) "
+    r"(?:(?P<quant>an?|any number of) )?(?:(?P<type>(?:(?!\bfrom\b)[^.,])+?) )?"
+    r"(?P<noun>cards?|spells?|lands?)"
+    r"(?: from among (?:the )?cards)? (?P<own>you own )?exiled with (?:~|it)"
+    r"(?P<free_before> without paying (?:its|their) mana costs?)?"
+    rf"(?P<post> (?:{_WINDOW}))?"
+    r"(?P<free> without paying (?:its|their) mana costs?)?"
+    rf"(?:{_WILD_TAIL})?\.?", re.IGNORECASE,
+)
+
+
+def parse_linked_play(text: str, *, static: bool = False) -> Optional[list[EffectSpec]]:
+    text = re.sub(r"^(you may )?play lands and cast spells from among (?:the )?cards exiled with ",
+                  r"\1play cards exiled with ", text.strip(), flags=re.I)
+    m = _LINKED_PLAY_RE.fullmatch(text)
+    if m is None or (m['pre'] and m['post']):
+        return None
+    word = (m['pre'] or m['post'] or '').strip().lower()
+    if static and word:
+        return None
+    noun, quant = m['noun'].lower(), (m['quant'] or '').lower()
+    if noun.endswith('s') == (quant in ('a', 'an')):
+        return None
+    if static and quant:
+        return None
+    if m['free'] and m['free_before']:
+        return None
+    if (m['free'] or m['free_before']) and m['wild']:
+        return None
+    filt = {}
+    if m['type']:
+        parsed = parse_object_phrase(m['type'].lower() + ' cards', plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        filt = parsed[0]
+    params = {'linked': True}
+    if m['own']:
+        params['own_only'] = True
+    if filt:
+        params['card_filter'] = filt
+    if m['verb'].lower() == 'cast' or noun.startswith('spell'):
+        params['only_spells'] = True
+    if noun.startswith('land'):
+        params['only_lands'] = True
+    if m['free'] or m['free_before']:
+        params['free'] = True
+    if m['wild']:
+        params['mana_wildcard'] = (m['wild_what'] or m['wild_what2']).lower()
+    if static:
+        return [EffectSpec('linked_exile_permission', params)]
+    if not word:
+        params['resolution_local'] = True
+        params['any_number'] = noun.endswith('s')
+    else:
+        if quant in ('a', 'an'):
+            return None  # a single-use window needs an explicit shared use counter
+        if word.startswith('for as long as'):
+            params['standing'] = True
+        elif word != 'until the end of your next turn':
+            params['same_turn_only'] = True
+    return [EffectSpec('cast_window_exiled_pool', params)]
+
+
+def parse_exile_followup(text, reading):
+    """A pronoun needs an actual preceding exile producer, never a bare 'it'."""
+    pools = [ref for ref in reading.referents if ref.kind == EXILE_POOL]
+    if len(pools) != 1:
+        return None
+    producer = EffectSpec('exile_top_of_library', {
+        'count': 2 if pools[0].group else 1, 'player_selector': 'controller',
+    })
+    def synthetic(clause):
+        return [producer] if clause == 'exile the batch' else None
+    specs = parse_exile_cast_window('exile the batch. ' + text, synthetic)
+    return specs[1:] if specs else None
+
+
+_LINKED_MOVE_RE = re.compile(
+    r"(?:return|put) (?P<quant>an?|all|each|the) (?P<what>.+?) exiled with (?:~|it) "
+    r"(?:(?:to|into) (?P<hand>their owners?' hands|its owner's hand|their owner's hand)"
+    r"|(?:to|into) (?P<graveyard>their owners?' graveyards|its owner's graveyard|their owner's graveyard)"
+    r"|(?:to|onto) the battlefield(?P<tapped> tapped)?(?: under (?P<control>your|their owners?'|its owner's) control)?)\.?",
+    re.I,
+)
+
+
+def parse_linked_move(text):
+    m = _LINKED_MOVE_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    singular = m['quant'] in ('a', 'an')
+    noun_plural = m['what'].split()[-1] == 'cards'
+    if singular == noun_plural:
+        return None
+    selector = parse_count_phrase(m['what'] + ' exiled with ~')
+    if selector is None or not selector.get('linked_exile') or selector.get('filter', {}).get('not_reference'):
+        return None
+    params = {'destination': 'hand' if m['hand'] else 'graveyard' if m['graveyard'] else 'battlefield'}
+    if selector.get('filter'):
+        params['card_filter'] = selector['filter']
+    if not singular:
+        params['all_cards'] = True
+    if params['destination'] == 'battlefield' and m['control'] in (None, 'your'):
+        params['under_your_control'] = True
+    if m['tapped']:
+        params['tapped'] = True
+    return [EffectSpec('linked_exile_move', params)]

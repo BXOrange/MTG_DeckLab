@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
+from .event_heads import parse_event_head
 from .player_event_head import parse_player_event_head
 from .trigger_context import PHASE_TAILS, consume
 
@@ -51,6 +52,8 @@ _VERBS: dict[str, str] = {
     "becomes untapped": "UNTAPPED",
     "mutates": "MUTATES",
     "becomes monstrous": "BECAME_MONSTROUS",
+    # RULE 702.26 (PAR-207): a permanent phasing in (`PHASED_IN`, fired by the untap step's phasing action).
+    "phases in": "PHASED_IN", "phases out": "PHASED_OUT",
     # RULE 700.4's long spelling of "dies"; "your" scopes the owner (`_OWN_GRAVEYARD`).
     "is put into your graveyard from the battlefield": "DIES",
     # RULE 406.3 / 603.6c: a permanent exiled from the battlefield leaves it —
@@ -61,7 +64,7 @@ _OWN_GRAVEYARD = "is put into your graveyard from the battlefield"
 _TO_EXILE = "is put into exile from the battlefield"
 _VERB_ALT = (
     r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
-    r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|"
+    r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|phases in|phases out|"
     r"is put into your graveyard from the battlefield|is put into exile from the battlefield)"
 )
 _HEAD = re.compile(
@@ -348,7 +351,9 @@ def _parse_group_attack_head(cond: str) -> Optional[ObjectHead]:
     if filt.pop("is_suspected", False):
         group_filter["is_suspected"] = True
     if filt:
-        return None
+        # PAR-207: whatever else the noun phrase says ("with flying", a colour, "modified") is the ordinary object
+        # filter; the binder checks it against each attacker with `combat.matches_object_filter`.
+        group_filter["object_filter"] = filt
     condition: dict[str, Any] = {"subject": "you"}
     if group_filter:
         condition["group_filter"] = group_filter
@@ -447,7 +452,26 @@ def _attackers_spec(
     return ObjectHead("ATTACKERS_DECLARED", {"subject": "you"}, {"attackers_declared": spec})
 
 
+#: PAR-207, RULE 508.3a: "whenever `<n>` or more creatures attack [you]" -- the declaration of any player (not only
+#: the ability's controller), counted by `ATTACKERS_DECLARED`; "attack you" counts only the attackers aimed at the
+#: controller (`trigger_quantities.matching_attackers`' ``defender``).
+_ANY_PLAYER_ATTACK_BATCH = re.compile(r"^(?P<n>\d+|one) or more creatures attack(?P<you> you)?$")
+
+
+def _parse_any_player_attack_batch_head(cond: str) -> Optional[ObjectHead]:
+    m = _ANY_PLAYER_ATTACK_BATCH.match(cond)
+    if m is None:
+        return None
+    spec: dict[str, Any] = {"filter": {"card_type": "creature"}, "min": 1 if m.group("n") == "one" else int(m.group("n"))}
+    if m.group("you"):
+        spec["defender"] = "controller"
+    return ObjectHead("ATTACKERS_DECLARED", {"subject": "player", "scope": "any"}, {"attackers_declared": spec})
+
+
 def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
+    any_player = _parse_any_player_attack_batch_head(cond)
+    if any_player is not None:
+        return any_player
     m = _ATTACK_WITH.match(cond)
     if m is not None:
         exact = m.group("exact")
@@ -485,15 +509,31 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
     if m is None:
         return None
     subject = m.group("subject").strip()
-    condition = {"subject": "self"} if subject == "~" else _subject(subject)
+    attached = _ATTACHED_SUBJECT.match(subject) is not None
+    if subject == "~":
+        condition = {"subject": "self"}
+    elif attached:
+        # RULE 303.4m: "enchanted creature blocks or becomes blocked by …" (Venom) — the Aura's host.
+        condition = {"subject": "attached_permanent"}
+    else:
+        condition = _subject(subject)
     if condition is None or condition["subject"] == "self_or_group":
         return None
+    if attached and not m.group("both") and not m.group("blocks"):
+        return None  # a bare attached "becomes blocked by" would need the per-blocker BLOCKS reading
     other = _SUBJECT_ARTICLE.match(m.group("other"))
     parsed = parse_object_phrase(other.group("phrase")) if other else None
     if parsed is None or not parsed[0]:
         return None
     if parsed[1] is not None:  # whose creature it is is not modelled
         return None
+    if m.group("blocked") and subject == "~":
+        # RULE 509.3d: "becomes blocked by a creature" triggers separately
+        # for each blocker. BLOCKS names that blocker and fires per relation;
+        # the aggregate BECOMES_BLOCKED event instead names the attacker.
+        return ObjectHead("BLOCKS", {"subject": "group", "filter": {
+            **parsed[0], "blocking_source": True,
+        }}, {})
     if m.group("both"):
         events: "str | list[str]" = ["BLOCKS", "BECOMES_BLOCKED"]
     else:
@@ -528,6 +568,9 @@ def _parse_exploit_head(cond: str) -> Optional[ObjectHead]:
 def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     """``cond`` — the trigger condition with its "when"/"whenever" stripped."""
     cond = cond.strip().lower()
+    if cond == "a source deals damage to ~":
+        # RULE 120.3 (PAR-207): the damage event seen from the recipient -- the same event as "~ is dealt damage".
+        cond = "~ is dealt damage"
     player = parse_player_event_head(cond)
     if player is not None:
         return ObjectHead(*player)
@@ -541,6 +584,9 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     )
     if actor is not None:
         return actor
+    event = parse_event_head(cond)
+    if event is not None:
+        return ObjectHead(*event)
     m = _HEAD.match(cond)
     if m is None:
         return None
@@ -588,6 +634,13 @@ def _consume_tails(
                 return None
             trigger.setdefault("filter", {})["from_zone"] = origin.group("zone")
             tail = tail[origin.end():].strip()
+            continue
+        if tail.startswith("untapped") and events == ["ENTERS_BATTLEFIELD"] and condition.get("subject") == "self":
+            # RULE 614.1d (PAR-207): "When ~ enters untapped" -- the entry replacement has already settled the
+            # permanent's tapped status by the time the trigger is checked (`binding.core`'s ``entered_untapped``).
+            if "entered_untapped" in trigger:
+                return None
+            trigger["entered_untapped"], tail = True, tail[len("untapped"):].strip()
             continue
         if tail.startswith("alone") and events == ["ATTACKS"]:
             events, tail = ["ATTACKS_ALONE"], tail[len("alone"):].strip()

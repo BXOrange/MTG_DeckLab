@@ -80,9 +80,11 @@ ANSWER_STR = "str"
 ANSWER_INT = "int"
 ANSWER_INT_REQUIRED = "int_required"
 ANSWER_FLAG = "flag"
+# An atomic multi-selection, while retaining one-at-a-time bot answers.
+ANSWER_SELECTION = "selection"
 
 ANSWER_MODES: frozenset[str] = frozenset(
-    {ANSWER_STR, ANSWER_INT, ANSWER_INT_REQUIRED, ANSWER_FLAG}
+    {ANSWER_STR, ANSWER_INT, ANSWER_INT_REQUIRED, ANSWER_FLAG, ANSWER_SELECTION}
 )
 
 #: The wire value meaning "I decline" (alongside a missing answer).
@@ -175,6 +177,10 @@ def coerce_answer(handler: ChoiceHandler, raw: Any) -> Any:
     because what a bad answer falls back to is a rules question (mandatory
     picks default, optional ones decline) rather than a transport one.
     """
+    if handler.answer == ANSWER_SELECTION and isinstance(raw, list):
+        if any(not isinstance(item, str) for item in raw):
+            raise ValueError("selection must contain option IDs")
+        return list(raw)
     if handler.answer == ANSWER_FLAG:
         return raw == handler.yes
     if handler.answer == ANSWER_INT_REQUIRED:

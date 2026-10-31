@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 
 from ..clause_reading import ClauseReading
+from ..combat_phrase import combat_tail
 from typing import Optional
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
+from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
 from ..static_handlers import object_filter
 from ..subgrammars import (
@@ -21,6 +23,7 @@ from ..subgrammars import (
     resolve_target_kind,
     TARGET,
     target_kind_allowed,
+    target_is_optional,
 )
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
@@ -44,6 +47,7 @@ from .shared import (
     signed_int,
     SINGLE_TYPE_PERMANENT_KINDS,
     SUBJECT,
+    TARGET_B,
 )
 
 
@@ -99,6 +103,13 @@ def _add_counters_target_params(
     ``include_optional`` is ``False`` for the one caller
     (`_add_counters_from_trigger_amount`) whose regex has no "up to" group to
     read."""
+    if m.groupdict().get("attached"):
+        # RULE 303.4m: an explicit enchanted host needs no antecedent;
+        # "that creature" only has this meaning under an attached head.
+        if m.group("attached") == "that creature" and not reading.attached_subject:
+            return None
+        params["target_kind"] = "attached_permanent"
+        return [EffectSpec("add_counters", params)]
     if m.groupdict().get("selfref"):
         if reading.group_clause and m.group("selfref").lower() == "it":
             # Under a group trigger a bare "it" is the firing object, not the ability's source
@@ -312,7 +323,9 @@ _ADD_NAMED_COUNTER_GROUP_RE = compile_clause(
 #: (Acid-Spewer Dragon, Belltoll Dragon), "…on each Ooze you control" (Biogenic Ooze). Registered *after* the
 #: closed `add_counters_selector` row, which keeps the named selectors it always read.
 _ADD_PT_COUNTER_GROUP_RE = compile_clause(
-    rf"put {COUNT_X} (?P<ckind>[+\-−]1/[+\-−]1) counters? on each (?P<other>other )?(?P<group>[a-z0-9' +/\-−]+?)"
+    # An asymmetric P/T counter ("-0/-2", Greater Werewolf) is its own kind (`_counter_kind_and_multiplier`); ``~``
+    # names the source in a combat-relation group ("blocking or blocked by ~", `count_phrase.COMBAT_RELATION_TAILS`).
+    rf"put {COUNT_X} (?P<ckind>[+\-−]\d+/[+\-−]\d+) counters? on each (?P<other>other )?(?P<group>[a-z0-9' +/\-−~]+?)"
 )
 
 
@@ -323,7 +336,12 @@ def _add_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if group is None or group.get("zone") != "battlefield" or "target" in phrase:
         return None
     ckind = m.group("ckind")
-    kind = counter_sign(ckind) if ckind[0] in "+-−" else ckind
+    if ckind[0] in "+-−":
+        kind, multiplier = _counter_kind_and_multiplier(ckind)
+        if multiplier != 1:
+            return None  # a symmetric "+2/+2" counter on a group is not modeled (one counter ≠ two +1/+1)
+    else:
+        kind = ckind
     params: dict = {"count": count_or_x_of(m.group("n")), "kind": kind, "group": group}
     if m.group("other"):
         params["group_other"] = True
@@ -430,7 +448,7 @@ def _add_counter_choice(m: re.Match[str], reading: ClauseReading) -> Optional[li
 #: *cost* (`cost_text._REMOVE_COUNTERS_RE`); untargeted, the source's own
 #: counters, exactly ``count`` of one kind (none on it: nothing happens).
 _REMOVE_NAMED_COUNTER_SELF_RE = compile_clause(
-    rf"remove {COUNT} (?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]1/[+\-−]1) "
+    rf"remove {COUNT} (?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) "
     rf"counters? from (?P<selfref>{SELF_SUBJECT})"
 )
 
@@ -439,10 +457,33 @@ def _remove_named_counter_self(m: re.Match[str], reading: ClauseReading) -> Opti
     if reading.group_clause and m.group("selfref").lower() == "it":
         return None  # under a group trigger a bare "it" is the firing object, not the source
     ckind = m.group("ckind")
-    kind = "+1/+1" if ckind[0] == "+" else ("-1/-1" if ckind[0] in "-−" else ckind)
+    if ckind[0] in "+-−":
+        kind, multiplier = _counter_kind_and_multiplier(ckind)
+        if multiplier != 1:
+            return None  # a symmetric "+2/+2" counter is not modeled as one counter
+    else:
+        kind = ckind
     return [EffectSpec("remove_counters", {
         "self_only": True, "kind": kind, "count": count_or_x_of(m.group("n")),
     })]
+
+
+#: RULE 107.1c / 122.1: "Put up to X +1/+0 counters on ~. This ability can't cause the total number of +1/+0
+#: counters on ~ to be greater than 4." (the Clockwork cycle) — the controller's own "up to" choice, capped by what the
+#: source already carries (`AddCountersUpToCappedEffect`). The cap sentence must name the same counter on the same
+#: source, else the clause stays unclaimed.
+_ADD_COUNTERS_UP_TO_CAPPED_RE = compile_clause(
+    r"put up to x (?P<ckind>[+\-−]\d+/[+\-−]\d+) counters? on (?P<selfref>~)\.\s*"
+    r"this ability can'?t cause the total number of (?P<ckind2>[+\-−]\d+/[+\-−]\d+) counters? on ~ "
+    r"to be greater than (?P<cap>\d+)"
+)
+
+
+def _add_counters_up_to_capped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind, multiplier = _counter_kind_and_multiplier(m.group("ckind"))
+    if multiplier != 1 or kind != _counter_kind_and_multiplier(m.group("ckind2"))[0]:
+        return None
+    return [EffectSpec("add_counters_up_to_capped", {"count": "x", "kind": kind, "max_total": int(m.group("cap"))})]
 
 
 def _add_counters_from_trigger_amount(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
@@ -479,8 +520,8 @@ _BASE_PT_UNTIL_EOT_RE = compile_clause(
     # end of turn" (Quandrix Charm / Turn to Frog / Snakeform / Creeperhulk
     # / Ovinize — 59 SOLO). `grant_until` already resolves a RULE 115 target
     # and scopes the parked `pt_set` to those ids.
-    rf"|(?P<tgt>target creature(?: you control)?)) "
-    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) until end of turn"
+    rf"|{TARGET}) "
+    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) (?P<duration>{FIXED_DURATION_PATTERN})"
     rf"(?:\. x can'?t be 0)?(?:\. activate only during your turn)?"
 )
 
@@ -489,18 +530,23 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     def _v(g: str) -> "int | str":
         return "x" if g.lower() == "x" else int(g)
 
-    tgt = (m.groupdict().get("tgt") or "").strip()
+    tgt = (m.groupdict().get("target") or "").strip()
     params: dict = {
         "power": _v(m.group("p")), "toughness": _v(m.group("t")),
         "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
     }
     target_kind = None
     if tgt:
-        target_kind = "creature_you_control" if "you control" in tgt else "creature"
+        target_kind = resolve_target_kind(tgt)
+        if not target_kind_allowed(target_kind, ("creature",)):
+            return None
     return [EffectSpec("grant_until", {
         "static": {"type": "pt_set", "params": params},
-        "duration": "end_of_turn",
+        "duration": FIXED_DURATIONS[m.group("duration")],
         "target_kind": target_kind,
+        **({"optional": True} if tgt and target_is_optional(m) else {}),
+        **({"creature_filter": resolve_target_creature_state_filter(tgt)}
+           if tgt and resolve_target_creature_state_filter(tgt) else {}),
     })]
 
 
@@ -544,7 +590,7 @@ def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params: dict = {
         "count": count_of(m.group("n")),
-        "kind": counter_sign(m.group("ckind")),
+        "kind": (counter_sign(m.group("ckind")) if m.group("ckind")[0] in "+-−" else m.group("ckind")),
         "target_kind": mt["target_kind"],
         "target_count": mt["count"],
     }
@@ -1085,6 +1131,24 @@ def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", {"keywords": ["attacks_if_able"], "target_kind": kind})]
 
 
+def _combat_instruction_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    operation = combat_tail((m['prefix'] or '') + m['tail'], temporary=True)
+    kind = resolve_target_kind(m['target'])
+    if operation is None or not target_kind_allowed(kind, ('creature', 'creature_you_control', 'creature_you_dont_control')):
+        return None
+    effect_type, params = operation
+    common = {'target_kind': kind, **optional_param(m)}
+    if effect_type == 'grant_keyword':
+        return [EffectSpec('pump', {**params, **common})]
+    if effect_type == 'both_requirements':
+        return [EffectSpec('grant_until', {
+            'static': {'type': 'grant_keyword', 'params': {'keywords': ['attacks_if_able']}},
+            'extra_statics': [{'type': 'combat_restriction', 'params': {'kind': 'must_block_if_able'}}],
+            'duration': 'end_of_turn', **common,
+        })]
+    return [EffectSpec('combat_restriction_this_turn', {'restriction': params, **common})]
+
+
 #: "Target creature must be blocked this turn if able." (Irresistible Prey/
 #: Goldenhide Ox/Head Banger/Satyr Piper) / "~ must be blocked this turn if
 #: able." (Loathsome Catoblepas) — the bare (no P/T delta, no "and gains …"
@@ -1108,7 +1172,118 @@ def _must_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+# RULE 702.3b / 609.4: a resolving permission leaves defender in place.
+_DEFENDER_ATTACK_TURN_RE = compile_clause(
+    r"(?P<subject>~|it) can attack this turn as though it didn't have defender"
+)
+
+
+def _defender_attack_turn(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if m.group("subject") == "it" and not reading.self_subject:
+        return None
+    return [EffectSpec("combat_restriction_this_turn", {
+        "restriction": {"kind": "attacks_as_though_no_defender"},
+    })]
+
+
+#: PAR-221, RULE 122.3: "move a +1/+1 counter from target creature onto another target creature", "move all +1/+1
+#: counters from target land you control onto target creature", "move any number of +1/+1 counters from ~ onto target
+#: creature", "move a counter from target creature onto ~". One end may be the source itself (never announced, RULE
+#: 115.1); the other end(s) are targets. `MoveCountersEffect` moves a fixed ``count`` of ``kind`` (any kind when the
+#: counter is unnamed), every counter of ``kind``, or an ``any_number`` choice.
+_MOVE_PERMANENT_KINDS = frozenset({
+    "permanent", "permanent_you_control", "creature", "creature_you_control", "creature_you_dont_control",
+    "artifact", "land", "land_you_control", "nonland_permanent", "enchantment", "planeswalker",
+})
+_MOVE_COUNTERS_HEAD = (
+    r"move (?P<qty>an? |\d+ |all |any number of )"
+    rf"(?:(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) )?counters? from "
+)
+_MOVE_COUNTERS_TWO_RE = compile_clause(rf"{_MOVE_COUNTERS_HEAD}{TARGET} (?:onto|to) (?:another |a second )?{TARGET_B}")
+_MOVE_COUNTERS_FROM_SELF_RE = compile_clause(rf"{_MOVE_COUNTERS_HEAD}~ (?:onto|to) (?:another )?{TARGET}")
+_MOVE_COUNTERS_ONTO_SELF_RE = compile_clause(rf"{_MOVE_COUNTERS_HEAD}{TARGET} (?:onto|to) ~")
+
+
+def _move_counters_params(m: re.Match[str]) -> Optional[dict]:
+    qty = m.group("qty").strip()
+    params: dict = {}
+    ckind = m.group("ckind")
+    if ckind:
+        if ckind[0] in "+-−":
+            kind, multiplier = _counter_kind_and_multiplier(ckind)
+            if multiplier != 1:
+                return None  # a symmetric "+2/+2" counter is not modeled as one counter
+        else:
+            kind = ckind
+        params["kind"] = kind
+    if qty == "all":
+        params["move_all_kinds"] = True  # restricted to ``kind`` by the effect when one is named
+    elif qty == "any number of":
+        params["any_number"] = True
+    else:
+        params["count"] = count_of(qty)
+    return params
+
+
+def _move_end_kind(m: re.Match[str], suffix: str = "") -> Optional[str]:
+    if target_is_optional(m, suffix):
+        return None  # an "up to one target" end is an optional announcement; no printed card needs one here
+    kind = resolve_target_kind(m.group("target" + suffix))
+    return kind if target_kind_allowed(kind, _MOVE_PERMANENT_KINDS) else None
+
+
+def _move_counters_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params, first, second = _move_counters_params(m), _move_end_kind(m), _move_end_kind(m, "_b")
+    if params is None or first is None or second is None:
+        return None
+    return [EffectSpec("move_counters", {**params, "source_target_kind": first, "dest_target_kind": second})]
+
+
+def _move_counters_from_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params, dest = _move_counters_params(m), _move_end_kind(m)
+    if params is None or dest is None:
+        return None
+    return [EffectSpec("move_counters", {**params, "dest_target_kind": dest, "source_is_self": True})]
+
+
+def _move_counters_onto_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params, source = _move_counters_params(m), _move_end_kind(m)
+    if params is None or source is None:
+        return None
+    return [EffectSpec("move_counters", {**params, "source_target_kind": source, "dest_is_self": True})]
+
+
+#: PAR-221, RULE 122.1: the targeted sibling of `_REMOVE_NAMED_COUNTER_SELF_RE` -- "remove a -1/-1 counter from target
+#: creature", "remove all +1/+1 counters from target creature". Exactly ``count`` of the one named ``kind`` (all of it
+#: for "all"); `RemoveCountersEffect` already strips by kind on a target.
+_REMOVE_NAMED_COUNTER_TARGET_RE = compile_clause(
+    rf"remove (?P<qty>an? |\d+ |all )(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) counters? from {TARGET}"
+)
+
+
+def _remove_named_counter_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if target_is_optional(m) or not target_kind_allowed(kind, _MOVE_PERMANENT_KINDS):
+        return None
+    ckind = m.group("ckind")
+    if ckind[0] in "+-−":
+        counter, multiplier = _counter_kind_and_multiplier(ckind)
+        if multiplier != 1:
+            return None
+    else:
+        counter = ckind
+    params: dict = {"target_kind": kind, "kind": counter}
+    if m.group("qty").strip() != "all":
+        params["count"] = count_of(m.group("qty").strip())
+    return [EffectSpec("remove_counters", params)]
+
+
 ROWS: list[EffectHandler] = [
+    EffectHandler("remove_named_counter_target", _REMOVE_NAMED_COUNTER_TARGET_RE, _remove_named_counter_target),
+    EffectHandler("move_counters_two", _MOVE_COUNTERS_TWO_RE, _move_counters_two),
+    EffectHandler("move_counters_from_self", _MOVE_COUNTERS_FROM_SELF_RE, _move_counters_from_self),
+    EffectHandler("move_counters_onto_self", _MOVE_COUNTERS_ONTO_SELF_RE, _move_counters_onto_self),
+    EffectHandler("defender_attack_this_turn", _DEFENDER_ATTACK_TURN_RE, _defender_attack_turn, reading_aware=True),
     # MEC-27: "put x +1/+1 counters on target creature, where x is the
     # number of Elves you control." — tried before the plain `add_counters`
     # row below since "x" never matches that row's `{COUNT}` (digit/"a"/"an"
@@ -1192,7 +1367,8 @@ ROWS: list[EffectHandler] = [
             # "+2/+2 counter"), modeled as N +1/+1 counters (see
             # `_counter_kind_and_multiplier`).
             rf"put {COUNT_X} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? on "
-            rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT}))"
+            rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT})|"
+            r"(?P<attached>enchanted (?:creature|artifact|land|enchantment|permanent)|that creature))"
         ),
         _add_counters,
         reading_aware=True,
@@ -1217,6 +1393,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),
     EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list, reading_aware=True),
     EffectHandler("add_counter_choice", _ADD_COUNTER_CHOICE_RE, _add_counter_choice, reading_aware=True),
+    EffectHandler("add_counters_up_to_capped", _ADD_COUNTERS_UP_TO_CAPPED_RE, _add_counters_up_to_capped),
     EffectHandler(
         "remove_named_counter_self", _REMOVE_NAMED_COUNTER_SELF_RE, _remove_named_counter_self, reading_aware=True,
     ),
@@ -1272,7 +1449,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "add_counters_multi_target",
         compile_clause(
-            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on each of "
+            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1|{NAMED_COUNTER_KIND}) counters? on each of "
             rf"{MULTI_TARGET_QUANTIFIER_X}(?:other )?(?P<target>{MULTI_TARGET_ALT})"
         ),
         _add_counters_multi_target,
@@ -1440,6 +1617,12 @@ ROWS: list[EffectHandler] = [
         "attacks_this_turn_if_able",
         _ATTACKS_TURN_IF_ABLE_RE,
         _attacks_turn_if_able,
+    ),
+    EffectHandler(
+        "combat_instruction_this_turn",
+        compile_clause(rf"(?P<prefix>until end of turn, )?{TARGET} (?P<tail>(?:attacks?|blocks?|assigns?|can|can\'t) .+)"),
+        _combat_instruction_turn,
+        fallback_for=("attacks_this_turn_if_able", "cant_block_this_turn"),
     ),
     # "Target creature must be blocked this turn if able."/"~ must be
     # blocked this turn if able." (RULE 509.1c, resolve-time, PAR-124).

@@ -11,36 +11,51 @@ install(globals())
 
 
 class PreventCombatDamageDealtEffect(GameEffect):
-    """Prevent all combat damage the named creature would deal this turn
-    (RULE 615) — Loafing Giant's own "prevent all combat damage ~ would
-    deal this turn", and RULE 510.1e's "assigns no combat damage this turn"
-    is a rules-distinct but observably identical shape (Gaze of Pain,
-    MEC-99), since `deal_damage`'s own check for this flag returns before
-    any `DAMAGE` event fires either way.
+    """RULE 615: prevent combat damage the source/referent would deal this turn.
 
-    ``subject`` is `effect_conditions`'s referent vocabulary, defaulting to
-    ``None`` (the effect's own source, Loafing Giant's printed "~"); MEC-99
-    adds the group-subject reading — "**it** assigns no combat damage this
-    turn." where "it" is whichever creature matched this ability's own
-    RULE 603.1 group trigger, not the ability's source (a temporary
-    triggered ability granted by a sorcery has no combat-relevant source of
-    its own to flag).
+    Assignment prohibitions use AssignNoCombatDamageEffect instead.
     """
 
     def __init__(
         self, subject: Optional[str] = None, source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None, creature_filter: Optional[dict] = None, optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.subject = subject
+        self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter, optional=optional) if target_kind else None
 
     def apply(self, context, targets=None) -> None:
-        obj = self.source
+        obj = (targets or [None])[0] if self.target_spec else self.source
         if self.subject:
             from .. import effect_conditions  # avoid the effect_conditions↔effects import cycle
 
             obj = effect_conditions.subject_of(self.subject, context, self.source, targets)
         if obj is not None:
             obj.temp_prevent_combat_damage_dealt = True
+
+class PreventCombatDamageToAndByEffect(GameEffect):
+    """RULE 615: "Prevent all combat damage that would be dealt to and dealt by that creature this combat."
+    (Winter's Chill, MEC-131) — the creature is the iteration item / the earlier clause's pick, flagged until the combat
+    ends (`RulesEngine.deal_damage` reads the flag, `GameEngine._clear_combat` drops it)."""
+
+    def apply(self, context, targets=None) -> None:
+        subject = (list(targets or []) or list(context.previous_targets))[:1]
+        for obj in subject:
+            if hasattr(obj, "instance_id"):
+                obj.prevent_combat_damage_this_combat = True
+
+
+class AssignNoCombatDamageEffect(PreventCombatDamageDealtEffect):
+    """RULE 510.1: suppress assignment independently of prevention effects."""
+
+    def apply(self, context, targets=None) -> None:
+        obj = self.source
+        if self.subject:
+            from .. import effect_conditions
+            obj = effect_conditions.subject_of(self.subject, context, self.source, targets)
+        if obj is not None:
+            obj.temp_assign_no_combat_damage = True
+
 
 #: PAR-128: RULE 109.5's "each other creature" — every creature but this
 #: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s
@@ -74,7 +89,10 @@ class DealDamageEffect(GameEffect):
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
         group_and_players: Optional[str] = None,
+        group_amount: Optional[Any] = None,
         divided: bool = False,
+        division: Optional[list[int]] = None,
+        division_required: bool = False,
         distinct_from_others: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
@@ -101,8 +119,17 @@ class DealDamageEffect(GameEffect):
         dealer_event_key: Optional[str] = None,
         dealer_subject: Optional[str] = None,
         per_player: Optional[str] = None,
+        excess_to_controller: bool = False,
+        unpreventable_if: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
+        #: "If X is 5 or more, ... the damage can't be prevented." (Banefire, Demonfire, Urza's Rage, Lightning Surge;
+        #: RULE 615.6): `unpreventable` gated on a condition read when this effect resolves.
+        self.unpreventable_if = dict(unpreventable_if) if unpreventable_if else None
+        #: "Excess damage is dealt to that creature's controller instead." (Flame Spill, Pigment Storm; RULE 120.4a +
+        #: 614.1): a creature recipient takes only lethal damage (1 from a deathtouch source, RULE 702.2c) and the rest
+        #: is dealt to its controller by the same source.
+        self.excess_to_controller = bool(excess_to_controller)
         #: ``"previous_target"`` — "**target enchantment** deals damage equal to its mana value to its controller"
         #: (Enchanter's Bane): the object an earlier clause targeted is the damage's source, not this ability's.
         self.dealer_subject = dealer_subject
@@ -259,8 +286,10 @@ class DealDamageEffect(GameEffect):
         #: ``of: "you"``) names: ``"defending"`` (RULE 506.4), ``"event_player"`` (the trigger's
         #: damaged player), ``"previous_controller"`` (the controller of the preceding clause's
         #: target), or ``"player"``/``"opponent"`` (a RULE 115 player target).
+        self.group_amount = group_amount
         self.group_player = (
-            group_player if group_player in ("defending", "event_player", "previous_controller", "player", "opponent")
+            group_player if group_player in ("defending", "event_player", "previous_controller", "player", "opponent",
+                                            "player_or_planeswalker", "opponent_or_planeswalker")
             else None
         )
         #: "~ deals N damage to each creature **without flying**." (RULE
@@ -282,10 +311,11 @@ class DealDamageEffect(GameEffect):
         # deals twice X … instead" (RULE 107.3) — the pool doubles once the
         # resolved amount reaches that threshold.
         self.divided = divided
+        self.division_required = bool(division_required)
         self.double_at = double_at
-        self.division: Optional[list[int]] = None
+        self.division: Optional[list[int]] = list(division) if division is not None else None
         self.target_spec = None
-        if self.group is not None and self.group_player in ("player", "opponent"):
+        if self.group is not None and self.group_player in ("player", "opponent", "player_or_planeswalker", "opponent_or_planeswalker"):
             self.target_spec = TargetSpec(kind=self.group_player)
         if self.selector is None and self.recipient_subject is None:
             # Damage targets "any target" by default (RULE 115.4); a card
@@ -432,7 +462,7 @@ class DealDamageEffect(GameEffect):
         if operand is not None:
             self._base_amount = self._measured(operand, context, targets)
         try:
-            with context.state.simultaneous():
+            with context.state.simultaneous(), context.engine.damage_batch():
                 self._apply_with_dealer(context, targets)
         finally:
             if operand is not None:
@@ -465,12 +495,26 @@ class DealDamageEffect(GameEffect):
                 self.source = original
             return
         if self.dealer_event_key is None:
-            self._apply_from(context, targets)
+            expected = getattr(context, "resolving_source_incarnation", None)
+            original = self.source
+            if (original is not None and expected is not None
+                    and original.zone_incarnation != expected):
+                self.source = context.state.zone_visit_sources.get((original.instance_id, expected), original)
+            try:
+                self._apply_from(context, targets)
+            finally:
+                self.source = original
             return
         # PAR-123: under a group trigger "it deals N damage" names the object that fired the
         # trigger, not this ability's source (Dragon Tempest) — deal from it for this resolution
         # only, since one effect instance serves every future firing of the ability.
-        dealer = context.state.find_object((context.trigger_event or {}).get(self.dealer_event_key))
+        dealer_id = (context.trigger_event or {}).get(self.dealer_event_key)
+        dealer = context.state.find_object(dealer_id)
+        expected = ((context.trigger_event or {}).get("subject_zone_incarnations") or {}).get(self.dealer_event_key)
+        if expected is not None and (dealer is None or dealer.zone_incarnation != expected):
+            # RULE 608.2h/702.15c: use the firing object's departed source
+            # characteristics, including temporary abilities it had then.
+            dealer = context.state.zone_visit_sources.get((dealer_id, expected), dealer)
         if dealer is None:
             return
         original = self.source
@@ -484,7 +528,12 @@ class DealDamageEffect(GameEffect):
         # Amount overrides are resolve-time questions; Raid reads the same
         # player declaration history as every other controller-scoped gate.
         self._state = context.state
-        if not self.unpreventable:
+        from .. import effect_conditions  # avoid the effect_conditions<->effects import cycle
+
+        if not self.unpreventable and not (
+            self.unpreventable_if is not None
+            and effect_conditions.condition_holds(self.unpreventable_if, context, self.source, targets)
+        ):
             self._apply_impl(context, targets)
             return
         # RULE 615.6: for the span of this one effect, no prevention shield
@@ -566,6 +615,8 @@ class DealDamageEffect(GameEffect):
                         context.deal_damage(player, self._amount_for(None, context), self.source)
                     return
             controller_id = getattr(obj, "controller_id", None)
+            # RULE 608.2h: a permanent this resolution destroyed is back under its owner; read its last-known controller.
+            controller_id = (context.destroyed_controllers.get(getattr(obj, "instance_id", None)) or controller_id)
             if controller_id is not None:
                 try:
                     player = context.state.player_by_id(controller_id)
@@ -596,10 +647,21 @@ class DealDamageEffect(GameEffect):
             and self.target_spec.count == 1 and not self.target_spec.optional
         )
         for target in chosen:
+            amount = self._amount_for(target, context)
+            excess = 0
+            if self.excess_to_controller and getattr(target, "is_creature", False) and hasattr(target, "instance_id"):
+                from .. import combat  # function-scoped: combat is a leaf module, avoid load-order cycles
+
+                lethal = 1 if combat.has_deathtouch(self.source) else max(0, (target.toughness or 0) - (target.damage_marked or 0))
+                excess = max(0, amount - lethal)
+                amount -= excess
             context.deal_damage(
-                target, self._amount_for(target, context), self.source,
+                target, amount, self.source,
                 single_target_hint=single_target_hint,
             )
+            if excess:
+                owner = context.state.player_by_id(target.controller_id)
+                context.deal_damage(owner, excess, self.source)
             if self.tap_target_if_colorless and getattr(target, "is_creature", False):
                 colors = {str(c).upper() for c in (getattr(target, "colors", None) or set())}
                 if not colors.intersection({"W", "U", "B", "R", "G"}):
@@ -655,7 +717,7 @@ class DealDamageEffect(GameEffect):
         if self.selector == "group":
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
-            controller_id = getattr(self.source, "controller_id", None)
+            controller_id = getattr(_controller_of(self.source, context), "id", None)
             if self.group_player is not None:
                 if self.group_player == "defending":
                     scoped = _defending_player_of(self.source, context)
@@ -670,12 +732,18 @@ class DealDamageEffect(GameEffect):
                     scoped = context.state.player_by_id(owner_id) if owner_id is not None else None
                 else:
                     scoped = (targets or [self.target])[0] if (targets or self.target is not None) else None
-                if scoped is None or getattr(scoped, "id", None) is None or not hasattr(scoped, "life"):
+                if scoped is None:
                     return
-                controller_id = scoped.id
+                # RULE 120.3 / 608.2h: a player supplies their own creatures;
+                # a planeswalker supplies its controller's, while taking the hit itself.
+                controller_id = (scoped.id if hasattr(scoped, "life")
+                                 else getattr(scoped, "controller_id", None))
+                if controller_id is None:
+                    return
+            group_amount = amount if self.group_amount is None else self.group_amount
             # Snapshot first: an early death must not skip a still-owed hit.
             for obj in list(group_selector_objects(context.state, controller_id, self.group, src=self.source)):
-                context.deal_damage(obj, amount, self.source)
+                context.deal_damage(obj, group_amount, self.source)
             if self.group_and_players == "scoped_player":
                 context.deal_damage(scoped, amount, self.source)
             elif self.group_and_players is not None:
@@ -893,7 +961,7 @@ def _attached_auras_and_equipment_count(context: GameContext, source: Optional["
     return sum(
         1 for o in context.state.battlefield
         if o.attached_to == source.instance_id
-        and ("aura" in o.card.type_line.lower() or "equipment" in o.card.type_line.lower())
+        and (o.has_subtype("aura") or o.has_subtype("equipment"))
     )
 
 
@@ -1413,7 +1481,8 @@ class DiscardEffect(GameEffect):
         self.player = player
         #: "Discard N cards **unless** you discard a `<quality>` card." (Thirst for Knowledge, Compulsive
         #: Research, Alpharael) — the discarding player may instead discard one hand card matching this
-        #: filter (``{"card_type": "land"}`` / ``{"nonland": True}`` / ``{"subtype": "pirate"}``); declining —
+        #: filter (``{"card_type": "land"}`` / ``{"nonland": True}`` / ``{"subtype": "pirate"}`` / ``{"card_types": ["instant",
+        #: "sorcery"]}`` / ``{"card_type": "land", "basic": True}``); declining —
         #: or holding no such card — discards ``count`` cards as usual (RULE 608.2, the choice is theirs).
         self.unless_discard = dict(unless_discard) if unless_discard else None
         #: An explicit discarding player by id — what the "declined, so discard N" branch of
@@ -1492,6 +1561,11 @@ class DiscardEffect(GameEffect):
             return "land" not in types.split()
         if spec.get("subtype"):
             return str(spec["subtype"]).lower() in subtypes.split()
+        if spec.get("card_types"):
+            # PAR-208 (RULE 205.2): "an instant or sorcery card" -- either type.
+            return any(str(word).lower() in types.split() for word in spec["card_types"])
+        if spec.get("basic") and "basic" not in types.split():
+            return False  # RULE 205.4: "basic" is a supertype of the type line
         return str(spec.get("card_type", "")).lower() in types.split()
 
     def _discard_from(self, context: GameContext, player: Any) -> None:
@@ -1673,6 +1747,7 @@ class ExileHandCardEffect(GameEffect):
         nonland: bool = False,
         time_counters_from_mana_value: bool = False,
         grant_suspend: bool = False,
+        grant_suspend_cast: bool = False,
         sweep_time_counters: bool = False,
         then_opponent: bool = False,
         player_id: Optional[str] = None,
@@ -1693,6 +1768,7 @@ class ExileHandCardEffect(GameEffect):
         self.nonland = bool(nonland)
         self.time_counters_from_mana_value = bool(time_counters_from_mana_value)
         self.grant_suspend = bool(grant_suspend)
+        self.grant_suspend_cast = bool(grant_suspend_cast)
         self.sweep_time_counters = bool(sweep_time_counters)
         self.then_opponent = bool(then_opponent)
         #: The chained opponent half's actor (set on the continuation spec, never by the parser).
@@ -1706,7 +1782,7 @@ class ExileHandCardEffect(GameEffect):
         params: dict[str, Any] = {
             "count": self.count, "zone": self.zone, "optional": self.optional, "nonland": self.nonland,
             "time_counters_from_mana_value": self.time_counters_from_mana_value,
-            "grant_suspend": self.grant_suspend,
+            "grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast,
         }
         params.update(override)
         return params
@@ -1730,7 +1806,7 @@ class ExileHandCardEffect(GameEffect):
             chain.append({"type": "exile_hand_card", "params": self._own_params(player_id=opponent.id)})
         then_specs: list[dict[str, Any]] = []
         if self.time_counters_from_mana_value:
-            then_specs.append({"type": "time_counters_on_exiled", "params": {"grant_suspend": self.grant_suspend}})
+            then_specs.append({"type": "time_counters_on_exiled", "params": {"grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast}})
         if self.sweep_time_counters:
             then_specs.append({"type": "remove_time_counters_from_exile", "params": {"exclude_previous": True}})
         else_specs: list[dict[str, Any]] = []
@@ -1751,9 +1827,11 @@ class TimeCountersOnExiledEffect(GameEffect):
     `_collect_suspend_triggers`). The mana value is the card's own — a card
     in exile has X = 0 (RULE 202.3e), so a hand card needs no special case."""
 
-    def __init__(self, grant_suspend: bool = False, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, grant_suspend: bool = False, grant_suspend_cast: bool = False,
+                 source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
         self.grant_suspend = bool(grant_suspend)
+        self.grant_suspend_cast = bool(grant_suspend_cast)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..rules.triggers_mixin import _has_suspend  # function-scoped: effects must not import rules at load
@@ -1764,16 +1842,28 @@ class TimeCountersOnExiledEffect(GameEffect):
             obj.add_counters("time", int(obj.mana_value or 0))
             if self.grant_suspend and not _has_suspend(obj):
                 obj.granted_suspend = True
+            if self.grant_suspend_cast:
+                from ...models.game.game_state import TurnScopedTrigger
+
+                instance_id = obj.instance_id
+                ability = TriggeredAbility(
+                    trigger_event=EventType.LAST_TIME_COUNTER_REMOVED,
+                    effects=[SuspendCastEffect(source=obj, haste_duration="end_of_turn")], controller_id=obj.owner_id,
+                    condition=lambda event, ctx, iid=instance_id: event.get("instance_id") == iid,
+                    source=obj, description="You may cast this card without paying its mana cost.",
+                )
+                context.state.turn_scoped_triggers.append(TurnScopedTrigger(
+                    ability, install_turn=None, once=False, bound_object_id=instance_id,
+                    bound_incarnation=obj.zone_incarnation, bound_zone="exile",
+                ))
 
 
 class RemoveTimeCountersFromExileEffect(GameEffect):
     """Alaundo the Seer's "Then remove a time counter from each other card you
     own in exile." (RULE 122.1 / 702.62a): one time counter comes off every
     card the controller owns in exile that has one, through
-    `RulesEngine.remove_suspend_time_counter` so the last one opens the
-    "when the last time counter is removed … you may cast it without paying
-    its mana cost" window (the very trigger Alaundo grants its exiled cards,
-    which that primitive already is, haste for creatures included).
+    `RulesEngine.remove_suspend_time_counter` so removal triggers and any
+    granted last-counter cast ability fire through the ordinary stack.
     ``exclude_previous`` leaves out the card the clause before just exiled."""
 
     def __init__(self, exclude_previous: bool = False, source: Optional["GameObject"] = None) -> None:
@@ -1923,37 +2013,17 @@ class DrawMillIfDiscardedEffect(GameEffect):
 
 #: `RevealHandChooseDiscardEffect.destination` → the `choose_objects` action that moves each pick.
 _HAND_PICK_ACTIONS: dict[str, str] = {
-    "discard": "discard", "library_top": "hand_to_library_top", "library_third": "hand_to_library_third",
+    "discard": "discard", "exile": "exile", "library_top": "hand_to_library_top", "library_third": "hand_to_library_third",
 }
 
 
 class RevealHandChooseDiscardEffect(GameEffect):
-    """RULE 119/701.8's iconic hand-disruption template — "Target opponent
-    reveals their hand. You choose a `<filter>` card from it. That player
-    discards that card." (Duress/Thoughtseize/Coercion/Distress-shaped,
-    one of the most repeated templates in the cache).
+    """RULE 701.20 / 701.9: expose a hand and let the controller choose a card.
 
-    "Reveals their hand" isn't a separate step to model (RULE 701.13's
-    reveal is a zero-effect visibility action, and this engine has no
-    client-visibility layer to update mid-resolution anyway) — the real
-    behaviour is that the *chooser* is this effect's controller (the
-    caster), not the revealed hand's owner, over that owner's *actual*
-    cards. That's exactly `RulesEngine._request_choose_objects`'s shape
-    (Tevesh Szat's sacrifice, Cloudstone Curio's bounce, …), just sourced
-    from a hand instead of the battlefield, with its pre-existing
-    ``action="discard"`` (`_apply_chosen_object` already resolves that
-    against the *object's own owner*, regardless of who's choosing).
-
-    ``exclude_land``/``exclude_creature`` are RULE 601.2c "non-X" card-type
-    exclusions (composing — Duress's "noncreature, nonland" sets both);
-    ``card_types`` is the inclusive opposite ("a creature or planeswalker
-    card" — Despise-shaped). No filter at all (Coercion's bare "a card")
-    leaves both unset and ``card_types`` `None`.
-
-    ``max_mana_value`` (MEC-43 round 2, Inquisition of Kozilek — "…a
-    nonland card from it with mana value 3 or less…") narrows the
-    candidate pool further, same "card's own printed `converted_mana_cost`"
-    read every other mana-value filter in this file uses.
+    Selection belongs to the spell's controller; discard/exile belongs to the
+    selected card's owner. Hand filters do not constrain an independently
+    worded graveyard alternative (Agonizing Remorse). Resolution visibility is
+    attached to the pending choice and snapshots exact hand-zone visits.
     """
 
     def __init__(
@@ -1964,7 +2034,12 @@ class RevealHandChooseDiscardEffect(GameEffect):
         exclude_land: bool = False,
         exclude_creature: bool = False,
         card_types: Optional[list[str]] = None,
+        card_filter: Optional[dict[str, Any]] = None,
         max_mana_value: Optional[int] = None,
+        min_mana_value: Optional[int] = None,
+        include_graveyard: bool = False,
+        reveal: bool = True,
+        track_exiled_with: bool = False,
         optional: bool = False,
         else_specs: Optional[list[dict[str, Any]]] = None,
         count: Any = 1,
@@ -1986,7 +2061,12 @@ class RevealHandChooseDiscardEffect(GameEffect):
         self.exclude_land = exclude_land
         self.exclude_creature = exclude_creature
         self.card_types = card_types
+        self.card_filter = card_filter
         self.max_mana_value = max_mana_value
+        self.min_mana_value = min_mana_value
+        self.include_graveyard = include_graveyard
+        self.reveal = reveal
+        self.track_exiled_with = track_exiled_with
         #: "You **may** choose a creature or battle card from it. … If you
         #: don't, incubate 3." (Traumatic Revelation) — the chooser may
         #: decline, and ``else_specs`` (serialized `EffectSpec` dicts) then
@@ -1999,24 +2079,21 @@ class RevealHandChooseDiscardEffect(GameEffect):
 
     def _matches(self, obj: "GameObject") -> bool:
         card = obj.card
+        if self.card_filter:
+            from ..combat import matches_object_filter
+            if not matches_object_filter(obj, self.card_filter):
+                return False
         if self.exclude_land and obj.is_land:
             return False
         if self.exclude_creature and obj.is_creature:
             return False
         if self.card_types:
-            checks = {
-                "creature": obj.is_creature,
-                "planeswalker": bool(getattr(obj, "is_planeswalker", False)),
-                "artifact": bool(card.is_artifact),
-                "instant": bool(card.is_instant),
-                "sorcery": bool(card.is_sorcery),
-                "enchantment": bool(card.is_enchantment),
-                # "a creature or battle card" (Traumatic Revelation).
-                "battle": bool(getattr(card, "is_battle", False)),
-            }
-            if not any(checks.get(t, False) for t in self.card_types):
+            from ...models.cards.card_query import card_type_words
+            if not set(self.card_types) & card_type_words(card):
                 return False
         if self.max_mana_value is not None and (card.converted_mana_cost or 0) > self.max_mana_value:
+            return False
+        if self.min_mana_value is not None and (card.converted_mana_cost or 0) < self.min_mana_value:
             return False
         return True
 
@@ -2028,17 +2105,37 @@ class RevealHandChooseDiscardEffect(GameEffect):
         caster = _controller_of(self.source, context)
         if caster is None:
             return
+        if self.reveal:
+            for obj in revealed_player.hand:
+                context.state.reveal_card(obj, revealed_player.id)
         candidates = [obj for obj in revealed_player.hand if self._matches(obj)]
+        if self.include_graveyard:
+            candidates.extend(revealed_player.graveyard)
         count = max(0, int(self.count)) if not isinstance(self.count, str) else 0
         if count == 0:
             return  # "choose X cards" with X = 0
-        # An empty pool still opens the (empty) choice: its "if you don't" else-branch (Traumatic Revelation) runs.
         count = max(1, min(count, len(candidates)))
-        context.choose_objects(
-            caster, candidates, _HAND_PICK_ACTIONS[self.destination], count=count, source=self.source,
-            optional=self.optional or self.up_to,
-            else_specs=self.else_specs or None,
-        )
+        if not candidates and revealed_player.hand:
+            # RULE 701.20 / 608.2c: acknowledge the full hand before an
+            # impossible choice's else-branch or the spell's next instruction.
+            context.look_at_hand(caster, revealed_player, source=self.source)
+            choice = context.state.pending_choice
+            choice["hand_else_specs"] = self.else_specs
+            choice["source_id"] = getattr(self.source, "instance_id", None)
+            choice["effect_controller_id"] = caster.id
+        else:
+            context.engine._request_choose_objects(
+                caster, candidates, _HAND_PICK_ACTIONS[self.destination], count=count, source=self.source,
+                optional=self.optional or self.up_to,
+                else_specs=self.else_specs or None, force_choice=True,
+                track_exiled_with=self.track_exiled_with,
+            )
+        choice = context.state.pending_choice
+        if choice is not None and choice.get("kind") in {"choose_objects", "look_hand"}:
+            choice["hand_visibility"] = "public" if self.reveal else "private"
+            choice["visible_hand_visits"] = {str(obj.instance_id): obj.zone_incarnation for obj in revealed_player.hand}
+            choice["selection_visits"] = {str(obj.instance_id): obj.zone_incarnation for obj in candidates}
+
 
 
 class RevealAnyNumberHandCardsEffect(GameEffect):
@@ -2113,6 +2210,7 @@ class RevealRandomHandCardIfNamedEffect(GameEffect):
         if not player.hand:
             return
         revealed = random.choice(player.hand)
+        context.state.reveal_card(revealed, player.id)
         if revealed.name.casefold() == self.named_card.casefold():
             context.discard_specific(revealed, cause=self.source)
 
@@ -2143,15 +2241,12 @@ class RevealRandomHandCardEffect(GameEffect):
             return
         player = chosen[0]
         context.revealed_card = context.engine.random_choice(list(player.hand))
+        if context.revealed_card is not None:
+            context.state.reveal_card(context.revealed_card, player.id)
 
 
 class PutHandCardsOnTopEffect(GameEffect):
-    """"Put N cards from your hand on top of your library in any order"
-    (Brainstorm's back half — the same loot-shaped template other
-    draw-then-filter cards this pool doesn't need yet would share). See
-    `RulesEngine.put_hand_cards_on_top` for why the missing "any order"
-    choice is inert at this engine's fidelity.
-    """
+    """Choose N hand cards to put on the library in any order (RULE 401.4)."""
 
     def __init__(self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
@@ -2159,7 +2254,7 @@ class PutHandCardsOnTopEffect(GameEffect):
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or context.active_player
+        player = self.player or _controller_of(self.source, context)
         context.put_hand_cards_on_top(player, self.count)
 
 
@@ -2266,19 +2361,19 @@ def _mass_selector_objects(
     if selector == "all_creatures":
         result = [o for o in battlefield if o.is_creature]
     elif selector == "all_artifacts":
-        result = [o for o in battlefield if o.card.is_artifact]
+        result = [o for o in battlefield if o.is_artifact]
     elif selector == "all_enchantments":
-        result = [o for o in battlefield if o.card.is_enchantment]
+        result = [o for o in battlefield if o.is_enchantment]
     elif selector == "all_artifacts_and_enchantments":
-        result = [o for o in battlefield if o.card.is_artifact or o.card.is_enchantment]
+        result = [o for o in battlefield if o.is_artifact or o.is_enchantment]
     elif selector == "all_planeswalkers":
         result = [o for o in battlefield if getattr(o, "is_planeswalker", False)]
     elif selector == "all_permanents":
         result = list(battlefield)
     elif selector == "all_lands":
-        result = [o for o in battlefield if o.card.is_land]
+        result = [o for o in battlefield if o.is_land]
     elif selector == "all_nonland_permanents":
-        result = [o for o in battlefield if not o.card.is_land]
+        result = [o for o in battlefield if not o.is_land]
     elif selector == "equipment_attached_to_previous":
         # "destroy all Equipment attached to that creature." (Awaken the
         # Sleeper's own after-tail) — "that creature" is the threaten
@@ -2288,7 +2383,7 @@ def _mass_selector_objects(
         result = [
             o for o in battlefield
             if pid is not None and o.attached_to == pid
-            and "equipment" in (o.card.type_line or "").lower()
+            and o.has_subtype("equipment")
         ]
     elif selector == "opponents_creatures":
         controller_id = getattr(source, "controller_id", None)
@@ -2315,7 +2410,7 @@ def _mass_selector_objects(
             if o is not source and controller_id is not None and o.controller_id == controller_id
         ]
     elif selector == "all_other_nonland_permanents":
-        result = [o for o in battlefield if not o.card.is_land and o is not source]
+        result = [o for o in battlefield if not o.is_land and o is not source]
     elif selector == "all_other_creatures":
         # RULE 400: "other" excludes this effect's own source, regardless
         # of who controls it (Novablast Wurm, Mageta the Lion).
@@ -2367,7 +2462,7 @@ def _mass_selector_objects(
         # "selector picks the zone/type, filter narrows it" split every
         # other mass-wipe qualifier here uses.
         if filt.get("nonbasic"):
-            result = [o for o in result if "basic" not in (o.card.type_line or "").lower()]
+            result = [o for o in result if not o.has_supertype("basic")]
         # "Return all creature **tokens** / all **nontoken** creatures to
         # their owners' hands." (Perplexing Test, PAR-60) — RULE 111.9.
         if filt.get("token") is not None:
@@ -2381,7 +2476,7 @@ def _mass_selector_objects(
             want = bool(filt["enchanted"])
             aura_hosts = {
                 o.attached_to for o in battlefield
-                if "aura" in (o.card.type_line or "").lower() and o.attached_to is not None
+                if o.has_subtype("aura") and o.attached_to is not None
             }
             result = [o for o in result if (o.instance_id in aura_hosts) == want]
         # "…each nonland permanent with mana value X whose controller was dealt combat damage by this creature

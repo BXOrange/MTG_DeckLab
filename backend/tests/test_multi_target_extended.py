@@ -123,8 +123,9 @@ def test_add_counters_multi_target_with_other_and_mandatory_count():
 
 
 def test_count_of_one_stays_unclaimed_for_new_families():
-    assert parse_effect_body("tap 1 target creature") is None
-    assert parse_effect_body("return 1 target creature to their owners' hands") is None
+    # Not the multi-target shape; the shared PAR-210 operand reads it as one target slot.
+    spec = parse_effect_body("tap 1 target creature")[0]
+    assert spec.params["effects"][0]["params"]["count"] == 1 and "target_count" not in str(spec.params)
 
 
 def test_unrecognized_kind_stays_unclaimed():

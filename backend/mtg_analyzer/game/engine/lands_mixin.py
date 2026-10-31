@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from .. import linked_exile
+
 import itertools
 from copy import copy
 from contextlib import contextmanager
@@ -81,6 +83,9 @@ class LandsMixin:
         in_playable_zone = (
             obj in player.hand
             or self._has_resolution_play_permission(player, obj)
+            or (obj.zone in (Zone.EXILE, Zone.GRAVEYARD, Zone.LIBRARY)
+                and obj.instance_id not in self.state.temp_play_spells_only
+                and self._has_temp_play_permission(obj, player, face=face))
             or (
                 bool(player.library)
                 and obj is player.library[-1]
@@ -91,7 +96,7 @@ class LandsMixin:
                 and obj.instance_id not in self.state.temp_play_spells_only
                 and (
                     self._has_temp_play_permission(obj, player, face=face)
-                    or self._has_conditional_exile_permission(obj, player)
+                    or self._has_conditional_exile_permission(obj, player, face=face, land=True)
                 )
             )
             or (
@@ -158,49 +163,10 @@ class LandsMixin:
         obj.controller_id = player.id
         obj.face_down_in_exile = False
 
-        def _finish() -> None:
-            obj.summoning_sick = True
-            # RULE 614.1: a tap-land enters the battlefield tapped —
-            # including a shock/check/fast/slow land's conditional shape
-            # (payment choice or board-state check), resolved by
-            # `enter_land_tapped`.
-            self.rules.enter_land_tapped(obj)
-            self.state.add_to_battlefield(obj)
-            player.lands_played_this_turn += 1
-            if graveyard_grant is not None and graveyard_grant.source is not None:
-                used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())
-                graveyard_grant.source.graveyard_cast_types_this_turn = used | {"land"}
-            self.state.record_stat(player.id, "land", name=obj.name)
-            self.state.fire_event(
-                GameEvent(
-                    EventType.LAND_PLAYED,
-                    player_id=player.id,
-                    card_id=obj.card.id,
-                    land=obj.name,
-                    # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
-                    from_exile=from_zone == "exile",
-                    # A "whenever you play another land" trigger (City of
-                    # Traitors) needs to exclude its own play event via
-                    # `effect_binder`'s "group"/"other" subject condition.
-                    instance_id=obj.instance_id,
-                )
-            )
-            self.state.fire_event(
-                GameEvent(
-                    EventType.ENTERS_BATTLEFIELD,
-                    from_zone=from_zone,
-                    controller_id=player.id,
-                    object=obj.name,
-                    instance_id=obj.instance_id,
-                    object_types=sorted(obj.type_words),
-                    # RULE 305.1: played, not put — "enter without being played" (PAR-119).
-                    played=True,
-                )
-            )
-            # RULE 117.3c: taking an action reclaims priority for its taker.
-            self.give_priority(player)
-
-        self.rules._offer_enter_choices(obj, _finish)
+        self.state.pending_land_entry = {
+            "obj": obj, "player_id": player.id, "from_zone": from_zone, "grant": graveyard_grant,
+        }
+        self.rules._offer_enter_choices(obj, lambda: self.rules._finish_land_entry(self.state.pending_land_entry))
         return obj
     @staticmethod
     def _castable_from_exile(obj: GameObject) -> bool:
@@ -220,8 +186,9 @@ class LandsMixin:
         from ..mayhem import permits_land
         return permits_land(self.state, obj)
     def _has_temp_play_permission(self, obj: GameObject, player: Player, face: Optional[str] = None) -> bool:
-        """RULE 601.3b analogue: a temporary "you may play this card"
-        permission (Light Up the Stage-shaped impulsive draw,
+        """RULE 601.3: a temporary "you may play this card" permission
+        for its recorded zone visit, including graveyard and library
+        (Light Up the Stage-shaped impulsive draw,
         `RulesEngine.exile_with_play_permission`,
         `GameState.temp_play_permissions`) — swept once its "until the end
         of your next turn" (or, Ragavan/Mnemonic Betrayal-shaped, "until
@@ -238,6 +205,18 @@ class LandsMixin:
         """
         if obj.instance_id not in self.state.temp_play_permissions:
             return False
+        clock = self.state.temp_play_permission_clocks.get(obj.instance_id)
+        if clock:
+            from ..durations import play_clock_expired
+            if play_clock_expired(self.state, obj, clock):
+                self.state.temp_play_permission_clocks.pop(obj.instance_id, None)
+                self.state.temp_play_permissions.pop(obj.instance_id, None)
+                return False
+            if clock.get("next_turn_only") and not (
+                self.state.active_player.id == clock["duration_data"]["player_id"]
+                and self.state.internal_turn.number > clock["duration_data"]["turn"]
+            ):
+                return False
         visit = self.state.temp_play_permission_visits.get(obj.instance_id)
         if visit is not None and obj.zone_incarnation != visit:
             return False
@@ -253,12 +232,17 @@ class LandsMixin:
                 return False
         holder_id = self.state.temp_play_permission_player.get(obj.instance_id)
         return holder_id is None or holder_id == player.id
-    def _has_conditional_exile_permission(self, obj: GameObject, player: Player) -> bool:
+    def _has_conditional_exile_permission(self, obj: GameObject, player: Player,
+                                          face: Optional[str] = None, land: Optional[bool] = None) -> bool:
         """"You may cast this card from exile as long as `<condition>`."
         (Lukka, Coppercoat Outcast) — `GameState.exile_cast_condition`'s
         standing, never-turn-swept sibling of `_has_temp_play_permission`;
         see that field's own docstring for why the two are kept apart.
         """
+        card = self._face_card(obj, face) if face is not None else obj.card
+        if linked_exile.play_grant(self.state, player, obj, card=card,
+                                   land=card.is_land if land is None else land) is not None:
+            return True
         entry = self.state.exile_cast_condition.get(obj.instance_id)
         if entry is None:
             return False
@@ -270,7 +254,7 @@ class LandsMixin:
             source = self.state.find_object(condition["linked_source_id"])
             if (source is None or source.zone != Zone.BATTLEFIELD
                     or source.controller_id != player.id or source.loses_all_abilities
-                    or obj.instance_id not in source.exiled_with_ids):
+                    or not any(obj is card for card in linked_exile.linked_cards(self.state, source))):
                 return False
         return static_conditions.condition_holds(condition, self.state, source, player.id)
     def _graveyard_cast_keyword(self, obj: GameObject) -> Optional[str]:

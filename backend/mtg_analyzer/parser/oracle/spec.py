@@ -56,7 +56,7 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 #: replacement-effect scale factors ``plus``/``multiplier`` — Angel of
 #: Vitality/Hardened Scales/Fiery Emancipation).
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
-    "amount", "count", "x", "n", "generic", "plus", "multiplier",
+    "amount", "group_amount", "count", "x", "n", "generic", "plus", "multiplier",
     # RULE 706 dice: a die's face count and the ignore-lowest/highest rider
     # (`RollDieEffect` / `roll_dice_modifier`) — a garbled "roll a d10^9"
     # must not make a results-table row unreachable or wedge the roll loop.
@@ -88,7 +88,7 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: present instead of picking the first recognised one.
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
     {
-        "kicked", "kicked_at_least", "bargained", "gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid", "target_is_controller",
+        "kicked", "kicked_at_least", "bargained", "gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid", "tribute_paid", "target_is_controller",
         "life_gained_this_turn_at_least", "opponent_lost_life_this_turn_at_least",
         "is_ring_bearer", "ring_tempted_at_least",
         # ``ring_tempted_at_most`` is `ring_tempted_at_least`'s upper-bound
@@ -198,6 +198,10 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
     "draw", "discard", "exile", "exile_own_graveyard_cards", "choose_objects", "sacrifice_self", "add_counters",
     "search", "tap", "attach", "create_token", "bind",
+    # PAR-207: "mill N cards" moves library cards to the graveyard; "amass" makes an Army or adds counters to one.
+    "mill", "amass",
+    # PAR-208: "remove a counter from it. If you do, ..." -- the counter totals are part of the fingerprint.
+    "remove_counters",
     # A card placed from hand moves zones (Ultra Magnus-shaped "you may put … onto the battlefield. If you do, …").
     "put_from_hand_onto_battlefield", "put_from_defending_hand",
 })
@@ -225,12 +229,16 @@ def if_you_do_antecedent_ok(effects: list[dict]) -> bool:
 #: ``conditions``/``condition`` are the ``all``/``not`` combinators' operands
 #: and recurse instead of matching a type here.
 _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
-    "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
+    "designation": str, "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
     "counter": str, "selector": (str, dict), "name": str, "keyword": str,
     "op": str, "step": str,  # ``during_step`` (Misleading Signpost)
+    "phase": str,  # ``during_phase`` (PAR-176)
+    "margin": int,  # ``opponent_controls_more_lands`` (PAR-176)
     "min": int, "max": int, "amount": int, "min_power": int,
     "zone": str, "incarnation": int,
     "colors": list, "types": list,
+    "spell_type": str,  # ``another_spell_cast_this_turn`` (RULE 601: "another instant or sorcery spell")
+    "value": int,  # ``any_die_result`` threshold (RULE 706.3: "10 or higher")
     "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
 
@@ -243,6 +251,15 @@ X_SENTINELS: frozenset[str] = frozenset({"x", "-x"})
 #: ``target_kind: "trigger_subject"`` (or as an ``add_counters`` ``trigger_subject_key``).
 #: The parser cannot name the event field — the binder resolves it per event type.
 GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
+
+#: PAR-203 (RULE 608.2d): where a later clause of the same resolution says "the chosen type" / "that color" /
+#: "the chosen name", the parser cannot know the answer, so the clause carries one of these placeholders instead
+#: and `composition._build` swaps in the value the ``choose_for_source`` effect stamped on the source (resolved
+#: lazily, when the body is built, so a body that waits behind the choice still sees the answer).
+CHOSEN_TYPE_SENTINEL = "$chosen_type"
+CHOSEN_COLOR_SENTINEL = "$chosen_color"
+CHOSEN_NAME_SENTINEL = "$chosen_name"
+CHOSEN_LAND_TYPE_SENTINEL = "$chosen_land_type"
 
 #: PAR-120's structured count selector — ``{"zone", "of", "filter", "distinct"}`` —
 #: validated by shape only (the zone/scope/`distinct` vocabularies are named here
@@ -279,7 +296,9 @@ RETIRED_EFFECT_PARAMS: dict[str, str] = {
 
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "property": str,
+    "trigger": dict,  # a turn-history event_count uses the existing trigger predicate shape
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
+    "event_key": str,  # exact trigger subject field, resolved by the trigger binder
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
@@ -1404,6 +1423,10 @@ class AbilitySpec:
         for key, value in selector.items():
             if key == "zone":
                 ok = isinstance(value, str) and value in SELECTOR_ZONES
+            elif key == "linked_source_incarnation":
+                ok = type(value) is int and value >= 0
+            elif key == "linked_exile":
+                ok = isinstance(value, bool)
             elif key == "of":
                 ok = isinstance(value, str) and value in SELECTOR_SCOPES
             elif key == "distinct":
@@ -1471,6 +1494,11 @@ class AbilitySpec:
             expected = _AMOUNT_SPEC_FIELDS.get(key)
             if expected is None:
                 raise SpecValidationError(f"unknown amount spec field {key!r}")
+            if key == "trigger":
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'trigger' in an amount spec must be a dict")
+                AbilitySpec._validate_trigger_shape(value)
+                continue
             if key == "condition":
                 if not isinstance(value, dict):
                     raise SpecValidationError("'condition' in an amount spec must be a dict")
@@ -1771,3 +1799,6 @@ def contains_marker(node: Any, marker: str) -> bool:
     if isinstance(node, list):
         return any(contains_marker(v, marker) for v in node)
     return False
+
+#: RULE 105.1: the nonempty color subset selected during resolution.
+CHOSEN_COLORS_SENTINEL = "$chosen_colors"

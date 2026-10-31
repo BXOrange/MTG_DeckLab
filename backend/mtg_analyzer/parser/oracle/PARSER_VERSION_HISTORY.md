@@ -4094,3 +4094,426 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      card milled this way, ...", "if an enchantment was destroyed this way, ..."); typed count phrases ("the number of
      creature cards exiled this way") reach every amount row. The body-level fight-sequence call is retired (the
      clause-level one claims every such body identically). +8 / -0.
+713: PAR-176 -- "Activate only ..." restriction sentences (RULE 602.5, 602.5b/d): one compound grammar
+     (`costs_mana_limits._activate_only_compound`) splits the sentence at "and only"/", only" into atoms -- timing windows
+     (your/any upkeep, combat, a named step, before a named step / before attackers are declared, as a sorcery / instant),
+     the once-per-turn / once caps, and "if <condition>" gates -- and folds them into the existing markers; several
+     condition markers are now conjoined by the binder instead of the first one winning. New engine condition kinds
+     `during_phase`, `before_step`, `source_has_blockers` and a `margin` on `opponent_controls_more_lands`; new condition
+     phrases (exactly N cards in hand, source power, entered this turn, opponent damaged / controls N lands, attacking
+     or blocking, enchanted host untapped / "white and untapped", "you had X enter ... this turn", life over starting).
+     Any unknown atom refuses the whole sentence.
+714: BUG-12 -- every MODELED card binds. A standing "prevent all damage ..." clause (also behind "during your turn" /
+     "as long as ...") is emitted as a `replacement` spec (`replacements.standing_ability_kind`), not a `static` one the
+     binder had no factory for (Personal Sanctuary, Spirit of Resistance, Guardian Naga); the graveyard-exit trigger
+     strips "This ability triggers only once each turn" into `trigger["limit"]` instead of leaking the marker into the
+     body (Fang, Fearless l'Cie; Defiled Crypt); structured conditions accept the `spell_type` and `value` fields the
+     parser already emitted (Burrog Barrage, Farideh); the connive factory keeps a structured `times` operand (Raffine,
+     Spymaster's Vault). +0 / -0 (no verdict changes).
+715: BUG-32 -- typed "this way" count phrases keep "permanent" ("for each permanent card milled this way" no longer counts
+     every card); the engine matches the `permanent` / `nonland_permanent` markers via the shared permanent-type list
+     (RULE 110.4) in amounts, conditions and the discard / sacrifice event pools.
+
+716: MEC-128 -- fixed-count graveyard exile carries a shared same_graveyard target relation;
+     casts, activations, trigger rounds and target changes enforce one graveyard per group.
+
+717: PAR-178/179/180/182 -- optional energy continuations preserve referents, targets and clone/undo state;
+     hand-exile activations compose independently bounded quoted grants and casting permissions;
+     named-card searches and complete library selections preserve pools, order and removed-counter X;
+     attached-host step heads and counter recipients reuse existing engine primitives.
+     PAR-177 adds a read-only context-aware gap graph and joint ranking without changing gate verdicts.
+718: PAR-180 verification -- named search alternatives reuse criteria OR, retaining all other restrictions
+     on each branch. Bogbrew Witch offers Festering Newt and Bubbling Cauldron as separate legal finds,
+     rather than treating their joined phrase as one literal card name. Both choices execute in regressions.
+719: PAR-181 -- targeted stack-copy grammar composes shared spell kinds, controller scopes, exact mana value,
+     copy count and retargeting riders. Ability copies distinguish fixed Adric count from announced Gogo X,
+     preserve stack category and revalidate originals. Exact-X copy filtering reads the resolving stack item.
+     Shared tap-X costs are admitted through the same pure cost scan used by engine cost parsing; unsupported
+     filters remain fail-closed. Counter binding retains newly accepted own-spell scope through resolution.
+720 MEC-129 -- "your maximum hand size is N" (`hand_size_set` static, RULE 402.2) ordered by RULE 613.7 timestamp against
+     the static and rest-of-game "no maximum hand size" grants; relative modifiers apply on top. "Draw cards equal to the
+     number of cards in your hand plus N" reuses the `hand_size` resource amount (Sea Gate Restoration).
+721 MEC-130 -- "until end of turn, ~ loses "<its own replacement ability>"" (`lose_own_replacement`, RULE 613.1f/514.2)
+     via a fail-closed quoted-text table; the existing `any_player_may_activate` cost handles "any player may activate this
+     ability" (Glittering Lion/Lynx). Replacement effects now carry their `spec_type` and a `suppressed` flag.
+722 PAR-183 -- global day/night transition heads (including single-direction filters), shared day/night state
+     predicates for costs and effect bodies, and resolving designation instructions (RULE 731.1/731.1a).
+     Day/night changes transform all mismatched permanents and emit exactly one global event; initial establishment
+     does not fire transition triggers. Reuses graveyard pay-then-return for Sunstreak Phoenix and tap/untap choice
+     for nonland permanents. Activation timing tails stay outside conditional branches.
+723 PAR-184 -- player-event grammar recognizes committing a crime (RULE 700.13), including opponent/player
+     actor scopes, shared turn restrictions and existing once-per-turn trigger riders. Binds the existing
+     CRIME_COMMITTED player event; graveyard pay-then-return bodies reuse their existing zone permission.
+724 PAR-185 -- land-animation riders: "it's still a land" / "that's still a land" reminders on the self, target and
+     leading-duration animate rows (prior types are retained, RULE 205.1b), the full RULE 205.3m creature-subtype
+     vocabulary for animate qualifiers, the "enchanted land is a N/N ... creature" / "<land type>s you control are"
+     static (layer 4 type_change + layer 5 colour + layer 6 keywords) and the locked-group "all lands (you control)
+     become N/N creatures until end of turn" row.
+725 PAR-185 -- shared animation axes: optional causative subjects, source and plural pronouns, multi-land
+     targets, hyphenated creature types, all-creature-type and quoted-ability grants, source-bounded duration,
+     and activated enchanted-land subjects. Self animations explicitly retain the source incarnation.
+726 PAR-185 -- restrict causative normalization to numeric creature animation so unrelated "become no longer
+     suspected" remains owned by its existing handler (Deadly Complication).
+727 PAR-185 -- complete shared animation axes: X dimensions capture measured quantities once (including signed
+     source P/T settings), named multi-target counters and independently expiring counter-bound grants,
+     permanent/next-turn durations, global/basic-land-type groups and target-player locked groups, legendary
+     supertypes and Ward grants. Uses the existing minimum-X activation restriction for paid-X animations.
+728 PAR-185 -- keep newly widened non-retaining type/subtype replacement forms fail-closed (205.1a/b), and
+     capture source characteristics by exact battlefield visit for resolution-time quantities after death,
+     flicker and clone (608.2h/400.7). Preserve signed P/T settings and clamp negative modifier results separately.
+729 PAR-185 -- require supported type retention for the source-pronoun animation row added in v726; remove
+     false MODELED claims for enchantment-to-creature transformations whose old type must be replaced (205.1a).
+730 PAR-188 -- bind contextual self/trigger/attached-host characteristics once across X-valued effect bodies,
+     including death tokens/drains, self pumps/counters, and library choices. Preserve explicit source versus
+     prior-target and named-trigger referents; read exact-visit LKI and clamp negative calculated quantities.
+     Compose explicit-source counter riders, optional pumps and inline search quantities. Attached damage
+     reads the actual firing host and its exact departed source characteristics, including temporary keywords.
+731 PAR-188 -- optional causative targeted pumps announce required targets before their resolution-time choice;
+     source-based quantity selectors reuse exact-visit source LKI, including the legacy dynamic-pump path.
+732 PAR-188 -- targeted creature characteristic pumps also floor a negative calculated X at zero, preserving
+     positive quantities, power-only/symmetric axes, and the separate signed base-P/T setting exception.
+733 PAR-189 -- compose turn-scoped defender attack permissions with pumps and conditional optional
+     combat-assignment riders. Distinguish assignment prohibitions from prevention; preserve source/trigger
+     referents, announced targets, cleanup, blink and cloned pending choices.
+734 PAR-189 -- attached-trigger assignment riders name the firing host through trigger_subject,
+     preserving the referent through optional resolution and avoiding an unsupported condition operand.
+
+735 PAR-197 -- predefined Lander catalogue/creation and inline/singular/plural quoted
+     fixed-symbol native token mana abilities. Fully validated mana bodies retain canonical
+     raw Oracle casing and punctuation for the engine mana binder; unknown quoted riders
+     remain fail-closed. Existing Pawn of Ulamog/Awakening Zone Spawn and Horizon Explorer
+     Lander catalogue creators preserve their actual token abilities.
+
+736 PAR-197 -- keep quoted native token abilities that name the creating card fail-closed;
+     its normalized self-name cannot be rebound as the token name (Sound the Call).
+
+737 PAR-200 -- whole-graveyard shuffle subject axis supports target player,
+     with ordinary announced targets and resumable simultaneous graveyard exits.
+
+739 PAR-191 -- the shared ability-counter row recognizes activated-only counters,
+     preserving broad activated-or-triggered counters and executable stack identity/category targeting.
+
+740 PAR-187 -- shared reveal/look-hand choice supports general characteristic filters,
+     minimum mana value, exile and an independent graveyard alternative. Preserve
+     exact hand/source exile visits and executable discard Escalate keyword costs.
+
+741 PAR-190 -- "if tribute wasn't paid" / "tribute was paid" intervening-if gates read GameObject.tribute_paid,
+     stamped by the opponent's as-enters Tribute N choice (engine: ChooseTributeReplacement).
+
+742 PAR-196 -- conditional self untap restrictions reuse state predicates; source-bound
+     "flip it" resolves optional ki-counter flips with intervening-if checks and exact source visits.
+
+746 PAR-199 -- duration-bound exile reuses shared target/mana-value/referent grammar;
+     per-blocker source heads use BLOCKS, and damage referents retain their exact visits.
+
+747 PAR-201 -- source-control transfers announce and recheck a targeted opponent,
+     retain source visits and resolving controllers through optional payments, and
+     remove the transferred source from combat only when control actually changes.
+
+748 PAR-193 -- "return this card from your graveyard to the battlefield attached to
+     that creature" (Dragon Breath cycle, Smoke Shroud) reads as return_self_from_graveyard
+     with attach_to_trigger_subject; the host is the creature of the entering event.
+
+750 PAR-192 -- opening-hand reveal permissions share supported effect bodies and
+     exact first-step/per-opponent first-cast timing; generic life setters,
+     optional top-library keep/exile-rest and colored-permanent exile compose.
+
+751 PAR-192 -- opening-hand body parsing re-enters through shared clause hooks,
+     preserving the acyclic parser import graph without function-scoped imports.
+
+752 PAR-194 -- quoted attached statics re-source on their recipient; conditional
+     Equipment grants preserve nested attachment context and layer timestamps.
+
+753 PAR-194 -- attached quoted-static grants fail closed outside supported
+     keyword and P/T-modifier effect types; earlier-layer type/color grants remain unmodeled.
+
+754 PAR-195 -- time-counter removal triggers qualify the exact exile event; time
+     placement uses generic counters. Alaundo's quoted last-counter cast grant
+     is explicit and bound to the exile visit; Suspend casts via its resolving trigger.
+     Suspend-only X metadata preserves the printed nonzero restriction and feeds
+     chosen-X special-action costs, counters, legal offers and session dispatch.
+
+757 PAR-198 -- conditional instead-if suffixes and successfully composed spell
+     paragraphs replace the original instruction. Kicker chooses its target
+     branch at announcement; current-target/optional replacement referents
+     preserve targeting and decline fallback. Announced divided-damage
+     branches require explicit allocations; any-number keyword pumps use
+     dynamic legal target counts. Bare ambiguous kicked pronouns stay closed.
+
+758 PAR-198 -- replacement referents preserve full creature/planeswalker
+     target unions and controller scopes, any-target permanent/player aliases,
+     and damage object pronouns. Existing library and prevention effects
+     handle the branches without changing the announced recipient.
+759 PAR-198 -- the generic "instead" paragraph merge in the gate skips the
+     established PAR-64 Raid amount-override paragraphs, so Firecannon Blast /
+     Arrow Storm keep their specialised amount_if_raid shape.
+760 PAR-202 -- "at end of combat[ on your turn]," trigger head (STEP_BEGIN end_combat, RULE 511.1) with the
+     "~ attacked or blocked this combat" / "~ and at least N other creatures attacked this combat" intervening-ifs
+     (event_this_turn scope "combat"); combat-relation group tails ("blocking or blocked by ~", "blocked by ~",
+     "that blocked or was blocked this turn", "that blocked ~ this turn") for destroy/exile/tap/counters/steal;
+     delayed self riders (counters, library) and block-relation / attached-host referents; "green or white
+     creature" colour alternation; asymmetric P/T counter kinds; "up to X counters, can't exceed N" choice.
+761 PAR-203 -- "Choose a creature type / color / card name." as an instruction of a resolving spell or ability (RULE 608.2d)
+     becomes ONE `seq` of `choose_for_source` (opens the choice; the answer is stamped on the source) and a nested `seq`
+     tail read with a stand-in subtype/colour/name and swapped for the `$chosen_type|color|name` placeholders
+     `composition._build` resolves lazily after the answer (catalogue/named_choice.py, hooked ahead of the body grammar;
+     an "if <condition>," lead gates the whole node; tails reading the firing event are refused because a resumed
+     resolution runs outside its window). New engine primitives: `choose_for_source` (free-text, validated types/colours/
+     names, RULE 201.3 filters), `exile_named_from_zones` (search-and-exile by name with per-hand-copy draw/token/damage
+     follow-ups), `reveal_hand_discard_all`; card_query `not_basic`. Grammar widenings that picked up shapes beyond the
+     choice: controller-less subtype / colour / "non-X" pump groups ("all Elf creatures get -1/-1", "Blocking creatures
+     get +1/+1"), shrinking "-N/-N for each" pumps, "[subtype] creature cards" graveyard mass return and "shuffle all ...
+     cards from your graveyard into your library", colour/subtype fixed-protection groups, any dig-until kind
+     `dig.parse_criteria` reads, reveal-top "if that card is a ... put it into your hand". `pay_cost_then` now routes a
+     "when you do" body whose `seq`/`bind` wrapper announces a target through the reflexive trigger (RULE 603.12).
+762 PAR-204 -- optional-payment "if you do" chains by antecedent: "you may <effect on target X>. If you do, <effect on
+     that X>" keeps the antecedent's RULE 115 target (announced with the ability, RULE 601.2c) inside the existing
+     `optional` + `if_you_do_from` node (Cyclone Sire/Noyan Dar/Wall of Resurgence, "exile target creature card from a
+     graveyard. If you do, …"); compound pay costs ("pay {1} and 1 life / sacrifice an artifact / discard a card",
+     "sacrifice a nonland permanent"); RULE 113.6k graveyard-recursion triggers ("if/while this card is in your
+     graveyard" + self-return payoff, incl. "return it/this card to your hand"); a `finality` counter on the
+     self-return; "transform her/him"; the comma form of the threaten tail ("…, untap that creature, and it gains
+     haste"); "pay {X}" capped by a turn total (`x_cap_selector`: life gained/lost this turn).
+763 PAR-198/203 shadowing fix -- retired the redundant `noncolor_creatures_pump` row (subsumed by the generic group `pump`, same
+     all-players "nonblack creatures" selector) and the older capped `pump_multi_target` row in `pump_stats.py` ("any number of
+     target creatures each get ..." now reads only as `any_number` via `pump_keywords._pump_multi`, no 10-target cap).
+764 MEC-133 -- the predefined Junk token (RULE 111.10): added to `data/tokens.json` and `NAMED_TOKEN_WORDS`, so "create a/N/X Junk token(s)" claims like Treasure/Clue/Food (+8 cards; Rose, C.A.M.P., Sofia Daguerre, Gunner Conscript stay on other clauses).
+765 MEC-134 -- "As ~ enters, choose a [nonland | noncreature, nonland | nonbasic land] card name" (`named_choice.enter_card_name_specs`, qualifier checked at the choice, RULE 201.3) and "look at an opponent's hand, then choose any card name", plus the statics that read the name (`named_card_statics.py`: can't be cast / activated, cost more or less to cast or activate, damage prevention, protection, Alpine Moon's land rewrite), the "with the chosen name" spell qualifier (cast triggers, "counter target spell with the chosen name") and the "enchanted player casts" trigger head (+13 cards; Pithing Spyglass names a keyword, not a card, and stays out).
+766 MEC-132 -- delayed end-of-combat effects on captured or departed objects (RULE 603.7c, 608.2h, 400.7). `end_of_combat.py`: the comma form "when ~ blocks/attacks, at end of combat, <self body>" (`capture: self`, sacrifice -> `sacrifice_specific` with `controlled_only`, destroy -> `destroy_specific`, "it deals N damage to you" kept; Time Elemental's first clause), "destroy it and all creatures it blocked this turn" (new `capture: source_and_blocked`, Defiant Vanguard), "~ deals N damage to that creature at end of combat" under a block head (new `damage_specific`, Sawtooth Ogre); `segmenter`: "<destroy|exile> that creature at end of combat" under a "deals combat damage to a creature" head captures the damaged creature (`trigger_subject` + `target_id`; Sosuke, Son of Seshiro with a group dealer) -- this also fixes four wrong-but-MODELED cards that captured the source and destroyed themselves (Lowland Basilisk, Ohran Viper, Serpentine Basilisk, Stone-Tongue Basilisk); `destroy_exile_counter._grant_quoted_ability_until_eot` takes "target creature with a +1/+1 counter on it" (Simic Basilisk). Engine: `create_delayed_trigger` bakes zone-stay incarnations into `sacrifice_specific`/`destroy_specific`/`damage_specific` (a captured object that left and returned is a new object). +4 cards (Defiant Vanguard, Sawtooth Ogre, Sosuke, Simic Basilisk); Time Elemental keeps "return target permanent that isn't enchanted" (needs a "that isn't enchanted" target quality on the permanent pool).
+767 MEC-131 -- delayed riders with their own target (RULE 601.2c, 603.7c, 400.7). `end_of_combat.py`: "destroy target <creature phrase> at end of combat" splits into a `choose_targets` announcement plus a `create_delayed_trigger` capturing `previous_targets` (`destroy_specific`; Silent Assassin), and "~ deals N damage to that creature at end of combat" after a announced target captures `previous_targets` too (Dwarven Sea Clan); `costs_mana_limits.choose_target_single` keeps the target's state qualifiers as a `creature_filter` (they were dropped before: "blocking", "artifact") plus "whose controller controls an Island" (new `controller_controls_land_subtype` filter key, RULE 305.6) and folds "attacking or blocking" onto the plain creature kind (+Cryptek, whose artifact-creature pick now keeps its filter); "X can't be greater than the number of <count phrase>" -> `x_cap_marker` (`GameObject.x_cap_selector`, enforced by `can_cast`); new body-level `per_creature_payment.py` ("choose X target attacking creatures. For each of those creatures, its controller may pay {1} or {2}. If that player doesn't, destroy that creature at end of combat. If that player pays only {1}, prevent all combat damage that would be dealt to and dealt by that creature this combat.") composed as `choose_targets` (`count_selector: source_x_paid`) + `for_each` over the targets of two nested `pay_cost_then` (payer `target_controller`) -- Winter's Chill. Engine: `create_delayed_trigger` capture `targets` (the object a branch was applied to), `choose_targets` takes `count_selector`, new `prevent_combat_damage_to_and_by` (per-object flag read by `deal_damage`, dropped by `_clear_combat`). +4 cards (Silent Assassin, Dwarven Sea Clan, Winter's Chill, Cryptek); no previously modeled card's specs changed.
+
+768: PAR-205 — leading enchanted/equipped scope adjectives reuse the existing
+live attachment filters for anthems, keyword grants and shared target grammar.
+Fixes A Tale for the Ages without treating attachment states as creature subtypes.
+
+769: PAR-206 — mandatory one-of-two dig selections accept "the other" in the
+selection sentence or a following sentence. A singleton bottom remainder reuses
+look_top_select without an extra ordering choice (A Little Chat / Sleight of Hand).
+
+770: PAR-207 — trigger and activation heads as composed grammar. (1) RULE 603.12 reflexive "<action>. When you do,
+<effect>." for any single antecedent with an observable footprint (`spec.IF_YOU_DO_ANTECEDENT_TYPES`, now incl. mill and
+amass): `seq` + `if_you_do_from` + `reflexive_trigger`, the payoff keeping its own targets; `pay {E}` and typed discards
+join `pay_cost_then`'s cost vocabulary; "when you discard a (non)land card this way" reflexive over the `this_way_pool`
+window. (2) New `catalogue/event_heads.py`: "you activate an exhaust / loyalty ability [of …]" (`ACTIVATED_ABILITY` now
+carries `is_loyalty_ability` / `is_exhaust_ability`; the Exhaust marker carries its keyword), "the Nth <kind> counter is
+put on ~" (`source_counter_reaches`), "you get N or more {E}", "enchanted player is attacked" and RULE 603.8 state heads
+over `static_condition` ("there are no creatures …", "~ has flying", "you control no …") as `STATE_CHECK` triggers.
+(3) Attachment adjectives modified / equipped / enchanted in `characteristic_phrase`, so every object head, batch-attack
+`object_filter` and count phrase reads them. (4) Heads: "~ or equipped creature <predicate>" (two independent
+abilities), "phases in/out" (`PHASED_IN`/`PHASED_OUT`), "enters untapped", "complete a dungeon", "shuffles their
+library", "a source deals damage to ~", "N or more creatures attack [you]" (`ATTACKERS_DECLARED` of any player),
+"your first <type> spell each turn" (`is_nth_matching_spell_cast_this_turn`), "enchanted/the chosen player's <step>"
+(`phase_relation`), "When you cast or cycle ~" / "When ~ enters and when you sacrifice it" as split heads, "this ~" folded
+to "~". (5) A step-named delayed trigger: "At the beginning of the next end step / your next end step / your next
+upkeep, <referent-free effect>" (`effect_rows/delayed_steps.py`). A sentence after a reflexive payoff that does not parse
+into it now fails the body closed instead of reading its "it" as the source.
+
+771: PAR-208 — outcome chains and clause series. (1) New `action_if_you_do` row (`costs_mana_limits`): a mandatory single
+observable action followed by "If you do, <effect>[. Otherwise / If you don't, <effect>]" is `seq` + `if_you_do_from`
+(+ `else_effects`; RULE 608.2c). A targeted payoff after a targeted action stays unclaimed. (2) `else_effects` reaches
+every outcome node: `seq`/`IfYouDoEffect` run it when the action cannot be performed or changed nothing, `optional`
+(`may_effect_then`) also when the player declines, and `pay_cost_then_general` splits "If you don't," as well as
+"Otherwise,". (3) `may_effect_then` reads "exile a creature card from your graveyard" as the resolving player's own
+pick (`exile_own_graveyard_cards`), not a target. (4) After a sacrifice antecedent, "that creature's / its power,
+toughness, mana value" reads the sacrificed object (`sacrificed_referent_payoff` -> `sacrificed_cost_*`); the cost
+payment of `pay_cost_then` now stamps it too (`RulesEngine.sacrifice(source=...)`). (5) `remove_counters` joins
+`IF_YOU_DO_ANTECEDENT_TYPES`. (6) Comma series "A, B, and C" / "A, B, then C" in one sentence split at commas that open
+an effect clause (`_SERIES_COMMA_CONNECTOR`), the elided player subject carried as for "A and B". (7) Life-total comparison gates "an opponent has more life than you" (`opponent_has_more` over `your_life_total`) and
+"you have more life than an opponent" (new `opponent_has_fewer` static condition).
+
+772: PAR-208 slice 2 -- outcome-chain payoffs and the "then that player shuffles" tail. (1) `search_other_library`
+(`search_control_attach`): "search target opponent's/player's library for <criteria> and exile it / put it onto the
+battlefield under your control / put them into their graveyard. Then that player shuffles." is `search` with
+`player_from_target` (+ `target_any_player` for "target player"); a search into the battlefield with a chooser other than
+the library's owner puts the card under the chooser's control (`_finish_search`). (2) `UNLESS_COST` reads "discard a
+`<type>`/noncreature card" and "discard a card at random" (`costs.discard_filter_matches` adds `non<type>` and `a_or_b`
+words; `_pay_player_cost` pays a random discard); `_DISCARD_UNLESS_RE` accepts "an instant or sorcery card" and "a basic
+land card" (`unless_discard` `card_types` / `basic`). (3) `any_player_may` (`costs_mana_limits`) extends
+`all_players_decline_or` with `paid_effects` ("If a player does, ...", run once for the controller when the first player
+pays) and `opponents_only` ("any opponent may"); new `counter ~` (`counter_source`) for the cast-trigger payoff;
+`_pay_player_cost` pays "half their life, rounded up". (4) "defending player discards N cards [at random]" under
+attacks / isn't-blocked / becomes-blocked heads (the unblocked and blocked events now carry `defending_player_id`).
+(5) `return_own_graveyard` (`draw_discard_cast`): untargeted "return [up to N] <object phrase> card(s) from your graveyard
+to your hand" (and "A card and a B card") as `choose_objects` from the graveyard; `peel_optional` no longer lets a
+leading "you may X. Then Y" make Y optional too.
+
+773: PAR-210 — event-player references use the shared trigger_player operand for cast and player-damage heads.
+The gate verifies the named event player and refuses an absent or competing antecedent. Player-subject
+conjunctions carry "that player" into elided actions (Krydle's mill); the existing referent composition
+can bind player subjects without announcing new targets.
+
+774: PAR-210 — that-much quantities resolve to the activation's counters_removed_as_cost event snapshot
+or to the explicit sacrifice-history condition's event count. The generic event_count amount reuses the
+turn-history condition predicate, measuring again at resolution and preserving controller/filter scope.
+Relic Amulet, Geistflame Reservoir and Sawblade Skinripper execute in regression tests, including stacked
+activations, source departure and cloning.
+
+775: PAR-210 — one object operand grammar adapts existing singular-target operations to quantified
+targets, filtered each/all groups and bound object/player/created references. choose_targets announces
+requirements once; for_each and trigger_subject_referent execute the existing operation with its operand.
+ClauseReading retains player and plural-object referents; a singular reference to a plural pick fails
+closed. Created references keep precedence over an earlier pick. Created/granted triggers establish
+their own event-player and quantity context, including Aphelia's activated turn-long combat trigger.
+
+776: PAR-210 — quantified/group object instructions retain simultaneous event batches across choices
+and clones; the existing sacrifice_target operation optionally enforces controller-only sacrifices.
+Target arity is separate from counter/token magnitude, and native group-trigger rereadings retain their
+existing IR. Copy-producing compositions retain CopyPermanentEffect's referent contract (Applied Geometry).
+An object-list sacrifice followed by that-many uses the existing mark_event_log/this_way_count/bind
+composition rather than reading an absent trigger (Hellion Eruption).
+
+777: PAR-210 — shared-subject player actions carry their actor through comma-then as well as and,
+without announcing a second target. Reference nouns reuse the existing subtype vocabulary. Explicit
+where-X definitions stay with the shared binder so the quantity is fixed before object iteration.
+Optional riders preserve created objects' exact zone visits across choices/clones (Cori-Steel Cutter).
+
+## Versions 778–779 — PAR-209 base grammar atoms
+
+Shared composable target adjectives and fixed duration vocabulary; base P/T
+with target filters and duration clocks; quantity spelling and amount terms
+through the existing X binder; same-name target groups through `target_group`,
+cross-zone same-name search/exile with pre-move name/controller capture and
+mandatory public vs optional hidden finds; exact source-linked pool returns
+to owners' hands. Prevention target filters and combat scopes reach runtime.
+
+v779 completes source-filter composition and preserves combat-state target
+filters on both Fight operands; v778 was an intermediate measurement.
+
+## Versions 780–783 — PAR-211: shared quantifier scopes
+
+Player sets and contextual object controllers share quantified operands with the
+existing selector resolver. Leading and suffix per-member instructions compose
+existing effects; player-relative counts bind inside the iteration. Plural
+combat-prevention scopes retain their duration. Damage to a player or planeswalker
+and that player's/controller's creatures uses one announced target and preserves
+distinct damage amounts, correcting Radiating Lightning's announced-player scope.
+"Each other player" excludes the player named by the trigger/earlier instruction.
+Contextual controller selectors use the existing event-player antecedent gate;
+follow-up group references retain exact zone visits. Controller/filter tails
+compose in either order; established defending-player damage keeps its dealer-
+specific path. Magnitude and recorded-result families keep their dedicated
+composition gates; versions 780–782 were intermediate measurements.
+
+## Versions 784–786 — PAR-212: object-state conditions and zone destinations
+
+Counter thresholds, strict per-player board-count comparisons, source-chosen
+types and crew history reuse the shared predicate vocabulary. A target named
+in a condition uses the shared operand grammar and one announcement, with the
+whole payoff gated at resolution. Crew subtype history records the payment-time
+types and survives departure; creature operands retain exact crewed visits.
+Crew/count intervening-ifs gate the complete triggered body. Emerge uses the
+existing alternative-cost path, records its actual sacrifice characteristics
+and exposes the paid-cost condition. Token override references accept singular
+articles as well as numeric counts. Existing exile effects accept counter riders
+through bound operands; mass-graveyard exile and put/return destination wording
+reuse the existing move effects, retaining graveyard-origin ability markers.
+Version 785 also preserves shared target announcements under exile-counter riders
+and accepts their plural counter pronoun; v784 was an intermediate measurement.
+Version 786 gates complete self-trigger bodies on leading counter predicates,
+including Ayara's Oathsworn's four-counter search threshold.
+
+"789": PAR-213 — composable bounded library/hand inspections, exact visited-card pools, independent selections and disposal, ordered/random piles, optional selection outcomes and multiplayer revealed-card payoffs. Existing Dig handlers retain precedence; unsupported X counts and unknown riders remain fail-closed.
+
+"790": PAR-213 review fixes — a conditional payoff after a single reveal gates the whole compound sentence as one unit (Harsh Deceiver: untap and +1/+1), and a pronoun follow-up after a bare reveal/look lead is left to the whole-block Dig grammar instead of binding to the source (Llanowar Empath keeps `inspect_top_choose`).
+
+"791-792": PAR-214 — verb-phrase rows over the shared object phrase. `<object> loses all abilities [and has base power and toughness N/M | and becomes a <colour> <Type> with base power and toughness N/M] [duration]` parks the existing `remove_all_abilities` static with `grant_until` (target, `~`, group, plural and pronoun operands compose through the PAR-210 operand grammar; plural pronouns now take the plural verb form). The stand-alone "can't be regenerated" rider reaches a destroy composed inside target/iteration wrappers, reads "and it can't be regenerated" and "a creature destroyed this way can't be regenerated" (the latter only when exactly one destruction exists). "Untap target X and gain control of it until end of turn" is the existing steal. The exile-to-play window accepts "the exiled card" and a one-card condition ("if it's a Goblin or an artifact card, you may play it this turn") as the pool's card filter. Goatnapper's untap-and-steal is corrected (it previously carried a subject-less haste grant). Version 792: "destroy target <kind> if it's <colour>" (Hydroblast, Pyroblast, Soul Rend) announces an unrestricted target and gates the destroy with the shared `is_color` condition on that target at resolution (RULE 601.2c, 608.2b), instead of the offer-time `color` target filter; "destroy target white creature" stays a target filter. The "counter target spell if it's <colour>" mode keeps its offer-time filter.
+
+"793": BUG-37 — "counter target [instant] spell if it's <colour>" (Pyroblast, Hydroblast, Burnout) no longer restricts the target by colour: any (type-matching) spell is a legal target and the `counter` effect carries `resolve_if_color`, checked as it resolves (RULE 601.2c, 608.2b; a colour miss counters nothing and the spell stays on the stack). The inline "counter target blue spell" adjective stays the offer-time `color` filter.
+
+"794": PAR-215 — referenced-object amounts. "<life | damage | cards> equal to its / that card's / that spell's <mana value | power | toughness>" binds the amount to the object the earlier clause established: a card picked from a graveyard (`previous_target`), the single library card a reveal left (`revealed`, RULE 701.20) or a one-card exile left (`created`), or the spell a counter clause countered (`previous_subject`, RULE 608.2h). "That card's" never binds to a made token and "that spell's" only after a counter, so a token-sizing "where X is that spell's mana value" stays unclaimed. New referent kind `REVEALED` on `ClauseReading`; "reveal the top card of your library and put that card into your hand" (Dark Confidant) is a `reveal_top` + `put_revealed_card` pair; "~ deals damage to that player equal to …" and "up to one target" recipients compose. "Counter target spell with mana value N or less / greater" is a ceiling / floor on the target spell (`CounterSpellEffect.max_/min_mana_value`, RULE 202.3); "gain control of target permanent with mana value x or less" takes the announced X (Dominate).
+
+"795": PAR-215 milestone 2 -- damage recipients, "this way" amounts, relative-player counts and resolution-time mana-value bounds. (B) `damage_equal_to_power` takes untargeted role recipients ("... to its controller / you / ~ / that player", `recipient`) and the dealer-relative "each other creature" selector, plus "equal to its toughness" (`characteristic`); rows for previous-target, pronoun, group-pronoun and target dealers. (F) `GameContext.damage_dealt_this_way` (zeroed per resolving stack item) with the `this_way` tally of the same name; "equal to the (excess) damage dealt this way" amounts and the "if excess damage was dealt this way" gate (an `amount_compare` on the excess tally). (D) counts taken as another player: "the number of X that player controls / they control / in their hand" with a single player target (`of: target`), an each-player/opponent loop (`quantifier_scope.per_member_amount_specs`, now also "that player controls", "twice the number of" and "for each") and a step trigger's player (`of: active_player`, gated to STEP_BEGIN by `event_player_events`); "minus N" floors at 0. (E) "destroy/exile each <group> with mana value equal to / less than or equal to the number of <counter> counters on ~" binds the count as X; the group loop now carries the bound a singular body states ("with mana value X", "that was dealt damage this turn") on its own selector filter -- before, `for_each` dropped it and Dauntless Dismantler, Pernicious Deed, Vicious Rivalry and Swift Demise destroyed every member; `matches_object_filter` gained `exact_mana_value` and `_substitute_x` reaches a loop's selector filter. Targeted bounds that count your own permanents ("with mana value less than or equal to the number of Plains you control", Lay Down Arms, Dominating Vampire) become a measured `TargetSpec` bound (`{"count_selector": ...}`, `targeting.legal_targets`). +54 parser-modeled, 0 lost, 4 changed (the group-bound fixes).
+
+"796": PAR-215 milestone 3 -- multi-dealer damage, mana-value bounds on graveyard returns / spell costs, prevention tallies, "N minus the number of cards in their hand", per-candidate bounds. (B) `damage_equal_to_power` takes several announced dealers (`dealer_count` / `dealer_count_max` / `dealer_optional`; the recipient is the last positional pick: "up to two target creatures you control each deal damage equal to their power to [another] target creature", Band Together, Common Goal, Allies at Last) and a previous-group dealer with its own recipient ("they each deal damage equal to their power to target creature ...", Coordinated Clobbering, Terrific Team-Up); `tap` takes the plural state qualifier ("tap one or two target untapped creatures you control"). (E) graveyard returns accept "mana value X or less" (announced X, "where X is <count>" -- measured while the target is offered through `{"count_selector": ...}`, or `source_power` -- never a bare `$n`), mass "return all <types> cards with mana value N / X or less" (`ReturnFromGraveyardEffect` mass ceiling) and "creature and planeswalker cards"; plural targets drop the "each" requirement ("up to 3 target creature cards with mana value 1 or less"), the X-count form takes a bound; a where-X ceiling the target offer cannot measure is declined. "spells you cast with mana value N or greater/less cost {1} less" (`cost_reduction` `spell_min/max_mana_value`, Spectacle Mage, Krosan Drover, It That Heralds the End); fixed on the way: a "colorless spells you cast cost less" discount (Herald of Kozilek, Ugin the Ineffable) compared the parser's colour symbol `C` to the spell's colour set and never applied. "search ... mana value equal to [N plus] the sacrificed creature's mana value" (`search` `mana_value_from`, Prime Speaker Vannifar; Birthing Pod now parser-modeled too). Per-candidate ceilings: "mana value less than or equal to the number of cards in its controller's graveyard" (`{"candidate_controller_count": ...}` on `TargetSpec.max_mana_value` / a counter's spell filter, Drown in the Loch). (D) "X damage to that player, where X is N minus the number of cards in their hand" (The Rack, Wheel of Torture, Rackling, Storm World): the count is negated and offset, floored at 0. (F) prevention tallies: "prevent the next X damage that would be dealt to you [and/or permanents you control] this turn" with X, a shield followed by "If damage is prevented this way, ~ deals that much damage to <any target | target player or planeswalker | target creature>" (`reflexive_damage` rider, now fed the shield's source; Divine Deflection, Vengeful Archon, Channel Harm, Acolyte's Reward) and the recipient-less source shield "prevent all damage that would be dealt by creatures this turn" with the optional "you gain life equal to the damage prevented this way" (`RulesEngine._prevent_damage_by_sources`, Chant of Vitu-Ghazi, Ethereal Haze). +36 parser-modeled, 0 lost, 0 changed (v795 -> v796).
+
+"797": PAR-216 -- damage prevention and redirection over the shared object phrase. (A) Standing statics (`catalogue/prevention_statics.py`, wired into `replacements.replacement_clause_specs`): "prevent all [combat | noncombat] damage that would be dealt to / by / to and dealt by <recipient or source>" with the recipient and source slots as object phrases or hosts (`~`, enchanted / equipped creature, creatures it's blocking / blocking it, unblocked creatures, "other ..." unions with you), "prevent all damage that ~ would deal to <creatures>", "if a source | creature would deal [combat] damage to <recipient>, prevent N | all but N of that damage" and "if a source would deal N or less damage to ~, prevent that damage"; the standing redirect `redirect_damage` ("all [combat] damage that would be dealt to <recipient> [by <source>] is dealt to ~ | enchanted creature | its controller instead": Empyrial Archangel, Pariah, Palisade Giant, Treacherous Link). (B) One-shot rows (`effect_rows/damage_prevention.py`, assembled last so no older row changes): "to and dealt by <target | ~ | that creature>" (`and_dealt_by`), "prevent all damage <target creature | spell> would deal" (`prevent_damage_from_target`, spell filter, life tally), by-source-class shields with `combat_only` and object-phrase unions, "a [colour] source of your choice would deal [to you]", "the next N damage ... by a source of your choice", creature-class and combat/noncombat "you" recipients, "target player or planeswalker" budgets, the one-shot redirect `redirect_damage_shield` (budget, "all", "the next time", combat, unblocked; one target at most). (C) Riders: "excess damage is dealt to that creature's controller instead" (`excess_to_controller`), "the damage can't be prevented" (`unpreventable`), Comeuppance's source-type riders (`shield_deals_damage`), counters per point prevented immediately or at the next end step (Brace for Impact, Sacred Boon, Scars of the Veteran). (D) Standing "damage can't be prevented", scoped to combat damage or to a source (Leyline of Punishment, Sunspine Lynx, Frenzied Baloth, Excruciator).
+"798": PAR-216 residue. (A) The one-shot "next time" chosen-source shield: `request_prevent_damage_source` / `request_redirect_damage_source` with `once` (the window ends at the first matching hit; Dark Sphere's `{"half": "down"}` prevention, Beacon of Destiny, General's Regalia), and the whole-turn "all damage that would be dealt to target creature by a source of your choice is dealt to ~ | another target creature instead" (`protected_target_kind`: Kor Chant, Kor Dirge, Oracle's Attendants). (B) Multi-target shields over the shared multi-target quantifier (Redeem `prevent_damage_shield`, Soul Parry / Serene Sunset `prevent_damage_from_target` with `count_max` / `count_selector` / `combat_only`). (C) Two-target redirects, "another" required (Carom, Razia, Captain's Maneuver; the `creature_planeswalker_or_player` target kind is read by this slot only). (D) By-source shields scoped to an announced player ("creatures target opponent controls": Encircling Fissure) and the `with no <kind> counters on them` object-phrase qualifier (Hindervines). (E) Condition-gated "the damage can't be prevented": `damage.unpreventable_if` and a conditional `cant_be_countered` marker (Banefire, Demonfire), and the "instead ... and the damage can't be prevented" tail of the magnitude override (Urza's Rage, Lightning Surge).
+"799": PAR-216 closing batch. (A) State-filtered single-target combat shields: `prevent_damage_from_target` takes `creature_filter` and `combat_only` over "target blocked | unblocked creature" (new `blocked` / `unblocked` object-filter keys, RULE 506.4, 509.1h) and "target attacking creature with flying" (Benalish Missionary, Gossamer Chains, Songstitcher). (B) Redirects over an announced damage source: `redirect_damage_shield` `from_target_kind` / `from_creature_filter` / `from_spell_filter` with recipient `source_controller` or `self` and protected `you` | `any` (Mirror Strike, Shimian Night Stalker, Reverberation), the chosen-source "that damage is dealt to that source's controller instead" (`request_redirect_damage_source`, Reflect Damage) and the budgeted "to you and/or permanents | creatures you control ... dealt to any target instead" (`protected_scope`, Harm's Way). (C) "creatures other than target creature | <subtypes>" by-source shields (`except_target`, Terrifying Presence, Moonmist) and the lead clause "transform all <class>" (`transform.object_filter`). Hand-authored "next time a source of your choice" entries now carry `once`.
+"800": PAR-217 -- type- and characteristic-changing "becomes" over the shared object phrase (`catalogue/effect_rows/becomes.py`, last in the handler table so the older animation rows keep their IR). `<object> becomes <colour | colorless | all colors | the color of your choice>`, `... becomes a(n) <basic land type> | the basic land type of your choice`, `... becomes an artifact creature [with power and toughness each equal to its mana value | with base power and toughness N/M]`, `... becomes a [legendary] [N/M] <colour> <creature types> [<card types>] [with base power and toughness N/M][, loses all abilities][, and gains / with <keywords>] [in addition to its other types | that's still a <type>] [duration]`, `you may have ~ become ...`, `vehicles | artifacts you control become artifact creatures` (group, locked when it resolves) and `it becomes an Aura with enchant creature` (Cloudform, Lightform, Rageform). Subjects are target (including the new noncreature-artifact and Vehicle kinds), `~` and, through the PAR-210 operand grammar, pronoun / `each` / `all` operands (plural "become" now agrees). Engine: `type_change` takes `set_types` (RULE 205.1a, the card types are replaced: an Opal-style enchantment stops being one, artifact-creature animation retains prior types under RULE 205.1b), `set_creature_types` (RULE 205.3m, only the creature types are replaced) and `set_land_types` (RULE 205.3i / 305.7: only the land types, an animated land keeps its creature types); `pt_set` takes `pt_selector: mana_value` (RULE 613.4b, layer 7b with its own timestamp, unlike the animation seed of a `type_change` P/T); `choose_for_source` gains the `basic_land_type` kind with the `$chosen_land_type` placeholder, so the pick is frozen into each created effect. The legacy `_animate_target` row now declines a non-creature kind with no stated retention (RULE 205.1a), and `trigger_subject_referent` reads the object an earlier clause made when it chose none ("Manifest ... and attach ~ to it").
+
+"801": PAR-217 validation correction: artifact-creature animation retains existing card types (RULE 205.1b); explicit type-retention wording also retains previous creature subtypes. Added real-engine land-choice clone/resume and animation regressions.
+
+"802": PAR-217 residue: keyword-loss and quoted-ability bodies, reversible named forms (RULE 612.8), nonempty color-subset choices, spell/permanent color targets, one-or-more creature targets, retained-type reminder sentences and resolution-time measured P/T (including reveal-until). Spell color changes continue onto their permanent under RULE 400.7a; type replacement removes obsolete subtypes.
+
+"803": PAR-217 final fail-closed check: a basic-land replacement cannot silently swallow additional keywords, quoted abilities, keyword loss or additive-type riders. Runtime animation values derived from mana value are measured once at resolution (RULE 611.2d).
+
+"804": PAR-217 full-cache validation: color-subset placeholders occupy a color-list slot and expand to the selected colors at resolution; declare the general becomes row as fallback for the existing animation rows that intentionally keep their IR.
+
+"805": PAR-218 — combat requirements and restrictions over shared object phrases. Standing creature sets and attached/self subjects compose attacks/blocks-if-able, extra blocks, blocking/attack prohibitions and toughness-based combat damage, including compound pump/keyword sentences. Turn-limited instructions reuse PAR-210 target/group/referent composition and existing combat restrictions; elided predicates retain their established subject. Same-object derived P/T comparisons are shared by object filters and attached/source static conditions. Conditional prohibitions keep their gate, including defending-player conditions. Unknown conditions, durations and conjuncts stay unclaimed; quoted ability bodies are never split as outer combat instructions.
+
+"806": PAR-219 — shared name operands for object filters, named and same-name searches, and cast prohibitions. Named criteria accept internal punctuation without swallowing instruction boundaries; library and multi-zone searches share type/color/name/value criteria. Search names bind targeted or contextual references before the choice. Linked-name readers stamp exile producers with exact source/card visits. Same-name damage groups compose the existing target-group primitive; optional search/shuffle sentences remain together in longer sequences.
+
+"807": PAR-219 validation — a named search alternative followed by an independently qualified card phrase composes criteria OR, preserving the second branch's type restriction (Forging the Tyrite Sword). An unknown alternative declines the whole handler.
+
+## Versions 808–809 — PAR-222: per-player scopes
+
+Phase bodies reuse the targeted-player and acting-player grammars while keeping
+separate controller instructions. Qualified player sets reuse state predicates
+in PAR-211 loops. Resolution-local discard/draw/sacrifice outcomes capture an
+current-turn event cursor through the existing `bind` node into continuation
+specs; later payoffs filter the shared player set by actual actions, including
+typed discards, after all antecedent choices.
+
+
+## Versions 810–811 — PAR-220: linked exile references and play windows
+
+Shared linked-exile selectors feed counts, conditions, card selection and
+standing/resolution-local cast or play permissions. Exile follow-ups require
+an actual exile-pool antecedent; player-relative library exiles reuse player
+operands and event-antecedent validation. Legacy linked readers validate exact
+source/card zone visits. Bare play instructions are resolution-local, including
+lands; unsupported mana-spend-to-exile riders remain fail-closed.
+
+Nested static conditions are conjoined instead of overwritten. Untargeted
+linked battlefield returns default to the acting player's control; explicit
+owner-control wording stays distinct. Relative "other" linked-card operands
+whose antecedent is not represented remain unclaimed.
+
+## Version 813 — PAR-221: counter movement and counted steals
+
+`move <qty> [<kind>] counters from <object> onto <object>` (two targets, or one end the source itself), targeted
+`remove <qty|all> <kind> counters from target <object>`, and `gain control of any number of / up to N target
+creatures until end of turn` with its untap/haste tail. `MoveCountersEffect` gained `kind`, `source_is_self` and
+`dest_is_self`. Up-to-one move ends and symmetric `+2/+2` counters stay unclaimed.
+
+## Version 814 — PAR-221: remaining control targets, bounds and durations
+
+The shared controller scope accepts artifact-or-creature targets you control.
+Permanent steals distinguish exact mana value (including announced X) from ceilings;
+shared target qualities compare power against controlled-creature/Island counts or source power.
+Control windows combine source control and tapped state, or follow the target's enchanted status
+and a continuing source-power bound. Already-ended windows never begin (RULE 611.2b), and later
+control effects survive earlier windows ending. Exchange-control retains the second target's qualities.
+
+## Version 815 — PAR-221: compose dynamic bounds with shared counts
+
+Dynamic power comparisons reuse `parse_count_phrase` structured selectors for controlled
+object nouns, including creature and land subtypes. Unknown count nouns remain unclaimed.
+
+## Version 816 — PAR-223: condition-bound and next-turn durations
+
+Duration composition retains the existing verb/object grammar and changes only represented
+continuous leaves in a single sentence. Upkeep/end-step clocks, next-turn-only exile play,
+source presence/control/tapped state, recipient counters, monarch status and exact attachment
+visits compose with characteristic/ability grants, control, prevention and copies. Existing
+successful handlers keep precedence. Attachment events retain the original host visit; linked
+copy readers use the shared exact-visit exile pool. Exile play now ends at the printed step
+instead of a cleanup approximation. Unknown bodies, conditions and competing clocks decline.
+
+## Version 817 — PAR-223: constrain duration scope
+
+A trailing duration never retimes previous sentences or a different named object.
+Target announcement nodes may accompany a continuous effect but cannot carry a
+lifetime on their own. Successful older handlers retain precedence over composition.
+
+## Version 818 — PAR-224: existing-effect grammar and counted activation caps
+
+Targeted extra turns carry their player target; next-turn skips install the shared
+one-shot skip primitive. Twice-per-turn activation markers bind a counted cap,
+including quoted grants and borrowed abilities. Library operations reuse shared
+object operands and retain combat/tapped target restrictions.
+
+## Version 819 — PAR-224: explicit turn-skip row and stable grant specs
+
+Whole-turn skips have their own handler row. Unrestricted and once-per-turn
+quoted grants retain their established spec shape; counted caps carry a limit.

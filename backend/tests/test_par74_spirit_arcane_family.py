@@ -262,7 +262,7 @@ def test_animate_self_with_subtype_and_type_qualifiers():
     assert parse_effect_body(
         "~ becomes a 4/4 spirit artifact creature until end of turn", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("grant_until", {
-        "duration": "end_of_turn", "target_kind": None,
+        "duration": "end_of_turn", "target_kind": None, "self_subject": True,
         "static": {
             "type": "type_change",
             "params": {

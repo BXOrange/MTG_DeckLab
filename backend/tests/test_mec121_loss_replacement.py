@@ -127,7 +127,7 @@ def test_terminal_concession_and_explicit_opponent_win_bypass_emblem_and_cantlos
     p.player_effects.append(WinConditionEffect())
     if terminal=='conceded':eng.rules.concede(p)
     else:eng.rules.player_wins(q)
-    assert p.has_lost and p.loss_reason==terminal and em in p.emblems
+    assert p.has_lost and p.loss_reason==terminal and not p.emblems
     assert eng.state.game_over and eng.state.winner_id==q.id
 
 
@@ -358,7 +358,8 @@ def test_session_concession_cancels_only_own_recovery_and_continues_other_player
     eng.rules.check_state_based_actions()
     assert eng.state.pending_choice['player_id']=='p1'
     session=GameSession(eng);session.concede('p1')
-    assert p.has_lost and p.loss_reason=='conceded' and p.emblems==unused and p.poison==11
+    assert p.has_lost and p.loss_reason=='conceded' and not p.emblems and p.poison==11
+    assert len(session._history[-1][1].player_by_id('p1').emblems)==len(unused)
     assert eng.state.pending_choice['player_id']=='p2' and not eng.state.game_over
     session.apply_action({'type':'choose','option_id':'1'},actor_id='p2')
     assert q.life==20 and not q.has_lost and len(q.emblems)==1
@@ -378,7 +379,7 @@ def test_session_concession_preserves_another_players_outer_resolution_tail():
     ],GameContext(eng.state,eng.rules),None,None,source=source)
     assert eng.state.pending_choice['player_id']=='p2' and r.life==initial_life
     session=GameSession(eng);session.concede('p2')
-    assert q.has_lost and r.life==initial_life+3 and len(q.emblems)==1
+    assert q.has_lost and r.life==initial_life+3 and not q.emblems
     assert not eng.state.pending_choice and not eng.state.deferred_effects and eng.state.player_loss_batch is None
 
 
@@ -396,7 +397,8 @@ def test_terminal_concession_clears_pending_recovery_without_consuming_emblems()
     from mtg_analyzer.services.game_session import GameSession
     eng=engine();p,q=eng.state.players;first=emblem(eng);second=emblem(eng);p.life=0
     eng.rules.check_state_based_actions();session=GameSession(eng);session.concede('p1')
-    assert eng.state.game_over and eng.state.winner_id==q.id and p.emblems==[first,second]
+    assert eng.state.game_over and eng.state.winner_id==q.id and not p.emblems
+    assert len(session._history[-1][1].player_by_id(p.id).emblems)==2
     assert eng.state.pending_choice is None and eng.state.player_loss_batch is None
     assert eng.state.pending_leave_ids==[] and not eng.state.deferred_effects
 
@@ -416,7 +418,8 @@ def test_shared_shuffle_concession_cancels_own_commander_choice_and_preserves_ou
     ],GameContext(eng.state,eng.rules),None,None,source=other)
     assert eng.state.pending_choice['instance_id']==first.instance_id and second in p.graveyard
     session=GameSession(eng);session.concede('p1')
-    assert p.has_lost and r.life==initial_life+3 and second in p.graveyard
+    assert p.has_lost and r.life==initial_life+3 and not p.graveyard
+    assert session._history[-1][1].find_object(second.instance_id) is not None
     assert eng.state.pending_choice is None and not eng.state.deferred_effects
     assert eng.state._batch_hold==outer_hold
     if outer_hold:eng.state.release_batches()
@@ -456,6 +459,6 @@ def test_explicit_multiplayer_win_cancels_all_rescues_without_consuming_unused_e
     eng.rules.check_state_based_actions();assert eng.state.pending_choice['player_id']=='p1'
     eng.rules.player_wins(q)
     assert eng.state.game_over and eng.state.winner_id==q.id
-    assert p.emblems==unused and r.emblems==[other] and p.has_lost and r.has_lost
+    assert not p.emblems and not r.emblems and p.has_lost and r.has_lost
     assert eng.state.pending_choice is None and eng.state.player_loss_batch is None
     assert not eng.state.deferred_effects and not eng.state._batch_hold

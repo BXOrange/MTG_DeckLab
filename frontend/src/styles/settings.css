@@ -1,0 +1,79 @@
+/* --- Einstellungen --- */
+
+.connection-settings-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+.connection-settings-groups > .connection-settings-panel {
+  flex: 1 1 360px;
+  width: 100%;
+  min-width: 0;
+}
+
+.llm-settings-panel > label {
+  display: block;
+  margin: 0.85rem 0 0.3rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.llm-settings-panel > button,
+.llm-settings-panel > .import-actions {
+  margin-top: 0.85rem;
+}
+
+.connection-settings-panel {
+  max-width: 480px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+/* Text-like fields fill the panel; checkboxes/radios keep their native box
+   (a `width: 100%` checkbox is what made the Profil toggles look shifted). */
+.connection-settings-panel input:not([type='checkbox']):not([type='radio']) {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.connection-settings-panel input[type='checkbox'],
+.connection-settings-panel input[type='radio'] {
+  width: auto;
+  margin: 0;
+  flex: none;
+}
+
+.connection-settings-panel select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.settings-board-layout { margin: .75rem 0; padding: .75rem; border: 1px solid var(--border); border-radius: .4rem; }
+.settings-layout-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .65rem; }
+.settings-layout-option { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .4rem; padding: .5rem; border: 1px solid var(--border); border-radius: .4rem; cursor: pointer; font-size: .8rem; }
+.settings-layout-option:has(input:checked) { border-color: var(--accent); background: var(--panel-alt); }
+.layout-mini-table { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: .3rem; width: 100%; height: 5rem; }
+.layout-mini-seat, .layout-mini-zones, .layout-mini-main { display: flex; flex-direction: column; gap: .15rem; min-height: 0; }
+.layout-mini-play { display: flex; gap: .15rem; flex: 1; min-height: 0; }
+.layout-mini-play.zones-right { flex-direction: row-reverse; }
+.layout-mini-zones { width: 25%; }
+.layout-mini-zones > span:not(.layout-mini-banner) { flex: 1; background: var(--text-dim); opacity: .4; border-radius: 2px; }
+.layout-mini-main { flex: 1; }
+.layout-mini-banner { display: block; height: .3rem; flex-shrink: 0; background: var(--accent); border-radius: 2px; }
+.layout-mini-field { flex: 1; background: var(--felt); border: 1px solid var(--border); border-radius: 2px; }
+.layout-mini-hand { height: .25rem; background: var(--text-dim); opacity: .7; }
+.layout-mini-seat.upper, .layout-mini-seat.upper .layout-mini-main, .layout-mini-seat.upper .layout-mini-zones { flex-direction: column-reverse; }

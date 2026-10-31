@@ -8,6 +8,8 @@ Quandrix "Unlimited" singletons (+ Emeria, a Lorehold land), hand-authored in
 
 from __future__ import annotations
 
+from tests.proliferate_helpers import choose_all_proliferate
+
 import pytest
 
 from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
@@ -90,6 +92,7 @@ def test_expansion_algorithm_proliferates_x_times():
     ctx = GameContext(state=eng.state, engine=eng.rules)
     for e in effs:
         e.apply(ctx, [])
+    choose_all_proliferate(eng)
     assert creature.counters["+1/+1"] == 4  # 1 + 3 proliferate passes
 
 

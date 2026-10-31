@@ -103,6 +103,9 @@ SCOPE_ADJECTIVES: dict[str, dict] = {
     "colorless": {"colorless": True},
     "snow": {"snow": True},
     "modified": {"modified": True},
+    # RULE 303.4b / 301.5: attachment states, not creature subtypes.
+    "enchanted": {"enchanted": True},
+    "equipped": {"equipped": True},
     "nonattacking": {"attacking": False},
     "commander": {"is_commander": True},
     # RULE 700.6: legendary supertype, artifact card type or Saga subtype.
@@ -179,6 +182,31 @@ def _adjective_alternation() -> str:
 
 
 TARGET_ADJECTIVE = _adjective_alternation()
+# RULE 115.1: adjective slots compose as an intersection, never a discarded word.
+TARGET_ADJECTIVES = rf"(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped)(?: (?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped))*"
+
+
+def target_adjectives_filter(words: str) -> Optional[dict]:
+    if words.lower() == 'werewolf':
+        return {}  # the legacy werewolf target kind already carries this restriction
+    fragments = []
+    for word in words.lower().split():
+        if word in _ADJECTIVE_STATE_WORDS:
+            fragment = {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
+        elif word == "werewolf":
+            fragment = {"subtype": "Werewolf"}
+        else:
+            fragment = target_adjective_filter(word)
+        if fragment is None:
+            return None
+        fragments.append(fragment)
+    merged = {}
+    for fragment in fragments:
+        if any(k in merged and merged[k] != v for k, v in fragment.items()):
+            return {"all_of": fragments}
+        merged.update(fragment)
+    return merged
+
 
 
 #: Ordered (regex-fragment, target_kind) rows. **Longest / most specific
@@ -222,8 +250,8 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # PAR-141: "target `<adjective>` creature [you control]" — the adjective is read back as a filter
     # fragment by `target_adjective_filter` (`resolve_target_creature_state_filter`), never dropped:
     # `effect_rows.shared.EffectHandler.match` refuses a builder that loses it.
-    (rf"target (?:{TARGET_ADJECTIVE}) creature you control", "creature_you_control"),
-    (rf"target (?:{TARGET_ADJECTIVE}) creature", "creature"),
+    (rf"target (?:{TARGET_ADJECTIVES}) creature you control", "creature_you_control"),
+    (rf"target (?:{TARGET_ADJECTIVES}) creature", "creature"),
     # An ATTACKS trigger's defending player is carried on the event; this is
     # narrower than an arbitrary opponent-controlled creature.
     (r"target creature defending player controls", "creature_defending_player_controls"),
@@ -285,7 +313,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # *above* the N-way row — it matches a two-word "X or Y" too, and used to
     # turn Naturalize's "target artifact or enchantment" into any permanent.
     (r"target artifact or enchantment", "artifact_or_enchantment"),
-    (rf"target (?:(?:{TARGET_ADJECTIVE}) )?(?:artifact or creature|creature or artifact)", "artifact_or_creature"),
+    (rf"target (?:(?:{TARGET_ADJECTIVES}) )?(?:artifact or creature|creature or artifact)", "artifact_or_creature"),
     # PAR-104: "target artifact, enchantment, or creature [with flying]" (Mutant Chain Reaction, Spider Food, Broken
     # Wings, Exorcise, Vivien Reid, …) — the three-type union in any printed order, with the dedicated pool the engine
     # already has rather than the broad ``"permanent"`` the N-way row below would pick (which also offers lands). A
@@ -465,7 +493,8 @@ _ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
 #: announce by `targeting`, and again at resolution, RULE 608.2b). "Power or toughness N" is a disjunction
 #: (a different shape) and is deliberately outside it.
 #: Ungrouped here (the tail is embedded in handler regexes that may carry two `TARGET`s); `_STAT_BOUND_RE` reads it.
-_STAT_BOUND_TAIL = r" with (?:power|toughness) \d+ or (?:less|greater)"
+_DYNAMIC_POWER_TAIL = r" with power less than(?: or equal to)? (?:the number of [a-z]+ you control|~'s power)"
+_STAT_BOUND_TAIL = rf"(?: with (?:power|toughness) \d+ or (?:less|greater)|{_DYNAMIC_POWER_TAIL})"
 _STAT_BOUND_RE = re.compile(r" with (?P<stat>power|toughness) (?P<stat_n>\d+) or (?P<stat_cmp>less|greater)", re.IGNORECASE)
 TARGET_QUALITY_TAIL = (
     r"(?: (?:without|that doesn't have|that has no) "
@@ -718,6 +747,7 @@ YOU_TARGET_KINDS: dict[str, str] = {
     "token": "token_you_control",
     "other_land": "other_land_you_control",
     "artifact": "artifact_you_control",
+    "artifact_or_creature": "artifact_or_creature_you_control",
     "enchantment": "enchantment_you_control",
     "artifact_or_enchantment": "artifact_or_enchantment_you_control",
     "creature_or_planeswalker": "targetable_creature_or_planeswalker_you_control",
@@ -759,6 +789,7 @@ SCOPED_TARGET_BASE: dict[str, str] = {
     "targetable_creature_or_planeswalker_you_control": "creature_or_planeswalker",
     "another_creature_or_planeswalker_you_control": "creature_or_planeswalker",
     "creature_you_control": "creature",
+    "creature_defending_player_controls": "creature",
     "other_creature_you_control": "creature",
     "permanent_you_control": "permanent",
     "nonland_permanent_you_control": "nonland_permanent",
@@ -823,7 +854,7 @@ def target_quality_filter(phrase: str) -> dict:
     fragment: dict = {}
     adjective = _TARGET_ADJECTIVE_RE.fullmatch(_ATTACKING_YOU_RE.sub("", _TARGET_QUALITY_RE.sub("", text)))
     if adjective is not None:
-        fragment.update(target_adjective_filter(adjective.group(1)) or {})
+        fragment.update(target_adjectives_filter(adjective.group(1)) or {})
     if _ATTACKING_YOU_RE.search(text):
         fragment.update({"attacking": True, "attacking_you": True})
     quality = _TARGET_QUALITY_RE.search(text)
@@ -831,7 +862,14 @@ def target_quality_filter(phrase: str) -> dict:
         head = _QUALITY_OBJECT_RE.match(quality.group(0))
         isnt = _ISNT_A_RE.match(quality.group(0))
         stat = _STAT_BOUND_RE.fullmatch(quality.group(0))
-        if stat is not None:
+        if re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE):
+            inclusive = " or equal to " in quality.group(0)
+            if quality.group(0).endswith("~'s power"):
+                fragment["power_vs_reference"] = "less_equal" if inclusive else "less"
+            else:
+                selector = parse_count_phrase(quality.group(0).split("the number of ", 1)[1])
+                fragment["power_le_count_selector" if inclusive else "power_lt_count_selector"] = selector
+        elif stat is not None:
             bound = "min" if stat.group("stat_cmp").lower() == "greater" else "max"
             fragment[f"{bound}_{stat.group('stat').lower()}"] = int(stat.group("stat_n"))
         elif head:
@@ -858,6 +896,10 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         if _TARGET_QUALITY_RE.search(rest) is not None or _ATTACKING_YOU_RE.search(rest) is not None:
             return None  # one slot of each per target phrase
         base = resolve_target_kind(rest)
+        if (quality is not None and re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE)
+                and "the number of " in quality.group(0)
+                and parse_count_phrase(quality.group(0).split("the number of ", 1)[1]) is None):
+            return None
         isnt = _ISNT_A_RE.match(quality.group(0)) if quality is not None else None
         if isnt is not None:
             # PAR-135: an unknown word would drop the filter; "any target" is the one extra pool it may narrow.
@@ -868,7 +910,7 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     adjective = _TARGET_ADJECTIVE_RE.fullmatch(text)
     if (
         adjective is not None and adjective.group(1).lower() not in _ADJECTIVE_STATE_WORDS
-        and target_adjective_filter(adjective.group(1)) is None
+        and target_adjectives_filter(adjective.group(1)) is None
     ):
         return None  # an adjective with no filter reading would be dropped silently (e.g. "nonbasic")
     for pattern, kind in _TARGET_LOOKUP:
@@ -925,7 +967,7 @@ _TARGET_COMBAT_STATE_RE = re.compile(
 
 
 _TARGET_ADJECTIVE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + rf")?target ({TARGET_ADJECTIVES}) (?:artifact or creature|creature or artifact|creature)(?: you control)?(?:" + NOT_YOU_TAIL + r"|" + THAT_PLAYER_TAIL + r")?",
     re.IGNORECASE,
 )
 
@@ -953,7 +995,7 @@ def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
         # "target multicolored creature") — `scope_adjective`'s vocabulary, so a
         # caller that falls back to "the word is a subtype" never guesses it.
         m = _TARGET_ADJECTIVE_RE.fullmatch(phrase.strip())
-        return None if m is None else target_adjective_filter(m.group(1))
+        return None if m is None else target_adjectives_filter(m.group(1))
     word = m.group(1).lower()
     return {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
 
@@ -1059,11 +1101,17 @@ _SPELL_TARGET_BODY = (
     r"(?:(?P<noncreature>noncreature)\s+)?"
     rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
+    # Controller and mana-value restrictions compose in either printed order.
+    r"(?P<scope> (?:you control|you don'?t control|an opponent controls|your opponents control))?"
     # "…with mana value X" (Spell Blast / Spell Burst) is the spell's announced {X} — the sentinel is
     # read back at target-offer time (`targeting.legal_targets`).
-    r"(?:\s+with mana value (?P<mv>\d+|x))?"
+    # PAR-215: "…with mana value 4 or less / greater" is a bound, not the exact value (digits only: an "x or less"
+    # bound would need the announced X compared as a ceiling, which the spell filter does not model).
+    r"(?:\s+with mana value (?P<mv>\d+|x)(?: or (?P<mv_cmp>less|greater))?)?"
+    # MEC-134: "counter target spell with the chosen name" (Declaration of Naught) -- the name the source stamped as it entered.
+    r"(?P<chosen_name>\s+with the chosen name)?"
     # PAR-128: the controller scope slot — "counter target spell **you don't control**".
-    r"(?P<scope> (?:you don'?t control|an opponent controls|your opponents control))?"
+    r"(?P<scope_after> (?:you control|you don'?t control|an opponent controls|your opponents control))?"
 )
 #: The same phrase captured under a ``target`` group, for embedding inline in
 #: a handler regex the way `TARGET` is (e.g. ``counter {SPELL_TARGET}``).
@@ -1096,10 +1144,20 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
     if m.group("subtypes"):
         subtypes = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("subtypes")) if t]
         filt["subtype_any"] = subtypes
-    if m.group("mv"):
+    if m.group("mv") and m.group("mv_cmp"):
+        if m.group("mv") == "x":
+            return None
+        # RULE 202.3: "or less" is a ceiling (`max_mana_value`), "or greater" a floor (`min_mana_value`).
+        filt["max_mana_value" if m.group("mv_cmp") == "less" else "min_mana_value"] = int(m.group("mv"))
+    elif m.group("mv"):
         filt["mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
-    if m.group("scope"):
-        filt["target_kind"] = "spell_you_dont_control"
+    if m.group("chosen_name"):
+        filt["name_from_source"] = True
+    if m.group("scope") and m.group("scope_after"):
+        return None
+    scope = m.group("scope") or m.group("scope_after")
+    if scope:
+        filt["target_kind"] = "spell_you_control" if scope.strip() == "you control" else "spell_you_dont_control"
     return filt
 
 

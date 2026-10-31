@@ -74,8 +74,10 @@ def test_discard_n_cards_cost_now_claimed():
     (spec,) = parse_effect_body("sacrifice it unless you discard 2 cards")
     assert spec.type == "sacrifice_unless_pay"
     assert spec.params == {"cost": "discard 2 cards"}
-    # a typed discard is still fail-closed (parse_activation_cost → free)
-    assert parse_effect_body("sacrifice it unless you discard a creature card") is None
+    # PAR-208: a typed discard is a real `discard_filter` cost now (the payer's pick among matching cards).
+    (typed,) = parse_effect_body("sacrifice it unless you discard a creature card")
+    assert typed.type == "sacrifice_unless_pay"
+    assert typed.params == {"cost": "discard a creature card"}
 
 
 def test_real_cards_modeled():

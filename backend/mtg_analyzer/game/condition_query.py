@@ -147,12 +147,12 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             battlefield = getattr(state, "battlefield", [])
             you_have_island = any(
                 o.controller_id == controller_id and o.is_land
-                and "island" in (o.card.type_line or "").lower()
+                and o.has_subtype("island")
                 for o in battlefield
             )
             opp_has_forest = any(
                 o.controller_id is not None and o.controller_id != controller_id and o.is_land
-                and "forest" in (o.card.type_line or "").lower()
+                and o.has_subtype("forest")
                 for o in battlefield
             )
             if bool(value) != (you_have_island and opp_has_forest):
@@ -191,7 +191,7 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             land_type = str(value).lower()
             you_have_type = any(
                 o.controller_id == controller_id and o.is_land
-                and land_type in (o.card.type_line or "").lower()
+                and o.has_subtype(land_type)
                 for o in battlefield
             )
             if not you_have_type:

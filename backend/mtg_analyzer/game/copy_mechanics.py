@@ -30,7 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ..models.cards.card import Card
+from ..models.cards.card import VALID_COLORS, Card
+from ..models.cards.card_colors import COLOR_OVERRIDE_ATTR, with_color_override
 from ..models.game.game_object import GameObject
 
 #: The catalogue-derived fields a copy (or a face switch) replaces wholesale
@@ -128,6 +129,13 @@ def become_copy(
         only_types=only_types, add_keywords=add_keywords, not_legendary=not_legendary,
         set_colors=set_colors,
     )
+    # RULE 707.9b: "except it's <colour>" overrides the copied mana-cost colours; a plain copy of an
+    # already colour-overridden object keeps that override (as_copy rebuilds the Card without it).
+    inherited = getattr(copiable, COLOR_OVERRIDE_ATTR, None)
+    if set_colors is not None:
+        with_color_override(obj.card, [c for c in set_colors if c in VALID_COLORS])
+    elif inherited is not None:
+        with_color_override(obj.card, inherited)
     obj._front_card = obj.card
 
     # A copy replaces the object's own copiable-derived abilities/keywords
@@ -153,15 +161,19 @@ def become_copy(
 def expire_copies(state, window: str) -> bool:
     """End timed copy layers without removing a later permanent or timed copy."""
     duration = {'cleanup': 'end_of_turn', 'end_step': 'next_end_step'}.get(window)
-    if duration is None:
-        return False
     changed = False
     for obj in state.battlefield:
         layers = obj._duration_copy_layers
         index = 0
         while index < len(layers):
             layer = layers[index]
-            if layer['duration'] != duration:
+            from types import SimpleNamespace
+            from .durations import is_expired
+            expired = (is_expired(SimpleNamespace(duration=layer['duration'],
+                duration_data=layer['duration_data'], source=state.find_object(layer.get('source_id')),
+                object_ids=layer.get('object_ids', [])), state, window) if 'duration_data' in layer
+                else duration is not None and layer['duration'] == duration)
+            if not expired:
                 index += 1
                 continue
             # RULE 613.7: newer copy effects still win. If the removed

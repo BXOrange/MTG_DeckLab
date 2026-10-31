@@ -245,6 +245,8 @@ class AIBot(SmartBot):
                 if not offer.get('has_x') or decision.x > offer.get('max_x', 0):
                     raise ValueError('Illegal X')
                 built['x'] = decision.x
+            if not self.fill_damage_divisions(offer, built):
+                raise ValueError('Illegal damage division')
             return built
         if kind == 'attack':
             attack_offers = {a['instance_id']: a for a in offers if a['type'] == 'attack'}

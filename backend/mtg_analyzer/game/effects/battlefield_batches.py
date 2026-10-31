@@ -139,13 +139,8 @@ def restore_batch_runtime(rules, choice):
         rules._pending_enter_as_copy_continuation = lambda: None
         frame['stage'] = 'protector'
     elif frame['stage'] == 'choose':
-        effect = obj.enter_choice_effects[0]
-        remaining = obj.enter_choice_effects[1:]
-        if isinstance(effect, ChooseColorReplacement) and effect.count > 1:
-            remaining = [ChooseColorReplacement(count=effect.count - 1), *remaining]
-        rules._pending_enter_choice_obj = obj
-        rules._pending_enter_choice_effect = effect
-        rules._pending_enter_choice_continuation = lambda: setattr(obj, 'enter_choice_effects', remaining)
+        # The batch re-offers the remaining queue itself: the entry choice only drops the answered effect.
+        rules.state.pending_enter_choice = {'obj': obj, 'incarnation': obj.zone_incarnation, 'batch': True}
     elif kind == 'choose_protector':
         rules._pending_protector_obj = obj
         rules._pending_protector_continuation = lambda: None

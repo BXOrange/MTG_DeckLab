@@ -61,7 +61,10 @@ def test_time_travel_accelerates_a_suspended_card():
 
     eng.rules.time_travel(p1, times=2)
     assert o.counters.get("time", 0) == 0
-    # emptied -> the free-cast window opened (RULE 702.62a)
+    # RULE 702.62a: the cast permission is a separate triggered ability.
+    assert o.instance_id not in st.free_cast_instance_ids
+    eng.resolve_until_stable()
+    assert st.pending_choice["kind"] == "play_during_resolution"
     assert o.instance_id in st.free_cast_instance_ids
 
 

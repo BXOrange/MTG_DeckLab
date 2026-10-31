@@ -164,9 +164,9 @@ def test_puzzle_box_partner_commander_choices_finish_before_drawing():
 
 @pytest.mark.parametrize("body", [
     "that player draws two additional cards if the moon is full",
-    "that player draws an additional card and you draw a card",
+    "that player draws an additional card and some unknown player draws a card",
 ])
-def test_unhandled_counts_and_multiple_player_referents_stay_unmodeled(body):
+def test_unknown_conditions_and_player_referents_stay_unmodeled(body):
     card = Card(id="unknown", name="Unknown", type_line="Enchantment",
                 oracle_text=f"At the beginning of each player's draw step, {body}.")
     assert not parse_oracle(card).modeled

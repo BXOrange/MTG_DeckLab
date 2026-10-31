@@ -203,6 +203,14 @@ def test_brainstorm_draws_three_then_puts_two_back_on_top():
     eng.cast_spell(p1, bs_obj)
     eng.resolve_until_stable()
 
+    assert state.pending_choice["kind"] == "choose_objects"
+    assert len(p1.hand) == hand_before + 3
+    chosen = list(p1.hand)[-2:]
+    for obj in chosen:
+        eng.resolve_pending_choice(obj.instance_id)
+    assert state.pending_choice is None
+    assert p1.library[-2:] == chosen
+
     # Net: drew 3, put 2 back — hand grows by 1, library shrinks by 1.
     assert len(p1.hand) == hand_before + 1
     assert len(p1.library) == library_before - 1

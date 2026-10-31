@@ -464,3 +464,32 @@ def test_legal_actions_offers_activate_ability_for_a_potential_only_affordable_s
     eng.activate_ability(p1, source)
     assert p1.mana_pool.total() == 0
     assert len(eng.state.stack) == 1
+
+
+def test_activation_cannot_use_its_own_required_tap_to_pay_mana():
+    eng = _make_engine([_bear()] * 10)
+    eng.begin_turn()
+    player = eng.state.active_player
+    source = _land('Forest')
+    source.activated_abilities = [ActivatedAbility(cost=ActivationCost(mana=ManaCost.parse('{1}'), taps_self=True),
+                                                 effects=[DrawCardEffect(1)], source=source)]
+    eng.state.add_to_battlefield(source)
+    assert not any(a['type']=='activate_ability' and a['instance_id']==source.instance_id for a in eng.legal_actions(player))
+    assert not source.tapped
+
+
+def test_activation_auto_tap_preserves_the_required_tap_source():
+    eng = _make_engine([_bear()] * 10)
+    eng.begin_turn()
+    player = eng.state.active_player
+    source = _land('Forest')
+    source.activated_abilities = [ActivatedAbility(cost=ActivationCost(mana=ManaCost.parse('{1}'), taps_self=True),
+                                                 effects=[DrawCardEffect(1)], source=source)]
+    other = _land('Mountain')
+    eng.state.add_to_battlefield(source)
+    eng.state.add_to_battlefield(other)
+    before = len(player.hand)
+    eng.activate_ability(player,source,0)
+    eng.resolve_until_stable()
+    assert source.tapped and other.tapped
+    assert len(player.hand)==before+1

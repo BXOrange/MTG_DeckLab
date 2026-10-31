@@ -20,6 +20,9 @@ Rules:
   run), before a commit. Write it so a reader with *no* conversation context can act on it.
 - Keep it terse and current — replace stale lines instead of appending. Keep only
   the current resumable state; session logs belong in unversioned temporary files.
+- **Commit every iteration** (each green milestone: sub-step built + tested), not only at
+  ticket close; update the block first so the commit carries the current state. Stage only
+  your own files (see the shared-tree note in memory), never `git stash`.
 - **On closing the ticket, delete its whole block.** Durable results for shared
   engine/parser features belong in `Done_Backend.md` / `Done_Frontend.md`;
   individually modeled cards stay documented in their implementations and tests,
@@ -39,6 +42,6 @@ Block template (do not change this, copy below the line, fill in there):
 - **Next step:** <concrete next action>
 - **Decisions:** <choices made and why, so they aren't re-litigated>
 - **Baselines / artefacts:** <snapshot paths, measured numbers, PARSER_VERSION>
-- **Known failures:** <red tests and whether they are ours or pre-existing>
+- **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```

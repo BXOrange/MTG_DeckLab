@@ -34,7 +34,7 @@ IRREDUCIBLE_KINDS = frozenset({
     # plain player lists ("another target player": every player but the one the firing event names — The Lord of Pain)
     "player", "opponent", "player_other_than_event_player",
     # a stack-and-battlefield union, like `spell_or_nonland_permanent_you_dont_control` (PAR-161: Sudden Setback)
-    "spell_or_nonland_permanent",
+    "spell_or_nonland_permanent", "spell_or_permanent",
     # a per-turn damage record, not the board
     "player_dealt_combat_damage_by_source",
     # "any target" — the RULE 115.1 union of creature/planeswalker/battle
@@ -46,8 +46,9 @@ IRREDUCIBLE_KINDS = frozenset({
     # reads combat assignments (`source.blocking` / `source.additional_blocking`
     # or, conversely, blockers that name the source)
     "creature_source_is_blocking", "creature_blocking_source",
-    # the stack, not the battlefield
-    "spell", "spell_you_control", "spell_you_dont_control", "ability", "ability_you_control", "spell_or_ability",
+    # the stack, not the battlefield; activated-only targets also inspect
+    # the stack item's RULE 602.1 category rather than a permanent frame.
+    "spell", "spell_you_control", "spell_you_dont_control", "ability", "ability_you_control", "activated_ability", "spell_or_ability",
     "spell_or_creature", "spell_or_nonland_permanent_you_dont_control",
     # the stack, the battlefield and every graveyard at once (Endless Detour) — no single zone for a frame to read
     "spell_nonland_permanent_or_graveyard_card",
@@ -166,6 +167,8 @@ class TestUnionsAreComposed:
                 self.is_land = kw.get("land", False)
                 self.is_planeswalker = kw.get("planeswalker", False)
                 self.is_battle = kw.get("battle", False)
+                self.is_artifact = kw.get("artifact", False)
+                self.is_enchantment = kw.get("enchantment", False)
                 self.colors = ()
                 self.card = _Card(kw.get("artifact", False), kw.get("enchantment", False))
 

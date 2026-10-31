@@ -1,5 +1,6 @@
 """Haunt links and effects that refer to the haunted permanent."""
 from .core import GameEffect
+from ..control import gain_control
 from ..targeting import TargetSpec
 from ...models.game.game_object import Zone
 
@@ -43,5 +44,6 @@ class HauntedCreatureEffect(GameEffect):
                 'needs_haunted': True,
             }
             if target.controller_id != self.source.controller_id:
-                target.controller_id = self.source.controller_id
+                gain_control(context.state, target, self.source.controller_id,
+                             duration="while_source", window=target.control_change_while_source)
                 target.summoning_sick = True

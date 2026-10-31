@@ -1,0 +1,353 @@
+/* One player's board (mana/life header + play area) — gameBoardView.js.
+   Goldfisch always renders exactly one; Replay's play mode can render two
+   side by side (a puzzle's second real player, unlike goldfish's dummy). */
+.gf-player-board {
+  margin-bottom: 1rem;
+}
+
+.gf-player-board:last-child {
+  margin-bottom: 0;
+}
+
+/* Pod tables (3-4 seats, `services/lobby.py`): the boards tile 2x2 instead
+   of stacking, so nobody is below the fold. Row-major, DOM order unchanged
+   — opponents first, this client's own seat last, i.e. nearest them. The
+   columns are `minmax(0, 1fr)` rather than `1fr` so a wide battlefield
+   wraps its cards instead of stretching the column and pushing its
+   neighbour off-screen.
+
+   There is deliberately **no media query** for the narrow-screen fallback:
+   gameBoardView.js owns that breakpoint (POD_GRID_MIN_WIDTH) and simply
+   doesn't emit this wrapper below it, because dropping to one column also
+   changes what the zone toggle *means* (innen/außen vs. left/right). Split
+   between CSS and JS, the two halves would drift. */
+.gf-pod-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.gf-pod-grid > .gf-player-board {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+/* Seats are placed **clockwise around the table**, not in the reading order
+   auto-placement would give (which puts the third board bottom-*left* and
+   so runs the ring backwards across the bottom row):
+
+       1 ── 2          turn order goes 1 → 2 → 3 → 4 → back to 1,
+       │    │          and 4 sits next to 1 again, closing the ring.
+       4 ── 3
+
+   The board list is already in turn order ending at your own seat
+   (`boardOrder`), so at four seats you are 4 — bottom-left, next to the
+   top-left board that plays after you. `POD_COLUMNS` in gameBoardView.js
+   mirrors this mapping; the two must stay in step. */
+.gf-pod-grid > .gf-player-board:nth-child(1) { grid-area: 1 / 1; }
+.gf-pod-grid > .gf-player-board:nth-child(2) { grid-area: 1 / 2; }
+.gf-pod-grid > .gf-player-board:nth-child(3) { grid-area: 2 / 2; }
+.gf-pod-grid > .gf-player-board:nth-child(4) { grid-area: 2 / 1; }
+
+/* Three seats leaves an odd board out — always the last one drawn, i.e.
+   your own — and that's the one you actually play from, so it takes the
+   whole bottom row rather than half of it. Higher specificity than the
+   placement rules above, so it wins the column back from `2 / 2`. At four
+   seats nothing matches and the ring above stands. */
+.gf-pod-grid > .gf-player-board:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* Half the width means the 230px zone column would eat a third of a board;
+   the zones are lists and counts, so they shrink better than the
+   battlefield does. */
+.gf-pod-grid .gf-side {
+  flex: 0 0 170px;
+}
+
+.gf-player-board-head {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-player-board-head h3 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+/* A seat that picked a banner colour in the Multiplayer setup
+   (`services/lobby.py`'s `Seat.banner_color`). Both gradients arrive
+   inline as custom properties from `bannerColors.js`, so all 32 colour
+   combinations are *this one rule* rather than 32 classes:
+
+     --banner-bg     the deep gradient the whole title bar is painted in
+     --banner-strip  the bright one, as a hairline along its top edge
+
+   The fallback is the plain felt header, which is what every solo mode
+   (Goldfisch, Replay) keeps — they have no lobby and so no banner. */
+.gf-banner-tinted {
+  position: relative;
+  overflow: hidden;
+  background: var(--banner-bg, var(--felt));
+  border-color: rgba(0, 0, 0, 0.5);
+}
+
+.gf-banner-tinted::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--banner-strip);
+}
+
+/* Gold-on-colour is unreadable on half the palette; near-white with a soft
+   shadow works on all of it. */
+.gf-banner-tinted h3 {
+  color: #f6f3ea;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.gf-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.gf-zone {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-zone h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+/* Collapsible Friedhof / Exil zones (`collapsibleZoneHtml`): the header is a
+   full-width toggle button styled to look exactly like the plain `h4` it
+   replaces; an empty zone keeps a static header with a muted "leer". The
+   open body is height-capped and scrolls inside itself so a 60-card
+   graveyard can never stretch the side column. */
+.gf-zone-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gf-zone-toggle:hover {
+  color: var(--text);
+}
+
+.gf-zone-caret {
+  font-size: 0.7em;
+  opacity: 0.8;
+}
+
+.gf-zone-empty {
+  opacity: 0.7;
+  font-weight: normal;
+}
+
+.gf-zone-body {
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.gf-zone-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.gf-zone-row .gf-zone {
+  flex: 1 1 180px;
+  margin-bottom: 0.6rem;
+}
+
+/* Two-sided play area: a column of static zones (command / library /
+   graveyard / exile, stacked) beside the battlefield + hand. `gf-zones-right`
+   flips the columns visually while keeping DOM order, so the side is a pure
+   toggle. */
+.gf-play {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin-bottom: 0.6rem;
+}
+
+.gf-play.gf-zones-right {
+  flex-direction: row-reverse;
+}
+
+.gf-side {
+  flex: 0 0 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.gf-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* The wrapper columns own the spacing now, so the zones inside don't stack
+   their own bottom margins. */
+.gf-side .gf-zone,
+.gf-main .gf-zone,
+.gf-main .gf-statics {
+  margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+  .gf-play,
+  .gf-play.gf-zones-right {
+    flex-direction: column;
+  }
+  .gf-side {
+    flex-basis: auto;
+  }
+}
+
+/* (The stack used to overlay the play area while non-empty; it lives in the
+   left rail now — `.gf-rail-stack` — and never covers the board.) */
+
+.gf-zone-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gf-zone-list li {
+  padding: 0.2rem 0.4rem;
+  border-left: 2px solid var(--accent);
+  margin-bottom: 0.2rem;
+  font-size: 0.8rem;
+  cursor: default;
+}
+
+.gf-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gf-action-buttons button {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.gf-action-buttons button:hover {
+  border-color: var(--accent);
+}
+
+/* Tapped permanents rotate ~90° like a real tapped card; summoning-sick
+   creatures are dimmed so it's obvious why they can't attack yet. */
+.card.tapped {
+  transform: rotate(8deg);
+  opacity: 0.85;
+  border-color: var(--warn);
+}
+
+.card.flipped .gf-card-art img {
+  transform: rotate(180deg);
+}
+
+.card.summoning-sick {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+/* RULE 115/601.2c: a permanent currently targeted by something on the
+   stack gets a subtle blue ring; a *mutual* pair (`updateTargetOverlays` in
+   gameBoardView.js — two permanents each targeting the other) gets a
+   stronger dashed red outline instead, so the pairing itself is visibly
+   distinct from an ordinary one-way target. Both stack on top of
+   .tapped/.attacking/.summoning-sick rather than replacing them. */
+.card.gf-targeted {
+  box-shadow: 0 0 0 2px var(--info);
+}
+
+.card.gf-mutual-target {
+  outline: 3px dashed var(--error);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Wraps a permanent's own art (or its no-art name fallback) so the
+   summoning-sickness/target badges below anchor to the *card itself*,
+   regardless of whether .gf-card-slot also has an action-button row under
+   it (unlike the corner badges further down, which deliberately anchor to
+   the whole slot). */
+.gf-card-art {
+  position: relative;
+  display: block;
+}
+
+/* RULE 302.6: summoning sickness, inset in the top-right corner of the art
+   (mirrors .gf-card-flip's inset-circle look on the opposite corner) rather
+   than an overhanging pill, so it never collides with the loyalty/battle/
+   attacking badges that already claim that corner's overhang. */
+.gf-sick-badge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  z-index: 1;
+  width: 1.3rem;
+  height: 1.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+
+/* RULE 115/601.2c: a target glyph centered on the card art. Purely
+   informational (pointer-events: none) so it never intercepts a click or
+   drag on the card underneath it. */
+.gf-target-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+}

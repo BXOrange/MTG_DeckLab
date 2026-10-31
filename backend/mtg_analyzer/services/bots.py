@@ -44,6 +44,13 @@ Five bots are built on that base, each in its own `bot_policies` module:
   pieces, develops mana and evaluates combat and responses. A bounded
   heuristic opponent, not an exhaustive solver of arbitrary combos.
 
+* `SmartBot2` — extends SmartBot with a philosophy-aware second scoring
+  layer.  After SmartBot's base ``_card_value`` is computed, additional
+  bonuses are added based on the deck's ``strategy.philosophies`` tuple
+  (e.g. *combat* boosts attack roles, *graveyard* softens the sacrifice
+  penalty, *control* rewards instant-speed plays).  All other behaviour is
+  inherited unchanged.
+
 * `AIBot` — asks the configured LLM to choose offered actions using the
   same deck profile. Background requests preserve priority; failures use
   Smart Bot. See docs/Reference/LLM_INTEGRATION.md.
@@ -67,6 +74,7 @@ from mtg_analyzer.services.bot_policies.base import Bot
 from mtg_analyzer.services.bot_policies.goldfish import GoldfishBot
 from mtg_analyzer.services.bot_policies.greedy import GreedyBot
 from mtg_analyzer.services.bot_policies.smart import SmartBot
+from mtg_analyzer.services.bot_policies.smart2 import SmartBot2
 from mtg_analyzer.services.bot_policies.ai import AIBot
 from mtg_analyzer.services.bot_policies.mana_maximizer import ManaMaximizerBot
 from mtg_analyzer.services.game_session import GameActionError, GameSession
@@ -94,6 +102,7 @@ def is_bot_id(player_id: Optional[str]) -> bool:
 #: Every bot a seat can be filled with, keyed by `Bot.kind`.
 BOT_TYPES: dict[str, type[Bot]] = {
     SmartBot.kind: SmartBot,
+    SmartBot2.kind: SmartBot2,
     GoldfishBot.kind: GoldfishBot,
     GreedyBot.kind: GreedyBot,
     AIBot.kind: AIBot,

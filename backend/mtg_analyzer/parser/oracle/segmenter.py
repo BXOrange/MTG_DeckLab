@@ -19,9 +19,10 @@ from __future__ import annotations
 import copy
 import json
 import re
+from .catalogue.combat_phrase import combat_tail
 from .catalogue.clause_reading import (
-    COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
-    ClauseReading, Referent,
+    COUNTERED, COUNTERED_REFERENT, CREATED, CREATED_GROUP_REFERENT, CREATED_REFERENT, EXILED_REFERENT, EXILE_POOL, REVEALED, REVEALED_REFERENT, SELECTOR, SELECTOR_REFERENT, STANDALONE, TARGET, TARGET_REFERENT,
+    ClauseReading, Referent, PLAYER,
 )
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional
@@ -50,17 +51,25 @@ from .catalogue.flicker_sequences import (
     source_return_specs,
 )
 from .catalogue.dying_hosts import dying_host_return_specs
+from .catalogue.per_creature_payment import per_creature_payment_specs
 from .catalogue.physical_properties import physical_fight_specs
+from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
+from .catalogue.quantifier_scope import PLAYER_SETS, quantified_set, per_member_amount_specs, qualified_player_set
+from .catalogue.object_phrase import object_phrase_specs, conditional_object_specs
+from .catalogue import inspection as _inspection  # module handle: the PAR-213 spec audit toggles its parser
+from .catalogue.name_reference import same_name_specs
 from .catalogue.zone_ability_sequences import exile_grant_specs
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_EFFECT_THEN_ANTECEDENT_PHRASES
 from .catalogue.effect_rows.draw_discard_cast import CYCLING_XX_TOKEN_RE, cycling_xx_token
+from .catalogue.effect_rows.end_of_combat import END_COMBAT_STEP, NEEDS_BLOCK_HEAD
 from .catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
 from .catalogue.effect_rows.shared import base_verb
 from .catalogue.handlers import match_clause
+from .catalogue.clause_primitives import has_plural_targets
 from .catalogue.keywords import ALIAS_DISPLAYS, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
-from .catalogue.replacements import replacement_clause_specs
+from .catalogue.replacements import replacement_clause_specs, standing_ability_kind
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import (
     enter_choice_specs,
@@ -96,6 +105,7 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     # strictly wrong, over-firing trigger). Its own aggregate event, fired
     # once combat locks in — see `EventType.ATTACKS_ALONE`.
     ("attacks alone", "ATTACKS_ALONE"),
+    ("becomes attached to a creature", "ATTACHED_TO_CREATURE"),
     # RULE 708.8: "when ~ is turned face up" — the morph/megamorph/disguise
     # trigger family (`game/face_down.py`), and the single largest verb the
     # engine could already fire but the grammar couldn't name.
@@ -368,6 +378,9 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
         return {"subject": "you"}
     if subj == "an opponent":
         return {"subject": "group", "controller": "not_you"}
+    if subj == "enchanted player":
+        # RULE 303.4: a Curse is attached to a *player*; only that player's casts count (`binding.core._subject_condition`).
+        return {"subject": "player", "scope": "enchanted"}
     return {"subject": "group"}
 
 #: PAR-119: the composed cast-trigger head — actor + "cast" + a spell phrase
@@ -378,7 +391,7 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
 #: (`_CAST_SPELL_TRIGGER_RE`, `_NEG_`, `_PLAIN_`, `_MV_`, `_HISTORIC_`, …): this
 #: head now owns every plain "you/an opponent/a player cast(s) a <phrase> spell".
 _CAST_TRIGGER_COMPOSED_RE = re.compile(
-    r"^(?:whenever|when) (?P<subj>you|an opponent|a player) casts? "
+    r"^(?:whenever|when) (?P<subj>you|an opponent|a player|enchanted player) casts? "
     r"(?P<copies>or (?:copy|copies) )?"
     # PAR-104: a comma list of card types ("an artifact, instant, or sorcery spell") is part of the phrase.
     r"(?P<phrase>(?:an?|another|your|their) (?:(?:[a-z'-]+, )+or [a-z'-]+ |[^,]*?)\bspell\b[^,]*),\s*(?P<body>.+)$",
@@ -1097,17 +1110,43 @@ def _active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
                 EffectSpec("search", {"criteria": "", "destination": "hand", "optional": False}).to_dict(),
             ],
         })]
-    # RULE 504 / 109.5: a phase's "that player" is the player whose turn
-    # it is. Reuse second-person bodies, including optional choices and
-    # linked instructions, while retaining the actual ability controller.
-    # Explicit "you" or a target would introduce another player referent.
+    # PAR-207: "they lose 1 life and you gain 1 life" (Curse of Leeches) -- a life loss for the step's player, then a
+    # clause about the ability's controller: each half is read under its own player. Only the life-loss shape: other
+    # "that player ... and you ..." bodies name two player referents and stay unclaimed.
+    split_players = re.fullmatch(
+        r"(?P<theirs>(?:they|that player) lose[s]? \d+ life) and (?P<yours>you [^.]+)\.?", rest)
+    if split_players is not None:
+        theirs = _active_player_phase_body(split_players.group("theirs"))
+        yours = parse_effect_body(split_players.group("yours"))
+        if theirs is not None and yours is not None:
+            return theirs + yours
     if rest.startswith("that player ") and not re.search(r"\b(?:you|your|target)\b", rest):
+        targeted = parse_effect_body('target player ' + rest[len('that player '):])
+        if targeted and all(
+            [spec.params[k] for k in TARGET_PARAM_KEYS if spec.params.get(k) is not None] == ['player']
+            for spec in targeted
+        ):
+            return [EffectSpec('trigger_subject_referent', {
+                'referent': 'active_player', 'effects': [e.to_dict() for e in targeted],
+            })]
+    # RULE 109.5 / 608.2c: scope only instructions addressed to the step
+    # player. A separate "you" instruction keeps the ability controller.
+    pieces = re.split(r"\.\s+| and (?=you\b)|,? then (?=you\b)", rest.rstrip("."))
+    if len(pieces) > 1 and re.search(r"\b(?:you|your)\b", rest):
+        effects = []
+        for piece in pieces:
+            parsed = _active_player_phase_body(piece) or parse_effect_body(piece)
+            if parsed is None:
+                return None
+            effects.extend(parsed)
+        return effects
+    if re.match(r"^(?:that player|they)\b", rest) and not re.search(r"\b(?:you|your|target)\b", rest):
         rewritten = re.sub(r"\bthat player\b|\bthey\b", "you", rest)
         rewritten = re.sub(r"\btheir\b", "your", rewritten)
-        rewritten = re.sub(r"\byou (draws|loses|gains|searches|puts|discards|shuffles)\b",
+        rewritten = re.sub(r"\byou (?!may\b)([a-z]+)\b",
                            lambda m: "you " + base_verb(m.group(1)), rewritten)
-        rewritten = re.sub(r"\bthen (draws|discards)\b",
-                           lambda m: "then " + base_verb(m.group(1)), rewritten)
+        rewritten = re.sub(r"\bthen (draws|discards)\b", lambda m: "then " + base_verb(m[1]), rewritten)
+        rewritten = re.sub(r"\bif (?:the player|you) does?\b", "if you do", rewritten)
         effects = parse_effect_body(rewritten)
         if effects is not None:
             return [EffectSpec("trigger_subject_referent", {
@@ -1197,6 +1236,14 @@ _PHASE_TRIGGER_RE = re.compile(
     r"|(?P<step_combat_opp>combat) on each opponent'?s turn"
     rf"|each opponent'?s (?P<step_opp>{_PHASE_STEP_ALT})(?:\s+step)?"
     rf"|each other player'?s (?P<step_other>{_PHASE_STEP_ALT})(?:\s+step)?"
+    # RULE 303.4m / 603.2b: the step belongs to the current controller of
+    # the enchanted host, independently of who controls the Aura.
+    rf"|the (?P<step_attached>{_PHASE_STEP_ALT})(?:\s+step)? of enchanted "
+    r"(?:creature|artifact|land|enchantment|permanent)'?s controller"
+    # PAR-207: the step belongs to a *player* the permanent names -- the one it enchants (a Curse, RULE 303.4t) or the
+    # one chosen as it entered (Black Vise, RULE 700.2g `GameObject.chosen_player_id`).
+    rf"|enchanted player'?s (?P<step_enchanted>{_PHASE_STEP_ALT})(?:\s+step)?"
+    rf"|the chosen player'?s (?P<step_chosen>{_PHASE_STEP_ALT})(?:\s+step)?"
     r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -1631,6 +1678,10 @@ _LOYALTY_LINE_RE = re.compile(
 #: line is *claimed* here (covered) but contributes no spec.
 _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
 
+#: RULE 605.1a: unlike the legacy prefix recognizer, this validates the whole
+#: fixed-symbol mana body before it can become a quoted token ability.
+_FIXED_MANA_EFFECT_RE = re.compile(r"add (?:\{[wubrgc]\})+\.?", re.I)
+
 #: "For each color among permanents you control, add one mana of that
 #: color." (Bloom Tender/Faeburrow Elder-shaped) — doesn't start with "add"
 #: (that's mid-sentence, after the "for each" clause), so `_MANA_EFFECT_RE`
@@ -1695,11 +1746,23 @@ _REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset(
 #: a longer window would only be a slower way of failing.
 _MAX_SENTENCE_WINDOW = 4
 _MAY_HAVE_TARGET_GET_RE = re.compile(
-    r"(\byou may )have (target (?:[a-z-]+ )*?creature) (get|gain) ", re.IGNORECASE
+    r"(\byou may )have (target (?:[a-z-]+ )*?creature|it|that creature) (get|gain) ", re.IGNORECASE
 )
 _AND_CONNECTOR = r"\s+and\s+"
+#: PAR-208: the commas of a series "A, B, and C" ("target player mills 2 cards, draws 2 cards, and loses 2 life"; "you
+#: draw a card, gain 1 life, and scry 1") sit between whole effect clauses of one sentence. Only a comma whose next
+#: word opens an effect clause (a whitelisted effect verb, or a stated player subject) is a boundary, so a comma
+#: inside a condition, an amount phrase or a target description is never split. The last "and" of the series is
+#: consumed with its comma; a two-clause "A and B" keeps `_AND_CONNECTOR`.
+_SERIES_VERBS = (
+    r"draws?|discards?|mills?|loses?|gains?|scry|surveil|creates?|sacrifices?|exiles?|returns?|untaps?|taps?|"
+    r"destroys?|puts?|adds?|investigate|proliferate|explores?|goads?|reveals?|shuffles?|searches"
+)
+_SERIES_COMMA_CONNECTOR = (
+    rf",\s+(?:and\s+)?(?=(?:(?:{_SERIES_VERBS})\b|(?:you|each opponent|each player|target (?:player|opponent))\s+(?:{_SERIES_VERBS})\b))"
+)
 _CONNECTORS: tuple[str, ...] = (
-    r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, _AND_CONNECTOR,
+    r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, _SERIES_COMMA_CONNECTOR, _AND_CONNECTOR,
 )
 
 
@@ -2118,7 +2181,7 @@ def _die_that_much_specs(
     if _THAT_MUCH_RE.search(rest) is None:
         return None
     return _bind_x_specs(
-        _THAT_MUCH_RE.sub("x", rest), {"kind": "die_result"}, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject, previous_selector=False),
+        _THAT_MUCH_RE.sub("x", rest), {"kind": "die_result"}, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject, previous_selector=False),
     )
 
 
@@ -2229,11 +2292,55 @@ _CHOOSE_TARGET_IF_SUSPECTED_RE = re.compile(
 #: regenerated **this turn**" (Orcish Healer/Carbonize-shaped) is a
 #: genuinely different, free-standing prevent-regeneration effect and must
 #: NOT match here.
+#:
+#: PAR-214: the rider also reads as a clause of the same sentence ("destroy target Knight **and it** can't be
+#: regenerated"), names a non-creature referent, or points back at the destruction ("a creature destroyed this
+#: way can't be regenerated", Damn). The last form is only claimed when exactly the destroy it qualifies exists.
+_NO_REGEN_WHO = (
+    r"it|they|that creature|the creature|that permanent|that land|that artifact|those creatures"
+    r"|(?:an?|each) (?:creature|permanent|artifact|land) destroyed this way"
+    r"|(?:creature|permanent|artifact|land)s destroyed this way"
+)
 _NO_REGEN_SENTENCE_RE = re.compile(
-    r"^(?P<before>.+?)\.\s*(?:it|they) can'?t be regenerated"
+    rf"^(?P<before>.+?)(?:\.\s*|,? and )(?P<who>{_NO_REGEN_WHO}) can'?t be regenerated"
     r"(?:\.\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
+#: The plural subjects: a rider that qualifies every destruction of a shared verb ("destroy A and B. They ...").
+_NO_REGEN_PLURAL_RE = re.compile(r"^(?:they|those creatures|(?:creature|permanent|artifact|land)s destroyed this way)$", re.IGNORECASE)
+_NO_REGEN_THIS_WAY_RE = re.compile(r"destroyed this way$", re.IGNORECASE)
+#: Wrapper nodes whose last effect is what the wrapper's effect ends on (object-phrase composition, PAR-210).
+_DESTROY_WRAPPERS = frozenset({"seq", "for_each", "trigger_subject_referent"})
+
+
+def _last_destroy_denying_regeneration(node: dict) -> Optional[dict]:
+    """``node`` (an `EffectSpec` dict) with ``can_be_regenerated: False`` on the destroy it ends in, else ``None``.
+
+    RULE 701.19c: the rider qualifies the destruction that immediately precedes it, which the object-phrase
+    composition may have wrapped in a target announcement or iteration (`seq` / `for_each`)."""
+    if node.get("type") == "destroy":
+        return {**node, "params": {**(node.get("params") or {}), "can_be_regenerated": False}}
+    if node.get("type") == "if_else" and (node.get("params") or {}).get("then"):
+        # A resolution-time condition ("destroy target creature if it's white") gates the destroy it ends in.
+        then = node["params"]["then"]
+        flagged = _last_destroy_denying_regeneration(then[-1])
+        if flagged is not None:
+            return {**node, "params": {**node["params"], "then": [*then[:-1], flagged]}}
+        return None
+    inner = (node.get("params") or {}).get("effects")
+    if node.get("type") in _DESTROY_WRAPPERS and inner:
+        flagged = _last_destroy_denying_regeneration(inner[-1])
+        if flagged is not None:
+            return {**node, "params": {**node["params"], "effects": [*inner[:-1], flagged]}}
+    return None
+
+
+def _count_destroys(node: Any) -> int:
+    if isinstance(node, dict):
+        return (node.get("type") == "destroy") + sum(_count_destroys(v) for v in node.values())
+    if isinstance(node, list):
+        return sum(_count_destroys(v) for v in node)
+    return 0
 
 #: "Add {R}. **Until end of turn, you don't lose this mana as steps and phases end.**" (Brazen Collector, Savage
 #: Ventmaw, Neheb, Sakiko, Avatar Roku's "until end of combat") — a trailing sentence that is a property of the mana
@@ -2378,7 +2485,9 @@ _CREATED_ENTERS_ATTACKING_RE = re.compile(
 #: since the ``dest`` alternation only knows the four two-way destinations
 #: real cards actually print.
 _LOOK_TOP_SELECT_RE = re.compile(
-    r"^look at the top (?P<n>\d+) cards? of your library\.\s*"
+    r"^look at the top (?P<n>\d+|x) cards? of your library"
+    r"(?:, where x is the number of (?P<removed>[a-z]+) counters removed this way)?"
+    r"(?:\.\s*|, then\s+)"
     r"put (?P<m>\d+) of (?:them|those cards) into your hand and the (?:rest|other)\s+"
     r"(?P<dest>on the bottom of your library in any order|"
     r"on the bottom of your library in a random order|"
@@ -2467,8 +2576,9 @@ _LOOK_TOP_HIT_GRANT_KEYWORDS: dict[str, str] = {
 #: unrelated creature-choosing clause followed by an unrelated genuine
 #: untap effect.
 _GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
-    r"^(?P<before>gain control of (?:another )?target .+? until end of turn)\.\s*"
-    r"untap (?:that creature|that permanent|that artifact|it)[.,]?\s*(?:and\s+)?"
+    # PAR-204 (Eldrazi Obligator): one comma sentence, "…until end of turn, untap that creature, and it gains haste …".
+    r"^(?P<before>gain control of (?:another |any number of |up to \d+ )?target .+? until end of turn)[.,]\s*"
+    r"untap (?:that creature|that permanent|that artifact|those creatures|those permanents|it)[.,]?\s*(?:and\s+)?"
     r"(?P<grant>(?:it|they) gains? [a-z, ]*?haste[a-z, ]*? until end of turn"
     r"|until end of turn, (?:it|they) (?:gains?|has|have|becomes?) .+)"
     r"(?:[.,]\s*(?:and\s+)?(?P<after>.+))?$",
@@ -3408,6 +3518,8 @@ class Segment:
     #: True when the line is a pure keyword line (claimed elsewhere, by the
     #: keyword catalogue) — it contributes no effect spec here but *is* covered.
     keyword_line: bool = False
+    #: RULE 605: native mana abilities are auto-bound from oracle text, without IR.
+    mana_ability: bool = False
     #: Further abilities the same printed line produces. Empty for almost
     #: every line: one printed line is one ability. The exception is RULE
     #: 700.2's *compact* inline modal on an activated ability ("Enchanted
@@ -3416,6 +3528,19 @@ class Segment:
     #: abilities sharing a cost: choosing which one to activate **is** the
     #: printed choice, so no mode-selection machinery is needed for it.
     extra_specs: list[AbilitySpec] = field(default_factory=list)
+
+    @property
+    def native_oracle_text(self) -> str:
+        """RULE 111.3: reconstruct native mana text for the raw-text binder.
+
+        The mana model reads printed ``Add {C}.`` with its original casing
+        and period; token creation starts from normalized, lower-case text.
+        """
+        if not self.mana_ability:
+            return self.raw
+        text = re.sub(r"\badd\b", "Add", self.raw, flags=re.I)
+        text = re.sub(r"\{[wubrgc]\}", lambda match: match.group().upper(), text, flags=re.I)
+        return text.rstrip(" .") + "."
 
 
 #: RULE 700.2's compact inline modal, in the one printed shape that is
@@ -3581,10 +3706,22 @@ def _compound_heads_disjoint(first: dict[str, Any], second: dict[str, Any]) -> b
     # The same event: only "~ … or another … " names two disjoint objects.
     subjects = {(first.get("condition") or {}).get("subject"),
                 (second.get("condition") or {}).get("subject")}
+    if subjects == {"self", "attached_permanent"}:
+        # PAR-207: "~ or equipped creature deals combat damage" -- a permanent is never attached to itself
+        # (RULE 301.5c / 303.4c), so the source and its host are two different objects and one event cannot
+        # satisfy both heads.
+        return True
     if subjects != {"self", "group"}:
         return False
     group = first if (first.get("condition") or {}).get("subject") == "group" else second
     return bool(group["condition"].get("other"))
+
+
+#: The subjects a shared predicate may coordinate: the source and the permanent it is attached to.
+_SHARED_PREDICATE_SUBJECTS_RE = re.compile(
+    r"^(?P<a>~|equipped creature|enchanted creature) or (?P<b>equipped creature|enchanted creature|~) "
+    r"(?P<predicate>(?:deals|attacks|blocks|dies|becomes|is) .+|attacks|blocks|dies)$"
+)
 
 
 def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
@@ -3597,6 +3734,14 @@ def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
     into exile" is the battlefield departure it pairs with (Syr Vondam).
     """
     cond = cond.strip()
+    # PAR-207: two subjects sharing one predicate -- "~ or equipped creature deals combat damage to a player" is
+    # "~ deals ..." plus "equipped creature deals ...". Each half is validated as a head of its own below.
+    shared = _SHARED_PREDICATE_SUBJECTS_RE.match(cond)
+    if shared is not None:
+        halves = [f"{shared.group('a')} {shared.group('predicate')}", f"{shared.group('b')} {shared.group('predicate')}"]
+        triggers = [trigger_condition_dict(half) for half in halves]
+        if all(t is not None and isinstance(t.get("event"), str) for t in triggers) and _compound_heads_disjoint(*triggers):
+            return halves
     for sep in re.finditer(r",\s*(?:or\s+)?|\s+or\s+", cond):
         left, right = cond[:sep.start()], cond[sep.end():]
         first = trigger_condition_dict(left)
@@ -3761,7 +3906,7 @@ def _if_else_specs(
     if match is None:
         return None
     condition = _group_pronoun_condition(
-        match.group("cond"), static_condition(match.group("cond")), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        match.group("cond"), static_condition(match.group("cond")), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if condition is None:
         return None
@@ -3808,8 +3953,8 @@ def _created_tokens_have_cda_specs(body: str) -> Optional[list[EffectSpec]]:
 
 
 _CREATED_TOKENS_HAVE_ABILITY_RE = re.compile(
-    r'^(?P<create>(?:you )?create [^.]+ creature tokens)\.\s*'
-    r'(?:they|those tokens) have "(?P<ability>[^"]+)"$', re.I | re.S,
+    r'^(?P<create>(?:you )?create [^.]+ creature tokens?)\.\s*'
+    r'(?:it has|(?:they|those tokens) have) "(?P<ability>[^"]+)"$', re.I | re.S,
 )
 
 
@@ -3818,16 +3963,20 @@ def _created_tokens_have_ability_specs(body: str) -> Optional[list[EffectSpec]]:
     match = _CREATED_TOKENS_HAVE_ABILITY_RE.fullmatch(body)
     if match is None:
         return None
+    # RULE 201.5: a folded name of the creating card cannot become the
+    # token's own self-reference (Sound the Call). Retain fail-closed scope.
+    if re.search(r"\bnamed ~", match.group("ability"), re.I):
+        return None
     created = parse_effect_body(match.group("create"))
     ability = segment_line(match.group("ability"), allow_spell_effect=False, provenance=ParserProvenance())
     if (not created or len(created) != 1 or created[0].type != "create_token"
-            or not ability.claimed or ability.spec is None):
+            or not ability.claimed or (ability.spec is None and not ability.mana_ability)):
         return None
     # Preserve the token's own Oracle text. create_token binds this text on
     # each new object, so self references and controllers belong to the token.
     params = dict(created[0].params)
     params["oracle_text"] = "\n".join(filter(None, (
-        params.get("oracle_text"), match.group("ability"),
+        params.get("oracle_text"), ability.native_oracle_text,
     )))
     return [EffectSpec("create_token", params)]
 
@@ -3860,8 +4009,8 @@ _OVERRIDE_TARGET_RE = re.compile(
     # value 3 or less from your graveyard" (Doctor Jane Foster). First, so
     # "target creature" doesn't claim its head.
     r"\btarget (?:[a-z ]*?(?P<card>card)(?: with [^,.]+?)? from your graveyard"
-    r"|(?P<noun>creature|player|opponent|permanent)"
-    r"(?P<scope> you control| an opponent controls| you don't control)?\b)", re.I,
+    r"|(?P<noun>creature(?: or planeswalker)?|player(?: or planeswalker)?|opponent|permanent|spell)"
+    r"(?P<scope> you control| an opponent controls| you don't control)?\b)|\b(?P<any>any target)\b", re.I,
 )
 
 
@@ -3873,10 +4022,23 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     With exactly one target in the base the rewrite is unambiguous; with
     none or several the text is returned unchanged and fails to match.
     """
-    rewritten = re.sub(r"^(?:she|he|it)\b", "~", replacement_text.strip(), flags=re.I)
+    rewritten = replacement_text.strip()
+    if re.match(r"^(?:she|he|it)\b", rewritten, re.I):
+        subject = "~" if re.match(r"~ deals?\b", base_text, re.I) else None
+        matches = list(_OVERRIDE_TARGET_RE.finditer(base_text))
+        target = matches[0] if len(matches) == 1 else None
+        if subject is None and target is not None:
+            subject = target.group(0)
+        if subject is not None:
+            rewritten = re.sub(r"^(?:she|he|it)\b", subject, rewritten, flags=re.I)
+    # Inside an optional replacement the pronoun still names that target.
+    matches = list(_OVERRIDE_TARGET_RE.finditer(base_text))
+    target = matches[0] if len(matches) == 1 else None
+    if target is not None:
+        rewritten = re.sub(r"^you may put it\b", "you may put " + target.group(0), rewritten, flags=re.I)
     # PAR-139 (madness overrides): "instead create X of those tokens" names the base's own tokens, and
     # "divided … among those permanents and/or players" the base's own "any number of targets".
-    base_tokens = re.search(r"\bcreate \d+ (?P<phrase>.+? tokens?)\b", base_text, flags=re.I)
+    base_tokens = re.search(r"\bcreate (?:a|an|\d+) (?P<phrase>.+? tokens?)\b", base_text, flags=re.I)
     if base_tokens is not None:
         rewritten = re.sub(r"\b(?P<n>x|\d+) of those tokens\b",
                            lambda m: f"{m.group('n')} {base_tokens.group('phrase')}", rewritten, flags=re.I)
@@ -3891,8 +4053,12 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     targets = list(_OVERRIDE_TARGET_RE.finditer(base_text))
     if len(targets) != 1:
         return rewritten
-    noun = (targets[0].group("noun") or targets[0].group("card")).lower()
-    that = "player" if noun in ("player", "opponent") else noun
+    noun = (targets[0].group("noun") or targets[0].group("card") or "permanent or player").lower()
+    that = ("player" if noun in ("player", "opponent") else "permanent" if " or planeswalker" in noun
+            else noun)
+    # A replacement's object pronoun names the one already announced
+    # recipient; its source pronoun was handled independently above.
+    rewritten = re.sub(r"\bto it\b", "to " + targets[0].group(0).lower(), rewritten, flags=re.I)
     # Only the first mention is the announced target; a later "that player"
     # in the same sentence stays a back-reference to it (Devour Intellect).
     return re.sub(rf"\bthat {that}\b", targets[0].group(0).lower(), rewritten,
@@ -3902,7 +4068,7 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
 #: Params that narrow *which* objects are legal targets or how many — two
 #: branches announcing one requirement must agree on all of them.
 _TARGET_SHAPE_KEYS: frozenset[str] = frozenset({
-    "count_max", "optional", "max_mana_value", "min_mana_value", "mana_value",
+    "count_max", "optional", "any_number", "max_mana_value", "min_mana_value", "mana_value",
     "color", "colors", "spell_filter", "creature_filter", "filter", "target_filter",
     "max_power", "exclude_self", "another",
 })
@@ -3917,6 +4083,9 @@ def _target_signature(specs: list["EffectSpec"]) -> list[tuple[str, Any]]:
     """What a branch announces (RULE 601.2c), or ``[]`` when it targets nothing."""
     signature: list[tuple[str, Any]] = []
     for spec in specs:
+        if spec.type == "optional":
+            signature.extend(_target_signature([EffectSpec(child["type"], child.get("params", {}), condition=child.get("condition")) for child in spec.params.get("effects", [])]))
+            continue
         if not _names_a_target(spec):
             continue
         keys = set(TARGET_PARAM_KEYS | _TARGET_SHAPE_KEYS)
@@ -3925,6 +4094,9 @@ def _target_signature(specs: list["EffectSpec"]) -> list[tuple[str, Any]]:
         signature.extend((key, spec.params.get(key)) for key in sorted(keys)
                          if spec.params.get(key) is not None)
     return signature
+
+
+_UNPREVENTABLE_OVERRIDE_TAIL_RE = re.compile(r"\s+and the damage can'?t be prevented\s*$", re.I)
 
 
 def _magnitude_override_specs(
@@ -3937,6 +4109,11 @@ def _magnitude_override_specs(
     target announced for the base is the one the bigger effect hits (RULE
     115.1). A `bind` measures the size once and keeps the base's target.
     """
+    # PAR-216 (RULE 615.6): "... instead it deals 10 damage to that permanent or player and the damage can't be
+    # prevented" (Urza's Rage, Lightning Surge) -- the bigger hit is also unpreventable, under the same condition.
+    unpreventable_tail = _UNPREVENTABLE_OVERRIDE_TAIL_RE.search(replacement_text)
+    if unpreventable_tail is not None:
+        replacement_text = replacement_text[: unpreventable_tail.start()]
     base_numbers = _OVERRIDE_NUMBER_RE.findall(base_text)
     new_numbers = _OVERRIDE_NUMBER_RE.findall(replacement_text)
     if len(base_numbers) != 1 or len(new_numbers) != 1:
@@ -3961,11 +4138,14 @@ def _magnitude_override_specs(
             or base_spec.condition is not None
             or {**base_spec.params, keys[0]: None} != {**bigger_spec.params, keys[0]: None}):
         return None
+    if unpreventable_tail is not None and base_spec.type != "damage":
+        return None
+    gated = {"unpreventable_if": condition} if unpreventable_tail is not None else {}
     return [EffectSpec("bind", {
         "name": "n",
         "amount": {"kind": "if", "condition": condition,
                    "then": int(new_numbers[0]), "otherwise": int(base_numbers[0])},
-        "effects": [EffectSpec(base_spec.type, {**base_spec.params, keys[0]: "$n"}).to_dict()],
+        "effects": [EffectSpec(base_spec.type, {**base_spec.params, keys[0]: "$n", **gated}).to_dict()],
     })]
 
 
@@ -3978,13 +4158,35 @@ def _instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -
     announces one requirement for whichever branch runs.
     """
     match = _INSTEAD_OVERRIDE_RE.fullmatch(body)
+    suffix = re.fullmatch(r"(?P<base>[^.]+)\.\s*(?P<replacement>[^.]+?) instead if (?P<cond>[^.]+)\.?", body, re.I | re.S)
+    if match is None and suffix is not None:
+        return _instead_override_specs(
+            f"{suffix.group('base')}. if {suffix.group('cond')}, {suffix.group('replacement')} instead.",
+            reading=reading,
+        )
     if match is None:
         return None
-    ordinal = re.fullmatch(_RESOLUTION_TIME, match.group("cond"), re.I)
+    condition_text = match.group("cond")
+    if (re.fullmatch(r"it was(?:n'?t)? kicked", condition_text, re.I)
+            and not _OVERRIDE_TARGET_RE.search(match.group("base"))):
+        # An untargeted ETB instruction's "it" is its source. Bare "it"
+        # after a target-spell instruction could instead name that spell.
+        condition_text = re.sub(r"^it\b", "this spell", condition_text, flags=re.I)
+    ordinal = re.fullmatch(_RESOLUTION_TIME, condition_text, re.I)
     condition = (_resolution_count_condition(ordinal) if ordinal is not None
-                 else static_condition(match.group("cond")))
+                 else static_condition(condition_text))
     if condition is None:
         return None
+    # The unreplaced instruction never runs, so its target is this
+    # instruction's current target, not a previous completed effect.
+    def current_target(value):
+        if isinstance(value, dict):
+            return {key: ("target" if key == "of" and child == "previous_target" else current_target(child))
+                    for key, child in value.items()}
+        if isinstance(value, list):
+            return [current_target(child) for child in value]
+        return value
+    condition = current_target(condition)
     base_text = match.group("base")
     replacement_text = match.group("replacement") or match.group("leading")
     # "If a creature died this turn, A. If seven or more died, instead B."
@@ -4015,6 +4217,13 @@ def _instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -
             _target_signature(base) != _target_signature(replacement)
             or (_target_signature(base) and (len(base) != 1 or len(replacement) != 1))):
         return None
+    if _is_announced_condition(condition):
+        for spec in replacement:
+            if spec.type == "damage" and spec.params.get("divided"):
+                spec.params["division_required"] = True
+    if len(replacement) == 1 and replacement[0].type == "optional":
+        # Declining an optional replacement performs the original event.
+        replacement[0].params["else_effects"] = [spec.to_dict() for spec in base]
     return [EffectSpec("if_else", {
         "condition": condition,
         "then": [spec.to_dict() for spec in replacement],
@@ -4024,13 +4233,15 @@ def _instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -
 
 #: Flags the cast itself decides before targets are chosen — the parser-side mirror of
 #: `game/effect_conditions.ANNOUNCED_FLAGS` (this package must not import `game/`).
-_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid"})
+_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid"})
 
 
 def _is_announced_condition(condition: Optional[dict[str, Any]]) -> bool:
     """Whether ``condition`` is a (possibly negated) flag the cast already settled (RULE 601.2b)."""
     while condition and condition.get("kind") == "not":
         condition = condition.get("condition")
+    if condition and condition.get("kind") == "kicked" and "of" not in condition:
+        return True
     return bool(condition and condition.get("kind") == "flag"
                 and condition.get("flag") in _ANNOUNCED_FLAGS and "of" not in condition)
 
@@ -4092,6 +4303,16 @@ _THIS_WAY_TALLY_RE = re.compile(r"^(?:creature|permanent|card)s? (?P<verb>destro
 _THIS_WAY_TALLY_NAMES = {"destroyed": "permanents_destroyed_this_way", "exiled": "objects_exiled_this_way"}
 
 
+#: RULE 120.3 / 120.4a: "the damage dealt this way" / "the amount of excess damage dealt to that creature this way" /
+#: "that excess damage" -- `GameContext.damage_dealt_this_way` / `excess_damage_this_way`, the damage this resolution
+#: actually dealt (after prevention) and the part beyond lethal. A recipient qualifier is the clause's own target, so
+#: it is read as the whole tally (the earlier clause dealt damage to exactly that one recipient on every printing).
+_DAMAGE_THIS_WAY_RE = re.compile(
+    r"^(?:the (?:amount of )?(?P<excess>excess )?damage dealt(?: to (?:that (?:creature|permanent|player)|it|them))? this way"
+    r"|(?P<excess_ref>that excess damage))$"
+)
+
+
 _THIS_WAY_COUNT_PHRASE_RE = re.compile(
     r"^(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)? ?"
     r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled) this way$"
@@ -4101,7 +4322,7 @@ _THIS_WAY_COUNT_PHRASE_RE = re.compile(
 def _this_way_filter(m: "re.Match[str]") -> dict[str, Any]:
     """The ``card_type`` / ``negate`` / ``color`` filter a `_THIS_WAY_TYPES` match names (shared by every "this way" reader)."""
     filt: dict[str, Any] = {}
-    if m.group("type") and m.group("type") != "permanent":
+    if m.group("type"):  # "permanent" stays: RULE 110.4 permanent cards are matched by the engine marker
         filt["card_type"] = m.group("type")
         if m.group("non"):
             filt["negate"] = True
@@ -4119,6 +4340,10 @@ def _count_amount(
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is not None:
         return amount
+    damage_way = _DAMAGE_THIS_WAY_RE.match(phrase)
+    if damage_way is not None:
+        excess = damage_way.group("excess") or damage_way.group("excess_ref")
+        return {"kind": "this_way", "tally": "excess_damage_this_way" if excess else "damage_dealt_this_way"}
     this_way = _THIS_WAY_TALLY_RE.match(phrase)
     if this_way is not None:
         return {"kind": "this_way", "tally": _THIS_WAY_TALLY_NAMES[this_way.group("verb")]}
@@ -4176,7 +4401,7 @@ def _for_each_amount_specs(
     something the card never scaled.
     """
     amount = _count_amount(
-        phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if amount is None:
         return None
@@ -4192,16 +4417,18 @@ def _bound_pump_for_each(spec: EffectSpec, amount: dict[str, Any]) -> "Optional[
     and are refused; so is anything that isn't a plain printed +N/+M."""
     params = dict(spec.params)
     halves = {k: params.get(k) for k in ("power", "toughness")}
-    if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in halves.values()):
+    if any(isinstance(v, bool) or not isinstance(v, int) for v in halves.values()):
         return None
     scaled = {k: v for k, v in halves.items() if v}
+    # A shrinking pump ("gets -1/-1 until end of turn for each …", PAR-203) scales the same way, through the bind's
+    # "-$n" spelling; both nonzero halves must agree in size *and* sign.
     if not scaled or len(set(scaled.values())) != 1:
         return None
     unit = next(iter(scaled.values()))
-    if unit > 1:
-        amount = {**amount, "multiply": unit}
+    if abs(unit) > 1:
+        amount = {**amount, "multiply": abs(unit)}
     for key in scaled:
-        params[key] = "$n"
+        params[key] = "$n" if unit > 0 else "-$n"
     return [EffectSpec("bind", {
         "name": "n", "amount": amount,
         "effects": [{"type": "pump", "params": params}],
@@ -4387,8 +4614,15 @@ _THIS_WAY_EACH_RE = re.compile(
 _THIS_WAY_EACH_LEAD_RE = re.compile(
     rf"^for each {_THIS_WAY_TYPES} ?(?:card )?(?P<verb>{_THIS_WAY_VERB_RE}) this way, (?P<rest>.+?)\.?$"
 )
+#: PAR-207 (RULE 603.12): "**When you discard** a nonland card **this way**, <effect>." -- the reflexive sibling of the
+#: "if a nonland card was discarded this way" consumer: a trigger of its own (so its targets are chosen after the
+#: discard), which exists only if the pool holds a matching card. Discard is the one verb that prints in this form.
+_THIS_WAY_WHEN_RE = re.compile(
+    rf"^when you (?P<action>discard) (?:an? |1 or more )?{_THIS_WAY_TYPES} ?cards? this way, (?P<then>.+?)\.?$"
+)
 _THIS_WAY_SPLIT_RE = re.compile(
     rf"\.\s+(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:{_THIS_WAY_VERB_RE}) this way, "
+    rf"|when you discard (?:an? |1 or more )?[a-z]* ?cards? this way, "
     rf"|for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way, "
     rf"|.+ for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way))"
 )
@@ -4405,7 +4639,10 @@ def _this_way_sequences(
     body: str, *, verbs: frozenset[str], reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """The instruction + its "this way" consumers (see the block comment above), for the pools in ``verbs``."""
-    if " this way" not in body or not any(f" {v} this way" in body for v in verbs):
+    if " this way" not in body or not (
+        any(f" {v} this way" in body for v in verbs)
+        or ("discarded" in verbs and _THIS_WAY_WHEN_RE.search(body.split(". ")[-1].strip()))
+    ):
         return None
     parts = _THIS_WAY_SPLIT_RE.split(body)
     if len(parts) < 2:
@@ -4418,6 +4655,32 @@ def _this_way_sequences(
     specs = list(before)
     for sentence in parts[1:]:
         sentence = sentence.strip()
+        reflexive = _THIS_WAY_WHEN_RE.match(sentence)
+        if reflexive is not None:
+            if "discarded" not in verbs or (reflexive.group("non") and not reflexive.group("type")):
+                return None
+            if '"type": "discard"' not in before_json:
+                return None  # the measured verb must be the one the first clause performs
+            # The payoff's own pronouns ("that card's mana value", "it") name the pooled card, which no row binds yet.
+            if re.search(r"\b(?:it|its|that|those|them|they|their)\b", reflexive.group("then")):
+                return None
+            payoff = parse_effect_body(
+                reflexive.group("then"), reading=ClauseReading(self_subject=reading.self_subject),
+            )
+            if not payoff or any(spec.condition for spec in payoff):
+                return None
+            pool: dict[str, Any] = {"kind": "this_way_pool", "pool": "discarded"}
+            if reflexive.group("type"):
+                pool["card_type"] = reflexive.group("type")
+                if reflexive.group("non"):
+                    pool["negate"] = True
+            if reflexive.group("color"):
+                pool["color"] = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[reflexive.group("color")]
+            windowed = True
+            specs.append(EffectSpec(
+                "reflexive_trigger", {"then_trigger": [spec.to_dict() for spec in payoff]}, condition=pool,
+            ))
+            continue
         m = _THIS_WAY_IF_RE.match(sentence)
         each = None
         if m is None:
@@ -4587,10 +4850,16 @@ def _for_each_specs(
         return None
     phrase = match.group("group").strip().lower()
     selector = parse_count_phrase(phrase) if phrase in _FOR_EACH_GROUP_PHRASES else None
+    over = {"selector": selector} if selector is not None else None
     if selector is None:
-        return _for_each_amount_specs(
-            match, phrase, reading=reading.unattached(),
-        )
+        amount_specs = _for_each_amount_specs(match, phrase, reading=reading.unattached())
+        if amount_specs is not None:
+            return amount_specs
+        # A non-scaling instruction (e.g. proliferate) is repeated, rather than
+        # assigned a fabricated magnitude. Counts and aggregates are never sets.
+        over = quantified_set("each " + phrase, reading)
+        if over is None:
+            return None
     inner = parse_effect_body(
         match.group("rest").strip(), reading=reading.unattached(),
     )
@@ -4598,8 +4867,10 @@ def _for_each_specs(
         return None
     if any(_names_a_target(spec) for spec in inner):
         return None
+    if selector is None and any(spec.type in ("pump", "coin_flip", "roll_die") for spec in inner):
+        return None  # magnitude/recorded-result families keep their dedicated composition gates
     return [EffectSpec("for_each", {
-        "over": {"selector": selector},
+        "over": over,
         "effects": [spec.to_dict() for spec in inner],
     })]
 
@@ -4612,7 +4883,7 @@ _WHERE_X_RE = re.compile(
     r"^(?P<rest>.+?),?\s+where x is the number of (?P<phrase>.+)$", re.IGNORECASE
 )
 _EQUAL_TO_RE = re.compile(
-    r"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage) equal to the number of (?P<phrase>.+?)"
+    r"^(?P<verb>.+?)\s+(?:a number of )?(?P<noun>life|cards?|damage) equal to the number of (?P<phrase>.+?)"
     r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
     re.IGNORECASE,
 )
@@ -4628,23 +4899,22 @@ _DAMAGE_TO_EQUAL_TO_RE = re.compile(
 #: Primal Hunter; ~25 cards) — an aggregate over a group rather than a count of it, read by
 #: `count_phrase.parse_amount_phrase`. The recipient may sit before "equal to" or after the term.
 _EQUAL_TO_AGGREGATE_RE = re.compile(
-    r"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage)(?P<pre>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?"
-    r" equal to (?P<phrase>the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) .+?|"
-    rf"{SACRIFICED_TERM})"
+    r"^(?P<verb>.+?)\s+(?:a number of )?(?P<noun>life|cards?|damage)(?P<pre>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?"
+    r" equal to (?P<phrase>[^.]+?)"
     r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
     re.IGNORECASE,
 )
+
 #: The params an X can sit in once an X-capable handler has parsed the body.
-_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value")
+_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value", "exact_mana_value")
 
 
 #: "`<effect with x>`, where x is the sacrificed creature's power" (Ghoulcaller Gisa, Atogatog) — X as an
 #: amount term rather than "the number of …": read by `count_phrase.parse_amount_phrase` like the aggregates.
 _WHERE_X_AMOUNT_RE = re.compile(
-    rf"^(?P<rest>.+?),?\s+where x is (?P<phrase>(?:\d+ plus )?(?:{SACRIFICED_TERM}"
-    r"|the amount of life you (?:gained|lost) this turn"
-    r"|the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) [^.]+?))$", re.IGNORECASE
+    r"^(?P<rest>.+?),?\s+where x is (?P<phrase>[^.]+)$", re.IGNORECASE
 )
+
 #: RULE 107.2: "where x is half the number of <phrase>, rounded up/down" -- the count of `_WHERE_X_RE` halved.
 _HALF_DIVISOR = 2
 _WHERE_X_HALF_COUNT_RE = re.compile(
@@ -4666,6 +4936,8 @@ _WHERE_X_THEN_RE = re.compile(
 
 
 _MINUS_TAIL_RE = re.compile(r"\s+minus (?P<n>\d+)$")
+#: "`<N>` minus `<count>`" -- a literal minuend (The Rack: "3 minus the number of cards in their hand").
+_MINUS_HEAD_RE = re.compile(r"^(?P<n>\d+) minus (?P<rest>the number of .+)$")
 
 #: RULE 706 (PAR-147): the number a die roll just produced, as the amount a sentence measures —
 #: "`<effect with x>`, where x is **the result**" (Numbing Jellyfish), "`<verb>` life/cards/damage
@@ -4781,7 +5053,115 @@ def _die_x_rest(text: str) -> "Optional[tuple[str, dict[str, Any]]]":
     return rest, amount
 
 
+#: PAR-215 axis E: "destroy each nonland permanent with mana value equal to the number of charge counters on ~"
+#: (Ratchet Bomb, Engineered Explosives, Powder Keg, Wave of Terror, The Moment): the mass destroy/exile verbs only --
+#: a *targeted* bound has to resolve while the target is announced (RULE 601.2c), before any amount is measured.
+_MANA_VALUE_AMOUNT_RE = re.compile(
+    r"^(?P<head>(?:destroy|exile) (?:each|all) [^,]+? with mana value) "
+    r"(?P<cmp>equal to|less than or equal to) (?P<phrase>the number of .+)$", re.IGNORECASE,
+)
+
+
+def _mana_value_bound_is_resolve_time(specs: "list[EffectSpec]") -> bool:
+    """Whether the measured bound sits in an effect that filters at resolution (a mass group), not in a target."""
+    for spec in specs:
+        if spec.type != "bind":
+            return False
+        for effect in spec.params.get("effects", []):
+            params = effect.get("params", {})
+            if params.get("target_kind") not in (None, "permanent", "creature", "artifact", "nonland_permanent") and \
+                    "$n" in repr(params):
+                return False
+            if "$n" not in repr(params):
+                return False
+    return True
+
+
+#: PAR-215 axis E: a *targeted* mana-value bound that is a count of the controller's own permanents ("exile target
+#: creature with mana value less than or equal to the number of Plains you control", Lay Down Arms; Dominating Vampire).
+#: The bound is a RULE 601.2c target restriction, so it is measured while the target is offered
+#: (`targeting.legal_targets`), and only a count taken as "you" -- a count relative to the target's controller
+#: (Drown in the Loch) is a per-candidate comparison and stays unclaimed.
+_MV_COUNT_BOUND_RE = re.compile(
+    r"^(?P<head>.+? target [^,]+? with mana value) (?P<cmp>equal to|less than or equal to) "
+    r"the number of (?P<phrase>[^,.]+? you control|cards in its controller's graveyard)(?P<tail>.*)$", re.IGNORECASE,
+)
+#: "the number of cards in **its controller's** graveyard" (Drown in the Loch): the count belongs to each candidate's
+#: own controller, so the bound is compared per candidate (`targeting._candidate_mana_value_bound`).
+_CANDIDATE_CONTROLLER_GRAVEYARD = "cards in its controller's graveyard"
+#: The placeholder bound the existing rows parse; it never appears in printed text next to "the number of".
+_MV_COUNT_PLACEHOLDER = 0
+
+
+def _mana_value_count_bound_specs(body: str, *, reading: ClauseReading = STANDALONE) -> "Optional[list[EffectSpec]]":
+    m = _MV_COUNT_BOUND_RE.match(body.strip().rstrip(".").strip())
+    if m is None:
+        return None
+    per_candidate = m.group("phrase").lower() == _CANDIDATE_CONTROLLER_GRAVEYARD
+    selector = parse_count_phrase("cards in your graveyard" if per_candidate else m.group("phrase"))
+    if not isinstance(selector, dict) or selector.get("of") != "you" \
+            or selector.get("zone") != ("graveyard" if per_candidate else "battlefield") \
+            or "distinct" in selector or "aggregate" in selector:
+        return None
+    exact = m.group("cmp").lower() == "equal to"
+    if per_candidate and exact:
+        return None  # only the ceiling is a printed shape
+    placeholder = f"{_MV_COUNT_PLACEHOLDER}" if exact else f"{_MV_COUNT_PLACEHOLDER} or less"
+    specs = parse_effect_body(f"{m.group('head')} {placeholder}{m.group('tail')}", reading=reading)
+    key = "exact_mana_value" if exact else "max_mana_value"
+    if not specs or len(specs) != 1 or specs[0].params.get(key) != _MV_COUNT_PLACEHOLDER \
+            or isinstance(specs[0].params.get(key), bool):
+        return None
+    bound = {"candidate_controller_count": selector} if per_candidate else {"count_selector": selector}
+    params = {**specs[0].params, key: bound}
+    return [EffectSpec(specs[0].type, params, condition=specs[0].condition)]
+
+
+#: Effects whose target requirement reads a `TargetSpec.max_mana_value` count-selector dict (RULE 601.2c): a
+#: "mana value X or less, where X is <count>" ceiling has to be known while the target is offered, before the
+#: ability resolves, so it cannot ride the resolve-time `bind` that other where-X sentences use.
+_ANNOUNCE_TIME_MANA_VALUE_EFFECTS = frozenset({"return_from_graveyard"})
+
+
+def _inline_announce_time_mana_value(specs: "Optional[list[EffectSpec]]") -> "Optional[list[EffectSpec]]":
+    """PAR-215: ``bind(n = <amount>) { return_from_graveyard(max_mana_value=$n) }`` -> the effect with that amount as
+    its own announce-time ceiling (Celestine, the Living Saint; Unforgiving One; Guardian Scalelord). An amount the
+    target offer cannot measure (anything but a count selector or the source's own power) is refused: a bare
+    ``$n`` left in a target bound would never resolve."""
+    if not specs or len(specs) != 1 or specs[0].type != "bind":
+        return specs
+    bind = specs[0]
+    inner = bind.params.get("effects") or []
+    amount = bind.params.get("amount") or {}
+    if len(inner) != 1 or bind.condition is not None:
+        return specs
+    effect = inner[0]
+    params = effect.get("params") if isinstance(effect, dict) else None
+    placeholder = f"${bind.params.get('name')}"
+    if effect.get("type") not in _ANNOUNCE_TIME_MANA_VALUE_EFFECTS or not params \
+            or params.get("max_mana_value") != placeholder:
+        return specs
+    if amount.get("kind") == "count_selector" and set(amount) <= {"kind", "selector"}:
+        bound: Any = {"count_selector": amount["selector"]}
+    elif amount.get("kind") == "characteristic" and amount.get("of") == "source" \
+            and amount.get("characteristic") == "power":
+        bound = "source_power"  # `TargetSpec.max_mana_value`'s existing sentinel (RULE 208.1)
+    else:
+        return None
+    return [EffectSpec(effect["type"], {**params, "max_mana_value": bound})]
+
+
 def _where_x_specs(
+    body: str, *, reading: ClauseReading = STANDALONE,
+    several: bool = False,
+    divide_by: "Optional[tuple[int, bool]]" = None,
+) -> "Optional[list[EffectSpec]]":
+    return _inline_announce_time_mana_value(
+        _where_x_specs_raw(body, reading=reading, several=several, divide_by=divide_by)
+    )
+
+
+def _where_x_specs_raw(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
     divide_by: "Optional[tuple[int, bool]]" = None,
@@ -4790,6 +5170,28 @@ def _where_x_specs(
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    mana_value = _MANA_VALUE_AMOUNT_RE.match(text)
+    if mana_value is not None:
+        # RULE 202.3: "each permanent with mana value equal to / less than or equal to `<count>`" is the mass
+        # "with mana value x [or less]" row with that count as X (measured once, when the ability resolves).
+        bound = _where_x_specs(
+            f"{mana_value.group('head')} {'x' if mana_value.group('cmp') == 'equal to' else 'x or less'}, "
+            f"where x is {mana_value.group('phrase')}", reading=reading, several=several, divide_by=divide_by,
+        )
+        return bound if bound is not None and _mana_value_bound_is_resolve_time(bound) else None
+    inline_source = re.fullmatch(
+        r"(?P<head>.+), where x is (?P<phrase>~'s (?:power|toughness|mana value)), (?P<tail>.+)", text,
+    )
+    if inline_source:
+        text = f"{inline_source['head']}, {inline_source['tail']}, where x is {inline_source['phrase']}"
+    # Keep the animation's type-retention sentence inside its own body;
+    # the quantity still measures once for the whole grant (RULE 611.2d).
+    retained = re.fullmatch(
+        r"(?P<head>.+), where x is (?P<quantity>[^.]+)\. (?P<rider>it'?s still a land|they'?re still lands)",
+        text, re.I | re.S,
+    )
+    if retained:
+        text = f"{retained['head']}. {retained['rider']}, where x is {retained['quantity']}"
     halved = _WHERE_X_HALF_COUNT_RE.match(text)
     if halved is not None and divide_by is None:
         # RULE 107.2: "where x is half the number of <phrase>, rounded up/down" is the count with a rounded halving.
@@ -4841,7 +5243,7 @@ def _where_x_specs(
             return _where_x_specs(
                 f"{mid.group('head')}. {mid.group('tail')}, where x is {mid.group('phrase')}",
                 reading=reading.unattached(),
-                several=several,
+                several=True,
             )
         if m is not None:
             return None  # a sentence break inside the phrase that is not this shape: not an X definition
@@ -4858,9 +5260,19 @@ def _where_x_specs(
             return None
         recipient = (m.groupdict().get("pre") or "") + (m.group("tail") or "")
         rest = f"{m.group('verb')} x {m.group('noun')}{recipient}"
-    if aggregate is not None:
-        term = parse_amount_phrase(m.group("phrase"))
-        amount = None if term is None else {"kind": "count_selector", "selector": term}
+    relative = _relative_player_amount(m.group("phrase"), rest)
+    if relative is not None:
+        amount = relative
+    elif aggregate is not None:
+        source_characteristic = re.fullmatch(r"~'s (power|toughness|mana value)", m.group("phrase"))
+        if source_characteristic:
+            amount = {"kind": "characteristic", "of": "source",
+                      "characteristic": source_characteristic[1].replace(" ", "_")}
+        elif _DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()):
+            amount = _count_amount(m.group("phrase"))
+        else:
+            term = parse_amount_phrase(m.group("phrase"))
+            amount = None if term is None else {"kind": "count_selector", "selector": term}
     else:
         phrase = m.group("phrase")
         # "…the number of cards in your hand **minus 4**" (Ivory Tower): a negative X counts as 0
@@ -4868,7 +5280,7 @@ def _where_x_specs(
         minus = _MINUS_TAIL_RE.search(phrase)
         if minus is not None:
             phrase = phrase[: minus.start()]
-        amount = _count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET)), )
+        amount = _count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER)), )
         if amount is None and " plus the number of " in phrase:
             # "…the number of caves you control **plus the number of** cave cards in your graveyard" (Calamitous
             # Cave-In): a sum of counts, which the amount grammar reads as one expression.
@@ -4887,6 +5299,60 @@ def _where_x_specs(
     )
 
 
+#: PAR-215 axis D: a count taken *as another player* -- "the number of cards in **that player's** hand", "the number of
+#: islands **they control**" (RULE 109.5: "they"/"that player" is the player the clause names, not "you").
+_RELATIVE_PLAYER_COUNT_RE = re.compile(
+    r"^(?P<twice>twice )?(?:the number of )?(?P<head>.+?)(?: (?P<control>that (?:player|opponent) controls|they control)"
+    r"| in (?P<owner>their|that player's) (?P<zone>hand|graveyard))$"
+)
+#: Placeholder for a relative count whose player is the body's own "that player" (resolved in `_bind_x_specs`).
+_THAT_PLAYER_HOLDER = "@that_player"
+#: The damage selectors that name a trigger's own player -- also the `effect_conditions.subject_of` referents.
+_TRIGGER_PLAYER_SELECTORS = frozenset({"active_player", "event_player"})
+#: The player the effect body itself announces (RULE 115.1), whom a relative count is then taken as.
+_BODY_TARGET_PLAYER_RE = re.compile(r"\btarget (?:player|opponent)\b")
+
+
+def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]":
+    """"the number of `<X>` that player controls / in their hand" -> the `count_selector` amount taken as the target player.
+
+    Only when the body announces exactly one player target ("deals x damage to target player", "target opponent loses
+    x life"): that target is the player "they" / "that player" / "their" names, and ``of: target`` makes
+    `effect_amounts` evaluate the count with that player as the controller. Any other antecedent (a trigger's player,
+    an iteration) is refused here rather than guessed. A phrase naming its *own* "target opponent" is a second
+    target the body does not announce, so only the pronoun spellings are read."""
+    phrase = phrase.strip().lower()
+    # "3 minus the number of cards in their hand" (The Rack, Wheel of Torture): the count is subtracted from a
+    # literal, so it is the negated count plus that literal, floored at 0 (RULE 107.1b).
+    head_minus = _MINUS_HEAD_RE.match(phrase)
+    if head_minus is not None:
+        measured = _relative_player_amount(head_minus.group("rest"), body)
+        if measured is None or "multiply" in measured or "minus" in measured:
+            return None
+        return {**measured, "multiply": -1, "plus": int(head_minus.group("n")), "minimum": 0}
+    # "...the number of cards in their hand minus 4" (Iron Maiden): a negative X counts as 0 (RULE 107.1b).
+    minus = _MINUS_TAIL_RE.search(phrase)
+    if minus is not None:
+        phrase = phrase[: minus.start()]
+    m = _RELATIVE_PLAYER_COUNT_RE.match(phrase)
+    if m is None:
+        return None
+    targets = len(_BODY_TARGET_PLAYER_RE.findall(body))
+    if targets > 1 or (targets == 0 and not re.search(r"\bthat player\b", body)):
+        return None
+    tail = f" in your {m.group('zone')}" if m.group("zone") else " you control"
+    selector = parse_count_phrase(m.group("head") + tail)
+    if not isinstance(selector, dict) or selector.get("of") != "you" or "distinct" in selector:
+        return None
+    amount = {"kind": "count_selector", "selector": selector, "of": "target" if targets else _THAT_PLAYER_HOLDER}
+    # `effect_amounts` multiplies a measured count by ``multiply`` ("twice the number of ...").
+    if m.group("twice"):
+        amount["multiply"] = 2
+    if minus is not None:
+        amount.update(minus=int(minus.group("n")), minimum=0)
+    return amount
+
+
 def _bind_x_specs(
     rest: str, amount: "dict[str, Any]", *, reading: ClauseReading = STANDALONE,
     several: bool = False,
@@ -4897,6 +5363,15 @@ def _bind_x_specs(
     )
     if not inner or (len(inner) != 1 and not several):
         return None
+    if amount.get("kind") == "characteristic" and amount.get("of") == "source":
+        # RULE 107.1b: a measured modifier uses zero for a negative result;
+        # setting base P/T is the explicit exception and keeps its sign.
+        sets_pt = all(
+            spec.type == "grant_until" and spec.params.get("static", {}).get("type") == "type_change"
+            for spec in inner
+        )
+        if not sets_pt:
+            amount = {**amount, "minimum": 0}
     effects: list[dict[str, Any]] = []
     bound_any = False
     for spec in inner:
@@ -4907,20 +5382,33 @@ def _bind_x_specs(
             return None
         holders = [k for k in _X_PARAM_KEYS if params.get(k) in ("x", "-x")]
         nested = False
+        if spec.type == "grant_until":
+            for key in ("static", "extra_statics"):
+                if key in params:
+                    params[key], replaced = _replace_x(params[key])
+                    nested = nested or replaced
         if not holders and isinstance(params.get("then_effects"), list):
             # An X inside the effects that follow a pick ("return a creature card … with X counters on it").
             params["then_effects"], nested = _replace_x(params["then_effects"])
         if isinstance(params.get('return_effects'), list):
             params['return_effects'], return_x = _replace_x(params['return_effects'])
             nested = nested or return_x
+        for group_key in ("filter", "group", "over"):
+            # A mass effect's own filter ("destroy each nonland permanent with mana value x or less").
+            if isinstance(params.get(group_key), dict):
+                params[group_key], group_x = _replace_x(params[group_key])
+                nested = nested or group_x
         if isinstance(params.get('extra_counters'), dict):
             params['extra_counters'], counter_x = _replace_x(params['extra_counters'])
             nested = nested or counter_x
-        if several and not (holders or nested):
+        if isinstance(params.get('effects'), list):
+            params['effects'], effect_x = _replace_x(params['effects'])
+            nested = nested or effect_x
+        if several and not bound_any and not (holders or nested):
             # "put a +1/+1 counter on ~, then create X tokens, where X is the number of
             # counters on ~" (Anim Pakal) measures *after* the first effect; a bind
-            # measures once, before all of them. Only a sentence whose every effect
-            # takes the X is one shared measurement.
+            # measures once, before all of them. A non-X tail after the first
+            # measured instruction is safe; an earlier non-X effect is not.
             return None
         for key in holders:
             params[key] = "-$n" if key in negated else "$n"
@@ -4931,6 +5419,19 @@ def _bind_x_specs(
         effects.append(entry)
     if not bound_any:
         return None
+    if amount.get("of") == _THAT_PLAYER_HOLDER:
+        # RULE 109.5: "that player" is whichever player the body's own recipient names (a trigger's active player,
+        # the player a spell cast): read it back off the parsed body, and refuse anything else.
+        holders = {e["params"].get("selector") for e in effects}
+        if len(holders) != 1 or not holders <= _TRIGGER_PLAYER_SELECTORS:
+            return None
+        amount = {**amount, "of": next(iter(holders))}
+        # Only a step trigger names its player without a target: `_phase_damage_referents` turns the body's
+        # "that player" into the active player there. Under a spell-cast / damage / attack head the event's own
+        # ``player_id`` is not that player, so the gate rejects the marker anywhere else (`gate._resolve_event_player_tree`).
+        return [EffectSpec("bind", {
+            "name": "n", "amount": amount, "effects": effects, "event_player_events": ["STEP_BEGIN"],
+        })]
     return [EffectSpec("bind", {"name": "n", "amount": amount, "effects": effects})]
 
 
@@ -4940,13 +5441,19 @@ def _bind_x_specs(
 #: X bound to that object's characteristic (`effect_amounts`' ``characteristic``), the same shape
 #: `_where_x_specs` gives a counted quantity.
 _REFERENT_WHAT = r"(?P<what>power|toughness|mana value)"
-_REFERENT_POSSESSIVE = rf"(?:its|that {PRONOUN_NOUN_ALT}'s)"
+_REFERENT_POSSESSIVE = rf"(?P<possessive>its|that (?:{PRONOUN_NOUN_ALT}|card|spell)'s)"
 _WHERE_X_CHARACTERISTIC_RE = re.compile(
     rf"^(?P<rest>.+?),?\s+where x is {_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$", re.IGNORECASE
 )
 _EQUAL_TO_CHARACTERISTIC_RE = re.compile(
     rf"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage) equal to {_REFERENT_POSSESSIVE} {_REFERENT_WHAT}"
-    r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
+    r"(?P<tail>\s+to (?:any target|(?:up to (?:one|1) )?target [a-z ]+?|each opponent|each player|that player))?$",
+    re.IGNORECASE,
+)
+#: "~ deals damage **to that player** equal to that card's mana value" -- the recipient before "equal to".
+_DAMAGE_RECIPIENT_EQUAL_CHARACTERISTIC_RE = re.compile(
+    rf"^(?P<verb>.+? deals?) damage (?P<recipient>to (?:that player|that creature|you|target [a-z ]+?|each opponent)) equal to "
+    rf"{_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$",
     re.IGNORECASE,
 )
 #: "put +1/+1 counters on X equal to its power" / "put a number of +1/+1 counters on X equal to its
@@ -4985,9 +5492,17 @@ def _referent_characteristic_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """See `_REFERENT_WHAT`; ``None`` unless the body reads as one X-taking effect."""
-    if reading.self_subject or not (reading.group_subject or reading.previous_subject):
+    if not (reading.self_subject or reading.group_subject or reading.previous_subject or reading.attached_subject
+            or reading.referents_of(REVEALED)):
         return None
     text = body.strip().rstrip(".").strip()
+    mid = _WHERE_X_MID_BODY_RE.match(text)
+    if mid is not None and re.fullmatch(
+        rf"{_REFERENT_POSSESSIVE} {_REFERENT_WHAT}", mid.group("phrase"), re.I,
+    ):
+        # The library-selection body reads the same X in a later sentence.
+        # Move only its definition, preserving the body and its reading.
+        text = f"{mid.group('head')}. {mid.group('tail')}, where x is {mid.group('phrase')}"
     m = _WHERE_X_CHARACTERISTIC_RE.match(text)
     if m is not None:
         rest = m.group("rest")
@@ -4995,6 +5510,8 @@ def _referent_characteristic_specs(
         m = _EQUAL_TO_CHARACTERISTIC_RE.match(text)
         if m is not None:
             rest = f"{m.group('verb')} x {m.group('noun')}{m.group('tail') or ''}"
+        elif (m := _DAMAGE_RECIPIENT_EQUAL_CHARACTERISTIC_RE.match(text)) is not None:
+            rest = f"{m.group('verb')} x damage {m.group('recipient')}"
         else:
             m = _COUNTERS_EQUAL_CHARACTERISTIC_RE.match(text)
             if m is not None:
@@ -5008,26 +5525,62 @@ def _referent_characteristic_specs(
         # A third-person verb with no subject of its own ("…, then gains life equal to that
         # creature's toughness") acts for whoever the clause before it named — not necessarily "you".
         return None
+    explicit_source = bool(re.match(r"~ (?:gets?|deals?)\b", rest) or re.match(r"put x .+ counters? on ~(?!\w)", rest))
+    # RULE 701.20: after "reveal the top card of your library and put it into your hand" the pronoun and "that
+    # card" name that card, not the ability's source (`GameContext.revealed_card`, or the card the exile left).
+    revealed = next((r for r in reading.referents if r.kind == REVEALED), None)
+    if revealed is not None and (m.group("possessive") == "that card's" or (
+            m.group("possessive") == "its" and not explicit_source)):
+        referent = revealed.noun
+    elif m.group("possessive") == "that spell's":
+        # RULE 608.2h: last-known information of the spell an earlier clause countered. A token the clause before
+        # made is not that spell ("create a token. Put X counters on it, where X is that spell's mana value" names
+        # the spell that fired the trigger), so only a counter antecedent binds it.
+        if not reading.referents_of(COUNTERED):
+            return None
+        referent = "previous_subject"
+    elif m.group("possessive") == "that card's" and (reading.referents_of(CREATED) or not reading.previous_subject):
+        return None  # a made token is no "card"; with no card picked earlier the noun has no antecedent
+    elif m.group("possessive") != "its":
+        if not (reading.previous_subject or reading.group_subject):
+            return None  # a self trigger establishes no "that creature/artifact" antecedent
+        referent = "previous_target" if reading.previous_subject else "trigger_subject"
+    else:
+        referent = ("source" if explicit_source else "previous_target" if reading.previous_subject else
+                    "source" if reading.self_subject else "trigger_subject")
     amount = {
         "kind": "characteristic", "characteristic": _CHARACTERISTIC_NAMES[m.group("what").lower()],
-        "of": "trigger_subject" if reading.group_subject and not reading.previous_subject else "previous_target",
+        "of": referent,
     }
+    if referent == "trigger_subject":
+        amount["event_key"] = GROUP_SUBJECT_KEY_SENTINEL
     inner = parse_effect_body(
-        rest.strip(), reading=ClauseReading(self_subject=False, group_subject=reading.group_subject, referents=reading.referents),
+        rest.strip(), reading=reading.unattached(),
     )
     if not inner:
         return None
+    if not all(spec.type == "grant_until" and spec.params.get("static", {}).get("type") == "type_change"
+               for spec in inner):
+        # RULE 107.1b: preserve signed base P/T settings, while calculated
+        # modifier/count/life results use zero instead of a negative value.
+        amount["minimum"] = 0
     effects: list[dict[str, Any]] = []
     bound_any = False
     for spec in inner:
+        if spec.type in ("create_turn_trigger", "create_delayed_trigger"):
+            return None  # the future trigger measures its characteristic when it resolves
         data, replaced = _replace_x(spec.to_dict())
-        if replaced and spec.type == "trigger_subject_referent":
-            pass
+        if (len(inner) > 1 and not bound_any and not replaced
+                and not (spec.type == "trigger_subject_referent" and not spec.params.get("effects"))):
+            return None  # an earlier non-X instruction may change the measured characteristic
         bound_any = bound_any or replaced
         effects.append(data)
     if not bound_any:
         return None
-    return [EffectSpec("bind", {"name": "n", "amount": amount, "effects": effects})]
+    bound = EffectSpec("bind", {"name": "n", "amount": amount, "effects": effects})
+    if reading.attached_subject and _IT_DEALS_RE.search(rest) and _deals_damage(bound):
+        bound = _stamp_damage_dealer(bound)
+    return [bound]
 
 
 #: PAR-128: the player-subject slot. "each player mills 3 cards", "each opponent gains 10
@@ -5037,9 +5590,62 @@ def _referent_characteristic_specs(
 #: opponent" iterates the body over those players (`for_each` hands each one to it as
 #: its target, APNAP order, RULE 101.4), and "target opponent" narrows the target.
 _PLAYER_SCOPE_SUBJECT_RE = re.compile(
-    r"^(?P<who>each player|each opponent|target opponent) (?P<rest>.+)$", re.IGNORECASE
+    r"^(?P<who>each other player|each player|each opponent|target opponent|target player|that player) (?P<rest>.+)$", re.IGNORECASE
 )
-_PLAYER_SCOPE_ITERATION = {"each player": "each_player", "each opponent": "each_opponent"}
+
+
+def _player_action_outcome_specs(body: str, reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    """Bind a qualified payoff to the preceding shared player instruction."""
+    match = re.fullmatch(
+        r"(?P<before>each (?:other player|player|opponent) (?:may )?"
+        r"(?P<verb>discards?|draws?|sacrifices?) (?P<n>a|an|\d+) [^.]+?)"
+        r"(?:\.\s*|,? then )(?P<after>.+)", body, re.I,
+    )
+    if match is None:
+        return None
+    verb = base_verb(match['verb'])
+    event = {'discard': 'DISCARD_CARD', 'draw': 'DRAW', 'sacrifice': 'SACRIFICE'}[verb]
+    count = 1 if match['n'] in ('a', 'an') else int(match['n'])
+    after = match['after']
+    qualifier = re.search(
+        r"(?P<set>each (?:other player|player|opponent)) who "
+        r"(?P<condition>"
+        r"(?:discarded|drew|sacrificed) (?:(?:a|an|\d+) )?(?:nonland |creature |noncreature )?cards? this way|"
+        r"didn't discard (?:(?:a|an|\d+) )?(?:nonland |creature |noncreature )?cards? this way|"
+        r"can't|cannot|doesn't|didn't|does|did)"
+        r"(?=,| (?:draws?|loses?|gains?|discards?|may|creates?)\b|$)", after, re.I,
+    )
+    if qualifier is None:
+        return None
+    condition = qualifier['condition']
+    past = {'discard': 'discarded', 'draw': 'drew', 'sacrifice': 'sacrificed'}[verb]
+    if 'this way' in condition and not (condition.startswith(past + ' ') or (verb == 'discard' and condition.startswith("didn't discard "))):
+        return None
+    leading = parse_effect_body(match['before'], reading=reading)
+    rewritten = after[:qualifier.start()] + qualifier['set'] + after[qualifier.end():]
+    trailing = _player_scope_specs(rewritten, reading=reading) or parse_effect_body(rewritten, reading=reading)
+    if not leading or not trailing:
+        return None
+    # Only a single shared player loop is the payoff; unsupported instructions
+    # and separately announced targets cannot be smuggled into this scope.
+    if len(trailing) != 1 or trailing[0].type != 'for_each':
+        return None
+    params = trailing[0].params
+    if params.get('over', {}).get('players') != PLAYER_SETS[qualifier['set']]:
+        return None
+    if 'this way' in condition:
+        printed_count = re.search(r'\b(a|an|\d+)\b', condition)
+        count = int(printed_count[1]) if printed_count and printed_count[1].isdigit() else 1
+    result = {'event': event, 'start': '$action_start', 'count': count,
+              'negated': condition in ("can't", 'cannot', "doesn't", "didn't") or condition.startswith("didn't ")}
+    typed = re.search(r'\b(nonland|creature|noncreature) card', condition)
+    if typed:
+        if verb != 'discard':
+            return None
+        result['card_type'] = typed[1]
+    payoff = EffectSpec('for_each', {**params, 'over': {**params['over'], 'action_result': result}})
+    return [EffectSpec('bind', {'name': 'action_start', 'amount': {'kind': 'event_cursor'},
+                               'effects': [e.to_dict() for e in leading] + [payoff.to_dict()]})]
 
 
 def _player_scope_specs(
@@ -5047,9 +5653,27 @@ def _player_scope_specs(
 ) -> "Optional[list[EffectSpec]]":
     """See `_PLAYER_SCOPE_SUBJECT_RE`; ``None`` unless every effect of the "target
     player" reading targets exactly that one player and nothing else."""
+    qualified = re.fullmatch(
+        r"(?P<who>each (?:other player|player|opponent) who .+?) "
+        r"(?P<rest>(?:draws?|discards?|loses?|gains?|mills?|sacrifices?|creates?|may) .+)", body.strip(), re.I,
+    )
+    if qualified is not None:
+        over = qualified_player_set(qualified['who'])
+        if over is None:
+            return None
+        inner = _player_scope_specs('each player ' + qualified['rest'], reading=reading)
+        if not inner or len(inner) != 1 or inner[0].type != 'for_each':
+            return None
+        return [EffectSpec('for_each', {**inner[0].params, 'over': over})]
     m = _PLAYER_SCOPE_SUBJECT_RE.match(body.strip())
     if m is None:
         return None
+    if m.group("who").lower() == "target player":
+        return None  # the singular operation itself must exist; do not re-enter this scope adapter
+    if m.group("who").lower() == "that player" and (
+        reading.previous_subject or reading.attached_subject or any(r.kind == PLAYER for r in reading.referents)
+    ):
+        return None  # an earlier pick/host supplies the player; retain its contextual reading
     inner = parse_effect_body(
         f"target player {m.group('rest')}", reading=reading.unattached(),
     )
@@ -5060,13 +5684,20 @@ def _player_scope_specs(
         if named != ["player"] or spec.type in ("for_each", "bind", "if_else", "seq"):
             return None
     who = m.group("who").lower()
+    if who == "that player":
+        return [EffectSpec("trigger_subject_referent", {
+            "referent": "trigger_player",
+            "event_player_events": ["SPELL_CAST", "DAMAGE", "ATTACKS", "BECOMES_TARGET",
+                                    "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
+            "effects": [spec.to_dict() for spec in inner],
+        })]
     if who == "target opponent":
         return [
             EffectSpec(spec.type, {**spec.params, "target_kind": "opponent"}, condition=spec.condition)
             for spec in inner
         ]
     return [EffectSpec("for_each", {
-        "over": {"players": _PLAYER_SCOPE_ITERATION[who]},
+        "over": quantified_set(who, reading),
         "effects": [spec.to_dict() for spec in inner],
     })]
 
@@ -5108,7 +5739,7 @@ def _leading_for_each_flip_specs(
     )
 
 
-def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
+def _leading_for_each_object_specs(body: str, *, reading: ClauseReading = STANDALONE) -> "Optional[list[EffectSpec]]":
     """See `_LEADING_FOR_EACH_OBJECT_RE`."""
     m = _LEADING_FOR_EACH_OBJECT_RE.match(body.strip())
     if m is None:
@@ -5120,20 +5751,41 @@ def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
         # segmenter keeps it off any head that isn't a batch.
         over = {"batch_members": True}
     else:
+        scope = quantified_set("each " + m.group("group"), reading)
         selector = parse_count_phrase(m.group("group"))
+        if scope is not None:
+            over = scope
         # PAR-153: a card zone too — "for each creature card you own in exile with a memory counter on it,
         # create a … token that's a copy of it" (Altaïr); `ForEachEffect` reads the zone's cards.
-        if (
+        elif (
             selector is None or selector.get("zone") not in _ITERATION_ZONES or "terms" in selector
             or "distinct" in selector or "aggregate" in selector
         ):
             return None
-        over = {"selector": selector}
-    inner = parse_effect_body(m.group("rest").strip(), reading=ClauseReading(previous_subject=True))
+        else:
+            over = {"selector": selector}
+    rest = m.group("rest").strip()
+    # A body independent of the member still executes once per member. Preserve
+    # the meaning of "you", and never replace a separately announced target.
+    independent = parse_effect_body(rest, reading=reading)
+    if independent and not any(
+        _names_a_target(spec) or spec.type in ("coin_flip", "roll_die") for spec in independent
+    ) and not re.search(
+        r"\b(?:it|its|that|those|them|they|their)\b", rest
+    ):
+        return [EffectSpec("for_each", {"over": over, "effects": [e.to_dict() for e in independent]})]
+    inner_reading = ClauseReading(previous_subject=True, referents=(Referent(PLAYER),)) if "players" in over else ClauseReading(previous_subject=True)
+    inner = parse_effect_body(rest, reading=inner_reading)
+    if inner and any(spec.params.get("referent") not in _ITERATION_REFERENTS for spec in inner):
+        inner = object_phrase_specs(rest, inner_reading, match_clause) or inner
     if not inner:
         return None
     effects = []
     for spec in inner:
+        if (spec.type == "trigger_subject_referent"
+                and spec.params.get("referent") in ("previous_subject", "previous_player")):
+            effects.append({"type": spec.type, "params": {**spec.params, "referent": "iteration"}})
+            continue
         if spec.params.get("referent") not in _ITERATION_REFERENTS or _names_a_target(spec):
             return None
         entry: dict[str, Any] = {
@@ -5365,6 +6017,9 @@ def _group_pronoun_condition(
     ``condition`` is what the shared vocabulary made of the phrase (or ``None``); a phrase it does
     not know is tried against the referent grammar (`parse_referent_condition`), and the result is
     scoped to the object that fired the trigger."""
+    if condition is None and reading.self_subject and not reading.previous_subject and not reading.group_subject:
+        if _PRONOUN_CONDITION_RE.match(cond_text) and not re.search(r'\b(?:was|had|were)\b', cond_text):
+            return parse_referent_condition(cond_text)
     if (
         condition is None and reading.previous_subject and not reading.self_subject and not reading.group_subject
         and _PRONOUN_CONDITION_RE.match(cond_text) is not None
@@ -5373,11 +6028,16 @@ def _group_pronoun_condition(
         # mana value reads the same in any zone, so the gate survives the pick having just left the battlefield.
         # Power, toughness and keywords are last-known information (RULE 608.2h) the engine does not keep here.
         referent = parse_referent_condition(cond_text)
-        return referent if referent is not None and referent.get("kind") == "mana_value" else None
+        if referent is not None and (referent.get('kind') == 'mana_value'
+                or not re.search(r"\b(?:was|wasn't|had|didn't|were)\b", cond_text)):
+            return referent
+        return None
     if not reading.group_subject or reading.self_subject or reading.previous_subject or _PRONOUN_CONDITION_RE.match(cond_text) is None:
         return condition
     if condition is None:
         condition = parse_referent_condition(cond_text)
+        if condition is not None and condition.get('kind') == 'source_counters' and re.search(r'\bhad\b', cond_text):
+            return {**condition, 'kind': 'trigger_event_counters'}
     return None if condition is None else _rescope_to_trigger_subject(condition)
 
 #: The condition kinds that talk about one object (the ``of`` referent), rather than the board or a
@@ -5387,6 +6047,7 @@ _SUBJECT_SCOPED_CONDITION_KINDS: frozenset[str] = frozenset({
     "source_attacked_this_turn", "is_card_type", "is_color", "is_subtype", "is_legendary", "is_basic",
     "was_dealt_damage_this_turn", "flag", "power", "toughness", "mana_value", "has_keyword",
     "source_monstrous", "source_equipped", "source_enchanted", "entered_this_turn",
+    "is_chosen_type", "crewed_by_filter",
 })
 
 
@@ -5462,17 +6123,17 @@ def _peel_condition(
         inner = None
         if row.parse_rest is not None:
             inner = row.parse_rest(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
             )
         if inner is None:
             inner = parse_effect_body(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
             )
         if inner is None:
             return True, None
         condition = row.build(match)
         condition = _group_pronoun_condition(
-            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if (
             condition is not None and reading.previous_subject and not reading.self_subject and not reading.group_subject
@@ -5505,7 +6166,10 @@ def _peel_condition(
                 params["target_kind"] = "previous_target"  # "return it" after a clause that chose the pick
             if row.rewrite_params is not None:
                 row.rewrite_params(params, match)
-            gated.append(EffectSpec(spec.type, params, condition=condition))
+            # An inner spec that already carries a gate of its own ("if it was kicked, tap target artifact. If that
+            # artifact is an Equipment, attach it to ~") keeps it: both must hold (RULE 608.2c), not the outer one alone.
+            gated.append(EffectSpec(spec.type, params, condition=condition if spec.condition is None else {
+                "kind": "all", "conditions": [condition, spec.condition]}))
         trailing = (match.groupdict().get("trailing") or "").strip().lstrip(". ").strip()
         if not trailing:
             return True, gated
@@ -5513,7 +6177,7 @@ def _peel_condition(
         # re-fold it through `parse_effect_body` so it gets that gate rather
         # than silently inheriting this one.
         more = parse_effect_body(
-            trailing, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            trailing, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         return True, (gated + more if more is not None else None)
     return False, None
@@ -5535,7 +6199,7 @@ def _with_after_tail(
     if not after_text:
         return specs
     after_specs = parse_effect_body(
-        after_text, reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        after_text, reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if after_specs is None:
         return None
@@ -5581,13 +6245,93 @@ def _lift_opponent_choice(body: str) -> Optional[tuple[str, list[tuple[int, bool
     return "".join(out), lifted
 
 
+#: Spec keys that hand the rest of the ability to a RULE 603.12 reflexive trigger: a payoff of its own with its own
+#: targets (``then_trigger``), or the `reflexive_trigger` node.
+_REFLEXIVE_MARKERS = ('"then_trigger"', '"reflexive_trigger"')
+
+
+def _opens_reflexive_trigger(spec: EffectSpec) -> bool:
+    """Whether ``spec`` (a serialized effect, nested bodies included) puts a reflexive trigger on the stack."""
+    return any(marker in json.dumps(spec.to_dict(), default=str) for marker in _REFLEXIVE_MARKERS)
+
+
+#: "exile a creature card from your graveyard": a pick from the player's own graveyard, not a RULE 115 target.
+_OWN_GRAVEYARD_EXILE_RE = re.compile(
+    r"exile (?:an?|\d+) (?:creature|artifact|enchantment|land|instant|sorcery|planeswalker) cards? from your graveyard"
+)
+
+
+def _action_then_when_you_do(action_then: "re.Match[str]", reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    """"Exile target X. / Create a token. When you do, <effect>." -- the single exile/token antecedent whose own
+    action carries the reflexive trigger (``then_trigger``); ``None`` when the clause is not that shape."""
+    before_specs = parse_effect_body(
+        action_then.group("before"),
+        reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
+    )
+    after_text = action_then.group("after")
+    condition = None
+    if after_text.lower().startswith("if "):
+        gate = _GENERIC_IF_PREFIX_RE.match(after_text)
+        condition = static_condition(gate.group("cond")) if gate else None
+        if condition is None:
+            return None
+        after_text = gate.group("rest")
+    after_specs = parse_effect_body(after_text)
+    if not before_specs or len(before_specs) != 1 or before_specs[0].type not in {"exile", "create_token"} or not after_specs:
+        return None
+    params = dict(before_specs[0].params)
+    # One action; multi-event/mass antecedents need
+    # explicit batching semantics before exposing a reflexive body.
+    if (params.get("count", 1) != 1 or params.get("count_selector")
+            or params.get("selector") or params.get("group") or params.get("spell_or_permanent")
+            or params.get("per_opponent") or params.get("creators", "you") not in {"you", "target"}):
+        return None
+    params["then_trigger"] = [spec.to_dict() for spec in after_specs]
+    if condition is not None:
+        params["then_trigger_condition"] = condition
+    return [EffectSpec(before_specs[0].type, params)]
+
+
 def parse_effect_body(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> Optional[list[EffectSpec]]:
     """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
     emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
     specs = _parse_effect_body_unstamped(body, reading=reading)
-    return _stamp_created_pronouns(specs) if specs else specs
+    def has_inspection(node):
+        if isinstance(node, dict):
+            return node.get("type") == "inspect_cards" or any(has_inspection(v) for v in node.values())
+        if isinstance(node, list):
+            return any(has_inspection(v) for v in node)
+        return False
+    if specs is None or has_inspection([e.to_dict() for e in specs]):
+        inspection = _inspection.parse_inspection(body, lambda text: parse_effect_body(text, reading=reading))
+        if inspection is not None or _inspection.starts_inspection(body):
+            specs = inspection
+    if not specs:
+        return specs
+    return _bind_local_object_quantities(body, _stamp_created_pronouns(specs))
+
+
+def _bind_local_object_quantities(body: str, specs: list[EffectSpec]) -> list[EffectSpec]:
+    """An object-list sacrifice supplies its own following 'that many', independently of a trigger."""
+    if not re.search(r"\bthat (?:many|much)\b", body, re.I):
+        return specs
+    out: list[EffectSpec] = []
+    producer = None
+    for spec in specs:
+        children = spec.params.get("effects", []) if spec.type == "for_each" else []
+        if children and all(child.get("type") == "sacrifice_target" for child in children):
+            producer = len(out)
+        elif producer is not None and any(spec.params.get(key) == "amount" for key in _EVENT_READS):
+            bound = _bind_attack_count([spec], {"kind": "this_way_count", "pool": "sacrificed"})
+            if bound is not None:
+                out.insert(producer, EffectSpec("mark_event_log", {}))
+                out.extend(bound)
+                producer = None
+                continue
+        out.append(spec)
+    return out
 
 
 def _parse_effect_body_unstamped(
@@ -5596,6 +6340,12 @@ def _parse_effect_body_unstamped(
     """`_parse_effect_body_inner`, plus MEC-118's "target `<X>` of an opponent's choice": the phrase is lifted out,
     the plain clause parsed, and ``target_chooser`` stamped on the spec whose target it described (fail closed when
     the targets cannot be matched to specs one to one)."""
+    named = same_name_specs(body.strip(), reading)
+    if named is not None:
+        return named
+    designation = re.fullmatch(r"it becomes (?P<designation>day|night)\.?", body.strip())
+    if designation is not None:
+        return [EffectSpec("set_day_night", {"designation": designation.group("designation")})]
     flicker_sequence = flicker_sequence_specs(body, reading=ClauseReading(self_subject=reading.self_subject)) or linked_pool_return_specs(body) or source_return_specs(body)
     if flicker_sequence is not None:
         return flicker_sequence
@@ -5605,6 +6355,14 @@ def _parse_effect_body_unstamped(
     physical_fight = physical_fight_specs(body)
     if physical_fight is not None:
         return physical_fight
+    # MEC-131: "choose X target attacking creatures. For each of those creatures, its controller may pay {1} or {2}. ..."
+    per_creature_payment = per_creature_payment_specs(body)
+    if per_creature_payment is not None:
+        return per_creature_payment
+    # PAR-203: "choose a creature type/color/card name. <clauses naming the choice>" (RULE 608.2d).
+    named_choice = named_choice_specs(body, lambda text: parse_effect_body(text, reading=reading))
+    if named_choice is not None:
+        return named_choice
     target_group = target_group_specs(body, lambda text: parse_effect_body(
         text, reading=reading.unattached(),
     ))
@@ -5772,16 +6530,55 @@ def _parse_effect_body_inner(
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+    outcome = _player_action_outcome_specs(body, reading)
+    if outcome is not None:
+        return outcome
+    # RULE 608.2c: a coordinated permission inherits the source subject.
+    permission_tail = re.fullmatch(
+        r"(?P<before>~ [^.]+) and (?P<permission>can attack this turn as though it didn't have defender)", body,
+    )
+    if permission_tail is not None:
+        before = parse_effect_body(permission_tail.group("before"), reading=reading)
+        after = parse_effect_body("~ " + permission_tail.group("permission"), reading=reading)
+        return before + after if before and after else None
+    # RULE 608.2c: choosing the antecedent also chooses its combat-assignment rider.
+    # Parse both operands with the same referent reading; targets belong to the
+    # ability announcement even though applying the antecedent is optional.
+    combat_rider = re.fullmatch(
+        r"you may (?P<before>.+)\.\s*if you do, (?P<after>.+assigns no combat damage this turn)",
+        body, re.I | re.S,
+    )
+    if combat_rider is not None:
+        after = parse_effect_body(combat_rider.group("after"), reading=reading)
+        if after is None or len(after) != 1 or after[0].type != "assign_no_combat_damage":
+            return None
+        before_text = re.sub(r"^(?:choose to )?have (?=(?:it|~) deals? )", "", combat_rider.group("before"))
+        before = parse_effect_body(before_text, reading=reading)
+        if not before:
+            return match_clause(body, reading=reading)
+        return [EffectSpec("optional", {"effects": [s.to_dict() for s in before + after]})]
     # Preserve the existing hand-cheat package before placement-tail folding.
     # Its choice already owns haste and the delayed sacrifice (MEC-73).
     if "that creature gains haste until end of turn" in body:
-        packaged = match_clause(body, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET)), )
+        packaged = match_clause(body, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER)), )
         if packaged and len(packaged) == 1 and packaged[0].type == "cheat_creature_from_hand":
             return packaged
     # "you may **have** target creature get -2/-2 until end of turn" (Blightcaster, Battle-Rattle Shaman, the
     # cycling trio, Painsmith, …): "have … get" is only how the optional wording carries the verb — the effect is
     # "target creature gets -2/-2", which every pump / keyword-grant row already reads.
     body = _MAY_HAVE_TARGET_GET_RE.sub(r"\g<1>\g<2> \g<3>s ", body)
+    # Choosing explicit targets here is the announcement's ordinary group;
+    # the counter placement acts on every member (RULE 115.1a).
+    body = re.sub(
+        r"choose (?P<targets>any number of target [^.]+?) and put (?P<counter>an? [a-z]+ counter) on each of them",
+        r"put \g<counter> on each of \g<targets>", body, flags=re.I,
+    )
+    # RULE 608.2c: optional causative animation uses the same subject and
+    # verb as ordinary animation; leave "you may" for the optional wrapper.
+    body = re.sub(
+        r"\b(you may )?have (it|target land(?: you control)?) become (?=an? \d+/\d+ )",
+        r"\1\2 becomes ", body, flags=re.IGNORECASE,
+    )
 
     # "destroy target nonbasic land you don't control and target nonbasic land you don't control." (Volcanic Offering):
     # one verb over two target phrases is two destroy instructions, in printed order (RULE 115.1).  One sentence only:
@@ -5821,7 +6618,7 @@ def _parse_effect_body_inner(
     # "if C," gate or a first sentence — creates the same turn-long trigger a whole line does.
     if _TURN_TRIGGER_RE.match(body):
         turn_trigger = _turn_trigger_segment(
-            body, provenance=ParserProvenance(), reading=ClauseReading(referents=reading.referents_of(TARGET)),
+            body, provenance=ParserProvenance(), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER)),
         )
         if turn_trigger is not None and turn_trigger.claimed and turn_trigger.spec is not None:
             return list(turn_trigger.spec.effects)
@@ -5892,8 +6689,11 @@ def _parse_effect_body_inner(
     # connector split so a base `<effect>` handler can never claim the clause
     # *without* its gate — a wrong-but-modeled unconditional card is worse
     # than an unclaimed one.
+    conditional_object = conditional_object_specs(body, reading, parse_effect_body)
+    if conditional_object is not None:
+        return conditional_object
     matched, peeled = _peel_condition(
-        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if matched:
         return peeled
@@ -5936,13 +6736,17 @@ def _parse_effect_body_inner(
 
     look_top_select = _LOOK_TOP_SELECT_RE.match(body)
     if look_top_select is not None:
+        if look_top_select.group("removed") and look_top_select.group("n") != "x":
+            return None
         rest_destination, rest_order = _LOOK_TOP_SELECT_DESTINATIONS[
             look_top_select.group("dest").lower()
         ]
         spec = EffectSpec(
             "look_top_select",
             {
-                "count": int(look_top_select.group("n")),
+                "count": ({"kind": "counters_removed_as_cost", "of": "source", "counter": look_top_select.group("removed")}
+                          if look_top_select.group("removed") else
+                          "x" if look_top_select.group("n") == "x" else int(look_top_select.group("n"))),
                 "select_count": int(look_top_select.group("m")),
                 "rest_destination": rest_destination,
                 "rest_order": rest_order,
@@ -5995,7 +6799,7 @@ def _parse_effect_body_inner(
     enters_atk = _CREATED_ENTERS_ATTACKING_RE.match(body)
     if enters_atk is not None:
         before_specs = parse_effect_body(
-            enters_atk.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            enters_atk.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         name_subj = (enters_atk.group("name_subj") or "").strip().lower()
         # ``create_named_legendary_token`` emits a plain ``create_token``
@@ -6027,7 +6831,7 @@ def _parse_effect_body_inner(
     if spend_mana is not None:
         restriction = _spend_mana_restriction(spend_mana.group("what"))
         before_specs = parse_effect_body(
-            spend_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            spend_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         ) if restriction is not None else None
         if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
             return None
@@ -6037,13 +6841,13 @@ def _parse_effect_body_inner(
             for spec in before_specs
         ]
         return _with_after_tail(
-            before_specs, spend_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            before_specs, spend_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
 
     keep_mana = _KEEP_MANA_SENTENCE_RE.match(body)
     if keep_mana is not None:
         before_specs = parse_effect_body(
-            keep_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            keep_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
             return None
@@ -6054,53 +6858,66 @@ def _parse_effect_body_inner(
             for spec in before_specs
         ]
         return _with_after_tail(
-            before_specs, keep_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            before_specs, keep_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:
-        before_specs = parse_effect_body(
-            no_regen.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
-        )
-        if before_specs is None:
+        # RULE 701.19c: the rider qualifies only the immediately preceding destruction,
+        # never an earlier independent sentence or a later destruction this turn.
+        before_text = no_regen.group("before")
+        if '"' in before_text:
             return None
-        plural_regen = bool(re.search(r"\.\s*they can'?t be regenerated", body, re.IGNORECASE))
-        plural_flagged = False
-        for i in range(len(before_specs) - 1, -1, -1):
-            if before_specs[i].type == "destroy":
-                flagged = dict(before_specs[i].params)
-                flagged["can_be_regenerated"] = False
-                before_specs[i] = EffectSpec(
-                    before_specs[i].type, flagged, condition=before_specs[i].condition
-                )
-                if plural_regen:
-                    plural_flagged = True
-                    continue  # "They can't be regenerated." covers every creature the sentence before destroyed
-                break
-            wrapped = before_specs[i].params.get("effects") if (
-                before_specs[i].type == "trigger_subject_referent") else None
-            if wrapped and wrapped[-1].get("type") == "destroy":
-                # "destroy it. It can't be regenerated." under a group trigger: the destroy sits in
-                # the firing-object wrapper's body.
-                nested = dict(wrapped[-1])
-                nested["params"] = {**(nested.get("params") or {}), "can_be_regenerated": False}
-                before_specs[i] = EffectSpec(
-                    before_specs[i].type, {**before_specs[i].params, "effects": [*wrapped[:-1], nested]},
-                    condition=before_specs[i].condition,
-                )
-                break
-        else:
-            if not plural_flagged:
-                return None  # nothing to deny regeneration to — fail closed
+        boundary = before_text.rfind(". ")
+        prefix = before_text[:boundary] if boundary >= 0 else ""
+        immediate = before_text[boundary + 2:] if boundary >= 0 else before_text
+        before_specs = parse_effect_body(before_text, reading=reading)
+        if not before_specs:
+            return None
+        immediate_specs = parse_effect_body(immediate, reading=reading)
+        if immediate_specs is None:
+            return None  # A trailing conditional may require the earlier cost's antecedent.
+        def _is_destroy(spec: EffectSpec) -> bool:
+            # A group trigger's "destroy it" sits in the firing-object wrapper's body; a composed target or group
+            # operand ("destroy target Wall") ends in its destroy inside seq / for_each wrappers.
+            return _last_destroy_denying_regeneration(spec.to_dict()) is not None
+
+        def _is_marker(spec: EffectSpec) -> bool:
+            # The bare firing-object marker a group trigger puts before "destroy it".
+            return spec.type == "trigger_subject_referent" and not spec.params.get("effects")
+
+        immediate_specs = [spec for spec in immediate_specs if not _is_marker(spec)]
+        if not immediate_specs or not all(_is_destroy(spec) for spec in immediate_specs):
+            return None
+        # A shared verb over several objects produces several adjacent destroy nodes.
+        # Reject any intervening effect instead of searching backwards across it.
+        end = len(before_specs)
+        start = end
+        while start > end - len(immediate_specs) and _is_destroy(before_specs[start - 1]):
+            start -= 1
+        if start == end:
+            return None
+        who = no_regen.group("who")
+        if not _NO_REGEN_PLURAL_RE.match(who):
+            start = end - 1
+        if _NO_REGEN_THIS_WAY_RE.search(who) and _count_destroys([s.to_dict() for s in before_specs]) != _count_destroys(
+                [s.to_dict() for s in before_specs[start:]]):
+            return None  # "destroyed this way" names the one destruction of this resolution; two would be ambiguous
+
+        def _deny_regeneration(spec: EffectSpec) -> EffectSpec:
+            flagged = _last_destroy_denying_regeneration(spec.to_dict())
+            return EffectSpec(spec.type, flagged["params"], condition=spec.condition)
+
+        before_specs = [_deny_regeneration(spec) if i >= start else spec for i, spec in enumerate(before_specs)]
         return _with_after_tail(
             before_specs, no_regen.group("after"),
-            reading=ClauseReading(previous_subject=announces_creature_target(before_specs), group_subject=reading.group_subject),
+            reading=reading.but(previous_subject=announces_creature_target(before_specs)),
         )
 
     regen_exile = _REGEN_EXILE_RIDER_RE.match(body.strip())
     if regen_exile is not None:
         before_specs = parse_effect_body(
-            regen_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            regen_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if not before_specs or not any(spec.type == "damage" for spec in before_specs):
             return None
@@ -6118,7 +6935,7 @@ def _parse_effect_body_inner(
     die_to_exile = _DIE_TO_EXILE_SENTENCE_RE.match(body)
     if die_to_exile is not None:
         before_specs = parse_effect_body(
-            die_to_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            die_to_exile.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6144,7 +6961,7 @@ def _parse_effect_body_inner(
     kicked_mag = _KICKED_MAGNITUDE_OVERRIDE_RE.match(body)
     if kicked_mag is not None:
         before_specs = parse_effect_body(
-            kicked_mag.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            kicked_mag.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
@@ -6165,7 +6982,7 @@ def _parse_effect_body_inner(
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:
         before_specs = parse_effect_body(
-            gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(
             spec.type == "gain_control_until_eot" for spec in before_specs
@@ -6192,7 +7009,7 @@ def _parse_effect_body_inner(
         if certain is None:
             continue
         before_specs = parse_effect_body(
-            certain.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            certain.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == antecedent_type for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
@@ -6201,7 +7018,7 @@ def _parse_effect_body_inner(
     exile_self_delayed_return = _EXILE_SELF_THEN_DELAYED_RETURN_RE.match(body)
     if exile_self_delayed_return is not None:
         before_specs = parse_effect_body(
-            exile_self_delayed_return.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            exile_self_delayed_return.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(spec.type == "exile" for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
@@ -6217,32 +7034,21 @@ def _parse_effect_body_inner(
     if action_then is not None:
         before_text = action_then.group("before")
         if before_text.startswith("exile ") and not re.search(r"\btarget\b", before_text):
-            return None  # nontargeted exile choices must be made during resolution
-        before_specs = parse_effect_body(
-            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
-        )
-        after_text = action_then.group("after")
-        condition = None
-        if after_text.lower().startswith("if "):
-            gate = _GENERIC_IF_PREFIX_RE.match(after_text)
-            condition = static_condition(gate.group("cond")) if gate else None
-            if condition is None:
-                return None
-            after_text = gate.group("rest")
-        after_specs = parse_effect_body(after_text)
-        if not before_specs or len(before_specs) != 1 or before_specs[0].type not in {"exile", "create_token"} or not after_specs:
-            return None
-        params = dict(before_specs[0].params)
-        # One action; multi-event/mass antecedents need
-        # explicit batching semantics before exposing a reflexive body.
-        if (params.get("count", 1) != 1 or params.get("count_selector")
-                or params.get("selector") or params.get("group") or params.get("spell_or_permanent")
-                or params.get("per_opponent") or params.get("creators", "you") not in {"you", "target"}):
-            return None
-        params["then_trigger"] = [spec.to_dict() for spec in after_specs]
-        if condition is not None:
-            params["then_trigger_condition"] = condition
-        return [EffectSpec(before_specs[0].type, params)]
+            before_specs = parse_effect_body(
+                before_text, reading=ClauseReading(self_subject=reading.self_subject),
+            )
+            if not before_specs or (
+                before_specs[0].type == "exile" and not _OWN_GRAVEYARD_EXILE_RE.fullmatch(before_text)
+            ):
+                return None  # nontargeted exile choices must be made during resolution
+            # PAR-207: another action ("exile 2 cards from your graveyard", "exile a creature card from your
+            # graveyard" -- the player's own pick) is the general reflexive row's.
+        else:
+            claimed = _action_then_when_you_do(action_then, reading)
+            if claimed is not None:
+                return claimed
+            # PAR-207: whatever this exile/token-only row declines falls through to the general reflexive row
+            # (`effect_rows.costs_mana_limits._action_when_you_do`) instead of failing the whole body closed.
 
     may_exile_self_then = _MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE.match(body)
     if may_exile_self_then is not None:
@@ -6256,10 +7062,10 @@ def _parse_effect_body_inner(
     roll_when_you_do = _ROLL_DIE_THEN_WHEN_YOU_DO_RE.match(body)
     if roll_when_you_do is not None:
         before_specs = parse_effect_body(
-            roll_when_you_do.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            roll_when_you_do.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         after_specs = parse_effect_body(
-            roll_when_you_do.group("after"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            roll_when_you_do.group("after"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if (before_specs is None or len(before_specs) != 1
                 or before_specs[0].type != "roll_die" or after_specs is None):
@@ -6286,19 +7092,21 @@ def _parse_effect_body_inner(
     prefixed_delayed = _PREFIXED_DELAYED_SAC_EXILE_RE.match(body)
     if prefixed_delayed is not None:
         before_specs = parse_effect_body(
-            prefixed_delayed.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            prefixed_delayed.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None:
             return None
         delayed_specs = match_clause(prefixed_delayed.group("delayed"))
         if delayed_specs is None:
             return None
+        if any(_opens_reflexive_trigger(spec) for spec in before_specs):
+            return None  # PAR-207: "it" would be the reflexive trigger's object, which this chain cannot name
         return before_specs + delayed_specs
 
     prefixed_delayed_tail = _PREFIXED_DELAYED_TAIL_RE.match(body)
     if prefixed_delayed_tail is not None:
         before_specs = parse_effect_body(
-            prefixed_delayed_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            prefixed_delayed_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         delayed_specs = match_clause(prefixed_delayed_tail.group("delayed"))
         # Fall through (rather than fail closed) when this split doesn't
@@ -6307,6 +7115,8 @@ def _parse_effect_body_inner(
         # battlefield. That creature gains haste until end of turn. Sacrifice
         # it at the beginning of the next end step.").
         if before_specs is not None and delayed_specs is not None:
+            if any(_opens_reflexive_trigger(spec) for spec in before_specs):
+                return None  # PAR-207: as above -- the delayed "it" is the reflexive trigger's object
             return before_specs + delayed_specs
 
     mill_land_this_way = _MILL_LAND_THIS_WAY_RE.match(body)
@@ -6369,7 +7179,7 @@ def _parse_effect_body_inner(
         if optional_exile:
             before_text = before_text[len("you may "):]
         before_specs = parse_effect_body(
-            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+            before_text, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is not None and optional_exile:
             before_specs = [
@@ -6455,7 +7265,13 @@ def _parse_effect_body_inner(
     if direct is not None:
         return direct
 
-    timed = _for_as_long_as_counter_specs(body, reading=ClauseReading(referents=reading.referents_of(TARGET)))
+    if re.match(r"you may pay (?:\{e\})+\.\s*(?:if|when) you do\b", body, re.I):
+        # RULE 608.2/603.12: the payment and its continuation are atomic.
+        # A declined wrapper must not fall through to splitting ", then"
+        # and turn an unsupported paid/reflexive payoff into a free effect.
+        return None
+
+    timed = _for_as_long_as_counter_specs(body, reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER)))
     if timed is not None:
         return timed
 
@@ -6518,6 +7334,13 @@ def _parse_effect_body_inner(
     # connector split below would hand the tail to `<B>` alone and leave `<A>`'s X as
     # the (unpaid) spell X (Tendrils of Corruption dealt 0 damage and gained the life).
     one_x_text = body.strip().rstrip(".").strip()
+    # RULE 608.2h: a pronoun-defined X scopes all of this sentence, before
+    # splitting a drain into separate life-loss and life-gain instructions.
+    contextual_x = _WHERE_X_CHARACTERISTIC_RE.match(one_x_text)
+    if contextual_x is not None and "." not in contextual_x.group("rest"):
+        shared_characteristic = _referent_characteristic_specs(body, reading=reading)
+        if shared_characteristic is not None:
+            return shared_characteristic
     one_x = (_WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
              or _WHERE_X_DIE_RE.match(one_x_text) or _WHERE_X_HALF_COUNT_RE.match(one_x_text))
     if one_x is not None and "." not in one_x.group("rest") and re.search(
@@ -6572,15 +7395,25 @@ def _parse_effect_body_inner(
             parts = merged
             skip_until = 0
             conjunct_player_scope = None
+            reflexive_open = False
             for idx, part in enumerate(parts):
                 if idx < skip_until:
                     continue  # consumed by a multi-sentence window
+                if reflexive_open:
+                    # PAR-207 (RULE 603.12): a sentence after "When you do, <effect>." belongs to that reflexive
+                    # trigger. It could not be absorbed into the payoff above (it did not parse there), and read on
+                    # its own its "it" would silently mean this ability's source -- fail closed instead.
+                    ok = False
+                    break
+                if collected and _inspection.leaves_dangling_reference(collected, part):
+                    ok = False  # PAR-213: "it" after a bare reveal/look lead must not fall back to the source
+                    break
                 # A period split retains the leading "then" from a printed
                 # "… . Then <effect>" sentence, unlike the explicit
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
                 part = _created_noun_to_pronoun(part, referents)
-                if sep == _AND_CONNECTOR:
+                if sep in (_AND_CONNECTOR, _SERIES_COMMA_CONNECTOR, _CONNECTORS[2]):
                     part = part.rstrip(",").strip()  # "…if {g} was spent to cast this spell**,** and …"
                     # A repeated third-person verb keeps the current group
                     # subject: "each opponent sacrifices ... and loses ...".
@@ -6588,7 +7421,10 @@ def _parse_effect_body_inner(
                     player_head = _PLAYER_SCOPE_SUBJECT_RE.match(part)
                     if player_head is not None:
                         who = player_head['who'].lower()
-                        conjunct_player_scope = who if who in _PLAYER_SCOPE_ITERATION else None
+                        conjunct_player_scope = (
+                            "that player" if who.startswith("target ")
+                            else who if who in PLAYER_SETS or who == "that player" else None
+                        )
                     elif conjunct_player_scope and _ELIDED_PLAYER_VERB_RE.match(part):
                         part = f"{conjunct_player_scope} {part}"
                     else:
@@ -6612,6 +7448,12 @@ def _parse_effect_body_inner(
                             sub = match_clause(
                                 window, reading=_sequel_reading(reading, carry_self, referents),
                             )
+                            if (sub is None and (idx > 0 or end < len(parts))
+                                    and 'search your library' in window
+                                    and 'if you search' in window):
+                                # RULE 608.2c: keep an optional search and its conditional
+                                # shuffle tail together inside a larger sequence.
+                                sub = parse_effect_body(window, reading=_sequel_reading(reading, carry_self, referents))
                             if sub is not None:
                                 skip_until = end
                                 break
@@ -6620,6 +7462,12 @@ def _parse_effect_body_inner(
                             part,
                             reading=_sequel_reading(reading, carry_self, referents),
                         )
+                if sub is None and sep == _AND_CONNECTOR and idx and combat_tail(part, temporary=True):
+                    # RULE 608.2c: "it gets +2/+2 ... and can block an additional creature this turn".
+                    # The elided combat predicate keeps the established object, never invents a target.
+                    sequel = _sequel_reading(reading, carry_self, referents)
+                    plural = any(r.group for r in referents if r.kind in (TARGET, CREATED)) or referent_selector
+                    sub = parse_effect_body(('they ' if plural else 'it ') + part, reading=sequel)
                 if sub is None and sep == _AND_CONNECTOR and idx:
                     # "~ deals 3 damage to X if … **and 3 damage to Y** if …" / "you gain X life if … **and X life**
                     # if …": the second conjunct repeats only the amount noun, the verb is the first one's.
@@ -6640,7 +7488,7 @@ def _parse_effect_body_inner(
                 if sub is None:
                     ok = False
                     break
-                if sep == _AND_CONNECTOR and idx and _elides_player_subject(parts[0], part):
+                if sep in (_AND_CONNECTOR, _SERIES_COMMA_CONNECTOR) and idx and _elides_player_subject(parts[0], part):
                     # "target player draws a card **and loses 2 life**": the second verb has no subject of
                     # its own, so it acts on the player the first clause chose, not on the controller.
                     sub = _stamp_previous_player(sub)
@@ -6658,6 +7506,7 @@ def _parse_effect_body_inner(
                     break
                 last_len = len(sub)
                 collected.extend(sub)
+                reflexive_open = any(_opens_reflexive_trigger(spec) for spec in sub)
                 prev_referent, prev_referent_selector = referent, referent_selector
                 prev_referents = referents
                 # RULE 601.2c: what the clause just parsed *chose* is what
@@ -6672,6 +7521,8 @@ def _parse_effect_body_inner(
                 # the self-subject carry is broken (a later "it" now means
                 # that pick, via ``referent``, not the source).
                 if referent:
+                    carry_self = False
+                if any(r.kind == PLAYER for r in produces(sub)):
                     carry_self = False
                 # PAR-30: "clash with an opponent" is a *referent-transparent*
                 # interstitial — it neither targets nor creates, so a card
@@ -6713,7 +7564,18 @@ def _parse_effect_body_inner(
                     tuple(r for r in prev_referents if r.kind == CREATED)
                     if any(s.params.get("referent") == CREATED for s in sub) else ()
                 )
-                referents = _referents_from(referent, referent_selector, made)
+                target_refs = tuple(r for r in produces(sub) if r.kind == TARGET) or tuple(
+                    r for r in prev_referents if r.kind == TARGET)
+                player_refs = tuple(r for r in produces(sub) if r.kind == PLAYER) or (
+                    tuple(r for r in prev_referents if r.kind == PLAYER) if "that player" in part else ())
+                # A revealed / exiled library card stays nameable until another clause replaces it (RULE 701.20).
+                revealed_refs = tuple(r for r in produces(sub) if r.kind == REVEALED) or tuple(
+                    r for r in prev_referents if r.kind == REVEALED)
+                pool_refs = tuple(r for r in produces(sub) if r.kind == EXILE_POOL)
+                if not pool_refs and all(s.type in {'gain_life', 'lose_life', 'add_mana'} for s in sub):
+                    pool_refs = tuple(r for r in prev_referents if r.kind == EXILE_POOL)
+                referents = (_referents_from(referent, referent_selector, made, target_refs)
+                             + player_refs + revealed_refs + pool_refs)
             if ok:
                 return collected
 
@@ -6725,7 +7587,7 @@ def _parse_effect_body_inner(
     # implementations — where in the pipeline a gate binds is a real property
     # of the gate, and the only thing that separates the two tables.
     matched, peeled = _peel_condition(
-        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -6758,10 +7620,18 @@ def _parse_effect_body_inner(
         return where_x
 
     referent_x = _referent_characteristic_specs(
-        body, reading=reading.unattached(),
+        body, reading=reading,
     )
     if referent_x is not None:
         return referent_x
+
+    count_bound = _mana_value_count_bound_specs(body, reading=reading)
+    if count_bound is not None:
+        return count_bound
+
+    per_member = per_member_amount_specs(body, lambda text: parse_effect_body(text, reading=reading))
+    if per_member is not None:
+        return per_member
 
     player_scope = _player_scope_specs(
         body, reading=reading.unattached(),
@@ -6775,12 +7645,12 @@ def _parse_effect_body_inner(
     if each_flip is not None:
         return each_flip
 
-    each_object = _leading_for_each_object_specs(body)
+    each_object = _leading_for_each_object_specs(body, reading=reading)
     if each_object is not None:
         return each_object
 
     matched, peeled = _peel_condition(
-        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET), group_subject=reading.group_subject),
+        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -6996,16 +7866,62 @@ _CREATING_TYPES: frozenset[str] = frozenset({"create_token"})
 # as the next clause's `previous_targets`, so "Create a token that's a copy of that card. It gains haste." is right.)
 
 
+#: The effects that leave exactly one library card for the next sentence's "it" / "that card" (RULE 701.20): the
+#: reveal stashes `GameContext.revealed_card`; the single-card exile leaves it on `GameContext.created_objects`.
+_REVEALED_CARD_TYPES: frozenset[str] = frozenset({"reveal_top", "put_revealed_card"})
+
+
+def _revealed_card_referent(specs: list[EffectSpec]) -> tuple[Referent, ...]:
+    """The library card the clause just parsed revealed or exiled, as the referent a later "its mana value" names."""
+    if not specs:
+        return ()
+    last = specs[-1]
+    if last.type in _REVEALED_CARD_TYPES:
+        return (REVEALED_REFERENT,)
+    params = last.params
+    if (last.type == "inspect_cards" and params.get("zone") == "library" and params.get("count") == 1
+            and params.get("reveal") and params.get("scope") == "you" and not params.get("steps")):
+        # `InspectCardsEffect` stashes a lone revealed library card as `GameContext.revealed_card` (RULE 701.20).
+        return (REVEALED_REFERENT,)
+    if last.type == "exile_top_of_library" and last.params.get("count", 1) == 1:
+        return (EXILED_REFERENT,)
+    return ()
+
+
 def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
     """What a just-parsed clause leaves for the next one to name (the referent environment's one producer): the
     object it chose (``it`` / ``that creature``) and/or the group it acted on (``they`` / ``those creatures``)."""
     out: list[Referent] = []
+    if specs and specs[-1].params.get("target_kind") in ("player", "opponent"):
+        out.append(Referent(PLAYER, noun="player"))
+    if specs and specs[-1].type == "seq":
+        children = specs[-1].params.get("effects", [])
+        if children and children[0].get("type") == "choose_targets":
+            params = children[0]["params"]
+            out.append(Referent(TARGET, group=params.get("count", 1) > 1))
+            if children[-1].get("type") == "for_each":
+                body = children[-1].get("params", {}).get("effects", [])
+                if body and body[-1].get("type") == "copy_permanent":
+                    plural = params.get("count", 1) > 1 or body[-1].get("params", {}).get("count", 1) != 1
+                    out.append(CREATED_GROUP_REFERENT if plural else CREATED_REFERENT)
+    if specs and specs[-1].type == "for_each" and specs[-1].params.get("over", {}).get("remember"):
+        out.append(Referent(TARGET, group=True))
     if announces_creature_target(specs):
-        out.append(TARGET_REFERENT)
+        out.append(Referent(TARGET, group=has_plural_targets(specs[-1])))
     if _announces_group_selector(specs):
         out.append(SELECTOR_REFERENT)
     if specs and specs[-1].type == "counter" and not specs[-1].params.get("destination"):
         out.append(COUNTERED_REFERENT)
+    exile_cores = list(specs)
+    while exile_cores and exile_cores[-1].type in {'gain_life', 'lose_life', 'add_mana'}:
+        exile_cores.pop()
+    if exile_cores and exile_cores[-1].type in {'exile', 'exile_top_of_library'} and not exile_cores[-1].params.get('face_down'):
+        last = exile_cores[-1]
+        group = (last.params.get('count', 1) != 1 or bool(last.params.get('selector'))
+                 or last.params.get('any_number', False)
+                 or last.params.get('player_selector') in ('each_player', 'each_opponent'))
+        out.append(Referent(EXILE_POOL, group=group))
+    out.extend(_revealed_card_referent(specs))
     # The creation may be followed, inside the same clause, by riders that already consumed it ("create a token that's a
     # copy of …, except it has "…"" is a copy plus a grant on the copy): the last spec that is not such a rider decides.
     core = list(specs)
@@ -7091,9 +8007,12 @@ def _stamp_created_pronouns(specs: list[EffectSpec]) -> list[EffectSpec]:
     return out
 
 
-def _referents_from(target: bool, selector: bool, created: tuple[Referent, ...] = ()) -> tuple[Referent, ...]:
+def _referents_from(
+    target: bool, selector: bool, created: tuple[Referent, ...] = (), target_refs: tuple[Referent, ...] = (),
+) -> tuple[Referent, ...]:
     """The environment for the next clause, after the sequencing loop has applied its carry-over rules."""
-    return tuple(ref for ref, on in ((TARGET_REFERENT, target), (SELECTOR_REFERENT, selector)) if on) + created
+    return ((target_refs or (TARGET_REFERENT,)) if target else ()) + (
+        (SELECTOR_REFERENT,) if selector else ()) + created
 
 
 def _sequel_reading(reading: ClauseReading, carry_self: bool, referents: tuple[Referent, ...]) -> ClauseReading:
@@ -7114,6 +8033,8 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
     if not specs:
         return False
     last = specs[-1]
+    if last.type == "for_each" and last.params.get("over", {}).get("remember"):
+        return True
     if last.type == "exile" and (last.params.get("group") or last.params.get("selector")):
         # PAR-136: "Exile each creature you control. Return those cards …" (Ghostway) — a mass exile
         # leaves exactly what it exiled in `GameContext.previous_targets` (`ExileEffect`).
@@ -7240,7 +8161,9 @@ def _apply_keyword_restriction(spec: AbilitySpec, kw: str) -> bool:
     if kw in ("exhaust", "power-up"):  # RULE 702.177a / Power-up
         if spec.ability_kind != "activated":
             return False
-        spec.effects.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
+        # PAR-207: the keyword rides on the marker, so "whenever you activate an exhaust ability" can tell an
+        # Exhaust ability (RULE 702.177) from a Power-up one that is equally once-only.
+        spec.effects.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {"keyword": kw}))
         if kw == "power-up":
             spec.effects.append(EffectSpec(POWERUP_COST_REDUCTION_MARKER, {}))
         return True
@@ -7656,8 +8579,18 @@ def _stamp_group_pronoun_once(
         return None  # "equipped creature becomes blocked, it deals …": "it" isn't the source
     if subject not in ("group", "self_or_group"):
         return effects
+    # A handler may already identify an explicit trigger referent even when
+    # a leading condition names the source (Hixus). Unlike an ambiguous bare
+    # "it", this reference still names the firing creature (RULE 603.1).
+    effects = [EffectSpec(e.type, {**e.params, "trigger_event_key": GROUP_SUBJECT_KEY_SENTINEL},
+                          condition=e.condition)
+               if e.params.get("target_kind") == "trigger_subject" and not e.params.get("trigger_event_key")
+               else e for e in effects]
     lowered = body.lower()
-    if _stamped_dealer_any(effects) and _pronoun_continues_source(lowered):
+    # A leading state condition does not introduce an action's new referent.
+    # "If ~ entered this turn, exile that creature" still names the dealer.
+    referent_body = re.sub(r"^if [^,]+,\s*", "", lowered)
+    if _stamped_dealer_any(effects) and _pronoun_continues_source(referent_body):
         return None  # "put a counter on ~. it gains haste": that "it" is the source, not the firing object
     if _BARE_PRONOUN_RE.search(lowered) is None or _EXPLICIT_SOURCE_RE.search(lowered):
         return effects
@@ -7717,6 +8650,7 @@ def _stamp_group_pronoun_once(
             params = dict(effect.params)
             params["capture"] = "trigger_subject"
             params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
+            params.pop(NEEDS_BLOCK_HEAD, None)
             effect = EffectSpec(effect.type, params, condition=effect.condition)
         if _reads_blocked_attacker(effect) and not _stamped_dealer(effect):
             return None  # the blocked attacker is the firing object; nothing here names it
@@ -7731,6 +8665,24 @@ def _stamp_group_pronoun_once(
 _EVENT_READS = (
     "amount_from_trigger_event", "count_from_trigger_event", "pt_from_trigger_event", "any_amount_from_trigger_event",
 )
+
+
+#: The `ATTACKS`-style event field naming the creature a DAMAGE event dealt damage to.
+DAMAGED_CREATURE_EVENT_KEY = "target_id"
+
+
+def _retarget_damaged_creature_riders(effects: "list[EffectSpec]") -> "list[EffectSpec]":
+    """Under a "deals combat damage to a creature" head a delayed rider's "that creature" is the damaged creature:
+    its ``previous_or_self`` capture (which would fall back to the source) names the event's ``target_id`` instead."""
+    out: "list[EffectSpec]" = []
+    for e in effects:
+        if e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self":
+            params = {k: v for k, v in e.params.items() if k != NEEDS_BLOCK_HEAD}
+            params["capture"] = "trigger_subject"
+            params["trigger_event_key"] = DAMAGED_CREATURE_EVENT_KEY
+            e = EffectSpec(e.type, params, condition=e.condition)
+        out.append(e)
+    return out
 
 
 def _retarget_block_relation(
@@ -7754,7 +8706,16 @@ def _retarget_block_relation(
             params = dict(e.params)
             params["capture"] = "trigger_related"
             params["related_filter"] = dict(head_trigger.get("related_filter") or {})
+            params.pop(NEEDS_BLOCK_HEAD, None)
             e = EffectSpec(e.type, params, condition=e.condition)
+        elif (
+            e.type == "create_delayed_trigger" and e.params.get("capture") == "trigger_related"
+            and "related_filter" not in e.params
+        ):
+            e = EffectSpec(
+                e.type, {**e.params, "related_filter": dict(head_trigger.get("related_filter") or {})},
+                condition=e.condition,
+            )
         out.append(e)
     return out
 
@@ -8094,6 +9055,46 @@ def _while_condition_segment(
     return inner
 
 
+#: PAR-204: a graveyard-recursion trigger ("At the beginning of your upkeep, if this card is in your graveyard, you may
+#: pay {B}{B}{B}. If you do, return it to your hand." — Ghastly Remains, Pyre Zombie, Master of Death; "Whenever a
+#: creature you control dies while this card is in your graveyard, …" — Furious Forebear, Boneyard Scourge).
+#: RULE 113.6k: an ability that returns its own card from the graveyard functions only there, so the printed
+#: "if this card is in your graveyard" is where the ability *works*, not an extra condition; the binder already infers
+#: `functions_from_graveyard` from the self-return payoff (`binding.core._returns_self_from_graveyard`). The payoff's
+#: pronoun ("it", "this card") names that same card, so it is spelled out as the existing graveyard self-return row.
+_GRAVEYARD_FUNCTION_TRIGGER_RE = re.compile(
+    r"^(?P<head>(?:when|whenever|at) [^,]+?),? (?:if|while) (?:this card|~) is in your graveyard,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+_GRAVEYARD_SELF_RETURN_RE = re.compile(
+    r"\breturn (?:this card|it|~)(?: from your graveyard)? to (?P<zone>your hand|the battlefield)", re.IGNORECASE,
+)
+#: The payoff is *only* the self-return (optionally paid for / optional): any other use of "it" would be ambiguous.
+_GRAVEYARD_SELF_RETURN_BODY_RE = re.compile(
+    r"^(?:you may )?(?:pay [^.]+\. if you do, )?return this card from your graveyard to "
+    r"(?:your hand|the battlefield(?: tapped)?)(?: with an? [a-z+/0-9 -]+ counter on it)?\.?$",
+    re.IGNORECASE,
+)
+
+
+def _graveyard_self_return_segment(
+    line: str, *, allow_spell_effect: bool, provenance: ParserProvenance, is_saga: bool
+) -> "Optional[Segment]":
+    """The segment of a graveyard-recursion trigger read as its plain head plus the self-return payoff, or ``None``."""
+    m = _GRAVEYARD_FUNCTION_TRIGGER_RE.match(line.strip())
+    if m is None:
+        return None
+    body = _GRAVEYARD_SELF_RETURN_RE.sub(
+        lambda r: f"return this card from your graveyard to {r.group('zone')}", m.group("body").strip(), count=1,
+    )
+    if not _GRAVEYARD_SELF_RETURN_BODY_RE.match(body):
+        return None
+    inner = _segment_line_unsplit(
+        f"{m.group('head')}, {body}", allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
+    )
+    return inner if inner.claimed else None
+
+
 #: "if `<state>`, `<effect>`" at the head of a phase trigger's body — the state is read by
 #: `static_condition`, so anything that vocabulary says is an intervening if.
 _PHASE_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]+), (?P<rest>.+)$", re.IGNORECASE | re.S)
@@ -8133,6 +9134,11 @@ def segment_line(
     ))
     if whole.claimed:
         return whole
+    graveyard_return = _graveyard_self_return_segment(
+        line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    if graveyard_return is not None:
+        return graveyard_return
     for first, second in _compound_candidates(line):
         halves = [
             segment_line(
@@ -8250,6 +9256,38 @@ def _line_etb_and_cast(ctx: LineContext) -> Optional[Segment]:
         if etb_seg.spec is not None and cast_seg.spec is not None:
             return Segment(raw=raw, spec=etb_seg.spec, extra_specs=[cast_seg.spec], claimed=True)
         return Segment(raw=raw)
+    return None
+
+
+#: PAR-207 (RULE 603.2 / 603.1): one printed sentence naming two trigger conditions that share one body is two
+#: independent triggered abilities -- "When you cast or cycle ~" is "when you cast this spell" plus "when you cycle
+#: this card" (Drownyard Lurker, Warped Tusker), "When ~ enters and when you sacrifice it" is "when ~ enters" plus
+#: "when you sacrifice ~" (Carrot Cake, Heaped Harvest). Each half is re-segmented as a line of its own, so it gets
+#: exactly the head and body reading a single-condition line would.
+_SPLIT_HEAD_ROWS: tuple[tuple["re.Pattern[str]", tuple[str, ...]], ...] = (
+    (re.compile(r"^when you cast or cycle ~,\s*(?P<body>.+)$", re.IGNORECASE | re.S),
+     ("when you cast this spell, {body}", "when you cycle this card, {body}")),
+    (re.compile(r"^when ~ enters and when you sacrifice (?:it|~),\s*(?P<body>.+)$", re.IGNORECASE | re.S),
+     ("when ~ enters, {body}", "when you sacrifice ~, {body}")),
+)
+
+
+def _line_split_heads(ctx: LineContext) -> Optional[Segment]:
+    for pattern, templates in _SPLIT_HEAD_ROWS:
+        m = pattern.match(ctx.raw)
+        if m is None:
+            continue
+        parts = [
+            segment_line(
+                template.format(body=m.group("body").strip()),
+                allow_spell_effect=ctx.allow_spell_effect, provenance=ctx.provenance,
+            )
+            for template in templates
+        ]
+        if any(part.spec is None or not part.claimed for part in parts):
+            return Segment(raw=ctx.raw)
+        specs = [spec for part in parts for spec in (part.spec, *part.extra_specs)]
+        return Segment(raw=ctx.raw, spec=specs[0], extra_specs=specs[1:], claimed=True)
     return None
 
 
@@ -9646,7 +10684,8 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
                 # neither scale its sacrifice nor its amount, so stays unclaimed.
                 return Segment(raw=raw)
             # Mana ability — covered by the engine's mana model, no spec here.
-            return Segment(raw=raw, claimed=True)
+            return Segment(raw=raw, claimed=True,
+                           mana_ability=_FIXED_MANA_EFFECT_RE.fullmatch(effect_text) is not None)
         cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}
         # Throne of Eldraine-shaped colour-lock on this ability's own cost —
         # a trailing "Spend only mana of the chosen color to activate this
@@ -9706,6 +10745,12 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
                             "active_if": active_if,
                         }
         tail_markers: list[EffectSpec] = []
+        # RULE 602.5d: activation timing qualifies the whole ability, even
+        # when the effect body ends in an otherwise branch.
+        sorcery_tail = re.search(r"\.\s*activate only as a sorcery\.?$", effect_text, re.I)
+        if sorcery_tail is not None:
+            effect_text = effect_text[:sorcery_tail.start()].strip()
+            tail_markers.extend(parse_effect_body("activate only as a sorcery") or [])
         # RULE 602.2: "Any player may activate this ability [but only as a
         # sorcery]" (Fan Favorite, Feral Hydra, Excavation, the Flailing cycle) —
         # `ActivationCost.any_player_may_activate`, the primitive Mercenaries and
@@ -9733,6 +10778,14 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
             if activation_tail.group("once"):
                 tail_markers.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
             effect_text = effect_text[:activation_tail.start()].strip()
+        nonzero_x = re.search(r"\.\s*x can'?t be 0\.?$", effect_text, re.I)
+        if nonzero_x is not None:
+            # RULE 107.3a: the printed restriction applies to the announced
+            # value, and uses the activation cost's existing minimum.
+            if "{x}" not in act.group("cost").lower():
+                return Segment(raw=raw)
+            effect_text = effect_text[:nonzero_x.start()].strip()
+            cost_dict["minimum_x"] = 1
         if re.search(r"\b(?:exile|sacrifice) ~(?:,|$)", raw.split(":", 1)[0].strip(), re.I):
             # RULE 608.2h: with ~ paid as the cost, "it had N counters on it"
             # is ~'s last-known count, captured for its departed visit
@@ -9780,37 +10833,87 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
     return None
 
 
+def _phase_damage_referents(effects: list[EffectSpec]) -> list[EffectSpec]:
+    """RULE 603.2b: a step body's "that player" is the active player.
+
+    Amount wrappers (Festering Wound) can hide damage below ``bind``. Only
+    descend into immediate composition, never future granted abilities.
+    """
+    rewritten = []
+    for effect in effects:
+        params = dict(effect.params)
+        if effect.type == "damage" and params.get("selector") == "event_player":
+            params["selector"] = "active_player"
+        amount = params.get("amount")
+        if effect.type == "bind" and isinstance(amount, dict) and amount.get("of") == "event_player":
+            # PAR-215: a count taken "as that player" ("the number of swamps they control") is that same step player.
+            params["amount"] = {**amount, "of": "active_player"}
+        fields = {"seq": ("effects",), "bind": ("effects",), "if_else": ("then", "else")}.get(effect.type, ())
+        for field in fields:
+            if isinstance(params.get(field), list):
+                children = [EffectSpec(child["type"], child.get("params", {}), condition=child.get("condition")) for child in params[field]]
+                params[field] = [child.to_dict() for child in _phase_damage_referents(children)]
+        rewritten.append(EffectSpec(effect.type, params, condition=effect.condition))
+    return rewritten
+
+
+#: RULE 511.1: "At end of combat[ on your turn], <effect>" — the end of combat step's beginning-of-step
+#: trigger, the same `STEP_BEGIN` shape as `_PHASE_TRIGGER_RE`'s "at the beginning of combat". The "on your
+#: turn" scope is the ability controller's own end of combat step (``phase_relation``: "you").
+_END_OF_COMBAT_TRIGGER_RE = re.compile(
+    r"^at end of combat(?P<you> on your turn)?,\s*(?P<body>.+)$", re.IGNORECASE | re.DOTALL,
+)
+
+
 def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     provenance = ctx.provenance
     phase_trig = _PHASE_TRIGGER_RE.match(raw)
-    if phase_trig is not None:
-        step_word = (
-            phase_trig.group("step_any")
-            or phase_trig.group("step_you")
-            or phase_trig.group("step_you_each")
-            or phase_trig.group("step_both_mains")
-            or phase_trig.group("step_combat_you")
-            or phase_trig.group("step_combat_opp")
-            or phase_trig.group("step_opp")
-            or phase_trig.group("step_other")
-        )
-        both_mains = bool(phase_trig.group("step_both_mains"))
-        step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
+    end_combat_trig = _END_OF_COMBAT_TRIGGER_RE.match(raw) if phase_trig is None else None
+    if phase_trig is not None or end_combat_trig is not None:
+        if end_combat_trig is not None:
+            # RULE 511.1: "at end of combat" is the end of combat step's own beginning-of-step trigger.
+            both_mains = False
+            step: Optional[str] = END_COMBAT_STEP
+            relation = "you" if end_combat_trig.group("you") else None
+            raw_body = end_combat_trig.group("body")
+        else:
+            step_word = (
+                phase_trig.group("step_any")
+                or phase_trig.group("step_you")
+                or phase_trig.group("step_you_each")
+                or phase_trig.group("step_both_mains")
+                or phase_trig.group("step_combat_you")
+                or phase_trig.group("step_combat_opp")
+                or phase_trig.group("step_opp")
+                or phase_trig.group("step_other")
+                or phase_trig.group("step_attached")
+                or phase_trig.group("step_enchanted")
+                or phase_trig.group("step_chosen")
+            )
+            both_mains = bool(phase_trig.group("step_both_mains"))
+            step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
+            if (
+                phase_trig.group("step_you")
+                or phase_trig.group("step_you_each")
+                or both_mains
+                or phase_trig.group("step_combat_you")
+            ):
+                relation = "you"
+            elif phase_trig.group("step_opp") or phase_trig.group("step_other") or phase_trig.group("step_combat_opp"):
+                relation = "not_you"
+            elif phase_trig.group("step_attached"):
+                relation = "attached_permanent"
+            elif phase_trig.group("step_enchanted"):
+                relation = "enchanted_player"
+            elif phase_trig.group("step_chosen"):
+                relation = "chosen_player"
+            else:
+                relation = None
+            raw_body = phase_trig.group("body")
         if step is None:
             return Segment(raw=raw)
-        if (
-            phase_trig.group("step_you")
-            or phase_trig.group("step_you_each")
-            or both_mains
-            or phase_trig.group("step_combat_you")
-        ):
-            relation = "you"
-        elif phase_trig.group("step_opp") or phase_trig.group("step_other") or phase_trig.group("step_combat_opp"):
-            relation = "not_you"
-        else:
-            relation = None
-        body, optional = peel_optional(phase_trig.group("body"))
+        body, optional = peel_optional(raw_body)
         # MEC-46: peel a leading "if another <subtype> entered … this turn,"
         # RULE 603.4 intervening-if into the trigger's own `active_if`.
         phase_active_if: Optional[dict[str, Any]] = None
@@ -9872,6 +10975,10 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 phase_active_if = gated
                 phase_self_subject = "~" in gate.group("cond")
                 body = gate.group("rest").strip()
+        phase_reading = ClauseReading(
+            self_subject=phase_self_subject,
+            attached_subject=relation == "attached_permanent",
+        )
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:
@@ -9879,9 +10986,9 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                     "amount": int(them_damage.group("n")), "selector": "active_player",
                 })]
             else:
-                effects = _active_player_phase_body(body) or parse_effect_body(body, reading=ClauseReading(self_subject=phase_self_subject))
+                effects = _active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
         else:
-            effects = _active_player_phase_body(body) or parse_effect_body(body, reading=ClauseReading(self_subject=phase_self_subject))
+            effects = _active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
         if effects is None and phase_active_if is None:
             # RULE 603.4: any other leading "if `<state>`," of a phase trigger is an intervening
             # if too — read through the shared state-predicate vocabulary (`static_condition`)
@@ -9900,10 +11007,11 @@ def _line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 effects = ([EffectSpec("if_else", {
                     "condition": gated, "then": [e.to_dict() for e in active_effects],
                 })] if active_effects is not None else None) or parse_effect_body(
-                    gate.group("rest").strip(), reading=ClauseReading(self_subject="~" in gate.group("cond")),
+                    gate.group("rest").strip(), reading=phase_reading.but(self_subject="~" in gate.group("cond")),
                 )
         if effects is None:
             return Segment(raw=raw)
+        effects = _phase_damage_referents(effects)
         if phase_active_if is not None:
             if len(effects) == 1 and effects[0].condition is None:
                 # An atomic body already has a single resolution boundary.
@@ -9989,6 +11097,21 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 optional=optional, raw_text=raw, parser=provenance)
             return Segment(raw=raw, spec=spec, claimed=True)
 
+        counter_removed = re.fullmatch(
+            r"a (?P<kind>time) counter is removed from (?:~|this card) while it'?s exiled",
+            cond_text.strip(), re.IGNORECASE,
+        )
+        if counter_removed:
+            body, optional = peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, reading=ClauseReading(self_subject=True))
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec("triggered", effects=effects,
+                trigger={"event": "COUNTER_REMOVED", "condition": {"subject": "self"},
+                         "filter": {"kind": counter_removed.group("kind").lower(), "zone": "exile"}},
+                optional=optional, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
         if _LAST_TIME_COUNTER_REMOVED_COND_RE.match(cond_text.strip()):
             # RULE 702.62a: a suspended card's own trigger, fired from exile.
             body, optional = peel_optional(trig.group("body"))
@@ -10041,10 +11164,16 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             effects = parse_effect_body(body)
             if effects is None:
                 return Segment(raw=raw)
+            # RULE 603.2: "This ability triggers only once each turn." (Fang, Fearless l'Cie) is the trigger's limit.
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            if not effects:
+                return Segment(raw=raw)
             trigger: dict[str, Any] = {
                 "event": "CARDS_LEFT_GRAVEYARD",
                 "graveyard_owner": "you",
             }
+            if limit or body_limit:
+                trigger["limit"] = True
             if graveyard_exit.group("types"):
                 types = re.split(r" and/or | or ", graveyard_exit.group("types"))
                 if not set(types) <= _GRAVEYARD_EXIT_TYPES:
@@ -10135,7 +11264,23 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
         multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
         attached_multi = _ATTACHED_MULTI_EVENT_RE.match(cond_text.strip())
         defender_most_life = False
-        if atk_lands is not None:
+        day_night = re.fullmatch(
+            r"(?P<first>day becomes night|night becomes day)(?: or (?P<second>day becomes night|night becomes day))?",
+            cond_text.strip(),
+        )
+        if day_night is not None:
+            # RULE 731.1a: this is a global designation, with no object subject.
+            event = "DAY_NIGHT_CHANGED"
+            condition = {"subject": "global"}
+            if day_night.group("second") != {
+                "day becomes night": "night becomes day",
+                "night becomes day": "day becomes night",
+            }[day_night.group("first")]:
+                head_trigger = {"filter": {
+                    "previous": day_night.group("first").split()[0],
+                    "current": day_night.group("first").split()[-1],
+                }}
+        elif atk_lands is not None:
             event: "str | list[str]" = "ATTACKS"
             condition: Optional[dict[str, Any]] = {"subject": "self"}
             defender_lands_min = int(atk_lands.group("n"))
@@ -10189,12 +11334,23 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                              **head_trigger},
                     optional=optional, raw_text=raw, parser=provenance,
                 ), claimed=True)
+        # RULE 603.7c / 510.2: "that creature" of "whenever <X> deals combat damage to a creature, destroy that
+        # creature at end of combat" (Sosuke, Simic Basilisk's granted ability) is the creature that was dealt
+        # the damage, fixed when the delayed ability is created — the firing event's ``target_id``.
+        recipient_delayed = (
+            composed_head and event == "DAMAGE"
+            and (condition or {}).get("subject") in ("self", "group", "attached_permanent")
+            and head_trigger.get("filter", {}).get("is_player") is False
+            and re.fullmatch(r"(?:destroy|exile) that creature at end of combat\.?", body) is not None
+        )
         # A group DAMAGE head aimed at a creature introduces two object
         # referents: the dealer and the recipient.  The delayed-sacrifice
         # body's bare "it"/"that creature" means the recipient on cards such
         # as Sosuke, but the current referent model can only capture the firing
         # subject.  Preserve the legacy row's fail-closed guard during the
-        # PAR-131 migration rather than silently destroying the dealer.
+        # PAR-131 migration rather than silently destroying the dealer; the
+        # "<verb> that creature at end of combat" shape (``recipient_delayed``)
+        # is the exception, retargeted to the damaged creature below.
         damage_pronoun = (
             DELAYED_SAC_EXILE_TAIL_RE.fullmatch(body.strip().rstrip(".").strip())
             if composed_head and event == "DAMAGE"
@@ -10202,7 +11358,7 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             and head_trigger.get("filter", {}).get("is_player") is False
             else None
         )
-        if damage_pronoun is not None and damage_pronoun.group("obj"):
+        if damage_pronoun is not None and damage_pronoun.group("obj") and not recipient_delayed:
             return Segment(raw=raw)
         death_counter_branch = (
             _LEAVING_COUNTER_IF_ELSE_RE.fullmatch(body)
@@ -10408,11 +11564,43 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 ),
                 attached_subject=(condition or {}).get("subject") == "attached_permanent",
             )
+            recipient_destroy = (
+                composed_head and event == "DAMAGE"
+                and (condition or {}).get("subject") in ("self", "attached_permanent")
+                and head_trigger.get("filter", {}).get("is_player") is False
+                and re.fullmatch(
+                    r"destroy (?:that creature|it)(?:\. (?:it|the creature|that creature) can't be regenerated)?\.?", body,
+                ) is not None
+            )
+            block_destroy = (
+                set(event if isinstance(event, list) else [event]) <= {"BLOCKS", "BECOMES_BLOCKED"}
+                and bool(head_trigger.get("related_filter"))
+                and (condition or {}).get("subject") in ("self", "attached_permanent")
+                and re.fullmatch(r"destroy (?:it|that creature)(?:\. it can't be regenerated)?\.?", body) is not None
+            )
+            attached_destroy = (
+                (condition or {}).get("subject") == "attached_permanent"
+                and event == "BECOMES_TARGET"
+                and re.fullmatch(r"destroy (?:it|that creature)(?:\. it can't be regenerated)?\.?", body) is not None
+            )
+            if recipient_destroy or attached_destroy or block_destroy:
+                body_reading = ClauseReading(previous_subject=True)
             effects = (
                 _event_player_body(body)
                 if isinstance(event, str) and event in _ATTACKING_PLAYER_EVENTS
                 and (condition or {}).get("subject") == "player" else None
             ) or parse_effect_body(body, reading=body_reading)
+            if (recipient_destroy or attached_destroy) and effects is not None:
+                effects = [EffectSpec("trigger_subject_referent", {
+                    "event_key": "target_id" if recipient_destroy else "instance_id",
+                }), *effects]
+            if recipient_delayed and effects is not None:
+                effects = _retarget_damaged_creature_riders(effects)
+            if block_destroy and effects is not None:
+                effects = [EffectSpec(e.type, {
+                    **{k: v for k, v in e.params.items() if k != "previous_subject"},
+                    "trigger_related": True, "related_filter": dict(head_trigger["related_filter"]),
+                }, condition=e.condition) for e in effects]
             count_amount = _HEAD_COUNT_AMOUNTS.get(event) if isinstance(event, str) else None
             if effects is None and count_amount is not None and _THAT_MANY_RE.search(body):
                 # "put that many +1/+1 counters on ~" off a counting head: the body read
@@ -10432,6 +11620,18 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             effects = _retarget_that_player_to_damaged(effects)
             if effects is None:
                 return Segment(raw=raw)
+        if (condition or {}).get("subject") == "attached_permanent":
+            # RULE 603.3: "destroy it" names the firing host, even if the Aura moves before resolution.
+            effects = [
+                EffectSpec("trigger_subject_referent", {
+                    "event_key": GROUP_SUBJECT_KEY_SENTINEL,
+                    "effects": [{"type": "destroy", "params": {
+                        **{k: v for k, v in e.params.items() if k != "target_kind"}, "previous_subject": True,
+                    }}],
+                }, condition=e.condition)
+                if e.type == "destroy" and e.params.get("target_kind") == "attached_permanent" else e
+                for e in effects
+            ]
         stamped = _stamp_group_pronoun(condition, body, effects)
         if stamped is None:
             return Segment(raw=raw)
@@ -10460,10 +11660,31 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 return Segment(raw=raw)
         if composed_head:
             effects = _retarget_block_relation(event, head_trigger, effects)
-        if "'trigger_related': True" in repr(effects) and "'related_filter'" not in repr(effects):
+        if f"'{NEEDS_BLOCK_HEAD}': True" in repr(effects):
+            return Segment(raw=raw)  # "that creature" of a block relation, under a head with no block to name
+        if (
+            "'trigger_related': True" in repr(effects) or "'capture': 'trigger_related'" in repr(effects)
+        ) and "'related_filter'" not in repr(effects):
             return Segment(raw=raw)  # "that creature" of a block relation, under a head that has no other side
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
         limit = limit or body_limit
+        # RULE 603.4: the crew-history condition gates the entire triggered ability,
+        # including subsequent sentences, both at triggering and at resolution.
+        leading_state = _ETB_INTERVENING_IF_RE.match(body)
+        state_gate = static_condition(leading_state['cond']) if leading_state is not None else None
+        counter_gate = None
+        if leading_state is not None and (condition or {}).get('subject') == 'self':
+            counter_gate = parse_referent_condition(leading_state['cond'].replace('~', 'it'))
+            if counter_gate is not None and counter_gate.get('kind') != 'source_counters':
+                counter_gate = None
+        if counter_gate is not None:
+            state_gate = counter_gate
+        if state_gate is not None and (state_gate.get('kind') in ('crewed_by_filter', 'you_have_most', 'you_have_fewest') or counter_gate is not None):
+            head_trigger = {**head_trigger, 'active_if': state_gate}
+            effects = [EffectSpec('seq', {'effects': [
+                EffectSpec(e.type, e.params, condition=None if e.condition == state_gate else e.condition).to_dict()
+                for e in effects
+            ]}, condition=state_gate)]
         intervening = _etb_intervening_if(event, condition, body)
         if intervening is not None:
             head_trigger = {**head_trigger, "active_if": intervening}
@@ -10529,7 +11750,7 @@ def _line_permanent_standing_line(ctx: LineContext) -> Optional[Segment]:
         static = static_effect_specs(raw)
         if static is not None:
             spec = AbilitySpec(
-                "static", effects=static, raw_text=raw, parser=provenance
+                standing_ability_kind(static), effects=static, raw_text=raw, parser=provenance
             )
             return Segment(raw=raw, spec=spec, claimed=True)
         # A standing "if X would Y, Z instead" line (RULE 614/616) is a
@@ -10597,6 +11818,7 @@ LINE_MATCHERS: tuple[LineMatcher, ...] = (
     LineMatcher("equip_dash", _line_equip_dash),
     LineMatcher("equip_once_each_turn", _line_equip_once_each_turn),
     LineMatcher("etb_and_cast", _line_etb_and_cast),
+    LineMatcher("split_heads", _line_split_heads),
     LineMatcher("play_with_top_revealed", _line_play_with_top_revealed),
     LineMatcher("meld_trig", _line_meld_trig),
     LineMatcher("attack_meld", _line_attack_meld),
@@ -10773,6 +11995,13 @@ _IF_YOU_DO_SENTENCE_RE = re.compile(r"\.\s+(?:if|when) you do\b", re.I)
 def peel_optional(body: str) -> tuple[str, bool]:
     """Strip a leading "you may " and report whether it was present (RULE 601.2)."""
     body = body.strip()
+    # RULE 608.2c: keep the optional action and its assignment rider atomic.
+    if re.fullmatch(r"you may .+\.\s*if you do, .+assigns no combat damage this turn\.?", body, re.I | re.S):
+        return body, False
+    if _MAY_HAVE_TARGET_GET_RE.match(body):
+        # RULE 603.5/603.3d: targets are required when the trigger is put on
+        # the stack; only applying the pump is optional on resolution.
+        return body, False
     if _PAY_ENERGY_THEN_PEEL_GUARD_RE.match(body):
         return body, False
     # PAR-152 (Jocasta): "…, if this card is in your graveyard, you may return it to the battlefield tapped and
@@ -10803,7 +12032,18 @@ def peel_optional(body: str) -> tuple[str, bool]:
         # 603.12), and the peel hands it a body whose first clause no longer says it was optional. When the peeled
         # body cannot be read, the whole sentence pair is the unit (`may_effect_then`); a body the peel already
         # reads keeps its meaning untouched.
-        if _IF_YOU_DO_SENTENCE_RE.search(rest) and parse_effect_body(rest) is None and parse_effect_body(body) is not None:
+        if _IF_YOU_DO_SENTENCE_RE.search(rest) and parse_effect_body(body) is not None:
+            rest_specs = parse_effect_body(rest)
+            # PAR-208: a mandatory-action outcome chain (`seq` + ``if_you_do_from``) reading the peeled remainder is
+            # the same unit "you may <action>. If you do, ..." already had as one `optional` node.
+            if rest_specs is None or (
+                len(rest_specs) == 1 and rest_specs[0].type == "seq" and "if_you_do_from" in rest_specs[0].params
+                and re.search(r"\.\s+if you do\b", rest, re.I)
+            ):
+                return body, False
+        # PAR-208 (RULE 608.2c): "you may X. Then Y." -- only X is optional; peeling the "you may" would make the whole
+        # ability (and so Y) skippable. The pair stays whole and unclaimed unless a row reads it.
+        if re.search(r"\.\s+then\b", rest, re.I):
             return body, False
         return rest, True
     return body, False

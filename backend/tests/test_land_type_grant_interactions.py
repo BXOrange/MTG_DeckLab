@@ -14,6 +14,10 @@ both apply to the same land: an additive grant that enters *after* an
 overwrite stacks its type on top of it (a land can end up "Mountain Swamp"),
 while one that entered *before* the overwrite is wiped out by it, exactly
 like a real Blood Moon + Urborg board.
+
+RULE 613.8: Urborg depends on Blood Moon (Blood Moon makes Urborg a Mountain
+and strips its ability, so Urborg's grant ceases to exist), hence Blood Moon
+applies first and suppresses Urborg in *either* entry order.
 """
 
 from __future__ import annotations
@@ -113,11 +117,10 @@ def test_urborg_before_blood_moon_is_wiped_by_the_overwrite():
     assert {"B": 1} not in options
 
 
-def test_urborg_after_blood_moon_stacks_swamp_onto_mountain():
-    """The same board, entering order reversed — Blood Moon's overwrite now
-    has the *older* timestamp, so Urborg's Swamp grant applies afterwards and
-    stacks on top of it instead of being erased: the land ends up both
-    Mountain and Swamp, tapping for either {R} or {B}."""
+def test_urborg_after_blood_moon_is_still_suppressed_by_dependency():
+    """Entering order reversed: Blood Moon is older, but RULE 613.8 still
+    applies Blood Moon first (Urborg depends on it), so Urborg is a Mountain
+    with no ability and the other land never becomes a Swamp."""
     eng = _engine()
     state = eng.state
     _battlefield(state, _card("Blood Moon"), controller="p1")
@@ -126,7 +129,7 @@ def test_urborg_after_blood_moon_stacks_swamp_onto_mountain():
 
     eng.recompute_continuous_effects()
     assert continuous.has_subtype(land, "Mountain") is True
-    assert continuous.has_subtype(land, "Swamp") is True
+    assert continuous.has_subtype(land, "Swamp") is False
     options = mana_options_for(land, state)
     assert {"R": 1} in options
-    assert {"B": 1} in options
+    assert {"B": 1} not in options

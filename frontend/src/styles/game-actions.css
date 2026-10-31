@@ -1,0 +1,236 @@
+/* --- Goldfisch: Aktionen direkt unter den Karten --- */
+
+.gf-card-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.gf-card-slot > .card {
+  position: relative;
+}
+
+/* Stack items carry a type badge above the art and a resolution-order
+   hint below, so the stack reads as spells vs. triggered/activated
+   abilities and shows what resolves next (RULE 608.2, LIFO). */
+.gf-stack-item {
+  gap: 0.2rem;
+}
+
+.gf-stack-item.is-top .card {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Ability on the stack: the source's art with only the current ability text
+   overlaid at the bottom (full card on hover). */
+.gf-stack-item .card.gf-stack-art {
+  position: relative;
+}
+
+.gf-stack-ability-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  max-height: 70%;
+  overflow-y: auto;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.55) 70%, transparent);
+  color: #fff;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  padding: 0.6rem 0.35rem 0.3rem;
+  white-space: normal;
+}
+
+/* No art available: a plain text box with the same content. */
+.gf-stack-item .card.gf-stack-action {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.gf-stack-source-name {
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.gf-stack-action-text {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.gf-stack-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 110px;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gf-stack-badge--spell {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-badge--triggered {
+  background: color-mix(in srgb, #e0a800 22%, transparent);
+  border-color: color-mix(in srgb, #e0a800 55%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-badge--activated {
+  background: color-mix(in srgb, #2f9e6a 22%, transparent);
+  border-color: color-mix(in srgb, #2f9e6a 55%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-order {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.gf-stack-item.is-top .gf-stack-order {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.gf-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  justify-content: center;
+  max-width: 110px;
+}
+
+.gf-card-action {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gf-card-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.gf-mana-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.gf-mana-choice select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
+.gf-mana-choice .gf-card-action {
+  width: 100%;
+  white-space: normal;
+}
+
+/* A spell with no legal target (RULE 601.2c): shown but not castable. */
+.gf-card-action.gf-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.gf-card-action.gf-locked:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* Loyalty-ability buttons ([+N]/[-N]/[0], RULE 606) — color-coded by sign
+   so a planeswalker's plus/minus/zero abilities read apart at a glance. */
+.gf-card-action--loyalty-plus {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.gf-card-action--loyalty-minus {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.gf-card-action--loyalty-zero {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+}
+
+/* RULE 502.1 "may choose not to untap" toggle — highlighted while active,
+   since it's a sticky standing choice rather than a one-off action. */
+.gf-card-action--skip-untap-on {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* RULE 605.1a "any combination of colours" split builder (Selvala/Gwenna-
+   shaped): one small number input per real color, plus a confirm button. */
+.gf-mana-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.3rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+
+.gf-split-hint {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  width: 100%;
+}
+
+.gf-split-color {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.gf-split-color input {
+  width: 2.2rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.2rem;
+  font-size: 0.7rem;
+}

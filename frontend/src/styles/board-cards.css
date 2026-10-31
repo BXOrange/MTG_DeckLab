@@ -1,0 +1,281 @@
+/* --- Board --- */
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 1200px;
+}
+
+.zone-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.stack-row {
+  grid-auto-flow: row;
+}
+
+.zone {
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  min-height: 90px;
+}
+
+.zone h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+}
+
+.life-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.life-total {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0;
+}
+
+.library-count {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.library-top-hint {
+  font-size: 0.85rem;
+  margin: 0.3rem 0 0;
+  opacity: 0.8;
+}
+
+.card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* RULE 601.3b/715.3d/722.3c: the "castable from exile" callout (and its
+   graveyard sibling `.gf-grave-castable` — Flashback/Escape/Disturb/…) that
+   sits *beside* the hand in `.gf-castable-aside`. Each exile entry pairs the
+   card tile with a caption explaining why it's castable and how long that
+   lasts (an impulsive-draw permission expires; Adventure/Prepared don't). */
+.gf-exile-castable {
+  border-color: var(--accent);
+}
+
+/* The hand row: hand on the left, the conditional exile/graveyard callouts
+   as a narrow column on the right (only present when they have something to
+   show — see `handAreaHtml`). Collapses to a stack on a narrow viewport. */
+.gf-hand-area {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.gf-hand-area .gf-hand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gf-castable-aside {
+  flex: 0 0 auto;
+  width: min(280px, 40%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.gf-castable-aside .gf-zone {
+  margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+  .gf-hand-area {
+    flex-direction: column;
+  }
+  .gf-castable-aside {
+    width: auto;
+    align-self: stretch;
+  }
+}
+
+.gf-exile-castable-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  max-width: 130px;
+}
+
+.gf-exile-castable-caption {
+  margin: 0;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.card {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card.clickable {
+  cursor: pointer;
+}
+
+.card[data-draggable-card="true"] {
+  cursor: grab;
+}
+
+.card[data-draggable-card="true"]:active {
+  cursor: grabbing;
+}
+
+.card.clickable:hover {
+  border-color: var(--accent);
+}
+
+.gf-card-slot.gf-drag-source > .card {
+  box-shadow: 0 0 0 2px rgba(255, 221, 88, 0.85);
+}
+
+.card.gf-ability-source {
+  box-shadow: 0 0 0 3px rgba(72, 156, 255, 0.95), 0 0 12px rgba(72, 156, 255, 0.55);
+  border-color: rgba(72, 156, 255, 0.95);
+}
+
+.gf-card-slot.gf-drag-target-valid > .card,
+.gf-zone.gf-battlefield.gf-drag-target-valid,
+.gf-player-board.gf-drag-target-valid,
+.gf-opponent.gf-drag-target-valid {
+  box-shadow: 0 0 0 3px rgba(88, 183, 255, 0.8);
+  border-color: rgba(88, 183, 255, 0.8);
+}
+
+.card[data-hover-card]:hover {
+  border-color: var(--text-dim);
+}
+
+/* Cards with resolved Scryfall artwork replace the text box with a
+   card-shaped thumbnail (MTG card ratio ~63:88). */
+.card.has-image {
+  width: 100px;
+  max-width: none;
+  padding: 0;
+  position: relative;
+  overflow: visible;
+  white-space: normal;
+  border-radius: 6px;
+}
+
+.card.has-image img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  border-radius: 5px;
+}
+
+.card.has-image.clickable:hover img {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* "Mana-Potenzial": this hand card could be paid for right now by tapping/
+   exiling untapped mana sources (`GameEngine.auto_tap_for`'s own dry run),
+   even if it isn't affordable from the current pool alone yet. */
+.card.castable-highlight {
+  box-shadow: 0 0 0 2px var(--ok);
+}
+
+.card.has-image.castable-highlight img {
+  outline: 2px solid var(--ok);
+  outline-offset: -2px;
+}
+
+/* Compact board: the cache stores complete 488x680 card images, not art-only
+   images. The normal frame's artwork is approximately x=35..453 and
+   y=76..378, so this scales and offsets the full image into that window. */
+.goldfish.compact-view .gf-battlefield .card.has-image {
+  width: 116px;
+  height: 84px;
+  overflow: visible;
+}
+
+/* Crop only the artwork: card modifiers and corner badges stay visible. */
+.goldfish.compact-view .gf-battlefield .card.has-image .gf-card-art {
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.goldfish.compact-view .gf-battlefield .card.has-image img {
+  width: 117%;
+  max-width: none;
+  height: auto;
+  aspect-ratio: auto;
+  object-fit: initial;
+  transform: translate(-7.2%, -11.2%);
+  border-radius: 0;
+}
+
+.goldfish.compact-view .gf-battlefield .card:not(.has-image) {
+  min-height: 5rem;
+}
+
+.gf-compact-pt {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  z-index: 3;
+  padding: 0.08rem 0.24rem;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-shadow: 0 1px 2px #000;
+}
+
+.gf-compact-pt.is-changed {
+  color: #ff5c5c;
+}
+
+.goldfish.compact-view .gf-battlefield .gf-keyword-badge {
+  right: 0.2rem;
+  bottom: 0.2rem;
+}
+
+.goldfish.compact-view .gf-battlefield .gf-compact-pt {
+  bottom: 0.2rem;
+}
+
+.board-controls {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.player-hand-row .hand-zone {
+  min-height: 110px;
+}

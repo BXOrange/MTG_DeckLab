@@ -42,6 +42,7 @@ A criteria value is one of:
                       Guard's "with toughness 2 or less").
   ``min_toughness``   int  — printed toughness ≥ this.
   ``name``            str  — exact card name, case-insensitive ("a card named…").
+  ``same_name_as``    str  — share at least one name (RULE 201.2a).
   ``color``           str | list[str] — a colour ("W"/"U"/"B"/"R"/"G") that
                       must be in the card's colour identity; a list is an OR.
                       ``"colorless"`` is a special entry meaning an *empty*
@@ -76,6 +77,7 @@ import re
 from typing import Any, Union
 
 from .card import Card
+from .card_colors import printed_colors
 from .creature_types import CREATURE_SUBTYPES
 
 _ALL_CREATURE_TYPES_TEXT = ' '.join(sorted(CREATURE_SUBTYPES))
@@ -89,8 +91,8 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
     {
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
-        "name", "not_name", "color", "without_type", "has_mana_ability", "or",
-        "nonlegendary", "has_keyword", "all_types", "has_x_cost",
+        "name", "same_name_as", "not_name", "color", "without_type", "has_mana_ability", "or",
+        "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic",
     }
 )
 
@@ -114,6 +116,35 @@ def normalize(criteria: Criteria) -> dict[str, Any]:
     raise ValueError(f"criteria must be a str, dict, or None (got {type(criteria).__name__})")
 
 
+#: RULE 201.2 / 708.4: a split or double-faced card is printed "Front // Back"; each half is a name a player can say.
+_NAME_FACE_SEPARATOR = "//"
+
+
+def name_matches(card_name: str, chosen: str) -> bool:
+    """Whether a card called ``card_name`` answers to the name ``chosen`` (RULE 201.2): the whole printed name,
+    or one half of a "Front // Back" name, compared case-insensitively."""
+    wanted = str(chosen or "").strip().lower()
+    if not wanted:
+        return False
+    full = str(card_name or "").strip().lower()
+    return wanted == full or wanted in (part.strip() for part in full.split(_NAME_FACE_SEPARATOR))
+
+
+
+def names_overlap(first: str, second: str) -> bool:
+    """RULE 201.2a: nameless objects never match; one shared name is enough."""
+    def names(text):
+        return {part.strip().casefold() for part in str(text or '').split('//') if part.strip()}
+    return bool(names(first) & names(second))
+
+def _query_name(card: Card) -> str:
+    # RULE 712.8a / 709.4a: a library/hand/graveyard search sees only
+    # the front of a double-faced card, but both names of a split card.
+    if getattr(card, 'layout', '') in {'transform', 'modal_dfc', 'meld', 'double_faced_token', 'flip', 'adventure', 'prepare'}:
+        return card.name.split('//')[0].strip()
+    return card.name
+
+
 def matches(card: Card, criteria: Criteria) -> bool:
     """Whether ``card`` satisfies ``criteria`` (all conditions AND-combined)."""
     crit = normalize(criteria)
@@ -135,6 +166,9 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if crit.get("basic") and "basic" not in type_line:
         return False
+    # "a card name other than a basic land card name" (PAR-203): the negation of ``basic`` for the name a player may pick.
+    if crit.get("not_basic") and "basic" in type_line and "land" in type_line:
+        return False
     # "a nonlegendary card" (Unmarked Grave, MEC-43) — the negation of the
     # already-recognized "legendary" type-line word, its own key rather
     # than a magic string in ``without_type`` so a criteria dict stays
@@ -153,12 +187,14 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if "min_toughness" in crit and (card.toughness is None or card.toughness < crit["min_toughness"]):
         return False
-    if "name" in crit and card.name.lower() != str(crit["name"]).lower():
+    if "same_name_as" in crit and not names_overlap(_query_name(card), crit["same_name_as"]):
+        return False
+    if "name" in crit and not name_matches(_query_name(card), crit["name"]):
         return False
     # The negated form ("a nonland card with a **different name** than that
     # spell" — Tibalt's Trickery). Kept as its own key rather than allowing a
     # magic value in ``name``, so a criteria dict stays literal data.
-    if "not_name" in crit and card.name.lower() == str(crit["not_name"]).lower():
+    if "not_name" in crit and name_matches(_query_name(card), crit["not_name"]):
         return False
     if not _color_matches(card, crit.get("color")):
         return False
@@ -218,6 +254,33 @@ def describe(criteria: Criteria) -> str:
     return f"{article} {label} card{suffix}"
 
 
+#: RULE 110.4: the permanent types are artifact, battle, creature, enchantment, land and planeswalker. The one
+#: source of truth for "permanent card" / "permanent type" -- never re-enumerate these at a use site.
+PERMANENT_CARD_TYPES: frozenset[str] = frozenset(
+    {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
+)
+
+
+def card_type_words(card: Card) -> frozenset[str]:
+    """The lowercase *card-type* words of ``card``'s printed type line (RULE 205.2a): every word before
+    the em dash of each face, so supertypes ride along but a subtype ("Equipment", "Forest") never does."""
+    words: set[str] = set()
+    for face in (card.type_line or "").lower().split("//"):
+        words.update(face.partition("\u2014")[0].split())
+    return frozenset(words)
+
+
+def is_permanent_card(card: Card) -> bool:
+    """Whether ``card`` is a permanent card (RULE 110.4): it has at least one permanent type, battle included."""
+    return bool(card_type_words(card) & PERMANENT_CARD_TYPES)
+
+
+def is_nonland_permanent_card(card: Card) -> bool:
+    """A permanent card that is not a land ("nonland permanent card", RULE 110.4 + 305)."""
+    words = card_type_words(card)
+    return bool(words & PERMANENT_CARD_TYPES) and "land" not in words
+
+
 def _card_type_line(card: Card) -> str:
     """RULE 702.73a/604.3a: printed subtype CDAs apply in a searched zone."""
     type_line = (card.type_line or '').lower()
@@ -258,7 +321,7 @@ def _color_matches(card: Card, color_val: Any) -> bool:
     if not color_val:
         return True
     wanted = [color_val] if isinstance(color_val, str) else list(color_val)
-    identity = card.color_identity
+    identity = printed_colors(card)  # RULE 202.2: actual colours, not Commander identity (RULE 903.4)
     # "colorless" is a real (if unusual) search word ("a colorless creature
     # card" — Eye of Ugin) meaning an *empty* colour identity, not a WUBRG
     # letter to look for among the card's colours — the opposite check from

@@ -5,6 +5,7 @@ mtg_analyzer/services/game_session.py.
 """
 
 import pytest
+from types import SimpleNamespace
 
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.mana.mana_cost import ManaCost
@@ -465,10 +466,12 @@ class TestOpeningHandBattlefieldPermission:
         session = self._start([leyline_card("Test Leyline A"), leyline_card("Test Leyline B")])
         view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
         assert view["pending_choice"]["kind"] == "opening_hand_battlefield"
-        first_prompt = view["pending_choice"]["prompt"]
+        first_label = view["pending_choice"]["options"][0]["label"]
         view = session.apply_action({"type": "choose", "option_id": "battlefield"})
         assert view["pending_choice"]["kind"] == "opening_hand_battlefield"
-        assert view["pending_choice"]["prompt"] != first_prompt
+        # RULE 103.6: the menu lets the owner pick an order; its generic
+        # public waiting prompt must not reveal an unchosen hand card.
+        assert first_label not in {option["label"] for option in view["pending_choice"]["options"]}
         view = session.apply_action({"type": "decline"})
         assert view["pending_choice"] is None
         # One was put on the battlefield, the other stayed in hand — which
@@ -1093,3 +1096,11 @@ def test_next_decision_stops_for_cleanup_discard_and_can_rewind_choice():
     session.apply_action({"type": "choose", "instance_id": chosen})
     session.apply_action({"type": "advance_to_decision"})
     assert session.engine.state.internal_turn.number == 2
+
+
+def test_resolve_defender_accepts_a_battle():
+    # RULE 310.5: the board sends {"kind": "battle"} for a Siege; it used to be rejected as unknown.
+    session = GameSession.__new__(GameSession)
+    session._object_by_id = lambda iid: SimpleNamespace(instance_id=iid, name="Siege")
+    assert session._resolve_defender({"kind": "battle", "instance_id": 7}) == {
+        "kind": "battle", "instance_id": 7, "label": "Siege"}

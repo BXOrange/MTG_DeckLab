@@ -455,3 +455,91 @@ def test_cost_requirements_and_public_commander_casts():
     assert cost_requirements('{G/U}{C}') == (Counter({'C': 1}), 1)
     player = Player('ann'); player.commander_casts[7] = 2
     assert player.to_dict()['commander_casts'] == {'7': 2}
+
+
+def test_strategy_supports_two_archetypes():
+    # Deck with tokens and lifegain cards (each with at least 3 occurrences to hit weight >= 3)
+    token_cards = [spell(f'TokenMaker{i}', text='Create two 1/1 green Saproling creature tokens.') for i in range(3)]
+    lifegain_cards = [spell(f'LifeGainer{i}', text='Whenever you gain life, gain 2 life.') for i in range(3)]
+    strat = build_strategy(token_cards + lifegain_cards, [], [])
+    assert len(strat.archetypes) == 2
+    assert strat.archetype == strat.archetypes[0]
+    assert set(strat.archetypes) == {'tokens', 'lifegain'}
+    assert set(strat.philosophies) == {'resources', 'combo'}
+
+    # Explicit archetypes passed
+    strat_explicit = build_strategy(token_cards, [], [], archetypes=['voltron', 'stompy'])
+    assert strat_explicit.archetypes == ('voltron', 'stompy')
+    assert strat_explicit.archetype == 'voltron'
+    assert strat_explicit.philosophies == ('combat',)
+
+
+
+def test_smart_bot_skips_to_end_step_when_out_of_actions():
+    b = bot()
+    v = view()
+    v['priority'] = {'interactive': True, 'yields': {}, 'stops': {'ann': {}}}
+    v['state']['current_step'] = 'main2'
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+    v['state']['current_step'] = 'main1'  # no creatures: no combat to wait for
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+    v['state']['battlefield'] = [obj(1, 'Bear', is_creature=True, tapped=False)]
+    assert b.decide(v, [{'type': 'pass_priority'}]) is None  # may still attack
+    v['state']['battlefield'] = []
+    v['state']['current_step'] = 'main2'
+    v['state']['current_step'] = 'main2'
+    v['priority']['yields'] = {'ann': {'mode': 'end_step'}}
+    assert b.decide(v, [{'type': 'pass_priority'}]) is None
+
+
+def test_smart_bot_sets_own_turn_stops_once_and_ignores_summoning_sick_creatures():
+    b = bot()
+    v = view()
+    v['priority'] = {'interactive': True, 'yields': {}, 'stops': {}}
+    assert b.decide(v, [{'type': 'pass_priority'}])['type'] == 'set_stops'
+    v['priority']['stops'] = {'ann': {'own': [], 'opponent': []}}
+    v['state']['battlefield'] = [obj(1, 'Bear', is_creature=True, tapped=False, summoning_sick=True)]
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+    v['state']['current_step'] = 'declare_attackers'
+    v['state']['battlefield'][0]['summoning_sick'] = False
+    assert b.decide(v, [{'type': 'pass_priority'}]) == {'type': 'set_yield', 'mode': 'end_step'}
+
+
+def test_smart_bot_keeps_windows_only_while_it_can_pay_for_them():
+    b = bot()
+    v = view(hand=[obj(1, 'Shock', type_line='Instant', castable=False)])
+    pass_only = [{'type': 'pass_priority'}]
+    assert b.can_pass_turn(v, pass_only)
+    v['state']['players'][0]['hand'][0]['castable'] = True
+    assert not b.can_pass_turn(v, pass_only)
+    v['state']['players'][0]['hand'] = []
+    assert not b.can_pass_turn(v, pass_only + [{'type': 'activate_ability', 'instance_id': 2}])
+    assert b.can_pass_turn(v, pass_only)
+
+
+def test_attacks_own_battle_when_no_player_attack_is_safe():
+    b = bot()
+    defender = {'kind': 'battle', 'instance_id': 7}
+    v = view(board=[obj(2, 'Bear', is_creature=True, power=2, toughness=2),
+                    obj(7, 'Siege', is_battle=True, protector_id='bob', defense=5)])
+    offers = [{'type': 'attack', 'instance_id': 2, 'legal_defenders': [defender]}]
+    assert b.play(v, offers) == {'type': 'attack', 'instance_ids': [2], 'defender': defender}
+
+
+def _blight_view(amount=1):
+    v = view(board=[obj(1, 'Best', is_creature=True, power=5, toughness=5, mana_value=5),
+                    obj(2, 'Token', is_creature=True, power=1, toughness=1, mana_value=0),
+                    obj(3, 'Mid', is_creature=True, power=2, toughness=3, mana_value=3)])
+    v['pending_choice'] = {'kind': 'blight', 'amount': amount}
+    return v
+
+
+def test_bots_blight_the_creature_they_miss_least_not_the_first_offered():
+    answers = [{'type': 'choose', 'instance_id': i} for i in (1, 2, 3)]
+    # The 1/1 token would die; the cheapest creature that survives is blighted, in any offer order.
+    assert SmartBot('ann').answer_choice(_blight_view(), answers)['instance_id'] == 3
+    assert SmartBot('ann').answer_choice(_blight_view(), answers[::-1])['instance_id'] == 3
+    # With only a dying choice left among the cheap ones, the board's best body still survives and is not spared.
+    v = _blight_view()
+    v['state']['battlefield'][2]['toughness'] = 1
+    assert SmartBot('ann').answer_choice(v, answers)['instance_id'] == 1

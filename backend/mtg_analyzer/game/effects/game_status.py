@@ -479,6 +479,39 @@ class RequestChooseCreatureTypeGrantEffect(GameEffect):
         context.engine._request_choose_creature_type_grant(player, self.source, self.then_specs)
 
 
+class ChooseForSourceEffect(GameEffect):
+    """PAR-203 / RULE 608.2d: "Choose a creature type." / "Choose a color." / "Choose a card name." as an
+    instruction of a resolving spell or ability. Opens `RulesEngine._request_choose_for_source`; the answer is
+    stamped on this effect's source and the clauses after it (a sibling ``seq`` that carries the ``$chosen_*``
+    placeholders) read it back. ``kind`` is ``creature_type`` / ``color`` / ``card_name``; ``other_than`` lists the
+    creature types a "...other than Wall" wording rules out, ``card_filter`` is a `card_query` filter for
+    "a nonland card name"."""
+
+    KINDS = ("creature_type", "color", "card_name", "basic_land_type", "colors")
+
+    def __init__(
+        self,
+        kind: str = "creature_type",
+        other_than: Optional[list[str]] = None,
+        card_filter: Optional[dict] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        if kind not in self.KINDS:
+            raise ValueError(f"unknown named choice {kind!r}")
+        self.kind = kind
+        self.other_than = list(other_than or [])
+        self.card_filter = dict(card_filter) if card_filter else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        context.engine._request_choose_for_source(
+            player, self.source, self.kind, self.other_than, self.card_filter,
+        )
+
+
 class GrantKeywordsToChosenTypeUntilEotEffect(GameEffect):
     """"Other permanents you control of that type gain hexproof and
     indestructible until end of turn." (Selfless Safewright) — "that type"
@@ -503,7 +536,7 @@ class GrantKeywordsToChosenTypeUntilEotEffect(GameEffect):
         for obj in context.state.battlefield:
             if obj is self.source or obj.controller_id != controller_id:
                 continue
-            if wanted.lower() not in (obj.card.type_line or "").lower():
+            if wanted.lower() not in obj.type_words and not obj.has_subtype(wanted):
                 continue
             for kw in self.keywords:
                 obj.temp_keywords.add(kw)
@@ -1091,6 +1124,10 @@ class ConditionalEffect(GameEffect):
         self.target_spec = inner.target_spec
 
     @property
+    def created_objects_are_referent(self) -> bool:
+        return bool(getattr(self.inner, "created_objects_are_referent", False))
+
+    @property
     def target_specs(self) -> list[TargetSpec]:
         """RULE 702.174m: a gated part whose condition the cast already decided as false
         announces no target — "if the gift was promised, tap target creature" asks for
@@ -1120,6 +1157,8 @@ class ConditionalEffect(GameEffect):
 
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if getattr(self.inner, 'resets_exile_pool', False):
+            context.latest_exiled_visits = []
         if self.inner.source is None:
             self.inner.source = self.source
         if self._condition_holds(context, targets):
@@ -1860,7 +1899,9 @@ class PlayCardsExiledWithSourceEffect(GameEffect):
         if source is None or player is None:
             return
         event = context.trigger_event or {}
-        ids = event.get("cost_exiled_ids", []) if self.from_activation_cost else list(source.exiled_with_ids)
+        from ..linked_exile import linked_cards
+        ids = (event.get("cost_exiled_ids", []) if self.from_activation_cost else
+               [obj.instance_id for obj in linked_cards(context.state, source, context.resolving_source_incarnation)])
         incarnations = event.get("cost_exiled_incarnations", {})
         cards = [
             obj for obj in (context.state.find_object(i) for i in ids)

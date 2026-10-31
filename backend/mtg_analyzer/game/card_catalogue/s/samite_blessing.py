@@ -26,7 +26,7 @@ def _samite_blessing() -> list[AbilitySpec]:
                 "cost": {"text": "{T}"},
                 "grant_effects": [{
                     "type": "request_prevent_damage_source",
-                    "params": {"target_kind": "creature", "amount": "all"},
+                    "params": {"target_kind": "creature", "amount": "all", "once": True},
                 }],
             })],
         ),

@@ -29,7 +29,7 @@ def _opal_eye_kondas_yojimbo() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("request_redirect_damage_source", {"amount": "all"})],
+            [EffectSpec("request_redirect_damage_source", {"once": True, "amount": "all"})],
             cost={"text": "{T}"},
         ),
         AbilitySpec(

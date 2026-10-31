@@ -132,9 +132,9 @@ def test_if_else_with_different_branch_targets_announces_nothing():
     ("Bloodchief's Thirst", "Kicker {2}{B}\nDestroy target creature or planeswalker with mana "
      "value 2 or less. If this spell was kicked, instead destroy target creature or planeswalker."),
 ])
-def test_override_changing_the_target_requirement_stays_unclaimed(name, oracle):
+def test_announced_kicker_override_can_change_the_target_requirement(name, oracle):
     card = Card(id=name, name=name, type_line="Sorcery", is_sorcery=True, oracle_text=oracle)
-    assert not parse_oracle(card).modeled
+    assert parse_oracle(card).modeled
 
 
 def test_tallyman_gates_the_whole_override_on_its_first_condition():

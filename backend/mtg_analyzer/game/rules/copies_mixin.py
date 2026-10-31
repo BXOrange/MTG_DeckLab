@@ -23,7 +23,8 @@ import copy
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
-from ...models.cards.card import Card
+from ...models.cards.card import VALID_COLORS, Card
+from ...models.cards.card_colors import printed_colors, with_color_override
 from ...models.game.emblem import Emblem
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
@@ -95,15 +96,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -146,7 +147,7 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 # RULE 707.10: casting choices are copied; cast history and mana expenditure are not.
 _SPELL_COPY_CHOICES = (
     "kicker_count", "kicker_x_paid", "additional_cost_paid", "teamwork_paid", "bargained",
-    "gift_promised", "gift_recipient_id", "blitz_cost_paid", "offered_additional_costs",
+    "gift_promised", "gift_recipient_id", "blitz_cost_paid", "emerge_cost_paid", "offered_additional_costs",
     "bestowed", "cast_via_mutate", "mutate_under",
     "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
     "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected",
@@ -227,7 +228,7 @@ class CopiesMixin:
         if add_colors:
             # "…in addition to its other colors" (PAR-135): the copiable colours plus these, expressed
             # through `Card.as_copy`'s replace-only ``set_colors`` so the card model needs no change.
-            set_colors = sorted({*(set_colors if set_colors is not None else copiable.color_identity), *add_colors})
+            set_colors = sorted({*(set_colors if set_colors is not None else printed_colors(copiable)), *add_colors})
         if add_types:
             # "…it's a Synth artifact creature in addition to its other types" (Shaun, Father of Synths): a type the
             # original already has is not added a second time ("Creature Artifact Creature").
@@ -239,6 +240,8 @@ class CopiesMixin:
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
+            if set_colors is not None:
+                with_color_override(copiable, [c for c in set_colors if c in VALID_COLORS])  # RULE 707.9b: beats the unchanged mana cost
         tokens = self.create_token(controller_id, copiable, count)
         return tokens
 
@@ -454,6 +457,7 @@ class CopiesMixin:
             # (Ashling the Pilgrim's ruling: Rings of Brighthearth's copy counts).
             ability_key=item.ability_key,
             trigger_event=item.trigger_event,
+            category=item.category,
         )
         copy_item.source_zone_incarnation = item.source_zone_incarnation
         if new_targets is None:
@@ -794,6 +798,7 @@ class CopiesMixin:
             GameEvent(
                 EventType.TURNED_FACE_UP,
                 instance_id=obj.instance_id,
+                    instance_zone_incarnation=obj.zone_incarnation,
                 controller_id=obj.controller_id,
                 object=obj.name,
                 card_id=obj.card.id,

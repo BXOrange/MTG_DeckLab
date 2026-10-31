@@ -645,12 +645,15 @@ class GrantUntilEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         optional: bool = False,
         count: int = 1,
+        count_max: Optional[int] = None,
+        spell_filter: Optional[dict[str, Any]] = None,
         condition: Optional[dict[str, Any]] = None,
         previous_subject: bool = False,
         referent: Optional[str] = None,
         self_subject: bool = False,
         extra_statics: Optional[list[dict[str, Any]]] = None,
         lock_group: bool = False,
+        group_controller: Optional[str] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
@@ -662,6 +665,7 @@ class GrantUntilEffect(GameEffect):
         #: must not reach a creature that enters later. Resolve the static's own
         #: ``affects`` selector once, here, instead of re-reading it every recompute.
         self.lock_group = lock_group
+        self.group_controller = group_controller if group_controller == "target_player" else None
         #: Additional `EffectSpec`-shaped static payloads applied to the
         #: **same** chosen targets under the same duration/condition as
         #: ``static`` — "target land … becomes a 5/5 green Plant Boar
@@ -684,7 +688,7 @@ class GrantUntilEffect(GameEffect):
         self.self_subject = self_subject
         self.target_spec = (
             TargetSpec(
-                kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+                kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter, spell_filter=spell_filter,
             )
             if target_kind is not None and not previous_subject and not self_subject
             else None
@@ -692,6 +696,14 @@ class GrantUntilEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .. import durations  # local: durations imports effects' siblings
+
+        if (self.condition and self.condition.get("kind") == "source_on_battlefield"
+                and self.condition.get("of", "source") == "source"):
+            # RULE 611.2b / 400.7: a duration tied to the original source
+            # cannot start after that source left and became a new object.
+            expected = context.resolving_source_incarnation
+            if self.source is None or (expected is not None and self.source.zone_incarnation != expected):
+                return
 
         payloads = [self.static, *self.extra_statics]
         if not any(
@@ -704,7 +716,17 @@ class GrantUntilEffect(GameEffect):
         controller_id = controller.id if controller is not None else None
         # Chosen targets are resolved once and shared by every payload.
         chosen_ids: Optional[list[int]] = None
-        if self.target_spec is not None or self.previous_subject or self.self_subject:
+        if self.group_controller == "target_player":
+            from ...models.game.player import Player
+            # RULE 611.2c: target the player, then capture that player's
+            # qualifying objects once; the player is not an affected object.
+            selected = next((t for t in targets or [] if isinstance(t, Player)), None)
+            if selected is None:
+                return
+            chosen_ids = self._locked_group_ids(context, selected.id, payloads)
+            if not chosen_ids:
+                return
+        elif self.target_spec is not None or self.previous_subject or self.self_subject:
             if self.self_subject:
                 # RULE 400.7: a resolving self grant cannot migrate to a
                 # later visit of the source that left before resolution.
@@ -729,7 +751,14 @@ class GrantUntilEffect(GameEffect):
                 return
 
         for payload in payloads:
-            self._park_static(context, durations, payload, controller_id, chosen_ids)
+            # RULE 611.2b: an affected-object condition ends separately for
+            # each member of a multi-object grant, never for the whole group.
+            measured_pt = (payload.get("params") or {}).get("pt_selector") == "mana_value"
+            if chosen_ids and (measured_pt or (self.condition and (self.condition.get("of") == "affected" or self.condition.get("kind") == "source_attached_to_affected"))):
+                for chosen_id in chosen_ids:
+                    self._park_static(context, durations, payload, controller_id, [chosen_id])
+            else:
+                self._park_static(context, durations, payload, controller_id, chosen_ids)
         # A new continuous effect changes derived characteristics immediately
         # (RULE 613.1) — the caller's SBA pass would get there anyway, but a
         # grant whose effect isn't visible until then reads as a bug.
@@ -771,6 +800,11 @@ class GrantUntilEffect(GameEffect):
                 params[k] = x_paid
             elif params.get(k) == "-x":
                 params[k] = -x_paid
+        if params.get("pt_selector") == "mana_value" and chosen_ids:
+            # RULE 611.2d / 608.2h: a resolving animation measures this value once for each affected object.
+            obj = context.state.find_object(chosen_ids[0])
+            params["power"] = params["toughness"] = getattr(obj, "mana_value", 0) or 0
+            params.pop("pt_selector", None)
         ability = EffectRegistry.create(str(spec_type), params)
         if not isinstance(ability, StaticAbility):
             return
@@ -785,21 +819,22 @@ class GrantUntilEffect(GameEffect):
         # long after the Aura already attached, must apply *after* the
         # Aura's own "loses all other card types" layer-4 static).
         ability.timestamp = context.state.next_timestamp()
-        ability.duration = durations.normalize_duration(self.duration)
-        # "turn" anchors "until the end of your NEXT turn" (RULE 611.2) to the creating turn.
-        ability.duration_data = {"player_id": controller_id, "turn": context.state.internal_turn.number}
-        if self.condition is not None:
-            # RULE 611.2b's condition-bounded duration: the effect *ends*
-            # when this stops holding, unlike an ``active_if`` gate, which
-            # merely lies dormant and can come back on.
-            ability.duration = "for_as_long_as"
-            ability.duration_data["condition"] = dict(self.condition)
+        durations.stamp(ability, context, self.source, durations.normalize_duration(self.duration), self.condition)
+        if self.duration == "until_source_cast_from_exile":
+            # RULE 400.7j / 611.2a: track the exile visit created by the cost,
+            # independently of the source's subsequent movements.
+            event = context.trigger_event or {}
+            ability.duration_data["source_id"] = getattr(self.source, "instance_id", None)
+            ability.duration_data["source_exile_incarnation"] = event.get("cost_exiled_source_incarnation")
         if chosen_ids is not None:
             # A targeted grant applies to exactly the permanents chosen once
             # in `apply` (`affects="objects"` reads the ids off the ability),
             # whether via a RULE 115 target, ``previous_subject`` ("Tap
             # target land. **It** doesn't untap … for as long as ~ remains
             # tapped."), or ``self_subject`` (MEC-46, this ability's source).
+            # RULE 611.2c: color changes may affect a spell while it is on the stack.
+            if any((o := context.state.find_object(iid)) is not None and o.zone == Zone.STACK for iid in chosen_ids):
+                ability.params["include_stack"] = True
             ability.affects = "objects"
             ability.object_ids = list(chosen_ids)
             ability.params["object_incarnations"] = {
@@ -848,6 +883,7 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         permanent_only: bool = False,
         any_color: bool = False,
         during_resolution: bool = False,
+        source_exiled_as_cost: bool = False,
     ) -> None:
         super().__init__(source)
         #: "…you may cast **permanent** spells from among them" (Arvinox) — instants and sorceries get no permission.
@@ -856,6 +892,7 @@ class GrantConditionalCastFromExileEffect(GameEffect):
         #: card's `GameState.mana_wildcard_permission` (RULE 605.1a).
         self.any_color = bool(any_color)
         self.during_resolution = during_resolution
+        self.source_exiled_as_cost = source_exiled_as_cost
         #: Read the cards a preceding `exile` clause moved (`GameContext.exiled_objects`) rather than the library
         #: batch `exile_top_of_library` surfaces on ``created_objects`` (Blue Mage's Cane: a graveyard exile).
         self.exiled_this_way = bool(exiled_this_way)
@@ -870,6 +907,15 @@ class GrantConditionalCastFromExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
+            return
+        if self.source_exiled_as_cost:
+            obj = self.source
+            visit = (context.trigger_event or {}).get("cost_exiled_source_incarnation")
+            if obj is not None and obj.zone == Zone.EXILE and visit is not None and obj.zone_incarnation == visit:
+                # RULE 611.2b: permission lasts only for this uninterrupted exile visit.
+                context.engine._grant_temp_play_permission(obj, player, obj.name, False, None)
+                context.state.temp_play_permission_standing.add(obj.instance_id)
+                context.state.temp_play_spells_only.add(obj.instance_id)
             return
         pool = context.exiled_objects if self.exiled_this_way else getattr(context, "created_objects", [])
         if self.during_resolution:
@@ -934,7 +980,9 @@ class MutualRevealCompareManaValueEffect(GameEffect):
         def _reveal(p: Any) -> Optional[Any]:
             if not p.library:
                 return None
-            obj = p.library.pop()
+            obj = p.library[-1]
+            context.state.reveal_card(obj, p.id)
+            p.library.pop()
             obj.zone = Zone.HAND
             p.hand.append(obj)
             return obj
@@ -1233,7 +1281,10 @@ class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
         amount = self._measured(self.amount, context, targets)
         if amount <= 0 or not player.library:
             return
-        revealed = [player.library.pop() for _ in range(min(amount, len(player.library)))]
+        revealed = []
+        for _ in range(min(amount, len(player.library))):
+            context.state.reveal_card(player.library[-1], player.id)
+            revealed.append(player.library.pop())
         if not revealed:
             return
         random.shuffle(revealed)
@@ -1817,23 +1868,11 @@ class AddCounterMatchingTypeEffect(GameEffect):
 
 
 class ProliferateEffect(GameEffect):
-    """RULE 701.34: give an additional counter of each kind already there to
-    any number of permanents and/or players.
+    """RULE 701.34a: choose recipients, then add every existing counter kind.
 
-    RULE 701.30a's per-permanent/per-player "choose any number" is a real
-    interactive choice this MVP doesn't offer (no counter-proliferation
-    picker exists yet) — auto-applies to *every* permanent/player that
-    already carries at least one counter, the same "auto-choose, no chooser
-    in MVP" simplification `SacrificeEffect`/`GameEngine._sacrifice_
-    candidate` use elsewhere. Player-level counters (poison via `Player.
-    poison`, everything else — rad/energy/experience — via `Player.
-    counters`) proliferate the same way (Vexing Radgull's own "otherwise,
-    proliferate" branch needs exactly this: a player who already has rad
-    counters gets another).
-
-    ``times`` > 1 repeats the whole pass that many times (Contagion Engine's
-    "Proliferate twice."/War of the Spark's "Proliferate three times.") —
-    mirrors `ScryEffect.count`'s param shape.
+    Picks are staged until the selection ends; they are not targets. Repeated
+    proliferation (including Tekuthal) opens an independent selection each time.
+    The complete continuation lives in GameState.pending_choice for clone/undo.
     """
 
     def __init__(self, times: int = 1, source: Optional["GameObject"] = None) -> None:
@@ -1841,30 +1880,133 @@ class ProliferateEffect(GameEffect):
         self.times = times
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .. import continuous  # local: continuous imports effects' siblings
+        from .. import continuous
 
-        # RULE 616: Tekuthal's "proliferate twice instead" replaces the whole action.
-        controller_id = getattr(_controller_of(self.source, context), "id", None)
-        times = self.times * continuous.proliferate_multiplier(context.state, controller_id)
-        # "…permanents you control that had a counter put on them this way" (Ripples of Potential).
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
         context.proliferated_objects = []
-        for _ in range(times):
-            for obj in list(context.state.battlefield):
-                for kind in list(obj.counters.keys()):
-                    if obj.counters.get(kind, 0) > 0:
-                        context.add_counters(obj, 1, kind, source=self.source)
-                        if obj not in context.proliferated_objects:
-                            context.proliferated_objects.append(obj)
-            for player in list(context.state.players):
+        remaining = self.times * continuous.proliferate_multiplier(context.state, controller.id)
+        if remaining > 0:
+            self._offer(context, {
+                "kind": "proliferate", "player_id": controller.id,
+                "source_id": getattr(self.source, "instance_id", None),
+                "source_incarnation": getattr(self.source, "zone_incarnation", None),
+                "remaining": remaining, "picked": [], "proliferated": [],
+            })
+
+    @staticmethod
+    def _offer(context: GameContext, choice: dict) -> None:
+        while choice["remaining"] > 0:
+            options = []
+            for obj in context.state.battlefield:
+                if not obj.phased_out and any(n > 0 for n in obj.counters.values()):
+                    options.append({"id": f"object:{obj.instance_id}", "label": obj.name,
+                                    "instance_id": obj.instance_id, "visit": obj.zone_incarnation})
+            for player in context.state.players:
+                if not player.has_lost and (player.poison > 0 or any(n > 0 for n in player.counters.values())):
+                    options.append({"id": f"player:{player.id}", "label": player.name,
+                                    "player_id": player.id})
+            if options:
+                from uuid import uuid4
+                choice["selection_id"] = uuid4().hex
+                choice["options"] = options + [{"id": "decline", "label": "Auswahl abschließen"}]
+                choice["prompt"] = "Proliferate: Beliebig viele bleibende Karten und Spieler wählen (alle vorhandenen Markenarten)."
+                context.engine.open_choice(choice)
+                return
+            # Proliferating with zero recipients still fires its event.
+            context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=choice["player_id"]))
+            choice["remaining"] -= 1
+        ProliferateEffect._finish(context, choice)
+
+    @staticmethod
+    def resume(context: GameContext, choice: dict, answer: Any) -> None:
+        if isinstance(answer, list):
+            offered = {o["id"]: o for o in choice["options"] if o["id"] != "decline"}
+            if len(set(answer)) != len(answer) or any(i not in offered for i in answer):
+                context.engine.open_choice(choice)
+                raise ValueError("invalid proliferate selection")
+            choice["picked"].extend(offered[i] for i in answer)
+            answer = None  # the whole selection is now confirmed
+        if answer is not None:
+            option = next((o for o in choice["options"] if o["id"] == answer and answer != "decline"), None)
+            if option is None:
+                context.engine.open_choice(choice)
+                raise ValueError("invalid proliferate recipient")
+            choice["picked"].append(option)
+            choice["options"] = [o for o in choice["options"] if o["id"] != answer]
+            if len(choice["options"]) > 1:
+                context.engine.open_choice(choice)
+                return
+        source = context.state.find_object(choice["source_id"]) if choice["source_id"] is not None else None
+        if source is not None and source.zone_incarnation != choice["source_incarnation"]:
+            source = None
+        # RULE 701.34a: all kinds on each chosen recipient, never a subset.
+        queue, receipts = [], []
+        for option in choice["picked"]:
+            if "instance_id" in option:
+                obj = context.state.find_object(option["instance_id"])
+                if obj is None or obj not in context.state.battlefield or obj.phased_out or obj.zone_incarnation != option["visit"]:
+                    continue
+                receipts.append({**option, "before": dict(obj.counters)})
+                kinds = {k for k, n in obj.counters.items() if n > 0}
+            else:
+                player = context.state.player_by_id(option["player_id"])
+                if player.has_lost:
+                    continue
+                kinds = {k for k, n in player.counters.items() if n > 0}
                 if player.poison > 0:
-                    context.add_player_counters(player, 1, "poison", source=self.source)
-                for kind in list(player.counters.keys()):
-                    if player.counters.get(kind, 0) > 0:
-                        context.add_player_counters(player, 1, kind, source=self.source)
-            # Proliferating is an action even if the set of recipients is empty.
-            controller = _controller_of(self.source, context)
-            if controller is not None:
-                context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=controller.id))
+                    kinds.add("poison")
+            queue.extend({**option, "counter_kind": k} for k in sorted(kinds))
+        _ProliferatePlacementEffect(choice, queue, receipts, source).apply(context)
+
+    @staticmethod
+    def _finish(context: GameContext, choice: dict) -> None:
+        context.proliferated_objects = [o for i in choice["proliferated"]
+                                       if (o := context.state.find_object(i)) is not None]
+        # The innermost paused remainder contains riders such as Ripples of
+        # Potential. Preserve this resolution's receipt across its suspension.
+        if context.state.deferred_effects:
+            context.state.deferred_effects[-1]["proliferated_objects"] = list(context.proliferated_objects)
+
+
+class _ProliferatePlacementEffect(GameEffect):
+    """Resume the chosen placements after any RULE 616 ordering question.
+
+    An effect frame, not a closure: clone remaps sources and receipts, and no
+    later proliferation or rider can overwrite a counter replacement choice.
+    """
+    def __init__(self, choice: dict, queue: list, receipts: list, source=None):
+        super().__init__(source)
+        self.choice, self.queue, self.receipts = choice, queue, receipts
+
+    def apply(self, context: GameContext, targets=None) -> None:
+        while self.queue:
+            item = self.queue.pop(0)
+            if "instance_id" in item:
+                obj = context.state.find_object(item["instance_id"])
+                if obj is None or obj.zone_incarnation != item["visit"] or obj not in context.state.battlefield or obj.phased_out:
+                    continue
+                context.add_counters(obj, 1, item["counter_kind"], source=self.source)
+            else:
+                player = context.state.player_by_id(item["player_id"])
+                if not player.has_lost:
+                    context.add_player_counters(player, 1, item["counter_kind"], source=self.source)
+            if context.state.pending_choice:
+                context.state.deferred_effects.append({
+                    "effects": [self], "targets": None, "target_groups": None,
+                })
+                return
+        for receipt in self.receipts:
+            obj = context.state.find_object(receipt["instance_id"])
+            if obj is not None and obj.zone_incarnation == receipt["visit"] and any(
+                    obj.counters.get(k, 0) > n for k, n in receipt["before"].items()):
+                if obj.instance_id not in self.choice["proliferated"]:
+                    self.choice["proliferated"].append(obj.instance_id)
+        context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=self.choice["player_id"]))
+        self.choice["remaining"] -= 1
+        self.choice["picked"] = []
+        ProliferateEffect._offer(context, self.choice)
 
 
 class AddEntryCountersEffect(GameEffect):
@@ -1877,6 +2019,39 @@ class AddEntryCountersEffect(GameEffect):
         if self.source is not None:
             amount = max(0, self._measured(self.amount, context, targets))
             self.source.entry_bonus_counters[self.kind] = self.source.entry_bonus_counters.get(self.kind, 0) + amount
+
+
+class AddCountersUpToCappedEffect(GameEffect):
+    """"Put up to X +1/+0 counters on ~. This ability can't cause the total number of +1/+0 counters on ~ to be
+    greater than N." (the Clockwork cycle).
+
+    RULE 107.1c: "up to" is the controller's own choice, so resolution opens the shared number choice
+    (`RulesEngine._request_number_choice`) over ``0 .. min(X, room)`` and the answer binds the ``"x"`` of an
+    ordinary untargeted `add_counters` on the source. ``max_total`` is the cap the text states: ``room`` is how
+    many more of ``kind`` the source can take before it would exceed it (RULE 122.1: a counter that would put it
+    over is simply not placed). A source that has left the battlefield gets nothing (RULE 400.7).
+    """
+
+    def __init__(self, amount: Any = 1, kind: str = "+1/+1", max_total: Optional[int] = None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.kind = kind
+        self.max_total = max_total
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None or source not in context.state.battlefield:
+            return
+        wanted = int(self._measured(self.amount, context, targets) or 0)
+        room = wanted if self.max_total is None else max(0, int(self.max_total) - source.counters.get(self.kind, 0))
+        upper = min(wanted, room)
+        player = _controller_of(source, context)
+        if upper <= 0 or player is None:
+            return
+        context.engine._request_number_choice(
+            player, 0, upper, [{"type": "add_counters", "params": {"count": "x", "kind": self.kind}}], source,
+        )
 
 
 class RemoveCountersEffect(GameEffect):
@@ -2199,24 +2374,45 @@ class MoveCountersEffect(GameEffect):
         move_all_kinds: bool = False,
         any_number: bool = False,
         choose_kind: bool = False,
+        kind: Optional[str] = None,
+        source_is_self: bool = False,
+        dest_is_self: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = int(count)
+        #: "Move a **+1/+1** counter …" (PAR-221) — only counters of this kind move; ``None`` keeps the
+        #: first-kind-by-iteration reading above.
+        self.kind = kind
+        #: "Move a counter from ~ onto target creature" / "from target creature onto ~": the named source
+        #: is one end of the move and is never targeted (RULE 115.1), so only the other end is announced.
+        self.source_is_self, self.dest_is_self = bool(source_is_self), bool(dest_is_self)
         #: "Move **all** counters from target … onto another target …."
         #: (Nexus Mentality, PAR-60) — every counter of every kind, not just
         #: ``count`` of the first kind.
         self.move_all_kinds = bool(move_all_kinds)
         self.any_number, self.choose_kind = bool(any_number), bool(choose_kind)
-        self.target_spec = TargetSpec(kind=source_target_kind)
-        self.extra_target_specs = (TargetSpec(kind=dest_target_kind, distinct_from_others=True),)
+        if self.source_is_self:
+            self.target_spec = TargetSpec(kind=dest_target_kind)
+        elif self.dest_is_self:
+            self.target_spec = TargetSpec(kind=source_target_kind)
+        else:
+            self.target_spec = TargetSpec(kind=source_target_kind)
+            self.extra_target_specs = (TargetSpec(kind=dest_target_kind, distinct_from_others=True),)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         picks = list(targets or [])
-        src = picks[0] if picks else None
-        dst = picks[1] if len(picks) > 1 else None
+        if self.source_is_self:
+            src, dst = self.source, (picks[0] if picks else None)
+        elif self.dest_is_self:
+            src, dst = (picks[0] if picks else None), self.source
+        else:
+            src = picks[0] if picks else None
+            dst = picks[1] if len(picks) > 1 else None
         if src is None or dst is None or src is dst:
             return
-        available = {k: n for k, n in src.counters.items() if n > 0}
+        available = {k: n for k, n in src.counters.items() if n > 0 and (self.kind is None or k == self.kind)}
+        if not available:
+            return  # RULE 122.3: nothing of that kind to move
         if self.any_number or (self.choose_kind and len(available) > 1):
             _offer_counter_move(context.engine, {
                 "kind": "move_counter_selection", "player_id": _controller_of(self.source, context).id,
@@ -2227,14 +2423,12 @@ class MoveCountersEffect(GameEffect):
             })
             return
         if self.move_all_kinds:
-            for kind, n in list((src.counters or {}).items()):
+            for kind, n in list(available.items()):
                 if n and n > 0:
                     context.add_counters(src, -n, kind, source=self.source)
                     context.add_counters(dst, n, kind, source=self.source)
             return
-        kind = next((k for k, n in (src.counters or {}).items() if n > 0), None)
-        if kind is None:
-            return
+        kind = next(iter(available))
         moved = min(self.count, int(src.counters.get(kind, 0)))
         if moved <= 0:
             return
@@ -2443,6 +2637,7 @@ class PumpEffect(GameEffect):
         unblockable: bool = False,
         source: Optional["GameObject"] = None,
         count: int = 1,
+        any_number: bool = False,
         count_max: Optional[int] = None,
         optional: bool = False,
         count_selector: Optional[str] = None,
@@ -2587,7 +2782,7 @@ class PumpEffect(GameEffect):
             # own N>=2 mode uses (as opposed to a *divided* pool), since a
             # pump spell's whole point is every chosen creature getting the
             # stated boost independently.
-            self.target_spec = TargetSpec(
+            self.target_spec = TargetSpec(any_number=any_number,
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 count_selector=count_selector,
                 creature_filter=creature_filter, colors=self.colors,
@@ -2816,8 +3011,8 @@ class PumpEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
         elif self.target_spec is not None:
-            if self.target_spec.effective_count != 1:
-                chosen = _chosen_targets(targets, self.target_spec.effective_count)
+            if self.target_spec.any_number or self.target_spec.effective_count != 1:
+                chosen = _chosen_targets(targets, len(targets or []) if self.target_spec.any_number else self.target_spec.effective_count)
                 for obj in chosen:
                     self._pump_one(obj)
                 if chosen:
@@ -3993,10 +4188,10 @@ class CopyPermanentEffect(GameEffect):
                             target = candidate
                             break
             elif self.referent == "linked_exile":
-                iid = getattr(self.source, "linked_exile_id", None)
+                from ..linked_exile import remembered_card
+                target = remembered_card(context.state, self.source, context)
                 if self.source is not None:
                     self.source.linked_exile_id = None
-                target = context.state.find_object(iid) if iid is not None else None
             else:
                 target = self.source
         if target is None:
@@ -4209,6 +4404,25 @@ class EnterAsCopyReplacement(GameEffect):
         return None  # consulted by RulesEngine._offer_enter_as_copy, not applied
 
 
+class ChooseRiotReplacement(GameEffect):
+    """One independent Riot entry choice (RULE 702.136a/b)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # offered by RulesEngine._offer_enter_choices
+
+
+class ChooseTributeReplacement(GameEffect):
+    """Tribute N (RULE 702.104a): "As this creature enters, an opponent of your choice may put N +1/+1 counters
+    on it." Offered by `RulesEngine._offer_enter_choices` before entry, like Riot's `ChooseRiotReplacement`."""
+
+    def __init__(self, n: int = 1) -> None:
+        super().__init__(None)
+        self.n = max(1, int(n))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # offered by RulesEngine._offer_enter_choices
+
+
 class ChooseCreatureTypeReplacement(GameEffect):
     """"As ~ enters, choose a creature type." (RULE 601.2b-style
     characteristic-defining choice made as part of entering — not a
@@ -4338,6 +4552,29 @@ class ChooseCardNameReplacement(GameEffect):
     `GameObject.chosen_card_name` — read back by `continuous.
     group_selector_objects`'s ``card_name_from_source`` selector param.
     """
+
+    def __init__(
+        self, description: str = "", card_filter: Optional[dict] = None, look_at_opponent_hand: bool = False,
+    ) -> None:
+        super().__init__(None)
+        self.description = description
+        #: "As ~ enters, look at an opponent's hand, then choose any card name." (Sorcerous Spyglass, Anointed Peacekeeper):
+        #: `RulesEngine._offer_enter_choices` queues a `LookAtOpponentHandReplacement` step ahead of the naming.
+        self.look_at_opponent_hand = bool(look_at_opponent_hand)
+        #: MEC-134: a `card_query` filter for "a nonland card name" / "a noncreature, nonland card name" / "a nonbasic
+        #: land card name" (RULE 201.3) -- a name the game knows to fail it is refused, as `_resume_choose_for_source` does.
+        self.card_filter = dict(card_filter) if card_filter else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
+class LookAtOpponentHandReplacement(GameEffect):
+    """"As ~ enters, look at an opponent's hand, then choose any card name." (Sorcerous Spyglass, Anointed Peacekeeper --
+    MEC-134), the looking half: a pre-entry `enter_choice_effects` step queued ahead of the `ChooseCardNameReplacement`.
+
+    `RulesEngine._offer_enter_choices` shows the controller the hand through the one choice only its decider ever sees
+    (`RulesEngine.look_at_hand`, RULE 400.2); with several opponents it first asks which one (`ChooseOpponentReplacement`)."""
 
     def __init__(self, description: str = "") -> None:
         super().__init__(None)

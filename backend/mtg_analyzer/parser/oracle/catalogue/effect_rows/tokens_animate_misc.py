@@ -6,13 +6,14 @@ import json
 import re
 
 from typing import Any, Optional
+from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..clause_hooks import segment_line
 from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..emblem_bodies import emblem_body_spec
 from ..emblem_statics import emblem_static_effect_specs
-from ..static_handlers import static_effect_specs, type_addition_params
+from ..static_handlers import static_effect_specs, type_addition_params, quoted_ability_grant_effects_list, flag_keywords_and_ward
 from ..subgrammars import (
     COLOR_LETTERS,
     COUNT,
@@ -26,6 +27,7 @@ from ..subgrammars import (
     TARGET,
     target_kind_allowed,
 )
+from .....models.cards.creature_types import CREATURE_SUBTYPES
 from ...normalize import SELF
 from ...spec import AbilitySpec, EffectSpec, ParserProvenance
 from ..clause_hooks import match_clause, match_clause_once
@@ -195,14 +197,17 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         params["token_name"] = tname.strip().title()
     token_ab = m.groupdict().get("token_ab")
     if token_ab:
+        # RULE 201.5: a creating card's folded name is not the token's name.
+        if re.search(r"\bnamed ~", token_ab, re.I):
+            return None
 
         # RULE 111.3: this is the token's own printed ability, not an
         # ability re-granted to another object. Validate its native scope.
         ability = segment_line(token_ab.rstrip(" ,.;"), allow_spell_effect=False,
                                provenance=ParserProvenance())
-        if not ability.claimed or ability.spec is None:
+        if not ability.claimed or (ability.spec is None and not ability.mana_ability):
             return None  # an ability nothing models would leave the token silently without it
-        params["oracle_text"] = "\n".join(filter(None, (params.get("oracle_text"), token_ab.rstrip(" ,.;"))))
+        params["oracle_text"] = "\n".join(filter(None, (params.get("oracle_text"), ability.native_oracle_text)))
     return params
 
 
@@ -1367,36 +1372,106 @@ def _split_animate_qualifiers(text: str) -> Optional[tuple[list[str], list[str],
         word = word.strip().lower()
         if not word:
             continue
+        if word == "legendary":
+            continue  # RULE 205.4: carried separately as a supertype flag.
         if word in _ANIMATE_QUALIFIER_TYPES:
             add_types.append(word)
-        elif word in _ANIMATE_QUALIFIER_SUBTYPES:
-            add_subtypes.append(word.capitalize())
+        elif word in _ANIMATE_QUALIFIER_SUBTYPES or word in CREATURE_SUBTYPES:
+            # PAR-185: RULE 205.3m's full vocabulary (Blinkmoth, Ooze, Golem, Phyrexian, …), not a per-card word list.
+            add_subtypes.append("-".join(part.capitalize() for part in word.split("-")))
         else:
             return None
     return colors, add_types, add_subtypes
 
 
+_ANIMATE_WITH = (
+    r'(?: with (?=[a-z"])(?:(?P<kw>[a-z0-9{}, ]+?)(?: and )?)?(?:"(?P<ability>[^\"]+)")?)?'
+)
+
+
+def _animate_grants(m: re.Match[str]) -> Optional[list[dict[str, Any]]]:
+    """Validate keyword and quoted-ability axes through the shared grant parsers."""
+    extra: list[dict[str, Any]] = []
+    kw = m.groupdict().get("kw")
+    if kw:
+        if kw.endswith("all creature types"):
+            extra.append({"type": "type_change", "params": {"add_subtypes": ["Changeling"]}})
+            kw = re.sub(r"(?: and )?all creature types$", "", kw).strip()
+        if kw:
+            resolved = flag_keywords_and_ward(kw)
+            if resolved is None:
+                return None
+            keywords, ward_cost = resolved
+            extra.append({"type": "grant_keyword", "params": {"keywords": keywords,
+                          **({"ward_cost": ward_cost} if ward_cost else {})}})
+    ability = m.groupdict().get("ability")
+    if ability:
+        grants = quoted_ability_grant_effects_list(ability)
+        if not grants:
+            return None
+        extra.extend(g.to_dict() for g in grants)
+    return extra
+
+
+
+_ANIMATE_DURATION_WORDS = FIXED_DURATION_PATTERN
+_ANIMATE_DURATION = rf"(?: (?P<duration>{_ANIMATE_DURATION_WORDS}))?"
+_ANIMATE_DURATIONS = FIXED_DURATIONS
+
+
+def _animation_duration(m: re.Match[str]) -> str:
+    words = m.groupdict().get("leading_duration") or m.groupdict().get("duration")
+    return _ANIMATE_DURATIONS.get(words, "rest_of_game")
+
+
+def _new_animation_retention_is_supported(m: re.Match[str], *, require_retention: bool = False) -> bool:
+    """Keep newly widened forms fail-closed when addition is not retention.
+
+    RULE 205.1a normally replaces types; RULE 205.1b's artifact-creature
+    exception also replaces existing creature types when new ones are named.
+    The legacy fixed temporary rows stay unchanged; the new permanent/X/
+    legendary axes require an explicit retention rider or a safe artifact
+    creature form without a creature-subtype overwrite.
+    """
+    text = re.sub(r'"[^\"]*"', "", m.group(0))
+    if re.search(r"\bstill (?:an? )?(?:snow )?(?:land|artifact|enchantment|creature|planeswalker|battle)s?\b"
+                 r"|in addition to (?:its|their) other types", text):
+        return True
+    newly_widened = (require_retention or m.groupdict().get("legendary") or "legendary" in m.group("quals").split()
+                     or m.group("p") == "x" or m.group("t") == "x"
+                     or _animation_duration(m) != "end_of_turn")
+    if not newly_widened:
+        return True
+    qualifiers = _split_animate_qualifiers(m.group("quals"))
+    return bool(qualifiers and "artifact" in qualifiers[1] and not qualifiers[2])
+
+
 _ANIMATE_SELF_RE = compile_clause(
-    r"~ becomes an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
-    r"(?: with (?P<kw>[a-z, ]+?))? until end of turn"
+    r"~ becomes an? (?P<legendary>legendary )?(?P<p>\d+|x)/(?P<t>\d+|x) (?P<quals>(?:[a-z-]+ )*?)creature"
+    + _ANIMATE_WITH + r"(?: that'?s still a land)?" + _ANIMATE_DURATION
     # PAR-79 sixth increment: "… until end of turn and can't be blocked
     # this turn." (Dimir Keyrune-shaped) — the same one-sentence pump-and-
     # unblockable tail `_pump_unblockable`/`_pump_keyword_unblockable`
     # already accept, on this animation primitive's own bare-self form.
-    r"(?P<unblockable> and can'?t be blocked this turn)?"
+    + r"(?P<unblockable> and can'?t be blocked this turn)?"
+    # PAR-185: the printed-type reminder ("it's still a land") is pure reminder text, RULE 205.1b retains prior types.
+    r"(?:\. it'?s still a land)?"
 )
 
 # PAR-98: Creeping Tar Pit puts the duration first and uses full stops for
 # the land reminder and unblockable rider, rather than the normal one-sentence
 # "becomes … until end of turn and can't …" ordering.
 _ANIMATE_SELF_LEADING_EOT_RE = compile_clause(
-    r"until end of turn, ~ becomes an? (?P<p>\d+)/(?P<t>\d+) "
-    r"(?P<quals>(?:[a-z]+ )*?)creature"
+    rf"(?P<leading_duration>{_ANIMATE_DURATION_WORDS}), ~ becomes an? (?P<legendary>legendary )?(?P<p>\d+|x)/(?P<t>\d+|x) "
+    r"(?P<quals>(?:[a-z-]+ )*?)creature"
+    + _ANIMATE_WITH +
     r"(?:\. it'?s still a land)?(?:\. it can'?t be blocked this turn)?"
 )
 
 
 def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if not _new_animation_retention_is_supported(m):
+        return None
     quals = _split_animate_qualifiers(m.group("quals"))
     if quals is None:
         return None
@@ -1405,21 +1480,20 @@ def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "type": "type_change",
         "params": {
             "add_types": ["creature"] + add_types,
-            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            **({"legendary": True} if m.groupdict().get("legendary") or "legendary" in m.group("quals").split() else {}),
+            "power": count_or_x_of(m.group("p")), "toughness": count_or_x_of(m.group("t")),
             **({"add_subtypes": add_subtypes} if add_subtypes else {}),
         },
     }
     extra_statics = []
     if colors:
         extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
-    kw = m.groupdict().get("kw")
-    if kw:
-        keywords = token_keywords(kw)
-        if keywords is None:
-            return None
-        extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
+    grants = _animate_grants(m)
+    if grants is None:
+        return None
+    extra_statics.extend(grants)
     specs = [EffectSpec("grant_until", {
-        "duration": "end_of_turn", "target_kind": None, "static": static,
+        "duration": _animation_duration(m), "target_kind": None, "self_subject": True, "static": static,
         **({"extra_statics": extra_statics} if extra_statics else {}),
     })]
     if m.groupdict().get("unblockable"):
@@ -1428,6 +1502,8 @@ def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _animate_self_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if not _new_animation_retention_is_supported(m):
+        return None
     quals = _split_animate_qualifiers(m.group("quals"))
     if quals is None:
         return None
@@ -1436,15 +1512,20 @@ def _animate_self_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "type": "type_change",
         "params": {
             "add_types": ["creature"] + add_types,
-            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            **({"legendary": True} if m.groupdict().get("legendary") or "legendary" in m.group("quals").split() else {}),
+            "power": count_or_x_of(m.group("p")), "toughness": count_or_x_of(m.group("t")),
             **({"add_subtypes": add_subtypes} if add_subtypes else {}),
         },
     }
     extra_statics = []
     if colors:
         extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
+    grants = _animate_grants(m)
+    if grants is None:
+        return None
+    extra_statics.extend(grants)
     specs = [EffectSpec("grant_until", {
-        "duration": "end_of_turn", "target_kind": None, "static": static,
+        "duration": _animation_duration(m), "target_kind": None, "self_subject": True, "static": static,
         **({"extra_statics": extra_statics} if extra_statics else {}),
     })]
     if m.group(0).lower().endswith("can't be blocked this turn"):
@@ -1579,7 +1660,7 @@ def _animate_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: The TARGET sibling — "target land becomes a 3/3 creature until end of
 #: turn. It's still a land." (Soilshaper). The trailing "it's still a
 #: `<kind>`" sentence is pure reminder text (`type_change`'s ``add_types``
-#: only *adds*, RULE 613.4d — the printed type is never lost), so it's
+#: only *adds*, RULE 205.1b — prior types are retained), so it's
 #: matched and discarded rather than parsed into anything; the ``(?P=kind)``
 #: backreference keeps that discard honest (never swallows a mismatched
 #: reminder sentence). Optional because not every real card bothers to
@@ -1592,59 +1673,116 @@ def _animate_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # Shared animation body: subject selection, colors/types/keywords, duration
 # and printed type-retention reminders are independent axes.
 _ANIMATE_CREATURE_BODY = (
-    r"(?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creatures?"
-    r"(?: with (?P<kw>[a-z, ]+?))?"
-    r"(?: in addition to (?:its|their) other types)?(?P<eot> until end of turn)?"
+    r"(?P<legendary>legendary )?(?P<p>\d+|x)/(?P<t>\d+|x) (?P<quals>(?:[a-z-]+ )*?)creatures?"
+    + _ANIMATE_WITH +
+    r"(?: in addition to (?:its|their) other types)?"
+    # PAR-185: "… creature that's still a land until end of turn" — reminder text, see `_ANIMATE_SELF_RE`.
+    r"(?: (?:that'?s still an? (?:snow )?(?P<retained_kind>land|artifact|enchantment|creature)|that are still lands))?"
+    + _ANIMATE_DURATION
+    + r"(?P<source_duration> for as long as ~ remains on the battlefield)?"
+    rf"(?: for as long as it has an? (?P<duration_counter>{NAMED_COUNTER_KIND}) counter on it)?"
 )
 _ANIMATE_TARGET_RE = compile_clause(
-    r"target (?:snow )?(?P<kind>land|mountain|forest|artifact|creature|enchantment|creature or land)"
+    r"(?P<up_to_one>up to 1 )?(?P<attached>enchanted |target )(?:snow )?(?P<kind>land|plains|island|swamp|mountain|forest|artifact|creature|enchantment|creature or land)"
     r"(?P<you_control> you control)? becomes an? "
     + _ANIMATE_CREATURE_BODY +
-    r"(?:\. it'?s still an? (?:snow )?(?:(?P=kind)|land))?"
+    r"(?:\. it'?s still an? (?:snow )?(?P<retained_sentence>(?P=kind)|land))?"
     r"(?P<must_blocked>\. it must be blocked this turn if able)?"
 )
 _ANIMATE_PREVIOUS_RE = compile_clause(
     r"(?P<previous>it|they|that (?:creature|permanent|land|artifact)|"
-    r"those (?:creatures|permanents|lands|artifacts)) becomes? (?:an? )?"
+    r"(?:each of )?those (?:creatures|permanents|lands|artifacts)) (?:becomes?|is|are) (?:an? )?"
     + _ANIMATE_CREATURE_BODY +
     r"(?:\. (?:it'?s|they'?re) still (?:an? )?(?:snow )?"
     r"(?:land|artifact|enchantment|creature|planeswalker|battle)s?)?"
     r"(?P<must_blocked>\. (?:it|they) must be blocked this turn if able)?"
 )
+_ANIMATE_SELF_PRONOUN_RE = compile_clause(
+    r"(?P<self>it) becomes an? " + _ANIMATE_CREATURE_BODY + r"(?:\. it'?s still a land)?"
+)
+_ANIMATE_MULTI_RE = compile_clause(
+    rf"(?:(?P<leading_duration>{_ANIMATE_DURATION_WORDS}), )?{MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT}) "
+    r"(?:each )?become " + _ANIMATE_CREATURE_BODY + r"(?:\. they'?re still lands)?"
+)
+
+
+def _animate_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    target = multi_target_params(m)
+    if target is None or target["target_kind"] not in {"land", "land_you_control"}:
+        return None
+    inner = match_clause(
+        "it becomes a " + m.group(0)[m.start("legendary") if m.groupdict().get("legendary") else m.start("p"): ], reading=ClauseReading(previous_subject=True),
+    )
+    if not inner:
+        return None
+    params = dict(inner[0].params)
+    params.pop("previous_subject", None)
+    params.update(target)
+    params["duration"] = _animation_duration(m)
+    return [EffectSpec("grant_until", params)]
 
 
 def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    new_dimensions_or_supertype = (m.group("p") == "x" or m.group("t") == "x"
+                                   or m.groupdict().get("legendary")
+                                   or "legendary" in m.group("quals").split())
+    source_pronoun = bool(m.groupdict().get("self"))
+    if (new_dimensions_or_supertype or source_pronoun) and not _new_animation_retention_is_supported(
+        m, require_retention=source_pronoun,
+    ):
+        return None
     quals = _split_animate_qualifiers(m.group("quals"))
     if quals is None:
         return None
     colors, add_types, add_subtypes = quals
     previous = bool(m.groupdict().get("previous"))
-    kind = None if previous else resolve_target_kind(
+    self_subject = bool(m.groupdict().get("self"))
+    attached = m.groupdict().get("attached") == "enchanted "
+    retained = m.groupdict().get("retained_kind") or m.groupdict().get("retained_sentence")
+    if not (previous or self_subject) and retained:
+        expected = m.group("kind")
+        if retained != expected and not (retained == "land" and expected in {"plains", "island", "swamp", "mountain", "forest", "creature or land"}):
+            return None
+    named_kind = m.groupdict().get("kind")
+    if named_kind is not None and named_kind != "creature" and not (
+            retained or named_kind in add_types or "in addition to" in m.group(0)):
+        # RULE 205.1a: "target enchantment becomes a 4/4 Beast creature" *replaces* the card types, which is not an
+        # addition; only the stated-retention spellings stay here, the replacement is `becomes.py`'s row.
+        return None
+    kind = None if previous or self_subject or attached else resolve_target_kind(
         "target " + m.group("kind") + (m.group("you_control") or "")
     )
-    if kind is None and not previous:
+    if kind is None and not (previous or self_subject or attached):
         return None
     static: dict[str, Any] = {
         "type": "type_change",
         "params": {
             "add_types": ["creature"] + add_types,
-            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            **({"legendary": True} if m.groupdict().get("legendary") or "legendary" in m.group("quals").split() else {}),
+            "power": count_or_x_of(m.group("p")), "toughness": count_or_x_of(m.group("t")),
             **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+            **({"affects": "attached_permanent"} if attached else {}),
         },
     }
     extra_statics = []
     if colors:
         extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
-    kw = m.groupdict().get("kw")
-    if kw:
-        keywords = token_keywords(kw)
-        if keywords is None:
-            return None
-        extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
+    grants = _animate_grants(m)
+    if grants is None:
+        return None
+    extra_statics.extend(grants)
     specs = [EffectSpec("grant_until", {
-        "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
+        "duration": _animation_duration(m),
         "target_kind": kind, "static": static,
+        **({"optional": True} if m.groupdict().get("up_to_one") else {}),
         **({"previous_subject": True} if previous else {}),
+        **({"self_subject": True} if self_subject else {}),
+        **({"lock_group": True} if attached else {}),
+        **({"duration": "for_as_long_as", "condition": {"kind": "source_on_battlefield"}}
+           if m.groupdict().get("source_duration") else {}),
+        **({"duration": "for_as_long_as", "condition": {"kind": "source_counters", "of": "affected",
+             "counter": m.group("duration_counter"), "min": 1}}
+           if m.groupdict().get("duration_counter") else {}),
         **({"extra_statics": extra_statics} if extra_statics else {}),
     })]
     if m.groupdict().get("must_blocked"):
@@ -1665,50 +1803,55 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: before the tail is ever reached (see `_ANIMATE_TARGET_RE`'s identical
 #: reasoning).
 _ANIMATE_TARGET_LEADING_EOT_RE = compile_clause(
-    r"until end of turn, target (?:snow )?"
-    r"(?P<kind>land|mountain|forest|artifact|creature|enchantment|creature or land)"
+    rf"(?P<leading_duration>{_ANIMATE_DURATION_WORDS}), (?P<up_to_one>up to 1 )?(?P<attached>enchanted |target )(?:snow )?"
+    r"(?P<kind>land|plains|island|swamp|mountain|forest|artifact|creature|enchantment|creature or land)"
     r"(?P<you_control> you control)? becomes "
-    r"an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
-    r"(?: with (?P<kw>[a-z, ]+?))?"
-    r"(?:\. it'?s still an? (?:snow )?(?:(?P=kind)|land))?"
+    r"an? " + _ANIMATE_CREATURE_BODY +
+    r"(?:\. it'?s still an? (?:snow )?(?P<retained_sentence>(?P=kind)|land))?"
     r"(?P<must_blocked>\. it must be blocked this turn if able)?"
 )
 
 
 def _animate_target_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    quals = _split_animate_qualifiers(m.group("quals"))
-    if quals is None:
+    specs = _animate_target(m)
+    if specs is None:
         return None
-    colors, add_types, add_subtypes = quals
-    kind = resolve_target_kind(
-        "target " + m.group("kind") + (m.group("you_control") or "")
-    )
-    if kind is None:
-        return None
-    static: dict[str, Any] = {
-        "type": "type_change",
-        "params": {
-            "add_types": ["creature"] + add_types,
-            "power": int(m.group("p")), "toughness": int(m.group("t")),
-            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
-        },
-    }
-    extra_statics = []
-    if colors:
-        extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
-    kw = m.groupdict().get("kw")
-    if kw:
-        keywords = token_keywords(kw)
-        if keywords is None:
-            return None
-        extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
-    specs = [EffectSpec("grant_until", {
-        "duration": "end_of_turn", "target_kind": kind, "static": static,
-        **({"extra_statics": extra_statics} if extra_statics else {}),
-    })]
-    if m.groupdict().get("must_blocked"):
-        specs.append(EffectSpec("pump", {"previous_subject": True, "keywords": ["must_be_blocked"]}))
     return specs
+
+
+#: PAR-185: "all lands you control become 1/1 creatures until end of turn. They're still lands." (Life // Death) —
+#: the mass sibling of `_ANIMATE_TARGET_RE`. RULE 611.2c: the group is fixed when the spell resolves (``lock_group``),
+#: so a land that enters later is not animated; the reminder sentence is discarded (RULE 205.1b retains prior types).
+_ANIMATE_ALL_LANDS_RE = compile_clause(
+    rf"(?:(?P<leading_duration>{_ANIMATE_DURATION_WORDS}), )?"
+    r"(?:all )?(?P<lands>lands|plains|islands|swamps|mountains|forests)"
+    r"(?P<controller> you control| target player controls)? become "
+    + _ANIMATE_CREATURE_BODY + r"(?:\. they'?re still lands)?"
+)
+
+
+def _animate_all_lands(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    # Reuse the same characteristic and ability body as a single animation;
+    # only its subject changes to a resolve-time captured group.
+    inner = match_clause("it becomes a " + m.group(0)[m.start("legendary") if m.groupdict().get("legendary") else m.start("p"): ],
+                         reading=ClauseReading(previous_subject=True))
+    if not inner:
+        return None
+    params = dict(inner[0].params)
+    params.pop("previous_subject", None)
+    controller = m.group("controller")
+    subject = m.group("lands")
+    of = "you" if controller else "any"
+    subtype = {"plains": "plains", "islands": "island", "swamps": "swamp",
+               "mountains": "mountain", "forests": "forest"}.get(subject)
+    affects = ({"zone": "battlefield", "of": of, "filter": {"card_type": "land", "subtype": subtype}}
+               if subtype else "lands_you_control" if controller else "all_lands")
+    params["static"] = {**params["static"], "params": {**params["static"]["params"], "affects": affects}}
+    params.update({"duration": _animation_duration(m), "lock_group": True,
+                   "target_kind": "player" if controller == " target player controls" else None})
+    if controller == " target player controls":
+        params["group_controller"] = "target_player"
+    return [EffectSpec("grant_until", params)]
 
 
 ROWS: list[EffectHandler] = [
@@ -1743,6 +1886,9 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "becomes_in_addition_self_pronoun", _BECOMES_IN_ADDITION_SELF_PRONOUN_RE, _becomes_in_addition,
         requires=ClauseReading(self_subject=True),
+        # A self trigger whose earlier clause chose a target ("…put a counter on target Food. If you do, it
+        # becomes…", Cinnamon): "it" is the nearer antecedent, the target, so the previous-target row wins.
+        fallback_for=("becomes_in_addition_previous",),
     ),
     EffectHandler("becomes_in_addition", _BECOMES_IN_ADDITION_RE, _becomes_in_addition),
     EffectHandler(
@@ -1765,6 +1911,12 @@ ROWS: list[EffectHandler] = [
         requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler(
+        "animate_self_pronoun", _ANIMATE_SELF_PRONOUN_RE, _animate_target,
+        requires=ClauseReading(self_subject=True),
+        fallback_for=("becomes_in_addition_previous",),
+    ),
+    EffectHandler("animate_multi", _ANIMATE_MULTI_RE, _animate_multi),
+    EffectHandler(
         "animate_target",
         _ANIMATE_TARGET_RE,
         _animate_target,
@@ -1778,6 +1930,7 @@ ROWS: list[EffectHandler] = [
         lambda m: match_clause(f"{m.group('target')} becomes a {m.group('p')}/{m.group('t')} "
                                f"{m.group('quals')}creature{m.group('duration') or ''}"),
     ),
+    EffectHandler("animate_all_lands", _ANIMATE_ALL_LANDS_RE, _animate_all_lands),
     EffectHandler(
         "animate_target_leading_eot",
         _ANIMATE_TARGET_LEADING_EOT_RE,

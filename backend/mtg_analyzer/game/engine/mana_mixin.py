@@ -357,6 +357,7 @@ class ManaMixin:
         kicker_x: int = 0,
         *,
         allows_restriction=None,
+        reserved_ids=(),
     ) -> list[dict[str, int]]:
         """Find a tap plan (`game/mana_potential.py`'s `find_tap_plan`) for
         ``cost`` — or, if omitted, ``source``'s own effective cast cost — and
@@ -378,7 +379,7 @@ class ManaMixin:
             if source is None:
                 raise ValueError("auto_tap_for needs a source or an explicit cost")
             cost = self.effective_cast_cost(player, source, x, kicked=kicked, kicker_x=kicker_x)
-        plan = mana_potential.find_tap_plan(self, player, cost, allows_restriction=allows_restriction)
+        plan = mana_potential.find_tap_plan(self, player, cost, allows_restriction=allows_restriction, reserved_ids=reserved_ids)
         if plan is None:
             raise ValueError("no untapped mana sources can pay this cost")
         produced: list[dict[str, int]] = []

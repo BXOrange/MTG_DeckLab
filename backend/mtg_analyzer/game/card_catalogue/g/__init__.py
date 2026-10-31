@@ -9,6 +9,7 @@ from . import garnet_princess_of_alexandria  # noqa: F401
 from . import garruk_s_uprising  # noqa: F401
 from . import gatta_and_luzzu  # noqa: F401
 from . import gauntlets_of_chaos  # noqa: F401
+from . import gavel_of_the_righteous  # noqa: F401
 from . import geistwave  # noqa: F401
 from . import generous_gift  # noqa: F401
 from . import generous_patron  # noqa: F401

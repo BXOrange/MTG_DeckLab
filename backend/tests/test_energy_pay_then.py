@@ -5,10 +5,9 @@ triggered abilities), plus the "you get {E}{E}" production side.
 The flat "Pay {E}" *activated-ability cost* (`ActivationCost.pay_energy`) is
 covered by `test_energy_cost.py`; this file is the interactive
 `pay_energy_then` primitive (`PayEnergyThenEffect`/`RulesEngine.request_pay_
-energy_then`), modeled like the shock-land pay-life choice. Only untargeted
-follow-ups are modeled (every real card with this rider creates a token /
-gains life / draws); a *targeted* follow-up (Guide of Souls) stays
-unclaimed.
+energy_then`), modeled like the shock-land pay-life choice. Targeted
+"if you do" follow-ups announce before payment; targeted reflexive
+"when you do" follow-ups remain unclaimed.
 """
 
 from __future__ import annotations
@@ -64,12 +63,15 @@ def test_pay_energy_then_effect_is_recognized_with_untargeted_follow_up():
     assert spec.params["effects"][0]["type"] == "create_token"
 
 
-def test_pay_energy_then_with_targeted_follow_up_stays_unclaimed():
-    # Guide of Souls-shaped targeted follow-up ("put two +1/+1 counters on
-    # target attacking creature") — no untargeted model, so fail-closed.
-    assert parse_effect_body(
-        "you may pay {e}{e}. if you do, put 2 +1/+1 counters on target attacking creature"
-    ) is None
+def test_pay_energy_then_with_reflexive_targeted_follow_up_is_a_reflexive_trigger():
+    # A reflexive targeted follow-up requires a fresh trigger after payment (RULE 603.12): `pay_cost_then` carries it
+    # as its ``then_trigger`` (PAR-207), rather than `pay_energy_then`'s off-stack ``effects``.
+    (spec,) = parse_effect_body(
+        "you may pay {e}{e}. when you do, put 2 +1/+1 counters on target attacking creature"
+    )
+    assert spec.type == "pay_cost_then" and spec.params["cost"] == "pay {e}{e}"
+    assert spec.params["then_trigger"][0]["params"]["target_kind"] == "creature"
+    assert "effects" not in spec.params
 
 
 def test_aether_chaser_is_fully_modeled():

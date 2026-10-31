@@ -74,13 +74,10 @@ def test_graveyard_two_color_parses():
                                                "destination": "hand", "colors": ["U", "R"]})]
 
 
-def test_same_colour_twice_fails_closed():
-    assert match_clause(
-        "return target red or red creature to its owner's hand"
-    ) is None
-    assert match_clause(
-        "put target blue or blue creature on top of its owner's library"
-    ) is None
+def test_same_colour_twice_collapses_to_one_alternative():
+    for text, colour in [("return target red or red creature to its owner's hand", "R"),
+                         ("put target blue or blue creature on top of its owner's library", "U")]:
+        assert f"'color_any': ['{colour}']" in str([e.params for e in match_clause(text)])
 
 
 def test_real_cards_modeled():

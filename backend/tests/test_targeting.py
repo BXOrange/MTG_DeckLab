@@ -21,6 +21,9 @@ from mtg_analyzer.game import targeting
 
 
 def instant(name, cost="{0}", **flags):
+    if cost == "{0}" and flags.get("color_identity"):
+        # RULE 202.2: a spell is the colour of its cost symbols, so a coloured test spell needs coloured pips.
+        cost = "".join("{%s}" % c for c in sorted(flags["color_identity"]))
     return Card(
         id=name,
         name=name,

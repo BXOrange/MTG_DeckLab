@@ -77,7 +77,8 @@ in English and German:
 ```text
 index.html
 src/
-  styles/main.css
+  styles/main.css               ordered @import entry point
+  styles/*.css                  focused UI styles (base, analysis, board, replay, …)
   js/
     app.js                      sidebar wiring, entry point
     state.js                    tiny pub/sub store (parsed deck + image cache)
@@ -103,8 +104,62 @@ src/
     gameSocket.js                WebSocket client (kept for future multiplayer)
 ```
 
+Styles are split by UI area in `src/styles/`. Keep the import order in
+`main.css`: it preserves the cascade, including later shared-board overrides.
+Add rules to the matching area stylesheet; `main.css` remains the entry point.
+
+Translation entry points `src/js/locales/en.js` and `de.js` merge matching
+`interface`, `analysis`, `board` and `play-modes` catalogs from the `en/` and
+`de/` subdirectories. Edit the matching area in both languages; keep keys and
+plural shapes aligned (`frontend/scripts/i18n-verify.mjs`).
+
 See [`../docs/implementation-state/BACKLOG.md`](../docs/implementation-state/BACKLOG.md)
 (open work — the `VIS` tickets are the frontend ones) and
 [`../docs/implementation-state/Done_Frontend.md`](../docs/implementation-state/Done_Frontend.md)
 (what shipped, and why) for feature status, and
 [`../user-docs/`](../user-docs/) for how to actually use each tab.
+
+## Synthesized game audio
+
+Enable **Spiel-Sounds / Game sounds** under **Einstellungen / Settings → Sound**;
+volume and mute are saved in cookies and apply to all game modes. The board
+has no audio controls or preview links. Audio starts on a user gesture and stays silent
+in hidden tabs. `sound-lab.html` offers individual tap/untap/damage samples,
+eight spell types and all 32 WUBRG colour subsets (including colourless).
+This standalone development tool can be opened directly on the frontend
+server; it is not linked from the application.
+
+`src/js/gameAudio.js` exports `createGameAudio()` and the pure
+`gameAudioEvents(previousView, nextView)` adapter. `play({kind, card, amount})`
+accepts `tap`, `untap`, `draw`, `turn_end`, `damage`, `land`, `activate` and `cast`; cards can supply
+`type_line` and an explicit `colors` array. Cast gestures have distinct rhythms and registers: creature impact, instant
+air flick, sorcery swell, enchantment chimes, inharmonic artifact strike,
+planeswalker fanfare and battle double hit. Cast colour layers are quieter
+and delayed so the type stays prominent. Each multicolour motif uses
+normalized layers rather than a separate preset for each combination.
+
+The synthesis layers softly filtered, correlated noise with damped resonances,
+subtle pitch/timing variations and a short stereo room response. Tap/untap
+are dry clicks under 30 ms with no room send. Land plays use a soft card
+contact and low settling body; impacts use a low body and textured attack. Muting/stopping also clears the room tail.
+
+The board consumes confirmed, growing move logs and public table announcements.
+Initial loads, duplicate views and undo produce no sounds. Tap changes and
+damage are grouped per update, with bounded voices and events for bot bursts.
+Land sounds follow confirmed `play_land` announcements, including lands
+played tapped; a land entering through an effect alone does not trigger them.
+Draws use confirmed draw statistics (including effect draws, independent of
+net hand size); multiple draws form one short paper shuffle. The turn handoff
+tone follows an increased internal turn number, including extra turns.
+Passing priority or setting a yield alone stays silent.
+Damage uses actual damage statistics (combat and noncombat share an impact),
+not life loss or a mere transition into the combat damage step. Changes that
+happen and are reversed entirely within one server update cannot be heard as
+individual taps. The current board payload lacks actual colours, so its
+adapter falls back to mana cost: colour indicators and Devoid need explicit
+`colors` to sound accurate. Unknown or unnamed sources use a neutral motif.
+
+Verification: `backend/venv/bin/python frontend/tests/test_game_audio.py`
+(from repository root) checks real Chromium controls, preference persistence,
+settings/board integration, event deduplication and offline rendered audio for all
+8 × 32 spell/type-colour combinations plus action sounds.

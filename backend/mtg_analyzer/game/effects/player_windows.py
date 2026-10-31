@@ -235,7 +235,7 @@ class RevealCreaturesGiveOpponentsEffect(GameEffect):
             return
         hits = []
         for obj in reversed(list(player.library)):
-            context.state.fire_event(GameEvent(EventType.REVEAL, player_id=player.id, object=obj.name))
+            context.state.reveal_card(obj, player.id)
             if obj.is_creature:
                 hits.append(obj)
                 if len(hits) == len(opponents):

@@ -1,0 +1,233 @@
+/* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */
+
+.goldfish-loading {
+  max-width: 480px;
+}
+
+.gf-loading-bar {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  margin: 0.75rem 0 0.4rem;
+}
+
+.gf-loading-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s ease-out;
+}
+
+/* --- Goldfisch: Mulligan-Phase (Starthand behalten oder neu mischen) --- */
+
+.goldfish-mulligan {
+  /* No overall max-width: the hand's own card-grid (.gf-mulligan-hand
+     below) should reflow across the whole available width instead of
+     wrapping at a fixed ~6 cards regardless of how wide the window
+     actually is. Only the intro text stays line-length-capped for
+     readability. */
+}
+
+.goldfish-mulligan > h3,
+.goldfish-mulligan > p.hint {
+  max-width: 720px;
+}
+
+.gf-mulligan-hand {
+  margin: 0.6rem 0;
+}
+
+.card.selected-bottom {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn);
+}
+
+/* --- Engine-Status tab: implementation coverage overview --- */
+
+.impl-status {
+  max-width: 1100px;
+}
+
+.impl-status > h2 {
+  margin: 0 0 0.3rem;
+}
+
+.impl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 0.8rem;
+}
+
+.impl-legend-item strong {
+  font-weight: 700;
+}
+
+.impl-badge {
+  font-size: 0.85rem;
+}
+
+.impl-group {
+  margin: 1.5rem 0 0;
+}
+
+.impl-group:first-of-type {
+  margin-top: 0;
+}
+
+.impl-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.impl-group-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.impl-uc {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.impl-chapter {
+  margin: 1rem 0 0;
+}
+
+.impl-chapter:first-of-type {
+  margin-top: 0;
+}
+
+.impl-chapter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.impl-chapter-head h4 {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+}
+
+.impl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 0.85rem;
+}
+
+.impl-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  background: var(--panel);
+}
+
+.impl-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.impl-section-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.impl-rule {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.impl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.impl-item {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.impl-item .impl-badge {
+  flex: 0 0 auto;
+  margin-top: 0.05rem;
+}
+
+.impl-item .impl-text strong {
+  font-weight: 700;
+}
+
+/* Tint the row's accent by status. */
+.impl-item.impl-full .impl-text strong { color: var(--ok); }
+.impl-item.impl-partial .impl-text strong { color: var(--warn); }
+.impl-item.impl-planned .impl-text strong { color: var(--text-dim); }
+
+.impl-status code {
+  background: var(--panel-alt);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.coverage-set-table-wrap {
+  max-width: 420px;
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.coverage-set-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.coverage-set-table th,
+.coverage-set-table td {
+  padding: 0.3rem 0.6rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.coverage-set-table th:first-child,
+.coverage-set-table td:first-child {
+  text-align: left;
+  font-weight: 700;
+}
+
+.coverage-set-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.coverage-set-table td:last-child {
+  font-weight: 700;
+}

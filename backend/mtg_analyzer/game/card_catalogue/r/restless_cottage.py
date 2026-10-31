@@ -18,11 +18,8 @@ def _restless_cottage() -> list[AbilitySpec]:
     ability reuses the self-targeting `grant_until`/`type_change` shape
     the `Incubator` token's own transform already established (RULE
     613.7c, ``target_kind=None`` — "this land", no RULE 115 target).
-    **Documented simplification**: the colour change ("black and green")
-    isn't modeled — `type_change`'s layer-4 params have no colour field
-    (RULE 613's own layer 5 does colour; no manland in this catalogue sets
-    it yet), so the animated creature keeps whatever colour identity the
-    land already had (usually colourless).
+    The colour change ("black and green") is a second `grant_until`
+    over `color_change` (layer 5, RULE 613.4b).
     """
     return [
         AbilitySpec(
@@ -36,7 +33,12 @@ def _restless_cottage() -> list[AbilitySpec]:
                         "power": 4, "toughness": 4,
                     },
                 },
-            })],
+            }),
+             # RULE 613.4b: "black and green" replaces its colours (layer 5).
+             EffectSpec("grant_until", {
+                 "duration": "end_of_turn", "target_kind": None,
+                 "static": {"type": "color_change", "params": {"colors": ["B", "G"], "set": True, "affects": "self"}},
+             })],
             cost={"text": "{2}{B}{G}"},
         ),
         AbilitySpec(

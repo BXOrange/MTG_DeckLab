@@ -182,6 +182,8 @@ def test_thoughtseize_execute_via_effect_binder():
         effect.source = source
         effect.apply(context, targets=[p2])
 
+    # The hand is revealed first (private look); the caster then picks.
+    engine.rules.resolve_choice(hand_creature.instance_id)
     assert hand_creature not in p2.hand
     assert hand_creature in p2.graveyard
     assert hand_land in p2.hand  # the land was never a legal choice
@@ -207,6 +209,7 @@ def test_inquisition_of_kozilek_only_offers_cheap_nonland_cards():
     effect.source = source
     effect.apply(context, targets=[p2])
 
+    engine.rules.resolve_choice(cheap.instance_id)
     assert cheap not in p2.hand
     assert expensive in p2.hand
 

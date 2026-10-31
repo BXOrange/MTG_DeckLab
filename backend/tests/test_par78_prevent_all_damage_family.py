@@ -44,6 +44,9 @@ def _card(name, type_line="Creature — Bear", cost="{1}{G}", cmc=2, **kw):
     if kw.get("is_creature"):
         kw.setdefault("power", 2)
         kw.setdefault("toughness", 2)
+    if kw.get("color_identity") and cost == "{1}{G}":
+        # RULE 202.2: colour comes from the cost, so a recoloured test card needs matching pips.
+        cost = "{1}" + "".join("{%s}" % c for c in sorted(kw["color_identity"]))
     return Card(id=name, name=name, type_line=type_line, mana_cost_string=cost,
                 converted_mana_cost=cmc, **kw)
 
@@ -428,12 +431,20 @@ def test_target_creature_two_word_subtype_or_filter_parses():
     })]
 
 
-def test_target_creature_unknown_subtype_word_stays_unclaimed():
-    # "attacking" isn't in the closed subtype vocabulary — must fail closed
-    # rather than guessing a subtype filter for a qualifier word.
+def test_target_creature_unknown_qualifier_word_stays_unclaimed():
+    # A word outside the subtype vocabulary and the status words must fail closed
+    # rather than guessing a subtype filter.
     assert parse_effect_body(
-        "prevent all damage that would be dealt to target attacking creature this turn"
+        "prevent all damage that would be dealt to target frobbing creature this turn"
     ) is None
+
+
+def test_target_attacking_creature_is_a_status_filter():
+    # RULE 506.4: "attacking" is a combat status, carried as a filter flag, not a subtype.
+    specs = parse_effect_body(
+        "prevent all damage that would be dealt to target attacking creature this turn"
+    )
+    assert "'attacking': True" in str(specs)
 
 
 def test_control_permanent_of_each_color_condition():

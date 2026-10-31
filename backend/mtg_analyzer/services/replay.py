@@ -36,6 +36,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.phases import default_turn_sequence
 from mtg_analyzer.game.rooms import set_designations
 from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.cards.card_colors import printed_colors
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
@@ -106,7 +107,7 @@ def _serialize_object(obj: GameObject) -> dict[str, Any]:
             "type_line": card.type_line,
             "power": card.power,
             "toughness": card.toughness,
-            "colors": sorted(card.color_identity),
+            "colors": sorted(printed_colors(card)),
             "oracle_text": card.oracle_text,
             "loyalty": card.loyalty,
         }

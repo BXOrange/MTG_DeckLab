@@ -1,6 +1,8 @@
 """Exile, control-changing, and related battlefield-to-zone effects."""
 from __future__ import annotations
 
+from ..control import gain_control
+
 from .core import GameEffect
 from ._runtime import install, register
 
@@ -57,6 +59,9 @@ class ExileEffect(GameEffect):
     no-op.
     """
 
+    # RULE 608.2c: even a skipped conditional instruction produces an empty batch.
+    resets_exile_pool = True
+
     def __init__(
         self,
         target: Any = None,
@@ -65,6 +70,7 @@ class ExileEffect(GameEffect):
         optional: bool = False,
         count: int = 1,
         count_max: Optional[int] = None,
+        same_graveyard: bool = False,
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         remember: bool = False,
@@ -195,6 +201,7 @@ class ExileEffect(GameEffect):
         ):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
+                same_graveyard=same_graveyard,
                 distinct_controllers=distinct_controllers, colors=self.colors,
                 count_selector=count_selector,
                 # "…permanent … with mana value N or less." (MEC-12, Skyclave
@@ -223,7 +230,7 @@ class ExileEffect(GameEffect):
 
     def _exile_object(self, context: GameContext, obj: Any) -> None:
         source_visit = None
-        if self.track_exiled_with and self.source is not None:
+        if (self.track_exiled_with or self.remember) and self.source is not None:
             incarnation = context.resolving_source_incarnation
             source_visit = (self.source.instance_id, self.source.zone_incarnation
                             if incarnation is None else incarnation)
@@ -308,6 +315,21 @@ class ExileEffect(GameEffect):
             )
             obj_id = (event or {}).get(key)
             target = context.state.find_object(obj_id) if obj_id is not None else None
+            # RULE 400.7: a trigger's creature referent is the captured visit,
+            # including the damage source Hixus exiles, not a blinked return.
+            incarnation_key = {
+                "instance_id": "instance_zone_incarnation",
+                "source_id": "source_zone_incarnation",
+                "target_id": "target_zone_incarnation",
+            }.get(key)
+            visits = (event or {}).get("subject_zone_incarnations") or {}
+            incarnation = visits.get(key)
+            if incarnation is None and incarnation_key and key != "source_id":
+                incarnation = (event or {}).get(incarnation_key)
+            if (target is not None and incarnation is not None and target.zone_incarnation != incarnation
+                    and (event or {}).get("graveyard_incarnation") is None):
+                context.previous_targets = []
+                return
             if (event or {}).get("graveyard_incarnation") is not None:
                 if (target is None or target.zone != Zone.GRAVEYARD
                         or target.zone_incarnation != event.get("graveyard_incarnation")):
@@ -372,7 +394,7 @@ class ExileEffect(GameEffect):
             )
             if item is not None and item.obj is not None:
                 context.engine.move_spell_off_stack(item, "exile")
-                if self.track_exiled_with and self.source is not None:
+                if (self.track_exiled_with or self.remember) and self.source is not None:
                     context.state.track_exiled_with(self.source, item.obj, context.resolving_source_incarnation)
             else:
                 self._exile_object(context, target)
@@ -473,6 +495,9 @@ class ExileTopOfLibraryEffect(GameEffect):
     targeted exile adds.
     """
 
+    # RULE 608.2c: even a skipped conditional instruction produces an empty batch.
+    resets_exile_pool = True
+
     def __init__(
         self, face_down: bool = False, player_selector: str = "controller",
         count: int = 1, keep_bottom: Optional[int] = None,
@@ -480,9 +505,11 @@ class ExileTopOfLibraryEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         position: str = "top",
+        player: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.face_down = face_down
+        self.player = player
         self.player_selector = player_selector
         #: "Exile the **bottom** card of each opponent's library face down." (Arvinox, the Mind Flail) — which end of
         #: the library the cards come from (`Player.library`: index 0 is the bottom, ``[-1]`` the top).
@@ -505,7 +532,10 @@ class ExileTopOfLibraryEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         before = len(context.exiled_objects)
-        if self.player_selector == "target":
+        if self.player is not None:
+            from ..effect_operands import player_for
+            players = [player_for(self.player, context, self.source, targets)]
+        elif self.player_selector == "target":
             players = [targets[0]] if targets and hasattr(targets[0], "library") else []
         elif self.player_selector == "active_player":
             players = [context.state.active_player]
@@ -826,10 +856,8 @@ class CopyImprintedCardEffect(GameEffect):
                 player, [copy_obj], free=self.free and not bool(self.cast_cost), only_spells=True,
             )
             return
-        exiled_id = getattr(source, "linked_exile_id", None)
-        if exiled_id is None:
-            return
-        exiled = context.state.find_object(exiled_id)
+        from ..linked_exile import remembered_card
+        exiled = remembered_card(context.state, source, context)
         if exiled is None or exiled.zone != Zone.EXILE:
             return
         controller_id = getattr(source, "controller_id", None)
@@ -1381,9 +1409,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
     the next cleanup (`GameEngine._step_cleanup`, `GameObject.control_
     change_until_eot` remembers the original controller) — the haste grant
     is a `temp_keywords` entry, cleared at that same cleanup, matching
-    "until end of turn" exactly. RULE 302.6's own "summoning sickness
-    resets under a new controller" isn't separately modeled, since the
-    haste grant makes the distinction unobservable either way. Doesn't move
+    "until end of turn" exactly. `gain_control` resets summoning sickness
+    when the controller changes (RULE 302.6); the optional haste grant
+    permits immediate attacks and tap abilities. Doesn't move
     the object zones at all (unlike `blink`), so counters/attachments/
     damage marked all carry over exactly as the permanent itself would
     expect.
@@ -1409,10 +1437,13 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         count_max: Optional[int] = None,
         optional: bool = False,
         while_source: Optional[str] = None,
+        while_target_filter: Optional[dict] = None,
         group: Optional[dict] = None,
         group_player: Optional[str] = None,
+        condition: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        self.duration_condition = condition
         self.target = target
         self.group = dict(group) if group is not None else None
         self.group_player = group_player
@@ -1421,7 +1452,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         #: stops qualifying (`RulesEngine._revert_source_bound_control`). Meaningful with ``duration="permanent"``.
         #: ``"tapped"`` is "...for as long as ~ remains tapped" (Preacher): the source must be tapped, which it is
         #: whenever the ability's {T} cost was paid, and the control change ends the moment it untaps.
-        self.while_source = while_source if while_source in ("controlled", "on_battlefield", "tapped") else None
+        self.while_target_filter = dict(while_target_filter or {})
+        self.while_source = while_source if while_source in ("controlled", "on_battlefield", "tapped", "controlled_tapped") else None
         #: PAR-150: RULE 115.1a "gain control of up to 3 target creatures" (Jace, Ingenious Mind-Mage) -- the
         #: `TargetSpec` count/range/optional triple every multi-target effect carries.
         self.count, self.count_max, self.optional = count, count_max, optional
@@ -1491,36 +1523,52 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         return "harmful"
 
     def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
-        if target.controller_id != controller.id:
-            if self.duration == "permanent":
-                # RULE 611.2 no-duration continuous effect — cleanup must not
-                # revert it, so don't stamp ``control_change_until_eot``.
-                if self.while_source == "tapped" and (self.source is None or not self.source.tapped):
-                    # Untapped before the ability resolved: "remains tapped" already failed, so nothing happens.
+        from .. import durations
+        if self.duration_condition or self.duration in ("your_next_turn", "your_next_upkeep", "your_next_end_step", "next_end_step", "end_of_combat"):
+            from types import SimpleNamespace
+            clock = durations.stamp(SimpleNamespace(), context, self.source, self.duration, self.duration_condition, target)
+            if durations.is_expired(clock, context.state, "recompute"):
+                return
+            data = {"duration": clock.duration, "duration_data": clock.duration_data,
+                    "object_ids": clock.object_ids, "source_id": getattr(self.source, "instance_id", None)}
+            gain_control(context.state, target, controller.id, duration="clock", window=data)
+        elif self.duration == "permanent":
+            window = None
+            if self.while_source or self.while_target_filter:
+                from ..control import control_window_active
+                anchor = self.source if self.while_source else target
+                if anchor is None:
                     return
-                if self.while_source and self.source is not None:
-                    target.control_change_while_source = {
-                        "revert_to": (target.control_change_while_source or {}).get("revert_to", target.controller_id),
-                        "player_id": controller.id, "source_id": self.source.instance_id,
-                        "incarnation": self.source.zone_incarnation,
-                        "needs_control": self.while_source == "controlled",
-                        "needs_tapped": self.while_source == "tapped",
-                    }
-                target.controller_id = controller.id
-                target.summoning_sick = True  # RULE 302.6 under a new controller
-            elif self.duration == "end_of_your_next_turn":
-                # RULE 611.2: lasts through the cleanup of the taker's next turn (`durations.py`'s shared clock).
-                window = target.control_change_until_owner_turn
-                target.control_change_until_owner_turn = {
-                    "revert_to": window["revert_to"] if window else target.controller_id,
-                    "player_id": controller.id,
-                    "turn": context.state.internal_turn.number,
+                window = {
+                    "revert_to": target.controller_id,
+                    "player_id": controller.id, "source_id": anchor.instance_id,
+                    "incarnation": (context.resolving_source_incarnation
+                                    if self.while_source and context.resolving_source_incarnation is not None
+                                    else anchor.zone_incarnation),
+                    "needs_control": self.while_source in ("controlled", "controlled_tapped"),
+                    "needs_tapped": self.while_source in ("tapped", "controlled_tapped"),
+                    "target_filter": self.while_target_filter,
                 }
-                target.controller_id = controller.id
-            else:
-                if target.control_change_until_eot is None:
-                    target.control_change_until_eot = target.controller_id
-                target.controller_id = controller.id
+                # RULE 611.2b: an already-ended duration must never begin.
+                if not control_window_active(context.state, target, window):
+                    return
+                target.control_change_while_source = window
+            # RULE 613.7: record the new effect even if we already control the target;
+            # an older effect ending must not erase this later control change.
+            gain_control(context.state, target, controller.id,
+                         duration="while_source" if window else "permanent", window=window)
+        elif self.duration == "end_of_your_next_turn":
+            window = target.control_change_until_owner_turn
+            target.control_change_until_owner_turn = {
+                "revert_to": window["revert_to"] if window else target.controller_id,
+                "player_id": controller.id, "turn": context.state.internal_turn.number,
+            }
+            gain_control(context.state, target, controller.id, duration=self.duration,
+                         window=target.control_change_until_owner_turn)
+        else:
+            if target.control_change_until_eot is None:
+                target.control_change_until_eot = target.controller_id
+            gain_control(context.state, target, controller.id, duration="end_of_turn")
         if self.untap:
             context.set_tapped(target, tapped=False)
         if self.haste:
@@ -1558,7 +1606,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                     continue
                 if want_creature and not obj.is_creature:
                     continue
-                if self.mass_of_target_player == "artifact" and not obj.card.is_artifact:
+                if self.mass_of_target_player == "artifact" and not obj.is_artifact:
                     continue
                 self._take(context, obj, controller)
             context.recompute()
@@ -1635,10 +1683,10 @@ class GainControlBySourceEffect(GameEffect):
     as a drawback, rather than the caster grabbing something). Unlike
     `GainControlUntilEndOfTurnEffect` (temporary, a chosen *target*, control
     moves *to* the ability's controller), this is indefinite, always the
-    source itself, moves control *away* from the controller, and isn't a
-    RULE 115 target at all — the printed line never says "target opponent".
+    source itself. ``recipient="target_opponent"`` announces a RULE 115
+    player target (Humble Defector); the permanent itself is never targeted.
 
-    ``recipient="opponent"`` is the only kind today. With exactly one
+    ``recipient="opponent"`` is untargeted. With exactly one
     opponent (the common 1v1 goldfish/Replay case) the pick is unambiguous;
     with 2+ (multiplayer), this auto-picks the next player after the
     current controller in seating order — no "choose an opponent" chooser
@@ -1655,22 +1703,45 @@ class GainControlBySourceEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.recipient = recipient
-        self.target_spec = None
+        self.target_spec = TargetSpec(kind="opponent") if recipient == "target_opponent" else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is None:
+        # RULE 400.7: the ability only hands away its source's original
+        # battlefield visit, including after a suspended optional sequence.
+        if self.source is None or self.source.zone != Zone.BATTLEFIELD:
+            return
+        incarnation = context.resolving_source_incarnation
+        if incarnation is not None and self.source.zone_incarnation != incarnation:
             return
         controller = _controller_of(self.source, context)
         if controller is None:
             return
         players = context.state.players
+        if self.recipient == "target_opponent":
+            from ..targeting import legal_targets
+
+            target = targets[0] if targets else None
+            target_id = getattr(target, "id", None)
+            # RULE 115 / 608.2b: use the resolving ability's controller,
+            # independent of who controls the permanent now. Revalidate
+            # player protection and whether the recipient is still playing.
+            options = legal_targets(context.state, controller.id, self.target_spec, self.source)
+            if target_id is None or target_id not in {option.get("player_id") for option in options}:
+                return
+            previous_controller = self.source.controller_id
+            if gain_control(context.state, self.source, target_id):
+                if previous_controller != target_id:
+                    # RULE 506.4: changing control removes a permanent from combat.
+                    TapEffect._remove_from_combat(context, self.source)
+                context.recompute()
+            return
         if self.recipient == "event_player":
             # "…that player draws three cards and gains control of ~." (Coveted Jewel) — the player the firing
             # event names (the unblocked attacker's controller), whoever that opponent is.
             new_controller_id = (context.trigger_event or {}).get("player_id")
             if new_controller_id is None or new_controller_id == self.source.controller_id:
                 return
-            self.source.controller_id = new_controller_id
+            gain_control(context.state, self.source, new_controller_id)
             context.recompute()
             return
         if self.recipient == "activator":
@@ -1680,16 +1751,16 @@ class GainControlBySourceEffect(GameEffect):
             activator_id = getattr(context, "resolving_controller_id", None)
             if activator_id is None or activator_id == self.source.controller_id:
                 return
-            self.source.controller_id = activator_id
+            gain_control(context.state, self.source, activator_id)
             context.recompute()
             return
-        opponents = [p for p in players if p.id != controller.id]
+        opponents = [p for p in players if p.id != controller.id and not p.has_lost]
         if not opponents:
             return
         idx = players.index(controller)
         ordered = players[idx + 1:] + players[:idx]
         recipient = next((p for p in ordered if p in opponents), opponents[0])
-        self.source.controller_id = recipient.id
+        gain_control(context.state, self.source, recipient.id)
         context.recompute()
 
 
@@ -1797,7 +1868,7 @@ class GainControlAttachedEffect(GameEffect):
             recipient = _controller_of(self.source, context)
         if recipient is None or host.controller_id == recipient.id:
             return
-        host.controller_id = recipient.id
+        gain_control(context.state, host, recipient.id)
         context.recompute()
 
 
@@ -2084,24 +2155,32 @@ class ReturnLinkedExileEffect(GameEffect):
     """
 
     def __init__(
-        self, destination: str = "battlefield", source: Optional["GameObject"] = None
+        self, destination: str = "battlefield", source: Optional["GameObject"] = None, tracked: bool = False
     ) -> None:
         super().__init__(source)
         self.destination = destination
+        self.tracked = tracked
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        linked_id = getattr(self.source, "linked_exile_id", None)
-        linked_ids = list(getattr(self.source, "linked_exile_ids", None) or [])
+        if self.tracked:
+            # RULE 607.2a / 400.7: separate leave/entry triggers retain
+            # their own source visit, not a later incarnation's exiled card.
+            incarnation = context.resolving_source_incarnation
+            if incarnation is None:
+                incarnation = self.source.zone_incarnation
+            visits = context.state.linked_exile_visits.pop((self.source.instance_id, incarnation), [])
+            for iid, visit in visits:
+                obj = context.state.find_object(iid)
+                if obj is not None and obj.zone == Zone.EXILE and obj.zone_incarnation == visit:
+                    context.return_from_graveyard(obj, self.destination)
+            return
+        from ..linked_exile import remembered_cards
+        cards = remembered_cards(context.state, self.source, context)
         self.source.linked_exile_id = None
         self.source.linked_exile_ids = []
-        if linked_id is not None and linked_id not in linked_ids:
-            linked_ids.append(linked_id)
-        for instance_id in linked_ids:
-            card_obj = context.state.find_object(instance_id)
-            if card_obj is None or card_obj.zone != Zone.EXILE:
-                continue
+        for card_obj in cards:
             context.return_from_graveyard(card_obj, self.destination)
 
 
@@ -2130,12 +2209,14 @@ class ReturnAllExiledWithEffect(GameEffect):
         sacrifice_source: bool = False,
         under_your_control: bool = False,
         card_types: Optional[list[str]] = None,
+        destination: str = "battlefield",
     ) -> None:
         super().__init__(source)
         self.counter_if_creature = dict(counter_if_creature or {}) or None
         self.sacrifice_source = bool(sacrifice_source)
         self.under_your_control = bool(under_your_control)
         self.card_types = list(card_types or [])
+        self.destination = destination
         self.captured_visits = None
         #: "…return all cards exiled with this Vehicle except this card to the battlefield **tapped** under their owners'
         #: control." (Mechtitan Core)
@@ -2189,6 +2270,16 @@ class ReturnAllExiledWithEffect(GameEffect):
                                                if self.card_types and instance_id not in consumed_ids]
         if self.sacrifice_source:
             context.put_into_graveyard(self.source)
+        if self.destination == "hand":
+            # RULE 607.2a / 400.7: only the exact linked exile visit may return.
+            from .core import ReturnToHandEffect, _apply_effects_partitioned
+            returned = [obj for iid, incarnation in visits
+                        if (obj := context.state.find_object(iid)) is not None
+                        and obj.zone == Zone.EXILE and obj.zone_incarnation == incarnation]
+            _apply_effects_partitioned(
+                [ReturnToHandEffect(target=obj, source=self.source) for obj in returned],
+                context, None, None, source=self.source)
+            return
         options = {'tapped': self.tapped}
         if self.counter_if_creature:
             options['typed_entry_counters'] = [dict(self.counter_if_creature, types=['creature'])]
@@ -2227,11 +2318,9 @@ class CreateTokenForLinkedExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        linked_id = getattr(self.source, "linked_exile_id", None)
+        from ..linked_exile import remembered_card
+        card_obj = remembered_card(context.state, self.source, context)
         self.source.linked_exile_id = None
-        if linked_id is None:
-            return
-        card_obj = context.state.find_object(linked_id)
         if card_obj is None or card_obj.zone != Zone.EXILE:
             return
         from ...services.token_database import synthesize_token_card
@@ -2321,11 +2410,9 @@ class CreateTokenCopyOfLinkedExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        linked_id = getattr(self.source, "linked_exile_id", None)
+        from ..linked_exile import remembered_card
+        card_obj = remembered_card(context.state, self.source, context)
         self.source.linked_exile_id = None
-        if linked_id is None:
-            return
-        card_obj = context.state.find_object(linked_id)
         if card_obj is None or card_obj.zone != Zone.EXILE:
             return
         controller_id = self.source.controller_id
@@ -2383,17 +2470,23 @@ class ExileLibraryEffect(GameEffect):
 
 
 class ExileOwnGraveyardCardsEffect(GameEffect):
-    """Exile N cards from your graveyard (RULE 701.5a)."""
+    """Exile N cards from your graveyard (RULE 701.5a).
 
-    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+    ``card_type`` (PAR-207, "exile a **creature** card from your graveyard") narrows the pool to cards of that type
+    (RULE 205.2); with fewer than ``count`` matching cards the instruction cannot be done in full."""
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None, card_type: Optional[str] = None) -> None:
         super().__init__(source)
         self.count = max(1, int(count))
+        self.card_type = str(card_type).lower() if card_type else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
         if controller is None:
             return
         candidates = list(controller.graveyard)
+        if self.card_type is not None:
+            candidates = [o for o in candidates if self.card_type in (o.card.type_line or "").lower().split("—")[0]]
         if not candidates:
             return
         context.engine._request_choose_objects(
@@ -2424,7 +2517,7 @@ class FinishGraveyardShuffleEffect(GameEffect):
 
 
 class ShuffleGraveyardIntoLibraryEffect(GameEffect):
-    """"Shuffle your graveyard into your library." (RULE 701.20) — the
+    """"Shuffle your graveyard into your library." (RULE 701.24) — the
     graveyard-only sibling of `RulesEngine.shuffle_hand_and_graveyard_
     into_library`'s "hand AND graveyard" wheel template; reused wherever
     only the graveyard moves (Paradigm Shift).
@@ -2435,12 +2528,17 @@ class ShuffleGraveyardIntoLibraryEffect(GameEffect):
     is stale once it is in a graveyard.
     """
 
-    def __init__(self, owner_of_source: bool = False, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, owner_of_source: bool = False, source: Optional["GameObject"] = None,
+                 target_kind: Optional[str] = None) -> None:
         super().__init__(source)
         self.owner_of_source = owner_of_source
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.owner_of_source and self.source is not None:
+        if self.target_spec is not None:
+            # RULE 115/608.2b: the player is announced and revalidated by the stack.
+            player = targets[0] if targets else None
+        elif self.owner_of_source and self.source is not None:
             player = context.state.player_by_id(self.source.owner_id)
         else:
             player = _controller_of(self.source, context)
@@ -2517,6 +2615,29 @@ class NoMaxHandSizeRestOfGameEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is not None:
             context.state.no_max_hand_size_player_ids.add(player.id)
+            # RULE 613.7: stamp it so a later "maximum hand size is N" can
+            # override it (`continuous._hand_size_setting`).
+            context.state.no_max_hand_size_stamps[player.id] = context.state.next_timestamp()
+
+
+class LoseOwnReplacementEffect(GameEffect):
+    """"Until end of turn, ~ loses "<replacement ability>"." (Glittering Lion/Lynx's "prevent all
+    damage that would be dealt to this creature") — RULE 613.1f layer-6 ability removal, scoped to
+    the one named replacement of the source. The matching `ReplacementEffect`s (by the registered
+    ``spec_type`` the binder stamped) are switched off by ``suppressed`` and switched back on in
+    the cleanup step with the other "until end of turn" effects (RULE 514.2). Keeping the flag on
+    the effect object makes it vanish with the permanent (RULE 400.7: a new object rebinds)."""
+
+    def __init__(self, replacement: str, source: Any = None) -> None:
+        super().__init__(source)
+        self.replacement = replacement
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        for effect in self.source.replacement_effects:
+            if getattr(effect, "spec_type", None) == self.replacement:
+                effect.suppressed = True
 
 
 class GraveyardToLibraryBottomRandomEffect(GameEffect):
@@ -3323,7 +3444,8 @@ class BecomeCopyOfImprintedUntilEndOfTurnEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
-        imprinted = context.state.find_object(getattr(source, "linked_exile_id", None)) if source is not None else None
+        from ..linked_exile import remembered_card
+        imprinted = remembered_card(context.state, source, context)
         if source is None or imprinted is None or imprinted is source:
             return
         context.become_copy_until_end_of_turn(source, imprinted, self.add_types or None, self.add_subtypes or None)

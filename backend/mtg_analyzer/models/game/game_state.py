@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Optional
 
 from . import turn_history
+from .public_knowledge import PublicCardKnowledge
 from .events import EventType, GameEvent
 from .game_object import GameObject, Zone
 from .player import Player
@@ -564,17 +565,21 @@ class GameState:
         self.pending_turn_step: Optional[dict[str, Any]] = None
         self.pending_dredge_return: Optional[dict[str, Any]] = None
         self.player_loss_batch: Optional[dict[str, Any]] = None
+        #: RULE 704.5j: the surviving legend each controller already chose in the current SBA sweep,
+        #: keyed by `RulesEngine._legend_group_key`; the sweep re-collects from the unchanged board
+        #: after each answer and reads these, then clears them once its batch is applied.
+        self.legend_rule_picks: dict[str, int] = {}
         # Only serializable engine continuations use this replacement frame.
         self.replacement_continuation: Optional[dict[str, Any]] = None
+        #: RULE 510.2/120.3f: the combat damage step being dealt. ``receipts`` are the damage events
+        #: that actually dealt damage (source, recipient, amount after prevention/replacement/
+        #: redirection); ``pending`` counts damage events still inside a replacement pipeline (a
+        #: RULE 616.1e ordering choice can suspend one); ``closed`` is set once every assignment has
+        #: been submitted. The step's lifelink gain and aggregate player-hit events are settled
+        #: exactly once, when closed and pending == 0. Plain JSON-able data so clone/undo keep it.
+        self.combat_damage_batch: Optional[dict[str, Any]] = None
 
-        #: Ids of players who have left the game (conceded — RULE 104.3a)
-        #: but whose objects are still on the board. Concession normally
-        #: happens at sorcery speed, and yanking a board away mid-turn is
-        #: disorienting for the *other* players in a multiplayer game, so
-        #: `RulesEngine.concede` defers the RULE 800.4a cleanup to the start
-        #: of the next player's turn (`GameEngine.begin_turn` sweeps this).
-        #: With one living player left the game is over anyway and the board
-        #: is simply left standing for the end-of-match review.
+        #: Compatibility with older snapshots; RULE 800.4a departures are immediate.
         self.pending_leave_ids: list[str] = []
         #: A player decision the engine is waiting on (e.g. a library
         #: search) before it can keep resolving — plain JSON-able data
@@ -583,6 +588,18 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # RULE 702.21a/b: retain the exact stack item, caster and resolved cost
+        # while Ward asks for payment. Deepcopy shares the cloned stack's item.
+        self.pending_ward: Optional[dict[str, Any]] = None
+        # RULE 702.136: entrant retained outside public choice data, including token entries.
+        self.pending_riot_entry: Optional[GameObject] = None
+        self.pending_tribute_entry: Optional[GameObject] = None  # RULE 702.104a, as `pending_riot_entry`
+        # RULE 701.68 / 601.2b: the creature the player picked to pay a "Blight N" *cost* (payment can't pause
+        # for a chooser). Set by the session for the duration of one cast/activation, then cleared.
+        self.blight_cost_choice: Optional[int] = None
+        # RULE 608.2: an optional energy payment suspends this resolution.
+        # Keep source, targets and firing event in clone/undo's state graph.
+        self.pending_energy_payment: Optional[dict[str, Any]] = None
         # Target announcement is a serializable continuation, including its
         # partial groups and firing event, so clone/undo can resume it.
         self.pending_trigger_frame: Optional[dict[str, Any]] = None
@@ -592,6 +609,8 @@ class GameState:
         self.pending_physical_cast: Optional[dict[str, Any]] = None
         # Resolve-time payment frame belongs to state so rewind preserves it.
         self.pending_pay_cost_then: Optional[dict[str, Any]] = None
+        #: Multi-player optional cost sweep; source and remaining offers must survive clone/undo.
+        self.pending_all_decline_or: Optional[dict[str, Any]] = None
         # RULE 608.2g: scoped permission while a resolving effect offers
         # playing a card; separate from pending_choice while casting it.
         self.resolution_play_choice: Optional[dict[str, Any]] = None
@@ -604,6 +623,7 @@ class GameState:
         #: clashing player has decided whether to put theirs on the bottom.
         #: Instance ids keep snapshots/rewind independent of live objects.
         self.clash_revealed: list[int] = []
+        self.public_card_knowledge = PublicCardKnowledge()
 
         #: RULE 608.2: effect lists suspended mid-resolution because one of
         #: their effects opened `pending_choice`, innermost last (a LIFO
@@ -673,6 +693,8 @@ class GameState:
         # and belongs to this zone visit rather than a future exile visit.
         self.temp_play_permission_filters: dict[int, dict[str, Any]] = {}
         self.temp_play_permission_visits: dict[int, int] = {}
+        # RULE 611.2a: exact step/condition clocks, including next-turn-only activity.
+        self.temp_play_permission_clocks: dict[int, dict[str, Any]] = {}
 
         #: Which `temp_play_permissions` entries carry the *shorter*,
         #: flat "until end of turn" window (Ragavan, Nimble Pilferer/
@@ -826,6 +848,11 @@ class GameState:
         #: (they fire once). Plain board state — deep-copies with `clone`.
         self.delayed_triggers: list["DelayedTrigger"] = []
 
+        # RULE 103.6: remaining pregame actions and publicly revealed hand
+        # visits belong to the position, so clone/undo can resume them.
+        self.opening_hand_queue: list[tuple[str, int, int]] = []
+        self.opening_hand_revealed: list[tuple[str, int, int]] = []
+
         #: Recurring, bounded-duration player-scoped triggers (Nuka-Nuke
         #: Launcher's "until the end of defending player's next turn, that
         #: player gets rad counters whenever they cast a spell") — see
@@ -908,13 +935,11 @@ class GameState:
         #: deep-copies with `clone`.
         self.forced_vote_controller_id: Optional[str] = None
 
-        #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
-        #: "take an extra turn after this one" (Final Fortune, the Time Warp
-        #: family) appends here; `GameEngine.begin_turn` pops the front instead
-        #: of rotating the normal round-robin, so an inserted turn is taken
-        #: right after the current one (and before the next player's) — RULE
-        #: 500.7. Plain board state — deep-copies with `clone`.
+        #: RULE 500.7: the most recently inserted extra turn is taken first.
+        #: The saved regular successor is retained across every inserted turn
+        #: (including an opponent's) and deep-copies with clone/undo.
         self.extra_turns: list[str] = []
+        self.extra_turn_resume_player_id: Optional[str] = None
 
         #: RULE 500.4-adjacent "after this combat phase, there is an
         #: additional combat phase[, followed by an additional main
@@ -934,6 +959,17 @@ class GameState:
         self.turn_steps: list[Any] = []
         #: A resolving permanent retained through before-entry choices and undo.
         self.pending_permanent_entry: Optional[dict[str, Any]] = None
+        #: RULE 614.12 / 400.7: the permanent awaiting an "as ~ enters, choose ..." answer
+        #: (``{"obj", "incarnation", "batch"}``). The rest of the entry pipeline -- which queued choice is open,
+        #: where the entry continues afterwards -- is derived from this and the three entry records below, so
+        #: undo/clone never depend on a Python closure of the engine that opened the choice.
+        self.pending_enter_choice: Optional[dict[str, Any]] = None
+        #: RULE 305.1 / 614.12: a land being played that waits on a pre-entry choice
+        #: (``{"obj", "player_id", "from_zone", "grant"}``); cleared when the land enters.
+        self.pending_land_entry: Optional[dict[str, Any]] = None
+        #: RULE 111.5 / 614.12: a token being created that waits on a pre-entry choice
+        #: (``{"obj", "token_card", "controller_id", "remaining"}`` -- tokens of the batch still to create).
+        self.pending_token_entry: Optional[dict[str, Any]] = None
 
         #: RULE 500-adjacent "end the turn" (Day's Undoing/Time Stop-shaped
         #: reminder text) — the same "an effect can't reach `GameEngine.
@@ -945,6 +981,12 @@ class GameState:
         #: board state — deep-copies with `clone`.
         self.end_turn_requested: bool = False
         self.end_combat_requested: bool = False
+        # RULE 511.3: the end of combat step has begun and still owes its remove-from-combat / duration cleanup.
+        self.end_combat_cleanup_pending: bool = False
+        #: RULE 510.4: ``None`` while this combat has had no first-strike damage step; once it has, the
+        #: ``(instance_id, zone_incarnation)`` of every attacker/blocker that took part in it (had first or
+        #: double strike as the step began). Plain data, so clone/undo keep it; reset by `_clear_combat`.
+        self.first_strike_step_combatants: Optional[list[tuple[int, int]]] = None
 
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of
@@ -1117,6 +1159,9 @@ class GameState:
         #: cleared (rest of the game), and RULE 400.7-safe (keyed by the
         #: player, not an object).
         self.no_max_hand_size_player_ids: set[str] = set()
+        #: RULE 613.7 timestamp of each such grant, so a newer "your maximum
+        #: hand size is N" (`hand_size_set`) can override it.
+        self.no_max_hand_size_stamps: dict[str, int] = {}
 
 
 
@@ -1146,6 +1191,12 @@ class GameState:
         # RULE 608.2h: source counters survive as LKI for that departed
         # visit, independently of the physical card's subsequent visits.
         self.zone_visit_counters: dict[tuple[int, int], dict[str, int]] = {}
+        # RULE 608.2h / 400.7: characteristic measurements of an old source
+        # use its last battlefield visit even after the physical card returns.
+        self.zone_visit_characteristics: dict[tuple[int, int], dict[str, int]] = {}
+        # RULE 608.2h/702.15c: damage by a departed object uses its old
+        # characteristics (including granted lifelink), not a returned visit.
+        self.zone_visit_sources: dict[tuple[int, int], GameObject] = {}
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
         self.copiable_stack_recipes: dict[int, StackItem] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []
@@ -1212,6 +1263,9 @@ class GameState:
             obj = self.pending_permanent_entry["obj"]
             if obj.instance_id == instance_id:
                 return obj
+        for entry in (self.pending_land_entry, self.pending_token_entry):
+            if entry and entry["obj"].instance_id == instance_id:
+                return entry["obj"]
         for obj in self.battlefield:
             if obj.instance_id == instance_id:
                 return obj
@@ -1673,6 +1727,13 @@ class GameState:
         else:
             self.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=[card]))
 
+    def reveal_card(self, obj: GameObject, player_id: Optional[str] = None) -> None:
+        """RULE 701.20: publish one actual card, without changing its zone."""
+        self.fire_event(GameEvent(EventType.REVEAL, player_id=player_id or obj.owner_id,
+                                  instance_id=obj.instance_id, object=obj.name, card_id=obj.card.id,
+                                  revealed_card=self.public_card_knowledge.face_snapshot(obj),
+                                  from_zone=obj.zone.value if obj.zone else None))
+
     def fire_event(self, event: GameEvent) -> GameEvent:
         """Record ``event`` and notify subscribers. Returns the event.
 
@@ -1681,11 +1742,24 @@ class GameState:
         ``fire_event`` (the event here is what actually happened), and
         triggered abilities are queued by subscribers.
         """
+        self.public_card_knowledge.observe(self, event)
         if event.type == EventType.LEAVES_BATTLEFIELD:
             departed = self.find_object(event.get("instance_id"))
             if departed is not None:
                 self.zone_visit_counters[(departed.instance_id, departed.zone_incarnation)] = dict(
                     event.get('counters', departed.counters))
+                self.zone_visit_characteristics[(departed.instance_id, departed.zone_incarnation)] = {
+                    "power": int(event.get("power", departed.power) or 0),
+                    "toughness": int(event.get("toughness", departed.toughness) or 0),
+                    "mana_value": int(departed.mana_value or 0),
+                }
+                snapshot = copy.copy(departed)
+                # Keep the printed card and bound behavior references; only
+                # characteristic containers must survive reset/recomputation.
+                for name, value in vars(departed).items():
+                    if isinstance(value, (dict, list, set)):
+                        setattr(snapshot, name, copy.copy(value))
+                self.zone_visit_sources[(departed.instance_id, departed.zone_incarnation)] = snapshot
                 host = self.find_object(departed.attached_to)
                 relationship = ((host.instance_id, host.zone_incarnation)
                                 if host is not None else None)
@@ -1728,6 +1802,17 @@ class GameState:
             if event.turn != current:
                 break
             yield event
+
+    def events_this_combat(self) -> "Iterator[GameEvent]":
+        """Events of the combat phase in progress (or the latest one this turn), newest first.
+
+        RULE 506.1: "this combat" is one combat phase, so it starts at that phase's
+        ``begin_combat`` step; an extra combat phase (RULE 500.8) starts a fresh window.
+        """
+        for event in self.events_this_turn():
+            yield event
+            if event.type == EventType.STEP_BEGIN and event.get("step") == turn_history.COMBAT_BEGIN_STEP:
+                return
 
     def events_last_turn(self) -> "Iterator[GameEvent]":
         """Events from the immediately preceding turn, newest first (RULE 500.1)."""
@@ -1923,7 +2008,9 @@ class GameState:
 
     def to_dict(self) -> dict[str, Any]:
         self.internal_turn.player_id = self.active_player.id
+        known_cards = self.public_card_knowledge.view(self)
         return {
+            "known_cards": known_cards,
             "id": self.id,
             "internal_turn": self.internal_turn.to_dict(),
             "turn_nr": self.turn_nr,
@@ -1951,6 +2038,10 @@ class GameState:
             ),
             "planar_deck_count": len(self.planar_deck),
             "pending_choice": self.pending_choice,
+            "opening_hand_revealed": [
+                obj.to_dict() for player in self.players for obj in player.hand
+                if (player.id, obj.instance_id, obj.zone_incarnation) in self.opening_hand_revealed
+            ],
             "clash_revealed": [
                 obj.to_dict() for iid in self.clash_revealed
                 if (obj := self.find_object(iid)) is not None

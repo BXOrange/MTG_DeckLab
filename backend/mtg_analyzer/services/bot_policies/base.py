@@ -8,6 +8,22 @@ from typing import Any, Optional
 
 
 
+#: The only pre-combat step where `play` has had its sorcery-speed window;
+#: arming a yield earlier would skip that window entirely.
+PRE_COMBAT_STEPS = ("main1",)
+
+#: Steps after attackers were (or were not) declared; a bot that did nothing
+#: by then has nothing left before its end step.
+POST_ATTACK_STEPS = ("declare_attackers", "declare_blockers", "combat_damage", "end_combat", "main2")
+
+#: Own-turn windows a bot keeps: its attack declaration and end-step plays.
+BOT_OWN_STOPS = ("declare_attackers", "end")
+
+#: Opponent-turn windows stay as before; "Pass this turn" decides there.
+ALL_STEPS = ("upkeep", "draw", "main1", "begin_combat", "declare_attackers",
+             "declare_blockers", "combat_damage", "end_combat", "main2", "end")
+
+
 class Bot:
     """Base class: the dispatcher, plus the decisions every bot must answer.
 
@@ -72,7 +88,10 @@ class Bot:
         # so it has to be answered before anything is even considered.
         answers = [a for a in actions if a["type"] in ("choose", "decline")]
         if answers:
-            return self.answer_choice(view, answers)
+            answer = self.answer_choice(view, answers)
+            if answer is None and self.waiting:
+                return None
+            return self._offered_choice(view, answers, answer)
         if not view["setup"]["complete"]:
             keep = next((a for a in actions if a["type"] == "keep_hand"), None)
             return self.setup(view, actions) if keep is not None else None
@@ -94,7 +113,47 @@ class Bot:
         # policy says it would pass every remaining window of this turn.
         if self.wants_turn_yield(view, actions):
             return {"type": "set_yield", "mode": "turn"}
-        return self.play(view, [a for a in actions if a["type"] != "declare_blockers"])
+        if self.wants_own_turn_stops(view):
+            return {"type": "set_stops", "own": list(BOT_OWN_STOPS), "opponent": list(ALL_STEPS)}
+        action = self.play(view, [a for a in actions if a["type"] != "declare_blockers"])
+        if action is None and self.wants_end_step_yield(view, actions):
+            return {"type": "set_yield", "mode": "end_step"}
+        return action
+
+    def _offered_choice(self, view, answers, answer):
+        """Keep policy decisions inside the server's current choice contract."""
+        if isinstance(answer, dict):
+            if answer.get("type") == "decline":
+                offered = next((a for a in answers if a["type"] == "decline"), None)
+                if offered is not None:
+                    return dict(offered)
+            elif answer.get("type") == "choose":
+                pending = view.get("pending_choice") or {}
+                if "option_ids" in answer:
+                    # Atomic Proliferate picks are parameterized, but every member
+                    # must still come from the offered set for this selection.
+                    ids = answer["option_ids"]
+                    offered_ids = {a.get("option_id") for a in answers if a["type"] == "choose"}
+                    if (pending.get("kind") == "proliferate"
+                            and answer.get("selection_id") == pending.get("selection_id")
+                            and isinstance(ids, list) and all(isinstance(i, str) for i in ids)
+                            and len(set(ids)) == len(ids) and set(ids) <= offered_ids):
+                        return answer
+                else:
+                    option_id = answer.get("option_id", answer.get("instance_id"))
+                    for offered in answers:
+                        if offered["type"] != "choose":
+                            continue
+                        if offered.get("free_text"):
+                            return answer
+                        if option_id is not None and str(option_id) == str(offered.get("option_id")):
+                            return dict(offered)
+        # A policy may rank options; it cannot invent a new option or pass
+        # instead of answering a mandatory choice. Keep a visible diagnostic
+        # and use the base policy on the same, still-untried offers.
+        self.action_feedback.append({"action": answer, "reason": "Bot choice was not offered"})
+        self.action_feedback[:] = self.action_feedback[-3:]
+        return Bot.answer_choice(self, view, answers)
 
     # -- Policy hooks --------------------------------------------------
 
@@ -127,6 +186,53 @@ class Bot:
         if state.get("stack") or state.get("game_over") or view.get("pending_choice"):
             return False
         return self.can_pass_turn(view, actions)
+
+    #: Whether this policy skips its own remaining windows once `play` has
+    #: nothing left to do. Off by default: only policies whose `play` is a
+    #: complete statement of what they want opt in.
+    skips_to_end_step = False
+
+    def wants_end_step_yield(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+        """Own-turn counterpart of `wants_turn_yield`: `play` returned nothing,
+        so arm "Skip to end step" instead of burning one pass per step. Only
+        after combat, or earlier only when it has no untapped creature (attackers
+        offered at declare-attackers must not be swallowed by a yield). The
+        server holds priority at the end step, so end-step instants remain
+        possible, and still stops for any opponent stack item."""
+        priority = view.get("priority") or {}
+        state = view["state"]
+        if not self.skips_to_end_step or not priority.get("interactive") or not self.is_active(view):
+            return False
+        if (priority.get("yields") or {}).get(self.player_id):
+            return False
+        if state.get("stack") or state.get("game_over") or view.get("pending_choice"):
+            return False
+        # Holding an instant or a usable ability means it may still want to act
+        # this turn: then it must not give up its windows.
+        if not self.can_pass_turn(view, actions):
+            return False
+        step = state.get("current_step")
+        if step in POST_ATTACK_STEPS:
+            return True
+        if step not in PRE_COMBAT_STEPS:
+            return False
+        # Before combat: only when no creature could attack, so the yield
+        # cannot swallow the attack declaration.
+        return not any(
+            o.get("controller_id") == self.player_id and o.get("is_creature")
+            and not o.get("tapped") and not o.get("summoning_sick")
+            for o in state.get("battlefield", [])
+        )
+
+    def wants_own_turn_stops(self, view: dict[str, Any]) -> bool:
+        """Whether to replace the default "stop at every step" with the
+        steps a bot can use: attack declaration and the end step (the
+        mains are always kept). Upkeep and draw have nothing to offer, so
+        the server passes them instead of costing a tick each."""
+        priority = view.get("priority") or {}
+        if not self.skips_to_end_step or not priority.get("interactive"):
+            return False
+        return (priority.get("stops") or {}).get(self.player_id) is None
 
     def setup(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> dict[str, Any]:
         """RULE 103.4: no bot mulligans — it keeps whatever it was dealt.
@@ -176,6 +282,12 @@ class Bot:
             return self.pick_opponent_target(view, answers)
         if kind == "opponent_chooser" and answers:
             return self.pick_opponent_chooser(view, answers)
+        if kind == "legend_rule" and answers:
+            # RULE 704.5j: keep the copy worth most (counters raise its visible power/toughness).
+            return max((a for a in answers if a["type"] == "choose"),
+                       key=lambda a: self._option_worth(view, a), default=answers[0])
+        if kind == "blight" and answers:
+            return self.pick_blight_creature(view, answers)
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
         # RULE 103.6: use offered opening-hand permissions, including
@@ -186,6 +298,23 @@ class Bot:
                 return hit
         decline = next((a for a in answers if a["type"] == "decline"), None)
         return decline or answers[0]
+
+    def pick_blight_creature(
+        self, view: dict[str, Any], answers: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """RULE 701.68: the creature this bot puts its own -1/-1 counters on -- the one it can least miss.
+
+        Prefers a creature that survives the counters, then the lowest `_option_worth`, so tokens and spent bodies
+        are blighted before the board's best creature (the generic fallback took whatever was offered first)."""
+        amount = int((view.get("pending_choice") or {}).get("amount") or 1)
+        choices = [a for a in answers if a["type"] == "choose"] or answers
+
+        def cost(answer: dict[str, Any]) -> tuple[int, int]:
+            obj = self._visible_object(view, answer) or {}
+            dies = int((obj.get("toughness") or 0) <= amount)
+            return dies, self._option_worth(view, answer)
+
+        return min(choices, key=cost)
 
     def _option_worth(self, view: dict[str, Any], answer: dict[str, Any]) -> int:
         """A crude "how much is this permanent worth" for choosing among offered targets: power + toughness + mana
@@ -277,6 +406,46 @@ class Bot:
 
     # -- Targeting (RULE 115) ------------------------------------------
 
+    @staticmethod
+    def announcement_offer(action: dict[str, Any]) -> dict[str, Any]:
+        """Use the server's target requirements for the chosen kicker branch."""
+        variant = action.get("kicker_variant")
+        if action.get("kicked") and isinstance(variant, dict):
+            selected = {**action, **variant, "kicked": action["kicked"]}
+            if not variant.get("locked"):
+                selected.pop("locked", None)
+                selected.pop("lock_reason", None)
+            return selected
+        return action
+
+    @staticmethod
+    def fill_damage_divisions(action: dict[str, Any], built: dict[str, Any]) -> bool:
+        """RULE 601.2d: announce a deterministic positive split per target group."""
+        built.pop("damage_divisions", None)
+        divisions = action.get("damage_divisions") or []
+        if not divisions:
+            return True
+        groups = built.get("target_groups")
+        if groups is None:
+            groups = [built.get("targets") or []]
+        allocations = {}
+        for division in divisions:
+            index = int(division["requirement_index"])
+            if index >= len(groups):
+                return False
+            count = len(groups[index])
+            total = int(division["total"])
+            minimum = int(division.get("min_each", 1))
+            if count * minimum > total:
+                return False
+            if count:
+                each, remainder = divmod(total, count)
+                allocations[str(index)] = [each + (i < remainder) for i in range(count)]
+            else:
+                allocations[str(index)] = []
+        built["damage_divisions"] = allocations
+        return True
+
     def rank_targets(
         self,
         view: dict[str, Any],
@@ -330,11 +499,18 @@ class Bot:
         """One list of picks per offered requirement, in printed order."""
         requirements = action.get("targets") or []
         groups: list[list[dict[str, Any]]] = []
-        for requirement in requirements:
+        for index, requirement in enumerate(requirements):
             count = max(1, int(requirement.get("count", 1) or 1))
             ranked = self.rank_targets(
                 view, requirement.get("options") or [], requirement.get("polarity")
             )
+            division = next((d for d in action.get("damage_divisions") or []
+                             if d["requirement_index"] == index), None)
+            if division is not None:
+                count = min(count, int(division["total"]) // int(division.get("min_each", 1)))
+                if requirement.get("optional"):
+                    ranked = [o for o in ranked if o.get("player_id") != self.player_id
+                              and not self.controls(view, o.get("instance_id"))]
             if requirement.get("distinct_from_others"):
                 # RULE 109.5's "another target creature" (Pit Fight): the
                 # other half of the same clause already took one, and this

@@ -299,6 +299,7 @@ class GameObject:
         #: `GameEngine.cast_spell`, read by the ``surge_cost_paid`` flag
         #: condition — "if its surge cost was paid").
         self.surge_cost_paid: bool = False
+        self.emerge_cost_paid: bool = False  # RULE 702.119: alternative-cost choice.
         #: RULE 701.20a: this card was exiled **face down** (Beseech the
         #: Mirror's "search your library for a card, exile it face down").
         #: A face-down card in exile has no characteristics anyone but its
@@ -469,18 +470,13 @@ class GameObject:
         #: suspend, it gains suspend.") — `_has_suspend` (`game/rules/
         #: triggers_mixin.py`) reads this alongside `parametric_keywords`'s
         #: own printed "suspend" entry so `_collect_suspend_triggers` treats
-        #: either source identically. Never reset per-cast like
-        #: `cast_via_evoke` above — once granted it's a standing
-        #: characteristic of the object for as long as it exists, mirroring
-        #: `has_rebound`.
+        #: either source identically. A zone change ends this granted ability
+        #: (RULE 400.7); it does not belong to a later visit of the same card.
         self.granted_suspend: bool = False
-        #: RULE 702.62a's third ability ("If you cast a creature spell this
-        #: way, it gains haste…"): stamped by `SuspendUpkeepEffect` right
-        #: before it opens the free-cast window (`grant_free_cast_window_
-        #: from_exile`), consumed by `RulesEngine._resolve_permanent_spell`
-        #: exactly like `cast_via_evoke` above — set, read once at
-        #: resolution, cleared.
-        self.granted_suspend_haste: bool = False
+        #: A last-counter cast's haste rider, armed only after accepting
+        #: the cast. Consumed at entry into a duration-bounded grant:
+        #: intrinsic Suspend ends on control loss; Alaundo ends at cleanup.
+        self.granted_suspend_haste: dict[str, Any] | bool = False
         #: Lurrus of the Dream-Den-shaped: the turn number this spell was
         #: cast via a standing graveyard-cast permission
         #: (`game/graveyard_cast.py`), or ``None`` if it wasn't. Consulted
@@ -581,6 +577,11 @@ class GameObject:
         #: flip them back. Set/cleared by `game/card_catalogue`'s
         #: phase-out effects and that same untap-step sweep.
         self.phased_out: bool = False
+        #: RULE 702.26g/h: ``instance_id`` of the host this permanent phased
+        #: out *indirectly* with (an Aura/Equipment/Fortification attached to
+        #: a phasing permanent), else ``None``. An indirectly phased-out
+        #: permanent never phases in on its own; it phases in with its host.
+        self.phased_out_with: Optional[int] = None
         #: Damage marked this turn (RULE 120); cleared during cleanup.
         self.damage_marked: int = 0
         #: Counters on the permanent, keyed by kind (RULE 122): e.g.
@@ -705,6 +706,9 @@ class GameObject:
         #: `effect_binder._build_group_ok`'s ``crewed_by_self`` condition.
         self.crewed_by_ids: list[int] = []
         self.crewed_by_incarnations: dict[int, int] = {}
+        self.crewed_by_visits: set[tuple[int, int]] = set()
+        # RULE 702.122b: qualities when the crew cost was paid, retained even after departure.
+        self.crewed_by_subtypes: set[str] = set()
         self.crewed_turn: Optional[int] = None
         #: Blocking (RULE 509): ``blocking`` is the instance id of the
         #: attacker this creature is declared to block (None if not
@@ -727,12 +731,16 @@ class GameObject:
         #: a state-based action regardless of how little damage it took.
         #: Transient — cleared with the rest of combat state at end-of-combat.
         self.dealt_deathtouch_damage: bool = False
+        #: RULE 615 "prevent all combat damage that would be dealt to and dealt by that creature this combat"
+        #: (Winter's Chill, MEC-131): cleared with the rest of combat state (`GameEngine._clear_combat`).
+        self.prevent_combat_damage_this_combat: bool = False
 
         #: The permanent this object is attached to (RULE 301.5 Equipment /
         #: RULE 303.4 Aura): the host's ``instance_id``, or None if not
         #: attached. Drives the "attached cards grouped around their host"
         #: display; set by the (future) equip/enchant resolution.
         self.attached_to: Optional[int] = None
+        self.attachment_generation = 0  # RULE 611.2b: continuous attachment visit
         #: The host this object was just detached from, stamped by
         #: `GameEngine._pay_activation_cost`'s ``unattach_self`` cost
         #: component (Sunforger/Akiri, Fearless Voyager) the instant before
@@ -747,6 +755,9 @@ class GameObject:
         #: *original* controller, stamped the moment control changes so
         #: `GameEngine._step_cleanup` can hand it back at the next cleanup;
         #: ``None`` means this object isn't under a temporary control change.
+        # RULE 611.2/800.4a: resolved control effects retain their original controller.
+        self.control_origin: Optional[str] = None
+        self.control_effects: list[dict[str, Any]] = []
         self.control_change_until_eot: Optional[str] = None
         #: "Gain control of target permanent until the end of your next turn." (RULE 611.2; Wyll, Treasure Nabber) --
         #: ``{"revert_to": original controller, "player_id": the thief, "turn": internal turn number it began on}``,
@@ -857,6 +868,12 @@ class GameObject:
         #: RULE 614.12: a before-entry instruction replaced this object's entry (Mox Diamond's "if you
         #: don't, put it into its owner's graveyard") while it was being prepared inside a battlefield
         #: batch; the batch consumes the flag and drops the entrant instead of admitting it.
+        # RULE 702.136: per-entry preparation and a pending lasting haste grant.
+        self.riot_entry_prepared: bool = False
+        self.riot_entry_haste: bool = False
+        #: RULE 702.104b: whether an opponent paid this permanent's Tribute as it entered ("if tribute wasn't
+        #: paid"). Stamped by the tribute choice; reset with the new object (RULE 400.7).
+        self.tribute_paid: bool = False
         self.entry_abandoned: bool = False
         #: The `enter_choice_effects` as bound. Entry consumes that queue one instruction at a time, so a
         #: new object (RULE 400.7: blink, reanimation) gets it back from here in `reset_as_new_object`.
@@ -871,6 +888,9 @@ class GameObject:
         #: `reset_as_new_object` clears both.
         self.chosen_type: Optional[str] = None
         self.chosen_color: Optional[str] = None
+        #: "...the basic land type of your choice" (RULE 305.6's five types), picked mid-resolution by a
+        #: `choose_for_source` effect and read back through the ``$chosen_land_type`` placeholder.
+        self.chosen_land_type: Optional[str] = None
         #: "As ~ enters, choose two colors." (Tablet of the Guilds) — every colour picked, in pick order;
         #: `chosen_color` stays the first one. Cleared with the other ETB picks (RULE 400.7).
         self.chosen_colors: list[str] = []
@@ -885,13 +905,10 @@ class GameObject:
         #: has no protector. RULE 400.7: a new object picks afresh, so
         #: `reset_as_new_object` clears it.
         self.protector_id: Optional[str] = None
-        #: Whether this Siege's RULE 310.11b "when the last defense counter
-        #: is removed" ability has already fired. A latch, not a state: the
-        #: SBA pass is what notices defense reached 0 (so *every* route
-        #: there is covered, not just damage), and it runs repeatedly until
-        #: nothing changes — without this the same defeat would re-trigger
-        #: on every pass while the first trigger still sat on the stack.
-        self.battle_defeat_triggered: bool = False
+        #: RULE 310.12b: actual removals of the last defense counter waiting
+        #: for trigger placement. Entering at zero is not such an event;
+        #: adding counters again does not undo an ability already triggered.
+        self.pending_siege_defeats: int = 0
         #: A named-mode choice from this object's own "as ~ enters, choose
         #: <Label1> or <Label2>" ability (Struggle for Project Purity's
         #: "choose Brotherhood or Enclave") — a lowercase slug of the chosen
@@ -1235,13 +1252,14 @@ class GameObject:
         self._derived_subtypes: Optional[set[str]] = None
         #: Colours set/added by a layer-5 static ability (RULE 613.4b). ``None``
         #: means no colour-changing effect applies, so `colors` falls back to
-        #: the printed card's ``color_identity``.
+        #: the printed card's colours.
         self._derived_colors: Optional[set[str]] = None
         #: Oracle text rewritten by a layer-3 "text_change" static ability
         #: (RULE 612), or ``None`` if none applies. Consulted today only by
         #: `combat.protections_of_text` via `effective_oracle_text` below —
         #: bound abilities are still derived from the *printed* text once at
         #: bind time, unaffected (a live full re-parse is out of scope).
+        self._derived_name: Optional[str] = None
         self._derived_oracle_text: Optional[str] = None
         #: Timestamp for within-a-layer ordering (RULE 613.7b), stamped when the
         #: object enters the battlefield. Later timestamp = applied later.
@@ -1313,6 +1331,8 @@ class GameObject:
         #: a resolve-time RULE 509.1a restriction on the *blocker* rather
         #: than an evasion grant on the attacker, read directly by
         #: `GameEngine.can_block` and cleared at cleanup (RULE 514.2).
+        # RULE 510.1: assignment restriction, independent of damage prevention.
+        self.temp_assign_no_combat_damage: bool = False
         self.temp_cant_block: bool = False
         #: RULE 701.16 / "can't be regenerated this turn" (Gravebind, Incinerate's rider) —
         #: `RulesEngine.destroy` skips the regeneration replacement pass; cleared at cleanup.
@@ -1424,6 +1444,7 @@ class GameObject:
         self._removed_types = set()
         self._derived_subtypes = None
         self._derived_colors = None
+        self._derived_name = None
         self._derived_oracle_text = None
         self.static_trace = []
 
@@ -1470,6 +1491,9 @@ class GameObject:
         if self.enter_choice_template is not None:
             self.enter_choice_effects = list(self.enter_choice_template)
         self.entry_abandoned = False
+        self.riot_entry_prepared = False
+        self.riot_entry_haste = False
+        self.tribute_paid = False
         # RULE 708.9: a face-down permanent is revealed as it changes zones,
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).
@@ -1543,6 +1567,7 @@ class GameObject:
         self.gift_recipient_id = None
         self.madness_cost_paid = False
         self.surge_cost_paid = False
+        self.emerge_cost_paid = False
         self.face_down_in_exile = False
         self.face_down_exile_viewers = set()
         self.hideaway_source_id = None
@@ -1556,6 +1581,7 @@ class GameObject:
         self.cast_from_zone = None
         self.greatest_creature_power_as_cast = 0
         self.granted_suspend_haste = False
+        self.granted_suspend = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False
         self.tapped = False
@@ -1566,6 +1592,7 @@ class GameObject:
         self.turn_entered = None
         self.entry_controller_id = None
         self.phased_out = False
+        self.phased_out_with = None
         self.damage_marked = 0
         self.counters = {}
         self.attacking = False
@@ -1583,8 +1610,12 @@ class GameObject:
         self.additional_blocking = []
         self.blocked_by = []
         self.dealt_deathtouch_damage = False
+        self.prevent_combat_damage_this_combat = False
         self.attached_to = None
+        self.attachment_generation = 0
         self.last_unattached_from_id = None
+        self.control_origin = None
+        self.control_effects = []
         self.control_change_until_eot = None
         self.control_change_until_owner_turn = None
         self.control_change_while_source = None
@@ -1599,6 +1630,8 @@ class GameObject:
         self.saddled_by_incarnations = {}
         self.crewed_by_ids = []
         self.crewed_by_incarnations = {}
+        self.crewed_by_visits = set()
+        self.crewed_by_subtypes = set()
         self.crewed_turn = None
         self.haunting_instance_id = None
         self.haunting_incarnation = None
@@ -1643,9 +1676,10 @@ class GameObject:
         #: choose a creature type/color" pick yet either.
         self.chosen_type = None
         self.chosen_color = None
+        self.chosen_land_type = None
         self.chosen_colors = []
         self.protector_id = None
-        self.battle_defeat_triggered = False
+        self.pending_siege_defeats = 0
         self.chosen_mode = None
         self.chosen_player_id = None
         self.chosen_permanent_id = None
@@ -1661,6 +1695,7 @@ class GameObject:
         self.temp_effects = []
         self.temp_unblockable = False
         self.temp_pt_switch_count = 0
+        self.temp_assign_no_combat_damage = False
         self.temp_cant_block = False
         self.temp_cant_be_regenerated = False
         self.temp_deny_regen_to_damaged = False
@@ -1678,11 +1713,11 @@ class GameObject:
 
     @property
     def colors(self) -> set[str]:
-        """Effective colours (RULE 105 / layer 5), or the printed identity.
+        """Effective colours (RULE 105 / layer 5), or the printed colours.
 
         Prefers colours a layer-5 static ability stamped (`_derived_colors`);
-        otherwise the printed card's ``color_identity`` — the model's colour
-        proxy the combat/anthem code already reads."""
+        otherwise the card's printed colours (RULE 202.2: mana cost / colour
+        indicator, devoid), never its Commander colour identity (RULE 903.4)."""
         if self._derived_colors is not None:
             return set(self._derived_colors)
         from ...game import rooms
@@ -1691,7 +1726,9 @@ class GameObject:
             from ..mana.mana_cost import ManaCost
 
             return set().union(*(symbol.colors for symbol in ManaCost.parse(self.mana_cost_string).symbols))
-        return set(self.card.color_identity or set())
+        from ..cards.card_colors import printed_colors
+
+        return set(printed_colors(self.card))
 
     @property
     def effective_oracle_text(self) -> str:
@@ -1718,7 +1755,13 @@ class GameObject:
     @zone.setter
     def zone(self, value: Zone) -> None:
         if value != self._zone:
+            # RULE 400.7: derived text/color is recomputed for the new zone visit.
+            self._derived_colors = None
+            self._derived_name = None
             self.zone_incarnation += 1
+            self.granted_suspend = False
+            if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
+                self.granted_suspend_haste = False
             # RULE 400.7: the spell-specific graveyard replacement ends on departure.
             self.cast_graveyard_exile_replacement = False
             # RULE 400.7 / 702.185b: Warp designation belongs to this exile visit.
@@ -1733,6 +1776,8 @@ class GameObject:
 
     @property
     def name(self) -> str:
+        if self._derived_name is not None:
+            return self._derived_name
         # RULE 709.5: only unlocked halves contribute names on the battlefield.
         if self._room_characteristics_apply():
             return " // ".join(self.names)
@@ -1752,6 +1797,8 @@ class GameObject:
         """RULE 201/709.5: each actual name; a fully locked Room has none."""
         from ...game import rooms
 
+        if self._derived_name is not None:
+            return (self._derived_name,)
         if self._room_characteristics_apply():
             return tuple(rooms.unlocked_door_names(self))
         if rooms.has_doors(self.card):
@@ -1859,7 +1906,51 @@ class GameObject:
         card alone. It matters to exactly one rule the engine models, the
         RULE 704.5j legend-rule SBA.
         """
-        return self.card.is_legendary or self._granted_legendary
+        # The flag is set from the type line at import, but hand-built cards carry only the line.
+        printed = self.card.is_legendary or "legendary" in self.card.type_line.partition("—")[0].lower().split()
+        return printed or self._granted_legendary
+
+    def _has_derived_type(self, type_word: str, printed: bool) -> bool:
+        """RULE 613.1d: the shared "currently has card type X" check for non-creature types.
+
+        Printed type unless a layer-4 effect removes it ("loses all other card types", Blood Moon-style
+        overwrites), or a layer-4 / self-outside-battlefield effect adds it (a creature made an artifact).
+        Only the battlefield runs the layer system; elsewhere `_added_types`/`_removed_types` are empty so
+        this degrades to the card's own characteristics (RULE 400.7 resets them on a zone change)."""
+        if type_word in self.outside_battlefield_characteristics().get("add_types", []):
+            return True
+        if printed:
+            return type_word not in self._removed_types
+        return type_word in self._added_types
+
+    def has_subtype(self, subtype: str) -> bool:
+        """RULE 205.3: whether the object currently has ``subtype`` (any type's: Island, Aura, Vehicle, Elf).
+
+        The single battlefield-facing subtype predicate: layer-4 adds/overwrites (Blood Moon's "Nonbasic
+        lands are Mountains", RULE 613.5) and Changeling (RULE 702.73) come from `continuous.has_subtype`;
+        off the battlefield nothing is stamped, so it reads the card's own type line."""
+        from ...game import continuous
+
+        return continuous.has_subtype(self, subtype)
+
+    def has_supertype(self, supertype: str) -> bool:
+        """RULE 205.4: whether the object currently has ``supertype`` (basic, snow, legendary, world).
+
+        Legendary is the one supertype a modeled effect grants (the Ring emblem, `is_legendary`); a copy's
+        "isn't legendary" rewrites the copy's own type line. No modeled effect adds or removes basic, snow or
+        world, so those read the printed type line — kept in this one helper so the decision lives in one place."""
+        word = supertype.lower()
+        if word == "legendary":
+            return self.is_legendary
+        return word in self.card.type_line.partition("—")[0].lower().split()
+
+    @property
+    def is_artifact(self) -> bool:
+        return self._has_derived_type("artifact", bool(self.card.is_artifact))
+
+    @property
+    def is_enchantment(self) -> bool:
+        return self._has_derived_type("enchantment", bool(self.card.is_enchantment))
 
     @property
     def is_planeswalker(self) -> bool:
@@ -1871,7 +1962,7 @@ class GameObject:
     def is_battle(self) -> bool:
         """Whether this is a battle (RULE 310) — the attackable, non-creature
         permanent type whose "toughness" is its defense-counter count."""
-        return self.card.is_battle
+        return self._has_derived_type("battle", bool(self.card.is_battle))
 
     @property
     def type_words(self) -> set[str]:
@@ -1955,7 +2046,14 @@ class GameObject:
         drops the kind entirely (RULE 122.1c: a counter you can't remove
         simply isn't there).
         """
-        total = self.counters.get(kind, 0) + amount
+        previous = self.counters.get(kind, 0)
+        total = previous + amount
+        # RULE 310.12b / 603.2: trigger on removal, not merely on observing
+        # zero later. This covers damage and effects that remove counters.
+        if (kind == "defense" and previous > 0 and total <= 0
+                and self.zone == Zone.BATTLEFIELD and self.is_battle
+                and self.card.is_siege and not self.loses_all_abilities):
+            self.pending_siege_defeats += 1
         if total > 0:
             self.counters[kind] = total
         else:
@@ -2231,6 +2329,7 @@ class GameObject:
             "names": list(self.names),
             "mana_value": self.mana_value,
             "mana_cost": self.mana_cost_string,
+            "oracle_text": self.card.oracle_text or "",
             "owner_id": self.owner_id,
             "controller_id": self.controller_id,
             "zone": self.zone.value if self.zone is not None else None,

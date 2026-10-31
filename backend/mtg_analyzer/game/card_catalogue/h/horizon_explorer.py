@@ -5,13 +5,6 @@ from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
 
-#: The Lander token's own ability (the curated token catalogue has no entry for it).
-_LANDER_TEXT = (
-    "{2}, {T}, Sacrifice this token: Search your library for a basic land card, "
-    "put it onto the battlefield tapped, then shuffle."
-)
-
-
 def _horizon_explorer() -> list[AbilitySpec]:
     """Lands you control enter untapped.
     Whenever you attack a player, create a Lander token. (It's an artifact with
@@ -20,7 +13,7 @@ def _horizon_explorer() -> list[AbilitySpec]:
 
     — PLAY-ALL Step 2 (World Shaper). The attack trigger is the parser's
     `PLAYER_ATTACKED` head (subject you) over `create_token` of a Lander
-    token synthesized from its printed ability text (no curated catalogue entry). The first
+    token from the curated predefined-token catalogue (RULE 111.10u). The first
     clause is the new `lands_enter_untapped` static (layer ``enters_untapped``,
     `continuous.enters_untapped_from_static`): it overrides a land's own
     tapped-entry clause — a shock land's pay-life prompt is skipped and a
@@ -32,8 +25,7 @@ def _horizon_explorer() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("create_token", {
-                "count": 1, "token_name": "Lander", "is_artifact": True,
-                "oracle_text": _LANDER_TEXT,
+                "count": 1, "token_name": "Lander",
             })],
             trigger={"event": EventType.PLAYER_ATTACKED, "condition": {"subject": "you"}},
         ),

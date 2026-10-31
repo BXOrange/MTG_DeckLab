@@ -18,6 +18,8 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+from .. import linked_exile
+
 import copy
 import dataclasses
 import re
@@ -48,9 +50,12 @@ from ..effects.core import (
     ChooseBasicLandTypeReplacement,
     ChooseCardTypeReplacement,
     ChooseCardNameReplacement,
+    LookAtOpponentHandReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseEnterCounterReplacement,
+    ChooseRiotReplacement,
+    ChooseTributeReplacement,
     ChooseNamedModeReplacement,
     ChooseNumberReplacement,
     ChooseOpponentReplacement,
@@ -167,15 +172,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -232,13 +237,30 @@ _CARD_TYPE_OPTIONS: list[tuple[str, str]] = [
 
 
 #: The magnitude attributes `_substitute_x` rewrites in place.
-_X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "count", "power", "toughness", "times", "any_amount")
+_X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "group_amount", "count", "power", "toughness", "times", "any_amount")
 #: The mana-value bounds it rewrites inside a ``filter``/``criteria`` dict.
-_X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value")
+_X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value", "exact_mana_value")
 #: `CreateDelayedTriggerEffect` captures that write their own value into the
 #: ``"x"`` sentinel of their nested ``inner_specs`` — `_substitute_x` must
 #: leave those nested sentinels alone rather than fill them with this spell's X.
 _X_OWNING_CAPTURES: frozenset[str] = frozenset({"target_mana_value"})
+
+
+#: The dict-valued places a mass or search effect keeps a mana-value bound that may still read "x": its own
+#: ``filter`` / ``criteria``, and (RULE 107.3c) the selector filter of a ``for_each`` loop over a mass group
+#: ("destroy each artifact with mana value X", Dauntless Dismantler).
+_X_MAPPING_ATTRS = ("filter", "criteria", "over")
+
+
+def _x_mapping(effect: Any, name: str) -> Optional[dict]:
+    """The dict ``name`` stands for on ``effect`` (``over`` -> its selector's filter), or ``None``."""
+    if name == "over":
+        over = getattr(effect, "over", None)
+        selector = over.get("selector") if isinstance(over, dict) else None
+        found = selector.get("filter") if isinstance(selector, dict) else None
+    else:
+        found = getattr(effect, name, None)
+    return found if isinstance(found, dict) else None
 
 
 def _restore_x_sentinels(effect: Any) -> None:
@@ -258,7 +280,7 @@ def _restore_x_sentinels(effect: Any) -> None:
         for attr, value in saved["attrs"].items():
             setattr(effect, attr, value)
         for dict_attr, values in saved["maps"].items():
-            mapping = getattr(effect, dict_attr, None)
+            mapping = _x_mapping(effect, dict_attr)
             if isinstance(mapping, dict):
                 mapping.update(values)
         if saved["target_spec"] is not None:
@@ -272,8 +294,8 @@ def _restore_x_sentinels(effect: Any) -> None:
         if isinstance(getattr(effect, attr, None), str)
     }
     maps: dict[str, dict[str, Any]] = {}
-    for dict_attr in ("filter", "criteria"):
-        mapping = getattr(effect, dict_attr, None)
+    for dict_attr in _X_MAPPING_ATTRS:
+        mapping = _x_mapping(effect, dict_attr)
         if isinstance(mapping, dict):
             strings = {k: mapping[k] for k in _X_MANA_VALUE_KEYS if isinstance(mapping.get(k), str)}
             if strings:
@@ -312,12 +334,12 @@ def _controls_check_type(state: Any, controller_id: Optional[str], types: list[s
         words = t.lower().split()
         if _CHECK_PERMANENT_TYPE_WORDS & set(words):
             if any(
-                o.controller_id == controller_id and all(w in o.card.type_line.lower() for w in words)
+                o.controller_id == controller_id and all(w in o.type_words or o.has_subtype(w) for w in words)
                 for o in state.battlefield
             ):
                 return True
         elif any(
-            o.is_land and o.controller_id == controller_id and t in o.card.type_line.lower()
+            o.is_land and o.controller_id == controller_id and o.has_subtype(t)
             for o in state.battlefield
         ):
             return True
@@ -339,6 +361,8 @@ class CastingResolutionMixin:
     def _apply_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         # RULE 122.6 / 614.12: printed, granted and mana-spend entry counters
         # form one placement; all applicable replacements see the total.
+        from ..riot import apply_entry_haste
+        apply_entry_haste(self.state, obj)
         amounts = {}
         obj._entry_counter_collection = amounts
         try:
@@ -354,6 +378,10 @@ class CastingResolutionMixin:
             # actual result so add_to_battlefield's fixture/default seeding
             # cannot restore counters after the replacement (RULE 614.6).
             obj.counters.setdefault("loyalty", 0)
+        if obj.is_battle:
+            # RULE 310.4b / 614.6: preserve a prevented placement as zero;
+            # the low-level battlefield-entry fallback must not undo it.
+            obj.counters.setdefault("defense", 0)
 
     def _collect_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
@@ -371,6 +399,10 @@ class CastingResolutionMixin:
         # counters in one entry placement, including counter replacements.
         if obj.is_planeswalker and obj.card.loyalty:
             self._add_entry_counters(obj, "loyalty", int(obj.card.loyalty))
+        # RULE 310.4b: native defense is an entry replacement too, so it
+        # participates in the same placement as all other entry counters.
+        if obj.is_battle and obj.card.defense:
+            self._add_entry_counters(obj, "defense", int(obj.card.defense))
         from ..mana_spend_riders import apply_entry_riders
         apply_entry_riders(self, obj)
         # RULE 702.32a Fading N / RULE 702.61a Vanishing N: "this permanent
@@ -396,7 +428,7 @@ class CastingResolutionMixin:
                 # +1/+1 counters, where X is twice the number of counters removed this way." — **simplification:** every such
                 # permanent loses its counters (the "any number" choice is taken as "all").
                 for other in list(self.state.battlefield):
-                    if other is obj or not (other.card.is_artifact or other.is_creature or other.card.is_enchantment):
+                    if other is obj or not (other.is_artifact or other.is_creature or other.is_enchantment):
                         continue
                     for kind, n in list((other.counters or {}).items()):
                         if n and n > 0:
@@ -574,7 +606,7 @@ class CastingResolutionMixin:
                     for o in self.state.battlefield
                     if o.is_land
                     and o.controller_id == obj.controller_id
-                    and type_word in o.card.type_line.lower()
+                    and o.has_subtype(type_word)
                 )
             elif condition.get("basic"):
                 other_lands = sum(
@@ -582,7 +614,7 @@ class CastingResolutionMixin:
                     for o in self.state.battlefield
                     if o.is_land
                     and o.controller_id == obj.controller_id
-                    and "basic" in o.card.type_line.lower()
+                    and o.has_supertype("basic")
                 )
             else:
                 other_lands = sum(
@@ -678,7 +710,7 @@ class CastingResolutionMixin:
         (derived subtypes included — a changeling counts as a Dragon)."""
         return any(
             o is not obj and o.controller_id == obj.controller_id
-            and any(t in o.card.type_line.lower() or continuous.has_subtype(o, t) for t in types)
+            and any(t in o.type_words or o.has_subtype(t) for t in types)
             for o in self.state.battlefield
         )
     def predict_land_tapped(self, obj: GameObject, card: Optional[Card] = None) -> Optional[bool]:
@@ -714,7 +746,7 @@ class CastingResolutionMixin:
                 other_lands = sum(
                     1 for o in self.state.battlefield
                     if o.is_land and o.controller_id == obj.controller_id
-                    and "basic" in o.card.type_line.lower()
+                    and o.has_supertype("basic")
                 )
             else:
                 other_lands = sum(
@@ -884,6 +916,11 @@ class CastingResolutionMixin:
             cost = self.mana_cost_of(obj.card)
             if cost.has_variable:
                 cost = cost.with_x(x)
+        from ..damage_division import prepare as prepare_damage_divisions
+        announced_effects = prepare_damage_divisions(
+            self._effects_for_spell(obj), targets, target_groups,
+            getattr(obj, "_announced_damage_divisions", None),
+        )
         # RULE 702.88b Rebound: cast from hand arms the "exile instead of
         # graveyard, then reopen a free-cast window next upkeep" behaviour
         # `resolve_top_of_stack` checks for below — recast later from that
@@ -911,6 +948,7 @@ class CastingResolutionMixin:
             # one exiled card — see `GameState.mana_wildcard_permission`.
             wildcard = (
                 self.state.mana_wildcard_permission.get(obj.instance_id)
+                or linked_exile.mana_wildcard(self.state, player, obj)
                 or continuous.standing_mana_wildcard(self.state, player)
             )
             # PAR-19: "Spend only mana produced by basic lands/creatures to
@@ -1011,6 +1049,7 @@ class CastingResolutionMixin:
         # ``from_hand`` key.
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value if obj.zone is not None else None
+        cast_from_incarnation = obj.zone_incarnation
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         continuous.recompute(self.state)
@@ -1035,7 +1074,7 @@ class CastingResolutionMixin:
         item = StackItem(
             kind="spell",
             controller_id=player.id,
-            effects=self._effects_for_spell(obj),
+            effects=announced_effects,
             obj=obj,
             description=obj.name,
             targets=targets,
@@ -1062,6 +1101,7 @@ class CastingResolutionMixin:
                 from_hand=from_hand,
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
+                from_zone_incarnation=cast_from_incarnation,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),
@@ -1123,6 +1163,10 @@ class CastingResolutionMixin:
 
     def _stage_cast_event(self, item, event, deferred):
         from ..targeting import effects_target_specs, partition_targets
+        if event.get("from_exile"):
+            from ..durations import end_on_exile_cast
+            end_on_exile_cast(self.state, event.get("instance_id"), event.get("from_zone_incarnation"))
+            continuous.recompute(self.state)
 
         specs = effects_target_specs(item.effects)
         if any(spec.per_player or spec.any_number for spec in specs):
@@ -1244,6 +1288,7 @@ class CastingResolutionMixin:
             targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value if obj.zone is not None else None
+        cast_from_incarnation = obj.zone_incarnation
         obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         continuous.recompute(self.state)
@@ -1302,6 +1347,7 @@ class CastingResolutionMixin:
                 from_hand=from_hand,
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
+                from_zone_incarnation=cast_from_incarnation,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),
@@ -1455,7 +1501,7 @@ class CastingResolutionMixin:
             # that makes it one is attached, so the ability itself widens the target (``allow_planeswalker``); a
             # permanent already attached is a creature through that Equipment's own static, which keeps it legal on
             # the RULE 704.5n re-check.
-            is_host = target.is_creature or (allow_planeswalker and target.card.is_planeswalker)
+            is_host = target.is_creature or (allow_planeswalker and target.is_planeswalker)
             return is_host and (not check_control or target.controller_id == obj.controller_id)
         if kind == "reconfigure":
             # RULE 702.151a: "another target creature you control."
@@ -1488,9 +1534,9 @@ class CastingResolutionMixin:
             if quality == "creature":
                 return target.is_creature
             if quality == "artifact":
-                return target.card.is_artifact
+                return target.is_artifact
             if quality == "enchantment":
-                return target.card.is_enchantment
+                return target.is_enchantment
             if quality == "land":
                 return target.is_land
             if quality == "planeswalker":
@@ -1507,8 +1553,25 @@ class CastingResolutionMixin:
         {1}", Luxior)."""
         if not self._attachment_legal(obj, target, check_control, allow_planeswalker):
             return False
-        obj.attached_to = target.id if isinstance(target, Player) else target.instance_id
+        attached_to = target.id if isinstance(target, Player) else target.instance_id
+        changed = obj.attached_to != attached_to
+        if changed:
+            # RULE 613.7e / 701.3c: becoming attached gives the attachment
+            # a new timestamp; attaching to its current host changes nothing.
+            obj.timestamp = self.state.next_timestamp()
+        obj.attached_to = attached_to
+        if changed:
+            obj.attachment_generation += 1
+            self._attachment_event(obj, target)
         return True
+
+    def _attachment_event(self, obj, target):
+        # RULE 701.3b / 603.2: attaching to the existing host is no event.
+        if getattr(target, "is_creature", False):
+            self.state.fire_event(GameEvent(EventType.ATTACHED_TO_CREATURE,
+                instance_id=obj.instance_id, controller_id=obj.controller_id,
+                target_id=target.instance_id, target_incarnation=target.zone_incarnation,
+                attachment_generation=obj.attachment_generation))
 
     def _begin_bestow(self, obj: GameObject) -> None:
         """RULE 702.103b: reshape ``obj`` into a bestowed Aura spell — an
@@ -1559,17 +1622,18 @@ class CastingResolutionMixin:
                 self._end_bestow(attached)
             elif self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)
-    def _revalidate_attachments(self) -> bool:
-        """RULE 704.5m/n: unattach any permanent whose attachment has become
-        illegal since it was attached, with its *host* still on the
-        battlefield (a host that leaves is `_detach_attachments_from`'s job).
+    def _illegal_attachment_actions(self) -> list:
+        """RULE 704.5m/n: the SBA actions for every permanent whose attachment has become
+        illegal since it was attached. The ordinary departure helper may
+        already have detached it; zone moves that do not use that helper
+        are still caught by this same RULE 704.5m/n scan.
 
-        Checked against the same `_attachment_legal` an initial attach uses,
-        so any new legality rule added there (protection, quality, control)
-        is re-validated here for free. Returns on the first permanent it
-        unattaches, matching every other SBA check's "one action, then
-        re-check the whole board" cadence.
-        """
+        Checked against the same `_attachment_legal` an initial attach uses, so any new legality
+        rule added there (protection, quality, control) is re-validated here for free. Returns
+        every such action found in the current state (RULE 704.3); `_sba_apply` performs them."""
+        from .sba_mixin import SbaAction
+
+        found: list[SbaAction] = []
         for attached in self.state.permanents():
             host_id = attached.attached_to
             if host_id is None:
@@ -1578,38 +1642,61 @@ class CastingResolutionMixin:
             if player_host is not None:
                 if self._attachment_legal(attached, player_host, check_control=False):
                     continue
-                attached.attached_to = None
-                if self._attachment_kind(attached) == "enchant":
-                    self._move_to_graveyard(attached)
-                return True
+                found.append(SbaAction(
+                    attached, lambda a=attached: self._unattach_illegal(a, player_host=True),
+                    departs=self._attachment_kind(attached) == "enchant",
+                ))
+                continue
             host = self._object_by_instance_id(host_id)
-            if host is None or host not in self.state.battlefield or host.phased_out:
-                # Host leaving the battlefield is `_detach_attachments_from`'s
-                # job; a phased-out host (RULE 702.26g/`PhaseOutAllYouControl
-                # Effect`) took `attached` phased-out with it, so `attached`
-                # is already absent from `self.state.permanents()` in the
-                # normal case — this guards the same-host-different-
-                # controller edge no shipped card reaches yet.
+            if host is None or host not in self.state.battlefield:
+                quality = str(((attached.parametric_keywords or {}).get("enchant") or {}).get(
+                    "quality", ""
+                )).strip().lower()
+                if (host is not None and host.zone == Zone.GRAVEYARD
+                        and quality.endswith("card in a graveyard")):
+                    continue  # RULE 303.4: this Aura's enchant quality names a card there.
+                # RULE 704.5m/n: an attachment cannot remain on an object
+                # that has left, including a direct exile zone move.
+                found.append(SbaAction(
+                    attached, lambda a=attached: self._unattach_illegal(a),
+                    departs=not getattr(attached, "bestowed", False)
+                    and self._attachment_kind(attached) == "enchant",
+                ))
+                continue
+            if host.phased_out:
+                # RULE 702.26g: phasing does not unattach the relationship.
                 continue
             if self._attachment_legal(attached, host, check_control=False):
                 continue
-            attached.attached_to = None
-            if getattr(attached, "bestowed", False):
-                # RULE 702.103f: an exception to RULE 704.5m — the bestowed
-                # Aura becomes unattached and stays on the battlefield as a
-                # creature rather than being put into its owner's graveyard.
-                self._end_bestow(attached)
-                return True
-            if getattr(attached, "is_licid_aura", False):
-                # MEC-47: a Licid whose host left is an Aura attached to
-                # nothing → owner's graveyard (RULE 704.5m). Clear the flag
-                # so its `for_as_long_as` type-change static self-sweeps and
-                # a later reanimation comes back a plain creature.
-                attached.is_licid_aura = False
+            bestowed = getattr(attached, "bestowed", False)
+            found.append(SbaAction(
+                attached, lambda a=attached: self._unattach_illegal(a),
+                departs=not bestowed and self._attachment_kind(attached) == "enchant",
+            ))
+        return found
+
+    def _unattach_illegal(self, attached, player_host: bool = False) -> None:
+        """Apply one RULE 704.5m/n un-attachment found by `_illegal_attachment_actions`."""
+        attached.attached_to = None
+        if player_host:
             if self._attachment_kind(attached) == "enchant":
-                self._move_to_graveyard(attached)  # RULE 704.5m
-            return True  # RULE 704.5n: Equipment/Fortification just unattaches
-        return False
+                self._move_to_graveyard(attached)
+            return
+        if getattr(attached, "bestowed", False):
+            # RULE 702.103f: an exception to RULE 704.5m — the bestowed
+            # Aura becomes unattached and stays on the battlefield as a
+            # creature rather than being put into its owner's graveyard.
+            self._end_bestow(attached)
+            return
+        if getattr(attached, "is_licid_aura", False):
+            # MEC-47: a Licid whose host left is an Aura attached to
+            # nothing → owner's graveyard (RULE 704.5m). Clear the flag
+            # so its `for_as_long_as` type-change static self-sweeps and
+            # a later reanimation comes back a plain creature.
+            attached.is_licid_aura = False
+        if self._attachment_kind(attached) == "enchant":
+            self._move_to_graveyard(attached)  # RULE 704.5m
+        # RULE 704.5n: Equipment/Fortification just unattaches
     @staticmethod
     def _effects_for_spell(obj: GameObject) -> list[Any]:
         """Effects a spell applies when it resolves.
@@ -1620,7 +1707,7 @@ class CastingResolutionMixin:
         game object's own ``static_effects`` list is used as a hook so
         tests/fixtures can attach behavior without a parser yet.
         """
-        return list(getattr(obj, "spell_effects", []))
+        return list(getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])))
     @staticmethod
     def _substitute_x(effects: list[Any], x: int) -> None:
         """Replace the ``"x"``/``"-x"`` sentinel amount/count/power/
@@ -1672,11 +1759,11 @@ class CastingResolutionMixin:
             while hasattr(effect, "inner"):
                 effect = effect.inner
             _restore_x_sentinels(effect)
-            for dict_attr in ("filter", "criteria"):
-                mapping = getattr(effect, dict_attr, None)
+            for dict_attr in _X_MAPPING_ATTRS:
+                mapping = _x_mapping(effect, dict_attr)
                 if not isinstance(mapping, dict):
                     continue
-                for mv_key in ("max_mana_value", "min_mana_value"):
+                for mv_key in ("max_mana_value", "min_mana_value", "exact_mana_value"):
                     mv_value = mapping.get(mv_key)
                     if mv_value == "x":
                         mapping[mv_key] = x
@@ -1805,6 +1892,9 @@ class CastingResolutionMixin:
         outer_trigger_event = self.context.trigger_event
         outer_resolving_controller_id = self.context.resolving_controller_id
         outer_resolution_count = self.context.ability_resolution_count
+        # RULE 608.2: "the damage dealt this way" is scoped to the one spell or ability now resolving.
+        outer_damage_dealt = self.context.damage_dealt_this_way
+        self.context.damage_dealt_this_way = 0
         outer_stack_item = self.context.resolving_stack_item
         self.context.resolving_stack_item = item
         outer_source_incarnation = getattr(self.context, "resolving_source_incarnation", None)
@@ -1820,6 +1910,7 @@ class CastingResolutionMixin:
             self.context.trigger_event = outer_trigger_event
             self.context.resolving_controller_id = outer_resolving_controller_id
             self.context.ability_resolution_count = outer_resolution_count
+            self.context.damage_dealt_this_way = outer_damage_dealt
 
     def _count_ability_resolution(self, item: StackItem) -> Optional[int]:
         """Record that ``item`` (an ability) is resolving and return which
@@ -1834,7 +1925,10 @@ class CastingResolutionMixin:
         resolutions = getattr(source, "ability_resolutions", None)
         if resolutions is None:
             return None
-        turn = self.state.turn_nr
+        # RULE 500.1: every player's turn (and each extra turn, RULE 500.7) is
+        # its own turn; the display-only round counter `turn_nr` would merge
+        # the table's turns and over-count "this turn".
+        turn = self.state.internal_turn.number
         stamped_turn, count = resolutions.get(item.ability_key, (turn, 0))
         count = (count if stamped_turn == turn else 0) + 1
         resolutions[item.ability_key] = (turn, count)
@@ -1860,6 +1954,8 @@ class CastingResolutionMixin:
     DEFERRED_ITERATION = "iteration"
     #: A paid `pay_cost_then` whose payment opened a choice (the sacrifice pick): its "if you do" half waits here.
     DEFERRED_PAID_COST = "paid_cost"
+    #: RULE 603.2c: finish the event batch after an object instruction's last suspended iteration.
+    DEFERRED_BATCH_END = "batch_end"
 
     def defer_iteration(
         self,
@@ -1941,6 +2037,11 @@ class CastingResolutionMixin:
         ]
         previous.extend(self.state.player_by_id(player_id)
                         for player_id in choice.get("previous_player_ids", []))
+        created = []
+        for visit in choice.get("created_object_visits", []):
+            obj = self.state.find_object(visit["instance_id"])
+            if obj is not None and obj.zone_incarnation == visit["zone_incarnation"]:
+                created.append(obj)
         from ..binding.core import build_effects  # function-scoped: binder cycle
         from ...parser.oracle.spec import EffectSpec
 
@@ -1956,8 +2057,10 @@ class CastingResolutionMixin:
             if all(s.type in ALWAYS_DONE_ANTECEDENTS for s in spec_objs[:split]):
                 built += build_effects(spec_objs[split:], source)
             else:
+                # PAR-208: an accepted antecedent that changed nothing also counts as "if you don't".
                 built.append(IfYouDoEffect(
-                    game_fingerprint(self.context, source), [s.to_dict() for s in spec_objs[split:]], source))
+                    game_fingerprint(self.context, source), [s.to_dict() for s in spec_objs[split:]], source,
+                    choice.get("else_specs") or []))
         else:
             built = build_effects(spec_objs, source)
         # RULE 601.2c/608.2h: the announced targets, re-found by id across the
@@ -1999,7 +2102,7 @@ class CastingResolutionMixin:
         try:
             _apply_effects_partitioned(
                 built, self.context, announced or None, None, source=source,
-                previous_targets=previous, revealed_card=revealed,
+                previous_targets=previous, created_objects=created, revealed_card=revealed,
             )
         finally:
             self.context.resolving_source_incarnation = outer_source_incarnation
@@ -2094,6 +2197,9 @@ class CastingResolutionMixin:
         if self.state.pending_choice or not self.state.deferred_effects:
             return False
         resumed = self.state.deferred_effects.pop()
+        if resumed.get("kind") == self.DEFERRED_BATCH_END:
+            self.state.release_batches()
+            return True
         if resumed.get("kind") == self.DEFERRED_ITERATION:
             self._resume_iteration(resumed)
             return True
@@ -2129,6 +2235,7 @@ class CastingResolutionMixin:
                 latest_milled_visits=resumed.get("latest_milled_visits"),
                 counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
                 damaged_this_way=resumed.get("damaged_this_way"),
+                proliferated_objects=resumed.get("proliferated_objects"),
                 previous_selector=resumed.get("previous_selector"),
                 revealed_card=resumed.get("revealed_card"),
                 clash_won=resumed.get("clash_won"),
@@ -2150,20 +2257,22 @@ class CastingResolutionMixin:
                 self.check_state_based_actions()
         return True
     def _mask_restricted_targets(self, item, groups, verdicts, targets, target_groups):
-        """RULE 608.2b: blank (``None``) the slots of battlefield and player targets that failed their requirement.
+        """RULE 608.2b/400.7: blank (``None``) every slot whose target is illegal now -- left its zone (a new object),
+        or no longer meets its requirement -- so no instruction can act on it.
 
         ``verdicts`` parallels ``zip(specs, groups)``. Slots keep their positions so later clauses and
         allocated damage still line up (as for copies, `stack_copy_targets.resolution_targets`)."""
-        flat = [target for group in (groups or []) for target in group]
+        if groups is None:
+            # Unpartitioned item (a single target requirement, `partition_targets` -> None): every spec
+            # judged the whole target list, so a slot is illegal as soon as any verdict rejects it.
+            groups = [list(item.targets or [])]
+            verdicts = [[all(column) for column in zip(*verdicts)]] if verdicts else []
+        flat = [target for group in groups for target in group]
         failed = {
             id(target)
             for group, flags in zip(groups or [], verdicts)
             for target, ok in zip(group, flags)
-            if not ok and (
-                isinstance(target, Player)
-                or (isinstance(target, GameObject) and target.zone == Zone.BATTLEFIELD
-                    and target in self.state.battlefield)
-            )
+            if not ok and isinstance(target, (Player, GameObject, StackItem))
         }
         if not failed or len(flat) != len(item.targets) or any(a is not b for a, b in zip(flat, item.targets)):
             return targets, target_groups
@@ -2232,7 +2341,9 @@ class CastingResolutionMixin:
             # Stack targets are StackItems, unlike battlefield/graveyard
             # targets. A zone move cannot leave an untargeted rider alive.
             if isinstance(target, StackItem):
-                return target in self.state.stack
+                return target in self.state.stack and (
+                    spec.kind != "activated_ability" or meets(spec, target)
+                )
             if isinstance(target, Player):
                 if target not in self.state.living_players():
                     return False
@@ -2278,9 +2389,8 @@ class CastingResolutionMixin:
                     valid[:] = [False] * len(valid)
             any_legal = any(v for group in verdicts for v in group)
             if any_legal and not fallback_creature:
-                # RULE 608.2b: a target that no longer meets its restriction is simply not affected while the
-                # legal ones still are. Only restriction failures are masked (as `resolution_targets` does for
-                # copies); a target that merely left its zone is already skipped by each instruction.
+                # RULE 608.2b: an illegal target (restriction failed or left its zone, RULE 400.7) is simply not
+                # affected while the legal ones still are; blanked centrally, as `resolution_targets` does for copies.
                 resolution_targets, resolution_groups = self._mask_restricted_targets(
                     item, groups, verdicts, resolution_targets, resolution_groups,
                 )
@@ -2380,7 +2490,7 @@ class CastingResolutionMixin:
                 for token in made:
                     self.set_tapped(token, True)
         elif quality == "extra turn":                    # 702.174g
-            self.state.extra_turns.append(recipient.id)
+            self.state.extra_turns.insert(0, recipient.id)
         else:
             return False
         self.state.fire_event(GameEvent(
@@ -2462,7 +2572,7 @@ class CastingResolutionMixin:
             GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
         )
         return False
-    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject) -> None:
+    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject, *, after_enter_choices: bool = False) -> None:
         """Finish resolving a permanent spell (RULE 608.3): summoning
         sickness, RULE 614.1 tapped-entry, the battlefield zone change,
         Aura attachment, and the ENTERS_BATTLEFIELD/SPELL_RESOLVED events.
@@ -2475,6 +2585,10 @@ class CastingResolutionMixin:
         itself — unlike every other resolution path here, this can pause on
         a `pending_choice` (possibly more than one, in sequence) and resume
         later from `_resume_enter_as_copy`/`_resume_choose_creature_type`.
+
+        ``after_enter_choices`` re-enters the pipeline at its tail (Read Ahead, then the entry itself) once the last
+        queued "as ~ enters" answer is in -- how `_enter_choice_exit` resumes it from the state-owned
+        ``pending_permanent_entry`` after a clone/undo, with no closure of the engine that first opened the choice.
         """
         self.state.pending_permanent_entry = {"item": item, "obj": obj}
 
@@ -2526,7 +2640,13 @@ class CastingResolutionMixin:
             self._pending_read_ahead_count = None
             from ..blitz import resolve_blitz
 
+            previous_visit = obj.zone_incarnation
             self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
+            # RULE 400.7 / 607.2q: links established by casting costs or
+            # an as-enters replacement belong to the resulting permanent.
+            linked = self.state.linked_exile_visits.get((obj.instance_id, previous_visit))
+            if linked:
+                self.state.linked_exile_visits[(obj.instance_id, obj.zone_incarnation)] = list(linked)
             resolve_blitz(self.state, obj, item.controller_id)
             if self._attachment_kind(obj) == "enchant":
                 targets = [t for t in target_slots if isinstance(t, (GameObject, Player))]
@@ -2584,13 +2704,24 @@ class CastingResolutionMixin:
                 if obj in self.state.permanents():
                     self.put_into_graveyard(obj)
             if obj.granted_suspend_haste:
-                # RULE 702.62a: "If you cast a creature spell this way, it
-                # gains haste…" — stamped by `SuspendUpkeepEffect` when the
-                # free-cast window opened, consumed once here exactly like
-                # `cast_via_evoke` above.
+                # RULE 702.62a: intrinsic Suspend lasts until control is
+                # lost; Alaundo's quoted ability instead lasts this turn.
+                haste_grant = obj.granted_suspend_haste
                 obj.granted_suspend_haste = False
                 if obj in self.state.permanents():
-                    obj.temp_keywords.add("haste")
+                    duration = "end_of_turn" if haste_grant["duration"] == "end_of_turn" else "for_as_long_as"
+                    ability = StaticAbility("ability", affects="objects", source=obj,
+                        params={"keywords": ["haste"], "object_incarnations": {obj.instance_id: obj.zone_incarnation}},
+                        duration=duration,
+                        duration_data={"player_id": haste_grant["player_id"], "condition": {
+                            "kind": "all", "conditions": [
+                                {"kind": "zone_visit", "zone": "battlefield", "incarnation": obj.zone_incarnation},
+                                {"kind": "source_controlled_by_you"},
+                            ],
+                        }})
+                    ability.object_ids = [obj.instance_id]
+                    ability.timestamp = haste_grant["timestamp"]
+                    self.state.floating_statics.append(ability)
             if getattr(obj, "cast_via_dash", False):
                 # RULE 702.109c/d (PAR-26): a creature cast for its dash
                 # cost gains haste and is returned to its owner's hand at
@@ -2641,7 +2772,10 @@ class CastingResolutionMixin:
             else:
                 _after_copy_choice()
 
-        _after_replacement_choice()
+        if after_enter_choices:
+            _after_enter_choices()
+        else:
+            _after_replacement_choice()
 
     def _send_to_graveyard_unentered(self, obj: GameObject) -> None:
         """RULE 614.12's "don't pay" branch: ``obj`` never becomes a
@@ -2820,7 +2954,7 @@ class CastingResolutionMixin:
                     x = int(getattr(obj, "x_paid", 0) or 0)
                     if x > 0:
                         self.add_counters(obj, x, kind="+1/+1")
-                if obj.card.is_planeswalker and effect.extra_counter_if_planeswalker:
+                if obj.is_planeswalker and effect.extra_counter_if_planeswalker:
                     self.add_counters(obj, 1, kind=effect.extra_counter_if_planeswalker)
                 if effect.grant_mana_option:
                     # `GameObject.granted_mana_options` is a read-only,
@@ -2839,6 +2973,106 @@ class CastingResolutionMixin:
                     )
         if continuation is not None:
             continuation()
+    def _finish_land_entry(self, entry: dict[str, Any]) -> None:
+        """RULE 305.1 / 614.12: the land play's tail once its "as ~ enters" choices are answered. ``entry`` is the
+        state-owned ``pending_land_entry`` (`GameEngine.play_land`), so it also runs after a clone/undo."""
+        self.state.pending_land_entry = None
+        obj = entry["obj"]
+        player = self.state.player_by_id(entry["player_id"])
+        from_zone = entry["from_zone"]
+        graveyard_grant = entry["grant"]
+        obj.summoning_sick = True
+        # RULE 614.1: a tap-land enters the battlefield tapped —
+        # including a shock/check/fast/slow land's conditional shape
+        # (payment choice or board-state check), resolved by
+        # `enter_land_tapped`.
+        self.enter_land_tapped(obj)
+        self.state.add_to_battlefield(obj)
+        player.lands_played_this_turn += 1
+        if graveyard_grant is not None and graveyard_grant.source is not None:
+            used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())
+            graveyard_grant.source.graveyard_cast_types_this_turn = used | {"land"}
+        self.state.record_stat(player.id, "land", name=obj.name)
+        self.state.fire_event(
+            GameEvent(
+                EventType.LAND_PLAYED,
+                player_id=player.id,
+                card_id=obj.card.id,
+                land=obj.name,
+                # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
+                from_exile=from_zone == "exile",
+                # A "whenever you play another land" trigger (City of
+                # Traitors) needs to exclude its own play event via
+                # `effect_binder`'s "group"/"other" subject condition.
+                instance_id=obj.instance_id,
+            )
+        )
+        self.state.fire_event(
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD,
+                from_zone=from_zone,
+                controller_id=player.id,
+                object=obj.name,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+                # RULE 305.1: played, not put — "enter without being played" (PAR-119).
+                played=True,
+            )
+        )
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        # (`GameEngine.give_priority`'s two state writes: this runs on the rules engine, also after an undo.)
+        self.state.priority_player_index = self.state.players.index(player)
+        self.state.priority_passed.clear()
+
+    def _open_enter_choice_state(self, obj: GameObject) -> None:
+        """RULE 614.12 / 400.7: record the permanent now awaiting an "as ~ enters" answer in `GameState`.
+
+        Only the object and its zone visit are stored; the open effect, the remaining queue and the path the entry
+        continues on are re-derived from them (`_take_enter_choice`), so clone/undo keep the pipeline intact."""
+        self.state.pending_enter_choice = {"obj": obj, "incarnation": obj.zone_incarnation, "batch": False}
+
+    def _take_enter_choice(self) -> tuple[Optional[GameObject], Optional[Any], Optional[Callable[[], None]]]:
+        """Consume the pending entry choice: ``(object, open effect, continuation)``.
+
+        The continuation drops the answered effect from the object's queue and offers the next one, ending in the
+        path the entry runs on (`_enter_choice_exit`). A batch entrant (`restore_batch_runtime`) only drops the
+        answered effect; the batch re-offers the rest itself. All ``None`` when nothing is pending or the object
+        left the zone visit that asked (RULE 400.7: the answer would otherwise hit a new object)."""
+        entry = self.state.pending_enter_choice
+        self.state.pending_enter_choice = None
+        if not entry:
+            return None, None, None
+        obj = entry["obj"]
+        if obj.zone_incarnation != entry["incarnation"]:
+            return None, None, None
+        queue = obj.enter_choice_effects
+        effect = queue[0] if queue else None
+        remaining = queue[1:]
+        if isinstance(effect, ChooseColorReplacement) and effect.count > 1:
+            # "choose two colors": one prompt per colour, as `_offer_enter_choices` queues them.
+            remaining = [ChooseColorReplacement(count=effect.count - 1), *remaining]
+
+        def _next() -> None:
+            obj.enter_choice_effects = remaining
+            if not entry["batch"]:
+                self._offer_enter_choices(obj, self._enter_choice_exit(obj))
+
+        return obj, effect, _next
+
+    def _enter_choice_exit(self, obj: GameObject) -> Callable[[], None]:
+        """Where ``obj``'s entry continues once every queued "as ~ enters" choice is answered, derived from the
+        state-owned entry records (a resolving permanent spell, a land being played, a token being created)."""
+        spell = self.state.pending_permanent_entry
+        if spell and spell["obj"] is obj:
+            return lambda: self._resolve_permanent_spell(spell["item"], obj, after_enter_choices=True)
+        land = self.state.pending_land_entry
+        if land and land["obj"] is obj:
+            return lambda: self._finish_land_entry(land)
+        token = self.state.pending_token_entry
+        if token and token["obj"] is obj:
+            return lambda: self._finish_token_entry(token)
+        return lambda: None
+
     def _offer_enter_choices(self, obj: GameObject, continuation: Callable[[], None]) -> None:
         """RULE 601.2b: offer ``obj``'s queued "as it enters, choose a
         creature type/color" pick(s) *before* it's added to the battlefield —
@@ -2853,6 +3087,12 @@ class CastingResolutionMixin:
         is empty (or was empty to begin with — nothing to choose, nothing
         pauses), same as `_offer_enter_as_copy`'s no-legal-target case.
         """
+        if not obj.enter_choice_effects and not obj.riot_entry_prepared:
+            # RULE 614.12 / 702.136: after copy/characteristic choices, check
+            # the would-be permanent, including Riot granted by existing statics.
+            from ..riot import entry_instances
+            obj.riot_entry_prepared = True
+            obj.enter_choice_effects = [ChooseRiotReplacement() for _ in range(entry_instances(self.state, obj))]
         if not obj.enter_choice_effects:
             continuation()
             return
@@ -2886,7 +3126,24 @@ class CastingResolutionMixin:
             obj.enter_choice_effects = remaining
             self._offer_enter_choices(obj, continuation)
 
-        if isinstance(effect, ChooseCreatureTypeReplacement):
+        if isinstance(effect, ChooseTributeReplacement):
+            self._offer_tribute(obj, effect, _next)
+            return
+        if isinstance(effect, ChooseCardNameReplacement) and effect.look_at_opponent_hand:
+            # "…look at an opponent's hand, then choose any card name": the look is a pre-entry step of its own, ahead of the
+            # naming (which then runs as a plain `ChooseCardNameReplacement`).
+            naming = ChooseCardNameReplacement(card_filter=effect.card_filter)
+            obj.enter_choice_effects = [LookAtOpponentHandReplacement(), naming, *remaining]
+            self._offer_enter_choices(obj, continuation)
+            return
+        if isinstance(effect, LookAtOpponentHandReplacement):
+            self._offer_look_at_opponent_hand(obj, effect, remaining, continuation, _next)
+            return
+        if isinstance(effect, ChooseRiotReplacement):
+            kind = "riot"
+            prompt = f"{obj.name}: Riot — +1/+1-Marke oder Haste?"
+            options = [{"id": "counter", "label": "+1/+1-Marke"}, {"id": "haste", "label": "Haste"}]
+        elif isinstance(effect, ChooseCreatureTypeReplacement):
             kind = "choose_creature_type"
             prompt = "Kreaturentyp wählen"
             options = [{"id": t, "label": t} for t in _creature_type_options(self.state, obj.controller_id)]
@@ -2924,6 +3181,13 @@ class CastingResolutionMixin:
                 {"id": name, "label": name}
                 for name in sorted({o.card.name for o in self.state.battlefield})
             ]
+            if effect.card_filter:
+                # MEC-134 (RULE 201.3): "a nonland card name" -- suggest only names the filter allows, opposing cards
+                # first (every printed name lock is aimed at what the opponents play); a typed answer is validated on resume.
+                options = self._named_choice_options(
+                    self.state.player_by_id(obj.controller_id), "card_name", [], effect.card_filter,
+                    prefer_opponents=True,
+                )
         elif isinstance(effect, ChooseNumberReplacement):
             kind = "choose_number"
             prompt = "Zahl wählen"
@@ -2959,16 +3223,126 @@ class CastingResolutionMixin:
             _next()
             return
 
-        self._pending_enter_choice_obj = obj
-        self._pending_enter_choice_effect = effect
-        self._pending_enter_choice_continuation = _next
+        self._open_enter_choice_state(obj)
+        if kind == "riot":
+            self.state.pending_riot_entry = obj
         self.open_choice({
             "kind": kind,
             "player_id": obj.controller_id,
             "prompt": prompt,
             "options": options,
+            **({"card_filter": dict(effect.card_filter)} if kind == "choose_card_name" and effect.card_filter else {}),
             **({"free_text": True} if kind in ("choose_card_name", "choose_number") else {}),
+            **({"entry_effect": bool(self.state.pending_permanent_entry)} if kind == "riot" else {}),
         })
+
+    def _offer_look_at_opponent_hand(
+        self, obj: GameObject, effect: LookAtOpponentHandReplacement, remaining: list[GameEffect],
+        continuation: Callable[[], None], resume: Callable[[], None],
+    ) -> None:
+        """RULE 601.2b: "As ~ enters, look at an opponent's hand, then choose any card name." (Sorcerous Spyglass,
+        Anointed Peacekeeper) -- the looking half. The controller sees the hand through the choice only its decider ever
+        receives (RULE 400.2); with several opponents the pick of whose hand is a pre-entry choice of its own, asked first.
+        Nothing to look at (no opponent, an empty hand) simply moves on to the naming step."""
+        opponents = [p for p in self.state.living_players() if p.id != obj.controller_id]
+        if len(opponents) > 1 and obj.chosen_player_id not in {p.id for p in opponents}:
+            obj.enter_choice_effects = [ChooseOpponentReplacement(), effect, *remaining]
+            self._offer_enter_choices(obj, continuation)
+            return
+        owner = next((p for p in opponents if len(opponents) == 1 or p.id == obj.chosen_player_id), None)
+        if owner is None or not owner.hand:
+            resume()
+            return
+        self._open_enter_choice_state(obj)
+        self.look_at_hand(self.state.player_by_id(obj.controller_id), owner, source=obj, extra={"enter_look": True})
+
+    def _offer_tribute(self, obj: GameObject, effect: ChooseTributeReplacement, resume: Callable[[], None]) -> None:
+        """RULE 702.104a Tribute N: "an opponent of your choice may put N +1/+1 counters on it" as it enters.
+
+        With several opponents the controller picks one first (`tribute_opponent`); the chosen opponent then
+        answers `tribute`. Without a living opponent there is nobody to pay, so tribute simply isn't paid."""
+        opponents = [p for p in self.state.living_players() if p.id != obj.controller_id]
+        if not opponents:
+            resume()
+            return
+        self._open_enter_choice_state(obj)
+        self.state.pending_tribute_entry = obj
+        entry_effect = bool(self.state.pending_permanent_entry)
+        if len(opponents) == 1:
+            self._open_tribute_payment(obj, effect.n, opponents[0].id, entry_effect)
+            return
+        self.open_choice({
+            "kind": "tribute_opponent",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: Tribute {effect.n} — Gegner wählen",
+            "options": [{"id": p.id, "label": p.name} for p in opponents],
+            "tribute_n": effect.n,
+            "entry_effect": entry_effect,
+        })
+
+    def _open_tribute_payment(self, obj: GameObject, n: int, opponent_id: str, entry_effect: bool) -> None:
+        self.open_choice({
+            "kind": "tribute",
+            "player_id": opponent_id,
+            "prompt": f"{obj.name}: Tribute {n} — {n}× +1/+1-Marke darauf legen?",
+            "options": [{"id": "pay", "label": f"{n}× +1/+1-Marke"}, {"id": "decline", "label": "Nein"}],
+            "tribute_n": n,
+            "entry_effect": entry_effect,
+        })
+
+    @continuations.choice("tribute_opponent", answer=continuations.ANSWER_STR, rule="702.104a")
+    def _resume_tribute_opponent(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        obj = self.state.pending_tribute_entry
+        if obj is None:
+            raise ValueError("no pending Tribute entrant")
+        valid = [str(o["id"]) for o in choice["options"]]
+        picked = str(answer) if answer is not None and str(answer) in valid else valid[0]
+        self._open_tribute_payment(obj, int(choice["tribute_n"]), picked, bool(choice.get("entry_effect")))
+
+    @continuations.choice("tribute", answer=continuations.ANSWER_STR, rule="702.104a")
+    def _resume_tribute(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        obj = self.state.pending_tribute_entry
+        self.state.pending_tribute_entry = None
+        if obj is None:
+            raise ValueError("no pending Tribute entrant")
+        if answer == "pay":
+            # RULE 702.104b: tribute was paid once the opponent chose the counters, even if a replacement
+            # later prevents them. RULE 122.6: they join the other entry counters in one placement.
+            obj.tribute_paid = True
+            n = int(choice["tribute_n"])
+            obj.entry_bonus_counters["+1/+1"] = obj.entry_bonus_counters.get("+1/+1", 0) + n
+        if choice.get("entry_effect"):
+            obj.enter_choice_effects = obj.enter_choice_effects[1:]
+            self.state.pending_enter_choice = None
+        else:
+            _, _, continuation = self._take_enter_choice()
+            if continuation is not None:
+                continuation()
+
+    @continuations.choice("riot", answer=continuations.ANSWER_STR, rule="702.136")
+    def _resume_riot(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        obj = self.state.pending_riot_entry
+        self.state.pending_riot_entry = None
+        if obj is None:
+            raise ValueError("no pending Riot entrant")
+        if answer == "counter":
+            # RULE 122.6: collect the extra counter with all other entry counters,
+            # so Doubling Season sees one combined placement before ETB triggers.
+            obj.entry_bonus_counters["+1/+1"] = obj.entry_bonus_counters.get("+1/+1", 0) + 1
+        else:
+            # Declining Riot's optional counter grants haste, even if another
+            # effect would prohibit counters (RULE 702.136a / 101.2).
+            obj.riot_entry_haste = True
+        if choice.get("entry_effect"):
+            # The state-owned permanent entry resumes after the handler, also
+            # in a cloned/undone position where the old callback is unavailable.
+            obj.enter_choice_effects = obj.enter_choice_effects[1:]
+            self.state.pending_enter_choice = None
+        else:
+            _, _, continuation = self._take_enter_choice()
+            if continuation is not None:
+                continuation()
+
     @continuations.choice(
         "choose_creature_type", "choose_color", "choose_named_mode",
         "choose_basic_land_type", "choose_card_type", "choose_card_name", "choose_number", "choose_opponent_on_enter",
@@ -2993,16 +3367,12 @@ class CastingResolutionMixin:
         the offered (suggestion-only) options at all; a missing answer names
         the empty string, which simply matches no permanent.
         """
-        obj = self._pending_enter_choice_obj
-        effect = self._pending_enter_choice_effect
-        continuation = self._pending_enter_choice_continuation
-        self._pending_enter_choice_obj = None
-        self._pending_enter_choice_effect = None
-        self._pending_enter_choice_continuation = None
+        obj, effect, continuation = self._take_enter_choice()
 
         options = choice["options"]
         if choice["kind"] == "choose_card_name":
-            chosen = str(answer) if answer else ""
+            # RULE 201.3: a name the game knows to fail the printed qualifier ("nonland") is no legal pick and names nothing.
+            chosen = self._validated_card_name(choice["player_id"], answer, choice.get("card_filter"))
         elif choice["kind"] == "choose_number":
             # Sanctum Prelate (MEC-43): a missing/unparseable answer
             # defaults to 0 — the same "skipped mandatory pick" safe

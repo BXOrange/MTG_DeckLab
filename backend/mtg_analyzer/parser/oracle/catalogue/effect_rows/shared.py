@@ -8,7 +8,7 @@ from ..clause_reading import STANDALONE, ClauseReading
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
-from ..count_phrase import parse_count_phrase
+from ..count_phrase import COMBAT_RELATION_TAILS, parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..referent_condition import PRONOUN_NOUN_ALT
 from ..static_handlers import object_filter
@@ -99,9 +99,10 @@ class EffectHandler:
 def _carries_filter(node: object, fragment: dict) -> bool:
     """Whether some ``creature_filter`` inside ``node`` (an effect's params, nested) holds ``fragment``."""
     if isinstance(node, dict):
-        held = node.get("creature_filter")
-        if isinstance(held, dict) and all(held.get(k) == v for k, v in fragment.items()):
-            return True
+        for key in ("creature_filter", "fighter_filter", "other_filter"):
+            held = node.get(key)
+            if isinstance(held, dict) and all(held.get(k) == v for k, v in fragment.items()):
+                return True
         return any(_carries_filter(v, fragment) for v in node.values())
     if isinstance(node, (list, tuple)):
         return any(_carries_filter(v, fragment) for v in node)
@@ -181,11 +182,13 @@ MULTI_TARGET_SCOPE_TAIL = r" (?:your opponents control|an opponent controls|you 
 #: "…each of up to 2 target creatures **you control**" — the plural mirror of the singular
 #: `<kind>_you_control` pools (`targeting.TARGET_FRAMES`' ``SCOPE_YOU``).
 MULTI_TARGET_YOU_KINDS: dict[str, str] = {
+    "land": "land_you_control",
     "creature": "creature_you_control", "permanent": "permanent_you_control",
     "nonland_permanent": "nonland_permanent_you_control",
     "creature_or_planeswalker": "targetable_creature_or_planeswalker_you_control",
 }
 _MULTI_TARGET_SCOPED_KINDS: dict[str, str] = {
+    "target lands": "land",
     r"target creatures and/or planeswalkers": "creature_or_planeswalker",
     r"target creatures": "creature",
     r"target nonland permanents": "nonland_permanent",
@@ -205,8 +208,14 @@ def _multi_target_kind_with_spell(phrase: str) -> Optional[str]:
     return _multi_target_kind(phrase)
 
 
+#: PAR-215: a plural target phrase's state qualifier ("tap 1 or 2 target untapped creatures you control") — the kind
+#: is the plain pool; the caller turns the word into a `creature_filter` (RULE 115.1 precision-loss convention shared
+#: with the singular "target untapped creature").
+MULTI_TARGET_STATE_RE = re.compile(r"^target (?P<state>untapped|tapped) ", re.IGNORECASE)
+
+
 def _multi_target_kind(phrase: str) -> Optional[str]:
-    text = phrase.strip()
+    text = MULTI_TARGET_STATE_RE.sub("target ", phrase.strip())
     scoped = re.fullmatch(rf"(?P<base>.*?)(?P<tail>{MULTI_TARGET_SCOPE_TAIL})", text, re.IGNORECASE)
     if scoped is not None:
         base = _MULTI_TARGET_SCOPED_KINDS.get(scoped.group("base").lower())
@@ -666,7 +675,10 @@ def mass_group_params(text: str, quant: str) -> Optional[dict]:
         if text.endswith(tail):
             text, group_player = text[: -len(tail)], who
             break
-    if any(word in text for word in _MASS_GROUP_REFUSED_WORDS):
+    # The combat-relation tails (`COMBAT_RELATION_TAILS`) name their relation to the source and are read by the
+    # count grammar; any *other* use of "blocking"/"blocked" stays refused.
+    refusal_text = next((tail.sub("", text) for tail, _ in COMBAT_RELATION_TAILS if tail.search(text)), text)
+    if any(word in refusal_text for word in _MASS_GROUP_REFUSED_WORDS):
         return None
     if quant == "each":
         text = SINGULAR_GROUP_HEADS.sub(r"\1s", text)
@@ -731,11 +743,8 @@ ATTACHED_SUBJECT = (
 #:   (and those two keywords aren't modeled at all).
 #: * "pay {G} **for each** wind counter on it" (Sandstorm Ambush) — a scaled
 #:   cost; `parse_activation_cost` would quietly drop the multiplier.
-#: * "discard a card **at random**" — the engine's `discard` auto-picks and
-#:   has no random mode, so claiming it would misrepresent the card.
-#: * "discard a **`<type>`** card" (Body Snatcher's "discard a creature
-#:   card") — `parse_activation_cost` returns a *free* cost for a typed
-#:   discard, which would read as "pay nothing".
+#: * (PAR-208 lifted: "discard a card at random" and "discard a `<type>` card" are read since ENG-49 and
+#:   paid by `_pay_player_cost`; the vetted words are the alternation below.)
 #: * "sacrifice **four** creatures" — `ActivationCost.sacrifice` is one
 #:   permanent.
 #:
@@ -746,7 +755,9 @@ ATTACHED_SUBJECT = (
 UNLESS_COST = (
     r"(?:pay (?:\{[^{}]+\})+"
     r"|pay \d+ life"
-    r"|discard a card"
+    # PAR-208: "discard a land card" / "discard a noncreature card" (typed, `ActivationCost.discard_filter`) and
+    # "discard a card at random" (`discard_random`), read by `costs.parse_activation_cost` since ENG-49.
+    r"|discard an? (?:(?:land|creature|noncreature|artifact|enchantment|instant|sorcery) )?card(?: at random)?"
     r"|discard (?:\d+|two|three|four) cards"
     r"|sacrifice (?:a|another) (?:creature|permanent|artifact|enchantment|land))"
 )
@@ -768,7 +779,7 @@ UNLESS_COST = (
 GRAVEYARD_TYPE_WORD = (
     r"equipment, instant, or sorcery|noncreature, nonland|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
-    r"instant, sorcery, or battle|creature or planeswalker|creature or battle|zombie|"
+    r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent"
@@ -804,6 +815,8 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "zombie": "zombie_card",
         "creature or battle": "creature_or_battle",
         "creature or planeswalker": "creature_or_planeswalker",
+        # PAR-215: "creature and planeswalker cards" lists the two card types, a card of either (Ascend from Avernus).
+        "creature and planeswalker": "creature_or_planeswalker",
         "instant, sorcery, or battle": "instant_sorcery_or_battle",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
@@ -895,7 +908,7 @@ def token_keywords(text: str) -> Optional[list[str]]:
 #: whenever a new named token is added there.
 NAMED_TOKEN_WORDS: dict[str, str] = {
     "treasure": "Treasure", "clue": "Clue", "food": "Food", "blood": "Blood", "mutagen": "Mutagen",
-    "powerstone": "Powerstone",
+    "powerstone": "Powerstone", "lander": "Lander", "junk": "Junk",
 }
 
 
@@ -918,16 +931,16 @@ def counter_sign(token: str) -> str:
 #: (PAR-135) — a closed list of the tracker words printed so far kept missing the next set's.
 #:
 #: What is *not* open is the small set whose name the engine itself keys off, where a generic
-#: `obj.counters[kind]` bump would half-model: the subsystem counters (`time` vanishing/
-#: suspend, `age` cumulative upkeep, `fade` fading, `level` leveler, `loyalty` planeswalker,
+#: `obj.counters[kind]` bump would half-model: the subsystem counters (`age` cumulative upkeep, `fade` fading, `level` leveler, `loyalty` planeswalker,
 #: `lore` Saga, `defense` battle), the player counters (`rad`, `energy`, `experience`,
 #: `poison`) and the RULE 122.1b keyword counters no layer reader exists for (`decayed`,
 #: `exalted`). `stun` (RULE 122.1c, `set_tapped`) and `shield` (RULE 122.1c,
 #: `deal_damage`/`destroy`) carry replacement effects, and both are engine-enforced now, so
-#: they are ordinary members. A test (`test_par135_named_counters.py`) scans `game/` for
+#: they are ordinary members. `time` also uses the shared counter primitive now that
+#: actual removals notify exile abilities and Suspend's separate cast trigger. A test (`test_par135_named_counters.py`) scans `game/` for
 #: counter-kind literals so a *new* reader can't slip in unreserved.
 RESERVED_COUNTER_KINDS: tuple[str, ...] = (
-    "time", "age", "fade", "level", "loyalty", "lore", "defense",
+    "age", "fade", "level", "loyalty", "lore", "defense",
     "rad", "energy", "experience", "poison", "decayed", "exalted", "finality", "ticket",
 )
 #: Multi-word RULE 122.1b keyword kinds first, so "first strike" isn't read as kind "first".
@@ -1128,6 +1141,10 @@ _GROUP = (
     # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
     # is none of its vocabulary.
     r"|other [a-z]+s you control|[a-z]+ creatures you control|[a-z]+s you control"
+    # PAR-203: the controller-less subtype/colour/negated groups ("all Elf creatures get -1/-1", "non-Elf creatures get
+    # -3/-3" -- the shapes a "choose a creature type" body reads as once the chosen type is substituted); the count-phrase
+    # grammar still decides whether the words are a real group, so an unknown word fails closed in `_group_selector`.
+    r"|non-[a-z]+ creatures|all non-[a-z]+ creatures|all [a-z]+ creatures|[a-z]+ creatures"
     # PAR-19: "Attacking creatures get -3/-0 until end of turn." (Lethargy
     # Trap-shaped) — unscoped by controller, the same `group_selector_
     # objects` "attacking_creatures" branch Motivated Pony's anthem and
@@ -1188,6 +1205,9 @@ def _group_selector(phrase: str) -> "Optional[str | dict]":
     if phrase == "all creatures you control":
         # The emphatic "all" names the same group; bare "all creatures" (no
         # controller tail) stays the residual table's unscoped selector.
+        return parse_count_phrase(phrase[len("all "):])
+    if phrase.startswith("all ") and phrase != "all creatures":
+        # PAR-203: "all Elf creatures" / "all non-Elf creatures" -- the emphatic "all" again.
         return parse_count_phrase(phrase[len("all "):])
     return _GROUP_SELECTORS.get(phrase)
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).

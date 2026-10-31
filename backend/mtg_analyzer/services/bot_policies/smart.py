@@ -30,6 +30,7 @@ class SmartBot(GreedyBot):
     """
 
     kind = 'smart'
+    skips_to_end_step = True
     label = 'Smart Bot'
     description = 'Erkennt Deckstrategie und Farben, entwickelt Commander und WinCons und sucht Combo-Teile.'
 
@@ -47,7 +48,8 @@ class SmartBot(GreedyBot):
         if self.player_id not in profiles:
             deck = getattr(session, '_bot_decklists', {}).get(self.player_id)
             if deck:
-                profiles[self.player_id] = build_strategy(deck['cards'], deck['commanders'])
+                profiles[self.player_id] = build_strategy(deck['cards'], deck['commanders'],
+                                                          archetypes=deck.get('archetypes'))
                 session._bot_strategies = profiles
         if self.player_id in profiles:
             self.strategy = profiles[self.player_id]
@@ -130,13 +132,17 @@ class SmartBot(GreedyBot):
         lands = sum(o.get('is_land', False) for o in view['state'].get('battlefield', [])
                     if o.get('controller_id') == self.player_id)
         if 'ramp' in plan.roles:
-            value += max(0, 28 - 4 * lands) + (8 if self.strategy.archetype == 'ramp' else 0)
+            value += max(0, 28 - 4 * lands) + (8 if ('ramp' in self.strategy.archetypes or self.strategy.archetype == 'ramp') else 0)
         if 'draw' in plan.roles:
             value += 18 if len(self._mine(view).get('hand', [])) <= 3 else 8
         if 'tutor' in plan.roles and self.strategy.combos:
             value += 30
-        if 'creature' in plan.types and self.strategy.archetype == 'aggro':
+        if 'creature' in plan.types and ('aggro' in self.strategy.archetypes or self.strategy.archetype == 'aggro'):
             value += 15
+        if 'stompy' in plan.roles and ('stompy' in self.strategy.archetypes or self.strategy.archetype == 'stompy'):
+            value += 16
+        if 'poison' in plan.roles and ('poison' in self.strategy.archetypes or self.strategy.archetype == 'poison'):
+            value += 18
         return value
 
     def setup(self, view, actions):
@@ -172,6 +178,11 @@ class SmartBot(GreedyBot):
     def answer_choice(self, view, answers):
         kind = (view.get('pending_choice') or {}).get('kind', '')
         choices = [a for a in answers if a['type'] == 'choose']
+        if kind == 'proliferate':
+            from ..smart_bot2.context import Context
+            from ..smart_bot2.counters import proliferate_choice
+            decline = next((a for a in answers if a['type'] == 'decline'), None)
+            return proliferate_choice(Context(view, self.player_id, self.strategy), choices, decline) if choices else decline
         # RULE 614.1 enters-tapped options: a shock land is paid for when the
         # mana is needed this turn, a "reveal a card" land always reveals
         # (free), and Mox Diamond discards the land it needs least (a Mox
@@ -286,13 +297,23 @@ class SmartBot(GreedyBot):
                    for s in view['state'].get('stack', []))
 
     def can_pass_turn(self, view, actions):
-        # Off its own turn `play` below only ever acts against something on
-        # the stack (a counter or removal aimed at an opponent's object), and
-        # the server never passes over an opponent's stack item — so with an
-        # empty stack every window is a pass. The one exception is its own
-        # Thassa's Oracle trigger, which is the bot's own stack item and so
-        # would be passed over too.
-        return not self._oracle_trigger(view)
+        # Its own Thassa's Oracle trigger is the bot's own stack item, which
+        # the server would pass over.
+        if self._oracle_trigger(view):
+            return False
+        # Otherwise `play` only ever acts at instant speed against something
+        # on the stack. Windows matter only while it can still pay: an offered
+        # non-mana ability (mana abilities are `tap_for_mana`), or an instant/
+        # flash card in hand that the view's mana potential marks `castable`
+        # (a view without the flag counts as payable).
+        if any(a['type'] == 'activate_ability' and not a.get('locked') for a in actions):
+            return False
+        me = next((p for p in view['state'].get('players', []) if p['id'] == self.player_id), {})
+        for card in me.get('hand') or []:
+            text = f"{card.get('type_line', '')} {card.get('oracle_text', '')}".casefold()
+            if card.get('castable', True) and ('instant' in text or 'flash' in text):
+                return False
+        return True
 
     def play(self, view, actions):
         offered_actions = actions
@@ -501,10 +522,22 @@ class SmartBot(GreedyBot):
     def _attack(self, view, attacks):
         objects = {o['instance_id']: o for o in view['state'].get('battlefield', [])}
         best = None
+        battle_best = None
         for defender in attacks[0].get('legal_defenders') or []:
-            if defender.get('kind') != 'player':
+            if defender.get('kind') == 'battle':
+                # RULE 310.8b: only the bot's own battle is worth attacking (flipping a Siege);
+                # its protector's creatures are the ones that can block it.
+                battle = objects.get(defender.get('instance_id'), {})
+                if battle.get('controller_id') != self.player_id:
+                    continue
+                defending_id, life = battle.get('protector_id'), battle.get('defense') or 0
+            elif defender.get('kind') == 'player':
+                defending_id = defender['id']
+                life = next((p.get('life', 40) for p in view['state'].get('players', [])
+                             if p['id'] == defender['id']), 40)
+            else:
                 continue
-            blockers = [o for o in objects.values() if o.get('controller_id') == defender['id']
+            blockers = [o for o in objects.values() if o.get('controller_id') == defending_id
                         and o.get('is_creature') and not o.get('tapped') and not o.get('phased_out')]
             chosen = []
             for offer in attacks:
@@ -521,11 +554,16 @@ class SmartBot(GreedyBot):
                 if not relevant or (safe and len(relevant) <= 1) or 'Indestructible' in keywords:
                     chosen.append(offer['instance_id'])
             damage = sum(objects.get(i, {}).get('power') or 0 for i in chosen)
-            life = next((p.get('life', 40) for p in view['state'].get('players', [])
-                         if p['id'] == defender['id']), 40)
             attack_value = (damage >= life, damage, -life)
-            if chosen and (best is None or attack_value > best[0]):
+            if not chosen:
+                continue
+            if defender.get('kind') == 'battle':
+                if battle_best is None or attack_value > battle_best[0]:
+                    battle_best = (attack_value, chosen, defender)
+            elif best is None or attack_value > best[0]:
                 best = (attack_value, chosen, defender)
+        # Players first; creatures still offered after that declaration go at the battle.
+        best = best or battle_best
         if best:
             return {'type': 'attack', 'instance_ids': best[1], 'defender': best[2]}
         return None

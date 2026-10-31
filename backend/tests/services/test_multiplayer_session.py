@@ -280,9 +280,8 @@ class TestConcede:
         assert state.winner_id == "ann"
         assert view["state"]["game_over"] is True
 
-    def test_a_two_player_concession_leaves_the_board_standing(self):
-        # Nothing to sweep: with one living player the game is over, so the
-        # final position stays intact for the end-of-match review.
+    def test_a_two_player_concession_has_no_deferred_cleanup(self):
+        # Terminal games follow the same immediate departure rule.
         session = make_game()
         keep_all(session)
         session.concede("bob")
@@ -303,8 +302,8 @@ class TestConcede:
         assert session.engine.state.players[1].has_lost is False
 
 
-class TestDeferredLeave:
-    """RULE 800.4a, deferred to the next turn (see `RulesEngine.concede`)."""
+class TestImmediateLeave:
+    """RULE 800.4a: departure cleanup is independent of turn progression."""
 
     def _three_player_game(self):
         manager = GameSessionManager()
@@ -319,7 +318,7 @@ class TestDeferredLeave:
             session.apply_action({"type": "keep_hand", "bottom_instance_ids": []}, actor_id=pid)
         return session
 
-    def test_board_survives_until_the_next_turn_begins(self):
+    def test_board_leaves_immediately_and_snapshot_survives(self):
         session = self._three_player_game()
         state = session.engine.state
         from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -330,8 +329,10 @@ class TestDeferredLeave:
 
         session.concede("bob")
         assert state.game_over is False  # ann and cid are still playing
-        assert state.pending_leave_ids == ["bob"]
-        assert obj in state.battlefield  # still standing, mid-turn
+        assert state.pending_leave_ids == []
+        assert obj not in state.battlefield
+        snapshot = session._history[-1][1]
+        assert any(o.instance_id == obj.instance_id for o in snapshot.battlefield)
 
         advance_until(session, turn=2)
         assert session.engine.state.pending_leave_ids == []
@@ -343,11 +344,11 @@ class TestDeferredLeave:
         advance_until(session, turn=2)
         assert session.engine.state.active_player.id == "cid"
 
-    def test_a_state_based_loss_defers_and_sweeps_the_board_too(self):
+    def test_a_state_based_loss_sweeps_the_board_immediately(self):
         # RULE 800.4a's board cleanup must fire for *any* loss reason, not
         # only an explicit concede — a player eliminated by 0 life (or
-        # poison/empty library/commander damage) leaves their permanents
-        # behind just the same.
+        # poison/empty library/commander damage) removes their permanents
+        # immediately too.
         session = self._three_player_game()
         state = session.engine.state
         from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -362,8 +363,8 @@ class TestDeferredLeave:
         assert state.player_by_id("bob").has_lost is True
         assert state.player_by_id("bob").loss_reason == "life"
         assert state.game_over is False  # ann and cid are still playing
-        assert state.pending_leave_ids == ["bob"]
-        assert obj in state.battlefield  # still standing, mid-turn
+        assert state.pending_leave_ids == []
+        assert obj not in state.battlefield
 
         advance_until(session, turn=2)
         assert session.engine.state.pending_leave_ids == []

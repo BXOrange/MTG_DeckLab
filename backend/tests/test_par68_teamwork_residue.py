@@ -184,6 +184,9 @@ def test_virtual_assistant_creates_a_token_on_a_teamwork_cast():
     bind_from_catalogue(va)
 
     p1 = eng.state.active_player
+    # Keep the teamwork caster alive when the spell draws its card.
+    filler = Card(id="draw-filler", name="Forest", type_line="Basic Land — Forest", is_land=True)
+    p1.add_to_zone(GameObject(filler, owner_id=p1.id, zone=Zone.LIBRARY), Zone.LIBRARY)
     p1.mana_pool.add_many({"G": 2})
     tw_card = Card(
         id="TWS2", name="Test Teamwork Spell 2", type_line="Sorcery", is_sorcery=True,
@@ -197,6 +200,7 @@ def test_virtual_assistant_creates_a_token_on_a_teamwork_cast():
     eng.rules.put_triggers_on_stack()
     eng.resolve_until_stable()
 
+    assert not p1.has_lost
     tokens = [o for o in eng.state.battlefield if o.name == "Robot Hero"]
     assert len(tokens) == 1
     assert (tokens[0].power, tokens[0].toughness) == (1, 1)

@@ -157,3 +157,18 @@ def test_blight_player_cost_gate_and_payment():
     eng.rules._pay_player_cost(p1, cost)
     eng.recompute_continuous_effects()
     assert big.counters.get("-1/-1") == 2  # highest-toughness auto-pick
+
+
+def test_blight_cost_honours_the_players_pick():
+    # RULE 601.2b / 602.2b: the offered creature pays, instead of the highest-toughness auto-pick.
+    eng, state = _engine()
+    p1 = state.player_by_id("p1")
+    _creature(state, "p1", "Big", 4, 6)
+    small = _creature(state, "p1", "Small", 3, 3)
+    eng.recompute_continuous_effects()
+    state.blight_cost_choice = small.instance_id
+    eng.rules.blight(p1, 1, interactive=False)
+    eng.recompute_continuous_effects()
+    assert small.counters.get("-1/-1") == 1
+    offer = eng._blight_cost_choice(p1, 1)
+    assert {o["instance_id"] for o in offer["options"]} == {small.instance_id, small.instance_id - 1} or len(offer["options"]) == 2

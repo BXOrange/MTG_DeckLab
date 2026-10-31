@@ -26,7 +26,7 @@ import {
   listFavoriteDecks,
 } from './api.js';
 import { getPlayerName } from './settings.js';
-import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
+import { preloadCardImages, preloadTokenArt } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { analysisHtml } from './gameStats.js';
@@ -266,53 +266,11 @@ export function createGoldfishView() {
     const res = await fetchDeckTokens({ deckId: selectedDeckId });
     const tokens = res.ok ? res.data?.tokens || [] : [];
     if (!tokens.length) return;
-
-    for (const t of tokens) {
-      if (!t.image_small && !t.image_normal) continue;
-      const entry = {
-        small: t.image_small || null,
-        normal: t.image_normal || null,
-        card: t,
-      };
-      // Id first: unique per exact (name, power, toughness, colors) variant,
-      // so two same-named tokens printed at different stats (e.g. several
-      // "Shapeshifter" stat lines) each keep their own art instead of
-      // whichever variant's entry happened to land last under a shared name.
-      if (t.id) merged.set(t.id, entry);
-      const key = (t.name || '').toLowerCase();
-      // The by-name entry is a same-name fallback (and cardImages.js's own
-      // tooltip-cache key) — first one in wins, and it never clobbers a real
-      // deck card's already-resolved art under that same name.
-      if (key && !merged.has(key)) {
-        merged.set(key, entry);
-        // Also seed cardImages.js's own cache — cardHoverDetail.js's tooltip
-        // reads only that one, not this view's local `imageCache`, so without
-        // this a token's hover detail stays stuck at "Lädt …" forever.
-        cacheResolvedCard(key, entry);
-      }
-    }
-
-    const urls = tokens.map((t) => t.image_small).filter(Boolean);
-    if (!urls.length) return;
     const base = loadingProgress.total;
-    let loaded = base;
-    loadingProgress = { loaded, total: base + urls.length };
-    render();
-    await Promise.all(
-      urls.map(
-        (url) =>
-          new Promise((resolve) => {
-            const img = new Image();
-            img.onload = img.onerror = () => {
-              loaded += 1;
-              loadingProgress = { loaded, total: base + urls.length };
-              render();
-              resolve();
-            };
-            img.src = url;
-          })
-      )
-    );
+    await preloadTokenArt(tokens, merged, (loaded, total) => {
+      loadingProgress = { loaded: base + loaded, total: base + total };
+      render();
+    });
   }
 
   // The local player's custom art (Einstellungen tab): token images by

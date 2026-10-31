@@ -426,7 +426,7 @@ def test_pump_multi_target_with_keyword_is_recognized():
     assert spec.type == "pump"
     assert spec.params == {
         "power": 1, "toughness": 1, "target_kind": "creature",
-        "target_count": 10, "optional": True, "keywords": ["flying"],
+        "target_count": 1, "any_number": True, "optional": True, "keywords": ["flying"],
     }
 
 

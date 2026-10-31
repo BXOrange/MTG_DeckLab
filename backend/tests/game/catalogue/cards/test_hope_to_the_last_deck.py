@@ -535,8 +535,10 @@ def test_tablet_of_the_guilds_chooses_two_colors_and_gains_life_per_shared_color
     life = p1.life
     gold = _filler(engine, "Gold", "Creature", power=1, toughness=1, zone=Zone.HAND)
     gold.card.color_identity = {"W", "U"}
+    gold.card.printed_colors_override = frozenset({"W", "U"})  # RULE 202.2 fixture colour
     green = _filler(engine, "Green", "Creature", power=1, toughness=1, zone=Zone.HAND)
     green.card.color_identity = {"G"}
+    green.card.printed_colors_override = frozenset({"G"})  # RULE 202.2 fixture colour
     for spell in (green, gold):
         engine.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=spell.instance_id, spell=spell.name))
         engine.resolve_until_stable()

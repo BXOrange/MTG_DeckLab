@@ -11,7 +11,7 @@ def _righteous_aura() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
+            [EffectSpec("request_prevent_damage_source", {"once": True, "amount": "all"})],
             cost={"text": "{W}, Pay 2 life"},
         ),
     ]

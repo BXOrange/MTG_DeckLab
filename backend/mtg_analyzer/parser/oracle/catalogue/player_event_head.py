@@ -38,6 +38,12 @@ _VERBS: dict[str, str] = {
     "attack": "PLAYER_ATTACKED", "attack a player": "PLAYER_ATTACKED",
     "clash": "CLASHED", "win a clash": "WON_CLASH", "clash and win": "WON_CLASH",
     "collect evidence": "COLLECTED_EVIDENCE", "forage": "FORAGED",
+    # RULE 309.6 (PAR-207): the last room's ability resolved and the dungeon card leaves the game
+    # (`variant_systems_mixin.complete_dungeon`, one `DUNGEON_COMPLETED` per completion).
+    "complete a dungeon": "DUNGEON_COMPLETED", "completes a dungeon": "DUNGEON_COMPLETED",
+    # RULE 701.20 / 104.3 (PAR-207): a library was shuffled (`SHUFFLE`) / a player lost the game (`PLAYER_LOST`).
+    "shuffle your library": "SHUFFLE", "shuffles their library": "SHUFFLE",
+    "lose the game": "PLAYER_LOST", "loses the game": "PLAYER_LOST",
     # RULE 706 (PAR-147): "roll a die" is per die (`DIE_RESULT`, one event for each kept die);
     # "roll one or more dice" is per roll instruction (`DICE_ROLLED`).
     "roll a die": "DIE_RESULT", "rolls a die": "DIE_RESULT",
@@ -47,6 +53,8 @@ _VERBS: dict[str, str] = {
     "give a gift": "GIFT_GIVEN", "gives a gift": "GIFT_GIVEN",
     # RULE 709.5i (MEC-111): "whenever you fully unlock a Room" — a Room got its second unlocked designation.
     "fully unlock a room": "ROOM_FULLY_UNLOCKED", "fully unlocks a room": "ROOM_FULLY_UNLOCKED",
+    # RULE 700.13: targeting an opponent or their objects fires this existing player event.
+    "commit a crime": "CRIME_COMMITTED", "commits a crime": "CRIME_COMMITTED",
 }
 _COMPOUND_VERBS: dict[str, list[str]] = {
     "scry or surveil": ["SCRY", "SURVEIL"],

@@ -16,6 +16,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+from dataclasses import replace
 import re
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -33,6 +34,7 @@ from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     DISCARD_FILTER_SAME_NAME,
+    discard_filter_matches,
     DISCARD_X,
     EXILE_FROM_GRAVEYARD_X,
     PAY_LIFE_COMMANDER_COLORS,
@@ -144,8 +146,8 @@ class ActivationMixin:
         auto-pick. ``return_choices`` selects the controlled permanents for
         singular subtype or counted return-to-hand costs.
 
-        A ``discard_self`` cost (Channel/Cycling, RULE 702.29/28.2h) is the
-        one shape activated from *hand* instead of the battlefield — the
+        A ``discard_self`` cost (Channel/Cycling, RULE 702.29/28.2h) or
+        ``exile_self_from_hand`` is activated from *hand* — the
         ability still uses the stack like any other (unlike the mana-ability
         shortcut `activate_hand_mana_ability` uses), so it goes through this
         same path with a hand-zone legality check instead.
@@ -162,7 +164,7 @@ class ActivationMixin:
         # split_second_active`'s own docstring), so no exemption is needed.
         if continuous.split_second_active(self.state):
             return False
-        if ability.cost.discard_self:
+        if ability.cost.discard_self or ability.cost.exile_self_from_hand:
             if source not in player.hand or source.owner_id != player.id:
                 return False
         elif ability.cost.hand_zone:
@@ -223,7 +225,9 @@ class ActivationMixin:
             # here — a detained permanent's mana ability staying usable is a
             # known minor deviation, no detain target in the cache has one.)
             return False
-        if ability.once_per_turn and ability._last_activated_turn == self.state.internal_turn.number:
+        limit = 1 if ability.once_per_turn else ability.per_turn_limit
+        if (limit and ability._last_activated_turn == self.state.internal_turn.number
+                and (ability.once_per_turn or ability._activations_this_turn >= limit)):
             return False
         once_key = id(ability)
         used_once = getattr(source, "used_once_per_game_abilities", set())
@@ -361,17 +365,38 @@ class ActivationMixin:
                 if blocked is not None:
                     out.append(blocked)
                 continue
+            mana_value_from_x = bool(spec.spell_filter and spec.spell_filter.get("mana_value") == "x")
+            offered_spec = spec
+            if mana_value_from_x:
+                # RULE 602.2b/601.2b-c: the UI announces X before targets.
+                # Offer the union across payable X, retaining every other
+                # restriction; filtering at source.x_paid (or only max X)
+                # would hide legal lower-X originals before announcement.
+                offered_spec = replace(spec, spell_filter={
+                    key: value for key, value in spec.spell_filter.items() if key != "mana_value"
+                })
+            options = legal_targets(self.state, player.id, offered_spec, source=source)
+            if mana_value_from_x:
+                max_x = self._max_x_for_activation_cost(player, source, ability.cost)
+                values = {item.obj.instance_id: item.obj.mana_value for item in self.state.stack
+                          if item.kind == "spell" and item.obj is not None}
+                options = [{**option, "mana_value": values[option["instance_id"]]}
+                           for option in options
+                           if option.get("instance_id") in values
+                           and ability.cost.minimum_x <= values[option["instance_id"]] <= max_x]
             entry = {
                 "kind": spec.kind,
                 "optional": spec.optional,
                 # RULE 601.2c — see `targeting.resolved_count`.
                 "count": resolved_count(spec, self.state, player.id, source),
                 "label": spec.label(),
-                "options": legal_targets(self.state, player.id, spec, source=source),
+                "options": options,
                 "distinct_controllers": spec.distinct_controllers,
                 "distinct_from_others": spec.distinct_from_others,
                 "polarity": spec.polarity,
             }
+            if mana_value_from_x:
+                entry["mana_value_from_x"] = True
             add_target_budget_metadata(self.state, spec, entry)
             # ENG-30: "N or M target X" range — see `TargetSpec.count_max`.
             if spec.count_max is not None:
@@ -735,12 +760,7 @@ class ActivationMixin:
                 return False
         if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
             return False
-        if cost.exile_self_from_hand:
-            # This path is for a battlefield permanent's own ability cost
-            # (`can_activate`/`tap_for_mana`'s non-hand-exile branch) — an
-            # "Exile this card from your hand" cost is never payable here,
-            # whatever `source` is; see `activate_hand_mana_ability` for
-            # the actual hand-zone counterpart (Elvish/Simian Spirit Guide).
+        if cost.exile_self_from_hand and (source not in player.hand or source.owner_id != player.id):
             return False
         # A minus loyalty ability can't be activated for more loyalty than the
         # planeswalker has (RULE 606.5c / 118.5).
@@ -1087,14 +1107,14 @@ class ActivationMixin:
         if what == "creature":
             return obj.is_creature
         if what == "artifact":
-            return obj.card.is_artifact
+            return obj.is_artifact
         if what == "enchantment":
-            return obj.card.is_enchantment
+            return obj.is_enchantment
         if what == "land":
             return obj.is_land
         if what == "creature_or_enchantment":
             # "sacrifice a creature or enchantment or pay {N}" (Betrayer's Bargain, Final Flare).
-            return obj.is_creature or obj.card.is_enchantment
+            return obj.is_creature or obj.is_enchantment
         if what == "creature_or_land":
             # "sacrifice a creature or land" (Merciless Resolve).
             return obj.is_creature or obj.is_land
@@ -1106,14 +1126,14 @@ class ActivationMixin:
             # function already handled, so a cost using one silently fell
             # through to the "any permanent" catch-all below instead of the
             # narrower RAW-correct set.
-            return obj.is_creature or obj.card.is_planeswalker
+            return obj.is_creature or obj.is_planeswalker
         if what == "creature_artifact_or_land":
             # PAR-13: "sacrifice a creature, artifact, or land" (Sandfall
             # Cell) — see `_matches_permanent_type`'s matching branch.
-            return obj.is_creature or obj.card.is_artifact or obj.is_land
+            return obj.is_creature or obj.is_artifact or obj.is_land
         if what == "artifact_or_creature":
             # Deadly Dispute/Costly Plunder-shaped additional cost.
-            return obj.is_creature or obj.card.is_artifact
+            return obj.is_creature or obj.is_artifact
         # Everything else — "an artifact or creature", "a green creature"
         # (Natural Order's hand-authored `green_creature`), "a noncreature
         # artifact", "a basic land", "a creature with defender", "ten
@@ -1140,7 +1160,7 @@ class ActivationMixin:
         return [
             c for c in player.hand
             if c is not exclude
-            and (not filter_word or filter_word in (c.card.type_line or "").lower())
+            and (not filter_word or discard_filter_matches(filter_word, c.card.type_line or ""))
         ]
     def _resolve_discard_cost(
         self,
@@ -1398,12 +1418,18 @@ class ActivationMixin:
             if source.crewed_turn != turn:
                 source.crewed_by_ids = []
                 source.crewed_by_incarnations = {}
+                source.crewed_by_visits = set()
+                source.crewed_by_subtypes = set()
             source.crewed_turn = turn
             for obj in self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []:
+                from ...models.cards.creature_types import CREATURE_SUBTYPES
+                source.crewed_by_subtypes.update(
+                    subtype for subtype in CREATURE_SUBTYPES if combat._has_subtype(obj, subtype))
                 self.rules.set_tapped(obj, True)
                 if obj.instance_id not in source.crewed_by_ids:
                     source.crewed_by_ids.append(obj.instance_id)
                 source.crewed_by_incarnations[obj.instance_id] = obj.zone_incarnation
+                source.crewed_by_visits.add((obj.instance_id, obj.zone_incarnation))
         if cost.saddle_power:
             # RULE 702.171a (Guardian Sunmare, MEC-40) — same pool/tap
             # mechanics as ``crew_power`` just above. The tapped creatures are remembered for the turn:
@@ -1483,7 +1509,7 @@ class ActivationMixin:
                 source.last_cost_exiled_ids.append(obj.instance_id)
                 source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
                 self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
-        if cost.exile_self:
+        if cost.exile_self or cost.exile_self_from_hand:
             # RULE 602.2b: exiled as the cost is paid; the ability still
             # resolves, reading ~'s last-known information (RULE 608.2h).
             self.rules.exile(source)
@@ -1663,6 +1689,25 @@ class ActivationMixin:
             # printed constant — see `ActivationCost.loyalty_is_x`.
             source.add_counters("loyalty", -x if cost.loyalty_is_x else cost.loyalty)
             source.activated_loyalty_this_turn = True
+    def _activation_reserved_taps(self, player, source, ability, x=0, tap_choices=None):
+        """RULE 118.3: the same tap cannot pay mana and a nonmana cost."""
+        cost = ability.cost
+        reserved = {source.instance_id} if cost.taps_self else set()
+        if cost.tap_attached:
+            host = self._attached_host(source)
+            if host is not None:
+                reserved.add(host.instance_id)
+        selected = []
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            count = x if count == TAP_OTHERS_X else count
+            selected = self._resolve_tap_others(player, source, count, subtype, tap_choices,
+                                               exclude_source=cost.taps_self) or []
+        elif cost.crew_power:
+            selected = self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []
+        reserved.update(o.instance_id for o in selected)
+        return reserved
+
     def _auto_tap_for_activation_if_needed(
         self,
         player: Player,
@@ -1708,7 +1753,8 @@ class ActivationMixin:
                 return
             mana = locked
         try:
-            self.auto_tap_for(player, cost=mana)
+            self.auto_tap_for(player, cost=mana,
+                              reserved_ids=self._activation_reserved_taps(player, source, ability, x, tap_choices))
         except ValueError:
             pass
     def _resolve_activation_mode(
@@ -1829,7 +1875,8 @@ class ActivationMixin:
                 if spec.any_number:
                     maximum = len(options)
                 if not target_group_within_budget(spec, picks):
-                    raise ValueError("targets exceed the total power or mana value limit")
+                    raise ValueError("targets exceed the single graveyard limit" if spec.same_graveyard
+                                     else "targets exceed the total power or mana value limit")
                 legal_ids = {o.get("instance_id", o.get("player_id", o.get("stack_id"))) for o in options}
                 picked_ids = [p.get("instance_id", p.get("player_id", p.get("stack_id")))
                               if isinstance(p, dict) else
@@ -1875,10 +1922,19 @@ class ActivationMixin:
                 hand_card_choices=hand_card_choices, return_choices=return_choices,
                 targets=targets or [],
             )
+        if ability.cost.exile_self_from_hand:
+            # RULE 400.7j: the resolving ability can find the new object its own cost exiled.
+            hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+            hideaway_event["cost_exiled_source_incarnation"] = source.zone_incarnation
         if ability.cost.exile_others:
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_exiled_ids"] = list(source.last_cost_exiled_ids)
             hideaway_event["cost_exiled_incarnations"] = dict(source.last_cost_exiled_incarnations)
+        if ability.cost.remove_counters:
+            # RULE 601.2h: preserve this activation's payment independently
+            # of later activations or source changes (Jar of Eyeballs).
+            hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+            hideaway_event["counters_removed_as_cost"] = source.counters_removed_as_cost
         # RULE 107.3c/601.2b: remember the announced X on the ability's own
         # source, mirroring `RulesEngine.cast_spell`'s `obj.x_paid` stamp —
         # every existing X-reading effect (`AddCountersEffect.x_multiplier`,
@@ -1889,7 +1945,10 @@ class ActivationMixin:
         # enough (no shipped card depends on two X-cost activations of the
         # same permanent racing on the stack) to accept as-is.
         source.x_paid = x
-        if ability.once_per_turn:
+        if ability.once_per_turn or ability.per_turn_limit:
+            if ability._last_activated_turn != self.state.internal_turn.number:
+                ability._activations_this_turn = 0
+            ability._activations_this_turn += 1
             ability._last_activated_turn = self.state.internal_turn.number
         if getattr(ability, "once_per_game", False):
             # PAR-28 / RULE 702.177a: mark this Exhaust/Power-up ability used
@@ -1942,6 +2001,10 @@ class ActivationMixin:
                 # (ENG-26, `StackItem.stack_id`).
                 stack_id=item.stack_id,
                 has_x=ability.cost.mana.has_variable,
+                # PAR-207 (RULE 606.3 / 702.177): which kind of ability this was, for "whenever you activate a
+                # loyalty ability" / "an exhaust ability".
+                is_loyalty_ability=bool(ability.cost.is_loyalty),
+                is_exhaust_ability=getattr(ability, "keyword_label", None) == "exhaust",
             )
         )
         self.rules.check_ward(item, player)

@@ -29,6 +29,7 @@ def _penance() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "source_filter": {"color_any": ["B", "R"]}, "amount": "all", "recipient": "any",
             })],
             cost={"text": "Put a card from your hand on top of your library"},

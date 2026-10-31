@@ -116,11 +116,12 @@ def test_damage_to_each_of_n_targets_mandatory():
     assert spec.params == {"amount": 3, "target_kind": "creature", "count": 2}
 
 
-def test_count_of_one_is_not_this_grammar():
-    # N=1 stays the existing singular handler's job — this grammar requires
-    # count >= 2, so "destroy one target creature" falls through unclaimed
-    # here (it isn't real card phrasing anyway; real N=1 is a bare "target").
-    assert parse_effect_body("destroy 1 target creature") is None
+def test_count_of_one_is_a_single_target_not_this_grammar():
+    # N=1 is not this grammar's multi-target shape (it requires count >= 2); the shared PAR-210
+    # operand reads "1 target" as one target slot, i.e. the singular form (not real card phrasing).
+    spec = parse_effect_body("destroy 1 target creature")[0]
+    assert spec.type == "seq" and spec.params["effects"][0]["params"]["count"] == 1
+    assert "target_count" not in str(spec.params)
 
 
 def test_unrecognized_plural_target_phrase_stays_unclaimed():

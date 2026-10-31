@@ -59,4 +59,4 @@ def test_restless_spire_animation_shape():
     spec = _REGISTRY["restless spire"]()[0]
     assert spec.ability_kind == "activated"
     types = {e.params["static"]["type"] for e in spec.effects}
-    assert types == {"type_change", "grant_keyword"}
+    assert types == {"type_change", "color_change", "grant_keyword"}  # RULE 613.4b: blue and red

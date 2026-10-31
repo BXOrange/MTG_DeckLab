@@ -233,7 +233,7 @@ def _its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
 #: already does by hand for "its controller gains life equal to its
 #: power", generalized here into an ordinary parser row.
 _ITS_CONTROLLER_GAINS_LIFE_EQ_MV_RE = compile_clause(
-    r"its controller gains life equal to its mana value"
+    r"(?:its|that (?:creature|permanent|artifact|land|enchantment)'s) controller gains life equal to its mana value"
 )
 _ITS_CONTROLLER_MILLS_EQ_POWER_RE = compile_clause(
     r"its controller mills cards equal to that creature'?s power"
@@ -436,11 +436,17 @@ _LOSE_LIFE_PER_LIFE_GAINED_RE = compile_clause(
     r"that player loses (?P<n>\d+) life for each 1 life they gained"
 )
 _LOSE_LIFE_THAT_CONTROLLER_RE = compile_clause(
-    r"that (?:player|spell or ability's controller) loses (?P<n>\d+) life"
+    r"that (?P<who>player|spell or ability's controller) loses (?P<n>\d+) life"
 )
 
 
 def _lose_life_that_controller(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("who") == "player":
+        return [EffectSpec("lose_life", {
+            "amount": int(m.group("n")), "player": {"of": "trigger_player", "as": "self"},
+            EVENT_PLAYER_EVENTS_KEY: ["SPELL_CAST", "DAMAGE", "ATTACKS", "BECOMES_TARGET",
+                                      "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
+        })]
     return [EffectSpec("lose_life", {
         "amount": int(m.group("n")), "selector": "event_player",
         EVENT_PLAYER_EVENTS_KEY: [BECOMES_TARGET_EVENT],
@@ -724,6 +730,13 @@ def _lose_life_spell_mv_that_player(m: re.Match[str]) -> list[EffectSpec]:
 
 
 ROWS: list[EffectHandler] = [
+    # RULE 119.5: setting a life total causes the necessary gain or loss;
+    # "your" names the resolving controller and announces no player target.
+    EffectHandler(
+        "set_own_life",
+        compile_clause(r"your life total becomes (?P<n>\d+)"),
+        lambda m: [EffectSpec("set_life", {"amount": int(m.group("n")), "target_kind": None})],
+    ),
     # "you gain 3 life" / "gain 5 life" / "target player gains 3 life" /
     # "you gain x life" (an {X}-cost spell/ability's own announced X).
     EffectHandler(

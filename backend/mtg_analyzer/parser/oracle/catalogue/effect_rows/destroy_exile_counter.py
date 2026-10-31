@@ -5,12 +5,15 @@ from __future__ import annotations
 import re
 
 from typing import Optional
-from ..clause_hooks import parse_effect_body
+from ..clause_hooks import match_clause, parse_effect_body
+from ..object_phrase import conditional_object_specs
 from ..clause_reading import COUNTERED_REFERENT, ClauseReading
 from ..static_handlers import quoted_ability_grant_effects, static_effect_specs
 from ..subgrammars import (
+    target_is_optional,
     all_permanent_type_selector,
     CANT_BE_COUNTERED_RE,
+    COLOR_LETTERS,
     COLOR_WORD_ALT,
     IF_COLOR_SUFFIX,
     PERMANENT_TYPE_WORDS,
@@ -67,7 +70,24 @@ from .shared import (
 _MULTI_TARGET_ALT_WITH_SPELL = MULTI_TARGET_ALT + "|(?:target spells)"
 
 
+def _destroy_if_colour(target_phrase: str, colour_word: str, optional: bool) -> Optional[list[EffectSpec]]:
+    """"Destroy target `<kind>` if it's `<colour>`" (Hydroblast/Pyroblast, Soul Rend).
+
+    RULE 601.2c / 608.2b: the colour is not a targeting restriction -- any such permanent is a legal target, and the
+    colour is checked on resolution (a miss destroys nothing, and the rest of the spell still resolves). The target
+    is therefore announced unrestricted and the destroy sits behind the shared target-named condition
+    (`object_phrase.conditional_object_specs`, `is_color` of the announced target)."""
+    if optional:
+        return None
+    return conditional_object_specs(
+        f"if {target_phrase} is {colour_word}, destroy it", ClauseReading(), match_clause)
+
+
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.groupdict().get("cond_color"):
+        if resolve_target_creature_state_filter(m.group("target")):
+            return None  # a state qualifier plus a resolution-time colour is not a printed shape
+        return _destroy_if_colour(m.group("target"), m.group("cond_color").lower(), target_is_optional(m))
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, (
         "creature", "attacking_or_blocking_creature", "permanent", "permanent_you_dont_control",
@@ -108,11 +128,32 @@ def _destroy_equipment_attached_to_it(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: "flip ~" (RULE 710, the Kamigawa flip cards) — the source flips itself.
-_FLIP_SELF_RE = compile_clause(rf"flip {re.escape(SELF)}")
+_FLIP_SELF_RE = compile_clause(rf"flip (?P<subject>{re.escape(SELF)}|it)")
+
+
+def _flip_self(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 608.2c: a condition naming the source supplies the antecedent of
+    # "flip it" on the ki-counter cycle; other pronoun readings must decline.
+    if m.group("subject") == "it" and not reading.self_subject:
+        return None
+    return [EffectSpec("flip", {"source_only": True})]
 
 
 #: "destroy ~" — the source destroys itself (Sandals of Abdallah, PAR-154); no RULE 115 target.
 _DESTROY_SELF_RE = compile_clause(rf"destroy {re.escape(SELF)}")
+
+
+def _destroy_pronoun(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 608.2c: a bound object pronoun introduces no new RULE 115 target.
+    if reading.previous_subject:
+        params = {"previous_subject": True}
+    elif reading.attached_subject:
+        params = {"target_kind": "attached_permanent"}
+    elif reading.self_subject and m.group("object") == "it":
+        params = {"source_only": True}
+    else:
+        return None
+    return [EffectSpec("destroy", params)]
 
 
 #: "destroy target Equipment" (Manriki-Gusari).  Equipment is an artifact
@@ -133,15 +174,22 @@ def _destroy_equipment(m: re.Match[str]) -> list[EffectSpec]:
 #: (Celestial Purge) — `TargetSpec.colors`' OR narrowing, the
 #: `_pump_target_two_color` / `_destroy_color_adj` sibling. The shared
 #: `TARGET` macro's fixed rows have no colour slot, so a dedicated row.
+#: The same color restriction reads "that's 1 or more colors" as any of
+#: the five colors (Devourer of Destiny), independent of the noun or scope.
 _EXILE_TARGET_TWO_COLOR_RE = compile_clause(
-    rf"exile target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) "
+    rf"exile target (?:(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) )?"
     rf"(?P<noun>creature|permanent)(?P<yc> (?:you don't control|an opponent controls))?"
     rf"(?P<that_player>{THAT_PLAYER_TAIL})?"
+    r"(?P<colored> that'?s 1 or more colors)?"
 )
 
 
 def _exile_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    colors = two_color_letters(m)
+    # RULE 105.2: one or more colors is any WUBRG color, never color identity.
+    # Require exactly one color reading, so bare/unrepresented counts decline.
+    if bool(m.group("c1")) == bool(m.group("colored")):
+        return None
+    colors = list(COLOR_LETTERS.values()) if m.group("colored") else two_color_letters(m)
     if colors is None:
         return None
     noun = m.group("noun")
@@ -165,22 +213,32 @@ def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # honours `max_mana_value`, so this was a plain oversight, not a missing
     # engine primitive.
     kind = resolve_target_kind(m.group("target"))
-    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent")):
+    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS)):
         return None
-    return [EffectSpec("destroy", {"target_kind": kind, _mana_value_bound_key(m): int(m.group("mv"))})]
+    value = m.group("mv")
+    return [EffectSpec("destroy", {"target_kind": kind, **optional_param(m), _mana_value_bound_key(m): "x" if value == "x" else int(value)})]
 
 
 def _mana_value_bound_key(m: re.Match[str]) -> str:
     """"…with mana value N or less" is a ceiling, "…or greater" a floor (`TargetSpec.max_/min_mana_value`)."""
-    return "min_mana_value" if m.group("cmp") == "greater" else "max_mana_value"
+    return ("exact_mana_value" if not m.group("cmp") else
+            "min_mana_value" if m.group("cmp") == "greater" else "max_mana_value")
 
 
 def _exile_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    # "exile target permanent with mana value 4 or greater" (Despark, Kin-Tree Severance) / "…or less".
-    kind = resolve_target_kind(m.group("target"))
-    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent")):
+    # RULE 115.1: a mana-value bound composes with type and controller scope.
+    phrase = m.group("target") + (m.group("tail_scope") or "")
+    kind = resolve_target_kind(phrase)
+    if not target_kind_allowed(kind, (
+        "creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS,
+        "artifact_or_creature", "artifact_creature_or_enchantment",
+    )):
         return None
-    return [EffectSpec("exile", {"target_kind": kind, _mana_value_bound_key(m): int(m.group("mv"))})]
+    params = {"target_kind": kind, **optional_param(m), _mana_value_bound_key(m): int(m.group("mv"))}
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("exile", params)]
 
 
 def _quality_filter_builder(effect_type: str):
@@ -245,7 +303,7 @@ _NEG_CREATURE_FILTER_WORDS: dict[str, tuple[str, str]] = {
     "artifact": ("without_card_type", "artifact"),
 }
 _DESTROY_NON_CREATURE_RE = compile_clause(
-    rf"destroy target (?P<tapped>tapped )?non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
+    rf"destroy target (?P<land_or>land or )?(?P<tapped>tapped )?non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
     rf"(?:, non(?P<second_neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)}))? creature"
     rf"(?P<that_player>{THAT_PLAYER_TAIL})?"
     r"(?P<no_regen>\. it can'?t be regenerated)?"
@@ -257,6 +315,10 @@ def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # PAR-130: "… that player controls" (Tooth Collector-shaped heads) —
     # `gate._that_player_antecedent_ok` checks the trigger names that player.
     kind = "creature_that_player_controls" if m.group("that_player") else "creature"
+    if m.group("land_or"):
+        if m.group("that_player"):
+            return None
+        kind = "permanent"
     params: dict = {"target_kind": kind, "creature_filter": {key: value}}
     if m.group("tapped"):
         # PAR-165 (Stone Catapult): "tapped" composes with the negation, the same `tapped` filter key
@@ -271,6 +333,10 @@ def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if second_key == key:
             return None
         params["creature_filter"][second_key] = second_value
+    if m.group("land_or"):
+        params["creature_filter"] = {"any_of": [
+            {"card_type": "land"}, {"card_type": "creature", **params["creature_filter"]},
+        ]}
     if m.group("no_regen"):
         params["can_be_regenerated"] = False
     return [EffectSpec("destroy", params)]
@@ -314,6 +380,11 @@ _DESTROY_COLOR_ADJ_RE = compile_clause(
 
 def _destroy_color_adj(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     gd = m.groupdict()
+    if gd.get("cond_color"):
+        # The trailing "if it's <colour>" is a resolution-time check; only the bare noun can carry it.
+        if any(gd.get(key) for key in ("c1", "c2", "color", "kw", "combat_state")):
+            return None
+        return _destroy_if_colour(f"target {m.group('noun')}", gd["cond_color"].lower(), False)
     params: dict = {"target_kind": _DESTROY_COLOR_NOUN_KINDS[m.group("noun")]}
     if gd.get("c1") and gd.get("c2"):
         colors = two_color_letters(m)
@@ -451,7 +522,7 @@ def _destroy_all_other(m: re.Match[str]) -> list[EffectSpec]:
 #: `DestroyEffect.group` / `ExileEffect.group`. Primary over the named-selector rows (PAR-169), which
 #: stay as fallbacks for what this grammar declines (an X mana-value bound, "other than ~").
 _MASS_GROUP_RE = compile_clause(
-    r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?)"
+    r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z0-9' ,/+~-]+?)"
     r"(?P<no_regen>\.? (?:they|those [a-z ]+) can'?t be regenerated)?"
 )
 
@@ -554,7 +625,11 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             params["unless_pays_extra_selector"] = "cards_in_your_graveyard"
     cond_color = resolve_color_word(m.groupdict().get("cond_color"))
     if cond_color:
-        params["color"] = cond_color
+        # RULE 601.2c / 608.2b: a trailing "if it's <colour>" is checked on resolution, not a target restriction. It
+        # cannot also carry an inline colour adjective (that one is the offer-time filter).
+        if "color" in params:
+            return None
+        params["resolve_if_color"] = cond_color
     # "…unless its controller pays {4}. **If they do**, you incubate 2."
     # (Assimilate Essence) — a reflexive follow-up on the branch where the
     # target's controller pays (`CounterSpellEffect.on_pay_effect_specs`).
@@ -582,13 +657,19 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: Effect`'s existing ``duration="end_of_turn"`` resolve-time shape
 #: instead of a standing layer-6 static.
 _GRANT_QUOTED_ABILITY_UNTIL_EOT_RE = compile_clause(
-    r"until end of turn, (?P<subject>target creature|[a-z ]+) gains? \"(?P<inner>.+)\""
+    r"until end of turn, (?P<subject>target creature(?: " + CREATURE_FILTER_SUFFIX + r")?|[a-z ]+) gains? \"(?P<inner>.+)\""
 )
 
 
 def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
-    if m.group("subject") != "target creature":
+    # "target creature with a +1/+1 counter on it gains …" (Simic Basilisk): the recipient is a RULE 115 target narrowed by
+    # the shared quality filter.
+    creature_filter = creature_quality_filter(m) if m.group("subject").startswith("target creature ") else None
+    if m.group("subject").startswith("target creature "):
+        if creature_filter is None:
+            return None
+    elif m.group("subject") != "target creature":
         grants = static_effect_specs(f'{m.group("subject")} have "{m.group("inner")}"')
         if not grants or any(s.type not in {"grant_triggered_ability", "grant_activated_ability",
                                            "grant_mana_ability"} for s in grants):
@@ -604,6 +685,7 @@ def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpe
         "static": {"type": grant.type, "params": grant.params},
         "duration": "end_of_turn",
         "target_kind": "creature",
+        **({"creature_filter": creature_filter} if creature_filter else {}),
     })]
 
 
@@ -710,7 +792,8 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # Imperfect) is a real `targeting.legal_targets` kind (RULE 115.1c),
     # just never previously reachable from the plain exile handler.
     if not target_kind_allowed(kind, (
-        "creature", "attacking_or_blocking_creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS
+        "creature", "attacking_or_blocking_creature", "permanent", "nonland_permanent", *SINGLE_TYPE_PERMANENT_KINDS,
+        "artifact_creature_or_enchantment",
     )):
         return None
     params: dict = {"target_kind": kind, **optional_param(m)}
@@ -913,13 +996,13 @@ ROWS: list[EffectHandler] = [
     # below (see `_destroy_mv`'s docstring for why it's safe to try first).
     EffectHandler(
         "destroy_mv",
-        compile_clause(rf"destroy {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)"),
+        compile_clause(rf"destroy {TARGET} with mana value (?P<mv>\d+|x)(?: or (?P<cmp>less|greater))?"),
         _destroy_mv,
     ),
     # "exile target permanent with mana value 4 or greater" — the exile sibling of `destroy_mv`.
     EffectHandler(
         "exile_mv",
-        compile_clause(rf"exile {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)"),
+        compile_clause(rf"exile {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)(?P<tail_scope> an opponent controls| you don\'t control| you control)?"),
         _exile_mv,
     ),
     # "destroy target creature with power 4 or greater" / "…with flying"
@@ -973,10 +1056,14 @@ ROWS: list[EffectHandler] = [
         _destroy_equipment_attached_to_it,
     ),
     # "…, flip ~." (Initiate of Blood and the other Kamigawa flip cards).
-    EffectHandler("flip_self", _FLIP_SELF_RE, lambda m: [EffectSpec("flip", {"source_only": True})]),
+    EffectHandler("flip_self", _FLIP_SELF_RE, _flip_self, reading_aware=True),
     # "…, destroy ~." (Sandals of Abdallah's "when that creature dies this turn") — the ability's own source.
     EffectHandler(
         "destroy_self", _DESTROY_SELF_RE, lambda m: [EffectSpec("destroy", {"source_only": True})],
+    ),
+    EffectHandler(
+        "destroy_pronoun", compile_clause(r"destroy (?P<object>it|that creature|that permanent|that artifact|that land)"),
+        _destroy_pronoun, reading_aware=True,
     ),
     EffectHandler(
         "destroy_equipment",
@@ -1068,11 +1155,11 @@ ROWS: list[EffectHandler] = [
         compile_clause(r"counter target spell, activated ability, or triggered ability"),
         lambda m: [EffectSpec("counter", {"target_kind": "spell_or_ability"})],
     ),
-    # "counter target activated or triggered ability." (Stifle, Trickbind, a Sublime Epiphany mode) — RULE 701.5b.
+    # RULE 701.6a / 602.1: Stifle's broad ability category and Bind's activated-only subset.
     EffectHandler(
         "counter_activated_or_triggered_ability",
-        compile_clause(r"counter target activated or triggered ability"),
-        lambda m: [EffectSpec("counter_ability", {})],
+        compile_clause(r"counter target activated(?P<triggered> or triggered)? ability"),
+        lambda m: [EffectSpec("counter_ability", {} if m.group("triggered") else {"target_kind": "activated_ability"})],
     ),
     # "counter target instant spell, sorcery spell, activated ability, or triggered ability." (Sister of Silence) — the
     # same union with the spell half narrowed to the two card types.

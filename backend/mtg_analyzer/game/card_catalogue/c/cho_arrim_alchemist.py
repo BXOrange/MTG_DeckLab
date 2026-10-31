@@ -13,6 +13,7 @@ def _cho_arrim_alchemist() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "amount": "all",
                 "rider": {"kind": "gain_life", "recipient": "you"},
             })],

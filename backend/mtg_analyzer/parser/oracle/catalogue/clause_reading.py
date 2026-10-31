@@ -24,6 +24,8 @@ from typing import Any
 #: `Referent.kind`: an object an earlier clause *chose* (RULE 601.2c target, a created or copied object, a graveyard
 #: card, a countered spell) -- `GameContext.previous_targets` at resolution -- read by "it" / "that creature".
 TARGET = "target"
+#: A player previously targeted by this sequence; never interchangeable with a permanent's "it".
+PLAYER = "player"
 #: `Referent.kind`: the group an earlier untargeted mass selector acted on -- `GameContext.previous_selector` -- read
 #: by "they" / "those creatures".
 SELECTOR = "selector"
@@ -38,6 +40,19 @@ CREATED = "created"
 #: `Referent.kind`: the spell the preceding clause countered -- "If that spell is countered this way, ..." names it
 #: (RULE 701.5a); the consumer folds into that `counter` spec as its replacement destination.
 COUNTERED = "countered"
+
+
+#: `Referent.kind`: the one card an earlier clause revealed or exiled off a library -- "reveal the top card of your
+#: library and put it into your hand. You lose life equal to **its** mana value" (RULE 701.20). Distinct from `TARGET`
+#: (nothing was chosen, so no RULE 115 target) and `CREATED` (consumed by token riders); `Referent.noun` names the
+#: engine referent that carries it (`REVEALED_CARD` = `GameContext.revealed_card`, `EXILED_CARD` = the card the exile
+#: left on `GameContext.created_objects`).
+REVEALED = "revealed"
+REVEALED_CARD = "revealed"
+EXILED_CARD = "created"
+
+# The exact batch a preceding instruction put into exile, for cast/play follow-ups.
+EXILE_POOL = "exile_pool"
 
 
 @dataclass(frozen=True)
@@ -56,6 +71,8 @@ SELECTOR_REFERENT = Referent(SELECTOR, group=True)
 CREATED_REFERENT = Referent(CREATED)
 CREATED_GROUP_REFERENT = Referent(CREATED, group=True)
 COUNTERED_REFERENT = Referent(COUNTERED)
+REVEALED_REFERENT = Referent(REVEALED, noun=REVEALED_CARD)
+EXILED_REFERENT = Referent(REVEALED, noun=EXILED_CARD)
 
 
 @dataclass(frozen=True)

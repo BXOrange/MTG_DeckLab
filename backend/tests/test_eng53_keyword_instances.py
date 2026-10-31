@@ -78,20 +78,28 @@ def _yes_all(eng):
 
 def test_printed_plus_granted_myriad_makes_two_token_sets():
     eng = _engine("p1", "p2", "p3")
+    # Multiplayer turn one includes a draw; keep the attacker in the game.
+    player = eng.state.player_by_id("p1")
+    player.add_to_zone(GameObject(_creature("Draw filler"), owner_id="p1", zone=Zone.LIBRARY), Zone.LIBRARY)
     attacker = _put(eng, _creature("Myriad Bear", ["Myriad"]))
     attacker.temp_keywords.add("myriad")
     eng.recompute_continuous_effects()
     _attack_alone(eng, attacker)
     _yes_all(eng)
+    assert not player.has_lost
     assert len([o for o in eng.state.battlefield if o.is_token and o.name == "Myriad Bear"]) == 2
 
 
 def test_single_myriad_still_one_token_set():
     eng = _engine("p1", "p2", "p3")
+    # Multiplayer turn one includes a draw; keep the attacker in the game.
+    player = eng.state.player_by_id("p1")
+    player.add_to_zone(GameObject(_creature("Draw filler"), owner_id="p1", zone=Zone.LIBRARY), Zone.LIBRARY)
     attacker = _put(eng, _creature("Myriad Bear", ["Myriad"]))
     eng.recompute_continuous_effects()
     _attack_alone(eng, attacker)
     _yes_all(eng)
+    assert not player.has_lost
     assert len([o for o in eng.state.battlefield if o.is_token and o.name == "Myriad Bear"]) == 1
 
 

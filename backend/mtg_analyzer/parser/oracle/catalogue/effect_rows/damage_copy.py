@@ -7,6 +7,8 @@ import re
 
 from typing import Any, Optional
 from ..count_phrase import parse_count_phrase
+from ..quantifier_scope import object_set
+from ..characteristic_phrase import parse_object_phrase
 from ..referent_condition import PRONOUN_NOUN_ALT
 from ..static_handlers import type_addition_params
 from ..subgrammars import (
@@ -22,6 +24,8 @@ from ..subgrammars import (
     SELF_SUBJECT_PREFIX,
     TARGET,
     target_adjective_filter,
+    target_is_optional,
+    target_kind_allowed,
 )
 from ..subtype_vocabulary import SUBTYPES
 from ...spec import EffectSpec
@@ -134,7 +138,7 @@ def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: target of this effect's own.
 _DAMAGE_TO_SUBJECT_CONTROLLER_RE = compile_clause(
     rf"{SELF_SUBJECT_PREFIX}(?:also )?deals? "
-    r"(?P<n>\d+) damage to (?:that|the) (?:creature|permanent)'?s controller"
+    r"(?P<n>\d+|x) damage to (?:that|the) (?:creature|permanent|artifact|land|enchantment)'?s controller"
 )
 
 
@@ -208,7 +212,7 @@ def _damage_to_attacked(m: re.Match[str]) -> list[EffectSpec]:
 
 def _damage_to_prev_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "recipient_subject": "previous_subject_controller",
+        "amount": count_or_x_of(m.group("n")), "recipient_subject": "previous_subject_controller",
     })]
 
 
@@ -227,7 +231,7 @@ def _damage_to_prev_object(m: re.Match[str]) -> list[EffectSpec]:
 
 def _damage_to_trigger_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "recipient_subject": "trigger_subject_controller",
+        "amount": count_or_x_of(m.group("n")), "recipient_subject": "trigger_subject_controller",
     })]
 
 
@@ -985,12 +989,20 @@ def _prevent_divided_damage(m: re.Match[str]) -> list[EffectSpec]:
 #: with no ``divided`` flag (its default) — only this oracle-text
 #: recognition was missing.
 _PREVENT_DAMAGE_SINGLE_TARGET_RE = compile_clause(
-    r"prevent the next (?P<n>\d+) damage that would be dealt to any target this turn"
+    rf"prevent the next {COUNT_X} damage that would be dealt to {TARGET} this turn"
 )
 
 
-def _prevent_damage_single_target(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n")), "target_kind": "any"})]
+def _prevent_damage_single_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m["target"])
+    if not target_kind_allowed(kind, ("any", "creature", "player", "opponent", "planeswalker", "permanent")):
+        return None
+    return [EffectSpec("prevent_damage_shield", {
+        "amount": count_or_x_of(m["n"]), "target_kind": kind,
+        **({"optional": True} if target_is_optional(m) else {}),
+        **({"creature_filter": resolve_target_creature_state_filter(m["target"])}
+           if resolve_target_creature_state_filter(m["target"]) else {}),
+    })]
 
 
 #: PAR-139: "prevent the next N damage that would be dealt to target creature this turn" (Test of Faith, Temper's
@@ -1049,12 +1061,42 @@ def _prevent_damage_player_planeswalker_or_subtype(m: re.Match[str]) -> list[Eff
 #: (Security Blockade). The existing shield effect defaults to the ability's
 #: controller; unlike the adjacent any-target row, this has no target choice.
 _PREVENT_NEXT_DAMAGE_TO_YOU_RE = compile_clause(
-    r"prevent the next (?P<n>\d+) damage that would be dealt to you this turn"
+    # PAR-215: "the next X damage" and the "you and/or permanents you control" recipient union (Divine Deflection).
+    r"prevent the next (?P<n>\d+|x) damage that would be dealt to you"
+    r"(?: and/or (?P<scope>creatures|permanents) you control)? this turn"
 )
 
 
 def _prevent_next_damage_to_you(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n"))})]
+    n = m.group("n").lower()
+    params: dict = {"amount": "x" if n == "x" else int(n)}
+    if m.group("scope"):
+        params["recipient_scope"] = m.group("scope")
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-215: a shield followed by "If damage is prevented this way, ~ deals that much damage to <target>." (Divine
+#: Deflection, Vengeful Archon, Channel Harm) -- the amount actually prevented is the damage dealt, through the
+#: `reflexive_damage` rider (`RulesEngine.apply_prevent_rider`, RULE 603.12): a fresh triggered ability whose target is
+#: chosen when it is put on the stack. "you may have" makes the target optional.
+_PREVENT_REFLEXIVE_TARGETS: dict[str, str] = {
+    "any target": "any", "target player or planeswalker": "player_or_planeswalker", "target creature": "creature",
+}
+_PREVENT_SHIELD_THEN_REFLEXIVE_RE = compile_clause(
+    r"(?P<shield>prevent (?:the next (?:\d+|x)|all) damage that would be dealt to [^.]+?(?: this turn)?(?: by [^.]+?)?)\.\s+"
+    r"if damage is prevented this way, (?P<may>you may have )?~ (?:deals|deal) that much damage to "
+    rf"(?P<tgt>{'|'.join(_PREVENT_REFLEXIVE_TARGETS)})"
+)
+
+
+def _prevent_shield_then_reflexive(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    shield = match_clause(m.group("shield"))
+    if shield is None or len(shield) != 1 or shield[0].type != "prevent_damage_shield" or "rider" in shield[0].params:
+        return None
+    rider: dict = {"kind": "reflexive_damage", "target_kind": _PREVENT_REFLEXIVE_TARGETS[m.group("tgt")]}
+    if m.group("may"):
+        rider["optional"] = True
+    return [EffectSpec("prevent_damage_shield", {**shield[0].params, "rider": rider})]
 
 
 #: RULE 615's unscoped Fog-shaped form — "Prevent all combat damage that
@@ -1090,11 +1132,19 @@ def _prevent_all_combat_damage_to_self(m: re.Match[str]) -> list[EffectSpec]:
 
 
 _PREVENT_ALL_COMBAT_DAMAGE_DEALT_SELF_RE = compile_clause(
-    r"prevent all combat damage (?:this creature|this permanent|~) would deal this turn"
+    rf"prevent all combat damage (?P<by>that would be dealt by )?(?:{TARGET}|this creature|this permanent|~)(?(by)| would deal) this turn"
 )
 
 
 def _prevent_all_combat_damage_dealt_self(m: re.Match[str]) -> list[EffectSpec]:
+    if m.groupdict().get('target'):
+        kind = resolve_target_kind(m['target'])
+        if not target_kind_allowed(kind, ('creature', 'attacking_or_blocking_creature')):
+            return None
+        return [EffectSpec('prevent_combat_damage_dealt', {
+            'target_kind': kind, 'creature_filter': resolve_target_creature_state_filter(m['target']),
+            **optional_param(m),
+        })]
     return [EffectSpec("prevent_combat_damage_dealt", {})]
 
 
@@ -1122,9 +1172,9 @@ _PREVENT_SOURCE_FILTER_PHRASES: dict[str, dict] = {
 }
 #: Built from the dict above, longest-alternative-first so e.g. "attacking
 #: creatures without flying" wins over the shorter "attacking creatures".
-_PREVENT_SOURCE_FILTER_ALT = "|".join(
-    sorted(_PREVENT_SOURCE_FILTER_PHRASES, key=len, reverse=True)
-)
+# The shared object grammar validates this slot completely in the builder.
+_PREVENT_SOURCE_FILTER_ALT = r"[a-z][a-z0-9 '/+-]*"
+
 
 
 def _parse_prevent_source_filter(phrase: str) -> Optional[dict]:
@@ -1134,7 +1184,17 @@ def _parse_prevent_source_filter(phrase: str) -> Optional[dict]:
     for pattern, filt in _PREVENT_SOURCE_FILTER_PHRASES.items():
         if re.fullmatch(pattern, text):
             return dict(filt)
-    return None
+    parsed = parse_object_phrase(text, plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    if controller not in (None, 'you', 'not_you'):
+        return None
+    return {'object_filter': filt, **({'controller': controller} if controller else {})}
+
+
+#: PAR-216: the damage-source phrase grammar, shared with `effect_rows.damage_prevention`.
+parse_prevent_source_filter = _parse_prevent_source_filter
 
 
 #: PAR-78: bare self — "Prevent all damage that would be dealt to
@@ -1159,13 +1219,32 @@ def _prevent_all_damage_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("prevent_damage_shield", params)]
 
 
+#: PAR-215: "Prevent all damage that would be dealt **by creatures** this turn. You gain life equal to the damage
+#: prevented this way." (Chant of Vitu-Ghazi) -- a recipient-less shield on a source class
+#: (`RulesEngine._prevent_damage_by_sources`), with the optional gain-life tally rider.
+_PREVENT_ALL_DAMAGE_BY_SOURCES_RE = compile_clause(
+    rf"prevent all damage that would be dealt by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}) this turn"
+    r"(?:\.\s+(?P<life>you gain life equal to the damage prevented this way))?"
+)
+
+
+def _prevent_all_damage_by_sources(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    source_filter = _parse_prevent_source_filter(m.group("filter"))
+    if source_filter is None:
+        return None
+    params: dict = {"amount": "all", "by_sources_only": True, "source_filter": source_filter}
+    if m.group("life"):
+        params["rider"] = {"kind": "gain_life", "recipient": "you"}
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
 #: PAR-78: the untargeted "you" shield — "Prevent all damage that would be
 #: dealt to you[ **and** creatures/permanents you control][ this turn][
 #: **by** `<source filter>`]." (Solitary Confinement/Endure/Safe Passage/
 #: Deep Wood/Scarecrow/Eerie Interference/…).
 _PREVENT_ALL_DAMAGE_YOU_RE = compile_clause(
     r"prevent all damage that would be dealt to you"
-    r"(?: and (?P<scope>creatures|permanents) you control)?"
+    r"(?: and (?P<scope>creatures|permanents|planeswalkers) you control)?"
     r"(?: this turn)?"
     rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
 )
@@ -1234,18 +1313,26 @@ def _prevent_all_damage_creatures(m: re.Match[str]) -> Optional[list[EffectSpec]
 #: another word.
 _PREVENT_TARGET_SUBTYPE_WORDS: frozenset[str] = frozenset({"merfolk", "kithkin"})
 _PREVENT_ALL_DAMAGE_TARGET_RE = compile_clause(
-    r"prevent all damage that would be dealt to target "
+    rf"prevent all (?P<combat>combat )?damage that would be dealt to (?:{TARGET}|target "
     r"(?:(?P<tapped>tapped) )?(?:(?P<legendary>legendary) )?"
     r"(?:(?P<subtype1>[a-z]+)(?: or (?P<subtype2>[a-z]+))? )?creature"
     r"(?: with power (?P<minpower>\d+) or greater)?"
-    r" this turn"
+    r") this turn"
     rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
 )
 
 
 def _prevent_all_damage_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"amount": "all", "target_kind": "creature"}
-    creature_filter: dict = {}
+    target = m.groupdict().get("target")
+    kind = resolve_target_kind(target) if target else "creature"
+    if not target_kind_allowed(kind, ("any", "creature", "player", "opponent", "planeswalker", "permanent")):
+        return None
+    params: dict = {"amount": "all", "target_kind": kind}
+    if m["combat"]:
+        params["combat_only"] = True
+    if target and target_is_optional(m):
+        params["optional"] = True
+    creature_filter: dict = resolve_target_creature_state_filter(target) or {} if target else {}
     minpower = m.groupdict().get("minpower")
     if minpower:
         creature_filter["min_power"] = int(minpower)
@@ -1449,12 +1536,25 @@ def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Opt
 #: Fury) -- the announced player AND that player's creature group (Urabrask's shape). Read as the ordinary
 #: "each creature target player controls" mass hit plus the player themself as a scoped recipient.
 _DAMAGE_TARGET_PLAYER_AND_GROUP_RE = compile_clause(
-    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to (?P<who>target player|target opponent) "
-    r"and each (?P<group>[a-z' -]+?) (?:that player|they) controls?"
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to (?P<who>target (?:player|opponent)(?: or planeswalker)?) "
+    r"and (?:(?P<group_n>\d+|x) damage to )?each (?P<group>[a-z' -]+?) "
+    r"(?P<controller>that player or that planeswalker's controller|that player|they) controls?"
 )
 
 
 def _damage_target_player_and_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if 'planeswalker' in m['who'] or m['group_n']:
+        if ('planeswalker' in m['who']) != ('planeswalker' in m['controller']):
+            return None
+        group = object_set(m['group'], reading.only())
+        if group is None or group.get('of') != 'any':
+            return None
+        n = m['n']
+        params = {'amount': 'x' if n == 'x' else int(n), 'group': {**group, 'of': 'you'},
+                  'group_player': resolve_target_kind(m['who']), 'group_and_players': 'scoped_player'}
+        if m['group_n']:
+            params['group_amount'] = 'x' if m['group_n'] == 'x' else int(m['group_n'])
+        return [EffectSpec('damage', params)]
     inner = match_clause_once(
         f"~ deals {m.group('n')} damage to each {m.group('group')} {m.group('who')} controls",
         reading=reading.only(),
@@ -1796,7 +1896,30 @@ def _amass_untyped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _AMASS_UNTYPED_RE = compile_clause(rf"amass {NUMBER}")
 
 
+# RULE 510.1: this is an assignment prohibition, not damage prevention.
+_ASSIGN_NO_COMBAT_DAMAGE_RE = compile_clause(
+    r"(?P<subject>~|it|that creature|the first creature|the attacking creature) assigns no combat damage this turn"
+)
+
+
+def _assign_no_combat_damage(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    subject = m.group("subject")
+    params = {}
+    if subject != "~":
+        if reading.group_subject:
+            params["subject"] = "trigger_subject"
+        elif reading.attached_subject:
+            # The trigger names the firing host, including after detachment.
+            params["subject"] = "trigger_subject"
+        elif reading.previous_subject:
+            params["subject"] = "previous_target"
+        elif not reading.self_subject or subject not in {"it", "that creature"}:
+            return None
+    return [EffectSpec("assign_no_combat_damage", params)]
+
+
 ROWS: list[EffectHandler] = [
+    EffectHandler("assign_no_combat_damage", _ASSIGN_NO_COMBAT_DAMAGE_RE, _assign_no_combat_damage, reading_aware=True),
     # RULE 701.47/48 Amass "<Type> N" — "amass Orcs 1"/"amass Zombies 2".
     # Tried before the untyped row below since a real type word always
     # parses here first (the untyped row's bare NUMBER can never see it —
@@ -2106,6 +2229,16 @@ ROWS: list[EffectHandler] = [
         "prevent_shield_then_rider",
         _PREVENT_SHIELD_THEN_RIDER_RE,
         _prevent_shield_then_rider,
+    ),
+    EffectHandler(
+        "prevent_all_damage_by_sources",
+        _PREVENT_ALL_DAMAGE_BY_SOURCES_RE,
+        _prevent_all_damage_by_sources,
+    ),
+    EffectHandler(
+        "prevent_shield_then_reflexive",
+        _PREVENT_SHIELD_THEN_REFLEXIVE_RE,
+        _prevent_shield_then_reflexive,
     ),
     EffectHandler(
         "prevent_damage_player_planeswalker_or_subtype",

@@ -71,7 +71,7 @@ _RESOURCE_AGGREGATES: dict[str, Any] = {"max": max, "min": min, "sum": sum}
 #: 608.2). Maintained by `_apply_effects_partitioned` and reset per
 #: resolution, which is exactly the scope "this way" means.
 THIS_WAY_TALLIES: frozenset[str] = frozenset(
-    {"life_lost_this_way", "excess_damage_this_way", "counters_removed_this_way",
+    {"life_lost_this_way", "excess_damage_this_way", "damage_dealt_this_way", "counters_removed_this_way",
      "permanents_destroyed_this_way", "objects_exiled_this_way"}
 )
 
@@ -80,6 +80,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
     {
         # A plain number, so a body can be written uniformly whether its
         # magnitude is measured or printed.
+        "event_cursor",  # RULE 608.2c: this instruction's serializable event-window start
         "physical_property",  # an explicitly observed printing/face fact
         "fixed",  # + ``amount``
         # RULE 109.3 off a referent — the ``<who>_<char>`` grammar
@@ -134,6 +135,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the revealed card" (Counterbalance) reads ``mana_value`` off the
         # `SPELL_CAST` event. Non-numeric / absent field → 0.
         "trigger_event",  # + ``field`` (the event key to read)
+        "event_count",  # + ``trigger``: reuse the turn-history condition's event predicate
         # RULE 508.3a: this trigger head's filtered count, captured at declaration.
         "attackers_declared",
         # "N, or M if <condition>" — the override every "…instead" card prints
@@ -299,9 +301,11 @@ def _base(
         incarnation = getattr(context, 'resolving_source_incarnation', None)
         if (reference is not None and incarnation is not None
                 and incarnation != getattr(source, 'zone_incarnation', None)):
-            from copy import copy
-            reference = copy(source)
-            reference.counters = effect_conditions.source_counters(context, source)
+            reference = context.state.zone_visit_sources.get((source.instance_id, incarnation))
+            if reference is None:
+                from copy import copy
+                reference = copy(source)
+                reference.counters = effect_conditions.source_counters(context, source)
         if amount.get("reference") and amount["reference"] != "self":
             # PAR-123: "for each creature blocking **it**" / "for each **other** attacking creature that
             # shares a creature type with **it**" — the counted-against object is the one a pronoun
@@ -352,6 +356,25 @@ def _base(
             return 0
         return int(raw)
 
+    if kind == "event_cursor":
+        # Clone/undo prunes older turns; a current-turn ordinal stays stable.
+        return sum(1 for _ in context.state.events_this_turn())
+
+    if kind == "event_count":
+        from .static_conditions import _events_this_turn_matching
+
+        trigger = amount.get("trigger")
+        if not isinstance(trigger, dict) or not trigger.get("event") or controller_id is None:
+            return 0
+        reference = source
+        if source is not None and source.controller_id != controller_id:
+            from copy import copy
+
+            # RULE 109.5: "you" is the resolving ability's controller, even after its source changes control.
+            reference = copy(source)
+            reference.controller_id = controller_id
+        return _events_this_turn_matching(context.state, trigger, reference, controller_id, amount.get("scope"))
+
     if kind == "chosen_colors_shared_with_trigger_spell":
         event = getattr(context, "trigger_event", None) or {}
         spell = context.state.find_object(event.get("instance_id")) if event.get("instance_id") is not None else None
@@ -377,13 +400,12 @@ def _base(
         return total
 
     if kind in ("this_way_count", "this_way_sum"):
-        matching = this_way_matching(context, source, amount)
         if kind == "this_way_count":
-            return len(matching)
+            return len(this_way_matching(context, source, amount))
         characteristic = str(amount.get("characteristic", "mana_value"))
         if characteristic not in CHARACTERISTICS:
             return 0
-        return sum(int(getattr(o, characteristic, 0) or 0) for o in matching if not hasattr(o, "get"))  # events carry none
+        return this_way_sum(context, source, amount, characteristic)
 
     if kind in ("discarded_this_way", "sacrificed_this_way"):
         return len(discarded_this_way(
@@ -525,6 +547,25 @@ def _base(
         characteristic = str(amount.get("characteristic", ""))
         if characteristic not in CHARACTERISTICS:
             return 0
+        event_key = amount.get("event_key")
+        if amount.get("of") == "trigger_subject" and isinstance(event_key, str):
+            event = getattr(context, "trigger_event", None) or {}
+            subject_id = event.get(event_key)
+            subject = context.state.find_object(subject_id)
+            expected_visit = (event.get("subject_zone_incarnations") or {}).get(event_key)
+            if (expected_visit is not None
+                    and (subject is None or subject.zone_incarnation != expected_visit)):
+                # RULE 608.2h/400.7: the firing object is the exact old visit,
+                # even if its physical card has returned before resolution.
+                snapshot = context.state.zone_visit_characteristics.get((subject_id, expected_visit), {})
+                return int(snapshot.get(characteristic, 0))
+        expected_source = getattr(context, "resolving_source_incarnation", None)
+        if (amount.get("of") == "source" and source is not None and expected_source is not None
+                and getattr(source, "zone_incarnation", None) != expected_source):
+            # RULE 608.2h: the resolving ability still names the original
+            # source, not a newer visit of the same physical card.
+            snapshot = context.state.zone_visit_characteristics.get((source.instance_id, expected_source), {})
+            return int(snapshot.get(characteristic, 0))
         if str(amount.get("of")) == "trigger_subject" and characteristic in ("power", "toughness"):
             # RULE 400.7: for a dies/leaves trigger the subject is gone by now, so its firing
             # event's snapshot of ``power``/``toughness`` beats a stale re-lookup.
@@ -559,6 +600,9 @@ def _base(
         return int(getattr(subject, "x_paid", 0) or 0)
 
     if kind == "counters_removed_as_cost":
+        event = getattr(context, "trigger_event", None)
+        if event is not None and event.get("counters_removed_as_cost") is not None:
+            return int(event.get("counters_removed_as_cost"))
         # PAR-67 (Sage of Hours): "Remove all +1/+1 counters from this
         # creature: for each five counters removed this way, take an extra
         # turn after this one." — the removal happened as this ability's own
@@ -686,12 +730,43 @@ def this_way_matching(context: "GameContext", source: Any, spec: dict[str, Any])
     return [o for o in this_way_objects(context, source, pool) if this_way_matches(o, spec)]
 
 
+def this_way_sum(context: "GameContext", source: Any, spec: dict[str, Any], characteristic: str) -> int:
+    """Total ``characteristic`` over the members of ``spec["pool"]`` that satisfy ``spec``'s filter.
+
+    RULE 608.2h: a discarded / sacrificed object is measured by the characteristics it last had where it was (hand /
+    battlefield), which its ``DISCARD_CARD`` / ``SACRIFICE`` event snapshots -- the object itself is already in
+    another zone (new object, RULE 400.7) or, for a token, gone. So those pools sum the *event* values, one per zone
+    visit (no double counting, tokens included); a subtype / colour filter still looks at the object, which a
+    vanished token cannot satisfy. The object pools (exiled / destroyed / milled) read the objects directly."""
+    pool = str(spec.get("pool", ""))
+    if pool not in THIS_WAY_EVENTS:
+        return sum(int(getattr(o, characteristic, 0) or 0) for o in this_way_matching(context, source, spec))
+    events = discarded_this_way(context, source, spec.get("card_type"), bool(spec.get("negate")), pool)
+    if spec.get("subtype") or spec.get("color"):
+        events = [e for e in events
+                  if (obj := context.state.find_object(e.get("instance_id"))) is not None and this_way_matches(obj, spec)]
+    return sum(int(e.get(characteristic, 0) or 0) for e in events)
+
+
+def type_marker_matches(types: Any, wanted: str) -> bool:
+    """Whether the card-type words ``types`` satisfy ``wanted``. RULE 110.4: "permanent" (and "nonland_permanent") is
+    not a card type but a marker for having at least one permanent type, so it never appears in a type set itself."""
+    from ..models.cards.card_query import PERMANENT_CARD_TYPES  # the one permanent-type list
+
+    words = {str(t).lower() for t in types}
+    if wanted == "permanent":
+        return bool(words & PERMANENT_CARD_TYPES)
+    if wanted == "nonland_permanent":
+        return bool(words & PERMANENT_CARD_TYPES) and "land" not in words
+    return wanted in words
+
+
 def this_way_matches(obj: Any, spec: dict[str, Any]) -> bool:
     """Whether a pooled object satisfies the optional ``card_type`` (+ ``negate``) / ``subtype`` / ``color`` of ``spec``."""
     from .continuous import card_types_of, has_subtype  # function-scoped: continuous imports this module
 
     card_type = str(spec.get("card_type") or "").lower()
-    if card_type and ((card_type in card_types_of(obj)) == bool(spec.get("negate"))):
+    if card_type and (type_marker_matches(card_types_of(obj), card_type) == bool(spec.get("negate"))):
         return False
     subtype = str(spec.get("subtype") or "").lower()
     if subtype and not has_subtype(obj, subtype):
@@ -716,4 +791,4 @@ def discarded_this_way(
     events = [e for e in context.state.event_log[start:] if e.type == kind]
     if not wanted:
         return events
-    return [e for e in events if (wanted in (e.get("object_types") or ())) != negate]
+    return [e for e in events if type_marker_matches(e.get("object_types") or (), wanted) != negate]

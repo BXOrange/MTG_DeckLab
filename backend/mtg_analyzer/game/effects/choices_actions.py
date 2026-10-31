@@ -1,6 +1,7 @@
 """Choices, voting, keyword actions, combat, and player-turn effects."""
 from __future__ import annotations
 
+from ...models.cards.card_query import PERMANENT_CARD_TYPES
 from .core import GameEffect
 from .. import continuations
 from ._runtime import install, register
@@ -396,6 +397,17 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.objects = chosen
                 elif hasattr(effect, "target"):
                     effect.target = chosen[0] if chosen else None
+        if self.capture == "targets":
+            # "…its controller may pay {1} or {2}. If that player doesn't, destroy that creature at end of combat."
+            # (Winter's Chill, MEC-131) — inside a per-target iteration or payment branch the object is what this
+            # effect was *applied to* (RULE 603.7c: fixed now), not the resolving spell's own earlier pick, and never
+            # the source. Baked like every other capture so the delayed firing names this very zone visit.
+            made = [t for t in (targets or []) if hasattr(t, "instance_id")]
+            for effect in baked:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+                elif hasattr(effect, "target") and made:
+                    effect.target = made[0]
         if self.capture == "trigger_related":
             # "Whenever ~ blocks or becomes blocked by a non-Wall creature, destroy **that
             # creature** at end of combat." (the Basilisks, PAR-119) — the creature(s) on the
@@ -454,6 +466,32 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.objects = made
                 elif hasattr(effect, "target") and made:
                     effect.target = made[0]
+        if self.capture == "source_and_blocked":
+            # "When ~ blocks, at end of combat, destroy it and all creatures it blocked this turn." (Defiant
+            # Vanguard) — the source plus every attacker it was declared as a blocker of this turn (RULE 509.1a),
+            # read off the turn's BLOCKS log keyed by zone stay (RULE 400.7) and baked now, so the set survives to
+            # the delayed firing even when the source has died by then (RULE 608.2h last known information).
+            made = [self.source] if self.source is not None else []
+            if self.source is not None:
+                for event in context.state.events_this_turn():
+                    if (
+                        event.type == "BLOCKS" and event.get("instance_id") == self.source.instance_id
+                        and event.get("instance_zone_incarnation") == self.source.zone_incarnation
+                    ):
+                        incarnations = event.get("related_incarnations") or {}
+                        for iid in event.get("related_ids") or []:
+                            blocked = context.state.find_object(iid)
+                            if (blocked is not None and blocked not in made
+                                    and incarnations.get(iid) == blocked.zone_incarnation):
+                                made.append(blocked)
+            for effect in baked:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+        for effect in baked:
+            # RULE 400.7 / 603.7c: the objects fixed now are this zone stay's; one that left and came back before
+            # the delayed ability fires is a new object it no longer names.
+            if hasattr(effect, "incarnations") and getattr(effect, "objects", None):
+                effect.incarnations = {o.instance_id: o.zone_incarnation for o in effect.objects}
         # "Its controller may draw up to two cards at the beginning of the
         # next turn's upkeep." (Arcane Denial's own first sentence) — the
         # delayed draw belongs to the countered spell's controller, not
@@ -487,7 +525,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.player = target_player
         for effect in baked:
             if (hasattr(effect, "_captured_target_incarnation") and effect.target_spec is None
-                    and self.capture in {"created_objects", "previous_or_self", "previous_targets",
+                    and self.capture in {"created_objects", "previous_or_self", "previous_targets", "targets",
                                          "trigger_related", "trigger_subject", "self"}):
                 # RULE 603.7c: an explicit source still names the visit that
                 # created this ability if it left before the ability resolved.
@@ -781,9 +819,9 @@ class PayEnergyThenEffect(GameEffect):
 
     ``effects`` are whitelisted descriptor dicts, built into live effects
     lazily at resolution (mirroring `InstallTemporaryPlayerTriggerEffect`);
-    only untargeted follow-ups are modeled today (every real energy card
-    with this rider creates a token / gains life / draws — none needs a
-    freely-chosen target here). If the controller can't afford ``amount``
+    an "If you do" follow-up exposes its target requirements on the
+    enclosing ability and resumes with those selected targets. If the
+    controller can't afford ``amount``
     energy, the payment simply never happens (no choice offered).
     """
 
@@ -810,6 +848,21 @@ class PayEnergyThenEffect(GameEffect):
         self.variable = bool(variable)
 
     @property
+    def target_specs(self) -> list[TargetSpec]:
+        # RULE 603.3d/601.2c: an "If you do" branch announces targets
+        # before the enclosing trigger resolves and offers its payment.
+        from .composition import _build
+
+        if self.target_spec is not None:
+            # Confiscation Coup names its existing spell target again in
+            # the branch; it does not announce a second independent pick.
+            return super().target_specs
+        return super().target_specs + [
+            spec for effect in _build(self.inner_specs, self.source)
+            for spec in effect.target_specs
+        ]
+
+    @property
     def owns_x_sentinel(self) -> bool:
         """A variable payment announces its own X when the choice is answered (ENG-48's `PayCostThenEffect` idiom):
         the branch specs' ``"x"`` is the paid amount, so `RulesEngine._substitute_x` must not fill it first."""
@@ -817,6 +870,20 @@ class PayEnergyThenEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
+        if self.target_spec is None and len(self.target_specs) == 1 and targets:
+            # RULE 608.2b: do not offer payment after its sole target
+            # becomes illegal. Inner effects are constructed after payment.
+            from ..targeting import legal_targets
+
+            legal_ids = {
+                option.get("instance_id", option.get("player_id", option.get("stack_id")))
+                for option in legal_targets(context.state, player.id, self.target_specs[0],
+                                            source=self.source, trigger_event=context.trigger_event)
+            } if player is not None else set()
+            targets = [target for target in (targets or [])
+                       if getattr(target, "instance_id", getattr(target, "id", None)) in legal_ids]
+            if not targets:
+                return
         amount = self.amount
         if self.amount_from_target_mana_value:
             target = next((t for t in (targets or []) if t is not None), None)
@@ -828,6 +895,7 @@ class PayEnergyThenEffect(GameEffect):
             return  # can't pay — the optional payment simply doesn't happen
         context.engine._request_pay_energy_then(
             player, floor, self.inner_specs, self.source, variable=self.variable, targets=targets,
+            trigger_event=context.trigger_event, previous_targets=context.previous_targets,
         )
 
 
@@ -954,14 +1022,19 @@ class ReflexiveTriggerEffect(GameEffect):
     def __init__(
         self, then_trigger: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        then_trigger_condition: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
+        #: RULE 603.12 + 603.4: "When you do, if <condition>, <effect>" -- checked as the reflexive trigger is
+        #: created, so a false condition puts nothing on the stack and announces no target.
+        self.then_trigger_condition = then_trigger_condition
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not self.then_trigger_specs:
             return
-        context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source)
+        context.enqueue_reflexive_trigger(
+            self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 
 
 class PayCostThenEffect(GameEffect):
@@ -1009,8 +1082,13 @@ class PayCostThenEffect(GameEffect):
         x_from_trigger_event: Optional[str] = None,
         pay_life_x: bool = False,
         x_cap_from_trigger_event: Optional[str] = None,
+        x_cap_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "…you may pay {X}. If you do, draw X cards. X can't be greater than the amount of life you gained this turn."
+        #: (Shanna, Purifying Blade; Mortarion) — a `continuous.count_selector` name evaluated for the payer when the
+        #: offer is built, capping the largest X offered (RULE 107.3a: X is announced as part of paying).
+        self.x_cap_selector = x_cap_selector
         #: "…you may pay {X}, where X is less than or equal to the amount of life you gained." (Well of Lost Dreams) —
         #: the largest X offered is capped by this field of the firing event.
         self.x_cap_from_trigger_event = x_cap_from_trigger_event
@@ -1210,6 +1288,10 @@ class PayCostThenEffect(GameEffect):
             if self.x_cap_from_trigger_event:
                 raw_cap = (context.trigger_event or {}).get(self.x_cap_from_trigger_event)
                 x_cap = int(raw_cap) if isinstance(raw_cap, int) and not isinstance(raw_cap, bool) else 0
+            if self.x_cap_selector:
+                from .. import continuous  # function-scoped: effects<->continuous cycle
+
+                x_cap = max(0, continuous.count_selector(context.state, player.id, self.x_cap_selector, self.source))
             self._open_pay_cost_then(context, player, cost, targets, trigger_x, x_cap)
         finally:
             context.acting_player_id = outer_acting
@@ -1300,10 +1382,16 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         cost: str = "",
         effects: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        paid_effects: Optional[list[dict[str, Any]]] = None,
+        opponents_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
         self.inner_specs = list(effects or [])
+        #: PAR-208: "If a player does, <effect>" -- the payoff run once when the first player pays.
+        self.paid_specs = list(paid_effects or [])
+        #: PAR-208: "any opponent may ..." -- the ability's controller is not asked.
+        self.opponents_only = bool(opponents_only)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..costs import parse_activation_cost  # function-scoped: import cycle
@@ -1313,6 +1401,7 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
             return
         context.engine._request_all_players_decline_or(
             parse_activation_cost(self.cost_text), self.inner_specs, self.source, controller.id,
+            paid_effect_specs=self.paid_specs, opponents_only=self.opponents_only,
         )
 
 
@@ -1882,7 +1971,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
         from copy import deepcopy
         from .. import combat, continuous, effect_conditions
 
-        allowed = {"artifact", "battle", "creature", "enchantment", "land", "planeswalker",
+        allowed = {*PERMANENT_CARD_TYPES,  # RULE 110.4
                    *continuous._BASIC_LAND_TYPES}  # RULE 305.6: land-type keepers match by subtype
         counted = self.keep_count is not None
         if (self.action != "sacrifice_rest" or self.rest_action not in self.KEEP_REST_ACTIONS
@@ -2948,10 +3037,14 @@ class SacrificeSpecificEffect(GameEffect):
         objects: list["GameObject"],
         delay_step: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        controlled_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.objects = objects
         self.delay_step = delay_step
+        #: RULE 701.17a: only a permanent's controller can sacrifice it, so "sacrifice it" resolved by a player who no
+        #: longer controls the object does nothing (Time Elemental, "you can't sacrifice it" once control changed).
+        self.controlled_only = bool(controlled_only)
         #: instance id -> the zone stay it was baked in; when set, an object that has since left and come
         #: back is a new object (RULE 400.7) and is not sacrificed (PAR-160).
         self.incarnations: Optional[dict[str, int]] = None
@@ -2975,6 +3068,9 @@ class SacrificeSpecificEffect(GameEffect):
             return
         for obj in list(self.objects):
             if self.incarnations is not None and self.incarnations.get(obj.instance_id) != obj.zone_incarnation:
+                continue
+            if (self.controlled_only and context.resolving_controller_id is not None
+                    and obj.controller_id != context.resolving_controller_id):
                 continue
             if obj in context.state.battlefield:
                 # RULE 701.17a: a sacrifice is a non-destructive move to the
@@ -3059,11 +3155,46 @@ class DestroySpecificEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.objects = objects
+        #: instance id -> the zone stay it was baked in (`CreateDelayedTriggerEffect`): an object that has since left
+        #: and come back is a new object (RULE 400.7) and the delayed destroy leaves it alone.
+        self.incarnations: Optional[dict[str, int]] = None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for obj in list(self.objects):
+            if self.incarnations is not None and self.incarnations.get(obj.instance_id) != obj.zone_incarnation:
+                continue
             if obj in context.state.battlefield:
                 context.engine.destroy(obj)
+
+
+class DamageSpecificEffect(GameEffect):
+    """The ability's source deals ``amount`` damage to the exact creatures baked into this effect (RULE 120.3).
+
+    The damage sibling of `DestroySpecificEffect`, for a delayed "~ deals N damage to that creature at end of
+    combat" (Sawtooth Ogre): the recipients were fixed when the delayed ability was created (RULE 603.7c). The
+    *source* is read by last known information (RULE 608.2h): it still deals the damage when it died or left the
+    battlefield in the meantime ("the damage happens even if this card is not on the battlefield at the end of
+    combat"). A recipient that left (and, if it came back, is a new object, RULE 400.7) is simply not damaged.
+    """
+
+    def __init__(
+        self,
+        objects: list["GameObject"],
+        amount: int = 1,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.objects = objects
+        self.amount = int(amount)
+        #: instance id -> baked zone stay, as on `DestroySpecificEffect`.
+        self.incarnations: Optional[dict[str, int]] = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            if self.incarnations is not None and self.incarnations.get(obj.instance_id) != obj.zone_incarnation:
+                continue
+            if obj in context.state.battlefield:
+                context.deal_damage(obj, self.amount, self.source)
 
 
 class ReturnSpecificToHandEffect(GameEffect):
@@ -3422,7 +3553,8 @@ class ScrollRackFinishEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        ids = list(getattr(self.source, "exiled_with_ids", None) or [])
+        from ..linked_exile import linked_cards
+        ids = [obj.instance_id for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)]
         self.source.exiled_with_ids = []
         if not ids:
             return
@@ -3712,8 +3844,11 @@ class TakeExtraTurnEffect(GameEffect):
     the number of "time" votes.
     """
 
-    def __init__(self, count: Any = 1, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, count: Any = 1, source: Optional["GameObject"] = None,
+                 target_kind: Optional[str] = None) -> None:
         super().__init__(source)
+        if target_kind in ("player", "opponent"):
+            self.target_spec = TargetSpec(kind=target_kind)
         # Not cast to ``int`` here (PAR-67, Sage of Hours): a `bind`
         # (RULE 608.2) node substitutes its sentinel only at `apply()` time,
         # so a `bind`-measured ``count`` still reads as ``"$n"`` while
@@ -3723,7 +3858,7 @@ class TakeExtraTurnEffect(GameEffect):
         self.count = count
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
+        player = (targets[0] if targets else None) if self.target_spec is not None else _controller_of(self.source, context)
         if player is None:
             return
         try:

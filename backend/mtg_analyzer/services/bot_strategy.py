@@ -55,7 +55,14 @@ ROLE_PATTERNS = {
     'lifegain': r'gain .*life|whenever you gain life',
     'voltron': r'equip|enchanted creature|equipped creature',
     'spellslinger': r'whenever you cast .*instant|whenever you cast .*sorcery|noncreature spell',
-    'wincon': r'you win the game|opponent loses the game|each opponent loses|each opponent.*damage',
+    'poison': r'infect|toxic \d+|poison counter|corrupted|proliferate',
+    'group-slug': r'each player loses|whenever a player|whenever an opponent casts|whenever a land is tapped',
+    'stompy': r'power 4 or greater|power 5 or greater|greater than its base power',
+    'vehicles': r'crew \d+|vehicle',
+    'energy': r'pay \{e\}|get \{e\}|energy counter',
+    'cascade': r'cascade|discover \d+',
+    'clones': r'copy of target|token that\'s a copy|as a copy of',
+    'wincon': r'you win the game|opponent loses the game|each opponent loses|each opponent.*damage|creatures you control get \+\d+/\+\d+|trample.*until end of turn',
 }
 
 
@@ -89,6 +96,34 @@ class ComboPlan:
     outputs: tuple[str, ...] = ()
 
 
+ARCHETYPE_PHILOSOPHIES = {
+    # combat
+    'aggro': 'combat', 'stompy': 'combat', 'voltron': 'combat', 'extra-combats': 'combat',
+    'flying': 'combat', 'defender': 'combat', 'deathtouch': 'combat', 'mutate': 'combat',
+    # control
+    'control': 'control', 'stax': 'control', 'hatebears': 'control', 'pillowfort': 'control',
+    'group-hug': 'control', 'group-slug': 'control', 'goad': 'control', 'monarch': 'control',
+    'dungeon': 'control', 'theft': 'control', 'wheels': 'control', 'flash': 'control',
+    # combo
+    'combo': 'combo', 'burn': 'combo', 'lifegain': 'combo', 'blink': 'combo',
+    'superfriends': 'combo', 'legendary-matters': 'combo', 'sagas': 'combo', 'morph': 'combo', 'chaos': 'combo',
+    # resources
+    'artifacts-matter': 'resources', 'tokens': 'resources', 'treasure': 'resources', 'food': 'resources',
+    'clues': 'resources', 'vehicles': 'resources', 'energy': 'resources', 'equipment': 'resources',
+    'auras': 'resources', 'enchantress': 'resources', 'snow': 'resources',
+    # graveyard
+    'aristocrats': 'graveyard', 'reanimator': 'graveyard', 'graveyard-recursion': 'graveyard',
+    'madness': 'graveyard', 'pod': 'graveyard', 'mill': 'graveyard', 'cycling': 'graveyard',
+    # spells
+    'spellslinger': 'spells', 'spells-matter-cantrips': 'spells', 'storm': 'spells', 'cascade': 'spells',
+    'clones': 'spells', 'polymorph': 'spells', 'extra-turns': 'spells',
+    # lands
+    'landfall': 'lands', 'ramp': 'lands', 'land-destruction': 'lands',
+    # counters
+    'plus1-counters': 'counters', 'proliferate': 'counters', 'poison': 'counters'
+}
+
+
 @dataclass
 class DeckStrategy:
     cards: dict[str, CardPlan] = field(default_factory=dict)
@@ -96,11 +131,14 @@ class DeckStrategy:
     commanders: frozenset[str] = frozenset()
     identity: frozenset[str] = frozenset()
     archetype: str = 'midrange'
+    archetypes: tuple[str, ...] = ('midrange',)
+    philosophies: tuple[str, ...] = ('midrange',)
     themes: frozenset[str] = frozenset()
     combos: tuple[ComboPlan, ...] = ()
 
 
-def build_strategy(cards: list[Any], commanders: list[Any], combos=None) -> DeckStrategy:
+def build_strategy(cards: list[Any], commanders: list[Any], combos=None,
+                   archetypes: tuple[str, ...] | list[str] | None = None) -> DeckStrategy:
     plans = [CardPlan.from_card(c) for c in cards + commanders]
     counts = Counter(normalize(c.name) for c in plans)
     if combos is None:
@@ -138,22 +176,42 @@ def build_strategy(cards: list[Any], commanders: list[Any], combos=None) -> Deck
     for p in plans:
         for role in p.roles:
             weights[role] += 3 if normalize(p.name) in commander_names else 1
-    themes = frozenset(r for r in ('tokens', 'graveyard', 'sacrifice', 'lifegain', 'voltron', 'spellslinger')
+    themes = frozenset(r for r in ('tokens', 'graveyard', 'sacrifice', 'lifegain', 'voltron',
+                                  'spellslinger', 'poison', 'group-slug', 'stompy',
+                                  'vehicles', 'energy', 'cascade', 'clones')
                        if weights[r] >= 3)
     identity = frozenset(c for p in plans for c in p.identity)
     creatures = [p for p in plans if 'creature' in p.types]
     nonlands = [p for p in plans if 'land' not in p.types]
-    if combo_plans:
-        archetype = 'combo'
-    elif themes:
-        archetype = max(sorted(themes), key=lambda r: weights[r])
-    elif weights['counter'] + weights['removal'] >= max(4, len(nonlands) * .3):
-        archetype = 'control'
-    elif creatures and len(creatures) >= len(nonlands) * .5 and sum(p.mana_value for p in creatures) / len(creatures) <= 3:
-        archetype = 'aggro'
-    elif 'G' in identity and weights['ramp'] >= 5:
-        archetype = 'ramp'
+
+    if archetypes:
+        final_archetypes = tuple(archetypes[:2])
+        primary = final_archetypes[0] if final_archetypes else 'midrange'
     else:
-        archetype = 'midrange'
+        found = []
+        if combo_plans:
+            found.append('combo')
+        sorted_themes = sorted(themes, key=lambda r: weights[r], reverse=True)
+        for t in sorted_themes:
+            if t not in found:
+                found.append(t)
+                if len(found) >= 2:
+                    break
+        if len(found) < 2:
+            if weights['counter'] + weights['removal'] >= max(4, len(nonlands) * .3):
+                if 'control' not in found:
+                    found.append('control')
+            elif creatures and len(creatures) >= len(nonlands) * .5 and sum(p.mana_value for p in creatures) / len(creatures) <= 3:
+                if 'aggro' not in found:
+                    found.append('aggro')
+            elif 'G' in identity and weights['ramp'] >= 5:
+                if 'ramp' not in found:
+                    found.append('ramp')
+        if not found:
+            found.append('midrange')
+        primary = found[0]
+        final_archetypes = tuple(found[:2])
+
+    philosophies = tuple(sorted(set(ARCHETYPE_PHILOSOPHIES.get(a, 'midrange') for a in final_archetypes)))
     return DeckStrategy({normalize(p.name): p for p in plans}, dict(counts), commander_names, identity,
-                        archetype, themes, tuple(combo_plans))
+                        primary, final_archetypes, philosophies, themes, tuple(combo_plans))

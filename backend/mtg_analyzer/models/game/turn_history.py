@@ -17,9 +17,13 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Callable, Iterable, Optional
 
+from ..cards.card_query import PERMANENT_CARD_TYPES
 from .events import EventType, GameEvent
 
 Events = Iterable[GameEvent]
+
+#: The `STEP_BEGIN` step name that opens a combat phase (RULE 507); a combat window starts there.
+COMBAT_BEGIN_STEP = "begin_combat"
 
 
 def _tally(
@@ -253,7 +257,6 @@ def creatures_damaged_by_source(events: Events) -> "defaultdict[int, set[int]]":
 
 # -- cards that reached a graveyard, bends, counters ------------------------------------------
 
-_PERMANENT_CARD_TYPES = frozenset({"artifact", "battle", "creature", "enchantment", "land", "planeswalker"})
 
 
 def _graveyard_arrivals(events: Events) -> "Iterable[tuple[str, list[str]]]":
@@ -283,7 +286,7 @@ def creature_card_to_graveyard(events: Events) -> "set[str]":
 
 def permanent_card_to_graveyard(events: Events) -> "set[str]":
     """Owners into whose graveyard a permanent card went from anywhere (RULE 702.175)."""
-    return {owner for owner, types in _graveyard_arrivals(events) if _PERMANENT_CARD_TYPES & set(types)}
+    return {owner for owner, types in _graveyard_arrivals(events) if PERMANENT_CARD_TYPES & set(types)}
 
 
 def bends(events: Events) -> "defaultdict[str, set[str]]":
@@ -347,7 +350,7 @@ def combats(events: Events) -> int:
     """Combat phases this turn, game-wide (RULE 603.4 — "if it's the first combat phase of
     the turn"): one per ``begin_combat`` step that actually began, so an extra combat phase is
     the second whoever controls the effect that grants it."""
-    return sum(1 for e in events if e.type == EventType.STEP_BEGIN and e.get("step") == "begin_combat")
+    return sum(1 for e in events if e.type == EventType.STEP_BEGIN and e.get("step") == COMBAT_BEGIN_STEP)
 
 
 def planar_die_rolls(events: Events) -> "defaultdict[str, int]":

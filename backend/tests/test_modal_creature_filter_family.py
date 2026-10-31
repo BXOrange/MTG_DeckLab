@@ -44,6 +44,8 @@ mtg_analyzer/game/{effects,targeting}.py.
 
 from __future__ import annotations
 
+from tests.proliferate_helpers import choose_all_proliferate
+
 from mtg_analyzer.game.effects.core import BlinkEffect, DestroyEffect, ExileEffect, GainLifeEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -136,6 +138,7 @@ def test_proliferate_effect_adds_a_counter_of_each_existing_kind():
     from mtg_analyzer.game.effects.core import EffectRegistry
 
     EffectRegistry.create("proliferate", {}).apply(ctx)
+    choose_all_proliferate(engine)
 
     assert creature.counters["+1/+1"] == 3
     assert creature.counters["stun"] == 2
@@ -151,6 +154,7 @@ def test_proliferate_twice_effect_adds_two_counters_of_each_existing_kind():
     from mtg_analyzer.game.effects.core import EffectRegistry
 
     EffectRegistry.create("proliferate", {"times": 2}).apply(ctx)
+    choose_all_proliferate(engine)
 
     assert creature.counters["+1/+1"] == 4
     assert creature.counters["stun"] == 3

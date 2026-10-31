@@ -9,8 +9,8 @@ def _raging_ravine() -> list[AbilitySpec]:
     """Raging Ravine's animation and its self-attack growth trigger.
 
     Entering tapped and the two-colour mana ability are parsed from the card
-    itself.  The colour layer of the animation is not represented by this
-    engine yet, but the creature type, base P/T, and attack counter are.
+    itself.  The animation sets type, base P/T and colours (layer 5); the attack
+    counter is a separate trigger.
     """
     return [
         AbilitySpec(
@@ -21,7 +21,12 @@ def _raging_ravine() -> list[AbilitySpec]:
                     "add_types": ["creature"], "add_subtypes": ["Elemental"],
                     "power": 3, "toughness": 3,
                 }},
-            })],
+            }),
+             # RULE 613.4b: "red and green" replaces its colours (layer 5).
+             EffectSpec("grant_until", {
+                 "duration": "end_of_turn", "target_kind": None,
+                 "static": {"type": "color_change", "params": {"colors": ["R", "G"], "set": True, "affects": "self"}},
+             })],
             cost={"mana": "{2}{R}{G}"},
         ),
         AbilitySpec(

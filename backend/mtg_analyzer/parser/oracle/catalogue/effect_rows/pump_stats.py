@@ -8,6 +8,8 @@ from typing import Optional
 from ..clause_hooks import parse_effect_body
 from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
+from ..count_phrase import parse_count_phrase
+from ..dig import parse_criteria
 from ..static_handlers import quoted_ability_grant_effects
 from ..subgrammars import (
     COLOR_WORD_ALT,
@@ -22,7 +24,6 @@ from ..subgrammars import (
 from ...normalize import SELF
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
-    ANY_NUMBER_TARGET_CAP,
     COLOR_WORDS,
     compile_clause,
     DELAYED_TAIL_INNER,
@@ -315,49 +316,6 @@ def _pump_attacking_subtype_target(m: re.Match[str]) -> Optional[list[EffectSpec
         "creature_filter": {"attacking": True, "subtype": m.group("subtype").capitalize()},
     })]
 
-#: "Nonblack creatures get -2/-2 until end of turn." — a normal
-#: untargeted group pump with the existing negated-colour object filter.
-#: Keep the colour captured so the same catalogue row covers every colour.
-_NONCOLOR_CREATURES_PUMP_RE = compile_clause(
-    rf"non(?P<color>white|blue|black|red|green) creatures gets? {PT_DELTA} until end of turn"
-)
-
-
-def _noncolor_creatures_pump(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("pump", {
-        "power": signed_int(m.group("p")), "toughness": signed_int(m.group("t")),
-        "selector": "all_creatures",
-        "creature_filter": {"without_color": COLOR_WORDS[m.group("color").lower()]},
-    })]
-
-#: PAR-15's "any number of target creatures each get +N/+N [and gain
-#: `<keyword>`] until end of turn" (Aerial Formation/Ajani's Presence/Cruel
-#: Feeding/Desperate Stand/Rouse the Mob-shaped) — the pump-family sibling of
-#: `_add_counters_multi_target`'s "each of up to N" shape: every chosen
-#: creature gets the *full* stated boost (`PumpEffect`'s ``target_count``,
-#: not a divided pool).
-_PUMP_MULTI_TARGET_RE = compile_clause(
-    rf"any number of target creatures each get {PT_DELTA}"
-    rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
-)
-
-
-def _pump_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {
-        "power": signed_int(m.group("p")), "toughness": signed_int(m.group("t")),
-        "target_kind": "creature", "target_count": ANY_NUMBER_TARGET_CAP, "optional": True,
-    }
-    if m.groupdict().get("kw"):
-        keywords = token_keywords(m.group("kw"))
-        if keywords is None:
-            return None  # unmodeled granted ability → fail-closed
-        params["keywords"] = keywords
-    state_filter = pump_target_creature_filter(m)
-    if state_filter:
-        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
-    return [EffectSpec("pump", params)]
-
-
 #: "Untap those creatures." (Colossal Heroics' own trailing sentence,
 #: following "Any number of target creatures each get +2/+2 until end of
 #: turn.") — the tap-family sibling of `_return_previous_group`: no target
@@ -496,8 +454,10 @@ def _grant_prot_choice_prev(m: re.Match[str]) -> list[EffectSpec]:
 
 
 _GROUP_FIXED_PROTECTION_RE = compile_clause(
-    r"(?P<group>creatures you control|all creatures|creatures your opponents control) "
-    r"gain protection from (?P<color>white|blue|black|red|green) until end of turn"
+    # PAR-203: any "<colour/subtype> creatures you control" group the count-phrase grammar reads (Brave the Elements'
+    # "white creatures you control", a chosen colour read as a literal) beside the three named selectors.
+    r"(?P<group>creatures you control|all creatures|creatures your opponents control|[a-z]+ creatures you control) "
+    r"(?:also )?gain protection from (?P<color>white|blue|black|red|green) until end of turn"
 )
 _GROUP_FIXED_PROTECTION_SELECTORS = {
     "creatures you control": "creatures_you_control",
@@ -506,10 +466,12 @@ _GROUP_FIXED_PROTECTION_SELECTORS = {
 }
 
 
-def _group_fixed_protection(m: re.Match[str]) -> list[EffectSpec]:
+def _group_fixed_protection(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = _GROUP_FIXED_PROTECTION_SELECTORS.get(m.group("group")) or parse_count_phrase(m.group("group"))
+    if selector is None:
+        return None
     return [EffectSpec("grant_fixed_protection_group", {
-        "selector": _GROUP_FIXED_PROTECTION_SELECTORS[m.group("group")],
-        "color": COLOR_WORDS[m.group("color")],
+        "selector": selector, "color": COLOR_WORDS[m.group("color")],
     })]
 
 
@@ -550,7 +512,9 @@ _DIG_UNTIL_REST_RES: list[tuple[re.Pattern[str], str]] = [
 ]
 _REVEAL_UNTIL_TYPE_RE = compile_clause(
     r"reveal cards from the top of your library until you reveal "
-    rf"(?P<pred>{'|'.join(map(re.escape, _DIG_UNTIL_PRED))}) card\. "
+    # PAR-203: any "<adjectives/subtype> <type>" kind `dig.parse_criteria` can read ("an elf creature card" once a chosen
+    # creature type is substituted), after the literal bare-type table above.
+    rf"(?P<pred>{'|'.join(map(re.escape, _DIG_UNTIL_PRED))}|an? [a-z -]+?) card\. "
     rf"put that card (?P<hit>{'|'.join(map(re.escape, _DIG_UNTIL_HIT))})"
     r"(?P<rest>.+)"
 )
@@ -634,13 +598,18 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     # "…onto the battlefield **and attach ~ to it**" (Shifting Shadow) — the attachment is a separate instruction
     # `dig_until` has no slot for; claiming the row would silently drop it.
-    if re.search(r"(?i)\battach\b", tail):
+    if re.search(r"(?i)\battach(?:ed)?\b", tail):
         return None
     rest_dest = next((d for rx, d in _DIG_UNTIL_REST_RES if rx.search(tail)), None)
     if rest_dest is None:
         return None
+    criteria = _DIG_UNTIL_PRED.get(m.group("pred"))
+    if criteria is None:
+        criteria = parse_criteria(f'{m.group("pred")} card')
+        if not criteria:
+            return None  # an unreadable kind must not turn "until you reveal an X" into "any card"
     return [EffectSpec("dig_until", {
-        "criteria": dict(_DIG_UNTIL_PRED[m.group("pred")]),
+        "criteria": dict(criteria),
         "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
         "rest_destination": rest_dest,
     })]
@@ -771,11 +740,15 @@ def _exile_instead_of_leaving(m: re.Match[str]) -> list[EffectSpec]:
 
 #: PAR-139: "its owner shuffles their graveyard into their library" — the tail of "When ~ is put into a graveyard
 #: from anywhere, …" (Emrakul, the Aeons Torn; Ulamog, the Infinite Gyre). "Its" is the ability's own source.
-_OWNER_SHUFFLES_GRAVEYARD_RE = compile_clause(r"its owner shuffles their graveyard into their library")
+#: PAR-200 widens the subject axis to an announced target player (Reminisce, Thran Foundry).
+_OWNER_SHUFFLES_GRAVEYARD_RE = compile_clause(r"(?P<subject>its owner|target player) shuffles their graveyard into their library")
 
 
-def _owner_shuffles_graveyard(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("shuffle_graveyard_into_library", {"owner_of_source": True})]
+def _owner_shuffles_graveyard(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if m.group("subject") == "its owner" and not reading.self_subject:
+        return None
+    params = {"target_kind": "player"} if m.group("subject") == "target player" else {"owner_of_source": True}
+    return [EffectSpec("shuffle_graveyard_into_library", params)]
 
 
 #: PAR-136: "Return that card to the battlefield under its owner's control at the beginning of the next end
@@ -1146,11 +1119,6 @@ ROWS: list[EffectHandler] = [
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /
     # "creatures you control get +2/+1 until end of turn" (plural "get").
     EffectHandler(
-        "noncolor_creatures_pump",
-        _NONCOLOR_CREATURES_PUMP_RE,
-        _noncolor_creatures_pump,
-    ),
-    EffectHandler(
         "pump",
         compile_clause(
             rf"{SUBJECT} gets? {PT_DELTA}"
@@ -1195,14 +1163,6 @@ ROWS: list[EffectHandler] = [
         ("double_pt_group_pronoun", "group", _DOUBLE_PRONOUN_RE, _double_pt_group),
         ("double_pt_attached_pronoun", "attached", _DOUBLE_PRONOUN_RE, _double_pt_attached),
     ]),
-    # PAR-15: "any number of target creatures each get +N/+N [and gain
-    # `<keyword>`] until end of turn" — every chosen creature gets the full
-    # boost, not a divided pool.
-    EffectHandler(
-        "pump_multi_target",
-        _PUMP_MULTI_TARGET_RE,
-        _pump_multi_target,
-    ),
     # "Untap those creatures." (Colossal Heroics) — the previous clause's own
     # multi-target group, read back the same way `return_previous_group` does.
     EffectHandler(
@@ -1315,7 +1275,7 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         "owner_shuffles_graveyard", _OWNER_SHUFFLES_GRAVEYARD_RE, _owner_shuffles_graveyard,
-        requires=ClauseReading(self_subject=True),
+        reading_aware=True,
     ),
     EffectHandler(
         "delayed_return_battlefield_previous", _DELAYED_RETURN_BATTLEFIELD_RE,
@@ -1399,6 +1359,9 @@ ROWS: list[EffectHandler] = [
         _PUMP_PREVIOUS_SELECTOR_RE,
         _pump_previous_selector,
         requires=ClauseReading(previous_selector=True),
+        # A remembered group iteration (God-Eternal Rhonas's "double the power of each other creature") leaves both
+        # a previous-target and a previous-selector referent; the targets row wins and reads the same group.
+        fallback_for=("pump_previous_targets_kw",),
     ),
     # "Target attacking Elf you control gains deathtouch until end of
     # turn." (Gnarlroot Trapper-shaped) — tried before the plain

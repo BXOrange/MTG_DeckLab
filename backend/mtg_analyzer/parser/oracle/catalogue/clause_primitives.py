@@ -85,6 +85,10 @@ SORCERY_SPEED_MARKER = "sorcery_speed_marker"
 #: `SORCERY_SPEED_MARKER` shape).
 X_SPEND_COLOR_MARKER = "x_spend_color_marker"
 
+#: MEC-131: "X can't be greater than the number of snow lands you control." — a spell line bounding the announced X by
+#: a count selector (`GameObject.x_cap_selector`, read by `GameEngine.can_cast`).
+X_CAP_MARKER = "x_cap_marker"
+
 
 #: RULE 602.5d's *other* timing restriction: "Activate only during your
 #: turn." (Wishclaw Talisman-shaped) — deliberately left unclaimed above
@@ -217,6 +221,18 @@ def split_keywords_with_parametric(
 TARGET_PARAM_KEYS: frozenset[str] = frozenset(
     {"target_kind", "fighter_kind", "other_kind", "dealer_kind", "kinds"}
 )
+
+#: These operations call their target multiplicity `count`; counter/token amounts use that word too,
+#: so every other operation reads `target_count` instead. This is target arity, never effect magnitude.
+TARGET_COUNT_IS_COUNT: frozenset[str] = frozenset({
+    "choose_targets", "destroy", "exile", "tap", "return_to_hand", "goad", "damage", "regenerate",
+})
+
+
+def has_plural_targets(spec: EffectSpec) -> bool:
+    key = "count" if spec.type in TARGET_COUNT_IS_COUNT else "target_count"
+    count = spec.params.get(key, 1)
+    return (isinstance(count, int) and count > 1) or bool(spec.params.get("target_count_selector"))
 
 
 #: Target kinds that make a clause a legal antecedent for the next clause's

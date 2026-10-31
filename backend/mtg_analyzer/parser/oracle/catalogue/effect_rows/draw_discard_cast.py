@@ -8,6 +8,9 @@ from typing import Any, Optional
 from ..casting_window import (
     parse_dig_cast_free,
     parse_exile_cast_window,
+    parse_linked_play,
+    parse_linked_move,
+    parse_exile_followup,
     parse_exile_copy_cast,
     parse_free_cast_zone,
     parse_graveyard_play_window,
@@ -32,11 +35,13 @@ from ..subtype_vocabulary import SUBTYPES
 from ...normalize import SELF
 from ...spec import EffectSpec
 from ..clause_hooks import match_clause
+from ..clause_reading import PLAYER
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
     CAST_WINDOW_COLORS,
     compile_clause,
     EffectHandler,
+    EVENT_PLAYER_EVENTS_KEY,
     GRAVEYARD_SCOPE_WORD,
     graveyard_target_kind,
     GRAVEYARD_TYPE_WORD,
@@ -230,6 +235,37 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-208 (RULE 608.2d / 701.x "return"): "return a creature card from your graveyard to your hand" / "return up to 2
+#: creature cards ..." / "return a creature card and a land card ..." with no "target": the resolving player's own pick
+#: from their graveyard (`ChooseObjectsEffect`, ``pool_zone="graveyard"``), "up to N" being an optional pick. Mill-then-
+#: return (Another Chance, Carrion Cruiser, Sudden Reclamation) reaches it through the ordinary "then" connector.
+_OWN_GRAVEYARD_PICK = r"(?:an?|up to (?:\d+|one|two|three)) [a-z/ -]+? cards?"
+_RETURN_OWN_GRAVEYARD_RE = compile_clause(
+    rf"return (?P<picks>{_OWN_GRAVEYARD_PICK}(?: and {_OWN_GRAVEYARD_PICK})?) from your graveyard to your hand"
+)
+_OWN_GRAVEYARD_PICK_RE = re.compile(r"(?P<q>an?|up to (?P<n>\d+|one|two|three)) (?P<what>[a-z/ -]+? cards?)")
+_UP_TO_WORDS = {"one": 1, "two": 2, "three": 3}
+
+
+def _return_own_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    picks = re.split(r" and (?=an? |up to )", m.group("picks"))
+    specs: list[EffectSpec] = []
+    for text in picks:
+        pick = _OWN_GRAVEYARD_PICK_RE.fullmatch(text)
+        if pick is None:
+            return None
+        parsed = parse_object_phrase(pick.group("what"), plural=True)
+        if parsed is None or parsed[1] is not None or "target" in text:
+            return None
+        n = pick.group("n")
+        count = 1 if n is None else _UP_TO_WORDS.get(n) or int(n)
+        specs.append(EffectSpec("choose_objects", {
+            "action": "return_from_graveyard_to_hand", "what": "permanent", "pool_zone": "graveyard",
+            "permanent_filter": parsed[0], "count": count, "optional": n is not None,
+        }))
+    return specs
+
+
 # Per-type keeper choices share one pool and sacrifice its complement.
 _CHOOSE_KEEP_TYPES_RE = compile_clause(
     r"(?P<who>each player|each opponent) chooses (?P<choices>an? [a-z]+(?:(?:, |,? and )an? [a-z]+)*) "
@@ -314,18 +350,28 @@ def _choose_land_of_each_type(m: re.Match[str]) -> list[EffectSpec]:
 # Library slices share one deterministic exile primitive: whose library,
 # which edge to remove from, and how many cards to remove or retain.
 _LIBRARY_EXILE_RE = compile_clause(
-    r"exile (?:(?P<all>all cards)|all but the (?P<keep_edge>top|bottom) "
+    r"(?:(?P<who>that player) exiles|exile) (?:(?P<all>all cards)|all but the (?P<keep_edge>top|bottom) "
     r"(?:(?P<keep_n>\d+) cards?|(?P<keep_one>card))|the (?P<edge>top|bottom) "
     r"(?:(?P<n>\d+) cards?|(?P<one>card))) (?:of|from) "
-    r"(?P<owner>your|target player'?s|target opponent'?s|each player'?s|each opponent'?s) library"
+    r"(?P<owner>your|their|that player'?s|target player'?s|target opponent'?s|each player'?s|each opponent'?s) library"
     r"(?P<face_down> face down)?"
 )
 
 
-def _library_exile(m: re.Match[str]) -> list[EffectSpec]:
+def _library_exile(m: re.Match[str], reading) -> Optional[list[EffectSpec]]:
     owner = m.group("owner").replace("'", "")
     params: dict = {"face_down": bool(m.group("face_down"))}
-    if owner.startswith("target "):
+    if owner in ('their', 'that players'):
+        if (owner == 'their') != bool(m['who']):
+            return None
+        previous = any(ref.kind == PLAYER for ref in reading.referents)
+        params['player'] = {'of': 'previous_player' if previous else 'trigger_player', 'as': 'self'}
+        if not previous:
+            params['event_player_events'] = ['DAMAGE', 'ATTACKS', 'SPELL_CAST', 'STEP_BEGIN',
+                                              'CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER']
+    elif m['who']:
+        return None
+    elif owner.startswith("target "):
         params.update(player_selector="target", target_kind=resolve_target_kind(owner[:-1]))
     else:
         params["player_selector"] = {"your": "controller", "each players": "each_player",
@@ -357,21 +403,11 @@ def _library_exile(m: re.Match[str]) -> list[EffectSpec]:
 #: ``count_or_x_of`` covers "the top x cards" (Commune with Lava) via the
 #: same ``"x"``-sentinel/`RulesEngine._substitute_x` idiom every other
 #: X-scaled one-shot effect already uses.
-#: "…until your next end step." (Opera Love Song) accepted as a third
-#: duration word alongside "this turn"/"until the end of your next turn" —
-#: **documented simplification**: `ImpulsiveDrawEffect`'s window is turn-
-#: scoped (`_grant_temp_play_permission`'s ``same_turn_only`` sweeps at
-#: *this* turn's own cleanup, the finest granularity it has), so this maps
-#: to ``same_turn_only=True`` rather than a genuine step-scoped expiry.
-#: Exact when cast during the caster's own turn (their next end step
-#: *is* later this same turn); an instant-speed cast on an opponent's turn
-#: would close the window at that turn's cleanup instead of carrying it
-#: into the caster's own next end step — narrower than RAW, not wider.
 #: PAR-137 widened the row: the window word may also be "until end of turn", and a *choice* of one
 #: of the exiled cards is accepted — "exile the top 2 cards of your library[,] [then] choose 1 of
 #: them. You may play that card this turn" and "… you may play 1 of those cards this turn" — which
 #: keeps the play permission on the pick alone (`ImpulsiveDrawEffect.choose_one`).
-_EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|for as long as (?:they|it) remain(?:s)? exiled"
+_EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|until your next upkeep|during your next turn|for as long as (?:they|it) remain(?:s)? exiled"
 _EXILE_TOP_PLAY_RE = compile_clause(
     r"(?:exile the top (?:(?P<n>\d+|x) cards?|card) of (?:your|(?P<each>each player'?s)) library"
     r"|(?P<damaged>that player) exiles that many cards from the top of their library)(?:\.|, then) "
@@ -387,7 +423,7 @@ _EXILE_TOP_PLAY_RE = compile_clause(
 
 def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     dur = (m.groupdict().get("dur_pre") or m.groupdict().get("dur_post") or "").strip()
-    same_turn_only = dur in ("this turn", "until end of turn", "until the end of turn", "until your next end step")
+    same_turn_only = dur in ("this turn", "until end of turn", "until the end of turn")
     n = m.group("n")
     what = m.group("what")
     choose_one = bool(m.group("choose")) or what == "1 of those cards"
@@ -401,6 +437,10 @@ def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("choose") and what != "that card":
         return None
     params: dict = {"count": count, "same_turn_only": same_turn_only}
+    clock = {"until your next end step": "your_next_end_step", "until your next upkeep": "your_next_upkeep",
+             "during your next turn": "during_your_next_turn"}.get(dur)
+    if clock:
+        params["duration"] = clock
     if m.group('damaged'):
         params['library_of'] = 'that_player'
     if dur.startswith('for as long as '):
@@ -442,7 +482,7 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: PAR-167: an exile clause plus the casting window it opens ("Exile the top 4 cards of your library. Until end of turn,
 #: you may cast noncreature spells from among those cards without paying their mana costs."). The whole pair is one
 #: row so the pronoun can only name what the first sentence exiled; `casting_window.py` owns every axis of the window.
-_EXILE_CAST_WINDOW_RE = compile_clause(r"(?:exile|mill|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
+_EXILE_CAST_WINDOW_RE = compile_clause(r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
 
 
 def _exile_cast_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -614,9 +654,8 @@ def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: * ``alaundo``  — "… and put a number of time counters on it equal to its mana value. It gains "When the last time
 #:   counter is removed from this card, if it's exiled, you may cast it without paying its mana cost. If you cast a
 #:   creature spell this way, it gains haste until end of turn." Then remove a time counter from each other card you
-#:   own in exile." The granted trigger is exactly the free-cast window `RulesEngine.remove_suspend_time_counter`
-#:   opens for any exiled card whose last time counter goes (haste for a creature included), so the grant needs no
-#:   separate object state — the quoted text is recognised, not re-interpreted.
+#:   own in exile." The quoted cast ability is granted for that exact exile visit;
+#:   counter removal queues it separately from other removal payoffs.
 _EXILE_HAND_TIME_RE = compile_clause(
     # Both multi-sentence cards open "Draw N card(s), then …": the draw rides in front so the window that sees the
     # later sentences (the sentence split would otherwise strand them) starts at the draw.
@@ -649,7 +688,7 @@ def _exile_hand_time_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("opponent"):
         params.update(grant_suspend=True, then_opponent=True)
     if m.group("alaundo"):
-        params["sweep_time_counters"] = True
+        params.update(sweep_time_counters=True, grant_suspend_cast=True)
     return draw + [EffectSpec("exile_hand_card", params)]
 
 
@@ -819,24 +858,43 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
     "a creature or planeswalker card": {"card_types": ["creature", "planeswalker"]},
     "an artifact or creature card": {"card_types": ["artifact", "creature"]},
 }
+# RULE 701.20 / 701.9: reveal/look, select a filtered card, then act on it.
+# The type-list grammar composes all supported printed card types rather than
+# growing one handler per Duress/Despise/Collective Brutality variant.
 _HAND_DISRUPTION_RE = compile_clause(
-    rf"(?P<target>target opponent|target player) reveals their hand(?:\. |, )"
-    rf"you choose (?P<filter>{'|'.join(re.escape(k) for k in _HAND_DISRUPTION_FILTERS)}) "
-    rf"from it(?: with mana value (?P<mv>\d+) or less)?"
-    # PAR-128: the comma spelling ("…, you choose … from it, then that player
-    # discards that card", Devour Intellect / River's Grasp) reads the same.
-    r"(?:\. |, then )that player discards that card(?:\. you lose (?P<life>\d+) life)?"
+    r"(?:(?P<target>target opponent|target player) reveals their hand"
+    r"|look at (?P<look>target opponent|target player)'s hand)"
+    r"(?:\. |, | and )you (?P<may>may )?choose (?P<filter>an? [a-z ,]*?card) "
+    r"from it(?: with mana value (?P<mv>\d+) or (?P<cmp>less|greater))?"
+    r"(?P<graveyard> or a card from their graveyard)?"
+    r"(?:\. |, then | and )(?P<action>that player discards that card|exile (?:that card|it))"
+    r"(?:\. you lose (?P<life>\d+) life)?"
 )
 
 
 def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    if resolve_target_kind(m.group("target")) != "player":
+    target = m.group("target") or m.group("look")
+    if resolve_target_kind(target) != "player":
         return None
-    # PAR-128: "target opponent" is an opponent, not any player.
-    kind = "opponent" if m.group("target") == "target opponent" else "player"
-    params: dict = {"target_kind": kind, **_HAND_DISRUPTION_FILTERS[m.group("filter")]}
+    filt = m.group("filter")
+    if filt in _HAND_DISRUPTION_FILTERS:
+        filters = _HAND_DISRUPTION_FILTERS[filt]
+    else:
+        phrase = parse_object_phrase(re.sub(r"^an? ", "", filt))
+        if phrase is None or phrase[1] is not None:
+            return None
+        filters = {"card_filter": phrase[0]}
+    params: dict = {"target_kind": "opponent" if target == "target opponent" else "player", **filters}
     if m.group("mv"):
-        params["max_mana_value"] = int(m.group("mv"))
+        params["min_mana_value" if m.group("cmp") == "greater" else "max_mana_value"] = int(m.group("mv"))
+    if m.group("graveyard"):
+        params["include_graveyard"] = True
+    if m.group("action").startswith("exile"):
+        params["destination"] = "exile"
+    if m.group("may"):
+        params["optional"] = True
+    if m.group("look"):
+        params["reveal"] = False
     specs = [EffectSpec("reveal_hand_choose_discard", params)]
     if m.group("life"):
         specs.append(EffectSpec("lose_life", {"amount": int(m.group("life"))}))
@@ -870,6 +928,8 @@ def _hand_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("reveal") and destination != "library_third":
         return None  # the plain reveal-and-discard form is `hand_disruption_discard`'s
     params: dict = {"target_kind": "opponent" if target == "target opponent" else "player"}
+    if m.group("look"):
+        params["reveal"] = False
     if m.group("rfilter"):
         params.update(_HAND_PICK_FILTERS[m.group("rfilter")])
     if m.group("n"):
@@ -911,6 +971,21 @@ def _reveal_top_conditional(m: re.Match[str]) -> list[EffectSpec]:
             "else": [],
         }},
     ]})]
+
+
+#: RULE 701.20 + 121.4 (PAR-215): "reveal the top card of your library and put that card into your hand" -- the
+#: reveal stashes the card as `GameContext.revealed_card` (a later "its mana value" measures it), and the put is
+#: not a draw. Two flat specs, so the sequencer sees `put_revealed_card` as the clause's last effect.
+_REVEAL_TOP_TAKE_RE = compile_clause(
+    r"reveal the top card of your library and put (?:that card|it) into your hand"
+)
+
+
+def _reveal_top_take(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("reveal_top", {"whose": "you"}),
+        EffectSpec("put_revealed_card", {"destination": "hand"}),
+    ]
 
 
 #: PAR-152 (Zareth San): "put this card from your hand onto the battlefield [tapped and attacking]." — the card's own
@@ -1109,9 +1184,19 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
         params["scope"] = "each_player"
     elif who == "each opponent":
         params["scope"] = "each_opponent"
+    elif who == "defending player":
+        # PAR-208 (RULE 508.1b): the player the source attacks, named by the firing combat event's
+        # ``defending_player_id``; only an attack / unblocked / blocked head carries it.
+        params["player"] = {"of": "trigger_player", "as": "self"}
+        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_COMBAT_EVENTS
     if m.groupdict().get("at_random"):
         params["random"] = True
     return [EffectSpec("discard", params)]
+
+
+#: Combat events that name the attacked player (``defending_player_id``): ATTACKS, ATTACKER_UNBLOCKED (RULE 509.1h),
+#: BECOMES_BLOCKED (RULE 509.1).
+_DEFENDING_PLAYER_COMBAT_EVENTS = ["ATTACKS", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"]
 
 
 #: "Discard N cards unless you discard a `<quality>` card." (Thirst for Knowledge, Compulsive Research, Alpharael,
@@ -1120,7 +1205,8 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
 #: or a creature/permanent subtype the shared count grammar knows (fail-closed on anything else).
 _DISCARD_UNLESS_RE = compile_clause(
     r"(?:then )?(?:(?P<who>you|that player|target player|target opponent|each opponent|each player) )?"
-    rf"discards? {COUNT} cards? unless (?:you|they) discards? (?:a|an) (?P<quality>[a-z]+) card"
+    # PAR-208: "an instant or sorcery card" (a type union) and "a basic land card" (supertype + type).
+    rf"discards? {COUNT} cards? unless (?:you|they) discards? (?:a|an) (?P<basic>basic )?(?P<quality>[a-z]+(?: or [a-z]+)?) card"
 )
 _DISCARD_UNLESS_CARD_TYPES = frozenset({"artifact", "creature", "land", "enchantment", "instant", "sorcery", "planeswalker"})
 
@@ -1128,7 +1214,16 @@ _DISCARD_UNLESS_CARD_TYPES = frozenset({"artifact", "creature", "land", "enchant
 def _discard_unless(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
     quality = m.group("quality").lower()
-    if quality == "nonland":
+    if " or " in quality:
+        parts = quality.split(" or ")
+        if m.group("basic") or not all(part in _DISCARD_UNLESS_CARD_TYPES for part in parts):
+            return None
+        unless = {"card_types": parts}  # RULE 205.2: either type satisfies it
+    elif m.group("basic"):
+        if quality != "land":
+            return None
+        unless = {"card_type": "land", "basic": True}
+    elif quality == "nonland":
         unless: dict = {"nonland": True}
     elif quality in _DISCARD_UNLESS_CARD_TYPES:
         unless = {"card_type": quality}
@@ -1636,6 +1731,7 @@ ROWS: list[EffectHandler] = [
         _draw_next_upkeep,
     ),
     EffectHandler("recover_milled", _RECOVER_MILLED_RE, _recover_milled),
+    EffectHandler("return_own_graveyard", _RETURN_OWN_GRAVEYARD_RE, _return_own_graveyard),  # PAR-208
     EffectHandler("choose_keep_types", _CHOOSE_KEEP_TYPES_RE, _choose_keep_types),
     EffectHandler("choose_keep_count", _CHOOSE_KEEP_COUNT_RE, _choose_keep_count),
     EffectHandler("choose_land_of_each_type", _CHOOSE_LAND_OF_EACH_TYPE_RE, _choose_land_of_each_type),
@@ -1644,7 +1740,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("players_cant_cast_types_until", _PLAYERS_CANT_CAST_TYPES_UNTIL_RE, _players_cant_cast_types_until),
     EffectHandler("draw_per_opponent_with_more_cards", _DRAW_PER_OPPONENT_WITH_MORE_CARDS_RE,
                   _draw_per_opponent_with_more_cards),
-    EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile),
+    EffectHandler("library_exile", _LIBRARY_EXILE_RE, _library_exile, reading_aware=True),
     EffectHandler(
         "exile_discard_play_next_turn",
         _EXILE_DISCARD_PLAY_NEXT_TURN_RE,
@@ -1662,6 +1758,12 @@ ROWS: list[EffectHandler] = [
         _play_window_previous,
     ),
     # PAR-167: the exile clause plus a casting window over its pool (cast/play, filter, free or wild mana, window).
+    EffectHandler("linked_exile_move", compile_clause(r"(?:return|put) [^.]+exiled with (?:~|it) [^.]+\.?"),
+                  lambda m: parse_linked_move(m.group(0))),
+    EffectHandler("exile_play_followup", compile_clause(r"(?:[^.]+, )?(?:you may )?(?:cast|play) [^.]+\.?"),
+                  lambda m, reading: parse_exile_followup(m.group(0), reading), reading_aware=True),
+    EffectHandler("linked_exile_play", compile_clause(r"(?:[^.]+, )?(?:you may )?(?:cast|play) [^.]+exiled with (?:~|it)[^.]*\.?"),
+                  lambda m: parse_linked_play(m.group(0))),
     EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
@@ -1734,6 +1836,7 @@ ROWS: list[EffectHandler] = [
         _reveal_top_conditional,
     ),
     EffectHandler("reveal_top_put_or_hand", _REVEAL_TOP_PUT_OR_HAND_RE, _reveal_top_put_or_hand),
+    EffectHandler("reveal_top_take", _REVEAL_TOP_TAKE_RE, _reveal_top_take),
     EffectHandler("put_self_from_hand", _PUT_SELF_FROM_HAND_RE, _put_self_from_hand),
     EffectHandler(
         "look_defending_hand", _LOOK_DEFENDING_HAND_RE,
@@ -1778,7 +1881,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "discard",
         compile_clause(
-            r"(?P<who>you|target player|target opponent|each player|each opponent)?\s*"
+            r"(?P<who>you|target player|target opponent|each player|each opponent|defending player)?\s*"
             rf"discards? {COUNT} cards?(?P<at_random> at random)?"
         ),
         _discard,

@@ -5,10 +5,14 @@ from __future__ import annotations
 import re
 
 from ..clause_reading import ClauseReading
+from ..name_atoms import CARD_NAME
+from ..clause_hooks import match_clause
 from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
 from ..clause_primitives import split_keywords_with_parametric
 from ..subgrammars import (
+    SPELL_TARGET,
+    resolve_spell_filter,
     resolve_color_word,
     resolve_target_creature_state_filter,
     resolve_target_kind,
@@ -68,10 +72,7 @@ from .shared import (
 #: found but left unclaimed): any qualifier after the noun phrase such as
 #: "with mana value X or less" (Green Sun's Zenith/Chord of Calling/Finale
 #: of Devastation — X is a spell's own cast-time choice, not a static
-#: criterion this grammar can express), a name criterion whose own name
-#: contains a comma ("a card named Angrath, Minotaur Pirate" —
-#: indistinguishable from the following put-clause's own comma without a
-#: name dictionary), and a searched-for subtype not in `_SEARCH_TYPE_WORD`'s
+#: criterion this grammar can express), a searched-for subtype not in `_SEARCH_TYPE_WORD`'s
 #: vocabulary ("a Shrine card"/"an Ally creature card").
 #:
 #: The type-word vocabulary intentionally also carries the five basic land
@@ -175,6 +176,7 @@ _SEARCH_CRITERIA = (
     r"(?P<permanent>permanent )?"
     rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
     r"cards?"
+    rf"(?: named (?P<name>{CARD_NAME}))?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
     + _SEARCH_MV_QUALIFIER
 )
@@ -328,8 +330,10 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
     return resolve_color_word(word)
 
 
-def _search_criteria_from_match(m: re.Match[str]) -> dict:
+def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     crit: dict = {}
+    if m.groupdict().get("name"):
+        crit["name"] = m.group("name").strip()
     if m.groupdict().get("permanent"):
         # RULE 110.4: permanent cards have at least one permanent card type.
         crit["type"] = list(PERMANENT_CARD_TYPES)
@@ -361,6 +365,20 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     if color:
         crit["color"] = color
     crit.update(_search_mv_qualifier_from_match(m))
+    name = crit.get("name")
+    if name and " or " in name:
+        branches = []
+        for part in name.split(" or "):
+            if re.match(r'an? ', part):
+                alternative = re.fullmatch(_SEARCH_CRITERIA, part)
+                branch = _search_criteria_from_match(alternative) if alternative else None
+                if branch is None:
+                    return None
+                branches.append(branch)
+            else:
+                branches.append({**crit, "name": part.strip()})
+        return {"or": branches}
+
     return crit
 
 
@@ -372,10 +390,53 @@ def _search_count_from_match(m: re.Match[str]) -> "Optional[int | str]":
 
 
 def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
-    params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
+    params: dict = {"criteria": criteria, "destination": destination}
+    # RULE 701.20: revealing a named find is public information before it
+    # enters the hand; the search continuation owns that complete move.
+    if m.groupdict().get("name"):
+        params["reveal"] = bool(re.search(r"\breveal\b", m.group(0)))
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
+
+
+#: PAR-208 (RULE 701.19a, "then" sequencing): "search target OPPONENT's/PLAYER's library for <criteria> and exile it /
+#: put it onto the battlefield under your control / put them into their graveyard. Then that player shuffles."
+#: (Bribery, Acquire, Eternal Dominion, Bitter Ordeal, Extract, Denying Wind, Jester's Cap, Life's Finale, ...). The
+#: searcher is the controller, the library and its shuffle are the target's: `SearchLibraryEffect.player_from_target`
+#: (Praetor's Grasp). The put-clause may share the search's sentence ("... and exile it") or follow it ("... card.
+#: Put that card onto the battlefield ..."); the trailing shuffle belongs to the engine's search, so it is consumed.
+_SEARCH_OTHER_LIBRARY_PUT = (
+    r"(?P<exile>exile (?:it|them|that card|those cards))"
+    rf"|put {_SEARCH_PRONOUN} (?:(?P<field>onto the battlefield under your control)|(?P<grave>into (?:their|that player's) graveyard))"
+)
+_SEARCH_OTHER_LIBRARY_RE = compile_clause(
+    r"search target (?P<who>opponent|player)'s library for " + _SEARCH_CRITERIA + r",?\s*"
+    rf"(?:(?:\.\s*|and\s+|,\s*)(?:{_SEARCH_OTHER_LIBRARY_PUT}))"
+    r"(?:\.\s*|,\s*)(?:then )?(?:that|the) player shuffles(?: their library)?"
+)
+
+
+def _search_other_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
+    if m.group("mv") is not None or m.group("count") == "x":
+        return None  # a dynamic amount / mana-value bound needs its own binding; fail closed
+    params: dict = {
+        "criteria": criteria,
+        "destination": "battlefield" if m.group("field") else "graveyard" if m.group("grave") else "exile",
+        "player_from_target": True,
+    }
+    if m.group("who") == "player":
+        params["target_any_player"] = True
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
@@ -401,11 +462,14 @@ def _elfhame_sanctuary(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _search_put_then_shuffle_share_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
     params: dict = {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "destination": destination,
         "share_land_type": True,
     }
@@ -470,12 +534,42 @@ _SEARCH_LESSER_MV_RE = compile_clause(
 
 
 def _search_lesser_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
     return [EffectSpec("search", {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "mana_value_from": {"source": "trigger_subject", "plus": -1, "cmp": "le"},
+        "destination": destination,
+    })]
+
+
+#: PAR-215: "search your library for a creature card with mana value equal to 1 plus the sacrificed creature's mana
+#: value, put that card onto the battlefield, then shuffle." (Prime Speaker Vannifar, Vivien on the Hunt) -- the
+#: Birthing Pod measurement as an oracle clause: `mana_value_from` with no source reads what this ability's own
+#: sacrifice stamped (`RulesEngine.note_sacrificed`, RULE 608.2h last known mana value), ``plus`` the literal offset.
+_SEARCH_MV_SACRIFICED_RE = compile_clause(
+    rf"search your library for an? (?P<types>{_SEARCH_TYPE_LIST}) card with mana value equal to "
+    r"(?:(?P<plus>\d+) plus )?the sacrificed (?:creature|permanent)'?s mana value,?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_mv_sacrificed(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    return [EffectSpec("search", {
+        "criteria": criteria,
+        "mana_value_from": {"plus": int(m.group("plus") or 0), "cmp": "eq"},
         "destination": destination,
     })]
 
@@ -548,8 +642,11 @@ _SEARCH_PUT_ATTACH_THEN_SHUFFLE_RE = compile_clause(
 
 
 def _search_put_attach_then_shuffle(m: re.Match[str]) -> list[EffectSpec]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     params: dict = {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "destination": "battlefield",
         "attach_to_creature_you_control": True,
     }
@@ -560,8 +657,11 @@ def _search_put_attach_then_shuffle(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _search_shuffle_then_put_top(m: re.Match[str]) -> list[EffectSpec]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = "library_third" if m.groupdict().get("third") else "library_top"
-    params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
+    params: dict = {"criteria": criteria, "destination": destination}
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
@@ -586,12 +686,15 @@ _SEARCH_SPLIT_DESTINATION_RE = compile_clause(
 
 
 def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    if criteria is None:
+        return None
     dest1 = _search_destination_kind(m.group("dest1"))
     dest2 = _search_destination_kind(m.group("dest2"))
     if dest1 is None or dest2 is None:
         return None
     params: dict = {
-        "criteria": _search_criteria_from_match(m),
+        "criteria": criteria,
         "destination": dest1,
         "destinations": [dest1, dest2],
     }
@@ -635,22 +738,9 @@ def _search_two_cards_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     ]
 
 
-#: The criteria noun phrase for a "library and/or graveyard" search — same
-#: basic-land/type-list alternatives as `_SEARCH_CRITERIA`, plus a bare-name
-#: alternative ("a card named <Name>") this family's real cards lean on
-#: heavily (planeswalker/background tutors); restricted to a name with no
-#: internal comma (see the module docstring above for why).
-_SEARCH_ZONE_CRITERIA = (
-    r"(?:up to (?P<count>\d+)|an?)\s+"
-    rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
-    r"(?:"
-    r"(?P<basic>basic land) cards?"
-    rf"|card named (?P<name>[a-z][a-z' -]*?)"
-    rf"|(?P<types>{_SEARCH_TYPE_LIST}) cards?"
-    r"|cards?"
-    r")"
-    + _SEARCH_MV_QUALIFIER
-)
+#: Library-only and combined-zone searches share every criterion atom,
+#: including named cards with internal punctuation and subtype/type intersections.
+_SEARCH_ZONE_CRITERIA = _SEARCH_CRITERIA
 #: "search your library and/or graveyard for <criteria>, [reveal <pronoun>,]
 #: [and] put <pronoun> <destination>. If you search[ed] your library this
 #: way, shuffle." (RULE 701.19 "and/or" combined-zone search — the
@@ -662,40 +752,31 @@ _SEARCH_ZONE_CRITERIA = (
 #: simplification: it doesn't track which specific zone the chosen card(s)
 #: actually came from).
 _SEARCH_ZONE_PUT_RE = compile_clause(
-    rf"search your library and/or graveyard for {_SEARCH_ZONE_CRITERIA},?\s*"
-    rf"{_SEARCH_REVEAL}"
-    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})\.\s*"
-    r"if you search(?:ed)? your library this way,?\s*shuffle"
+    rf"search your (?P<zones>(?:library|graveyard|hand)(?:(?:, |,? and/or |,? and )(?:library|graveyard|hand)){{1,2}}) for {_SEARCH_ZONE_CRITERIA},?\s*"
+    rf"{_SEARCH_REVEAL}(?:then )?"
+    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?:\.\s*"
+    r"if you search(?:ed)? your library this way,?\s*shuffle|, then shuffle)"
 )
 
 
-def _search_zone_criteria_from_match(m: re.Match[str]) -> dict:
-    if m.groupdict().get("basic"):
-        crit: dict = {"basic": True}
-    else:
-        name = m.groupdict().get("name")
-        if name:
-            return {"name": name.strip()}  # a named-card search ignores colour/mv qualifiers
-        crit = {}
-        types = m.groupdict().get("types")
-        if types:
-            words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
-            crit["type"] = words if len(words) > 1 else words[0]
-    color = _search_color_from_match(m)
-    if color:
-        crit["color"] = color
-    crit.update(_search_mv_qualifier_from_match(m))
-    return crit
+def _search_zone_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
+    return _search_criteria_from_match(m)
 
 
 def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_zone_criteria_from_match(m)
+    if criteria is None:
+        return None
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
         return None
+    zones = re.findall(r'library|graveyard|hand', m['zones'])
+    if 'library' not in zones or len(set(zones)) != len(zones):
+        return None
     params: dict = {
-        "criteria": _search_zone_criteria_from_match(m),
+        "criteria": criteria,
         "destination": destination,
-        "zones": ["library", "graveyard"],
+        "zones": zones,
     }
     count = _search_count_from_match(m)
     if count is not None:
@@ -734,12 +815,17 @@ def _search_exile_rest(m: re.Match[str]) -> list[EffectSpec]:
 #: "An opponent gains control of ~." (Wishclaw Talisman-shaped — RULE
 #: 701.10-adjacent; `game/effects/core.py`'s `GainControlBySourceEffect`).
 _GAIN_CONTROL_BY_OPPONENT_RE = compile_clause(
-    rf"an opponent gains control of {SELF_SUBJECT}"
+    rf"(?P<recipient>an|target) opponent gains control of (?P<subject>{SELF_SUBJECT})"
 )
 
 
-def _gain_control_by_opponent(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_control_by_source", {"recipient": "opponent"})]
+def _gain_control_by_opponent(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 608.2c: a bare "it" must refer to this ability's source, not a
+    # previously selected creature or the object of a group trigger.
+    if m.group("subject") == "it" and not reading.self_subject:
+        return None
+    recipient = "target_opponent" if m.group("recipient") == "target" else "opponent"
+    return [EffectSpec("gain_control_by_source", {"recipient": recipient})]
 
 
 #: RULE 108.4-adjacent "threaten" effect — "Gain control of target creature
@@ -794,6 +880,25 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("gain_control_until_eot", params)]
 
 
+#: PAR-214: "Untap target creature and gain control of it until end of turn." (Threaten, Blind with Anger, Word of
+#: Seizing) -- the same steal as the row above in the other word order. `GainControlUntilEndOfTurnEffect` already
+#: untaps the stolen permanent and grants haste (RULE 611.2), so the pair is the one existing effect: the clause is
+#: read as that effect over the same target phrase, and any "it gains haste" restatement behind it is the established
+#: previous-subject follow-up. The pronoun "it" is the untapped target, never an object nothing chose.
+_UNTAP_AND_GAIN_CONTROL_RE = compile_clause(
+    rf"untap {TARGET}(?P<mv> with mana value \d+ or less)? and gain control of it until end of turn"
+)
+
+
+def _untap_and_gain_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    steal = match_clause(f"gain control of {m.group('target')}{m.group('mv') or ''} until end of turn")
+    if not steal or len(steal) != 1 or steal[0].type != "gain_control_until_eot":
+        return None
+    if target_is_optional(m):
+        return None  # "untap up to one target ..." would make the whole steal optional; no printed card does
+    return steal
+
+
 #: PAR-130: the **no-duration** steal — "gain control of target artifact"
 #: (Keiga, Ritual of the Machine, Souvenir Snatcher), "for each opponent, gain
 #: control of target permanent that player controls" (Blatant Thievery) —
@@ -804,7 +909,8 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: the full match leaves it unclaimed for its own row.
 _GAIN_CONTROL_PERMANENT_RE = compile_clause(
     rf"gain control of (?P<another>another )?{TARGET}"
-    r"(?: with mana value (?P<mv>\d+) or less)?"
+    # PAR-215: "x" is the announced {X} (`targeting` resolves the sentinel at offer time, RULE 107.3).
+    r"(?: with mana value (?P<mv>\d+|x)(?P<mv_max> or less)?)?"
     r"(?P<untap>\.\s*untap (?:it|that (?:creature|permanent|artifact|land)))?"
 )
 #: What a permanent steal may take — permanents only (a spell is
@@ -824,7 +930,7 @@ def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "duration": "permanent", "haste": False, "untap": bool(m.group("untap")),
     }
     if m.group("mv"):
-        params["max_mana_value"] = int(m.group("mv"))
+        params["max_mana_value" if m.group("mv_max") else "exact_mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
     quality = target_quality_filter(m.group("target"))  # PAR-160: "with power N or less" (TARGET's quality slot)
     if quality:
         params["creature_filter"] = quality
@@ -836,8 +942,11 @@ def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: The no-duration steal plus a source-bound end (`GainControlUntilEndOfTurnEffect.while_source`).
 _GAIN_CONTROL_WHILE_SOURCE_RE = compile_clause(
     rf"(?P<per_opp>for each opponent, )?gain control of {TARGET}(?P<lesser> with lesser power)?"
-    r" for as long as (?:(?P<ctl>you control (?:~|this (?:creature|saga|artifact|permanent|enchantment)))"
-    r"|(?:~|this (?:creature|saga|artifact|permanent|enchantment)) remains on the battlefield)"
+    r" for as long as (?:(?P<ctl>you control (?:~|this (?:creature|saga|artifact|permanent|enchantment|vehicle)))"
+    r"(?P<and_tapped> and (?:~|this (?:creature|artifact|permanent)) remains tapped)?"
+    r"|(?:~|this (?:creature|saga|artifact|permanent|enchantment|aura|vehicle)) remains (?P<remains>on the battlefield|tapped)"
+    r"(?P<power_window> and that creature's power remains less than or equal to ~'s power)?"
+    r"|(?P<enchanted>that creature is enchanted))"
 )
 
 
@@ -847,8 +956,14 @@ def _gain_control_while_source(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params: dict = {
         "target_kind": kind, **optional_param(m), "duration": "permanent", "haste": False, "untap": False,
-        "while_source": "controlled" if m.group("ctl") else "on_battlefield",
+        "while_source": ("controlled_tapped" if m.group("and_tapped") else "controlled")
+        if m.group("ctl") else ("tapped" if m.group("remains") == "tapped" else "on_battlefield"),
     }
+    if m.group("enchanted"):
+        params.pop("while_source")
+        params["while_target_filter"] = {"enchanted": True}
+    if m.group("power_window"):
+        params["while_target_filter"] = {"power_vs_reference": "less_equal"}
     quality = target_quality_filter(m.group("target"))
     if "legendary" in m.group("target").lower() and not quality:
         return None  # the scoped "that player controls" kind drops the legendary qualifier: fail closed
@@ -1035,21 +1150,34 @@ _TRIGGER_COPY_SPELL_RE = compile_clause(
     r"that player copies it and may choose new targets for the copy(?: until end of turn)?"
 )
 
-#: "Copy target instant or sorcery spell you control. You may choose new
-#: targets for the copy." (Dual Casting).  The controller qualifier is a
-#: target-legality restriction, not merely a note about who controls the
-#: resulting copy, so it uses the dedicated ``spell_you_control`` target
-#: kind rather than the broader `copy_spell` default.
-_COPY_YOUR_INSTANT_OR_SORCERY_RE = compile_clause(
-    r"copy target instant or sorcery spell you control\.?"
-    r"(?:\s*you may choose new targets for the copy\.?)?"
+#: Targeted stack copies compose the shared spell-target grammar, copy
+#: count and optional retargeting rider (RULE 707.10c). The sibling ability
+#: target keeps stack identity; its fixed count differs from Gogo's X.
+_TARGETED_STACK_COPY_RE = compile_clause(
+    rf"copy (?:(?P<ability>target activated or triggered ability)(?P<ability_scope> you control)?|{SPELL_TARGET})"
+    r"(?: (?P<copy_count>twice|x times|\d+ times))?\.?"
+    r"(?:\s*(?P<retarget>you may choose new targets for (?:the|that) cop(?:y|ies))\.?)?"
 )
 
 
-def _copy_your_instant_or_sorcery(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("copy_spell", {
-        "card_types": ["instant", "sorcery"], "target_kind": "spell_you_control",
-    })]
+def _targeted_stack_copy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count_text = m.group("copy_count")
+    count = 1 if count_text is None else 2 if count_text == "twice" else (
+        "x" if count_text == "x times" else int(count_text.split()[0])
+    )
+    params = {"count": count, "choose_new_targets": bool(m.group("retarget"))}
+    if m.group("ability"):
+        params["target_kind"] = "ability_you_control" if m.group("ability_scope") else "ability"
+        return [EffectSpec("copy_target_ability", params)]
+    filt = resolve_spell_filter(m.group("target"))
+    if filt is None:
+        return None
+    params["target_kind"] = filt.pop("target_kind", "spell")
+    if "card_types" in filt:
+        params["card_types"] = filt.pop("card_types")
+    if filt:
+        params["spell_filter"] = filt
+    return [EffectSpec("copy_spell", params)]
 
 
 #: "Each instant and sorcery card in your graveyard gains flashback until
@@ -1336,6 +1464,10 @@ def _fight(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if fighter is None or other is None:
         return None
     params: dict = {"fighter_kind": fighter, "other_kind": other}
+    for slot, key in (("target", "fighter_filter"), ("target_b", "other_filter")):
+        filt = resolve_target_creature_state_filter(m[slot])
+        if filt:
+            params[key] = filt
     if target_is_optional(m):
         params["fighter_optional"] = True
     if target_is_optional(m, "_b"):
@@ -1356,6 +1488,9 @@ def _fight_implicit(fighter_kind: Optional[str]):
         if other is None:
             return None
         params: dict = {"other_kind": other, **optional_param(m)}
+        filt = resolve_target_creature_state_filter(m["target"])
+        if filt:
+            params["other_filter"] = filt
         if m.groupdict().get("same_mv"):
             # "…with the same mana value" as the group trigger's firing object (Boxing Ring): a
             # target filter read off the trigger's event, so only under a group trigger.
@@ -1546,6 +1681,20 @@ def _gain_control_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("gain_control_until_eot", params)]
 
 
+#: PAR-221: the temporary sibling -- "gain control of any number of target creatures until end of turn" (Harness by
+#: Force). The same `GainControlUntilEndOfTurnEffect` (untap + haste, RULE 611.2) over several announced targets.
+_GAIN_CONTROL_MULTI_EOT_RE = compile_clause(
+    rf"gain control of {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT}) until end of turn"
+)
+
+
+def _gain_control_multi_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = multi_target_params(m)
+    if params is None or not target_kind_allowed(params["target_kind"], ("creature", "creature_you_dont_control", "permanent", "artifact")):
+        return None
+    return [EffectSpec("gain_control_until_eot", renamed_target_count(params))]
+
+
 #: "those creatures can't block this turn." (Sontaran General, Sparkmage's Gambit) -- the plural pronoun of
 #: `_IF_PREV_CREATURE_CANT_BLOCK_RE`: every creature the previous clause targeted (`CantBlockEffect.previous_subject`).
 _CANT_BLOCK_PREVIOUS_PLURAL_RE = compile_clause(r"(?:those creatures|them) can'?t block this turn")
@@ -1658,6 +1807,8 @@ ROWS: list[EffectHandler] = [
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par38_residue.py (a card-specific upkeep body kept for its residue test).
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
+    # PAR-208: "search target opponent's library for <criteria> and exile it. Then that player shuffles."
+    EffectHandler("search_other_library", _SEARCH_OTHER_LIBRARY_RE, _search_other_library),
     EffectHandler(
         "search_put_then_shuffle",
         _SEARCH_PUT_THEN_SHUFFLE_RE,
@@ -1682,6 +1833,7 @@ ROWS: list[EffectHandler] = [
     ),
     # "search your library for a creature card with lesser mana value, ..." (Rushed Rebirth).
     EffectHandler("search_lesser_mv", _SEARCH_LESSER_MV_RE, _search_lesser_mv),
+    EffectHandler("search_mv_sacrificed", _SEARCH_MV_SACRIFICED_RE, _search_mv_sacrificed),
     # "return a creature card from its owner's graveyard to the battlefield under the control of that creature's
     # owner." (Reincarnation).
     EffectHandler(
@@ -1764,6 +1916,7 @@ ROWS: list[EffectHandler] = [
         "gain_control_by_opponent",
         _GAIN_CONTROL_BY_OPPONENT_RE,
         _gain_control_by_opponent,
+        reading_aware=True,
     ),
     # "gain control of target creature [with mana value N or less] until
     # end of turn" (Act of Treason/Claim the Firstborn-shaped threaten
@@ -1773,12 +1926,14 @@ ROWS: list[EffectHandler] = [
         _GAIN_CONTROL_EOT_RE,
         _gain_control_eot,
     ),
+    EffectHandler("untap_and_gain_control_eot", _UNTAP_AND_GAIN_CONTROL_RE, _untap_and_gain_control),
     # PAR-150: "gain control of ... for as long as you control ~" (RULE 611.2b; Rangers of Ithilien).
     EffectHandler("gain_control_while_source", _GAIN_CONTROL_WHILE_SOURCE_RE, _gain_control_while_source),
     EffectHandler("tap_and_fight", _TAP_AND_FIGHT_RE, _tap_and_fight),
     EffectHandler("gain_control_while_tapped", _GAIN_CONTROL_WHILE_TAPPED_RE, _gain_control_while_tapped),
     # PAR-150: "gain control of up to three target creatures" (no duration; Jace, Ingenious Mind-Mage).
     EffectHandler("gain_control_multi_target", _GAIN_CONTROL_MULTI_RE, _gain_control_multi),
+    EffectHandler("gain_control_multi_eot", _GAIN_CONTROL_MULTI_EOT_RE, _gain_control_multi_eot),
     # "gain control of target <permanent> [. untap it]" with no duration —
     # the RULE 611.2 indefinite steal (Keiga, Blatant Thievery; PAR-130).
     EffectHandler(
@@ -1818,9 +1973,9 @@ ROWS: list[EffectHandler] = [
         _trigger_copy_spell,
     ),
     EffectHandler(
-        "copy_your_instant_or_sorcery",
-        _COPY_YOUR_INSTANT_OR_SORCERY_RE,
-        _copy_your_instant_or_sorcery,
+        "targeted_stack_copy",
+        _TARGETED_STACK_COPY_RE,
+        _targeted_stack_copy,
     ),
     # "Each instant and sorcery card in your graveyard gains flashback until
     # end of turn. The flashback cost is equal to its mana cost." (Past in

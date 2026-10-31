@@ -70,9 +70,16 @@ def test_all_three_are_hand_authored_not_parsed():
         assert is_registered(name), name
         card = db.get_card(name)
         assert card is not None, name
+        assert specs_for(card), name
+        if name == "Traumatic Revelation":
+            # PAR-213's inspection grammar now claims this card too (reviewed: same choose/discard/else-incubate
+            # semantics), but the registry entry is trusted wholesale and keeps precedence in play.
+            assert parse_oracle(card).modeled, name
+            effect_types = {e.type for s in specs_for(card) for e in s.effects}
+            assert "reveal_hand_choose_discard" in effect_types and "inspect_cards" not in effect_types
+            continue
         # hand-authoring does not move the parser verdict — it stays UNMODELED
         assert parse_oracle(card).coverage == UNMODELED, name
-        assert specs_for(card), name
 
 
 # --- Traumatic Revelation -------------------------------------------------------
@@ -93,6 +100,9 @@ def test_traumatic_revelation_else_branch_incubates_when_no_card_chosen():
     bind_from_catalogue(src)
     effects = build_effects(specs_for(src.card)[0].effects, src)
     effects[0].apply(GameContext(st, eng.rules), [p2])
+    # The revealed non-matching hand must be seen before the else-branch.
+    assert st.pending_choice["kind"] == "look_hand"
+    eng.resolve_pending_choice("decline")
 
     toks = _tokens(st)
     assert len(toks) == 1 and toks[0].name == "Incubator"

@@ -114,7 +114,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: "the first token made" and "the most recent" with nothing to validate the
 #: choice against would be a guess baked into a whitelisted vocabulary.
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
-    {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
+    {"target", "previous_target", "previous_player", "previous_subject", "iteration", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
      "attacked_player", "attacking_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
      "enchanted_player", "previous_entry_controller"}
@@ -294,6 +294,8 @@ def subject_of(
         # clause exiled ("that card's mana value", Tavern Brawler), a token it created.
         created = getattr(context, "created_objects", None) or []
         return created[-1] if created else None
+    if of == "iteration":
+        return getattr(context, "iteration_item", None)
     if of == "previous_player":
         # The player an earlier clause of this resolution targeted ("Target player draws …
         # and loses half their life" — the second clause reads the first one's player).
@@ -328,10 +330,11 @@ def subject_of(
         # "that player" / "they" / "defending player" under a trigger whose event names one player as its
         # recipient: the player a DAMAGE event hurt (RULE 120.3), else the defending player an ATTACKS event names
         # (RULE 508.1b). The parser only emits it under those heads (gate `event_player_events`).
-        event = getattr(context, "trigger_event", None) or {}
-        if event.get("is_player"):
-            return _player_by_id(context, event.get("target_id"))
-        return _player_by_id(context, event.get("defending_player_id"))
+        from .targeting import trigger_player_antecedent
+
+        return _player_by_id(context, trigger_player_antecedent(
+            context.state, getattr(context, "trigger_event", None),
+        ))
     if of == "attacked_player":
         # PAR-120: "whenever a creature attacks 1 of your opponents, **that
         # player** loses 1 life." (Calculating Lich) — the group subject's
@@ -417,8 +420,16 @@ def _context_holds(
     if kind == "amount_compare":
         from . import effect_amounts  # function-scoped: effect_amounts imports this module
 
-        left = effect_amounts.amount_of(condition.get("left"), context, source, targets)
-        right = effect_amounts.amount_of(condition.get("right"), context, source, targets)
+        def scoped_amount(value):
+            if isinstance(value, dict):
+                return {key: (condition['of'] if key == 'of' and child == 'trigger_subject' and 'of' in condition
+                              else scoped_amount(child)) for key, child in value.items()}
+            if isinstance(value, list):
+                return [scoped_amount(child) for child in value]
+            return value
+
+        left = effect_amounts.amount_of(scoped_amount(condition.get("left")), context, source, targets)
+        right = effect_amounts.amount_of(scoped_amount(condition.get("right")), context, source, targets)
         return {
             "lt": left < right, "le": left <= right,
             "gt": left > right, "ge": left >= right,
@@ -479,8 +490,8 @@ def _context_holds(
         event = getattr(context, "trigger_event", None) or {}
         played_id = event.get("instance_id")
         played = context.state.find_object(played_id) if played_id is not None else None
-        exiled_id = getattr(source, "linked_exile_id", None)
-        exiled = context.state.find_object(exiled_id) if exiled_id is not None else None
+        from .linked_exile import remembered_card
+        exiled = remembered_card(context.state, source, context)
         if played is None or exiled is None:
             return None
         # RULE 205.2a's real card types only — `type_words` always carries
@@ -582,6 +593,15 @@ def _evaluate(
     if not condition:
         return True
     kind = condition.get("kind")
+    if (kind in ('kicked', 'crewed_by_filter') or (kind == 'flag' and condition.get('flag') == 'emerge_cost_paid')) and "of" not in condition and source is not None:
+        # RULE 608.2h: a kicked ETB ability retains its source visit's
+        # cast choices after that permanent has left the battlefield.
+        visit = getattr(context, "resolving_source_incarnation", None)
+        if visit is not None and visit != source.zone_incarnation:
+            original = context.state.zone_visit_sources.get((source.instance_id, visit))
+            if original is not None:
+                return static_conditions.condition_holds(condition, context.state, original,
+                    _controller_id(source, context))
     if kind in ("power", "toughness", "mana_value") and "x" in (condition.get("min"), condition.get("max")):
         # "…if its toughness is X or less" (Welcome to the Fold, PAR-139): X is the resolving spell's own
         # announced X (`GameObject.x_paid`), bound here because a condition dict is not an effect attribute
@@ -591,7 +611,7 @@ def _evaluate(
 
     if kind == "all":
         results = [
-            _evaluate(sub, context, source, targets)
+            _evaluate({**({'of': condition['of']} if 'of' in condition else {}), **sub}, context, source, targets)
             for sub in (condition.get("conditions") or [])
         ]
         if any(result is False for result in results):
@@ -599,7 +619,7 @@ def _evaluate(
         return None if any(result is None for result in results) else True
     if kind == "any":
         results = [
-            _evaluate(sub, context, source, targets)
+            _evaluate({**({'of': condition['of']} if 'of' in condition else {}), **sub}, context, source, targets)
             for sub in (condition.get("conditions") or [])
         ]
         if any(result is True for result in results):
@@ -609,6 +629,8 @@ def _evaluate(
         inner = condition.get("condition")
         if not inner:
             return False  # an empty negation is fail-closed, not vacuously true
+        if 'of' in condition:
+            inner = {'of': condition['of'], **inner}
         result = _evaluate(inner, context, source, targets)
         return None if result is None else not result
 
@@ -622,6 +644,16 @@ def _evaluate(
         return None
 
     controller_id = _controller_id(source, context)
+    if kind == 'is_chosen_type':
+        # The choice belongs to the ability source even when "it" names a different object.
+        choice_source = source
+        visit = getattr(context, 'resolving_source_incarnation', None)
+        if source is not None and visit is not None and visit != source.zone_incarnation:
+            choice_source = context.state.zone_visit_sources.get((source.instance_id, visit))
+        chosen = getattr(choice_source, 'chosen_type', None)
+        if not chosen:
+            return False
+        condition = {**condition, 'subtype': chosen}
     of = condition.get("of") or "source"
     if kind == 'source_counters' and of == 'source' and source is not None:
         from copy import copy
@@ -637,6 +669,12 @@ def _evaluate(
     subject = subject_of(of, context, source, targets)
     if subject is None:
         return None
+    if (of == 'previous_target' and getattr(getattr(subject, 'zone', None), 'value', None) != 'battlefield'
+            and subject in [*context.destroyed_objects, *context.exiled_objects]):
+        # RULE 608.2h: a just-destroyed/exiled permanent supplies its last battlefield
+        # characteristics, not the reset characteristics of its new-zone object.
+        subject = context.state.zone_visit_sources.get(
+            (subject.instance_id, subject.zone_incarnation - 1), subject)
     # Point the predicate at the resolved referent and let the one shared
     # implementation answer it.
     return static_conditions.condition_holds(
@@ -664,7 +702,7 @@ def condition_state(
 
 
 #: Flags the *cast itself* decides, so they are already known when targets are announced.
-ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid"})
+ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid"})
 
 
 def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optional[bool]:
@@ -683,7 +721,13 @@ def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optiona
     if kind == "not":
         inner = announced_state(structured.get("condition"), source)
         return None if inner is None else not inner
+    if kind == "kicked" and "of" not in structured:
+        count = int(getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0)) or 0)
+        return ((structured.get("min") is None or count >= structured["min"])
+                and (structured.get("max") is None or count <= structured["max"]))
     if kind == "flag" and structured.get("flag") in ANNOUNCED_FLAGS and "of" not in structured:
+        if structured["flag"] == "teamwork_paid":
+            return bool(getattr(source, "_modal_announced_teamwork", getattr(source, "teamwork_paid", False)))
         return bool(getattr(source, structured["flag"], False))
     return None
 
@@ -692,6 +736,8 @@ def pin_source_reference(value: Any, source: Any, incarnation: Optional[int] = N
     """RULE 400.7: an effect's "other" refers to its original source visit."""
     if isinstance(value, dict):
         result = {key: pin_source_reference(child, source, incarnation) for key, child in value.items()}
+        if result.get("linked_exile") and incarnation is not None:
+            result["linked_source_incarnation"] = incarnation
         if result.get("not_reference") and source is not None:
             result.pop("not_reference")
             result["without_object_visit"] = [source.instance_id,
@@ -756,6 +802,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),
     "source_was_cast": _flag("was_cast"),
+    "tribute_paid": _flag("tribute_paid"),  # RULE 702.104b (PAR-190)
     "source_was_cast_from_hand": _flag("was_cast_from_hand"),  # RULE 601.2/400.1 (PAR-120)
     "source_was_foretold": _flag("foretold"),
     "cast_via_escape": _flag("cast_via_escape"),

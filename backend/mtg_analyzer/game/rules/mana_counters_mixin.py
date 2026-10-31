@@ -95,15 +95,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -563,6 +563,7 @@ class ManaCountersMixin:
                     object=obj.name,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
+                    instance_zone_incarnation=obj.zone_incarnation,
                     reason=reason,
                 )
             )
@@ -617,7 +618,17 @@ class ManaCountersMixin:
                 obj.add_counters(kind, final_amount)
 
         if amount <= 0:
+            before = obj.counters.get(kind, 0)
             _place(amount)
+            removed = before - obj.counters.get(kind, 0)
+            # Counter disappearance on a zone change never uses this API.
+            snapshot = dict(instance_id=obj.instance_id, kind=kind,
+                            zone=obj.zone.value, zone_incarnation=obj.zone_incarnation,
+                            controller_id=obj.owner_id if obj.zone == Zone.EXILE else obj.controller_id)
+            for _ in range(removed):
+                self.state.fire_event(GameEvent(EventType.COUNTER_REMOVED, **snapshot))
+            if removed and kind == "time" and before == removed and obj.zone == Zone.EXILE:
+                self.state.fire_event(GameEvent(EventType.LAST_TIME_COUNTER_REMOVED, **snapshot))
             return
 
         # RULE 101.2: prohibited counters are never placed or announced.
@@ -642,22 +653,28 @@ class ManaCountersMixin:
             recipient_is_planeswalker=bool(getattr(getattr(obj, "card", None), "is_planeswalker", False)),
         )
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            if continuous.counters_prohibited_for(self.state, obj, resolved.get("kind", kind)):
-                return
-            _place(resolved.get("amount", amount))
-            # "Whenever a -1/-1 counter is put on a creature, …" (Flourishing
-            # Defenses) / "…on a permanent you control, …" (Hardened Scales-
-            # adjacent triggered, not just replacement, consumers) — RULE
-            # 122.5's own trigger family. `apply_replacements` only ever used
-            # this event to compute the final amount; nothing broadcast it,
-            # so `_collect_triggers` (a `state.fire_event` subscriber) could
-            # never see a counter placement at all until now.
-            self.state.fire_event(resolved)
+        self.apply_replacements(event, on_resolved={
+            "kind": "permanent_counters", "instance_id": obj.instance_id,
+            "visit": obj.zone_incarnation, "counter_kind": kind, "amount": amount,
+            "object": obj,  # prospective entrants may not be in a zone yet
+        })
 
-        self.apply_replacements(event, on_resolved=_finish)
+    def _finish_permanent_counters(self, receipt: dict, resolved: Optional[GameEvent]) -> None:
+        if resolved is None:
+            return
+        obj = self.state.find_object(receipt["instance_id"]) or receipt.get("object")
+        if obj is None or obj.zone_incarnation != receipt["visit"]:
+            return  # RULE 400.7: never place counters on a later visit.
+        kind = resolved.get("kind", receipt["counter_kind"])
+        if continuous.counters_prohibited_for(self.state, obj, kind):
+            return
+        amount = resolved.get("amount", receipt["amount"])
+        if kind == "+1/+1":
+            obj.plus_one_counters += amount
+        else:
+            obj.add_counters(kind, amount)
+        self.state.fire_event(resolved)
+
     def add_player_counters(
         self, player: Player, amount: int, kind: str = "poison", source: Optional[GameObject] = None
     ) -> None:
@@ -699,15 +716,18 @@ class ManaCountersMixin:
             recipient_is_creature=False,
         )
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is None:
-                return
-            _place(resolved.get("amount", amount))
-            # See `add_counters`'s matching fix: broadcast so a "whenever a
-            # player gets a poison/energy counter" trigger can actually fire.
+        self.apply_replacements(event, on_resolved={
+            "kind": "player_counters", "player_id": player.id,
+            "counter_kind": kind, "amount": amount,
+        })
+
+    def _finish_player_counters(self, receipt: dict, resolved: Optional[GameEvent]) -> None:
+        if resolved is not None:
+            player = self.state.player_by_id(receipt["player_id"])
+            player.add_counters(resolved.get("kind", receipt["counter_kind"]),
+                                resolved.get("amount", receipt["amount"]))
             self.state.fire_event(resolved)
 
-        self.apply_replacements(event, on_resolved=_finish)
     def _request_counter_kind_choice(
         self, effect: AddCountersEffect, context: GameContext, targets: Optional[list[Any]]
     ) -> None:
@@ -913,10 +933,12 @@ class ManaCountersMixin:
         SBA all apply.
 
         ``interactive=False`` (PAR-29 — "Blight N" paid as a *cost*, where
-        payment is synchronous and can't pause for a chooser): auto-pick the
-        creature with the highest toughness, then highest power — the
-        least-self-harm pick, the same "auto-pick to minimise loss"
-        documented simplification `collect_evidence` uses.
+        payment is synchronous and can't pause for a chooser): the creature
+        the player offered up front (`GameState.blight_cost_choice`, from the
+        action's ``blight_cost`` pool), else the creature with the highest
+        toughness, then highest power — the least-self-harm pick, the same
+        "auto-pick to minimise loss" documented simplification
+        `collect_evidence` uses.
         """
         if amount <= 0:
             return
@@ -931,7 +953,8 @@ class ManaCountersMixin:
             self.add_counters(creatures[0], amount, "-1/-1", source=source)
             return
         if not interactive:
-            victim = max(
+            # RULE 601.2b / 602.2b: the player's own pick pays the cost; auto-pick only when none was made.
+            victim = next((o for o in creatures if o.instance_id == self.state.blight_cost_choice), None) or max(
                 creatures,
                 key=lambda o: (getattr(o, "toughness", 0) or 0, getattr(o, "power", 0) or 0),
             )

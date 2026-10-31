@@ -12,6 +12,7 @@ def _charm_peddler() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "target_kind": "creature", "amount": "all",
             })],
             cost={"text": "{W}, {T}, Discard a card"},

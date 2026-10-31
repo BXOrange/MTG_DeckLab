@@ -30,10 +30,17 @@ def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
     return obj
 
 
+def _cost_string(mv, color_identity=None):
+    """A mana cost of value ``mv`` whose colour symbols match ``color_identity`` (RULE 202.2: colour comes from the cost)."""
+    colors = sorted(color_identity or ())
+    generic = mv - len(colors)
+    return ("{%d}" % generic if generic > 0 else "") + "".join("{%s}" % c for c in colors)
+
+
 def _filler(engine, name="Filler", type_line="Creature", player="p1", mv=0, power=None, toughness=None, **kw):
     card = Card(id=name, name=name, type_line=type_line, converted_mana_cost=mv,
                 is_creature="Creature" in type_line, is_land="Land" in type_line,
-                power=power, toughness=toughness, mana_cost_string="{%d}" % mv if mv else "", **kw)
+                power=power, toughness=toughness, mana_cost_string=_cost_string(mv, kw.get("color_identity")), **kw)
     obj = GameObject(card, owner_id=player, zone=Zone.BATTLEFIELD)
     obj.controller_id = player
     bind_from_catalogue(obj)
@@ -101,7 +108,7 @@ def test_rhonas_monument_discounts_green_creatures_and_pumps_on_creature_casts()
 
     def hand_card(name, ident, color, mv):
         card = Card(id=ident, name=name, type_line="Creature — Bear", is_creature=True, converted_mana_cost=mv,
-                    mana_cost_string="{%d}" % mv, power=2, toughness=2, color_identity=color)
+                    mana_cost_string=_cost_string(mv, color), power=2, toughness=2, color_identity=color)
         obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
         bind_from_catalogue(obj)
         p1.add_to_zone(obj, Zone.HAND)
@@ -110,7 +117,8 @@ def test_rhonas_monument_discounts_green_creatures_and_pumps_on_creature_casts()
     green, red = hand_card("Green Bear", "G", {"G"}, 3), hand_card("Red Bear", "R", {"R"}, 3)
     assert engine.effective_cast_cost(p1, green).converted_mana_cost == 2
     assert engine.effective_cast_cost(p1, red).converted_mana_cost == 3
-    p1.mana_pool.add("C", 2)
+    p1.mana_pool.add("G", 1)  # the cost's {G}; the Monument takes {1} off the generic part
+    p1.mana_pool.add("C", 1)
     engine.cast_spell(p1, green, targets=None, target_groups=None)
     engine.resolve_until_stable()
     if engine.state.pending_choice:
@@ -128,7 +136,7 @@ def test_yeva_lets_only_green_creature_spells_be_cast_at_instant_speed():
 
     def hand(name, kind, color):
         card = Card(id=name, name=name, type_line=kind, is_creature="Creature" in kind,
-                    is_instant="Instant" in kind, converted_mana_cost=1, mana_cost_string="{1}",
+                    is_instant="Instant" in kind, converted_mana_cost=1, mana_cost_string=_cost_string(1, color),
                     color_identity=color, power=1 if "Creature" in kind else None,
                     toughness=1 if "Creature" in kind else None)
         obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
@@ -137,7 +145,8 @@ def test_yeva_lets_only_green_creature_spells_be_cast_at_instant_speed():
         return obj
 
     green, red, green_artifact = hand("G", "Creature — Bear", {"G"}), hand("R", "Creature — Bear", {"R"}), hand("GA", "Artifact", {"G"})
-    p1.mana_pool.add("C", 3)
+    p1.mana_pool.add("G", 3)
+    p1.mana_pool.add("R", 3)
     assert engine.can_cast(p1, green)
     assert not engine.can_cast(p1, red) and not engine.can_cast(p1, green_artifact)
 

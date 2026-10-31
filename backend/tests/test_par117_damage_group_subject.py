@@ -197,13 +197,13 @@ def test_rakish_heir_and_stensia_masquerade_are_modeled():
         assert result.coverage != UNMODELED, (name, result.unclaimed)
 
 
-def test_sosuke_son_of_seshiro_stays_unmodeled_on_the_damage_recipient_referent():
-    # "…deals combat damage to a creature, destroy that creature at end of
-    # combat." needs a damage-*recipient* referent this project doesn't
-    # have yet (distinct from the group subject, the dealer) — refused
-    # rather than silently destroying Sosuke's own controller's board.
+def test_sosuke_son_of_seshiro_destroys_the_damage_recipient_not_the_dealer():
+    # "…deals combat damage to a creature, destroy that creature at end of combat." names the damage *recipient*
+    # (the event's ``target_id``, MEC-132), distinct from the group subject, the dealer.
     result = parse_oracle(_db().get_card("Sosuke, Son of Seshiro"))
-    assert result.coverage == UNMODELED
+    assert result.modeled
+    delayed = next(e for s in result.specs for e in s.effects if e.type == "create_delayed_trigger")
+    assert delayed.params["capture"] == "trigger_subject" and delayed.params["trigger_event_key"] == "target_id"
 
 
 def test_quest_for_the_gemblades_keeps_working():

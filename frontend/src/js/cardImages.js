@@ -140,3 +140,64 @@ export async function preloadCardImages(names, onProgress) {
   );
   return resolved;
 }
+
+/**
+ * Fetch every URL into the browser's image cache. Resolves when all have
+ * settled (a failed image just counts as done — art is best-effort).
+ * @param {string[]} urls
+ * @param {(loaded: number, total: number) => void} [onProgress]
+ */
+export async function preloadImageUrls(urls, onProgress) {
+  const unique = Array.from(new Set(urls.filter(Boolean)));
+  const total = unique.length;
+  let loaded = 0;
+  onProgress?.(loaded, total);
+  await Promise.all(
+    unique.map(
+      (url) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = img.onerror = () => {
+            loaded += 1;
+            onProgress?.(loaded, total);
+            resolve();
+          };
+          img.src = url;
+        })
+    )
+  );
+}
+
+/**
+ * Seed `merged` (a view's imageCache) with the art of the tokens a deck can
+ * produce and warm every size of it (small/normal/large/png) in the browser
+ * cache, so a token created mid-game — on the board or in a zoom/tooltip —
+ * never pops in. Keyed by the token's own id (unique per exact name/P-T/colors
+ * variant, see gameBoardView.js `resolveImageUrl`), plus lowercased name as a
+ * same-name fallback that never clobbers a real card's entry and doubles as
+ * the hover-detail tooltip's cache key (`cacheResolvedCard`).
+ * @param {Array<object>} tokens `fetchDeckTokens` result rows
+ * @param {Map<string, object>} merged
+ * @param {(loaded: number, total: number) => void} [onProgress]
+ */
+export async function preloadTokenArt(tokens, merged, onProgress) {
+  const urls = [];
+  for (const t of tokens) {
+    urls.push(t.image_small, t.image_normal, t.image_large, t.image_png);
+    if (!t.image_small && !t.image_normal) continue;
+    const entry = {
+      small: t.image_small || null,
+      normal: t.image_normal || null,
+      large: t.image_large || null,
+      png: t.image_png || null,
+      card: t,
+    };
+    if (t.id) merged.set(t.id, entry);
+    const key = (t.name || '').toLowerCase();
+    if (key && !merged.has(key)) {
+      merged.set(key, entry);
+      cacheResolvedCard(key, entry);
+    }
+  }
+  await preloadImageUrls(urls, onProgress);
+}

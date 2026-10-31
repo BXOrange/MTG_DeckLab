@@ -4,7 +4,35 @@ Reusable engine mechanisms and their invariants. Card-specific behaviour lives i
 the card's implementation and tests; shipped narrative in
 `docs/implementation-state/Done_Backend.md` (search the mechanic's name there).
 
+## Rules subsystem navigation
+
+`game/rules/misc_mixin.py` composes focused mixins while retaining the
+`MiscSystemsMixin` import used by `RulesEngine`. Its inherited operations live in:
+
+| Responsibility | Module under `game/rules/` |
+| --- | --- |
+| Optional energy/life/cost payments and collective payment choices | `payment_choices_mixin.py` |
+| Player-cost validation and payment | `player_costs_mixin.py` |
+| Player/object votes and outcomes | `voting_mixin.py` |
+| Resolution decisions, villainous choices and combat recipients | `resolution_choices_mixin.py` |
+| Named choices, conditional payments and opening-hand entry | `source_choices_mixin.py` |
+| Tokens, attacking entry, Sagas and cast tracking | `tokens_sagas_mixin.py` |
+| Day/night, Planechase, schemes and dungeons | `variant_systems_mixin.py` |
+| Resolving keyword actions | `keyword_actions_mixin.py` |
+| Monarch, initiative, Ring and emblems | `designations_mixin.py` |
+| Object-selection validation and resumable picks | `object_selection_mixin.py` |
+| Applying actions to selected objects | `chosen_object_actions_mixin.py` |
+| Retargeting, mutate and stack movement/countering | `stack_interaction_mixin.py` |
+| Ward, conditional counter payments and combat-triggered keywords | `ward_combat_mixin.py` |
+
+These mixins share engine state through `self`; choice decorators register the
+same continuation methods when imported by the composition. Shared predicates,
+constants and serialized-branch helpers live in `misc_helpers.py` and remain
+re-exported from `misc_mixin.py` for existing callers.
+
 ## Identity and snapshots
+
+- Counter-removal events capture the affected zone visit and occur only for actual removals. Suspend last-counter casts and ordinary removal payoffs resolve as separate triggers. Resolution play choices retain exact exile visits through JSON snapshots. Suspend haste is a timestamped continuous grant until control loss; explicit end-of-turn cast grants use their own duration.
 
 - Objects keep a stable `instance_id` plus a monotonic `zone_incarnation` that
   identifies one zone stay (RULE 400.7). Remembered/linked references (exile until
@@ -12,6 +40,12 @@ the card's implementation and tests; shipped narrative in
   incarnations, so leaving and re-entering a zone breaks the link.
   `zone_visit_counters` preserves counter LKI for departed source visits;
   resolving amounts and conditions use it only after that source visit ends.
+  Source characteristic amounts use `zone_visit_characteristics` for the departed
+  battlefield visit (RULE 608.2h), never a later incarnation of that physical card.
+  `zone_visit_sources` preserves departed damage-source characteristics, including
+  temporary keywords, through clone and token removal. Contextual trigger amounts
+  use a binder-resolved event field and its captured zone visit, distinguishing
+  the damage dealer from the damaged permanent.
   Live source identity remains unchanged for selectors such as "other".
 - Aura/Equipment trigger predicates resolve their source by instance ID from the
   *current* state. Snapshot callbacks retain Python closures, so a captured
@@ -26,6 +60,15 @@ the card's implementation and tests; shipped narrative in
   transfers copy these exact visits; returns never reconstruct them from IDs.
   Ability sources retain their pre-cost incarnation. Crew and saddle attack
   events freeze participant visits; later zone changes break membership.
+  `game/linked_exile.py` is the shared reader for counts, Imprint, borrowed
+  abilities, linked selections and play permissions. Remembered IDs only
+  narrow that reader; they never restore a severed link. Casting-cost and
+  as-enters links transfer once from the spell to its resulting permanent.
+  Historical "exiled this way" counts remain separate from live linked counts.
+  Standing play grants are read from the current source and controller;
+  resolving grants freeze the linked pool and outlive their source. Without
+  duration wording, cast/play offers exist only during resolution, including
+  land plays through the ordinary land-limit checks (RULE 608.2g).
 - Timed copies use ordered `copy_mechanics` snapshot layers. Cleanup and
   next-end-step expiration remove only the matching layers, preserving newer
   permanent copies and independent durations. Zone changes discard the layers;
@@ -50,6 +93,10 @@ the card's implementation and tests; shipped narrative in
   measured return choices; source returns use the same entry batch as blink.
   Standing exile-play permissions retain the exile visit and filter the
   selected card face, including MDFC land faces.
+  Temporary exact-card play permissions also cover graveyard and library
+  visits, independently of owner or library position. Mill/reveal pairs use
+  the shared casting-window grammar; ordinary costs, timing, land limits and
+  cast prohibitions still apply. No-duration offers remain resolution-local.
 - Saga completion checks chapter abilities waiting for stack placement as
   well as those already on the stack (RULE 704.5s / 714.4). An unrelated
   trigger or a chapter from an older source visit does not protect a Saga.
@@ -57,13 +104,27 @@ the card's implementation and tests; shipped narrative in
 ## Resolution
 
 - Source-granted quoted abilities use the same duration and exact-object
-  grant statics as other grants. Nested quoted statics retain dynamic
-  controller-relative groups. Granted mana choices accept arbitrary printed
+  grant statics as other grants. Nested quoted statics resolve controller-relative
+  groups and supported attachment scopes from the recipient. Nested layer-6
+  effects join the same timestamp/dependency worklist; granted static effects
+  use the later host/grant timestamp and cease when their ability is removed.
+  Attachment changes update timestamps; reattaching to the current host does not.
+  Granted mana choices accept arbitrary printed
   pip alternatives; searches share the rules-backed subtype vocabulary
   and intersect it with any additional card-type restriction. Printed
   Changeling and unconditional all-creature-type CDAs apply to searched
   cards, using the shared model vocabulary; conditional or granted text
   does not become a printed CDA.
+
+- Proliferate (RULE 701.34a) stages recipient IDs/zone visits in its own
+  `pending_choice`. Individual option IDs remain valid for bots; clients may
+  atomically submit `choose` with `option_ids` and the matching `selection_id`.
+  The empty list is legal. Each repeat has a fresh selection identity.
+  Counter replacement continuations use state-owned receipts, and a deferred
+  placement effect finishes ordering before another proliferation or rider.
+  The perspective view adds `recommended_ids` from the same public counter
+  utility used by Smart2; this annotation never mutates the pending engine
+  choice or applies counters.
 
 - Aggregate target limits share power and mana-value axes across casting,
   activation, trigger choices, copied targets and board metadata. Any-number
@@ -89,6 +150,20 @@ the card's implementation and tests; shipped narrative in
   duration, untap and haste parameters. Group selection uses the resolving
   ability controller even after its source changes controller. Untargeted
   land choices distinguish unrestricted pools from lands you control.
+  Source-bound control windows validate the resolving source's exact zone visit
+  before starting (RULE 611.2b), combine control/tapped requirements, and can
+  retain a live target filter (enchanted status or source-relative power).
+  Target-only windows remain independent of the ability source. Each resolved
+  control effect keeps its own timestamp/window even if its recipient already
+  controls the permanent; ending one window exposes the latest surviving effect.
+
+- Continuous lifetimes share `game/durations.py` across floating statics,
+  control records, timed copy layers, prevention shields and exile play grants.
+  Upkeep/end-step clocks expire before beginning-of-step triggers; next-turn-only
+  play permissions remain inactive until the holder's next played turn. A
+  condition-bound lifetime ends permanently, preserving exact source/affected
+  visits; attachment triggers retain their original host and attachment generation.
+  Duration grammar retimes only represented continuous effects in its own sentence.
 
 - Loss replacements use `PLAYER_WOULD_LOSE`; `PLAYER_LOST` announces only an
   actual loss. State-owned APNAP loss batches defer game-over checks until all
@@ -128,6 +203,15 @@ the card's implementation and tests; shipped narrative in
 
 ## Costs and choices
 
+- Emerge (RULE 702.119a,c) uses `alt_cost=True` and the existing `sacrifice_choice` instance ID. `_emerge_payment` validates the creature, includes commander tax and applies its mana-value reduction before cost floors. Payment records sacrifice characteristics through `note_sacrificed`; `emerge_cost_paid` gates the existing condition/override composition. A normal recast clears the flag.
+- Crew (RULE 702.122b,c) records payment-time subtypes and exact creature visits. Historical counts include departed creatures; target filters require the original live visit. The turn reset clears both histories, and source-visit snapshots preserve them for resolving abilities after departure.
+- "As ~ enters, choose ..." answers are state-owned: `GameState.pending_enter_choice` (object + zone visit) with the `pending_permanent_entry` / `pending_land_entry` / `pending_token_entry` record naming the entry path; `RulesEngine._take_enter_choice`/`_enter_choice_exit` re-derive the open effect, the remaining `enter_choice_effects` queue and the exit from them, so undo/clone onto an open choice still enters the permanent (RULE 614.12, 400.7; a changed zone visit enters nothing). New entry paths set one of the records instead of capturing a closure.
+- Announced kicker conditions use the pending cast choice before target selection and the persisted kicker count afterward. Cast offers may provide a complete `kicker_variant` with distinct requirements. `damage_divisions` maps requirement indices to positive integer shares in target order; validate before paying, preserve shares on the private stack effects and their bound specs, and never redistribute shares when a target becomes illegal. Lazy composite branches pin source references to the resolving source visit.
+
+- Open Ward payments retain their exact `StackItem`, payer and resolved cost in
+  `GameState.pending_ward` (RULE 702.21a/b). Clone/undo preserves that identity;
+  resumption consumes the descriptor and checks stack membership before payment
+  or countering. X is fixed when Ward resolves, before the payment prompt.
 - Outside-game cards (RULE 400.11) live in `Player.sideboard`, outside all
   zones and generic object/target pools. A live `sideboard_cast_permission`
   admits owned nonland cards through ordinary casting; successful commitment

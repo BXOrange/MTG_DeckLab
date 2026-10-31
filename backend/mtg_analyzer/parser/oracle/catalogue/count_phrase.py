@@ -70,6 +70,19 @@ _ENTERED_THIS_TURN = re.compile(r"\s+that entered (?:the battlefield )?this turn
 #: "cards in exile **that have an adventure**" (Howling Galefang) — the `has_adventure` filter key.
 _HAS_ADVENTURE = re.compile(r"\s+that (?:has|have) an adventure$")
 _BLOCKING_IT = re.compile(r"\s+blocking (?:it|~)$")
+#: RULE 506.3 / 509.1a: the combat relations a source names *as itself* (``~``), read at the end of combat
+#: step (RULE 511.1) while the blocks are still on the board — "creatures blocking ~" (The Wretched), "creatures
+#: blocking or blocked by ~" (Greater Werewolf, Kjeldoran Frostbeast), "creatures blocked by ~" (Wall of Nets) and,
+#: over the turn's history, "creature that blocked or was blocked this turn" (Heat Stroke) and "creatures that
+#: blocked ~ this turn" (Joven's Ferrets). Only ``~``: a pronoun's referent depends on the trigger head, which a
+#: count phrase cannot see. Each maps onto its `combat.matches_object_filter` key.
+COMBAT_RELATION_TAILS: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r"\s+blocking ~$"), "blocking_source"),
+    (re.compile(r"\s+blocking or blocked by ~$"), "blocking_or_blocked_by_source"),
+    (re.compile(r"\s+blocked by ~$"), "blocked_by_source"),
+    (re.compile(r"\s+that blocked or (?:was|were) blocked this turn$"), "blocked_or_was_blocked_this_turn"),
+    (re.compile(r"\s+that blocked ~ this turn$"), "blocked_source_this_turn"),
+)
 _SHARES_TYPE_WITH_IT = re.compile(r"\s+that shares? a creature type with (?:it|~)$")
 # One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
 # Swarm). Each half keeps the same filter; summing is safe because an object
@@ -109,8 +122,14 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         if first is None or second is None or first.get("zone") == second.get("zone"):
             return None
         return {"terms": [first, second]}
+    name_tail = re.search(r" with the same name as (.+)$", text)
+    name_extra = None
+    if name_tail:
+        name_extra = parse_qualifier('the same name as ' + name_tail[1])
+        if name_extra is not None:
+            text = text[:name_tail.start()]
     selector: dict[str, Any] = {}
-    extra: dict[str, Any] = {}
+    extra: dict[str, Any] = dict(name_extra or {})
     # PAR-153: RULE 700.9 "attacking modified creature you control" (Mirror-Style Master) -- a permanent with a counter,
     # Equipment or controlled Aura on it (`continuous.is_modified`). Read here, in a live count/iteration, and not in
     # `characteristic_phrase`'s shared adjectives: a trigger head ("whenever a modified creature you control dies") would
@@ -139,6 +158,12 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if adventure is not None:
         extra["has_adventure"] = True
         text = text[: adventure.start()].strip()
+    for tail, relation_key in COMBAT_RELATION_TAILS:
+        relation = tail.search(text)
+        if relation is not None:
+            extra[relation_key] = True
+            text = text[: relation.start()].strip()
+            break
     blocking = _BLOCKING_IT.search(text)
     if blocking is not None:
         extra["blocking_source"] = True
@@ -167,6 +192,20 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
             return None
         extra.update(qualifier)
         text = text[: zone_counter.start()]
+    linked = re.fullmatch(r"(?P<head>.+?) exiled with (?:~|it)", text)
+    if linked:
+        head = linked['head']
+        own = head.endswith(' you own')
+        if own:
+            head = head[:-len(' you own')]
+        parsed = parse_object_phrase(head, plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        filt = _merge_filters(parsed[0], extra)
+        if filt is None:
+            return None
+        return {**selector, 'zone': 'exile', 'of': 'you' if own else 'any',
+                'linked_exile': True, **({'filter': filt} if filt else {})}
     for suffix, keys in _ZONE_SUFFIXES:
         if text.endswith(suffix):
             parsed = parse_object_phrase(text[: -len(suffix)], plural=True)
@@ -256,6 +295,7 @@ _CONTROL = re.compile(r"^you control (?P<rest>.+)$")
 _OWN = re.compile(r"^you own (?P<rest>.+)$")
 _THERE_ARE = re.compile(r"^there (?:are|is) (?P<rest>.+)$")
 _OPPONENT_MORE = re.compile(r"^an opponent controls more (?P<phrase>.+?) than you$")
+_YOU_MOST = re.compile(r"you control (?P<direction>more|fewer) (?P<phrase>.+?) than each other player")
 
 
 def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
@@ -267,6 +307,16 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
     `<phrase>`" counts the phrase's own location ("… in your graveyard").
     """
     text = text.strip().lower().rstrip(".")
+    linked_exists = re.fullmatch(r"(?P<head>an? .+?) (?:is|are) exiled with (?P<source>~|it)", text)
+    if linked_exists:
+        text = f"there is {linked_exists['head']} exiled with {linked_exists['source']}"
+    m = _YOU_MOST.fullmatch(text)
+    if m is not None:
+        selector = parse_count_phrase(m['phrase'])
+        if selector is None or selector.get('of') != 'any' or selector.get('zone') != 'battlefield':
+            return None
+        return {'kind': 'you_have_most' if m['direction'] == 'more' else 'you_have_fewest',
+                'selector': {**selector, 'of': 'you'}}
     m = _OPPONENT_MORE.match(text)
     if m is not None:
         selector = parse_count_phrase(m.group("phrase"))

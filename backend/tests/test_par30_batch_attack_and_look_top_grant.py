@@ -94,9 +94,18 @@ def test_batch_attack_negated_subtype_filter():
 
 def test_batch_attack_unmodelled_qualifier_fails_closed():
     seg = _segment(
-        "whenever one or more modified creatures you control attack, draw a card"
+        "whenever one or more renowned creatures you control attack, draw a card"
     )
     assert not seg.claimed
+
+
+def test_batch_attack_object_filter_carries_any_other_known_quality():
+    # PAR-207: a quality the closed `group_filter` keys do not name rides as the ordinary object filter.
+    seg = _segment(
+        "whenever one or more modified creatures you control attack, draw a card"
+    )
+    assert seg.claimed
+    assert seg.spec.trigger["condition"]["group_filter"] == {"object_filter": {"modified": True}}
 
 
 def test_winota_family_modeled():

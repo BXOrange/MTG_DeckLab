@@ -12,6 +12,7 @@ def _martyrs_cause() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "target_kind": "any", "amount": "all",
             })],
             cost={"text": "Sacrifice a creature"},

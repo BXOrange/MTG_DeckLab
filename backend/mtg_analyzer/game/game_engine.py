@@ -89,7 +89,9 @@ class GameEngine(
         zones = [zone] if isinstance(zone, str) else zone
         return bool(choice and choice["player_id"] == player.id
                     and obj.instance_id in choice["instance_ids"]
-                    and obj.zone.value in zones)
+                    and obj.zone.value in zones
+                    and choice.get("zone_incarnations", {}).get(str(obj.instance_id), obj.zone_incarnation)
+                        == obj.zone_incarnation)
 
     def play_resolution_card(self, player, obj, targets=None, x=0, *, face="front", **cast_options):
         """Play an offered card using ordinary target, mode and cost validation.

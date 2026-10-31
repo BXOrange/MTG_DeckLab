@@ -4,6 +4,7 @@ from __future__ import annotations
 from .core import GameEffect
 from .. import continuations
 from ._runtime import install, register
+from ...models.cards.card_query import PERMANENT_CARD_TYPES, is_permanent_card
 from ..targeting import graveyard_card_matches, legal_targets
 
 install(globals())
@@ -136,7 +137,7 @@ class SacrificeSharedTypeToReturnEffect(GameEffect):
     paid sacrifice returns the card (`return_remembered_graveyard_cards`, armed with the exile replacement)."""
 
     #: The card types a "shares a card type" comparison reads (RULE 205.2a, permanent types).
-    _CARD_TYPES = frozenset({"artifact", "creature", "enchantment", "land", "planeswalker", "battle"})
+    _CARD_TYPES = PERMANENT_CARD_TYPES  # RULE 110.4
 
     def __init__(self, source: Optional["GameObject"] = None, target_kind: str = "graveyard_permanent") -> None:
         super().__init__(source)
@@ -479,9 +480,12 @@ class ReturnToLibraryEffect(GameEffect):
         colors: Optional[list[str]] = None,
         depth: int = 1,
         group: Optional[dict[str, Any]] = None,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Put target attacking creature on the bottom of its owner's library." (Condemn) — narrows the target.
+        self.creature_filter = dict(creature_filter) if creature_filter else None
         #: "Put all creatures on the bottom of their owners' libraries." (Terminus, Hallowed Burial) — a structured
         #: battlefield selector (`_group_objects`), `ReturnToHandEffect.group`'s library sibling. Each owner's cards
         #: go in the order found (RULE 401.4 lets them arrange them; the engine keeps one fixed order).
@@ -500,7 +504,8 @@ class ReturnToLibraryEffect(GameEffect):
         #: from the top." (Shattered Ego): the Aura's host, not a target.
         self.attached = target_kind == "attached_permanent"
         self.target_spec = (
-            TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors)
+            TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors,
+                       creature_filter=self.creature_filter)
             if target_kind and self.group is None and not self.attached else None
         )
 
@@ -828,6 +833,12 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: 205.4a supertype exclusion on the graveyard target pool.
         self.exclude_legendary = bool(exclude_legendary)
         self._kind = target_kind
+        #: "return all **Elf** creature cards from your graveyard …" (PAR-203, a chosen creature type): the mass mode's
+        #: creature-subtype narrowing, read by `apply`'s ``players`` branch (a targeted return hands it to the TargetSpec).
+        self._mass_subtype = subtype if players is not None else None
+        #: "return all creature cards **with mana value 2 or less** from your graveyard …" (PAR-215, Raise the Past):
+        #: the mass mode's mana-value ceiling (RULE 202.3); ``"x"`` is the resolving spell's announced X.
+        self._mass_max_mana_value = max_mana_value if players is not None else None
         spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number, total_power_max=total_power_max,
@@ -1183,11 +1194,20 @@ class ReturnFromGraveyardEffect(GameEffect):
             else:
                 players = list(context.state.living_players())
             kind = self._kind or "graveyard_creature"
+            from .. import continuous  # function-scoped: continuous imports the effects package
+
             with context.state.simultaneous():
                 for player in players:
                     # "return all **land** cards from your graveyard to the battlefield tapped"
                     # (Aftermath Analyst, Lumra): the kind's own type filter, not just creature/any.
-                    cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)]
+                    ceiling = self._mass_max_mana_value
+                    if ceiling == "x":
+                        ceiling = int(getattr(self.source, "x_paid", 0) or 0)
+                    cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)
+                             and (not isinstance(ceiling, int) or o.mana_value <= ceiling)
+                             and (not self._mass_subtype
+                                  or str(self._mass_subtype).lower() in o.card.type_line.lower().split()
+                                  or continuous.has_subtype(o, str(self._mass_subtype)))]
                     for card in cards:
                         self._apply_one(context, card)
             return
@@ -1430,12 +1450,14 @@ class RevealUntilMatchingEffect(GameEffect):
             revealers = [p for p in context.state.players if p.id != player.id and not p.has_lost]
         count = self.count if isinstance(self.count, int) else 0
         for revealer in revealers:
-            context.engine.reveal_until_matching(
+            hits = context.engine.reveal_until_matching(
                 revealer, self.criteria, count=count,
                 hit_destination=self.hit_destination,
                 rest_destination=self.rest_destination, tapped=self.tapped,
                 entry_choices=self.entry_choices,
             )
+            if self.hit_destination == "library_bottom_random":
+                context.revealed_card = hits[0] if hits else None
 
 
 class ExileCreaturesRevealThatManyEffect(GameEffect):
@@ -1576,12 +1598,13 @@ class RevealOpponentLibraryStealEffect(GameEffect):
         revealed: list[Any] = []
         hit = None
         while opponent.library and hit is None:
-            obj = opponent.library.pop()
+            obj = opponent.library[-1]
             revealed.append(obj)
             context.state.fire_event(
                 GameEvent(EventType.REVEAL, player_id=opponent.id, object=obj.name,
                           instance_id=obj.instance_id, from_zone="library")
             )
+            opponent.library.pop()
             if card_query.matches(obj.card, self.criteria) and not (obj.card.is_instant or obj.card.is_sorcery):
                 hit = obj
         rest = [o for o in revealed if o is not hit]
@@ -2065,12 +2088,11 @@ class BudgetDigOntoBattlefieldEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or not player.library:
             return
-        looked = [player.library.pop() for _ in range(min(self.look, len(player.library)))]
-        for o in looked:
-            context.state.fire_event(GameEvent(
-                EventType.REVEAL, player_id=player.id, object=o.name,
-                instance_id=o.instance_id, from_zone="library",
-            ))
+        looked = []
+        for _ in range(min(self.look, len(player.library))):
+            obj = player.library[-1]
+            context.state.reveal_card(obj, player.id)
+            looked.append(player.library.pop())
         cands = sorted(
             (o for o in looked if _is_permanent_card_obj(o) and not o.card.is_land),
             key=lambda o: int(getattr(o, "mana_value", 0) or 0),
@@ -2094,12 +2116,7 @@ class BudgetDigOntoBattlefieldEffect(GameEffect):
 
 def _is_permanent_card_obj(obj: Any) -> bool:
     card = getattr(obj, "card", None)
-    if card is None:
-        return False
-    tl = (getattr(card, "type_line", "") or "").lower()
-    return any(w in tl for w in (
-        "creature", "artifact", "enchantment", "planeswalker", "land", "battle",
-    ))
+    return card is not None and is_permanent_card(card)  # RULE 110.4
 
 
 # ===========================================================================
@@ -2334,12 +2351,10 @@ class AnimistsAwakeningEffect(GameEffect):
         for _ in range(count):
             if not player.library:
                 break
-            obj = player.library.pop()
+            obj = player.library[-1]
+            context.state.reveal_card(obj, player.id)
+            player.library.pop()
             revealed.append(obj)
-            context.state.fire_event(GameEvent(
-                EventType.REVEAL, player_id=player.id, object=obj.name,
-                instance_id=obj.instance_id, from_zone="library",
-            ))
         lands = [o for o in revealed if o.card.is_land]
         rest = [o for o in revealed if o not in lands]
         placed: list[GameObject] = []

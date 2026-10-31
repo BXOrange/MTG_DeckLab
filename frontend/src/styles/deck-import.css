@@ -1,0 +1,336 @@
+/* --- Deck import --- */
+
+.import-panel {
+  display: grid;
+  /* Input column stays a sensible reading width; the result column
+     ("Deck-Übersicht") takes whatever's left, so it's what actually
+     grows as the window widens — most useful in detail mode, where a
+     wider column fits more card-tile-grid columns per row. */
+  grid-template-columns: minmax(320px, 480px) minmax(0, 1fr);
+  gap: 1.5rem;
+  max-width: min(1800px, 96vw);
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .import-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+.import-input, .import-result {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.deck-section {
+  margin-bottom: 0.85rem;
+}
+
+.deck-section label {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  margin-bottom: 0.3rem;
+}
+
+textarea {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.import-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.player-assets-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.player-asset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.player-asset-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  width: 96px;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.player-asset-tile img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+/* Profil tab: the saved-deck checklist that toggles Deck.id favorites —
+   laid out in two columns (fills row-wise), collapsing to one when the
+   panel is too narrow for both. */
+.profile-favorite-deck-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  column-gap: 1rem;
+}
+
+.profile-favorite-deck-list li {
+  padding: 0.2rem 0;
+  min-width: 0;
+}
+
+.profile-favorite-deck-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-transform: none;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.profile-favorite-deck-list label input[type='checkbox'] {
+  flex: none;
+}
+
+.player-asset-tile span {
+  overflow-wrap: anywhere;
+}
+
+.player-asset-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.player-asset-form input[type='text'],
+.player-asset-form select {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.save-deck-row {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.save-deck-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.save-deck-controls input[type="text"],
+.save-deck-controls select {
+  flex: 1 1 140px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.deck-cube-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.deck-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.deck-summary-header h2 {
+  margin: 0;
+}
+
+.deck-summary-header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.detail-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.zoom-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.zoom-toggle select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+.status-ok { color: var(--ok); font-weight: 600; }
+.status-error { color: var(--error); font-weight: 600; }
+
+.server-status { font-size: 0.85rem; margin: 0 0 0.5rem; }
+.server-status.pending { color: var(--text-dim); font-style: italic; }
+.server-status.ok { color: var(--ok); }
+.server-status.warning { color: var(--warn); }
+
+.issue-list {
+  margin: 0.5rem 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+}
+
+.parse-errors, .validation-errors { color: var(--error); }
+.validation-warnings { color: var(--warn); }
+.not-found-list { color: var(--error); }
+
+.card-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.85rem;
+}
+
+.card-list li {
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+
+.card-list li:hover {
+  background: var(--panel-alt);
+}
+
+.card-list .qty {
+  color: var(--accent);
+  margin-right: 0.4rem;
+}
+
+.card-list-favorite {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 0.35rem 0 0;
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+
+.card-list-favorite:hover {
+  color: var(--accent);
+}
+
+.card-list-favorite.is-favorite {
+  color: var(--accent);
+}
+
+.card-list li.card-not-found {
+  color: var(--error);
+}
+
+.card-list li.card-illegal {
+  color: var(--error);
+}
+
+/* Viewport-relative rather than a fixed pixel value, so the box scales
+   with the window instead of showing ~13 text rows or barely half a
+   card tile depending on screen size. Detail mode gets a taller cap
+   since each row (a whole card tile) is much taller than a text line. */
+.scrollable {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.scrollable.detail-mode {
+  max-height: 65vh;
+}
+
+.empty-state {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* VIS-1: a small inline spinner for "still loading" placeholders (network
+   fetches only — per-card lazy images use the browser's own loading="lazy",
+   not this). */
+.spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.45em;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-dim);
+  border-radius: 50%;
+  vertical-align: -0.15em;
+  animation: spinner-spin 0.7s linear infinite;
+}
+
+@keyframes spinner-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 1.8s; }
+}

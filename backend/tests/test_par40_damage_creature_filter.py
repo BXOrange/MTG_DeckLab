@@ -83,7 +83,13 @@ def test_bare_damage_to_target_creature_still_plain():
 
 
 def test_unknown_filter_word_fails_closed():
-    assert match_clause("~ deals 2 damage to target creature with shadow") is None
+    assert match_clause("~ deals 2 damage to target creature with shadowy") is None
+
+
+def test_shadow_is_a_keyword_filter():
+    # RULE 702.28: shadow is a keyword ability, so "creature with shadow" filters on it like flying.
+    spec = match_clause("~ deals 2 damage to target creature with shadow")[0]
+    assert "'keyword': 'shadow'" in str(spec.params)
 
 
 def test_real_cards_modeled():

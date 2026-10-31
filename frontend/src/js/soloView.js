@@ -36,7 +36,7 @@ import {
   MAX_PASS_TIMER_SECONDS,
 } from './settings.js';
 import { getState, setState } from './state.js';
-import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
+import { preloadCardImages, preloadTokenArt } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { analysisHtml } from './gameStats.js';
@@ -373,48 +373,24 @@ export function createSoloView() {
       });
       for (const [name, entry] of resolved) merged.set(name, entry);
     }
-    await preloadDeckTokens(merged);
+    await preloadDeckTokens(merged, deckIds);
     setState({ imageCache: merged });
     await loadPlayerAssets();
   }
 
-  async function preloadDeckTokens(merged) {
-    const res = await fetchDeckTokens({ deckId: selectedDeckId });
-    const tokens = res.ok ? res.data?.tokens || [] : [];
-    for (const t of tokens) {
-      if (!t.image_small && !t.image_normal) continue;
-      const entry = { small: t.image_small || null, normal: t.image_normal || null, card: t };
-      // Id first (unique per exact name/P-T/colors variant — see
-      // gameBoardView.js's resolveImageUrl); name is a same-name fallback +
-      // the tooltip cache's own key, first one in wins.
-      if (t.id) merged.set(t.id, entry);
-      const key = (t.name || '').toLowerCase();
-      if (key && !merged.has(key)) {
-        merged.set(key, entry);
-        cacheResolvedCard(key, entry);
-      }
+  // Every seat's deck can make tokens, not just the human's.
+  async function preloadDeckTokens(merged, deckIds) {
+    const tokensById = new Map();
+    for (const id of deckIds) {
+      const res = await fetchDeckTokens({ deckId: id });
+      for (const t of res.ok ? res.data?.tokens || [] : []) tokensById.set(t.id || `${id}:${t.name}`, t);
     }
-    const urls = tokens.map((t) => t.image_small).filter(Boolean);
-    if (!urls.length) return;
+    if (!tokensById.size) return;
     const base = loadingProgress.total;
-    let loaded = base;
-    loadingProgress = { loaded, total: base + urls.length };
-    render();
-    await Promise.all(
-      urls.map(
-        (url) =>
-          new Promise((resolve) => {
-            const img = new Image();
-            img.onload = img.onerror = () => {
-              loaded += 1;
-              loadingProgress = { loaded, total: base + urls.length };
-              render();
-              resolve();
-            };
-            img.src = url;
-          }),
-      ),
-    );
+    await preloadTokenArt(Array.from(tokensById.values()), merged, (loaded, total) => {
+      loadingProgress = { loaded: base + loaded, total: base + total };
+      render();
+    });
   }
 
   async function loadPlayerAssets() {

@@ -775,7 +775,7 @@ def _sorted_candidates(candidates: list[_Candidate], needed_colors: set) -> list
 
 
 def find_tap_plan(
-    engine: Any, player: Player, cost: ManaCost, *, allows_restriction=None
+    engine: Any, player: Player, cost: ManaCost, *, allows_restriction=None, reserved_ids=()
 ) -> Optional[TapPlan]:
     """A plan of untapped/unexiled mana sources to activate so ``cost``
     becomes payable, seeded from the player's **real, current** mana pool
@@ -791,11 +791,12 @@ def find_tap_plan(
         return TapPlan(steps=[])
 
     needed = _needed_colors(cost)
-    candidates = _sorted_candidates(_auto_tappable_candidates(engine, player), needed)[:_MAX_CANDIDATES_TRIED]
+    candidates = _sorted_candidates([c for c in _auto_tappable_candidates(engine, player)
+                                     if c.obj.instance_id not in reserved_ids], needed)[:_MAX_CANDIDATES_TRIED]
 
-    plan = _run_tap_search(engine, player, cost, candidates, allows_restriction)
+    plan = _run_tap_search(engine, player, cost, candidates, allows_restriction, reserved_ids)
     if plan is not None:
-        return plan
+        return _prune_tap_plan(engine, player, cost, candidates, plan, allows_restriction, reserved_ids)
 
     # RULE 605.1a: a permanent's mana abilities share its one activation, so
     # a filter land's cheap ``{T}: Add {C}.`` and its net-positive converter
@@ -806,8 +807,30 @@ def find_tap_plan(
     # converter be fed first.
     trimmed = _prefer_converter_abilities(candidates, needed)
     if len(trimmed) < len(candidates):
-        return _run_tap_search(engine, player, cost, trimmed, allows_restriction)
+        plan = _run_tap_search(engine, player, cost, trimmed, allows_restriction, reserved_ids)
+        if plan is not None:
+            return _prune_tap_plan(engine, player, cost, trimmed, plan, allows_restriction, reserved_ids)
     return None
+
+
+def _prune_tap_plan(engine, player, cost, candidates, plan, allows_restriction, reserved_ids):
+    """Discard redundant taps while retaining the established source priority.
+
+    The greedy search can accumulate excess of one colour while waiting for
+    another. Replay each proposed removal from the real pool so converters'
+    input costs and shared activation resources remain accounted for.
+    Only sources in the successful plan participate; this cannot grow the plan.
+    """
+    for step in reversed(plan.steps):
+        used = {item.instance_id for item in plan.steps}
+        trial_candidates = [c for c in candidates
+                            if c.obj.instance_id in used
+                            and c.obj.instance_id != step.instance_id]
+        trial = _run_tap_search(engine, player, cost, trial_candidates,
+                                allows_restriction, reserved_ids)
+        if trial is not None:
+            plan = trial
+    return plan
 
 
 def _prefer_converter_abilities(
@@ -837,6 +860,7 @@ def _run_tap_search(
     cost: ManaCost,
     candidates: list[_Candidate],
     allows_restriction,
+    reserved_ids=(),
 ) -> Optional[TapPlan]:
     """One bounded fixed-point search over ``candidates`` (already sorted
     and capped by the caller). A single linear pass would miss a converter
@@ -847,6 +871,9 @@ def _run_tap_search(
     still terminates promptly."""
     pool = _copy_pool(player.mana_pool)
     commitment = _Commitment.fresh(engine, player)
+    # RULE 118.3 / 602.2b: reserve nonmana tap costs in this dry run.
+    commitment.tapped.update(reserved_ids)
+    commitment.tap_others_used.update(reserved_ids)
     needed = _needed_colors(cost)
     steps: list[TapStep] = []
     remaining = candidates
@@ -872,8 +899,8 @@ def _run_tap_search(
 
 
 def is_castable_via_potential(
-    engine: Any, player: Player, cost: ManaCost, *, allows_restriction=None
+    engine: Any, player: Player, cost: ManaCost, *, allows_restriction=None, reserved_ids=()
 ) -> bool:
     """Whether `find_tap_plan` finds a way to pay ``cost`` — the predicate
     behind the frontend's castable-highlight border."""
-    return find_tap_plan(engine, player, cost, allows_restriction=allows_restriction) is not None
+    return find_tap_plan(engine, player, cost, allows_restriction=allows_restriction, reserved_ids=reserved_ids) is not None

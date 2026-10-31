@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
+from .catalogue.cost_text import scan_cost_text
 from .catalogue.keywords import parse_keywords
 from .catalogue.kicker_mana import kicker_x_mana_restriction_condition
 from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail
@@ -46,6 +47,7 @@ from .catalogue.opening_hand import (
     opening_hand_battlefield_conditional_permission_line,
     opening_hand_battlefield_permission_line,
     opening_hand_graveyard_permission_line,
+    opening_hand_reveal_permission_line,
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
 from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
@@ -80,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "712"
+PARSER_VERSION = "819"
 
 
 def parser_source_hash() -> str:
@@ -604,6 +606,38 @@ def _restore_printed_token_names(specs: list[AbilitySpec], raw: str) -> None:
         restore(spec.modes)
 
 
+# PAR-64 / Raid amount overrides keep their specialised row; the generic
+# "instead" paragraph merge below must not pre-empt it.
+_RAID_OVERRIDE_RE = re.compile(
+    r"(?:if you attacked this turn, instead )?~ deals (?P<n>\d+) damage"
+    r"(?: to that (?:permanent|player)(?: or player)?)?(?P<unpreventable> and the damage can'?t be prevented)?"
+    r"(?: instead if you attacked this turn)?\.?",
+    re.I,
+)
+
+
+#: PAR-216 (RULE 615.6, 118-area): "If X is 5 or more, this spell can't be countered and the damage can't be prevented."
+#: (Banefire) / "Hellbent -- If you have no cards in hand, ..." (Demonfire) -- a rider on the preceding damage
+#: instruction, not an independent effect: the condition gates that damage's unpreventability and the spell's own
+#: uncounterability.
+_X_AT_LEAST_RE = re.compile(r"x is (?P<n>\d+) or more", re.I)
+_UNPREVENTABLE_RIDER_RE = re.compile(
+    r"if (?P<cond>[^,]+), (?P<uncounterable>this spell can'?t be countered and )?the damage can'?t be prevented\.?",
+    re.I,
+)
+
+
+def _unpreventable_rider_condition(text: str) -> Optional[dict[str, Any]]:
+    """The structured condition of a "... the damage can't be prevented" rider, or ``None`` (fail closed)."""
+    x_at_least = _X_AT_LEAST_RE.fullmatch(text.strip())
+    if x_at_least is not None:
+        return {"kind": "x_paid", "min": int(x_at_least.group("n"))}  # RULE 107.3c: the spell's announced X
+    probe = parse_effect_body(f"if {text}, draw a card.")  # the shared leading-"if" condition reader
+    if probe is not None and len(probe) == 1 and probe[0].type == "draw":
+        return probe[0].condition
+    return None
+
+
 def parse_oracle(card: Any) -> ParseResult:
     """Memoized entry point — see `_parse_oracle_uncached` for the real work.
 
@@ -695,7 +729,7 @@ def _merge_room_halves(results: list[ParseResult]) -> ParseResult:
 #: ``DAMAGE`` head only counts when its recipient filter is a player.
 _THAT_PLAYER_EVENTS: frozenset[str] = frozenset({
     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", "ATTACKS", "PLAYER_ATTACKED",
-    "BECOMES_TARGET", "STEP_BEGIN",
+    "BECOMES_TARGET", "STEP_BEGIN", "SPELL_CAST",
 })
 #: The head must name that player itself — the event alone isn't enough ("at
 #: the beginning of **your** upkeep" is a `STEP_BEGIN` with no other player).
@@ -708,7 +742,7 @@ _THAT_PLAYER_HEAD_RE = re.compile(
 _THAT_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
 
 
-def _that_player_head_ok(event: str, filt: Any, text: str) -> bool:
+def _that_player_head_ok(event: str, filt: Any, text: str, *, allow_prior_target: bool = True) -> bool:
     """Whether a trigger (``event`` + recipient ``filt``, printed as ``text``)
     names the player a "that player" in its body refers to."""
     before_that = text.lower().split("that player", 1)[0]
@@ -716,7 +750,7 @@ def _that_player_head_ok(event: str, filt: Any, text: str) -> bool:
         r"\btarget (?:opponent|player)\b|\btarget [^.]+? (?:an opponent controls|you don'?t control)\b",
         before_that,
     ):
-        return True
+        return allow_prior_target
     player_damage = event == "DAMAGE" and isinstance(filt, dict) and filt.get("is_player")
     if event not in _THAT_PLAYER_EVENTS and not player_damage:
         return False
@@ -733,6 +767,25 @@ _PER_PLAYER_SCOPES = ("opponents", "players", "any_opponents")
 _SPELL_CONTEXT: tuple[str, Any, str] = ("PRIOR_TARGET", None, "")
 
 
+def _nested_trigger_context(node: dict, context: Optional[tuple[str, Any, str]], text: str):
+    """A created/granted trigger establishes its own antecedents, independent of the outer ability."""
+    if not any(isinstance(node.get(key), list) for key in ("effects", "grant_effects")):
+        return context
+    trigger = node.get("trigger")
+    if isinstance(trigger, dict) and isinstance(trigger.get("event"), str):
+        event, filt = trigger["event"], trigger.get("filter")
+    elif isinstance(node.get("trigger_event"), str):
+        event, filt = node["trigger_event"], node.get("filter")
+    else:
+        return context
+    quoted = re.search(r'"([^"]*)"', text)
+    description = ((quoted.group(1) if quoted else node.get("description", ""))
+                   if isinstance(node.get("trigger_event"), str)
+                   else node.get("description") or (quoted.group(1) if quoted else ""))
+    description = re.sub(r"^until end of turn,\s*", "", str(description), flags=re.I)
+    return event, filt, description
+
+
 def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], text: str) -> bool:
     """Walk a spec tree; every ``…_that_player_controls`` kind must sit under
     a trigger whose head names that player. A granted trigger (a dict with
@@ -744,9 +797,7 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
         return all(_that_player_tree_ok(item, context, text) for item in node)
     if not isinstance(node, dict):
         return True
-    if isinstance(node.get("trigger_event"), str):
-        quoted = re.search(r'"([^"]*)"', text)
-        context = (node["trigger_event"], node.get("filter"), quoted.group(1) if quoted else "")
+    context = _nested_trigger_context(node, context, text)
     for key, val in node.items():
         if key.endswith("kind") and isinstance(val, str) and val.endswith("_that_player_controls"):
             if node.get("per_player") in _PER_PLAYER_SCOPES:
@@ -797,11 +848,15 @@ _TAP_X_COST_RE = re.compile(r"\btap x untapped\b")
 
 
 def _tap_x_cost_ok(spec: AbilitySpec) -> bool:
-    """"Tap X untapped artifacts you control" as a cost has no engine form yet: the cost parser reads the
-    X as a count of 1 (`costs.py`'s ``tap_others``), so an ability carrying it would run for a single
-    tap whatever its X. Fails closed until X-sized tap costs exist."""
+    """RULE 602.2b: admit X-sized tap costs only when the shared cost
+    grammar recognizes the entire cost and its TAP_OTHERS_X component."""
     cost = spec.cost if isinstance(spec.cost, dict) else None
-    return not (cost and _TAP_X_COST_RE.search(str(cost.get("text", "")).lower()))
+    text = str((cost or {}).get("text", "")).lower()
+    if not _TAP_X_COST_RE.search(text):
+        return True
+    scan = scan_cost_text(text)
+    tapped = scan.hits.get("tap_others")
+    return scan.leftover is None and tapped is not None and tapped.group("n").lower() == "x"
 
 
 _TRAILING_WINDOW_CONDITION_RE = re.compile(r"\byou may (?:play|cast)\b[^.]*\bif\b", re.IGNORECASE)
@@ -840,10 +895,19 @@ def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
     amount), so it fails closed instead of reading 0."""
+    for effect in spec.effects:
+        amount = effect.params.get("count")
+        if isinstance(amount, dict) and amount.get("kind") == "counters_removed_as_cost":
+            counter = re.escape(str(amount.get("counter", "")))
+            cost = str((spec.cost or {}).get("text", ""))
+            if spec.ability_kind != "activated" or not re.search(
+                rf"\bremove (?:all|\d+|x) {counter} counters? from ~(?:,|$)", cost,
+            ):
+                return False
     if spec.ability_kind != "triggered":
         return True
     return not any(
-        effect.type == "inspect_top_choose" and effect.params.get("count") == "x"
+        effect.type in ("inspect_top_choose", "look_top_select") and effect.params.get("count") == "x"
         for effect in spec.effects
     )
 
@@ -880,29 +944,50 @@ _THAT_MUCH_TRIGGER_FIELDS: dict[str, str] = {
 }
 
 
-def _resolve_that_much_tree(node: Any, field: Optional[str]) -> bool:
+def _resolve_that_much_tree(node: Any, field: Optional[str], amount: Optional[dict] = None) -> bool:
     """Resolve the private handler sentinel, or reject an unsafe antecedent."""
     if isinstance(node, EffectSpec):
-        return _resolve_that_much_tree(node.params, field)
+        return _resolve_that_much_tree(node.params, field, amount)
     if isinstance(node, (list, tuple)):
-        return all(_resolve_that_much_tree(item, field) for item in node)
+        return all(_resolve_that_much_tree(item, field, amount) for item in node)
     if not isinstance(node, dict):
         return True
+    nested = _nested_trigger_context(node, None, "")
+    if nested is not None:
+        field, amount = _THAT_MUCH_TRIGGER_FIELDS.get(nested[0]), None
     if node.get("amount_from_trigger_event") == "that_much":
-        if field is None:
+        if amount is not None:
+            node.pop("amount_from_trigger_event")
+            node["amount"] = dict(amount)
+        elif field is None:
             return False
-        node["amount_from_trigger_event"] = field
-    return all(_resolve_that_much_tree(value, field) for value in node.values())
+        else:
+            node["amount_from_trigger_event"] = field
+    return all(_resolve_that_much_tree(value, field, amount) for value in node.values())
 
 
 def _that_much_antecedent_ok(spec: AbilitySpec) -> bool:
     event = str((spec.trigger or {}).get("event") or "") if spec.ability_kind == "triggered" else ""
+    amount = None
+    if spec.ability_kind == "activated":
+        cost = spec.cost or {}
+        scan = scan_cost_text(str(cost.get("text", "")))
+        if cost.get("remove_counters") or any(key in scan.hits for key in ("remove_counters", "remove_any_counters")):
+            # RULE 602.2b/601.2h: the activation keeps its own payment snapshot.
+            amount = {"kind": "trigger_event", "field": "counters_removed_as_cost"}
+    elif spec.ability_kind == "triggered":
+        condition = (spec.trigger or {}).get("active_if") or {}
+        if condition.get("kind") == "event_this_turn" and condition.get("trigger", {}).get("event") == "SACRIFICE":
+            # RULE 608.2h: the referenced count is re-measured when the ability resolves.
+            amount = {"kind": "event_count", "trigger": condition["trigger"]}
+            if condition.get("scope"):
+                amount["scope"] = condition["scope"]
     return _resolve_that_much_tree(
-        [spec.effects, spec.modes, spec.target], _THAT_MUCH_TRIGGER_FIELDS.get(event)
+        [spec.effects, spec.modes, spec.target], _THAT_MUCH_TRIGGER_FIELDS.get(event), amount,
     )
 
 
-def _resolve_event_player_tree(node: Any, event: str) -> bool:
+def _resolve_event_player_tree(node: Any, event: str, context: tuple[str, Any, str]) -> bool:
     """PAR-132: strip the private ``event_player_events`` marker, or reject its antecedent.
 
     A handler that reads the firing event's player under a phrase only some heads can satisfy
@@ -910,20 +995,31 @@ def _resolve_event_player_tree(node: Any, event: str) -> bool:
     ``player_id`` is that exact player; anywhere else the clause stays unclaimed.
     """
     if isinstance(node, EffectSpec):
-        return _resolve_event_player_tree(node.params, event)
+        return _resolve_event_player_tree(node.params, event, context)
     if isinstance(node, (list, tuple)):
-        return all(_resolve_event_player_tree(item, event) for item in node)
+        return all(_resolve_event_player_tree(item, event, context) for item in node)
     if not isinstance(node, dict):
         return True
+    context = _nested_trigger_context(node, context, context[2])
+    event = context[0]
     allowed = node.pop(EVENT_PLAYER_EVENTS_KEY, None)
     if allowed is not None and event not in allowed:
         return False
-    return all(_resolve_event_player_tree(value, event) for value in node.values())
+    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE"}
+            and (node.get("player") == {"of": "trigger_player", "as": "self"}
+                 or node.get("referent") == "trigger_player"
+                 or node.get("controller_ref") == "trigger_player")
+            and not _that_player_head_ok(*context, allow_prior_target=False)):
+        return False
+    return all(_resolve_event_player_tree(value, event, context) for value in node.values())
 
 
 def _event_player_antecedent_ok(spec: AbilitySpec) -> bool:
     event = str((spec.trigger or {}).get("event") or "") if spec.ability_kind == "triggered" else ""
-    return _resolve_event_player_tree([spec.effects, spec.modes, spec.target], event)
+    return _resolve_event_player_tree(
+        [spec.effects, spec.modes, spec.target], event,
+        (event, (spec.trigger or {}).get("filter"), spec.raw_text or ""),
+    )
 
 
 def _parse_oracle_uncached(card: Any) -> ParseResult:
@@ -965,6 +1061,23 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         raw = _SPELL_RIDER_PARAGRAPH_RE.sub(r" \g<rider>", raw)
     normalized = normalize(raw, getattr(card, "name", None), getattr(card, "keywords", None))
     normalized = reordered_fight_text(normalized)
+    if _is_spell(card):
+        # RULE 614.6: an ability-word paragraph ending in "instead"
+        # replaces the preceding spell instruction rather than adding one.
+        paragraphs = []
+        for line in normalized.splitlines():
+            if (paragraphs and "instead" in line and "would" not in line
+                    and _RAID_OVERRIDE_RE.fullmatch(line) is None
+                    and (line.startswith("if ") or " instead if " in line)):
+                previous = segment_line(paragraphs[-1], allow_spell_effect=True, provenance=provenance)
+                if previous.spec is not None and previous.spec.ability_kind == "spell_effect":
+                    combined = paragraphs[-1] + " " + line
+                    candidate = segment_line(combined, allow_spell_effect=True, provenance=provenance)
+                    if candidate.claimed:
+                        paragraphs[-1] = combined
+                        continue
+            paragraphs.append(line)
+        normalized = "\n".join(paragraphs)
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)
 
@@ -1061,13 +1174,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # preceding damage instruction, not independent damage effects. Both
         # printed orders exist (Firecannon Blast / Arrow Storm). Keep the
         # prior target and attach the override to that same effect.
-        raid_override = re.fullmatch(
-            r"(?:if you attacked this turn, instead )?~ deals (?P<n>\d+) damage"
-            r"(?: to that (?:permanent|player)(?: or player)?)?(?P<unpreventable> and the damage can'?t be prevented)?"
-            r"(?: instead if you attacked this turn)?\.?",
-            line,
-            re.I,
-        )
+        raid_override = _RAID_OVERRIDE_RE.fullmatch(line)
         if raid_override is not None and effect_specs:
             previous = effect_specs[-1]
             damages = [effect for effect in previous.effects if effect.type == "damage"]
@@ -1075,6 +1182,17 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 damages[0].params["amount_if_raid"] = int(raid_override.group("n"))
                 if raid_override.group("unpreventable"):
                     damages[0].params["unpreventable"] = True
+                return
+        unpreventable_rider = _UNPREVENTABLE_RIDER_RE.fullmatch(line)
+        if unpreventable_rider is not None and effect_specs:
+            previous = effect_specs[-1]
+            damages = [effect for effect in previous.effects if effect.type == "damage"]
+            condition = _unpreventable_rider_condition(unpreventable_rider.group("cond"))
+            if (previous.ability_kind == "spell_effect" and len(damages) == 1 and condition is not None
+                    and "unpreventable_if" not in damages[0].params and not damages[0].params.get("unpreventable")):
+                damages[0].params["unpreventable_if"] = condition
+                if unpreventable_rider.group("uncounterable"):
+                    previous.effects.append(EffectSpec("cant_be_countered", {}, condition=condition))
                 return
         # PAR-95 / Adamant's two-line forms.  These riders refer to the
         # immediately preceding spell instruction, so append/modify that
@@ -1197,6 +1315,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if opening_hand_battlefield_conditional_permission_line(line):
             return
         if opening_hand_graveyard_permission_line(line):
+            return
+        if opening_hand_reveal_permission_line(line) is not None:
             return
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
@@ -1724,6 +1844,32 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     # ``ExileEffect(remember=True)`` populates — so, seeing both halves on
     # one card, stamp ``remember`` onto the companion ETB exile here.
     nodes = list(_effect_nodes(effect_specs))
+    def reads_linked_name(value):
+        if isinstance(value, AbilitySpec):
+            return reads_linked_name(value.effects) or reads_linked_name(value.modes)
+        if isinstance(value, EffectSpec):
+            return reads_linked_name(value.params) or reads_linked_name(value.condition)
+        if isinstance(value, dict):
+            return value.get('linked_exile') is True or value.get('name_reference', {}).get('kind') == 'linked_exile' or any(
+                reads_linked_name(child) for child in value.values())
+        if isinstance(value, list):
+            return any(reads_linked_name(child) for child in value)
+        return False
+    if reads_linked_name(effect_specs) or any(kind in {'linked_exile_permission', 'linked_exile_move'} or
+           (kind == 'cast_window_exiled_pool' and params.get('linked')) or
+           (kind == 'copy_for_duration' and params.get('template') == 'linked') for kind, params in nodes):
+        # A mana line is otherwise handled by the mana subsystem. Its unsupported
+        # spend-to-exile rider cannot silently create a linked pool (Forger's Foundry).
+        for line in normalized.splitlines():
+            if re.search(r"when you spend this mana[^.]+exile", line):
+                all_claimed = False
+                if line not in unclaimed:
+                    unclaimed.append(line)
+        # RULE 607.2a: the name reader and its exile-producing ability share
+        # exact source/card visits, including composite and library exiles.
+        for kind, params in nodes:
+            if kind in {'exile', 'exile_top_of_library'} or (kind == 'search' and params.get('destination') == 'exile'):
+                params['track_exiled_with'] = True
     if any(kind == "return_all_exiled_with" for kind, _ in nodes):
         for kind, params in nodes:
             if kind in {"exile", "exile_top_of_library", "search"}:
@@ -1732,6 +1878,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         for kind, params in nodes:
             if kind == "exile" and not params.get("selector"):
                 params["remember"] = True
+        # RULE 607.2a / 400.7: hand selections use exact source/card exile
+        # visits, since the source may leave before the ETB choice resolves.
+        if any(kind == "reveal_hand_choose_discard" and params.get("destination") == "exile"
+               for kind, params in nodes):
+            for kind, params in nodes:
+                if kind == "reveal_hand_choose_discard" and params.get("destination") == "exile":
+                    params["track_exiled_with"] = True
+                elif kind == "return_linked_exile":
+                    params["tracked"] = True
 
     # Linkage also survives a conditional/composite wrapper around either
     # half (Promise of Tomorrow), rather than depending on a flat body.
@@ -1741,6 +1896,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 params["remember"] = True
 
     for spec in effect_specs:
+        # RULE 701.23a: "a card named Avarax" is a literal named quality,
+        # even though normalization folded the printing's name to "~".
+        # Resolve it while that printing is known, before copied abilities
+        # or name-changing effects can alter their live source.
+        for kind, params in _effect_nodes([spec.effects, spec.modes]):
+            if kind == "search" and isinstance(params.get("criteria"), dict) and params["criteria"].get("name") == "~":
+                params["criteria"] = {**params["criteria"], "name": str(card.name).split("//")[0].strip()}
         if not _that_player_antecedent_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)

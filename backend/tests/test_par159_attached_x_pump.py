@@ -121,12 +121,12 @@ def test_bronze_counts_resolutions_and_reads_current_attachment():
     engine.recompute_continuous_effects()
     assert host.power == 2
     assert replacement.power == 1
-    engine.state.turn_nr += 1
+    engine.begin_turn()  # RULE 500.1: a real new turn resets the per-turn count
     source.attached_to = replacement.instance_id
     player.mana_pool.add("C", 2)
     engine.activate_ability(player, source, 0)
     engine.rules.resolve_top_of_stack()
-    assert source.ability_resolutions[next(iter(source.ability_resolutions))] == (engine.state.turn_nr, 1)
+    assert source.ability_resolutions[next(iter(source.ability_resolutions))] == (engine.state.internal_turn.number, 1)
     assert replacement.power == 2
 
 

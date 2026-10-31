@@ -15,6 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+import copy
 import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -39,6 +40,7 @@ from ..costs import (
     RETURN_SELF_TO_HAND,
     SACRIFICE_COUNT_X,
     SACRIFICE_COUNT_ANY,
+    TAP_OTHERS_X,
     ActivationCost,
     parse_activation_cost,
 )
@@ -98,6 +100,15 @@ class LegalActionsMixin:
             attacker == player.id and defender == planeswalker.controller_id and subtype in subtypes
             for attacker, defender, subtype in bars
         )
+
+    def _blight_cost_choice(self, player: Player, amount: int) -> dict[str, Any]:
+        """RULE 701.68 + 601.2b/602.2b: the creatures a "Blight N" cost may put its -1/-1 counters on, so the UI
+        can prompt instead of `RulesEngine.blight` auto-picking."""
+        return {"count": 1, "amount": amount, "options": [
+            {"instance_id": obj.instance_id, "name": obj.name}
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id and obj.is_creature
+        ]}
 
     def legal_defenders_for(self, player: Player) -> list[dict[str, Any]]:
         """Who ``player``'s creatures may attack (RULE 508.1a).
@@ -167,7 +178,8 @@ class LegalActionsMixin:
         )
         # ENG-49: "Sacrifice X lands" announces X too (Copper-Leaf Angel).
         sacrifice_x = bool(ability.cost.sacrifice_count) and ability.cost.sacrifice_count[0] == SACRIFICE_COUNT_X
-        if mana.has_variable or remove_counters_x or sacrifice_x or ability.cost.pay_energy == PAY_ENERGY_X:
+        tap_x = bool(ability.cost.tap_others) and ability.cost.tap_others[0] == TAP_OTHERS_X
+        if mana.has_variable or remove_counters_x or sacrifice_x or tap_x or ability.cost.pay_energy == PAY_ENERGY_X:
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
@@ -211,6 +223,8 @@ class LegalActionsMixin:
             # the player's own choice — offer the pool so the UI can prompt
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
             action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
+        if ability.cost.blight:
+            action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)
         return action
     def _activate_actions_for(
         self, player: Player, source: GameObject, index: int, ability: ActivatedAbility
@@ -422,6 +436,15 @@ class LegalActionsMixin:
                 action["free"] = True
             elif alt_cost:
                 action["alt_cost"] = True
+                emerge = self._emerge_payment(player, obj)
+                if emerge is not None:
+                    action['alt_cost_label'] = 'Emerge ' + obj.parametric_keywords['emerge']['cost'] + ' — Kreatur opfern; generische Kosten um ihren Manawert reduzieren'
+                    # Reuse the board's existing one-permanent cost picker.
+                    action['sacrifice_count_cost'] = {'count': 1, 'options': [
+                        {'instance_id': candidate.instance_id, 'name': candidate.name}
+                        for candidate in self.state.permanents_controlled_by(player.id)
+                        if self._emerge_payment(player, obj, candidate.instance_id) is not None
+                    ]}
                 alt_cast_cost = getattr(obj, "alt_cast_cost", None) or (
                     continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
                     if obj is not None else None
@@ -613,6 +636,8 @@ class LegalActionsMixin:
                     }
                     if count == SACRIFICE_COUNT_ANY:
                         action["sacrifice_count_cost"]["count_max"] = len(pool)
+                if paying_additional and additional_cost.blight:
+                    action["blight_cost"] = self._blight_cost_choice(player, additional_cost.blight)
                 discard_n = getattr(additional_cost, "discard", 0)
                 if discard_n == DISCARD_X:
                     # The client supplies the announced X alongside the cast;
@@ -629,6 +654,23 @@ class LegalActionsMixin:
                         ],
                     }
 
+        escalate_discards = self._escalate_discard_count(obj, mode)
+        if escalate_discards:
+            # RULE 702.120a/601.2h: choose distinct own cards for all
+            # additional discard costs, excluding the spell itself.
+            ordinary = action.get("discard_cost", {}).get("count", 0)
+            action["discard_cost"] = {
+                "count": ordinary + escalate_discards,
+                "options": [{"instance_id": card.instance_id, "name": card.name}
+                            for card in self._discard_cost_pool(player, exclude=obj)],
+            }
+            combined = self._additional_cost_with_escalate(
+                obj, mode, 0, getattr(obj, "additional_cast_cost", None), pay_additional)
+            if (len(action["discard_cost"]["options"]) < action["discard_cost"]["count"]
+                    or not self._can_pay_additional_cast_cost(player, obj, combined, 0, pay_additional=True)):
+                action["locked"] = True
+                action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+
         if help_pay:
             # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
             # a *reduction* of the printed cost paid with a non-mana
@@ -642,8 +684,12 @@ class LegalActionsMixin:
             )
             action["effective_cost"] = reduced.raw
 
+        from ..damage_division import requirements as division_requirements
         with self._mode_effects_applied(obj, mode):
             requirements = requirements_with_targets(self.state, player.id, obj)
+            divisions = division_requirements(getattr(obj, "spell_effects", []))
+        if divisions:
+            action["damage_divisions"] = divisions
         if requirements:
             action["requires_target"] = True
             action["targets"] = requirements
@@ -664,6 +710,40 @@ class LegalActionsMixin:
             # the printed payment alongside this alternative payment.
             action["base_cost"] = payment.mana.raw
             action.pop("cast_from_graveyard", None)
+        # RULE 601.2f / 903.8: advertise the effective mana component of
+        # this offered payment, so ordinary clients need not infer discounts
+        # or commander tax from printed mana value. X remains a parameter.
+        if "effective_cost" not in action and not (free or alt_cost):
+            action["effective_cost"] = self.effective_cast_cost(
+                player, obj, 0, mode=mode, evoke=evoke, warp=warp,
+                surge=surge, entwine=entwine, pay_additional=pay_additional,
+            ).raw
+        if action.get("has_kicker") and not hasattr(obj, "_modal_announced_kicked"):
+            # RULE 601.2b/c/d: preview the announced kicker before the
+            # client chooses targets or divides damage for that branch.
+            obj._modal_announced_kicked = 1
+            try:
+                with self._mode_effects_applied(obj, mode):
+                    kicked_targets = requirements_with_targets(self.state, player.id, obj)
+                    kicked_divisions = division_requirements(getattr(obj, "spell_effects", []))
+                if kicked_targets != requirements or kicked_divisions != divisions:
+                    variant = copy.deepcopy(action)
+                    variant.pop("locked", None)
+                    variant.pop("lock_reason", None)
+                    variant["kicked"] = 1
+                    variant["targets"] = kicked_targets
+                    variant["requires_target"] = bool(kicked_targets)
+                    variant["damage_divisions"] = kicked_divisions
+                    cost = self.effective_cast_cost(player, obj, 0, kicked=1, mode=mode,
+                        evoke=evoke, warp=warp, surge=surge, entwine=entwine,
+                        pay_additional=pay_additional)
+                    variant["cost_label"] = variant["effective_cost"] = cost.raw
+                    if not all_requirements_satisfiable(kicked_targets) or action.get("max_kicker", 0) < 1:
+                        variant["locked"] = True
+                        variant["lock_reason"] = "Kicker-Kosten oder Ziele nicht verfügbar"
+                    action["kicker_variant"] = variant
+            finally:
+                delattr(obj, "_modal_announced_kicked")
         if teamwork:
             delattr(obj, "_modal_announced_teamwork")
         return action
@@ -789,6 +869,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
+                or 'emerge' in (getattr(obj, 'parametric_keywords', None) or {})
                 or (card is not None and continuous.granted_alt_cast_cost_for(self.state, player, card, obj))
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
@@ -878,7 +959,8 @@ class LegalActionsMixin:
             if locked is None:
                 return False
             mana = locked
-        return mana_potential.is_castable_via_potential(self, player, mana)
+        return mana_potential.is_castable_via_potential(self, player, mana,
+            reserved_ids=self._activation_reserved_taps(player, source, ability, minimum_x))
     def _offer_cast(self, actions: list[dict[str, Any]], player: Player, obj: GameObject) -> None:
         """Append the right cast offer(s) for ``obj``: one `_cast_action`
         entry, or one per mode via `_modal_cast_actions` if it's modal (RULE
@@ -956,6 +1038,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
+                or 'emerge' in (getattr(obj, 'parametric_keywords', None) or {})
                 or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
@@ -1050,20 +1133,23 @@ class LegalActionsMixin:
                     "type": "foretell", "instance_id": obj.instance_id,
                     "name": obj.name, "cost_label": "{2}", "auto_tap": True,
                 })
-            if self.can_suspend(player, obj):
+            if self.can_suspend(player, obj, assume_mana_available=True):
                 params = self._suspend_params(obj) or {}
-                actions.append({
+                action = {
                     "type": "suspend", "instance_id": obj.instance_id,
                     "name": obj.name, "cost_label": str(params.get("cost", "")),
-                    "time_counters": int(params.get("n", 0)),
-                })
-            elif self.can_suspend(player, obj, assume_mana_available=True):
-                params = self._suspend_params(obj) or {}
-                actions.append({
-                    "type": "suspend", "instance_id": obj.instance_id,
-                    "name": obj.name, "cost_label": str(params.get("cost", "")),
-                    "time_counters": int(params.get("n", 0)), "auto_tap": True,
-                })
+                }
+                if params.get("n") == "X":
+                    max_x = self.max_affordable_suspend_x(player, obj)
+                    if max_x >= int(params.get("min_x", 0)):
+                        action.update(has_x=True, min_x=int(params.get("min_x", 0)), max_x=max_x,
+                                      time_counters="X", auto_tap=True)
+                        actions.append(action)
+                else:
+                    action["time_counters"] = int(params.get("n", 0))
+                    if not self.can_suspend(player, obj):
+                        action["auto_tap"] = True
+                    actions.append(action)
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE
             # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
@@ -1171,10 +1257,30 @@ class LegalActionsMixin:
                 )
                 if castable and self._castable_now_or_via_potential(player, obj):
                     self._offer_cast(actions, player, obj)
+                if castable and self.can_play_land(player, obj):
+                    actions.append(self._land_action(obj))
+
+        # RULE 601.3 / 400.7: a temporary grant follows the exact card's
+        # current visit, independently of its owner or its library position.
+        for owner in self.state.players:
+            for obj in list(owner.graveyard) + list(owner.library):
+                if not self._has_temp_play_permission(obj, player):
+                    continue
+                if self._castable_now_or_via_potential(player, obj):
+                    self._offer_cast(actions, player, obj)
+                if self.can_play_land(player, obj):
+                    actions.append(self._land_action(obj))
+                if obj.card.back_face() is not None:
+                    if self._castable_now_or_via_potential(player, obj, face="back"):
+                        actions.append(self._cast_action(player, obj, face="back"))
+                    if self.can_play_land(player, obj, face="back"):
+                        actions.append(self._land_action(obj, face="back"))
 
         from ..blitz import graveyard_permission as blitz_graveyard_permission
 
         for obj in list(player.graveyard):
+            if self._has_temp_play_permission(obj, player):
+                continue
             # RULE 702.34 / 702.138: Flashback/Escape let a card be cast
             # from the graveyard for an alternative cost — or some other
             # permanent may grant a standing permission instead (Lurrus of
@@ -1208,12 +1314,14 @@ class LegalActionsMixin:
             if other is player:
                 continue
             for obj in list(other.graveyard):
+                if self._has_temp_play_permission(obj, player):
+                    continue
                 if ((has_targeted_graveyard_permission(player, self.state, obj)
                      or temporary_graveyard_pool_grant(player, self.state, obj) is not None)
                         and self._castable_now_or_via_potential(player, obj)):
                     self._offer_cast(actions, player, obj)
 
-        if player.library:
+        if player.library and not self._has_temp_play_permission(player.library[-1], player):
             # Oracle of Mul Daya/Glarb, Calamity's Augur-shaped: a permanent
             # may grant playing lands and/or casting spells straight off the
             # top of the library — see `game/top_library.py`. Only the top
@@ -1333,20 +1441,13 @@ class LegalActionsMixin:
                     }
                 )
 
-        if (
-            player is self.state.active_player
-            and self.state.current_step == "declare_blockers"
-        ):
-            # RULE 702.49a/b Ninjutsu (PAR-26): the active player may, during
-            # the declare-blockers step, return an *unblocked* attacker they
-            # control to hand and put a Ninjutsu card from hand onto the
-            # battlefield tapped and attacking in its place. One offer per
-            # (ninja in hand, unblocked attacker) pair whose mana cost the
-            # player can pay.
-            unblocked = [
-                o for o in self.state.battlefield
-                if o.attacking and o.controller_id == player.id and not o.blocked_by
-            ]
+        # RULE 702.49a/c Ninjutsu: an activated ability, usable by any player
+        # with priority who controls an unblocked attacker, from the declare
+        # blockers step through end of combat (never under split second).
+        # One offer per (ninja in hand, unblocked attacker) pair whose mana
+        # cost the player can pay.
+        unblocked = self.ninjutsu_unblocked_attackers(player)
+        if unblocked:
             for ninja in list(player.hand):
                 cost = getattr(ninja, "ninjutsu_cost", None)
                 if cost is None or not player.mana_pool.can_pay(cost):
@@ -1537,7 +1638,7 @@ class LegalActionsMixin:
             combined = source.activated_abilities + source.granted_activated_abilities
             for index, ability in enumerate(combined):
                 if (
-                    ability.cost.discard_self or ability.cost.hand_zone
+                    ability.cost.discard_self or ability.cost.hand_zone or ability.cost.exile_self_from_hand
                 ) and self.can_activate(player, source, ability):
                     actions.extend(self._activate_actions_for(player, source, index, ability))
 

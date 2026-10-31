@@ -15,9 +15,12 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from .. import linked_exile
+
 from .. import physical_properties
 
 import itertools
+import re
 import inspect
 import copy
 from functools import wraps
@@ -218,6 +221,10 @@ class CastingMixin:
         face (e.g. for `legal_actions`) without committing to it.
         """
         if face == "back":
+            if obj.card.is_transforming:
+                # RULE 712.2 / 310.1: a transforming DFC (a Battle's Siege flip side included) is cast
+                # and played front face up only; its back is reached by transforming, never from a zone.
+                return None
             return obj.card.back_face()
         if face == "fuse":
             return obj.card.fuse_face()
@@ -286,13 +293,14 @@ class CastingMixin:
         if not isinstance(params, dict) or params.get("cost") is None:
             return None
         try:
-            if int(params.get("n", 0)) < 0:
+            if params.get("n") != "X" and int(params.get("n", 0)) < 0:
                 return None
         except (TypeError, ValueError):
             return None
         return params
 
-    def can_suspend(self, player: Player, obj: GameObject, *, assume_mana_available: bool = False) -> bool:
+    def can_suspend(self, player: Player, obj: GameObject, *, x: Optional[int] = None,
+                    assume_mana_available: bool = False) -> bool:
         """RULE 702.62a: may ``player`` suspend this hand card now?"""
         params = self._suspend_params(obj)
         if obj not in player.hand or player is not self.state.active_player or params is None:
@@ -304,10 +312,24 @@ class CastingMixin:
         sorcery_speed = not (card.is_instant or combat.has(obj, "flash"))
         if sorcery_speed and (not self._in_main_phase() or bool(self.state.stack)):
             return False
-        cost = ManaCost.parse(str(params["cost"]))
+        chosen_x = int(params.get("min_x", 0)) if x is None else x
+        if params.get("n") == "X" and (not isinstance(chosen_x, int) or isinstance(chosen_x, bool)
+                or chosen_x < int(params.get("min_x", 0))):
+            return False
+        cost = ManaCost.parse(str(params["cost"])).with_x(chosen_x)
         return assume_mana_available or player.mana_pool.can_pay(cost, life_available=player.life)
 
-    def suspend(self, player: Player, obj: GameObject) -> None:
+    def max_affordable_suspend_x(self, player: Player, obj: GameObject) -> int:
+        params = self._suspend_params(obj) or {}
+        bound = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
+        for chosen in range(bound, int(params.get("min_x", 0)) - 1, -1):
+            if self.can_suspend(player, obj, x=chosen, assume_mana_available=True):
+                cost = ManaCost.parse(str(params["cost"])).with_x(chosen)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    return chosen
+        return -1
+
+    def suspend(self, player: Player, obj: GameObject, *, x: int = 0) -> None:
         """Pay Suspend's alternate cost and exile the card with time counters.
 
         This is a special action, so it never uses the stack (RULE 116.2f).
@@ -315,21 +337,21 @@ class CastingMixin:
         these counters; no separate marker is necessary for a printed
         Suspend card.
         """
-        if not self.can_suspend(player, obj):
-            if self.can_suspend(player, obj, assume_mana_available=True):
+        if not self.can_suspend(player, obj, x=x):
+            if self.can_suspend(player, obj, x=x, assume_mana_available=True):
                 try:
                     params = self._suspend_params(obj)
                     assert params is not None
-                    self.auto_tap_for(player, cost=ManaCost.parse(str(params["cost"])))
+                    self.auto_tap_for(player, cost=ManaCost.parse(str(params["cost"])).with_x(x))
                 except ValueError:
                     pass
-        if not self.can_suspend(player, obj):
+        if not self.can_suspend(player, obj, x=x):
             raise ValueError(f"{player.id} cannot suspend {obj.name} now")
         params = self._suspend_params(obj)
         assert params is not None
-        player.mana_pool.pay(ManaCost.parse(str(params["cost"])), life_available=player.life)
+        player.mana_pool.pay(ManaCost.parse(str(params["cost"])).with_x(x), life_available=player.life)
         self.rules.exile(obj)
-        obj.add_counters("time", int(params["n"]))
+        obj.add_counters("time", x if params["n"] == "X" else int(params["n"]))
 
     def foretell(self, player: Player, obj: GameObject) -> None:
         """Pay {2}, then exile a hand card face down (no stack involved)."""
@@ -396,6 +418,27 @@ class CastingMixin:
             return None
         return ManaCost.parse(str(param["cost"]))
 
+    def _emerge_payment(
+        self, player: Player, obj: GameObject, chosen_id: Optional[int] = None,
+    ) -> Optional[tuple[ActivationCost, GameObject]]:
+        """RULE 702.119a,c: lock the sacrifice choice before calculating the total cost."""
+        param = (getattr(obj, 'parametric_keywords', None) or {}).get('emerge')
+        if not param or not param.get('cost'):
+            return None
+        self.recompute_continuous_effects()
+        for victim in self.state.permanents_controlled_by(player.id):
+            if (not victim.is_creature or victim.cant_be_sacrificed_this_turn
+                    or (chosen_id is not None and victim.instance_id != chosen_id)):
+                continue
+            base = ManaCost.parse(str(param['cost']))
+            # Increases (including commander tax) precede generic reductions, RULE 601.2f.
+            base = base.increase_generic(self.commander_tax(player, obj))
+            cost = self._adjust_cost(base, player, obj, extra_reduction=int(victim.mana_value))
+            payment = ActivationCost(mana=cost)
+            if self._can_pay_alt_cast_cost(player, obj, payment):
+                return payment, victim
+        return None
+
     def _surge_enabled(self, player: Player) -> bool:
         """RULE 702.117a: a Surge cost may be paid only "if you or one of
         your teammates has cast another spell this turn". The engine has no
@@ -445,7 +488,46 @@ class CastingMixin:
         param = (getattr(obj, "parametric_keywords", None) or {}).get("escalate")
         if not param or not param.get("cost"):
             return None
-        return ManaCost.parse(str(param["cost"]))
+        raw = str(param["cost"])
+        return ManaCost.parse(raw) if raw.lstrip().startswith("{") else None
+
+    @staticmethod
+    def _escalate_discard_count(obj: GameObject, mode: Any) -> int:
+        """RULE 702.120a: discard costs are paid once per additional mode."""
+        if not isinstance(mode, (list, tuple)):
+            return 0
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("escalate") or {}
+        raw = str(param.get("cost", ""))
+        if re.fullmatch(r"discard (?:a|one|\d+) cards?", raw.strip(), re.I) is None:
+            return 0
+        return parse_activation_cost(raw).discard * max(0, len(mode) - 1)
+
+    def _additional_cost_with_escalate(self, obj: GameObject, mode: Any, x: int,
+                                      cost: Optional["ActivationCost"], pay_additional: bool) -> Optional["ActivationCost"]:
+        """RULE 601.2f/702.120a: combine mandatory Escalate with other cast costs.
+
+        One selection pays the whole discard count, so the same card cannot
+        satisfy an existing additional cost and an Escalate payment twice.
+        """
+        extra = self._escalate_discard_count(obj, mode)
+        if not extra:
+            return cost
+        if getattr(obj, "additional_cast_cost_optional", False) and not pay_additional:
+            cost = None
+        elif cost is not None and cost.either_alt is not None and pay_additional:
+            cost = cost.either_alt
+        elif cost is not None and cost.sacrifice_or_mana and not pay_additional:
+            cost = None
+        combined = copy.copy(cost) if cost is not None else ActivationCost()
+        combined.either_alt = None
+        combined.sacrifice_or_mana = False
+        if combined.discard != DISCARD_HAND:
+            combined.discard = (x if combined.discard == DISCARD_X else combined.discard) + extra
+        # "Discard your hand" can be paid after the individual Escalate
+        # discards. The combined payment discards every remaining hand card;
+        # can_cast separately validates the chosen Escalate cards first.
+        return combined
+
     @staticmethod
     def _escalate_tap_count(obj: GameObject, mode: Any) -> int:
         """RULE 702.120 Escalate—"Tap an untapped creature you control": how many creatures a chosen mode *combination* taps
@@ -536,7 +618,7 @@ class CastingMixin:
         candidates = [
             obj
             for obj in self.state.permanents_controlled_by(player.id)
-            if obj.is_token or obj.card.is_artifact or obj.card.is_enchantment
+            if obj.is_token or obj.is_artifact or obj.is_enchantment
         ]
         if not candidates:
             return None
@@ -705,6 +787,9 @@ class CastingMixin:
         ``"both"``) prices identically regardless of ``mode``, so passing it
         is harmless there too.
         """
+        if alt_cost and 'emerge' in (getattr(obj, 'parametric_keywords', None) or {}):
+            if free or evoke or surge or mutate or blitz is not None or face != 'front':
+                return False
         if alt_cost and obj.miracle and not (obj.miracle_armed and self._has_resolution_play_permission(player, obj)):
             return False
         # A commander may be cast from the command zone as well as the
@@ -728,6 +813,11 @@ class CastingMixin:
             return False
         if player.id in self.state.no_more_spells_this_turn:
             return False  # Conduit of Worlds: "you can't cast additional spells this turn"
+        x_cap_selector = getattr(obj, "x_cap_selector", None)
+        if x_cap_selector is not None and x > continuous.count_selector(self.state, player.id, x_cap_selector, obj):
+            # RULE 107.3: "X can't be greater than the number of snow lands you control" (Winter's Chill) bounds the
+            # value the caster may announce, read when the spell is cast (RULE 601.2b).
+            return False
         taps = self._escalate_tap_count(obj, mode)
         if taps and len(self._escalate_tap_candidates(player)) < taps:
             return False  # Collective Effort: not enough untapped creatures to pay the Escalate cost
@@ -769,8 +859,9 @@ class CastingMixin:
             or obj in player.command
             or self._has_warp_permission(player, obj)
             or (obj in player.exile and self._castable_from_exile(obj))
-            or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player, face=face))
-            or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player))
+            or (obj.zone in (Zone.EXILE, Zone.GRAVEYARD, Zone.LIBRARY)
+                and self._has_temp_play_permission(obj, player, face=face))
+            or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player, face=face, land=False))
             or self._can_cast_foretold(player, obj)
             or (obj in player.graveyard and blitz is None and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
@@ -1076,9 +1167,15 @@ class CastingMixin:
             )):
                 return False
         elif alt_cost:
+            emerge_payment = self._emerge_payment(player, obj, sacrifice_choice)
+            if 'emerge' in (getattr(obj, 'parametric_keywords', None) or {}):
+                if emerge_payment is None:
+                    return False
             alt_cast_cost = getattr(obj, "alt_cast_cost", None) or continuous.granted_alt_cast_cost_for(
                 self.state, player, card, obj
             )
+            if emerge_payment is not None:
+                alt_cast_cost = emerge_payment[0]
             if alt_cast_cost is None:
                 return False
             alt_cast_condition = getattr(obj, "alt_cast_condition", None)
@@ -1109,6 +1206,7 @@ class CastingMixin:
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = (
                 self.state.mana_wildcard_permission.get(obj.instance_id)
+                or linked_exile.mana_wildcard(self.state, player, obj)
                 or continuous.standing_mana_wildcard(self.state, player)
             )
             require_source_kind = getattr(obj, "mana_source_kind_restriction", None)
@@ -1163,10 +1261,15 @@ class CastingMixin:
             return False  # Kotis: not enough *other* cards in the graveyard to exile as the cost
         if not self._can_pay_cast_life_tax(player, obj, targets):
             return False
+        combined_additional = self._additional_cost_with_escalate(obj, mode, x, additional_cost, pay_additional)
+        extra_discards = self._escalate_discard_count(obj, mode)
+        if (extra_discards and combined_additional is not None and combined_additional.discard == DISCARD_HAND
+                and self._resolve_discard_cost(player, extra_discards, discard_choices, exclude=obj) is None):
+            return False
         return self._can_pay_additional_cast_cost(
-            player, obj, additional_cost, x,
+            player, obj, combined_additional, x,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-            pay_additional=pay_additional,
+            pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
         )
     def _resolve_graveyard_cast_exile(self, player, spell, count, chosen_ids):
         """RULE 601.2h: distinct other graveyard cards paying a cast permission."""
@@ -1702,6 +1805,7 @@ class CastingMixin:
         kicker_x: int = 0,
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
+        damage_divisions: Optional[dict[str, list[int]]] = None,
         free: bool = False,
         alt_cost: bool = False,
         mutate: bool = False,
@@ -1781,6 +1885,11 @@ class CastingMixin:
         # Nothing is given yet: an instant/sorcery gives it as it begins to resolve
         # (`RulesEngine.give_gift`, RULE 702.174j), a permanent through its own ETB trigger
         # (RULE 702.174b, `binding.core._kw_gift`).
+        if alt_cost and 'emerge' in (getattr(obj, 'parametric_keywords', None) or {}) and sacrifice_choices is not None:
+            if len(sacrifice_choices) != 1 or (sacrifice_choice is not None and sacrifice_choice != sacrifice_choices[0]):
+                raise ValueError('Choose exactly one creature for Emerge')
+            sacrifice_choice = sacrifice_choices[0]
+            sacrifice_choices = None
         obj.gift_promised = gift_opponent_id is not None
         obj.gift_recipient_id = gift_opponent_id
         if face == "face_down":
@@ -1834,6 +1943,13 @@ class CastingMixin:
                 self.rules._end_bestow(obj)
                 raise
         if face in ("back", "fuse"):
+            # RULE 601.2f: the offer includes potential mana for this face,
+            # just like a front-face cast. Top it up before real-pool validation.
+            self._auto_tap_for_cast_if_needed(
+                player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x,
+                buyback=buyback, free=free, alt_cost=alt_cost, targets=targets,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            )
             if not self.can_cast(
                 player, obj, x, face=face, kicked=kicked, buyback=buyback, free=free, alt_cost=alt_cost,
             ):
@@ -1864,6 +1980,7 @@ class CastingMixin:
         # conditional modal header can depend on the *announced* Kicker.
         # Keep that prospective value only for this validation/resolution
         # window; the successful cast later persists `kicker_count` normally.
+        obj._announced_damage_divisions = damage_divisions
         obj._modal_announced_kicked = kicked
         obj._modal_announced_teamwork = teamwork
         # Snapshot non-cost conditional modal headers at the choice point.
@@ -1879,6 +1996,9 @@ class CastingMixin:
                 pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices,
             )
         finally:
+            if hasattr(obj, "_announced_division_effects"):
+                delattr(obj, "_announced_division_effects")
+            delattr(obj, "_announced_damage_divisions")
             delattr(obj, "_modal_announced_kicked")
             delattr(obj, "_modal_announced_teamwork")
             delattr(obj, "_modal_override_condition_met")
@@ -1906,7 +2026,7 @@ class CastingMixin:
         if kind == "controls_subtype_as_cast":
             subtype = str(condition.get("subtype", "")).lower()
             return bool(subtype) and any(
-                o.controller_id == player.id and subtype in o.card.type_line.lower().split()
+                o.controller_id == player.id and o.has_subtype(subtype)
                 for o in self.state.battlefield
             )
         if kind == "controls_commander_as_cast":
@@ -2080,6 +2200,9 @@ class CastingMixin:
                 break
             if res.zone == Zone.GRAVEYARD:
                 self.rules.exile(res)  # RULE 702.66: "Each card you exile … pays for {1}."
+                # RULE 607.2q: Delve's exiles belong to the spell's ensuing
+                # stack visit; resolving it transfers the link to the permanent.
+                self.state.track_exiled_with(obj, res, obj.zone_incarnation + 1)
             else:
                 self.rules.set_tapped(res, True)  # RULE 702.51c/702.126b
                 if self._help_pay_keyword(obj) == "convoke":
@@ -2316,8 +2439,9 @@ class CastingMixin:
             if (getattr(self.state, "_physical_cast_validation", False)
                     or self.state.resolution_play_choice is not None
                     or (additional is not None and additional.sacrifice_count)
-                    or any(spec.any_number or spec.total_power_max is not None
-                           or spec.total_mana_value_max is not None for spec in spell_target_specs(obj))):
+                    or any(spec.same_graveyard or spec.any_number or spec.total_power_max is not None
+                           or spec.total_mana_value_max is not None or spec.kind == "activated_ability"
+                           for spec in spell_target_specs(obj))):
                 # Announced choices use the ordinary modal target specs
                 # after the selected mode has been applied, not a targetless
                 # cast_without_paying shortcut (RULE 601.2c).
@@ -2336,12 +2460,19 @@ class CastingMixin:
                     if spec.any_number:
                         maximum = len(options)
                     if not target_group_within_budget(spec, picks):
-                        raise ValueError("target creatures exceed the total power limit" if spec.total_power_max is not None
+                        raise ValueError("targets exceed the single graveyard limit" if spec.same_graveyard else
+                                         "target creatures exceed the total power limit" if spec.total_power_max is not None
                                          else "target cards exceed the total mana value limit")
-                    legal_ids = {option.get("instance_id", option.get("player_id")) for option in options}
-                    picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", None)) for pick in picks]
+                    # RULE 601.2c: ability targets use stack identities, not card identities.
+                    legal_ids = {option.get("instance_id", option.get("player_id", option.get("stack_id"))) for option in options}
+                    picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", getattr(pick, "stack_id", None))) for pick in picks]
                     if not minimum <= len(picks) <= maximum or len(set(picked_ids)) != len(picked_ids) or any(pid not in legal_ids for pid in picked_ids):
                         raise ValueError("illegal targets for the spell")
+            from ..damage_division import prepare as prepare_damage_divisions
+            obj._announced_division_effects = prepare_damage_divisions(
+                list(getattr(obj, "spell_effects", [])), targets, target_groups,
+                getattr(obj, "_announced_damage_divisions", None),
+            )
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.
@@ -2460,12 +2591,18 @@ class CastingMixin:
                 # pays the alternative cost instead, the same "free push,
                 # pay something else after" order the RULE 118-life-payment
                 # branch just below uses.
+                emerge_payment = self._emerge_payment(player, obj, sacrifice_choice)
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
                 self._pay_alt_cast_cost(
                     player, obj,
-                    getattr(obj, "alt_cast_cost", None)
-                    or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj),
+                    emerge_payment[0] if emerge_payment is not None else (
+                        getattr(obj, "alt_cast_cost", None)
+                        or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)),
                 )
+                if emerge_payment is not None:
+                    victim = emerge_payment[1]
+                    self.rules.note_sacrificed(obj, victim)
+                    self.rules.put_into_graveyard(victim)
                 if getattr(obj, "dash", False):
                     # RULE 702.109c/d (PAR-26): a creature cast for its dash
                     # cost gains haste and is bounced at the next end step —
@@ -2532,9 +2669,10 @@ class CastingMixin:
             with self.state.simultaneous():  # RULE 601.2h: one payment, one event (603.2c)
                 self._pay_cast_life_tax(player, obj, targets)
                 self._pay_additional_cast_cost(
-                    player, obj, getattr(obj, "additional_cast_cost", None), x,
+                    player, obj, self._additional_cost_with_escalate(
+                        obj, mode, x, getattr(obj, "additional_cast_cost", None), pay_additional), x,
                     sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, discard_choices=discard_choices,
-                    pay_additional=pay_additional,
+                    pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
                 )
                 if graveyard_victim is not None:
                     # RULE 601.2h: this mandatory permission cost is independent
@@ -2650,6 +2788,7 @@ class CastingMixin:
             # RULE 702.117: "if its surge cost was paid" — reassigned every
             # cast like ``cast_via_evoke``, so a later plain recast clears it.
             obj.surge_cost_paid = surge
+            obj.emerge_cost_paid = bool(alt_cost and 'emerge' in (obj.parametric_keywords or {}))
             # Lurrus-shaped: record the casting turn so `_move_to_graveyard`
             # can honor the permission source's own "if a spell cast this
             # way would be put into a graveyard this turn, exile it
@@ -3016,6 +3155,7 @@ class CastingMixin:
                 ))
                 self.rules.exile(victim)
                 obj.linked_exile_id = victim.instance_id
+                self.state.track_exiled_with(obj, victim)
         if cost.behold_two_shared_type:
             # RULE 701.4a (PAR-30, Celestial Reunion): "choose a creature type
             # and behold two creatures of that type." Optional — only reached
@@ -3047,7 +3187,7 @@ class CastingMixin:
         for card_obj in player.hand:
             if card_obj is exclude:
                 continue
-            if color in (card_obj.card.color_identity or set()):
+            if color in card_obj.colors:
                 return card_obj
         return None
     def _exile_hand_card_color_count_candidates(
@@ -3063,7 +3203,7 @@ class CastingMixin:
         """
         pool = [
             card_obj for card_obj in player.hand
-            if card_obj is not exclude and color in (card_obj.card.color_identity or set())
+            if card_obj is not exclude and color in card_obj.colors
         ]
         return pool[:count] if len(pool) >= count else None
     def _discard_land_type_candidate(
@@ -3240,7 +3380,7 @@ class CastingMixin:
         if subtype == "basic land":
             pool = [
                 o for o in self.state.permanents_controlled_by(player.id)
-                if o.card.is_land and "basic" in o.card.type_line.lower()
+                if o.card.is_land and o.has_supertype("basic")
             ]
         else:
             pool = [

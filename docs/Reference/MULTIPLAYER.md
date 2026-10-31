@@ -21,11 +21,28 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
   priority is played out for real.
 - `Seat.banner_color` is cosmetic, lives in the lobby (Setup shows it before a
   game), reaches the board via `seatStatus`; palette derived in `bannerColors.js`.
-- Table feed (VIS-4, `services/table_feed.py`): preset emotes plus engine-event
-  announcements, no priority passes; `view()` carries the latest 200 entries;
-  emotes never advance gameplay or drive bots.
-- `RulesEngine.concede` (RULE 104.3a) defers the RULE 800.4a cleanup to the next
-  turn (`GameState.pending_leave_ids`).
+- Table feed (`services/table_feed.py`): quick/custom emoji reactions plus
+  engine-event announcements, no priority passes; `view()` carries the latest
+  200 entries. Emotes never advance gameplay or drive bots. Public reveals
+  include a face snapshot captured before the card can leave its zone, for
+  feed thumbnails and the shared board's dismissible side popup (VIS-17).
+- `models/game/public_knowledge.py` stores public observations in `GameState`,
+  independently of rules permissions to look at hidden zones. Views expose
+  `state.known_cards` with exact library positions; redaction keeps these cards
+  in otherwise hidden hands/libraries for seats and observers. Exact zone visits
+  and order-preserving removals let a revealed library card remain known in
+  hand. Shuffles (including unchanged permutations), private ordering choices,
+  unknown library insertions/reorders and later zone visits discard stale
+  associations. Clones/undo retain knowledge without shared mutable state;
+  private look-at choices never create public observations.
+- Concession and committed player losses apply RULE 800.4a immediately: owned
+  objects leave, control effects end, departed-controller abilities/copies
+  cease, and remaining controlled objects are exiled. Priority passes to the
+  next living seat. Resolved control effects retain their original controller
+  and duration separately from ownership; Aura control is recomputed after
+  removal. Session history holds independent pre-concession snapshots for
+  review/rewind, including terminal games; the live board is cleaned immediately.
+  `GameState.pending_leave_ids` remains empty for snapshot compatibility.
 
 ## Priority (RULE 117)
 
@@ -41,6 +58,13 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
 - Only the priority holder may act, enforced in `_dispatch` (not just filtered from
   `legal_actions`) — except RULE 509.1a declare-blockers, which the defender takes
   while the attacker holds priority; "no blocks" is an empty `assignments` list.
+
+- The shared board stages editable attacker picks locally. Confirmation sends
+  `declare_attackers` with `declarations: [{instance_id, defender,
+  pay_attack_tax}]` as one batch, preserving each creature's defender.
+  Legacy `instance_ids` plus a common `defender` remain accepted. Invalid or
+  duplicate batch entries fail before declaration; the session rollback
+  preserves the previous position.
 
 ## Solo bot updates
 
@@ -70,6 +94,9 @@ not.
   (`MTG_MULTIPLAYER_DISCONNECT_GRACE`, 90s) with `pass_for_absent_players`, then
   concede. A priority holder silent past `MTG_MULTIPLAYER_IDLE_TIMEOUT` (120s) has
   the socket closed. Both swept once a second by `api/multiplayer_ws.sweep_once`.
+- A resolving choice suspends client priority even when its details are redacted
+  to `waiting_on_choice`. Auto-skip, countdown and manual passing must all wait
+  for the choosing player; the retained priority marker is not an action offer.
 - Client countdown (`gameBoardView.js` `autoPassArmed`/`railTimerHtml`,
   `reactTimerSuppressedHere()`) runs when this client holds priority on another
   player's turn, or with something on the stack, or in passive upkeep/draw/end

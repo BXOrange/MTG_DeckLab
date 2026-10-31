@@ -268,6 +268,8 @@ def deck_tokens(
                 "oracle_text": t.oracle_text,
                 "image_small": t.image_uri_small or None,
                 "image_normal": t.image_uri_normal or None,
+                "image_large": t.image_uri_large or None,
+                "image_png": t.image_uri_png or None,
             }
             for t in tokens
         ]

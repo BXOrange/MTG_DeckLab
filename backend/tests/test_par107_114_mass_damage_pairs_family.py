@@ -102,10 +102,18 @@ def test_damnable_pact_draws_and_loses_for_the_targeted_player():
         p2.library.append(GameObject(Card(id=f"f{i}", name="Filler", type_line="Sorcery"), owner_id="p2",
                                      zone=Zone.LIBRARY))
     effects = [e.to_dict() for e in _spell_effects("Target player draws X cards and loses X life.")]
-    for e in effects:
-        for k in ("count", "amount"):
-            if e["params"].get(k) == "x":
-                e["params"][k] = 3
+    def bind_x(node):
+        # X is fixed at cast time (RULE 107.3); the wrapped later verb carries it inside its own effects.
+        if isinstance(node, dict):
+            for k in ("count", "amount"):
+                if node.get(k) == "x":
+                    node[k] = 3
+            for v in node.values():
+                bind_x(v)
+        elif isinstance(node, list):
+            for v in node:
+                bind_x(v)
+    bind_x(effects)
     p1_life, hand = eng.state.player_by_id("p1").life, len(p2.hand)
     _resolve(eng, effects, targets=[p2])
     assert len(p2.hand) - hand == 3 and p2.life == 17
@@ -123,9 +131,11 @@ def test_gain_then_draw_acts_on_the_targeted_player_not_the_caster():
     assert p2.life == 23 and len(p2.hand) == 1 and len(p1.hand) == 0
 
 
-def test_a_verb_without_a_previous_player_reading_is_refused():
-    # mill has no way to point at the earlier clause's player, so the sentence is not claimed.
-    assert parse_effect_body("target player gains 3 life and mills 2 cards", reading=ClauseReading(self_subject=True)) is None
+def test_a_later_verb_reads_the_previous_player_through_the_shared_referent():
+    # mill now points at the earlier clause's player like any other verb (PAR-210), instead of being refused.
+    specs = parse_effect_body("target player gains 3 life and mills 2 cards", reading=ClauseReading(self_subject=True))
+    assert [s.type for s in specs] == ["gain_life", "trigger_subject_referent"]
+    assert specs[1].params["referent"] == "previous_player" and specs[1].params["effects"][0]["type"] == "mill"
 
 
 def test_you_and_target_forms_are_untouched():

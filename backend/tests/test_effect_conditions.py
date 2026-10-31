@@ -59,6 +59,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "kicked_at_least": [2],
     "bargained": [True],
     "gift_promised": [True, False],
+    "tribute_paid": [True, False],  # PAR-190, RULE 702.104b
     "madness_cost_paid": [True, False],  # PAR-139, RULE 702.35
     "blitz_cost_paid": [True, False],  # RULE 702.152
     "surge_cost_paid": [True, False],  # RULE 702.117
@@ -187,6 +188,8 @@ class TestVocabularyIsClosed:
         # New cards may emit structured conditions directly, without adding
         # an unnecessary legacy spelling just to satisfy this vocabulary audit.
         conditions = [condition for _, _, condition in _translated()]
+        from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_condition
+        conditions.append(static_condition("~'s emerge cost was paid"))
         conditions.extend(effect.condition
                           for abilities in (_ultimate_magic_meteor(), _lifestream_s_blessing())
                           for ability in abilities for effect in ability.effects
@@ -252,6 +255,7 @@ class TestTheCollapseIsReal:
             "cast_during_your_main_phase",  # PAR-120, Addendum
             "previous_target_is_suspected", "teamwork_paid", "gift_promised",
             "madness_cost_paid",  # PAR-139
+            "tribute_paid",  # PAR-190, RULE 702.104b
             "blitz_cost_paid",  # RULE 702.152
             "surge_cost_paid",  # RULE 702.117
             # RULE 701.60c's `is_suspected` flag read off two more referents,

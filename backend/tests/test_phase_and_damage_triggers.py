@@ -169,15 +169,27 @@ def test_group_subject_damage_trigger_is_modeled():
 
 
 def test_qualified_group_subject_damage_trigger_stays_unclaimed():
-    # Fail-closed: "a **modified**/**renowned** creature you control" (Araña/
-    # Aragorn) adds a qualifier the closed type vocabulary can't express, so
-    # the anchored regex simply doesn't match rather than dropping it.
+    # Fail-closed: "a **renowned** creature you control" (Aragorn-shaped) adds a qualifier the closed
+    # characteristic vocabulary can't express, so the head simply doesn't match rather than dropping it.
     card = _permanent(
-        "Araña Cousin",
-        "Whenever a modified creature you control deals combat damage to a player, draw a card.",
+        "Renowned Cousin",
+        "Whenever a renowned creature you control deals combat damage to a player, draw a card.",
         type_line="Creature — Bear",
     )
     assert parse_oracle(card).coverage == UNMODELED
+
+
+def test_modified_group_subject_damage_trigger_reads_the_attachment_adjective():
+    # PAR-207: "modified" (RULE 700.9) is a characteristic adjective like "tapped" or "legendary".
+    card = _permanent(
+        "Arana Cousin",
+        "Whenever a modified creature you control deals combat damage to a player, draw a card.",
+        type_line="Creature — Bear",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    trigger = next(s for s in result.specs if s.ability_kind == "triggered").trigger
+    assert trigger["condition"]["filter"] == {"card_type": "creature", "modified": True}
 
 
 def test_quoted_damage_grant_is_now_modeled():

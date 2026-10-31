@@ -46,7 +46,9 @@ def test_miracle_is_public_until_countered_then_discount_and_reveal_end():
     assert spell.name in json.dumps(session.view(perspective='p2'))
     assert not engine.can_cast(player, spell, alt_cost=True)
     engine.rules.counter_ability(trigger)
-    assert spell.name not in json.dumps(session.view(perspective='p2'))
+    public = session.view(perspective='p2')
+    assert spell.name in json.dumps(public['state']['known_cards'])
+    assert not next(card for card in public['state']['known_cards'] if card['instance_id'] == spell.instance_id)['miracle_revealed']
     assert not spell.miracle_armed and spell.zone == Zone.HAND
 
 

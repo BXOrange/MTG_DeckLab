@@ -69,6 +69,39 @@ def _no_max_hand_size_rest_of_game(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("no_max_hand_size_rest_of_game", {})]
 
 
+# MEC-129 (Sea Gate Restoration): "draw cards equal to the number of cards in your hand plus N" — the
+# count is measured when the draw resolves, via the shared ``hand_size`` resource amount plus its
+# ``plus`` modifier (`effect_amounts`).
+_DRAW_HAND_SIZE_PLUS_RE = compile_clause(
+    r"(?:you )?draw cards equal to the number of cards in your hand(?: plus (?P<n>\d+))?"
+)
+
+
+def _draw_hand_size_plus(m: re.Match[str]) -> list[EffectSpec]:
+    amount: dict = {"kind": "resource", "resource": "hand_size", "of": "you"}
+    if m.group("n"):
+        amount["plus"] = int(m.group("n"))
+    return [EffectSpec("draw", {"count": amount})]
+
+
+# MEC-130 (Glittering Lion/Lynx): "until end of turn, ~ loses "<its own ability>"". Only quoted
+# abilities that a registered replacement type can stand for are claimed (fail-closed table).
+_LOSES_OWN_REPLACEMENT_QUOTED = {
+    "prevent all damage that would be dealt to ~.": "prevent_damage",
+    "prevent all damage that would be dealt to ~": "prevent_damage",
+}
+_LOSES_OWN_REPLACEMENT_RE = compile_clause(
+    r"until end of turn, ~ loses \"(?P<ability>[^\"]+)\""
+)
+
+
+def _loses_own_replacement(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    replacement = _LOSES_OWN_REPLACEMENT_QUOTED.get(m.group("ability").strip().lower())
+    if replacement is None:
+        return None
+    return [EffectSpec("lose_own_replacement", {"replacement": replacement})]
+
+
 _CREATE_NAMED_TOKEN_DIE_RESULT_RE = compile_clause(
     r"you create a number of (?P<name>[a-z]+) tokens equal to the result"
 )
@@ -621,11 +654,12 @@ def _control_player(m: re.Match[str]) -> list[EffectSpec]:
 # coin that comes up heads" / "…if an opponent cast a blue spell this
 # turn" don't fullmatch this row either — those keep their own count /
 # condition and are their own tickets.
-_TAKE_EXTRA_TURN_RE = compile_clause(r"(?:you )?take an extra turn after this 1")
+_TAKE_EXTRA_TURN_RE = compile_clause(r"(?:(?:you )?take|(?P<target>target player|target opponent) takes) an extra turn after this 1")
 
 
 def _take_extra_turn(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("take_extra_turn", {})]
+    params = {"target_kind": "opponent" if m.group("target") == "target opponent" else "player"} if m.group("target") else {}
+    return [EffectSpec("take_extra_turn", params)]
 
 
 # "Incubate N." (RULE 701.53, PAR-29) — create an Incubator token (a
@@ -1984,6 +2018,8 @@ ROWS: list[EffectHandler] = [
     # MEC-90: non-pump bodies whose amount is a preceding die-roll result.
     EffectHandler("gain_life_die_result", _GAIN_LIFE_DIE_RESULT_RE, _gain_life_die_result),
     EffectHandler("draw_die_result", _DRAW_DIE_RESULT_RE, _draw_die_result),
+    EffectHandler("draw_hand_size_plus", _DRAW_HAND_SIZE_PLUS_RE, _draw_hand_size_plus),
+    EffectHandler("loses_own_replacement", _LOSES_OWN_REPLACEMENT_RE, _loses_own_replacement),
     EffectHandler(
         "no_max_hand_size_rest_of_game", _NO_MAX_HAND_SIZE_REST_OF_GAME_RE,
         _no_max_hand_size_rest_of_game,
@@ -2031,6 +2067,11 @@ ROWS: list[EffectHandler] = [
         "take_extra_turn",
         _TAKE_EXTRA_TURN_RE,
         _take_extra_turn,
+    ),
+    # RULE 614.10: one-shot whole-turn replacement, sharing the step-skip primitive.
+    EffectHandler(
+        "skip_next_turn", compile_clause(r"(?:you )?skip your next turn"),
+        lambda m: [EffectSpec("skip_next_step", {"step": "turn"})],
     ),
     # "you control target opponent/player during that player's next
     # turn / combat phase" (RULE 720, MEC-51).

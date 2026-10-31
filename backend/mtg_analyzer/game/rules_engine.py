@@ -107,15 +107,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "planeswalker":
-        return obj.card.is_planeswalker
+        return obj.is_planeswalker
     if what == "battle":
-        return obj.card.is_battle
+        return obj.is_battle
     if what == "face_down":
         return bool(obj.face_down)  # "a face-down permanent you control" (Primordial Mist)
     if what == "nontoken_creature":
@@ -126,11 +126,11 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "artifact_or_creature":
         # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
         # creature" additional cost.
-        return obj.is_creature or obj.card.is_artifact
+        return obj.is_creature or obj.is_artifact
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -281,24 +281,13 @@ class RulesEngine(
         #: dungeon rooms): the still-to-ask player ids, chained one
         #: `pay_cost_then` choice at a time; see `_advance_each_player_pay_or`.
         self._pending_each_player_pay_or: Optional[dict[str, Any]] = None
-        #: Backing state for a `_request_all_players_decline_or` mass sweep
-        #: (Rhystic Circle's "Any player may pay {1}. If no one does,
-        #: `<effect>`." — RULE 118.3-adjacent, MEC-30): the still-to-ask
-        #: player ids, chained one `all_decline_or` choice at a time — the
-        #: *aggregate-outcome* mirror of `_pending_each_player_pay_or`
-        #: above (that one applies its effect once **per decliner**; this
-        #: one applies it once, only if **every** player declined, and the
-        #: first player to actually pay cancels the whole sweep with no
-        #: effect at all). See `_request_all_players_decline_or`/
-        #: `_advance_all_decline_or`/`_resume_all_decline_or`.
-        self._pending_all_decline_or: Optional[dict[str, Any]] = None
         #: Backing state for a `_request_vote` APNAP sweep (RULE 701.38 —
         #: "starting with you, each player votes for `<A>` or `<B>`."): the
         #: still-to-ask player ids, the running per-option tally, and the
         #: serialized outcome specs (a `majority` winner/tie branch, or a
         #: `per_vote` set of magnitude-scaled effect lists). Chained one
         #: `vote` choice at a time, the same shape as
-        #: `_pending_all_decline_or`. See `_request_vote`/`_advance_vote`/
+        #: `state.pending_all_decline_or`. See `_request_vote`/`_advance_vote`/
         #: `_resume_vote`/`_tally_and_apply_vote`.
         self._pending_vote: Optional[dict[str, Any]] = None
         #: MEC-46: backing state for a `_request_object_vote` APNAP sweep
@@ -336,10 +325,6 @@ class RulesEngine(
         #: choice` (non-serializable), the same split `_pending_name_card`
         #: uses. See `_request_impulsive_look`/`_resume_impulsive_look`.
         self._pending_impulsive_look: Optional[dict[str, Any]] = None
-        #: Backing state for a `pay_energy_then` `pending_choice` (Aether
-        #: Chaser-shaped "you may pay {E}{E}. If you do, …") — see
-        #: `_request_pay_energy_then`/`_resume_pay_energy_then`.
-        self._pending_pay_energy: Optional[dict[str, Any]] = None
         #: A replacement chain awaiting an interactive `replacement_order`
         #: choice (RULE 616.1e/f — 2+ simultaneously-applicable replacement
         #: effects), and the continuation to resume once it's answered.
@@ -359,16 +344,6 @@ class RulesEngine(
         self._pending_enter_as_copy_obj: Optional[GameObject] = None
         self._pending_enter_as_copy_effect: Optional[Any] = None
         self._pending_enter_as_copy_continuation: Optional[Callable[[], None]] = None
-        #: The permanent currently awaiting an "as ~ enters, choose a
-        #: creature type/color" pick (RULE 601.2b — `enter_choice_effects`),
-        #: which of its queued choice-effects is open, and the continuation
-        #: to resume once it's answered (which may itself open the *next*
-        #: queued choice, if the card has more than one) — populated only
-        #: while that choice is pending; see `_offer_enter_choices`/
-        #: `_resume_choose_creature_type`.
-        self._pending_enter_choice_obj: Optional[GameObject] = None
-        self._pending_enter_choice_effect: Optional[Any] = None
-        self._pending_enter_choice_continuation: Optional[Callable[[], None]] = None
         #: The card just exiled by `exile_until_duplicate_name` (Tainted
         #: Pact) awaiting a "take it or keep digging" answer, its owner, and
         #: the growing "names seen this resolution" set to resume with —
@@ -416,16 +391,6 @@ class RulesEngine(
         #: `_resume_counter_unless_pays`.
         self._pending_counter_target: Any = None
         self._pending_counter_cost: Optional[ManaCost] = None
-        #: RULE 702.21 (ward): the item awaiting a `ward` pay-or-be-countered
-        #: choice, whose player must decide (the *caster*, unlike
-        #: `counter_unless_pays` where it's the target's controller), and
-        #: the `ActivationCost` currently being asked about. A ward ability
-        #: is a genuine `StackItem` of its own (`check_ward` pushes one per
-        #: warded target, on top of the triggering item), so — unlike
-        #: `counter_unless_pays` — multiple simultaneous wards need no queue
-        #: here: the stack itself sequences them one resolution at a time
-        #: (RULE 702.21c). Populated only while a ward choice is pending;
-        #: see `resolve_ward_effect`/`_resume_ward`.
         #: The "sacrifice ~ unless you pay `<cost>`" choice currently awaiting
         #: an answer (`_request_sacrifice_unless_pay`/
         #: `_resume_sacrifice_unless_pay`) — the permanent at stake,
@@ -439,16 +404,6 @@ class RulesEngine(
         #: destruction sibling of `_pending_sacrifice_unless_pay` above (a
         #: regeneration shield can still save this one).
         self._pending_destroy_unless_pay: Optional[dict[str, Any]] = None
-        #: RULE 103.6: the opening-hand card awaiting a "begin the game
-        #: somewhere else" answer (`offer_opening_hand_battlefield_choice`/
-        #: `_resume_opening_hand_battlefield` — battlefield or
-        #: graveyard, per its own `PregameSetupPermission.destination`) —
-        #: only one can be pending at a time, same as every other
-        #: `pending_choice`.
-        self._pending_opening_hand_obj: Optional[GameObject] = None
-        self._pending_ward_item: Optional[StackItem] = None
-        self._pending_ward_caster_id: Optional[str] = None
-        self._pending_ward_cost: Optional[ActivationCost] = None
         #: The permanent/player awaiting a `remove_counters_amount`/
         #: `remove_counters_kind` choice (RULE 122 — "remove up to N
         #: counters from target permanent"), and how many are still left to
@@ -643,14 +598,9 @@ class RulesEngine(
         on_resolved: Optional[Union[Callable[[Optional[GameEvent]], None], dict[str, Any]]],
     ) -> Optional[GameEvent]:
         current: Optional[GameEvent] = event
-        prevention_disabled = self.state.damage_prevention_disabled
-        if not prevention_disabled:
-            # "Damage can't be prevented." (Everlasting Torment) — the
-            # standing battlefield-static sibling of the turn-scoped flag
-            # above; same RULE 615 effect, no lifecycle of its own.
-            from . import continuous  # local: avoid the continuous↔rules cycle
-
-            prevention_disabled = continuous.damage_prevention_globally_disabled(self.state)
+        # RULE 615.12: turn flag or standing static (shared helper).
+        damage_source = self.state.find_object(event.get("source_id")) if event.get("source_id") is not None else None
+        prevention_disabled = self.damage_prevention_is_disabled(damage_source, bool(event.get("combat")))
         while current is not None:
             applicable = [
                 effect
@@ -699,6 +649,10 @@ class RulesEngine(
                 self._finish_mill(callback["player_id"], callback["count"], event)
             elif callback["kind"] == "damage":
                 self._finish_damage(callback, event)
+            elif callback["kind"] == "permanent_counters":
+                self._finish_permanent_counters(callback, event)
+            elif callback["kind"] == "player_counters":
+                self._finish_player_counters(callback, event)
             elif callback["kind"] == "life_gain":
                 self._finish_life_gain(callback["player_id"], callback["amount"], event)
             else:

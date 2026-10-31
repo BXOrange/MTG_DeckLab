@@ -11,8 +11,8 @@ The four axes, each parsed on its own so a card recombining known values needs n
 * **what may be taken** — a `models.cards.card_query` criteria dict built from the noun phrase
   (`parse_criteria`: types and subtypes, colours, "nonland", "permanent", "historic", a mana-value
   bound, "{X} in its mana cost"), and *how many* (a / up to N / any number of / all);
-* **where it goes** — hand or battlefield;
-* **where the rest goes** — bottom of the library, graveyard, or shuffled back in.
+* **where it goes** — hand, battlefield, graveyard or back on top;
+* **where the rest goes** — bottom of the library, graveyard, exile, or shuffled back in.
 
 The builder emits one ``inspect_top_choose`` (`InspectTopChooseEffect`). Sentences after the dig
 are ordinary clauses handed back to the caller's ``match_tail`` (a token, a life gain), except
@@ -56,9 +56,11 @@ _X_COST_QUAL = "with {x} in its mana cost"
 #: A bare "x" (an announced-X magnitude), as opposed to the "{x}" mana symbol of `_X_COST_QUAL`.
 _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 
-#: "put 2 of them into your hand [and the rest …]" — a pick with no kind restriction.
+#: A numbered pick with no kind restriction, optionally returned to the top.
 _PICK_OF_THEM_RE = re.compile(
-    r"put (?P<up_to>up to )?(?P<n>\d+) of them into your hand(?: and the rest (?P<rest>.+))?"
+    r"(?P<may>you may )?put (?P<up_to>up to )?(?P<n>\d+) of (?:them|those cards) "
+    r"(?P<dest>into your hand|into your graveyard|(?:back )?on top of your library)"
+    r"(?: and (?P<rest_group>the rest|the other) (?P<rest>.+))?"
 )
 #: The selection sentence. ``verb`` "reveal" is only valid with its "and put it" half.
 _SELECTION_RE = re.compile(
@@ -75,7 +77,7 @@ _REST_DEST_RE = re.compile(
     r"(?P<graveyard>into your graveyard)"
 )
 _REST_SENTENCE_RE = re.compile(
-    r"(?:then )?put (?:the rest(?: of (?:the cards revealed this way|them))?|"
+    r"(?:then )?put (?:(?P<other>the other)|the rest(?: of (?:the cards revealed this way|them))?|"
     r"all (?:the )?cards revealed this way that weren't put (?:onto the battlefield|into your hand)) "
     r"(?P<dest>.+)"
 )
@@ -85,6 +87,9 @@ _SENTENCE_SPLIT_RE = re.compile(r"\.\s+")
 
 _ACTION_BY_DEST = {
     "into your hand": "library_to_hand",
+    "into your graveyard": "library_to_graveyard",
+    "on top of your library": "library_top",
+    "back on top of your library": "library_top",
     "onto the battlefield": "library_to_battlefield",
     "onto the battlefield tapped": "library_to_battlefield_tapped",
     # PAR-148 (RULE 508.4)
@@ -198,8 +203,8 @@ def _rest_destination(text: str) -> Optional[str]:
 #: whose hit is forced. No "otherwise" leaves the card on top (``decline_leaves_untouched``).
 _REVEAL_TOP_BRANCH_RE = re.compile(
     r"(?P<may>you may )?reveal the top card of your library\.\s+"
-    r"if (?:it'?s an? (?P<crit>[a-z' -]+?) card|an? (?P<crit2>[a-z' -]+?) card is revealed this way), "
-    r"put it (?P<dest>onto the battlefield(?: tapped(?: and attacking)?)?)"
+    r"if (?:(?:it'?s|that card is) an? (?P<crit>[a-z' -]+?) card|an? (?P<crit2>[a-z' -]+?) card is revealed this way), "
+    r"put it (?P<dest>onto the battlefield(?: tapped(?: and attacking)?)?|into your hand)"
     r"(?:\.\s+otherwise, put (?:it|that card) (?P<rest>into your hand|into your graveyard))?\.?"
 )
 _REVEAL_REST = {"into your hand": "hand", "into your graveyard": "graveyard"}
@@ -238,11 +243,14 @@ def parse_dig(
 
     pick = _PICK_OF_THEM_RE.fullmatch(selection)
     rest_text: Optional[str]
+    single_rest = False
     if pick is not None:
         params.update(
-            action="library_to_hand", max_picks=int(pick.group("n")), optional=bool(pick.group("up_to")),
+            action=_ACTION_BY_DEST[pick.group("dest")],
+            max_picks=int(pick.group("n")), optional=bool(pick.group("up_to") or pick.group("may")),
         )
         rest_text = pick.group("rest")
+        single_rest = pick.group("rest_group") == "the other"
     else:
         sel = _SELECTION_RE.fullmatch(selection)
         if sel is None or (sel.group("verb") == "reveal") != bool(sel.group("andput")):
@@ -264,14 +272,30 @@ def parse_dig(
             params["criteria"] = criteria
         rest_text = sel.group("rest")
 
+    rest_dest = None
+    if rest_text is None and tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
+        rest_dest, tails = "library_shuffled", tails[1:]
+    elif rest_text is None and tails and tails[0] == "exile the rest":
+        rest_dest, tails = "exile", tails[1:]
+    elif rest_text is None and tails and (rest_sentence := _REST_SENTENCE_RE.fullmatch(tails[0])) is not None:
+        rest_text = rest_sentence.group("dest")
+        single_rest = bool(rest_sentence.group("other"))
+        tails = tails[1:]
+    if single_rest:
+        # RULE 609.3 / 401.4: choosing one of two leaves at most one card.
+        # "The other" cannot stand for an arbitrary pile or an optional pick.
+        if not (count == 2 and pick is not None and params["max_picks"] == 1 and not params["optional"]):
+            return None
+        if rest_text == "on the bottom of your library":
+            # A singleton has no ordering decision; reuse the ordered-bottom
+            # continuation, which already skips ordering fewer than two cards.
+            rest_text += " in any order"
     if rest_text is not None:
         rest_dest = _rest_destination(rest_text)
-    elif tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
-        rest_dest, tails = "library_shuffled", tails[1:]
-    elif tails and (rest_sentence := _REST_SENTENCE_RE.fullmatch(tails[0])) is not None:
-        rest_dest, tails = _rest_destination(rest_sentence.group("dest")), tails[1:]
-    else:
-        rest_dest = None
+    if pick is not None and pick.group("dest") == "into your graveyard" and rest_text is None and not tails:
+        # RULE 401.2: looking and choosing one card does not reorder the
+        # unchosen library cards (Soulcipher Board).
+        rest_dest = "library_unchanged"
     if rest_dest is None:
         return None
     params["rest_destination"] = rest_dest
@@ -289,4 +313,16 @@ def parse_dig(
         if effects is None:
             return None
         specs.extend(effects)
+    if (pick is not None and params["action"] == "library_to_hand"
+            and rest_text == "on the bottom of your library in any order"):
+        # RULE 401.4: an ordered bottom pile is the player's choice, not a
+        # random permutation. The existing fixed-count hand dig owns that
+        # two-stage selection and ordering continuation (Prophetic Bolt).
+        if "else_effects" in params:
+            return None
+        return [EffectSpec("look_top_select", {
+            "count": count, "select_count": params["max_picks"],
+            "select_optional": params["optional"],
+            "rest_destination": "library_bottom", "rest_order": "any",
+        }), *specs]
     return [EffectSpec("inspect_top_choose", params), *specs]

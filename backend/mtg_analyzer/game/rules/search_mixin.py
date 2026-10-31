@@ -96,15 +96,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -202,6 +202,7 @@ class SearchMixin:
                                for obj in cards},
             "bottom_remaining": list(bottom_remaining or []),
             "instance_ids": [obj.instance_id for obj in cards],
+            "zone_incarnations": {str(obj.instance_id): obj.zone_incarnation for obj in cards},
             "options": [{"id": "decline", "label": "Decline"}],
             "prior_free": [obj.instance_id for obj in cards
                            if obj.instance_id in self.state.free_cast_instance_ids],
@@ -221,6 +222,13 @@ class SearchMixin:
         choice = self.state.resolution_play_choice
         if choice is None:
             return
+        if played_id is not None and choice.get("cast_rider") in {"suspend_haste", "haste_until_eot"}:
+            played = self.state.find_object(played_id)
+            if played is not None and played.card.is_creature:
+                played.granted_suspend_haste = {
+                    "duration": "until_control_lost" if choice["cast_rider"] == "suspend_haste" else "end_of_turn",
+                    "player_id": choice["player_id"], "timestamp": self.state.next_timestamp(),
+                }
         if choice.get("miracle"):
             for iid in choice["instance_ids"]:
                 obj = self.state.find_object(iid)
@@ -454,8 +462,7 @@ class SearchMixin:
         if top is None:
             self._fire_explored(inst, controller_id, found_land=False)
             return
-        # RULE 701.20a: revealing is a public move; no hidden-zone bookkeeping
-        # is needed here since the card immediately changes zone either way.
+        self.state.reveal_card(top, player.id)
         if top.card.is_land:
             player.library.pop()
             player.add_to_zone(top, Zone.HAND)
@@ -748,6 +755,7 @@ class SearchMixin:
         flag cleared, on top of the ordinary reordering every other kind
         already does in place.
         """
+        self.state.public_card_knowledge.forget_library_order(player.id, [*away, *top])
         self.state.pending_choice = None
         if kind == "hand_bottom":
             # `top` is topmost first, matching every other ordering choice.
@@ -1163,6 +1171,7 @@ class SearchMixin:
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
+        required_ids: Optional[list[int]] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1261,7 +1270,7 @@ class SearchMixin:
         # but no shipped card yet combines Leonin Arbiter with a second,
         # independent search-prohibition source, so the simpler "ignore
         # them all" reading costs nothing today.
-        if self.is_search_prohibited_for(player):
+        if self.is_search_prohibited_for(chooser or player):
             return
         zones = list(zones) if zones else ["library"]
         if "library" in zones:
@@ -1270,7 +1279,7 @@ class SearchMixin:
             )
         eligible = [
             obj
-            for obj in self._search_zone_objects(player, zones)
+            for obj in self._search_zone_objects(player, zones, chooser)
             if card_query.matches(obj.card, criteria)
             and (
                 total_mana_value_budget is None
@@ -1285,7 +1294,10 @@ class SearchMixin:
             self._apply_effect_specs(list(then_specs_if_none or []), source)
             return
         self.open_choice(self._search_choice(
-            player, criteria, destination, count, optional, found=[],
+            player, criteria, destination, count, optional,
+            # RULE 701.23b: public-zone matches are mandatory, while a quality
+            # search may fail to find hidden-zone matches. Move all finds together.
+            found=[obj.instance_id for obj in eligible if obj.instance_id in (required_ids or [])],
             zones=zones, destinations=destinations, exile_rest=exile_rest,
             extra_counters=extra_counters, destination_if=destination_if,
             attach_to_creature_you_control=attach_to_creature_you_control,
@@ -1460,7 +1472,7 @@ class SearchMixin:
                 self._flag_commander_zone_choice(obj)  # RULE 903.9a
         self.shuffle_library(searcher)
 
-    def _search_zone_objects(self, player: Player, zones: list[str]) -> list[GameObject]:
+    def _search_zone_objects(self, player: Player, zones: list[str], searcher: Optional[Player] = None) -> list[GameObject]:
         """The combined pool of cards a (possibly multi-zone) search draws
         from, library before graveyard when both are searched.
 
@@ -1482,7 +1494,7 @@ class SearchMixin:
             limits = [
                 e.n
                 for permanent in self.state.battlefield
-                if permanent.controller_id != player.id
+                if permanent.controller_id != (searcher or player).id
                 for e in getattr(permanent, "static_effects", None) or []
                 if isinstance(e, GrantSearchLimitedToTopNEffect)
             ]
@@ -1529,7 +1541,7 @@ class SearchMixin:
             found.append(instance_id)
             if total_mana_value_budget is not None:
                 picked = next(
-                    o for o in self._search_zone_objects(player, zones)
+                    o for o in self._search_zone_objects(player, zones, self.state.player_by_id(chooser_id))
                     if o.instance_id == instance_id
                 )
                 spent_mana_value += picked.mana_value
@@ -1543,7 +1555,7 @@ class SearchMixin:
         ]
         still_eligible = [
             obj
-            for obj in self._search_zone_objects(player, zones)
+            for obj in self._search_zone_objects(player, zones, self.state.player_by_id(chooser_id))
             if obj.instance_id not in found
             and card_query.matches(obj.card, choice["criteria"])
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
@@ -1678,7 +1690,7 @@ class SearchMixin:
         ]
         eligible = [
             {"instance_id": obj.instance_id, "name": obj.name}
-            for obj in self._search_zone_objects(player, zones)
+            for obj in self._search_zone_objects(player, zones, chooser)
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
@@ -1858,6 +1870,11 @@ class SearchMixin:
                 # rather than putting it back.
                 self.exile(obj)
                 continue
+            if chooser_id is not None and chooser_id != player.id and dest in ("battlefield", "battlefield_tapped"):
+                # RULE 110.2 / 701.19a: "search target opponent's library for a creature card and put it onto the
+                # battlefield under your control" (Bribery): the searcher, not the library's owner, controls the
+                # entrant; ownership stays with the library's owner (RULE 108.3).
+                obj.controller_id = chooser_id
             self._put_searched_card(player, obj, dest, chooser_id=chooser_id)
             if (
                 untap_if_lands_at_least is not None
@@ -1911,6 +1928,13 @@ class SearchMixin:
                     self.attach_to_target(obj, host)
         if shuffle and not to_library:
             self.shuffle_library(player)
+
+        if remember_source_id is not None:
+            remembered_source = self.state.find_object(remember_source_id)
+            if remembered_source is not None:
+                for obj, dest in zip(chosen, effective_destinations):
+                    if dest == 'exile':
+                        self.state.track_exiled_with(remembered_source, obj, self.context.resolving_source_incarnation)
 
         if track_exiled_with and track_source_id is not None:
             # "…exile them, then incubate 2 **that many times**." (Phyrexian
@@ -2422,6 +2446,7 @@ class SearchMixin:
             self.state.free_cast_ignore_timing_instance_ids.add(obj.instance_id)
     def shuffle_library(self, player: Player) -> None:
         """Shuffle a player's library and announce it (RULE 701.20)."""
+        self.state.public_card_knowledge.sync(self.state)
         player.shuffle_library()
         self.state.fire_event(GameEvent(EventType.SHUFFLE, player_id=player.id))
     def shuffle_hand_and_graveyard_into_library(self, player: Player) -> None:
@@ -2775,7 +2800,9 @@ class SearchMixin:
         player = self.state.player_by_id(choice["player_id"])
         if not player.library:
             return
-        top = player.library.pop()
+        top = player.library[-1]
+        self.state.reveal_card(top, player.id)
+        player.library.pop()
         top.zone = Zone.HAND
         player.hand.append(top)
         self.lose_life(player, top.mana_value, cause="effect")
@@ -2876,7 +2903,7 @@ class SearchMixin:
         """
         artifacts = [
             o for o in self.state.permanents()
-            if o.card.is_artifact and o.controller_id == player.id
+            if o.is_artifact and o.controller_id == player.id
         ]
         if not artifacts:
             return
@@ -2909,7 +2936,7 @@ class SearchMixin:
         self.put_into_graveyard(victim)
         eligible = [
             o for o in player.library
-            if o.card.is_artifact
+            if o.is_artifact
         ]
         if not eligible:
             self.shuffle_library(player)
@@ -3160,7 +3187,7 @@ class SearchMixin:
         hits: list[GameObject] = []
         revealed: list[GameObject] = []
         while player.library and len(hits) < count:
-            obj = player.library.pop()
+            obj = player.library[-1]
             revealed.append(obj)
             self.state.fire_event(
                 GameEvent(
@@ -3171,6 +3198,7 @@ class SearchMixin:
                     from_zone="library",
                 )
             )
+            player.library.pop()
             if obj.is_creature:
                 has_changeling = "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords
                 if has_changeling:
@@ -3234,13 +3262,13 @@ class SearchMixin:
         for obj in list(reversed(player.library)):
             if len(hits) >= count:
                 break
-            if not entry_choices:
-                player.library.remove(obj)
             revealed.append(obj)
             self.state.fire_event(
                 GameEvent(EventType.REVEAL, player_id=player.id, object=obj.name,
                           instance_id=obj.instance_id, from_zone="library")
             )
+            if not entry_choices:
+                player.library.remove(obj)
             if card_query.matches(obj.card, criteria):
                 hits.append(obj)
 
@@ -3258,7 +3286,8 @@ class SearchMixin:
                 obj.zone = Zone.GRAVEYARD
                 player.graveyard.append(obj)
 
-        rest = [o for o in revealed if o not in hits]
+        # RULE 701.20: a reveal can return every revealed card, including its hit, to the library.
+        rest = list(revealed) if hit_destination == "library_bottom_random" else [o for o in revealed if o not in hits]
         if entry_choices:
             for obj in rest:
                 player.library.remove(obj)
@@ -3288,8 +3317,8 @@ class SearchMixin:
         self, player: Player, rest_ids: list[int], destination: str
     ) -> None:
         """Handle remaining unpicked cards from a bounded top-N inspect
-        (MEC-72). Move them to ``destination`` ("library_bottom_random" or
-        "graveyard")."""
+        (MEC-72). Move them to ``destination`` (including exile) without
+        involving any cards outside that inspected group."""
         objs: list[GameObject] = []
         for iid in rest_ids:
             found = self._object_by_instance_id(iid)
@@ -3316,6 +3345,11 @@ class SearchMixin:
                 treasure = default_token_database().get_token("Treasure")
                 if treasure is not None:
                     self.create_token(player.id, treasure, count=len(objs))
+        elif destination == "exile":
+            # RULE 406.1: only the unchosen members of this inspected pool
+            # are exiled; choosing no card exiles the entire bounded group.
+            for obj in objs:
+                self.exile(obj)
         elif destination == "hand":
             # PAR-148: "reveal the top card … otherwise, put that card into your hand" (Hans Eriksson, Skyward Eye
             # Prophets) — the unpicked revealed card goes to its owner's hand.

@@ -60,17 +60,21 @@ def test_pt_form_parses_including_a_debuff():
     ]
 
 
-def test_non_flag_granted_ability_fails_closed():
-    # "gains firebending 2" isn't a plain flag keyword — must not half-model
-    assert match_clause(
+def test_parametric_granted_keyword_keeps_its_number():
+    # "gains firebending 2" is a parametric keyword: it is granted whole (name and N), never as a flag.
+    effects = match_clause(
         "target red or white creature gains firebending 2 until end of turn"
-    ) is None
+    )[0].params["effects"]
+    pump = effects[1]["params"]["effects"][0]["params"]
+    assert pump["parametric_keywords"] == [{"name": "firebending", "n": 2}]
+    assert "keywords" not in pump
 
 
-def test_same_colour_twice_is_rejected():
-    assert match_clause(
+def test_same_colour_twice_collapses_to_one_alternative():
+    effects = match_clause(
         "target red or red creature gains haste until end of turn"
-    ) is None
+    )[0].params["effects"]
+    assert effects[0]["params"]["creature_filter"]["color_any"] == ["R"]
 
 
 def test_real_weaver_cards_modeled():

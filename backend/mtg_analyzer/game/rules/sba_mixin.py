@@ -18,7 +18,10 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+from ..control import end_control_effects
+
 import re
+from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
@@ -31,7 +34,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuations, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
@@ -71,6 +74,25 @@ from ..effects.core import (
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
 
+#: Sentinel `_legend_rule_keep` returns while the controller has not yet picked a survivor.
+_LEGEND_CHOICE_PENDING = object()
+#: Separator between controller id and card name in a legend group key (a control character no name contains).
+_LEGEND_KEY_SEP = "\x1f"
+
+
+@dataclass
+class SbaAction:
+    """One RULE 704.5 action found while scanning a frozen derived state (RULE 704.3).
+
+    ``subject`` is the object it acts on; ``apply`` performs it; ``departs`` marks an action that
+    makes ``subject`` leave the battlefield, so the whole sweep's departures share one pre-batch
+    snapshot of trigger sources (RULE 603.10a) via `RulesEngine._remove_simultaneously`."""
+
+    subject: GameObject
+    apply: Callable[[], None]
+    departs: bool = False
+
+
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
 
@@ -93,15 +115,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -173,37 +195,30 @@ class StateBasedActionsMixin:
         to whoever had it before the effect (`GameObject.control_change_while_source`)."""
         reverted = False
         for obj in list(self.state.battlefield):
+            def expired(window):
+                from ..control import control_window_active
+                return not control_window_active(self.state, obj, window)
+
             window = obj.control_change_while_source
-            if window is None:
-                continue
-            source = self.state.find_object(window["source_id"])
-            alive = (
-                source is not None and source.zone == Zone.BATTLEFIELD
-                and source.zone_incarnation == window["incarnation"]
-                and (not window["needs_control"] or source.controller_id == window["player_id"])
-                and (not window.get("needs_tapped") or source.tapped)  # "for as long as ~ remains tapped"
-            )
-            if window.get("needs_haunted"):
-                from ..effects.haunted import is_haunted
-                alive = is_haunted(self.state, obj)
-            if alive:
-                continue
-            obj.controller_id = window["revert_to"]
-            obj.control_change_while_source = None
-            reverted = True
+            ended = end_control_effects(obj, lambda record: record["duration"] == "while_source"
+                                        and expired(record["window"]))
+            if not ended and window is not None and expired(window):
+                obj.controller_id = window["revert_to"]
+                obj.control_change_while_source = None
+                ended = True
+            if ended and self.state.player_by_id(obj.controller_id).has_lost:
+                self.exile(obj)  # RULE 800.4c: the original controller has departed.
+            reverted = ended or reverted
         if reverted:
             continuous.recompute(self.state)
         return reverted
 
     def _sba_pass(self) -> bool:
-        """One RULE 704.3 sweep: each `_sba_check_*` below is one lettered
-        RULE 704.5 sub-check (or an adjacent RULE 310 battle/RULE 714 Saga
-        rule checked at the same cadence), tried in order and stopping at
-        the first that acts — same order, same early-return-on-first-action
-        shape the whole method always had, just named per check instead of
-        one 236-line body, so each can be found/cited by its own RULE
-        number and a debugger's stack trace names the actual failing check.
-        """
+        """One RULE 704.3 sweep. The status checks first (control windows, day/night,
+        ascend/storied/speed, soulbond, Ring-bearer) are not RULE 704.5 actions: each can change
+        derived state, so each re-derives it and ends the sweep when it acts. The RULE 704.5
+        actions then come from `_sba_collect_actions`/`_sba_collect_player_losses`, all read off one
+        frozen derived state and applied together by `_sba_apply`."""
         # A pending_choice (e.g. the RULE 903.9a commander-zone choice) pauses
         # SBA processing until it's answered — mirrors the guard
         # `resolve_until_stable`/`pass_priority` already apply after calling
@@ -256,60 +271,75 @@ class StateBasedActionsMixin:
         # anything else on the board.
         self._sweep_ring_bearer()
 
-        if self._sba_check_player_loss():
+        # RULE 704.3: from here on nothing recomputes between two actions. Every applicable action
+        # (and every player loss) is collected from this one derived state, then all are applied as
+        # a single event; `check_state_based_actions` repeats the sweep until none applies.
+        actions = self._sba_collect_actions()
+        if self._legend_groups_awaiting_choice:
+            # RULE 704.5j + 704.3: a controller must still pick a surviving legend. Nothing of this
+            # sweep is applied yet; the answer is stored and the next sweep recollects the very
+            # same actions from the unchanged board, so the whole batch lands together.
+            self._open_legend_rule_choice(self._legend_groups_awaiting_choice)
             return True
-        if self._sba_check_zero_toughness():
-            return True
-        if self._sba_check_zero_loyalty():
-            return True
-        if self._sba_check_siege_defeat():
-            return True
-        if self._sba_check_battle_zero_defense():
-            return True
-        if self._sba_check_battle_protector():
-            return True
-        if self._sba_check_saga_completion():
-            return True
-        if self._sba_check_lethal_damage():
-            return True
-        if self._sba_check_counter_annihilation():
-            return True
+        self.state.legend_rule_picks.clear()
+        losses = self._sba_collect_player_losses()
+        if not actions and not losses:
+            # RULE 903.9a is an offer, not an action: made only once the board has settled.
+            return self._sba_check_commander_zone_choice()
+        self._sba_apply(actions)
+        if losses:
+            self._lose_players(losses, prevention_checked=True)  # RULE 704.5a/b/c/u: same event as the rest
+        return True
 
-        # 704.5m/n: a permanent still attached to a *legal* host when it was
-        # attached can become illegally attached later — most commonly the
-        # host gaining protection from the attachment's quality, but also a
-        # changed control (equip/reconfigure/fortify's "you control") or a
-        # quality no longer matching ("enchant creature" on a host that's
-        # been turned into a noncreature). `_detach_attachments_from` only
-        # fires when the *host* leaves the battlefield; this is the other
-        # half, re-checked every SBA pass against the live board.
-        if self._revalidate_attachments():
-            return True
+    def _sba_collect_actions(self) -> list[SbaAction]:
+        """Every battlefield/zone RULE 704.5 action that applies in the current derived state.
 
-        # RULE 702.103f: a bestowed Aura that is no longer attached to a
-        # creature ceases to be bestowed and becomes a creature again. The
-        # un-attach paths (`_detach_attachments_from`/`_revalidate_
-        # attachments`) already call `_end_bestow` themselves; this is the
-        # catch-all at SBA cadence for any other route to "unattached".
-        if self._sba_check_unbestow():
-            return True
+        Collectors run in a fixed order and an object is claimed by the first action that names it
+        (a creature at 0 toughness that also carries lethal damage is put into the graveyard, RULE
+        701.16c, not destroyed); the legend rule runs last so its default pick can avoid keeping a
+        permanent another action already removes."""
+        actions: list[SbaAction] = []
+        claimed: set[int] = set()
+        self._legend_groups_awaiting_choice = []  # RULE 704.5j groups still needing a pick this sweep
 
-        # 704.5j: legend rule — same-named legendaries a player controls.
-        if self._apply_legend_rule():
-            return True
+        def take(found: list[SbaAction]) -> None:
+            for action in found:
+                if action.subject.instance_id not in claimed:
+                    claimed.add(action.subject.instance_id)
+                    actions.append(action)
 
-        if self._sba_check_commander_zone_choice():
-            return True
+        take(self._sba_collect_zero_toughness())
+        take(self._sba_collect_zero_loyalty())
+        siege = self._sba_collect_siege_defeat()
+        take(siege)
+        # A Siege whose RULE 310.11b trigger goes on the stack in this very sweep must not also be
+        # put into the graveyard by RULE 310.7 (sequentially, the trigger was already on the stack).
+        take(self._sba_collect_battle_zero_defense({a.subject.instance_id for a in siege}))
+        take(self._sba_collect_battle_protector())
+        take(self._sba_collect_saga_completion())
+        take(self._sba_collect_lethal_damage())
+        take(self._sba_collect_counter_annihilation())
+        take(self._illegal_attachment_actions())
+        take(self._sba_collect_unbestow())
+        # Only departures doom a copy: one claimed by an in-place action (counter annihilation) stays.
+        take(self._sba_collect_legend_rule({a.subject.instance_id for a in actions if a.departs}))
+        take(self._sba_collect_stranded_tokens())
+        return actions
 
-        # 704.5d: a token in any zone other than the battlefield ceases to
-        # exist. It *did* reach that zone (its owner's graveyard/exile/…) long
-        # enough for its leaves-the-battlefield / dies triggers to have fired
-        # when it was moved there — this SBA then removes it from the game, and
-        # RULE 111.7-8 keep it from ever returning to another zone.
-        if self._remove_stranded_tokens():
-            return True
+    def _sba_apply(self, actions: list[SbaAction]) -> None:
+        """Perform one sweep's collected actions together (RULE 704.3).
 
-        return False
+        In-place changes (counters, un-attaching, protector pick, token cleanup) go first, then
+        every departure from the battlefield as one batch sharing a pre-departure snapshot, so a
+        dies/leaves trigger sees all of its simultaneous companions (RULE 603.10a)."""
+        for action in actions:
+            if not action.departs:
+                action.apply()
+        departures = {a.subject.instance_id: a.apply for a in actions if a.departs}
+        self._remove_simultaneously(
+            [a.subject for a in actions if a.departs],
+            lambda obj: departures[obj.instance_id](),
+        )
 
     def _sba_check_ascend(self) -> bool:
         """RULE 702.131b: a permanent with ascend grants its controller the
@@ -350,7 +380,7 @@ class StateBasedActionsMixin:
                 1
                 for o in self.state.permanents()
                 if o.controller_id == controller.id
-                and (o.card.is_artifact or o.is_legendary or continuous.has_subtype(o, "Saga"))
+                and (o.is_artifact or o.is_legendary or continuous.has_subtype(o, "Saga"))
             )
             if count >= 3:
                 self.get_enduring_story(controller)
@@ -372,7 +402,7 @@ class StateBasedActionsMixin:
             return True
         return False
 
-    def _sba_check_player_loss(self) -> bool:
+    def _sba_collect_player_losses(self) -> list[tuple[str, str]]:
         # RULE 704.7: simultaneous life/poison/draw losses are ONE event
         # per player. RULE 616.1: serialize affected-player choices APNAP.
         losses = []
@@ -389,91 +419,84 @@ class StateBasedActionsMixin:
             )
             if reason is not None and not self._loss_prevented(player):
                 losses.append((player.id, reason))
-        if not losses:
-            return False
-        self._lose_players(losses, prevention_checked=True)
-        return True
+        return losses
 
-    def _sba_check_zero_toughness(self) -> bool:
+    def _departure(self, obj: GameObject) -> SbaAction:
+        """A plain "put into its owner's graveyard" action on ``obj``."""
+        return SbaAction(obj, lambda: self._move_to_graveyard(obj), departs=True)
+
+    def _sba_collect_zero_toughness(self) -> list[SbaAction]:
         """704.5f: creature with toughness <= 0 goes to graveyard."""
-        for obj in self.state.permanents():
-            if obj.is_creature and obj.toughness is not None and obj.toughness <= 0:
-                self._move_to_graveyard(obj)
-                return True
-        return False
+        return [
+            self._departure(obj) for obj in self.state.permanents()
+            if obj.is_creature and obj.toughness is not None and obj.toughness <= 0
+        ]
 
-    def _sba_check_zero_loyalty(self) -> bool:
+    def _sba_collect_zero_loyalty(self) -> list[SbaAction]:
         """704.5i: a planeswalker with 0 loyalty is put into its owner's
         graveyard. Only planeswalkers with a printed starting loyalty are
         subject to this (they always enter with loyalty counters)."""
-        for obj in self.state.permanents():
-            if obj.is_planeswalker and obj.card.loyalty is not None and obj.loyalty <= 0:
-                self._move_to_graveyard(obj)
-                return True
-        return False
+        return [
+            self._departure(obj) for obj in self.state.permanents()
+            if obj.is_planeswalker and obj.card.loyalty is not None and obj.loyalty <= 0
+        ]
 
-    def _sba_check_siege_defeat(self) -> bool:
-        """RULE 310.11b: a Siege's intrinsic "when the last defense counter
-        is removed from this permanent, exile it, then you may cast it
-        transformed without paying its mana cost". A *triggered* ability,
-        not an SBA — but noticing the transition is what an SBA pass is
-        for, and doing it here (rather than in `deal_damage`) means every
-        route to zero defense is covered, not just damage. Placed straight
-        on the stack like `check_ward`/`check_rampage` rather than through
-        the RULE 603.3 queue, since it's built per firing; the latch stops
-        the next pass from re-firing it while it's still on the stack.
+    def _sba_collect_siege_defeat(self) -> list[SbaAction]:
+        """RULE 310.12b: place Siege abilities recorded when the last
+        defense counter was actually removed. Merely entering at zero must
+        never create this trigger. Consume each recorded removal once.
         """
-        for obj in self.state.permanents():
-            if (
-                obj.card.is_siege
-                and obj.card.defense
-                and obj.defense <= 0
-                and not obj.battle_defeat_triggered
-            ):
-                obj.battle_defeat_triggered = True
-                self._place_trigger(
-                    TriggeredAbility(
-                        trigger_event=EventType.BATTLE_DEFEATED,
-                        effects=[SiegeDefeatedEffect(source=obj)],
-                        controller_id=obj.controller_id,
-                        source=obj,
-                        description=f"{obj.name}: besiegt — ins Exil, dann transformiert wirken",
-                    )
-                )
-                # Announced *after* the trigger is placed so anything else
-                # watching a battle's defeat sees a stack that already holds
-                # the Siege's own ability, matching RULE 603.3's ordering.
-                self.state.fire_event(
-                    GameEvent(
-                        EventType.BATTLE_DEFEATED,
-                        instance_id=obj.instance_id,
-                        controller_id=obj.controller_id,
-                        object=obj.name,
-                    )
-                )
-                return True
-        return False
+        return [
+            SbaAction(obj, lambda obj=obj: self._fire_siege_defeat(obj))
+            for obj in self.state.permanents()
+            if obj.pending_siege_defeats
+        ]
 
-    def _sba_check_battle_zero_defense(self) -> bool:
+    def _fire_siege_defeat(self, obj: GameObject) -> None:
+        pending = obj.pending_siege_defeats
+        obj.pending_siege_defeats = 0
+        for _ in range(pending):
+            self._place_siege_defeat_trigger(obj)
+
+    def _place_siege_defeat_trigger(self, obj: GameObject) -> None:
+        self._place_trigger(
+            TriggeredAbility(
+                trigger_event=EventType.BATTLE_DEFEATED,
+                effects=[SiegeDefeatedEffect(source=obj)],
+                controller_id=obj.controller_id,
+                source=obj,
+                description=f"{obj.name}: besiegt — ins Exil, dann transformiert wirken",
+            )
+        )
+        # Announced *after* the trigger is placed so anything else
+        # watching a battle's defeat sees a stack that already holds
+        # the Siege's own ability, matching RULE 603.3's ordering.
+        self.state.fire_event(
+            GameEvent(
+                EventType.BATTLE_DEFEATED,
+                instance_id=obj.instance_id,
+                controller_id=obj.controller_id,
+                object=obj.name,
+            )
+        )
+
+    def _sba_collect_battle_zero_defense(self, defeated_ids: set[int]) -> list[SbaAction]:
         """RULE 310.7: a battle with 0 defense that isn't itself the source
         of an ability which has triggered but not yet left the stack is put
         into its owner's graveyard — the exact shape of the Saga check
         below, and the reason a defeated Siege survives long enough for its
-        own 310.11b trigger (`_sba_check_siege_defeat`) to exile it instead.
-        Only battles with a printed defense are subject (mirroring the
-        loyalty check above: a battle that never had defense counters was
-        never at "0 defense" in the 310.4c sense).
+        own 310.11b trigger (`_sba_collect_siege_defeat`) to exile it instead.
+        A battle that entered without defense counters is also at zero;
+        it goes to the graveyard without triggering defeat (RULE 310.4c).
         """
-        for obj in self.state.permanents():
-            if not (obj.is_battle and obj.card.defense and obj.defense <= 0):
-                continue
-            if any(item.source is obj for item in self.state.stack):
-                continue
-            self._move_to_graveyard(obj)
-            return True
-        return False
+        return [
+            self._departure(obj) for obj in self.state.permanents()
+            if obj.is_battle and obj.defense <= 0
+            and obj.instance_id not in defeated_ids
+            and not any(item.source is obj for item in self.state.stack)
+        ]
 
-    def _sba_check_battle_protector(self) -> bool:
+    def _sba_collect_battle_protector(self) -> list[SbaAction]:
         """RULE 310.10: a battle that isn't being attacked and has no valid
         protector gets a fresh one chosen by its controller; with no
         eligible player at all it's put into its owner's graveyard. For the
@@ -483,6 +506,7 @@ class StateBasedActionsMixin:
         goldfish (no opponents at all) fall off the battlefield rather than
         sit there unattackable forever.
         """
+        found: list[SbaAction] = []
         for obj in self.state.permanents():
             if not obj.is_battle or self.battle_is_being_attacked(obj):
                 continue
@@ -490,17 +514,16 @@ class StateBasedActionsMixin:
             if obj.protector_id is not None and any(p.id == obj.protector_id for p in eligible):
                 continue
             if not eligible:
-                self._move_to_graveyard(obj)
-                return True
+                found.append(self._departure(obj))
+                continue
             # A single eligible player is no choice at all (RULE 310.10's
             # "chooses" degenerates); with several, the same auto-pick this
             # engine already makes for a non-interactive pick applies, since
             # an SBA has no window to open a `pending_choice` in.
-            obj.protector_id = eligible[0].id
-            return True
-        return False
+            found.append(SbaAction(obj, lambda obj=obj, pick=eligible[0].id: setattr(obj, "protector_id", pick)))
+        return found
 
-    def _sba_check_saga_completion(self) -> bool:
+    def _sba_collect_saga_completion(self) -> list[SbaAction]:
         """RULE 704.5s / 714.4: a Saga with lore counters >= its final chapter
         number, and not itself the source of one of its own chapter
         abilities that has triggered but not yet left the stack, is put
@@ -511,6 +534,7 @@ class StateBasedActionsMixin:
         the stack (an opponent's instant, another permanent's trigger)
         must not delay this Saga's own sacrifice.
         """
+        found: list[SbaAction] = []
         for obj in self.state.permanents():
             if not obj.card.is_saga:
                 continue
@@ -527,11 +551,10 @@ class StateBasedActionsMixin:
                 and item.trigger_event.type == EventType.SAGA_CHAPTER
                 for item in self.state.stack
             ):
-                self._move_to_graveyard(obj)
-                return True
-        return False
+                found.append(self._departure(obj))
+        return found
 
-    def _sba_check_lethal_damage(self) -> bool:
+    def _sba_collect_lethal_damage(self) -> list[SbaAction]:
         """704.5g: creature with lethal marked damage is destroyed — or one
         that was dealt any damage by a deathtouch source (RULE 702.2b makes
         that lethal). Indestructible (RULE 702.12b) is destroyed by
@@ -539,6 +562,7 @@ class StateBasedActionsMixin:
         so a regeneration shield (RULE 701.16) gets a chance to intercept
         it — the classic regenerate-a-blocker use case.
         """
+        found: list[SbaAction] = []
         for obj in self.state.permanents():
             if not obj.is_creature or obj.toughness is None:
                 continue
@@ -548,39 +572,41 @@ class StateBasedActionsMixin:
             if lethal_marked or (obj.dealt_deathtouch_damage and obj.damage_marked > 0):
                 # RULE 122.1c: a shield counter guards destruction "as the result of an effect",
                 # which this state-based action is not.
-                self.destroy(obj, by_effect=False)
-                return True
-        return False
+                found.append(SbaAction(obj, lambda obj=obj: self.destroy(obj, by_effect=False), departs=True))
+        return found
 
-    def _sba_check_counter_annihilation(self) -> bool:
+    def _sba_collect_counter_annihilation(self) -> list[SbaAction]:
         """704.5q: a permanent with both +1/+1 and -1/-1 counters removes an
         equal number of each. Done before the toughness/damage checks would
         normally settle, so a creature that nets out to 0 toughness after
         annihilation is then caught by 704.5f
-        (`_sba_check_zero_toughness`) on the next pass.
+        (`_sba_collect_zero_toughness`) on the next pass.
         """
+        found: list[SbaAction] = []
         for obj in self.state.permanents():
             plus = obj.counters.get("+1/+1", 0)
             minus = obj.counters.get("-1/-1", 0)
             if plus > 0 and minus > 0:
-                removed = min(plus, minus)
-                obj.add_counters("+1/+1", -removed)
-                obj.add_counters("-1/-1", -removed)
-                return True
-        return False
+                found.append(SbaAction(obj, lambda obj=obj, removed=min(plus, minus): self._annihilate_counters(obj, removed)))
+        return found
 
-    def _sba_check_unbestow(self) -> bool:
+    @staticmethod
+    def _annihilate_counters(obj: GameObject, removed: int) -> None:
+        obj.add_counters("+1/+1", -removed)
+        obj.add_counters("-1/-1", -removed)
+
+    def _sba_collect_unbestow(self) -> list[SbaAction]:
         """RULE 702.103f: a bestowed Aura not attached to a creature ceases
         to be bestowed — it stops being an Aura and is a creature again,
         remaining on the battlefield. `_end_bestow` clears the flag and the
         synthetic "enchant" keyword; the next `recompute` at the top of the
         following SBA pass then re-derives it as a creature.
         """
-        for obj in self.state.permanents():
-            if getattr(obj, "bestowed", False) and obj.attached_to is None:
-                self._end_bestow(obj)
-                return True
-        return False
+        return [
+            SbaAction(obj, lambda obj=obj: self._end_bestow(obj))
+            for obj in self.state.permanents()
+            if getattr(obj, "bestowed", False) and obj.attached_to is None
+        ]
 
     def _sba_check_commander_zone_choice(self) -> bool:
         """903.9a: a commander freshly landed in a graveyard or exile may be
@@ -597,7 +623,7 @@ class StateBasedActionsMixin:
                         self.open_choice(self._commander_zone_choice(obj, zone))
                         return True
         return False
-    def _remove_stranded_tokens(self) -> bool:
+    def _sba_collect_stranded_tokens(self) -> list[SbaAction]:
         """Remove any token that has left the battlefield (RULE 704.5d) —
         except a prepared copy still exempt under RULE 722.3c, a token
         with an open free-cast window (`GameState.free_cast_instance_ids`
@@ -606,6 +632,7 @@ class StateBasedActionsMixin:
         battlefield at all, that stays there only until it's either cast
         or its window closes at cleanup, at which point it's no longer in
         that set and this sweeps it on the very next pass)."""
+        found: list[SbaAction] = []
         for player in self.state.players:
             for zone in Player.PERSONAL_ZONES:  # every non-battlefield zone
                 cards = player.zones[zone]
@@ -616,10 +643,13 @@ class StateBasedActionsMixin:
                         and not self._is_prepared_copy(obj)
                         and obj.instance_id not in self.state.free_cast_instance_ids
                     ):
-                        self.state.exile_cast_cost_override.pop(obj.instance_id, None)
-                        cards.remove(obj)
-                        return True
-        return False
+                        found.append(SbaAction(obj, lambda obj=obj, cards=cards: self._cease_to_exist(obj, cards)))
+        return found
+
+    def _cease_to_exist(self, obj: GameObject, cards: list) -> None:
+        self.state.exile_cast_cost_override.pop(obj.instance_id, None)
+        if obj in cards:
+            cards.remove(obj)
     def _is_prepared_copy(self, obj: GameObject) -> bool:
         """RULE 722.3c: a prepared copy is exempt from the RULE 704.5d token
         cleanup for as long as its source stays on the battlefield with the
@@ -631,21 +661,72 @@ class StateBasedActionsMixin:
             return False
         source = self.state.find_object(obj.prepared_source_id)
         return source is not None and source in self.state.battlefield and source.prepared
-    def _apply_legend_rule(self) -> bool:
-        seen: dict[tuple[str, str], GameObject] = {}
+    def _sba_collect_legend_rule(self, doomed: set[int]) -> list[SbaAction]:
+        """704.5j: of each group of same-named legendary permanents a player controls, all but one
+        are put into their owner's graveyard. ``doomed`` holds permanents another action of this
+        sweep already removes."""
+        groups: dict[tuple[str, str], list[GameObject]] = {}
         for obj in self.state.permanents():
             if not obj.is_legendary:
                 continue
             controller = self.state.player_by_id(obj.controller_id)
             if controller is not None and continuous.player_ignores_legend_rule(self.state, controller):
                 continue
-            key = (obj.controller_id, obj.name)
-            if key in seen:
-                # Keep the first seen, put this duplicate in the graveyard.
-                self._move_to_graveyard(obj)
-                return True
-            seen[key] = obj
-        return False
+            groups.setdefault((obj.controller_id, obj.name), []).append(obj)
+        found: list[SbaAction] = []
+        for group in groups.values():
+            if len(group) > 1:
+                keep = self._legend_rule_keep(group, doomed)
+                if keep is _LEGEND_CHOICE_PENDING:
+                    continue
+                found.extend(self._departure(obj) for obj in group if obj is not keep)
+        return found
+
+    @staticmethod
+    def _legend_group_key(group: list[GameObject]) -> str:
+        """Identity of one RULE 704.5j group: the controller and the shared name."""
+        return f"{group[0].controller_id}{_LEGEND_KEY_SEP}{group[0].name}"
+
+    def _legend_rule_keep(self, group: list[GameObject], doomed: set[int]):
+        """The copy the controller keeps (RULE 704.5j). Copies another action of this sweep already
+        removes cannot be the survivor; with one candidate left there is nothing to choose. With
+        several, the controller's stored pick is used, or the group is queued for a choice and
+        `_LEGEND_CHOICE_PENDING` returned (the sweep then applies nothing)."""
+        candidates = [o for o in group if o.instance_id not in doomed]
+        if len(candidates) <= 1:
+            return candidates[0] if candidates else group[0]
+        picked = self.state.legend_rule_picks.get(self._legend_group_key(group))
+        keep = next((o for o in candidates if o.instance_id == picked), None)
+        if keep is not None:
+            return keep
+        self._legend_groups_awaiting_choice.append((group, candidates))
+        return _LEGEND_CHOICE_PENDING
+
+    def _open_legend_rule_choice(self, waiting: list) -> None:
+        """RULE 101.4: choices are made in APNAP order, so the first waiting group of the earliest
+        player in turn order is asked; later groups follow on the re-run sweep."""
+        order = {p.id: i for i, p in enumerate(self.state.living_players_apnap())}
+        group, candidates = min(
+            waiting, key=lambda w: order.get(w[0][0].controller_id, len(order)))
+        self.open_choice({
+            "kind": "legend_rule",
+            "player_id": group[0].controller_id,
+            "group_key": self._legend_group_key(group),
+            "prompt": f"{group[0].name}: Welche Kopie behalten? (Legendenregel)",
+            "options": [
+                {"id": str(o.instance_id), "instance_id": o.instance_id, "label": o.name}
+                for o in candidates
+            ],
+        })
+
+    @continuations.choice("legend_rule", answer=continuations.ANSWER_INT_REQUIRED, rule="704.5j")
+    def _resume_legend_rule(self, choice: dict[str, Any], answer: int) -> None:
+        """Store the controller's pick; the SBA sweep that follows applies it with its batch."""
+        if answer not in {o["instance_id"] for o in choice["options"]}:
+            self.open_choice(choice)
+            raise ValueError("Choose one of the offered copies")
+        self.state.legend_rule_picks[choice["group_key"]] = answer
+
     def _loss_prevented(self, player: Player) -> bool:
         return any(
             isinstance(e, WinConditionEffect) and e.prevents_loss()
@@ -679,10 +760,6 @@ class StateBasedActionsMixin:
         if batch["index"] >= len(batch["queue"]):
             self.state.player_loss_batch = None
             self._check_game_over()
-            if not self.state.game_over:
-                for player in self.state.players:
-                    if player.has_lost and player.id not in self.state.pending_leave_ids:
-                        self.state.pending_leave_ids.append(player.id)
             return
         pid, reason = batch["queue"][batch["index"]]
         batch["index"] += 1
@@ -750,10 +827,6 @@ class StateBasedActionsMixin:
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
             self._cancel_conceded_fight(player.id, ending_game=ending_game)
             self._cancel_conceded_loss_recovery(player.id, ending_game=ending_game)
-            # Keep a finished game's board for review; only continuing
-            # multiplayer games owe a RULE 800.4a departure sweep.
-            if not self.state.game_over and player.id not in self.state.pending_leave_ids:
-                self.state.pending_leave_ids.append(player.id)
             return
         self._lose_players([(player.id, reason)])
 
@@ -867,6 +940,8 @@ class StateBasedActionsMixin:
             return
         player.has_lost = True
         player.loss_reason = reason
+        # RULE 800.4a: this is part of leaving, never a deferred SBA/turn action.
+        self.remove_player_from_game(player)
         self.state.fire_event(GameEvent(EventType.PLAYER_LOST, player_id=player.id, reason=reason))
 
     def concede(self, player: Player) -> None:
@@ -874,70 +949,91 @@ class StateBasedActionsMixin:
 
         Conceding is the one thing a player may do at *any* time, without
         holding priority — it is not an action that uses the stack, so
-        unlike every other action here it isn't gated on timing. The
-        RULE 800.4a board cleanup this triggers is deferred by
-        `_player_loses` itself; see its docstring.
+        unlike every other action here it isn't gated on timing. Its
+        RULE 800.4a cleanup happens immediately; session history retains
+        an independent pre-concession position for review and rewind.
         """
         if player.has_lost:
             return
         self._player_loses(player, "conceded")
     def remove_player_from_game(self, player: Player) -> None:
-        """RULE 800.4a: every object a departing player owns leaves the game.
+        """RULE 800.4a: ownership, control effects, cardless stack, then exile."""
+        # Leaving the game is not dying, exile or another ordinary zone move.
+        # An ability already on the stack is independent of its source (113.7a).
+        for obj in list(self.state.battlefield):
+            if obj.owner_id == player.id:
+                self.state.remove_from_battlefield(obj)
+        for holder in self.state.players:
+            for zone in Player.PERSONAL_ZONES:
+                holder.zones[zone][:] = [obj for obj in holder.zones[zone] if obj.owner_id != player.id]
+            holder.emblems[:] = [obj for obj in holder.emblems if obj.owner_id != player.id]
+        owned_spells = [item for item in self.state.stack
+                        if item.obj is not None and item.obj.owner_id == player.id]
+        for item in owned_spells:
+            self._capture_stack_copy_departure(item)
+            self.state.stack.remove(item)
 
-        Their permanents (and anything they control that they don't own —
-        RULE 800.4a hands those back, but with no exchange-of-control
-        modeled at this level the simple reading is used: only *owned*
-        objects go) leave the battlefield, their personal zones empty, and
-        anything of theirs still on the stack ceases to exist. Called by
-        `GameEngine.begin_turn` for each id `_player_loses` parked on
-        `GameState.pending_leave_ids`, not directly by the loss itself.
-
-        RULE 725.4/726.4 (MEC-9): a departing Monarch/Initiative-holder
-        designation passes to the active player rather than simply
-        vanishing — checked here, the one place both this cleanup and the
-        rules text key off "leaves the game". By the time this runs,
-        `GameEngine.begin_turn` has already rotated `active_player_index`
-        past every departing id (`GameState.next_active_index` skips
-        `has_lost`), so `self.state.active_player` is already the correct
-        recipient and is never the player leaving — the "active player is
-        also leaving"/"no active player" fallback in both rules never
-        actually triggers in this engine, but is honoured (designation
-        simply cleared) rather than assumed away.
-        """
-        if self.state.monarch_id == player.id:
-            active = self.state.active_player
-            if active.id != player.id:
-                self.become_monarch(active)
-            else:
-                self.state.monarch_id = None
-        if self.state.initiative_id == player.id:
-            active = self.state.active_player
-            # RULE 726.4 says the active player *takes* the initiative — the
-            # same verb 726.2's "whenever a player takes the initiative, that
-            # player ventures into Undercity" trigger keys off, so this goes
-            # through `take_initiative` (which fires `TOOK_INITIATIVE`)
-            # rather than setting `initiative_id` directly.
-            if active.id != player.id:
-                self.take_initiative(active)
-            else:
-                self.state.initiative_id = None
-        # RULE 800.4a: continuous effects that give the departing player control of an object end, so a permanent
-        # taken "until the end of your next turn" goes back to its previous controller before the owned ones leave.
+        # A stolen object's original controller can differ from its owner
+        # (Bribery); retain that distinction instead of handing it to its owner.
         for obj in self.state.battlefield:
-            window = obj.control_change_until_owner_turn
-            if window is not None and window["player_id"] == player.id:
-                obj.controller_id = window["revert_to"]
+            end_control_effects(obj, lambda record: record["controller_id"] == player.id)
+            if obj.control_change_until_owner_turn is not None and obj.control_change_until_owner_turn["player_id"] == player.id:
                 obj.control_change_until_owner_turn = None
-        for obj in [o for o in self.state.battlefield if o.owner_id == player.id]:
-            self.state.remove_from_battlefield(obj)
+            if obj.control_change_while_source is not None and obj.control_change_while_source["player_id"] == player.id:
+                obj.control_change_while_source = None
+            if not any(record["duration"] == "end_of_turn" for record in obj.control_effects):
+                obj.control_change_until_eot = None
         for item in self.state.stack:
-            if getattr(item.source, "owner_id", None) == player.id:
+            if end_control_effects(item, lambda record: record["controller_id"] == player.id) and item.obj is not None:
+                end_control_effects(item.obj, lambda record: record["controller_id"] == player.id)
+                item.obj.controller_id = item.controller_id
+        # RULE 800.4a also ends control of another player, including waiting windows.
+        self.state.turn_controls[:] = [window for window in self.state.turn_controls if window.controller_id != player.id]
+        word = self.state.word_of_command
+        if word is not None and word.get("controller_id") == player.id:
+            self.state.word_of_command = None
+        self.state.delayed_triggers[:] = [trigger for trigger in self.state.delayed_triggers if trigger.controller_id != player.id]
+        self.pending_triggers[:] = [firing for firing in self.pending_triggers if firing[0].controller_id != player.id]
+        # Removing an Aura or a source-bound grant can expose a prior controller.
+        self._revert_source_bound_control()
+        continuous.recompute(self.state)
+
+        for item in list(self.state.stack):
+            if item.controller_id == player.id and (item.obj is None or item.obj.is_token):
                 self._capture_stack_copy_departure(item)
-        self.state.stack = [
-            item for item in self.state.stack if getattr(item.source, "owner_id", None) != player.id
-        ]
-        for zone in Player.PERSONAL_ZONES:
-            player.zones[zone].clear()
+                self.state.stack.remove(item)
+        # Everything still controlled by a departed player is exiled, including
+        # cards that originally entered under that player's control (Bribery).
+        for obj in list(self.state.battlefield):
+            if self.state.player_by_id(obj.controller_id).has_lost:
+                self.exile(obj)
+        for item in list(self.state.stack):
+            if self.state.player_by_id(item.controller_id).has_lost:
+                self._capture_stack_copy_departure(item)
+                self.state.stack.remove(item)
+                if item.obj is not None:
+                    self.exile(item.obj)
+
+        continuous.recompute(self.state)
+        if self.state.priority_player is player:
+            index = self.state.players.index(player)
+            count = len(self.state.players)
+            self.state.priority_player_index = next(
+                ((index + offset) % count for offset in range(1, count)
+                 if not self.state.players[(index + offset) % count].has_lost), None)
+        self.state.priority_passed.discard(player.id)
+        # RULE 725.4/726.4: a departing active holder passes the designation
+        # to the next living player, while their turn itself continues (800.4j).
+        recipient = next(iter(self.state.living_players_apnap()), None)
+        if self.state.monarch_id == player.id:
+            self.state.monarch_id = None
+            if recipient is not None:
+                self.become_monarch(recipient)
+        if self.state.initiative_id == player.id:
+            self.state.initiative_id = None
+            if recipient is not None:
+                self.take_initiative(recipient)
+
     def player_wins(self, player: Player) -> None:
         """RULE 104.2: ``player`` wins the game outright (Jace, Wielder of
         Mysteries/Laboratory Maniac-shaped alternative win condition) —

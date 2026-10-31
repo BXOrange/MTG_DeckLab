@@ -70,6 +70,7 @@ from ..effects.core import (
     StaticAbility,
     StaticEffect,
     SuspendUpkeepEffect,
+    SuspendCastEffect,
     TakeInitiativeEffect,
     TriggeredAbility,
     UndyingPersistReturnEffect,
@@ -101,15 +102,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -120,7 +121,8 @@ def _has_suspend(obj: GameObject) -> bool:
     below so either source is treated identically."""
     if getattr(obj, "granted_suspend", False):
         return True
-    return bool((getattr(obj, "parametric_keywords", None) or {}).get("suspend"))
+    return ("suspend" in (getattr(obj, "parametric_keywords", None) or {})
+            or "suspend" in (getattr(obj, "intrinsic_keywords", None) or set()))
 
 
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
@@ -204,10 +206,20 @@ class TriggerCollectionMixin:
             captured = copy.copy(captured)
             captured.data = dict(captured.data)
             captured.data["source_zone_incarnation"] = getattr(obj, "zone_incarnation", None)
+            # RULE 608.2h: a contextual quantity may name either side of a
+            # damage event. Preserve those object visits before any prompt.
+            visits = dict(captured.get("subject_zone_incarnations") or {})
+            for field in ("instance_id", "source_id", "target_id"):
+                subject = self.state.find_object(captured.get(field))
+                if subject is not None:
+                    visits[field] = (captured.get("zone_incarnation", subject.zone_incarnation)
+                                     if field == "instance_id" else subject.zone_incarnation)
+            captured.data["subject_zone_incarnations"] = visits
             if recipe_id is not None:
                 captured.data["copiable_stack_id"] = recipe_id
             firing_ability = ability
-            controller_id = getattr(obj, "controller_id", None)
+            controller_id = (obj.owner_id if getattr(obj, "zone", None) == Zone.EXILE
+                             else getattr(obj, "controller_id", None))
             if controller_id is not None and controller_id != ability.controller_id:
                 # RULE 603.3a: the source's controller at triggering time
                 # owns this firing. Keep earlier queued firings independent
@@ -220,6 +232,11 @@ class TriggerCollectionMixin:
             self.pending_triggers.append(firing)
 
     def _collect_triggers(self, event: GameEvent) -> None:
+        if event.type == EventType.ENTERS_BATTLEFIELD:
+            entering = self.state.find_object(event.get("instance_id"))
+            host = self.state.find_object(getattr(entering, "attached_to", None)) if entering else None
+            if host is not None:
+                self._attachment_event(entering, host)
         if event.type == EventType.ENTERS_BATTLEFIELD:
             # RULE 603.6a: continuous effects apply before entry triggers
             # inspect the entrant (Maskwood Nexus changes its creature types).
@@ -257,6 +274,8 @@ class TriggerCollectionMixin:
             # Archdruid) sits alongside the object's own intrinsic abilities;
             # both fire through the same check/place pipeline.
             for index, ability in enumerate(obj.triggered_abilities + obj.granted_triggered_abilities):
+                if getattr(ability, "keyword_name", None) in obj.removed_keywords:
+                    continue  # RULE 613.7: this printed instance was removed.
                 if getattr(ability, "functions_from_graveyard", False):
                     # RULE 113.6k: an ability that returns its own source from the graveyard
                     # functions only there (`_collect_graveyard_function_triggers`) -- a
@@ -699,7 +718,10 @@ class TriggerCollectionMixin:
             ):
                 continue  # RULE 800.4a: a departed player's effects leave with them.
             if entry.ability.check_trigger(event, self.context):
-                self.pending_triggers.append((entry.ability, event))
+                if entry.bound_zone is not None:
+                    self._queue_firing(entry.ability, event, bound)
+                else:
+                    self.pending_triggers.append((entry.ability, event))
                 if entry.once:
                     continue
             if entry.bound_object_id is not None:
@@ -737,7 +759,7 @@ class TriggerCollectionMixin:
                     and getattr(tc, "grant_extra_turn_after", False)
                     and tc.controlled_id not in self.state.extra_turns
                 ):
-                    self.state.extra_turns.append(tc.controlled_id)
+                    self.state.extra_turns.insert(0, tc.controlled_id)
             return
         if event.type != EventType.TURN_BEGIN:
             return
@@ -1061,7 +1083,7 @@ class TriggerCollectionMixin:
                         "you may cast it without paying its mana cost."
                     ),
                 )
-                self.pending_triggers.append((ability, event))
+                self._queue_firing(ability, event, obj)
     def _collect_last_time_counter_triggers(self, event: GameEvent) -> None:
         """RULE 702.62a: "When the last time counter is removed from this card
         while it's exiled, …" (Riftmarked Knight, Veiling Oddity) — a trigger
@@ -1070,18 +1092,24 @@ class TriggerCollectionMixin:
         card's ``instance_id`` (`RulesEngine.remove_suspend_time_counter`), so
         this looks the card up directly, exactly like
         `_collect_self_cast_triggers` does for a spell on the stack."""
-        if event.type != EventType.LAST_TIME_COUNTER_REMOVED:
+        if event.type not in (EventType.LAST_TIME_COUNTER_REMOVED, EventType.COUNTER_REMOVED):
             return
         obj = self.state.find_object(event.get("instance_id"))
-        if obj is None:
+        if (obj is None or obj.zone != Zone.EXILE or event.get("zone") != Zone.EXILE.value
+                or event.get("zone_incarnation") != obj.zone_incarnation):
             return
         for ability in obj.triggered_abilities + obj.granted_triggered_abilities:
-            if (
-                isinstance(ability, TriggeredAbility)
-                and ability.trigger_event == EventType.LAST_TIME_COUNTER_REMOVED
-                and ability.check_trigger(event, self.context)
-            ):
-                self.pending_triggers.append((ability, event))
+            if (isinstance(ability, TriggeredAbility)
+                    and ability.trigger_event == event.type
+                    and ability.check_trigger(event, self.context)):
+                self._queue_firing(ability, event, obj)
+        if event.type == EventType.LAST_TIME_COUNTER_REMOVED and _has_suspend(obj):
+            ability = TriggeredAbility(
+                trigger_event=event.type, effects=[SuspendCastEffect(source=obj)],
+                controller_id=obj.owner_id, source=obj,
+                description="Suspend: you may cast this card without paying its mana cost.",
+            )
+            self._queue_firing(ability, event, obj)
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
 
@@ -1756,6 +1784,11 @@ class TriggerCollectionMixin:
                 choice_options.append(
                     {"id": str(opt["instance_id"]), "label": opt["name"], "instance_id": opt["instance_id"]}
                 )
+            elif "stack_id" in opt:
+                # RULE 603.3d / 115.1: ability targets name an exact stack item,
+                # separately from a spell/permanent's possibly equal numeric id.
+                choice_options.append({"id": f"stack:{opt['stack_id']}", "label": opt["name"],
+                                       "stack_id": opt["stack_id"]})
             else:
                 choice_options.append({"id": opt["player_id"], "label": opt["name"]})
         decline = ability.optional if allow_decline is None else allow_decline
@@ -1901,6 +1934,8 @@ class TriggerCollectionMixin:
             return None
         if "instance_id" in match:
             return self.state.find_object(match["instance_id"])
+        if "stack_id" in match:
+            return next((item for item in self.state.stack if item.stack_id == match["stack_id"]), None)
         try:
             return self.state.player_by_id(match["id"])
         except KeyError:

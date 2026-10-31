@@ -16,11 +16,13 @@
 // you switch back to it).
 
 import { getState } from './state.js';
+import { getBoardLayout } from './boardLayout.js';
+import { getGameAudio, gameAudioEvents } from './gameAudio.js';
 import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
 import { getBoardScale, onBoardScaleChange } from './boardScale.js';
 import { bannerColorLabel, bannerStyle } from './bannerColors.js';
-import { MANA_SYMBOL_EMOJI } from './cardTile.js';
+import { MANA_SYMBOL_EMOJI, renderOracleText } from './cardTile.js';
 import {
   getBotSpeedMs,
   getShowOpponentHand,
@@ -32,7 +34,15 @@ import {
 import { t, tPlural } from './i18n.js';
 import { setHeaderMessage } from './headerMessage.js';
 
-const TABLE_EMOTES = ['👍', '👏', 'GG', '🤔', '⏳']; // Server-approved table reactions.
+const TABLE_EMOTES = ['👍', '👏', 'GG', '🤔', '⏳']; // Quick table reactions.
+const EMOJI_CATEGORIES = [
+  { key: 'faces', icon: '😀', emoji: '😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 🙃 😉 😍 🥰 😘 😎 🤓 🧐 🤔 🤨 😐 😑 🙄 😏 😴 🤯 🥳 😇 😈 😬 😱 😭 😢 😤 😡 🤬 🥺 🫡 🤗 🤫 🤭 🫠 🫢 🫣 🤩 😋 🤤 🤮 🤒 🥶 🥵 💀 👻 👽 🤖 💩'.split(' ') },
+  { key: 'gestures', icon: '👋', emoji: '👋 🤚 ✋ 🖐️ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 💪 🦾 🫶 🫵 ✍️ 👀 🧠 👑 🧙 🧝 🧛 🧟 🧚 🦸 🦹 👩‍💻 👨‍💻 👩‍🚀 👨‍🚀'.split(' ') },
+  { key: 'nature', icon: '🐱', emoji: '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🦋 🐌 🐞 🦂 🕷️ 🐢 🐍 🦎 🐉 🐲 🦖 🦕 🐙 🦑 🦀 🐠 🦈 🐬 🐳 🌵 🌲 🌳 🌴 🌱 🍀 🍄 🌹 🌻 🌞 🌙 ⭐ 🌈 🔥 💧 ❄️ ⚡ 🌪️'.split(' ') },
+  { key: 'food', icon: '🍕', emoji: '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍒 🍑 🥭 🍍 🥝 🥑 🥦 🥕 🌽 🌶️ 🥔 🍞 🥐 🥨 🧀 🍳 🥞 🥓 🍔 🍟 🍕 🌭 🌮 🌯 🍜 🍣 🍙 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍿 ☕ 🍵 🧋 🍺 🍻 🥂 🍷 🧃 🥤'.split(' ') },
+  { key: 'objects', icon: '🎲', emoji: '🎲 🃏 🎴 ♟️ 🎯 🏆 🥇 🎮 🕹️ 🎭 🎨 🎸 🎵 🎶 🎧 🎤 🎬 📷 📱 💻 💡 🔦 🕯️ 📚 📖 📜 ✉️ 📦 🎁 🎈 🎉 🎊 🪄 🔮 🧿 💎 💰 🪙 ⚔️ 🛡️ 🏹 🪓 🔨 🔧 ⚙️ 🧪 ⚗️ 🧬 💣 🧨 🚀 🛸 🏰 🏔️ 🗺️ ⛵ ✈️ 🏎️ ⏳ ⌛ ⏰'.split(' ') },
+  { key: 'symbols', icon: '❤️', emoji: '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 🩷 🩵 🩶 💔 ❤️‍🔥 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💤 ✅ ❌ ❎ ❗ ❓ 🛑 🚸 ⚠️ 🚫 ⛔ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔶 🔷 ✨ ♻️ ♾️ ⚔️ 🏳️ 🏴 🏳️‍🌈 🇩🇪 🇦🇹 🇨🇭 🇺🇸 🇬🇧 🇫🇷 🇪🇸 🇮🇹 🇯🇵 🇨🇦 🇧🇷 🇦🇺'.split(' ') },
+];
 const CHAT_BOTTOM_THRESHOLD_PX = 24; // Keep reading position unless near the newest message.
 
 const PHASE_LABELS = {
@@ -50,6 +60,7 @@ const STEP_LABELS = {
   begin_combat: t('bd.step.begin_combat'),
   declare_attackers: t('bd.step.declare_attackers'),
   declare_blockers: t('bd.step.declare_blockers'),
+  first_strike_damage: t('bd.step.first_strike_damage'),
   combat_damage: t('bd.step.combat_damage'),
   end_combat: t('bd.step.end_combat'),
   main2: t('bd.step.main2'),
@@ -70,20 +81,22 @@ function labelStep(name) {
 // Icon per choice kind — search, cascade and discover share the same
 // "answer one of these options" shape, so one renderer covers them.
 const CHOICE_ICONS = {
-  search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
+  proliferate: '🌱', search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯', opponent_target: '🎯', opponent_chooser: '🧑‍⚖️',
   opponent_sacrifice_chooser: '🧑‍⚖️',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
   flicker_return_timing: '🔁',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎', door_choice: '🚪',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
+  // PAR-203 (RULE 608.2d): "choose a creature type / color / card name" made as a spell or ability resolves.
+  choose_for_source: '🏷️',
   scry: '🔮', reorder_top: '🔮', look_hand: '👁️', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
   // PAR-148: which defender a creature put into combat attacks / who takes "that player or a planeswalker" damage.
   reselect_attack: '⚔️', damage_recipient: '🎯',
   meteor_permanent: '☄️',
   // MEC-108: "your choice of a flying counter or a lifelink counter" — at resolution / as it enters.
-  counter_kind: '🏷️', choose_enter_counter: '🏷️',
+  counter_kind: '🏷️', choose_enter_counter: '🏷️', riot: '🏷️', tribute: '🏷️', tribute_opponent: '👥',
   // Explorer's Scope's "look at the top card, if it's a land you may put
   // it onto the battlefield tapped" (bug report, 2026-09-04).
   peek_top_land: '🔭',
@@ -142,16 +155,34 @@ export function createGameBoardView(opts = {}) {
   const allowRewind = opts.allowRewind !== false;
   const allowFastForward = opts.allowFastForward !== false;
 
+  const audio = getGameAudio();
+  let audioView = null;
+  let audioSession = null;
   let root = null;
   let sessionId = null;
   let view = null;
   let latestByInstance = {};
   let dragSource = null;
+  // Local presentation order per drag-reorderable zone (hand, battlefield rows);
+  // never changes game zones. Keyed by `data-order-zone`.
+  const zoneOrder = new Map();
+
+  // `objs` in the player's own drag-and-drop order for `zoneKey`; cards the
+  // order doesn't know yet (just drawn / entered) go to the end.
+  function orderedByLocal(zoneKey, objs) {
+    const byId = new Map(objs.map((o) => [o.instance_id, o]));
+    const order = (zoneOrder.get(zoneKey) || []).filter((id) => byId.has(id));
+    for (const o of objs) if (!order.includes(o.instance_id)) order.push(o.instance_id);
+    zoneOrder.set(zoneKey, order);
+    return order.map((id) => byId.get(id));
+  }
   let dragHandlersInstalled = false;
   let busy = false;
   let status = '';
   let statusKind = '';
   let measurementDraft = { key: null, text: '' };
+  // PAR-203: the text typed into a free-text choice (a card name or creature type), kept across repaints.
+  let choiceTextDraft = { key: null, text: '' };
 
   // Player-uploaded custom art (settings.js "Einstellungen" tab, see
   // api.js tokenImageUrl/sleeveImageUrl): `tokenImages` maps a lowercased
@@ -174,22 +205,16 @@ export function createGameBoardView(opts = {}) {
   // promotes lands to their own third row (persisted client-side).
   let threeRows = getCookie('gf_board_rows') === '3';
   let compactView = getCompactView();
-  // Optional, default-hidden "static effects / layer trace" panel (RULE 613).
-  let showStatics = getCookie('gf_show_statics') === '1';
-  // Play-area layout: the static-zone column (command/library/graveyard/
-  // exile) sits on one side, battlefield+hand on the other; toggleable side.
-  let zonesLeft = getCookie('gf_zones_side') === 'left';
-  // The same choice, but for the pod grid (3+ boards, see `podGrid`), where
-  // a fixed "left"/"right" would put one column's zones against the screen
-  // edge and the other's in the middle. There the two columns mirror each
-  // other instead, so the setting is *inside* (both zone columns meet in the
-  // middle) or *outside* (they hug the outer edges and the battlefields face
-  // each other). Outside by default: that's the physical table it models —
-  // your library and graveyard sit at your own edge, the boards meet in the
-  // middle — and it puts the two things you compare next to each other.
-  // Persisted separately from `zonesLeft` because they mean different things
-  // and a player wants both remembered.
-  let zonesInside = getCookie('gf_zones_pod') === 'inside';
+  // Static-effect inspection is a session-local modal, shared by all boards.
+  let showStatics = false;
+  let staticsAside = false;
+  // Four persisted layouts combine full-width/compact banners with mirrored
+  // inner/outer zones. Stacked boards map the same zone choice to left/right.
+  let { zonesInside, moreBattlefield } = getBoardLayout();
+  window.addEventListener('board-layout-changed', () => {
+    ({ zonesInside, moreBattlefield } = getBoardLayout());
+    render();
+  });
   //: Below this the pod grid's two columns are narrower than they are
   //: useful, so it falls back to the stacked layout (and the zone toggle
   //: back to plain left/right — `zonesSideFor`). A *viewport* query rather
@@ -223,6 +248,7 @@ export function createGameBoardView(opts = {}) {
   // the same way; same "push aside" escape hatch, e.g. to check the
   // graveyard or a permanent's text before answering.
   let choiceAside = false;
+  let proliferateDraft = { key: null, ids: new Set() };
   let waitingChoiceAside = false;
   // VIS-14: the same push-aside for the RULE 115 target-picker modal
   // (`castTargetModalHtml`) — while true the board is live and the legal
@@ -231,21 +257,15 @@ export function createGameBoardView(opts = {}) {
   // Attacking creatures whose "choose a defender" submenu is open (2+ legal
   // defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
-  // Opponents whose board is folded away to just its header. Only offered at
-  // a table of 3+ (`services/lobby.py` opens up to four seats): three full
-  // opponent boards stacked above your own is a lot of scrolling, and most
-  // of the time only one of them is the one you're thinking about. Purely a
-  // client-side view state — nothing about the game changes, and an
-  // opponent's hidden zones were never on the wire to begin with (RULE
-  // 400.2). Starts empty, so nothing is hidden unless asked for.
-  const collapsedBoards = new Set();
+  let attackDraft = new Map();
+  let attackDraftKey = null;
   // Friedhof / Exil zone bodies the player has expanded. Both zones are
   // collapsed to just their header by default so a full graveyard (60+
   // entries) can't stretch the fixed-width side column and push the rest of
   // the board around — clicking the header toggles the list open, and the
   // open list is height-capped and scrolls inside itself. Keyed
   // `${playerId}:graveyard` / `${playerId}:exile`; purely a client-side
-  // view state, same shape as `collapsedBoards`.
+  // view state.
   const expandedZones = new Set();
   // Double-faced permanents a player has clicked "🔄" on to *preview* the
   // other face — purely a client-side view toggle (RULE 712 has no such
@@ -592,7 +612,10 @@ export function createGameBoardView(opts = {}) {
     const owners = [];
     let excludePicked = false;
     let excludeControllers = false;
-    for (const [reqIndex, req] of requirements.entries()) {
+    for (const [reqIndex, originalReq] of requirements.entries()) {
+      const req = originalReq.mana_value_from_x
+        ? { ...originalReq, options: (originalReq.options || []).filter((option) => Number(option.mana_value) === Number(x)) }
+        : originalReq;
       const minimum = req.count_from_x ? x * req.count_from_x : (req.count ?? 1);
       const total = req.any_number ? (req.count_max || 0) : (req.count_max || minimum);
       if (total > 1) excludePicked = true;
@@ -619,7 +642,7 @@ export function createGameBoardView(opts = {}) {
 
   function dragActionsForInstance(instanceId) {
     if (!latestByInstance || !latestByInstance[instanceId]) return [];
-    return latestByInstance[instanceId].filter(isPlayableCardAction);
+    return latestByInstance[instanceId].filter(isPlayableCardAction).map((action) => selectedKickerAction(action)).filter((action) => !action.locked);
   }
 
   function dragTargetsForActions(actions) {
@@ -738,7 +761,7 @@ export function createGameBoardView(opts = {}) {
       const req = expanded.requirements[i];
       if (!Array.isArray(req.options)) continue;
       for (const option of req.options) {
-        if (String(option.instance_id) === String(selectedOption.instance_id) || String(option.player_id) === String(selectedOption.player_id)) {
+        if (selectedOption.player_id != null ? option.player_id === selectedOption.player_id : option.instance_id === selectedOption.instance_id) {
           return expanded.owners[i];
         }
       }
@@ -746,7 +769,12 @@ export function createGameBoardView(opts = {}) {
     return 0;
   }
 
+  function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face)) {
+    return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
+  }
+
   function prepareCastTargeting(action, selectedOption = null) {
+    action = selectedKickerAction(action);
     const requirements = action.targets || [];
     const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz));
     const send = {
@@ -765,8 +793,8 @@ export function createGameBoardView(opts = {}) {
     if (action.evoke) send.evoke = true;
     if (action.surge) send.surge = true;
     if (action.blitz != null) send.blitz = action.blitz;
-    if (action.has_kicker) {
-      send.kicker = readKicker(action.instance_id, action.face);
+    if (action.has_kicker || action.kicked) {
+      send.kicked = readKicker(action.instance_id, action.face);
       if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
     }
     if (action.pay_additional) send.pay_additional = true;
@@ -774,6 +802,8 @@ export function createGameBoardView(opts = {}) {
     if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
     castTargeting = {
       instanceId: action.instance_id,
+      damageDivisions: action.damage_divisions,
+      divisionRequirements: requirements,
       requirements: expanded.requirements,
       owners: expanded.owners,
       reqIndex: 0,
@@ -786,8 +816,9 @@ export function createGameBoardView(opts = {}) {
     };
     if (selectedOption) {
       const owner = requirementOwnerIndexForOption(action, selectedOption);
-      castTargeting.targets.push(selectedOption);
-      castTargeting.groups[owner].push(selectedOption);
+      const target = targetOptionPayload(selectedOption);
+      castTargeting.targets.push(target);
+      castTargeting.groups[owner].push(target);
       castTargeting.reqIndex = 1;
     }
     finishCastIfReady();
@@ -815,7 +846,7 @@ export function createGameBoardView(opts = {}) {
     const option = findTargetOptionForAction(action, target.instanceId, target.playerId);
     if (!option) return;
 
-    if (action.targets && action.targets.length <= 1) {
+    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant) {
       const send = {
         type: action.type,
         instance_id: action.instance_id,
@@ -831,7 +862,7 @@ export function createGameBoardView(opts = {}) {
       if (action.surge) send.surge = true;
       if (action.blitz != null) send.blitz = action.blitz;
       if (action.has_kicker) {
-        send.kicker = readKicker(action.instance_id, action.face);
+        send.kicked = readKicker(action.instance_id, action.face);
         if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
       }
       if (action.pay_additional) send.pay_additional = true;
@@ -880,10 +911,48 @@ export function createGameBoardView(opts = {}) {
 
   function mount(el) {
     root = el;
+    // Resume from a gesture, before awaiting a game action's network reply.
+    root.addEventListener('pointerdown', () => { void audio.unlock(); });
+    root.addEventListener('keydown', () => { void audio.unlock(); });
   }
 
   let chatSending = false;
   let chatError = '';
+  let customEmojiOpen = false;
+  let emojiCategory = EMOJI_CATEGORIES[0].key;
+
+  let revealItems = [];
+  let lastRevealId = 0;
+  let revealAside = true;
+
+  function updateRevealPopup(data) {
+    const messages = (data.table_messages || []).filter(message => message.action === 'reveal');
+    const available = new Set(messages.map(message => message.id));
+    revealItems = revealItems.filter(message => available.has(message.id));
+    const fresh = messages.filter(message => message.id > lastRevealId);
+    if (fresh.length) {
+      revealItems.push(...fresh);
+      lastRevealId = Math.max(lastRevealId, ...fresh.map(message => message.id));
+      revealAside = true;
+    }
+  }
+
+  function revealPopupHtml() {
+    if (!revealItems.length) return '';
+    return `<div class="gf-modal-overlay gf-revealed-modal${revealAside ? ' aside' : ''}">
+      <section class="gf-modal" role="dialog" aria-modal="${!revealAside}" aria-label="${escapeAttr(t('bd.reveal.heading'))}" tabindex="-1">
+        <div class="gf-modal-head"><div><h4>${escapeHtml(t('bd.reveal.heading'))}</h4></div>
+          <button type="button" class="gf-modal-aside" data-reveal-aside>${escapeHtml(t(revealAside ? 'bd.choice.asideShow' : 'bd.choice.asidePush'))}</button>
+          <button type="button" data-reveal-close aria-label="${escapeAttr(t('bd.reveal.close'))}">×</button>
+        </div>
+        <ul class="gf-revealed-list">${revealItems.map(message => {
+          const card = message.revealed_card || { name: message.card_name, card_id: message.card_id };
+          const image = resolveImageUrl(card, getState().imageCache);
+          return `<li><span>${escapeHtml(message.author)}</span><strong data-hover-card="${escapeAttr(card.name || '')}">${escapeHtml(card.name || '')}</strong>
+            ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(card.name || '')}" loading="lazy" data-hover-card="${escapeAttr(card.name || '')}" />` : ''}</li>`;
+        }).join('')}</ul>
+      </section></div>`;
+  }
 
   function chatPanelHtml() {
     const messages = (view.table_messages || []).map((message) => {
@@ -897,7 +966,8 @@ export function createGameBoardView(opts = {}) {
       // template-literal indentation would render as leading space.
       return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">`
         + `<span class="gf-chat-author">${escapeHtml(message.author)}</span>`
-        + `<span>${escapeHtml(text)}</span>`
+        + `<span>${renderOracleText(text)}</span>`
+        + (message.action === 'reveal' ? `<button type="button" data-reveal-open="${message.id}" aria-label="${escapeAttr(t('bd.reveal.heading'))}">👁</button>` : '')
         + reveal
         + '</li>';
     }).join('');
@@ -906,13 +976,25 @@ export function createGameBoardView(opts = {}) {
       <ol class="gf-chat-messages" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
         ${messages || `<li class="hint">${escapeHtml(t('bd.chat.empty'))}</li>`}
       </ol>
-      ${view.observer ? '' : `<div class="gf-chat-emotes">${TABLE_EMOTES.map((text, index) => `<button type="button" data-chat-emote="${escapeAttr(text)}" title="${escapeAttr(t(`bd.chat.emote${index}`))}" aria-label="${escapeAttr(t(`bd.chat.emote${index}`))}" ${chatSending ? 'disabled' : ''}>${escapeHtml(text)}</button>`).join('')}</div>`}
+      ${view.observer ? '' : `<div class="gf-chat-emotes">${TABLE_EMOTES.map((text, index) => `<button type="button" data-chat-emote="${escapeAttr(text)}" title="${escapeAttr(t(`bd.chat.emote${index}`))}" aria-label="${escapeAttr(t(`bd.chat.emote${index}`))}" ${chatSending ? 'disabled' : ''}>${escapeHtml(text)}</button>`).join('')}<button type="button" data-chat-custom aria-expanded="${customEmojiOpen}" title="${escapeAttr(t('bd.chat.custom'))}" aria-label="${escapeAttr(t('bd.chat.custom'))}">☺️＋</button></div>
+      ${customEmojiOpen ? emojiPickerHtml() : ''}`}
       ${chatError ? `<p class="gf-chat-error" role="alert">${escapeHtml(chatError)}</p>` : ''}
     </section>`;
   }
 
+  function emojiPickerHtml() {
+    const selected = EMOJI_CATEGORIES.find(category => category.key === emojiCategory) || EMOJI_CATEGORIES[0];
+    return `<section class="gf-emoji-picker" aria-label="${escapeAttr(t('bd.chat.custom'))}">
+      <div class="gf-emoji-categories" aria-label="${escapeAttr(t('bd.chat.categories'))}">${EMOJI_CATEGORIES.map(category =>
+        `<button type="button" data-emoji-category="${category.key}" aria-pressed="${category.key === selected.key}" title="${escapeAttr(t(`bd.chat.category.${category.key}`))}" aria-label="${escapeAttr(t(`bd.chat.category.${category.key}`))}">${category.icon}</button>`
+      ).join('')}</div>
+      <h5>${escapeHtml(t(`bd.chat.category.${selected.key}`))}</h5>
+      <div class="gf-emoji-grid">${selected.emoji.map(emoji => `<button type="button" data-chat-emote="${escapeAttr(emoji)}" aria-label="${escapeAttr(t('bd.chat.sendEmoji', { emoji }))}" ${chatSending ? 'disabled' : ''}>${emoji}</button>`).join('')}</div>
+    </section>`;
+  }
+
   async function sendChat(emote) {
-    if (!sessionId || chatSending || !TABLE_EMOTES.includes(emote)) return;
+    if (!sessionId || chatSending || typeof emote !== 'string' || !emote.trim()) return;
     chatSending = true;
     chatError = '';
     render();
@@ -921,6 +1003,7 @@ export function createGameBoardView(opts = {}) {
       const res = transport.sendAction ? await transport.sendAction(action)
         : await sendGameAction(sessionId, action);
       if (res.ok) {
+        customEmojiOpen = false;
         if (res.data) applyView(res.data);
       } else {
         chatError = t('bd.chat.failed');
@@ -935,7 +1018,15 @@ export function createGameBoardView(opts = {}) {
   function start(sid, initialView) {
     const isNewSession = sid !== sessionId;
     if (isNewSession) {
+      showStatics = false;
+      staticsAside = false;
+      revealItems = [];
+      lastRevealId = 0;
+      revealAside = true;
+      zoneOrder.clear();
       chatError = '';
+      customEmojiOpen = false;
+      emojiCategory = EMOJI_CATEGORIES[0].key;
       waitingChoiceAside = false;
     }
     sessionId = sid;
@@ -1015,9 +1106,15 @@ export function createGameBoardView(opts = {}) {
   }
 
   function applyView(data) {
+    if (audioSession === sessionId) {
+      for (const event of gameAudioEvents(audioView, data)) audio.play(event);
+    } else audio.stop();
+    audioSession = sessionId;
+    audioView = data;
     const prevStack = view?.state?.stack || [];
     const samePriorSessionForStack = sessionId === lastDraftSessionId;
     view = data;
+    updateRevealPopup(data);
     if (root) root.dataset.bugReportSession = sessionId || "";
     // Ghost-trail: entries that were on the stack last view and aren't now
     // (resolved or countered) linger briefly so it stays visible what just
@@ -1143,16 +1240,20 @@ export function createGameBoardView(opts = {}) {
       if (restored.size) blockDraft = restored;
     } else if (draft.kind === 'cast' && draft.castTargeting?.send) {
       const ct = draft.castTargeting;
-      const action = findTargetableAction(
+      let action = findTargetableAction(
         ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode,
         ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge, ct.send.blitz, ct.send.alt_cost, ct.send.warp,
       );
       if (action) {
+        action = selectedKickerAction(action, ct.send.kicked);
         const expanded = expandMultiTargetRequirements(action.targets || [], ct.x || 0);
-        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice || ct.isReturnChoice
+        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice || ct.isGraveyardExileChoice || ct.isSacrificeCountChoice || ct.isReturnChoice || ct.isBlightChoice
           ? Array.isArray(ct.requirements)
           : expanded.requirements.length === (ct.requirements || []).length;
-        if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
+        if (sameShape && Number.isInteger(ct.reqIndex)) {
+          castTargeting = ct;
+          render();
+        }
       }
     }
   }
@@ -1170,6 +1271,13 @@ export function createGameBoardView(opts = {}) {
 
   async function act(action) {
     if (!sessionId) return;
+    // Never leave combat with an unsent selection. The first forward click
+    // confirms it; the next click resumes priority/step advancement.
+    if (attackDraft.size && ['advance_step', 'advance_to_decision', 'pass_priority', 'set_yield'].includes(action.type)
+        && !view.state.stack.length) {
+      await submitAttackers();
+      return;
+    }
     await withBusy(async () => {
       const res = transport.sendAction
         ? await transport.sendAction(action)
@@ -1217,6 +1325,64 @@ export function createGameBoardView(opts = {}) {
 
   // --- Rendering ------------------------------------------------------------
 
+  let boardGeometryCleanup = () => {};
+  let cardMenuSerial = 0;
+
+  function wireBoardGeometry() {
+    boardGeometryCleanup();
+    const svg = root.querySelector('.gf-connection-lines');
+    const find = (attr, id) => root.querySelector(`[${attr}="${CSS.escape(String(id))}"]`);
+    const card = id => find('data-instance-id', id)?.querySelector('.card');
+    const stack = id => find('data-stack-id', id)?.querySelector('.card');
+    const draw = () => {
+      if (!svg || !view) return;
+      const lines = [];
+      const connect = (from, to, kind) => {
+        if (!from || !to) return;
+        const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+        if (!a.width || !b.width) return;
+        const offset = kind === 'block' ? 5 : 0;
+        lines.push(`<line class="gf-connection--${kind}" x1="${a.x + a.width / 2 + offset}" y1="${a.y + a.height / 2 + offset}" x2="${b.x + b.width / 2 + offset}" y2="${b.y + b.height / 2 + offset}" />`);
+      };
+      for (const item of view.state.stack || []) {
+        const source = card(item.source?.instance_id) || stack(item.stack_id);
+        for (const target of item.targets || []) {
+          const destination = target.instance_id != null ? card(target.instance_id) || find('data-stack-instance-id', target.instance_id)?.querySelector('.card')
+            : target.player_id != null ? find('data-player-id', target.player_id)?.querySelector('.gf-player-board-head') || find('data-player-id', target.player_id)
+            : stack(target.stack_id);
+          connect(source, destination, 'target');
+        }
+      }
+      for (const object of view.state.battlefield || []) {
+        const draft = attackDraft.get(object.instance_id);
+        const defender = draft ? draft.defender : object.attacking ? object.combat_defender : null;
+        if (defender) {
+          const destination = defender.kind === 'player'
+            ? find('data-player-id', defender.id)?.querySelector('.life-total, .gf-opp-life')
+            : card(defender.instance_id);
+          connect(card(object.instance_id), destination, 'attack');
+        }
+        const attackers = blockDraft.has(object.instance_id) ? [blockDraft.get(object.instance_id)]
+          : [object.blocking, ...(object.additional_blocking || [])].filter(id => id != null);
+        for (const attacker of attackers) connect(card(object.instance_id), card(attacker), 'block');
+      }
+      svg.innerHTML = lines.join('');
+    };
+    const controller = new AbortController();
+    const closeMenus = event => root.querySelectorAll('.gf-card-menu:popover-open').forEach(menu => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !menu.contains(event.target)) menu.hidePopover();
+    });
+    document.addEventListener('pointerdown', closeMenus, { signal: controller.signal });
+    document.addEventListener('keydown', closeMenus, { signal: controller.signal });
+    window.addEventListener('scroll', draw, { capture: true, signal: controller.signal });
+    window.addEventListener('resize', draw, { signal: controller.signal });
+    const observer = new ResizeObserver(draw);
+    observer.observe(root);
+    root.addEventListener('load', draw, { capture: true, signal: controller.signal });
+    boardGeometryCleanup = () => { controller.abort(); observer.disconnect(); };
+    draw();
+  }
+
   function render() {
     if (!root || !view) return;
     const previousChat = root.querySelector('.gf-chat-messages');
@@ -1236,9 +1402,9 @@ export function createGameBoardView(opts = {}) {
     const actions = view.legal_actions || [];
     const gameOver = s.game_over;
     const pending = s.pending_choice;
+    syncAttackDraft(actions, s);
 
-    // Index the per-object actions so each card can show its own buttons
-    // directly underneath it. `legal_actions` is already scoped server-side
+    // Index per-object actions for each card’s context menu and attack selection. `legal_actions` is already scoped server-side
     // to the active player, so this naturally only lights up whoever's turn
     // it is — works the same whether there's one live player (goldfish) or
     // two (a Replay puzzle's play mode).
@@ -1250,6 +1416,7 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
+    if (pending?.kind !== 'proliferate') proliferateDraft = { key: null, ids: new Set() };
     if (!s.waiting_on_choice) waitingChoiceAside = false;
     if (!castTargeting) castTargetAside = false;
     updateTargetOverlays(s);
@@ -1257,11 +1424,13 @@ export function createGameBoardView(opts = {}) {
 
     root.innerHTML = `
       <div class="goldfish${compactView ? ' compact-view' : ''}${(pending && !choiceAside) || (castTargeting && !castTargetAside) ? ' choosing' : ''}${pickablesForBoard().length ? ' picking-target' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
+        <svg class="gf-connection-lines" aria-hidden="true"></svg>
         <aside class="gf-rail">
           <div class="gf-rail-turn">
             <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.internal_turn.number }))}">${escapeHtml(t('bd.turn.label', { n: s.turn_nr }))}</span>
             <span class="gf-step">${escapeHtml(labelPhase(s.current_phase))} · ${escapeHtml(labelStep(s.current_step))}</span>
             ${s.day_night ? `<span class="gf-daynight gf-daynight-${s.day_night}">${s.day_night === 'night' ? '🌙 Nacht' : '☀️ Tag'}</span>` : ''}
+          ${interactivePriority() && view.perspective && !gameOver ? `<div class="gf-rail-priority-actions">${yieldButtonsHtml(busy || !!pending)}${passButtonHtml(busy || !!pending || !hasPriority())}</div>` : ''}
           </div>
 
           ${railTimerHtml()}
@@ -1287,7 +1456,10 @@ export function createGameBoardView(opts = {}) {
           ${waitingOnChoiceHtml(s)}
           ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
           ${castTargeting ? castTargetModalHtml() : ''}
+          ${showStatics ? staticEffectsModalHtml(s) : ''}
+          ${revealPopupHtml()}
 
+          ${attackerPanelHtml(actions, s)}
           ${blockerPanelHtml(actions, s)}
 
           ${boardsHtml(live, s, byInstance, pending, seatId)}
@@ -1297,6 +1469,7 @@ export function createGameBoardView(opts = {}) {
       </div>
     `;
     wire();
+    wireBoardGeometry();
     const chatList = root.querySelector('.gf-chat-messages');
     if (chatList) chatList.scrollTop = chatAtBottom ? chatList.scrollHeight : chatScrollTop;
     syncAutoPass();
@@ -1316,7 +1489,7 @@ export function createGameBoardView(opts = {}) {
     if (!plane) return '';
     const roll = (actions || []).find((a) => a.type === 'roll_planar_die');
     const rollButton = roll
-      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="${escapeAttr(t('bd.planar.rollTitle'))}">${escapeHtml(t('bd.planar.rollButton', { cost: roll.cost_label || '{0}' }))}</button>`
+      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="${escapeAttr(t('bd.planar.rollTitle'))}">${renderOracleText(t('bd.planar.rollButton', { cost: roll.cost_label || '{0}' }))}</button>`
       : '';
     return `
       <div class="gf-planechase">
@@ -1393,7 +1566,7 @@ export function createGameBoardView(opts = {}) {
   /**
    * Which side one board's zone column sits on, as a `gf-zones-*` suffix.
    *
-   * Stacked: the plain left/right toggle, same for every board. Pod grid:
+   * Stacked: inside/outside maps to left/right for every board. Pod grid:
    * mirrored per column so "innen"/"außen" means the same thing on both
    * sides of the grid — see `zonesInside`.
    *
@@ -1404,22 +1577,14 @@ export function createGameBoardView(opts = {}) {
    *   clockwise slot.
    */
   function zonesSideFor(index, total) {
-    if (!podGrid()) return zonesLeft ? 'left' : 'right';
+    if (!podGrid()) return zonesInside ? 'left' : 'right';
     const spansTheRow = total % 2 === 1 && index === total - 1;
     const leftColumn = spansTheRow || POD_COLUMNS[index] === 'left';
     return zonesInside === leftColumn ? 'right' : 'left';
   }
 
-  // One control, three toolbars (observer / priority / plain), so it's a
-  // helper rather than three copies. In the pod grid the label reads out the
-  // current state ("Zonen: innen") because there are only two of them and
-  // which one you're in isn't otherwise obvious at a glance; the tooltip
-  // says what the click does. Stacked, the side is plain to see, so the
-  // label stays the action it always was.
-  function zonesSideButtonHtml() {
-    return podGrid()
-      ? `<button id="gf-zones-side" type="button" title="${escapeAttr(t('bd.zonesSide.podTitle', { where: zonesInside ? t('bd.zonesSide.podOutside') : t('bd.zonesSide.podInside') }))}">${escapeHtml(t('bd.zonesSide.podLabel', { state: zonesInside ? t('bd.zonesSide.podInner') : t('bd.zonesSide.podOuter') }))}</button>`
-      : `<button id="gf-zones-side" type="button" title="${escapeAttr(t('bd.zonesSide.plainTitle'))}">${t('bd.zonesSide.plainLabel')}</button>`;
+  function staticEffectsButtonHtml() {
+    return `<button type="button" data-statics-open aria-haspopup="dialog" aria-expanded="${showStatics}">🔍 ${escapeHtml(t('bd.bf.statics'))}</button>`;
   }
 
   function controlsHtml(stackNonEmpty, pending, gameOver) {
@@ -1435,7 +1600,7 @@ export function createGameBoardView(opts = {}) {
     if (view.observer) {
       return `
         <div class="gf-controls gf-rail-controls">
-          ${zonesSideButtonHtml()}
+          ${staticEffectsButtonHtml()}
           ${extra}
         </div>`;
     }
@@ -1451,11 +1616,11 @@ export function createGameBoardView(opts = {}) {
     const myTurn = !view.perspective || view.state.active_player_id === actingSeat();
     return `
       <div class="gf-controls gf-rail-controls">
-        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.advance')}</button>
+        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${attackDraft.size ? escapeHtml(t('bd.attack.confirm', { count: attackDraft.size })) : t('bd.ctrl.advance')}</button>
         ${allowFastForward ? `<button id="gf-next-decision" type="button" title="${escapeAttr(t('bd.ctrl.nextDecisionTitle2'))}" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.nextDecision')}</button>` : ''}
         ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>${t('bd.ctrl.passResolveStack')}</button>` : ''}
         ${allowRewind ? `<button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>${t('bd.ctrl.rewind')}</button>` : ''}
-        ${zonesSideButtonHtml()}
+        ${staticEffectsButtonHtml()}
         ${extra}
       </div>`;
   }
@@ -1476,7 +1641,9 @@ export function createGameBoardView(opts = {}) {
 
   /** Whether this client is the one the game is currently waiting on. */
   function hasPriority() {
-    if (!view?.priority) return false;
+    // RULE 117.2e: resolving choices suspend priority, including choices whose
+    // details are hidden from this seat and represented only by a waiting marker.
+    if (!view?.priority || view.state?.pending_choice || view.state?.waiting_on_choice) return false;
     const pid = view.priority.player_id;
     return (
       (!!actingSeat() && pid === actingSeat()) ||
@@ -1488,27 +1655,24 @@ export function createGameBoardView(opts = {}) {
   // when every player passes in succession on an empty stack (RULE 117.4),
   // so there is deliberately no "advance the turn" button to press.
   function priorityControlsHtml(pending, gameOver, extra) {
-    // "Passen" / "Nächste Aktion" are deliberately *not* here — they live on
-    // this client's own board banner (`playerBoardHtml`'s `priorityBits`),
-    // next to the cards you're actually looking at. The rail keeps only the
-    // layout/table controls.
+    // Priority actions sit directly below the phase display; this section
+    // retains layout and table controls.
     return `
       <div class="gf-controls gf-rail-controls gf-priority-controls">
-        ${zonesSideButtonHtml()}
+        ${staticEffectsButtonHtml()}
         ${extra}
       </div>`;
   }
 
-  // "Passen" lives only on the priority holder's own board banner
-  // (`playerBoardHtml`) now — right next to the cards, not off in the rail.
-  // Still a data attribute rather than an id so `wire()` can bind however
-  // many the page ends up with.
+  // Shared pass action, rendered below the phase display in the left rail.
   function passButtonHtml(disabled, extraClass = '') {
     // With an empty stack, say where passing leads ("To combat →") rather
     // than a bare "Pass"; with something on it, passing resolves it.
     const next = view.priority?.next_step;
     const toNext = next ? t(`bd.ctrl.passTo.${next}`) : '';
-    const label = view.state.stack.length > 0
+    const label = attackDraft.size && !view.state.stack.length
+      ? t('bd.attack.confirm', { count: attackDraft.size })
+      : view.state.stack.length > 0
       ? t('bd.ctrl.passResolve')
       : (toNext && toNext !== `bd.ctrl.passTo.${next}` ? toNext : t('bd.ctrl.pass'));
     return `<button type="button" class="primary${extraClass}" data-pass-priority title="${escapeAttr(t('bd.ctrl.passTitle'))}" ${disabled ? 'disabled' : ''}>${label}</button>`;
@@ -1606,6 +1770,45 @@ export function createGameBoardView(opts = {}) {
     return '';
   }
 
+  // RULE 508.1: choose the whole attack before tapping or firing triggers.
+  function syncAttackDraft(actions, state) {
+    const key = JSON.stringify([sessionId, state.internal_turn?.number, state.active_player_id, state.current_step]);
+    if (key !== attackDraftKey || state.current_step !== 'declare_attackers' || state.game_over) {
+      attackDraft.clear();
+      attackMenuOpen.clear();
+      attackDraftKey = key;
+    }
+    const offers = actions.filter(a => a.type === 'attack');
+    for (const [iid, selection] of attackDraft) {
+      const offer = offers.find(a => a.instance_id === iid);
+      const legal = offer && (!selection.defender || (offer.legal_defenders || []).some(d =>
+        JSON.stringify(defenderPayload(d)) === JSON.stringify(selection.defender)));
+      if (!legal) attackDraft.delete(iid);
+    }
+  }
+
+  function attackerPanelHtml(actions, state) {
+    if (view.observer || state.pending_choice || state.stack.length || !actions.some(a => a.type === 'attack')) return '';
+    return `<section class="gf-block-panel">
+      <h4>${t('bd.attack.heading')}</h4>
+      <p class="hint">${t('bd.attack.hint')}</p>
+      <div class="gf-controls">
+        <button type="button" class="primary" data-attack-confirm ${busy || !attackDraft.size ? 'disabled' : ''}>${escapeHtml(t('bd.attack.confirm', { count: attackDraft.size }))}</button>
+        <button type="button" data-attack-clear ${busy || !attackDraft.size ? 'disabled' : ''}>${t('bd.attack.clear')}</button>
+      </div>
+    </section>`;
+  }
+
+  async function submitAttackers() {
+    if (busy || !attackDraft.size) return;
+    const selected = [...attackDraft.values()];
+    const tax = selected.reduce((sum, a) => sum + (a.attack_tax_amount || 0), 0);
+    if (tax && !window.confirm(t('bd.attackTax.confirm', { cost: `{${tax}}` }))) return;
+    await act({ type: 'declare_attackers', declarations: selected.map(a => ({
+      instance_id: a.instance_ids[0], defender: a.defender, pay_attack_tax: true,
+    })) });
+  }
+
   // RULE 509.1a: the defending player assigns blockers. Each offer from
   // `legal_actions` is one creature that could block, with the attackers it
   // may legally be assigned to; the whole block is submitted at once (see
@@ -1684,7 +1887,6 @@ export function createGameBoardView(opts = {}) {
     const isActive = s.active_player_id === p.id;
     const seat = seatStatus(p.id);
     const badges = [
-      isActive ? `<span class="gf-seat-badge gf-seat-active">${t('bd.seat.active')}</span>` : '',
       p.has_lost
         ? `<span class="gf-seat-badge gf-seat-out">${p.loss_reason === 'conceded' ? t('bd.seat.conceded') : t('bd.seat.out')}</span>`
         : '',
@@ -1702,15 +1904,9 @@ export function createGameBoardView(opts = {}) {
     const bannerAttrs = bannerCss
       ? ` style="${escapeAttr(bannerCss)}" title="${escapeAttr(`Banner-Farbe: ${bannerColorLabel(seat.banner_color)}`)}"`
       : '';
-    // RULE 117: whose window it is, and the buttons that end it, right on
-    // the banner of the board you're actually looking at — the toolbar at
-    // the top of the page is off-screen once two boards are drawn. They sit
-    // directly beside the name, which puts life and counters across from it
-    // on the right — the same left-name/right-life shape every other seat's
-    // banner has, instead of the buttons taking that right-hand slot on
-    // your own.
-    const holdsPriority = interactivePriority() && view.priority?.player_id === p.id;
-    const priorityDisabled = busy || !!pending || !hasPriority();
+    // Keep status separate from the fixed action slots on the left.
+    const holdsPriority = interactivePriority() && !s.pending_choice && !s.waiting_on_choice
+      && view.priority?.player_id === p.id;
     // "Zurücknehmen (n)" only for this client's own banner, only when the
     // table configured a take-back budget and this seat has some left, and
     // only when the transport actually offers a take-back (multiplayer).
@@ -1723,40 +1919,43 @@ export function createGameBoardView(opts = {}) {
       : !interactivePriority()
         ? takebackBtn
         : isMe
-          ? `${priorityBadgeHtml(holdsPriority, true, p.name)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${yieldButtonsHtml(busy || !!pending, ' gf-banner-yield')}${takebackBtn}`
-          : `${priorityBadgeHtml(holdsPriority, false, p.name)}${yieldBadgeHtml(p.id)}`;
-    // Folding an opponent away is only offered at a pod-sized table — with
-    // one opponent there is nothing to scroll past.
-    const opponents = s.players.filter((o) => !o.is_dummy && o.id !== seatId).length;
-    const foldable = seatId != null && !isMe && opponents > 1;
-    const folded = foldable && collapsedBoards.has(p.id);
-    return `
-      <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${folded ? ' gf-board-folded' : ''}" data-player-id="${escapeAttr(p.id)}">
-        <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
-          ${
-            foldable
-              ? `<button type="button" class="gf-board-fold" data-fold-board="${escapeAttr(p.id)}" title="${folded ? escapeAttr(t('bd.fold.expand')) : escapeAttr(t('bd.fold.collapse'))}" aria-expanded="${folded ? 'false' : 'true'}">${folded ? '▸' : '▾'}</button>`
-              : ''
-          }
-          <h3>${escapeHtml(p.name)}${badges}</h3>
-          ${priorityBits ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
+          ? takebackBtn
+          : yieldBadgeHtml(p.id);
+    const upper = total > 1 && (podGrid() ? index < 2 : index < Math.floor(total / 2));
+    const banner = `        <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
+          <div class="gf-banner-identity">
+          <h3 title="${escapeAttr(p.name)}">${escapeHtml(p.name)}${badges}</h3>
+            ${priorityBits && !moreBattlefield ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
+          </div>
+          <div class="gf-banner-center">
+            <div class="gf-banner-status">
+              <span>${isActive ? `<span class="gf-seat-badge gf-seat-active">${t('bd.seat.active')}</span>` : ''}</span>
+              <span>${priorityBadgeHtml(holdsPriority, isMe, p.name)}</span>
+            </div>
+          </div>
+          ${priorityBits && moreBattlefield ? `<div class="gf-banner-priority gf-banner-outer-status">${priorityBits}</div>` : ''}
           <div class="gf-banner-stats">
+            ${moreBattlefield ? '<div class="gf-banner-mana">' : ''}
             ${manaPoolHtml(p.mana_pool)}
             ${manaPotentialHtml(view.mana_potential?.[p.id])}
+            ${moreBattlefield ? '</div>' : ''}
             ${lifeBox(t('bd.zone.life'), p.life)}
-            ${playerCountersHtml(p, s)}
+            ${moreBattlefield ? `<div class="gf-banner-extra">${playerCountersHtml(p, s)}</div>` : playerCountersHtml(p, s)}
           </div>
-        </header>
-        ${folded ? foldedBoardHtml(p, bf) : ''}
-        <div class="gf-play gf-zones-${zonesSideFor(index, total)}"${folded ? ' hidden' : ''}>
+        </header>`;
+    return `
+      <section class="gf-player-board${upper ? ' gf-upper-board' : ''}${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${moreBattlefield ? ' gf-more-battlefield' : ' gf-banner-layout'}" data-player-id="${escapeAttr(p.id)}">
+        ${moreBattlefield ? '' : banner}
+        <div class="gf-play gf-zones-${zonesSideFor(index, total)}">
           <aside class="gf-side">
-            <div class="gf-zone gf-command">
-              <h4>${t('bd.zone.commandZone')}</h4>
-              ${objGrid(p.command, '–', byInstance, pending)}
+            ${moreBattlefield ? banner : ''}
+            <div class="gf-zone gf-command" aria-label="${escapeAttr(t('bd.zone.commandZone'))}">
+              ${p.command.length ? objGrid(p.command, '–', byInstance, pending) : `<div class="card-grid"><div class="gf-card-slot gf-command-placeholder">${faceDownCardHtml(t('bd.zone.emptyCommand'))}</div></div>`}
             </div>
             <div class="gf-zone gf-library">
               <h4>${t('bd.zone.library')}</h4>
               <p class="library-count">${escapeHtml(t('bd.zone.libraryCount', { count: p.library_count }))}</p>
+              ${knownLibraryHtml(p)}
               ${libraryTopHtml(p, byInstance, pending)}
             </div>
             ${collapsibleZoneHtml('gf-graveyard', t('bd.zone.graveyard'), `${p.id}:graveyard`, p.graveyard.length, zoneListHtml(p.graveyard, t('bd.zone.empty')))}
@@ -1773,37 +1972,16 @@ export function createGameBoardView(opts = {}) {
                   <input type="checkbox" class="gf-rows-toggle" ${threeRows ? 'checked' : ''} />
                   ${t('bd.bf.landsOwnRow')}
                 </label>
-                <label class="gf-bf-toggle" title="${escapeAttr(t('bd.bf.staticsTitle'))}">
-                  <input type="checkbox" class="gf-statics-toggle" ${showStatics ? 'checked' : ''} />
-                  ${t('bd.bf.statics')}
-                </label>
+
               </div>
-              ${battlefieldHtml(bf, byInstance, pending)}
+              ${battlefieldHtml(s.battlefield, p.id, byInstance, pending)}
             </div>
 
-            ${showStatics ? staticEffectsPanelHtml(view, s) : ''}
 
             ${handAreaHtml(p, s, byInstance, pending, ownHand)}
           </div>
         </div>
       </section>`;
-  }
-
-  // What a folded-away opponent still shows: how much of everything they
-  // have. Enough to know whether they're worth unfolding, and all of it is
-  // public information the board prints anyway (a hidden zone is only ever
-  // a count here, same as when the board is open — RULE 400.2).
-  function foldedBoardHtml(p, bf) {
-    const creatures = bf.filter((o) => o.is_creature).length;
-    const counts = [
-      tPlural('bd.fold.permanents', bf.length),
-      tPlural('bd.fold.creatures', creatures),
-      t('bd.fold.hand', { count: p.hand_count != null ? p.hand_count : p.hand.length }),
-      t('bd.fold.library', { count: p.library_count }),
-      t('bd.fold.graveyard', { count: p.graveyard.length }),
-      t('bd.fold.exile', { count: p.exile.length }),
-    ];
-    return `<p class="gf-board-fold-summary">${counts.map(escapeHtml).join(' · ')}</p>`;
   }
 
   // A hand the server redacted (RULE 400.2 — an opponent's hand never
@@ -1813,6 +1991,13 @@ export function createGameBoardView(opts = {}) {
   // has `hand_count === 0` and falls through to the normal "leer".
   function handHtml(p, byInstance, pending, isOwn = true) {
     const count = p.hand_count != null ? p.hand_count : p.hand.length;
+    if (!isOwn && p.hand.length && count > p.hand.length) {
+      const hidden = count - p.hand.length;
+      const backs = getShowOpponentHand()
+        ? `<div class="card-grid">${Array.from({ length: hidden }, () => `<div class="gf-card-slot">${faceDownCardHtml()}</div>`).join('')}</div>`
+        : `<p class="empty-state gf-hand-hidden">${escapeHtml(tPlural('bd.hand.hiddenCount', hidden))}</p>`;
+      return objGrid(p.hand, '–', byInstance, pending) + backs;
+    }
     if (!p.hand.length && count > 0) {
       // Nothing here is information — the cards themselves never left the
       // server — so an opponent's row of backs is off unless asked for.
@@ -1827,7 +2012,11 @@ export function createGameBoardView(opts = {}) {
     // Cards actually *in* the array for someone else's hand are ones the
     // server chose to send, i.e. revealed — always shown, whatever the
     // toggle says.
-    return objGrid(p.hand, 'leer', byInstance, pending);
+    if (!isOwn || !p.hand.length) return objGrid(p.hand, 'leer', byInstance, pending);
+    const imageCache = getState().imageCache;
+    return `<div class="card-grid" data-order-zone="${escapeAttr(`hand:${p.id}`)}">${orderedByLocal(`hand:${p.id}`, p.hand).map(o =>
+      objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || [], true)
+    ).join('')}</div>`;
   }
 
   // Only rendered on a hand that isn't yours (see `ownHand`) — in
@@ -1843,11 +2032,11 @@ export function createGameBoardView(opts = {}) {
 
   // One face-down card: the player's own chosen sleeve if they uploaded one
   // (Einstellungen tab, `setAssets`), otherwise a plain patterned back.
-  function faceDownCardHtml() {
+  function faceDownCardHtml(label = t('bd.hand.faceDownAlt')) {
     if (assetsSleeveImageUrl) {
-      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="${escapeAttr(t('bd.hand.faceDownAlt'))}" /></div>`;
+      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="${escapeAttr(label)}" /></div>`;
     }
-    return `<div class="card gf-face-down" title="${escapeAttr(t('bd.hand.faceDownAlt'))}"></div>`;
+    return `<div class="card gf-face-down" title="${escapeAttr(label)}"></div>`;
   }
 
   // The top card of a library is normally face-down (`library_count` is
@@ -1861,6 +2050,15 @@ export function createGameBoardView(opts = {}) {
   // whatever `play_land`/`cast_spell` buttons `legal_actions` offered for
   // that instance_id, same as any hand card — a look-only permission (no
   // matching legal action) simply shows the card with no buttons.
+  function knownLibraryHtml(p) {
+    const known = (view.state.known_cards || []).filter(card => card.owner_id === p.id && card.zone === 'library')
+      .sort((a, b) => a.library_position - b.library_position);
+    if (!known.length) return '';
+    return `<ol class="gf-known-library" aria-label="${escapeAttr(t('bd.reveal.library'))}">${known.map(card =>
+      `<li value="${card.library_position}" data-hover-card="${escapeAttr(card.name)}">${escapeHtml(card.name)}</li>`
+    ).join('')}</ol>`;
+  }
+
   function libraryTopHtml(p, byInstance, pending) {
     if (!view.top_library_visible?.[p.id] || !p.library.length) return '';
     const top = p.library[p.library.length - 1];
@@ -1936,6 +2134,12 @@ export function createGameBoardView(opts = {}) {
       const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
       options = options.filter((o) => !pickedControllers.has(o.controller_id));
     }
+    if (req.same_graveyard) {
+      const owner = castTargeting.owners?.[castTargeting.reqIndex];
+      const picked = castTargeting.groups?.[owner] || [];
+      const first = req.options.find((o) => o.instance_id === picked[0]?.instance_id);
+      if (first) options = options.filter((o) => o.graveyard_owner_id === first.graveyard_owner_id);
+    }
     for (const [field, limit] of [['power', req.total_power_max], ['mana_value', req.total_mana_value_max]]) {
       if (limit == null) continue;
       const owner = castTargeting.owners?.[castTargeting.reqIndex];
@@ -1982,7 +2186,7 @@ export function createGameBoardView(opts = {}) {
   function pickablesForBoard() {
     const out = [];
     if (castTargeting && castTargetAside && !castTargeting.isTapChoice
-        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice && !castTargeting.isReturnChoice) {
+        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice && !castTargeting.isReturnChoice && !castTargeting.isBlightChoice) {
       for (const o of castTargetOptions()) {
         const payload = { instance_id: castTargeting.instanceId, target: targetOptionPayload(o), controller_id: o.controller_id ?? null };
         out.push({ instanceId: o.instance_id, playerId: o.player_id, activate: () => pickCastTarget(payload) });
@@ -2017,8 +2221,11 @@ export function createGameBoardView(opts = {}) {
   // rather than being fully blocked.
   function pendingChoiceHtml(pending, aside = false) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
-    const heading = pending.prompt || pending.description || t('bd.choice.needed');
-    const body = ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
+    const heading = pending.kind === 'proliferate' ? t('bd.proliferate.title')
+      : pending.prompt || pending.description || t('bd.choice.needed');
+    const body = pending.kind === 'proliferate'
+      ? proliferateChoiceHtml(pending)
+      : ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
       ? physicalMeasurementHtml(pending)
       : pending.kind === 'replacement_order'
       ? replacementOrderHtml(pending)
@@ -2053,6 +2260,32 @@ export function createGameBoardView(opts = {}) {
         </div>
       </div>
     `;
+  }
+
+  function proliferateChoiceHtml(pending) {
+    const options = (pending.options || []).filter(o => o.id !== 'decline');
+    if (proliferateDraft.key !== pending.selection_id) {
+      proliferateDraft = { key: pending.selection_id, ids: new Set(pending.recommended_ids || []) };
+    }
+    const rows = options.map(option => {
+      const player = (view.state.players || []).find(p => p.id === option.player_id);
+      const object = (view.state.battlefield || []).find(o => o.instance_id === option.instance_id);
+      const counters = { ...(player?.counters || object?.counters || {}) };
+      if (player?.poison) counters.poison = player.poison;
+      const marks = Object.entries(counters).filter(([,n]) => n > 0).map(([kind,n]) => `${kind}: ${n} → ${Number(n) + 1}`).join(', ');
+      const owner = object ? playerName(object.controller_id) : playerName(option.player_id);
+      return `<label class="gf-proliferate-option">
+        <input type="checkbox" data-proliferate-option="${escapeAttr(option.id)}" ${proliferateDraft.ids.has(option.id) ? 'checked' : ''} ${busy ? 'disabled' : ''}>
+        <span><strong>${escapeHtml(option.label)}</strong>${object ? ` · ${escapeHtml(owner)}` : ''}<br><small>${escapeHtml(marks)}</small></span>
+      </label>`;
+    }).join('');
+    return `<p>${escapeHtml(t('bd.proliferate.hint'))}</p>
+      <div class="gf-proliferate-options">${rows}</div>
+      <div class="gf-choice-options">
+        <button type="button" data-proliferate-reset ${busy ? 'disabled' : ''}>${t('bd.proliferate.recommend')}</button>
+        <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.proliferate.clear')}</button>
+        <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
+      </div>`;
   }
 
   function measurementValue(text, pending) {
@@ -2108,7 +2341,21 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
 
-    return `<div class="gf-choice-options">${buttons}</div>`;
+    return `<div class="gf-choice-options">${buttons}</div>${choiceTextHtml(pending)}`;
+  }
+
+  // PAR-203: a choice whose answer space is not enumerable (a card name, RULE 201.3; a creature type, RULE 205.3m)
+  // offers the options above as suggestions and lets the player type any legal answer.
+  function choiceTextHtml(pending) {
+    if (!pending.free_text) return '';
+    const key = JSON.stringify([pending.kind, pending.source_id, pending.what, pending.prompt]);
+    if (choiceTextDraft.key !== key) choiceTextDraft = { key, text: '' };
+    return `<form class="gf-choice-text" data-choice-text novalidate>
+      <label>${escapeHtml(t('bd.choice.typeLabel'))}
+        <input data-choice-text-value type="text" autocomplete="off" value="${escapeAttr(choiceTextDraft.text)}" ${busy ? 'disabled' : ''}>
+      </label>
+      <button type="submit" class="primary" data-choice-text-submit ${busy || !choiceTextDraft.text.trim() ? 'disabled' : ''}>${escapeHtml(t('bd.choice.typeSubmit'))}</button>
+    </form>`;
   }
 
   // scry/surveil (RULE 701.18/701.31): the away and order phases both offer
@@ -2338,14 +2585,52 @@ export function createGameBoardView(opts = {}) {
   }
 
   function wire() {
+    root.querySelectorAll('[data-card-menu]').forEach(slot => {
+      const open = (event) => {
+        if (event.target.closest('.gf-card-menu')) return;
+        event.preventDefault();
+        const menu = document.getElementById(slot.dataset.cardMenu);
+        if (!menu) return;
+        root.querySelectorAll('.gf-card-menu:popover-open').forEach(other => { if (other !== menu) other.hidePopover(); });
+        menu.showPopover();
+        const bounds = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(0, Math.min(event.clientX || slot.getBoundingClientRect().left, window.innerWidth - bounds.width))}px`;
+        menu.style.top = `${Math.max(0, Math.min(event.clientY || slot.getBoundingClientRect().bottom, window.innerHeight - bounds.height))}px`;
+      };
+      slot.addEventListener('contextmenu', open);
+      const tile = slot.querySelector('.card');
+      tile.tabIndex = 0;
+      tile.addEventListener('keydown', event => {
+        if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) open(event);
+      });
+    });
     wireEffectPopovers();
+    root.querySelector('[data-chat-custom]')?.addEventListener('click', () => {
+      customEmojiOpen = !customEmojiOpen;
+      render();
+      root.querySelector('.gf-emoji-categories button')?.focus();
+    });
+    root.querySelectorAll('[data-emoji-category]').forEach(button => {
+      button.addEventListener('click', () => {
+        emojiCategory = button.dataset.emojiCategory;
+        render();
+        root.querySelector(`[data-emoji-category="${emojiCategory}"]`)?.focus();
+      });
+    });
+    root.querySelector('.gf-emoji-picker')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        customEmojiOpen = false;
+        render();
+        root.querySelector('[data-chat-custom]')?.focus();
+      }
+    });
     root.querySelectorAll('[data-chat-emote]').forEach((button) => {
       button.addEventListener('click', () => sendChat(button.dataset.chatEmote));
     });
     root.querySelector('#gf-advance')?.addEventListener('click', () => act({ type: 'advance_step' }));
     root.querySelector('#gf-next-decision')?.addEventListener('click', () => act({ type: 'advance_to_decision' }));
     root.querySelector('#gf-rewind')?.addEventListener('click', rewind);
-    // Every pass button on the page (toolbar + each own-board banner).
+    // Priority action below the phase display.
     root.querySelectorAll('[data-pass-priority]').forEach((el) => {
       el.addEventListener('click', () => act({ type: 'pass_priority' }));
     });
@@ -2364,15 +2649,6 @@ export function createGameBoardView(opts = {}) {
     // the table configured a budget and this client has some left).
     root.querySelector('[data-banner-takeback]')?.addEventListener('click', () => {
       if (transport.takeBack) transport.takeBack();
-    });
-    // Fold an opponent's board away at a table of 3+ (see `collapsedBoards`).
-    root.querySelectorAll('[data-fold-board]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const id = el.dataset.foldBoard;
-        if (collapsedBoards.has(id)) collapsedBoards.delete(id);
-        else collapsedBoards.add(id);
-        render();
-      });
     });
     // Expand / collapse a Friedhof or Exil zone body (see `expandedZones`).
     root.querySelectorAll('[data-zone-toggle]').forEach((el) => {
@@ -2440,6 +2716,24 @@ export function createGameBoardView(opts = {}) {
           targets: [...form.querySelector('[data-blind-targets]').selectedOptions].map(o => JSON.parse(o.value))});
       });
     });
+    root.querySelectorAll('[data-proliferate-option]').forEach(el => {
+      el.addEventListener('change', () => {
+        if (el.checked) proliferateDraft.ids.add(el.dataset.proliferateOption);
+        else proliferateDraft.ids.delete(el.dataset.proliferateOption);
+      });
+    });
+    root.querySelector('[data-proliferate-reset]')?.addEventListener('click', () => {
+      proliferateDraft.ids = new Set(view.state.pending_choice.recommended_ids || []);
+      render();
+    });
+    root.querySelector('[data-proliferate-clear]')?.addEventListener('click', () => {
+      proliferateDraft.ids.clear();
+      render();
+    });
+    root.querySelector('[data-proliferate-confirm]')?.addEventListener('click', () => {
+      if (busy) return;
+      act({ type: 'choose', selection_id: proliferateDraft.key, option_ids: [...proliferateDraft.ids] });
+    });
     const measurementForm = root.querySelector('[data-physical-measurement]');
     if (measurementForm) {
       const input = measurementForm.querySelector('[data-measurement-value]');
@@ -2464,17 +2758,32 @@ export function createGameBoardView(opts = {}) {
     } else if (!['physical_property_measurement', 'physical_environment_measurement'].includes(view.state?.pending_choice?.kind)) {
       measurementDraft = { key: null, text: '' };
     }
+    const choiceTextForm = root.querySelector('[data-choice-text]');
+    if (choiceTextForm) {
+      const input = choiceTextForm.querySelector('[data-choice-text-value]');
+      const submit = choiceTextForm.querySelector('[data-choice-text-submit]');
+      input.addEventListener('input', () => {
+        choiceTextDraft.text = input.value;
+        submit.disabled = busy || !input.value.trim();
+      });
+      choiceTextForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (busy || !text) return;
+        act({ type: 'choose', free_text: true, option_id: text });
+      });
+    } else {
+      choiceTextDraft = { key: null, text: '' };
+    }
     root.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
         const action = JSON.parse(el.dataset.action);
-        // RULE 508.1g makes paying an attack tax optional. The board asks at
-        // the declaration click, before the backend's auto-payment path can
-        // consume floating mana; declining simply leaves this creature out
-        // of combat.
-        if (action.attack_tax_amount > 0) {
-          if (!window.confirm(t('bd.attackTax.confirm', { cost: `{${action.attack_tax_amount}}` }))) return;
-          delete action.attack_tax_amount;
-          action.pay_attack_tax = true;
+        if (action.type === 'declare_attackers') {
+          const iid = action.instance_ids[0];
+          attackDraft.set(iid, action);
+          attackMenuOpen.delete(iid);
+          render();
+          return;
         }
         act(action);
       });
@@ -2489,6 +2798,32 @@ export function createGameBoardView(opts = {}) {
         if (!target) return;
       });
       root.addEventListener('drop', (e) => {
+        // A drop on a specific valid target (equip onto a creature) is a real
+        // game action; any other drop inside the card's own zone only re-sorts
+        // the local presentation order.
+        const zoneEl = e.target.closest('[data-order-zone]');
+        if (dragSource && zoneEl && zoneEl.dataset.orderZone === dragSource.zone
+            && !['instance', 'player'].includes(maybeReadDropTargetData(e.target)?.type)) {
+          e.preventDefault();
+          const order = zoneOrder.get(dragSource.zone) || [];
+          let targetSlot = e.target.closest('[data-instance-id]');
+          // Dropped on an attachment: its host is what sits in the row.
+          // `dataset` values are strings, instance ids on the wire may be numbers.
+          const indexOfId = (id) => order.findIndex((known) => String(known) === String(id));
+          if (targetSlot && indexOfId(targetSlot.dataset.instanceId) < 0) {
+            targetSlot = targetSlot.closest('.gf-attach-group')?.querySelector('[data-instance-id]') || null;
+          }
+          const targetId = targetSlot?.dataset.instanceId;
+          const from = indexOfId(dragSource.instanceId);
+          const to = targetId ? indexOfId(targetId) : order.length - 1;
+          if (from >= 0 && to >= 0 && from !== to) {
+            order.splice(to, 0, order.splice(from, 1)[0]);
+          }
+          dragSource = null;
+          clearDragHighlights();
+          render();
+          return;
+        }
         const target = maybeReadDropTargetData(e.target);
         e.preventDefault();
         if (target) {
@@ -2511,7 +2846,11 @@ export function createGameBoardView(opts = {}) {
         // in `boardOrder` (every board but this client's own, which is drawn
         // last/nearest), highlighting — and, worse, accepting a drop onto —
         // some other player's battlefield whenever they aren't that first one.
-        dragSource = { instanceId, playerId: slot.closest('[data-player-id]')?.dataset.playerId || null };
+        dragSource = {
+          instanceId,
+          playerId: slot.closest('[data-player-id]')?.dataset.playerId || null,
+          zone: slot.closest('[data-order-zone]')?.dataset.orderZone || null,
+        };
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', '');
         highlightDragTargets();
@@ -2565,28 +2904,48 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
-    // Static-effects / layer-trace panel toggle (persisted client-side).
-    root.querySelectorAll('.gf-statics-toggle').forEach((el) => {
-      el.addEventListener('change', (e) => {
-        showStatics = e.target.checked;
-        setCookie('gf_show_statics', showStatics ? '1' : '0', 365);
-        render();
-      });
-    });
-
-    // Flip the static-zone column (library/graveyard/…) to the other side —
-    // or, in the pod grid, between the middle and the outer edges. Two
-    // separate persisted settings because the layouts they describe are
-    // different (see `zonesInside`), one button because it's one question.
-    root.querySelector('#gf-zones-side')?.addEventListener('click', () => {
-      if (podGrid()) {
-        zonesInside = !zonesInside;
-        setCookie('gf_zones_pod', zonesInside ? 'inside' : 'outside', 365);
-      } else {
-        zonesLeft = !zonesLeft;
-        setCookie('gf_zones_side', zonesLeft ? 'left' : 'right', 365);
-      }
+    const closeReveal = () => {
+      revealItems = [];
       render();
+    };
+    root.querySelector('[data-reveal-close]')?.addEventListener('click', closeReveal);
+    root.querySelector('[data-reveal-aside]')?.addEventListener('click', () => {
+      revealAside = !revealAside;
+      render();
+      root.querySelector('.gf-revealed-modal .gf-modal')?.focus();
+    });
+    root.querySelector('.gf-revealed-modal')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { event.stopPropagation(); closeReveal(); }
+    });
+    root.querySelectorAll('[data-reveal-open]').forEach(button => button.addEventListener('click', () => {
+      const message = (view.table_messages || []).find(item => item.id === Number(button.dataset.revealOpen));
+      if (!message) return;
+      revealItems = [message];
+      revealAside = true;
+      render();
+      root.querySelector('.gf-revealed-modal .gf-modal')?.focus();
+    }));
+    const focusStatics = () => root.querySelector('.gf-statics-modal .gf-modal')?.focus();
+    root.querySelector('[data-statics-open]')?.addEventListener('click', () => {
+      showStatics = true;
+      staticsAside = false;
+      render();
+      focusStatics();
+    });
+    const closeStatics = () => {
+      showStatics = false;
+      staticsAside = false;
+      render();
+      root.querySelector('[data-statics-open]')?.focus();
+    };
+    root.querySelector('[data-statics-close]')?.addEventListener('click', closeStatics);
+    root.querySelector('[data-statics-aside]')?.addEventListener('click', () => {
+      staticsAside = !staticsAside;
+      render();
+      focusStatics();
+    });
+    root.querySelector('.gf-statics-modal')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeStatics(); }
     });
 
     // Push a pending-choice popup aside (or bring it back).
@@ -2598,6 +2957,18 @@ export function createGameBoardView(opts = {}) {
       waitingChoiceAside = !waitingChoiceAside;
       render();
     });
+
+    root.querySelectorAll('[data-attack-remove]').forEach(el => {
+      el.addEventListener('click', () => {
+        attackDraft.delete(Number(el.dataset.attackRemove));
+        render();
+      });
+    });
+    root.querySelector('[data-attack-clear]')?.addEventListener('click', () => {
+      attackDraft.clear();
+      render();
+    });
+    root.querySelector('[data-attack-confirm]')?.addEventListener('click', submitAttackers);
 
     // Expand/collapse a creature's "choose a defender" submenu.
     root.querySelectorAll('[data-attack-toggle]').forEach((el) => {
@@ -2630,6 +3001,13 @@ export function createGameBoardView(opts = {}) {
         const kicked = readKicker(iid, face);
         const kicker_x = readKickerX(iid, face);
         act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id });
+      });
+    });
+
+    root.querySelectorAll('[data-suspend-x]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const iid = Number(el.dataset.suspendX);
+        act({ type: 'suspend', instance_id: iid, x: readX(iid, 'suspend') });
       });
     });
 
@@ -2667,13 +3045,19 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.castTargetStart);
         const iid = Number(info.iid);
-        const action = findTargetableAction(
+        let action = findTargetableAction(
           iid, info.type, info.ability_index, info.face, info.mode,
           info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp,
         );
         if (!action) return;
-        const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
         const kicked = action.has_kicker ? readKicker(iid, info.face) : 0;
+        action = selectedKickerAction(action, kicked);
+        if (action.locked) {
+          setStatus(action.lock_reason || t('bd.cast.noValidTarget'), 'error');
+          render();
+          return;
+        }
+        const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
         const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
@@ -2687,11 +3071,44 @@ export function createGameBoardView(opts = {}) {
         } = expandMultiTargetRequirements(action.targets || [], x);
         castTargeting = {
           instanceId: iid, requirements, owners, reqIndex: 0, targets: [], x, send,
+          damageDivisions: action.damage_divisions, divisionRequirements: action.targets,
           groups: Array.from({ length: groupCount }, () => []),
           excludePicked, excludeControllers,
         };
         finishCastIfReady();
       });
+    });
+
+    root.querySelectorAll('[data-damage-requirement]').forEach((input) => {
+      input.addEventListener('input', () => {
+        if (!castTargeting) return;
+        const index = input.dataset.damageRequirement;
+        const inputs = [...root.querySelectorAll(`[data-damage-requirement="${index}"]`)];
+        (castTargeting.damageDraft ||= {})[index] = inputs.map((field) => field.value);
+        persistCastTargetingDraft();
+      });
+    });
+
+    root.querySelector('[data-damage-confirm]')?.addEventListener('click', () => {
+      const ct = castTargeting;
+      if (!ct) return;
+      const allocations = {};
+      let valid = true;
+      for (const division of ct.damageDivisions || []) {
+        const index = division.requirement_index;
+        const inputs = [...root.querySelectorAll(`[data-damage-requirement="${index}"]`)];
+        const values = inputs.map((input) => input.value === '' ? NaN : Number(input.value));
+        if (values.length !== (ct.groups?.[index] || []).length
+            || values.some((value) => !Number.isInteger(value) || value < division.min_each)
+            || (values.length > 0 && values.reduce((sum, value) => sum + value, 0) !== division.total)) valid = false;
+        allocations[index] = values;
+      }
+      if (!valid) {
+        root.querySelector('[data-damage-error]').textContent = 'Bitte den gesamten Schaden in ganzen Zahlen auf alle gewählten Ziele verteilen.';
+        return;
+      }
+      ct.allocatedDamage = allocations;
+      finishCastIfReady();
     });
 
     root.querySelectorAll('[data-cast-target-pick]').forEach((el) => {
@@ -2932,7 +3349,7 @@ export function createGameBoardView(opts = {}) {
           || root.querySelector(`[data-stack-instance-id="${id}"] > .card`);
       } else if (pick.playerId != null) {
         const id = CSS.escape(String(pick.playerId));
-        el = root.querySelector(`.gf-player-board[data-player-id="${id}"] > .gf-player-board-head`)
+        el = root.querySelector(`.gf-player-board[data-player-id="${id}"] .gf-player-board-head`)
           || root.querySelector(`.gf-opponent[data-player-id="${id}"]`);
       }
       if (!el) continue;
@@ -2952,10 +3369,17 @@ export function createGameBoardView(opts = {}) {
       render();
       return;
     }
+    if (castTargeting.damageDivisions?.length && !castTargeting.allocatedDamage) {
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
     const ct = castTargeting;
-    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice } = ct;
+    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice } = ct;
     let payload;
-    if (isReturnChoice) {
+    if (isBlightChoice) {
+      payload = { ...send, blight_choice: targets[0].instance_id };
+    } else if (isReturnChoice) {
       payload = { ...send, return_choices: targets.map((t) => t.instance_id) };
     } else if (isSacrificeCountChoice) {
       payload = { ...send, sacrifice_choices: targets.map((t) => t.instance_id) };
@@ -2970,21 +3394,23 @@ export function createGameBoardView(opts = {}) {
     } else if (isDiscardChoice) {
       payload = { ...send, discard_choices: targets.map((t) => t.instance_id) };
     } else {
-      payload = { ...send, targets, x, ...((groups || []).length > 1 ? { target_groups: groups } : {}) };
+      payload = { ...send, targets, x, ...((groups || []).length > 1 ? { target_groups: groups } : {}),
+        ...(ct.allocatedDamage ? { damage_divisions: ct.allocatedDamage } : {}) };
     }
-    const action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
+    let action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp);
+    if (action) action = selectedKickerAction(action, send.kicked);
     if (!payload.tap_choices && action?.tap_cost) {
-      const { count, options } = action.tap_cost;
+      const { options } = action.tap_cost;
+      const count = action.tap_cost.count === 'x' ? x : action.tap_cost.count;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({
           label: 'zu tappende bleibende Karte', options, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
       };
-      persistCastTargetingDraft();
-      render();
+      finishCastIfReady();
       return;
     }
     if (!payload.return_choices && action?.return_cost) {
@@ -2994,6 +3420,16 @@ export function createGameBoardView(opts = {}) {
           label: t('bd.return.costCard'), options, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isReturnChoice: true,
+      };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    // RULE 701.68: which creature pays a "Blight N" cost is the player's choice (one candidate needs no prompt).
+    if (payload.blight_choice == null && action?.blight_cost?.options?.length > 1) {
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: [{ label: t('bd.blight.costCreature'), options: action.blight_cost.options, optional: false }],
+        reqIndex: 0, targets: [], excludePicked: true, isBlightChoice: true,
       };
       persistCastTargetingDraft();
       render();
@@ -3039,7 +3475,7 @@ export function createGameBoardView(opts = {}) {
   // enchantments / lands). Attachments (Auras, Equipment — RULE 301/303) are
   // pulled out of the flow and drawn inside a dashed group box around the
   // permanent they're attached to, rather than as loose cards.
-  function battlefieldHtml(objs, byInstance = {}, pending = null) {
+  function battlefieldHtml(objs, controllerId, byInstance = {}, pending = null) {
     if (!objs.length) return `<p class="empty-state">${t('bd.bf.none')}</p>`;
     const imageCache = getState().imageCache;
     const byId = new Map(objs.map((o) => [o.instance_id, o]));
@@ -3053,7 +3489,10 @@ export function createGameBoardView(opts = {}) {
         attachedIds.add(o.instance_id);
       }
     }
-    const top = objs.filter((o) => !attachedIds.has(o.instance_id));
+    // Attachments can be controlled by a different player than their host (RULE 303.4e).
+    // Build the group from the whole battlefield, then place it on the host's board.
+    const top = objs.filter((o) => !attachedIds.has(o.instance_id) && o.controller_id === controllerId);
+    if (!top.length) return `<p class="empty-state">${t('bd.bf.none')}</p>`;
 
     const creatures = top.filter((o) => o.is_creature);
     const lands = top.filter((o) => !o.is_creature && o.is_land);
@@ -3066,7 +3505,10 @@ export function createGameBoardView(opts = {}) {
     // rather than dropping it: only `top`-level hosts were being walked here,
     // so anything attached to an *attachment* never appeared at all.
     const renderAttached = (o) => {
-      const card = objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []);
+      const tile = objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []);
+      const card = o.controller_id !== controllerId
+        ? `<div class="gf-foreign-attachment">${tile}<small>${escapeHtml(t('bd.target.controllerTitle', { name: playerName(o.controller_id) }))}</small></div>`
+        : tile;
       const nested = attachments.get(o.instance_id);
       if (!nested || !nested.length) return card;
       return card + nested.map(renderAttached).join('');
@@ -3074,28 +3516,28 @@ export function createGameBoardView(opts = {}) {
 
     const renderObj = (o) => {
       const actions = pending ? [] : byInstance[o.instance_id] || [];
-      const host = objCard(o, imageCache, actions);
+      const host = objCard(o, imageCache, actions, true);
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
       const attached = atts.map(renderAttached).join('');
       return `<div class="gf-attach-group" title="${escapeAttr(t('bd.bf.attachTitle'))}">${host}${attached}</div>`;
     };
 
-    const rowHtml = (label, list) =>
+    const rowHtml = (rowKey, label, list) =>
       `<div class="gf-bf-row">
         <span class="gf-bf-row-label">${label} (${list.length})</span>
-        ${list.length ? `<div class="card-grid">${list.map(renderObj).join('')}</div>` : '<p class="empty-state">–</p>'}
+        ${list.length ? `<div class="card-grid" data-order-zone="${escapeAttr(`bf:${controllerId}:${rowKey}`)}">${orderedByLocal(`bf:${controllerId}:${rowKey}`, list).map(renderObj).join('')}</div>` : '<p class="empty-state">–</p>'}
       </div>`;
 
     const rows = threeRows
       ? [
-          rowHtml(t('bd.bf.rowCreatures'), creatures),
-          rowHtml(t('bd.bf.rowArtEnch'), other),
-          rowHtml(t('bd.bf.rowLands'), lands),
+          rowHtml('creatures', t('bd.bf.rowCreatures'), creatures),
+          rowHtml('other', t('bd.bf.rowArtEnch'), other),
+          rowHtml('lands', t('bd.bf.rowLands'), lands),
         ]
       : [
-          rowHtml(t('bd.bf.rowCreatures'), creatures),
-          rowHtml(t('bd.bf.rowLandsPermanents'), other.concat(lands)),
+          rowHtml('creatures', t('bd.bf.rowCreatures'), creatures),
+          rowHtml('mixed', t('bd.bf.rowLandsPermanents'), other.concat(lands)),
         ];
     return `<div class="gf-bf-rows">${rows.join('')}</div>`;
   }
@@ -3126,30 +3568,18 @@ export function createGameBoardView(opts = {}) {
       .join('')}</div>`;
   }
 
-  // A spell's tile shows the spell's own card. A triggered/activated
-  // ability has no card of its own on the stack (RULE 601 vs. 602/603) —
-  // its tile instead shows the *source permanent*'s card (`item.source`,
-  // `StackItem.source`) with the ability's text overlaid on top of the art,
-  // plus a small 🔗 link back to that source (both the overlay text and the
-  // link exist specifically so an ability waiting to resolve is never just
-  // an unlabeled text box — see ToDo/Done "Stack source display").
+  // The source card's art as a mini card; an ability overlays only its own
+  // description (never the whole Oracle text: a source can have several
+  // unrelated abilities). Without art, a text box shows the same content.
   function stackItemHtml(item, index, total, opts = {}) {
-    const imageCache = getState().imageCache;
     const isAbility = item.kind === 'ability';
-    const visual = item.object || (isAbility ? item.source : null);
-    const abilityText = isAbility ? (item.description || item.kind) : null;
-    const displayName = visual ? visual.name : (abilityText || item.kind);
-    const imageUrl = visual ? resolveImageUrl(visual, imageCache) : null;
-    // With art to overlay onto, an ability shows its source's image with the
-    // ability text banner-ed on top; without art (no source, or unresolved
-    // art) it falls back to plain text — same as before this feature.
-    const showOverlay = isAbility && abilityText && imageUrl;
-    const inner = imageUrl
-      ? `<img src="${imageUrl}" alt="${escapeHtml(displayName)}" loading="lazy" />`
-      : escapeHtml(showOverlay ? displayName : (abilityText || displayName));
-    const classes = ['card'];
-    if (imageUrl) classes.push('has-image');
+    const visual = item.object || item.source;
     const badge = stackKindBadge(item);
+    const actionText = isAbility
+      ? (item.description && item.description !== visual?.name ? item.description : badge.label)
+      : item.kind === 'spell' ? 'Cast' : (item.description || item.kind);
+    const displayName = visual?.name || '';
+    const imageUrl = visual ? resolveImageUrl(visual, getState().imageCache) : null;
     const isTop = !opts.ghost && index === total - 1;
     // `opts.ghost` = a just-resolved entry lingering for a moment: no LIFO
     // position, just an "aufgelöst" caption.
@@ -3159,20 +3589,18 @@ export function createGameBoardView(opts = {}) {
         ? (isTop ? t('bd.stack.topResolves') : `#${total - index}`)
         : '';
     const order = orderText ? `<span class="gf-stack-order">${escapeHtml(orderText)}</span>` : '';
-    const overlay = showOverlay
-      ? `<div class="gf-stack-ability-overlay">${escapeHtml(abilityText)}</div>`
-      : '';
-    const link = showOverlay
-      ? `<button type="button" class="gf-stack-source-link" data-hover-card="${escapeHtml(visual.name)}" title="Quelle: ${escapeHtml(visual.name)}">🔗</button>`
-      : '';
     return `
-      <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
+      <div data-stack-id="${escapeAttr(item.stack_id)}" class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(displayName)}" title="${escapeHtml(displayName)}">
-          ${inner}
-          ${overlay}
-          ${link}
-        </div>
+        ${imageUrl
+          ? `<div class="card has-image gf-stack-art"${displayName ? ` data-hover-card="${escapeAttr(displayName)}" title="${escapeAttr(displayName)}"` : ''}>
+          <img src="${imageUrl}" alt="${escapeAttr(displayName)}" loading="lazy" />
+          ${isAbility ? `<div class="gf-stack-ability-overlay">${renderOracleText(actionText)}</div>` : ''}
+        </div>`
+          : `<div class="card gf-stack-action"${displayName ? ` data-hover-card="${escapeAttr(displayName)}"` : ''}>
+          ${displayName ? `<strong class="gf-stack-source-name">${escapeHtml(displayName)}</strong>` : ''}
+          <span class="gf-stack-action-text">${renderOracleText(actionText)}</span>
+        </div>`}
         ${order}
       </div>`;
   }
@@ -3447,7 +3875,33 @@ export function createGameBoardView(opts = {}) {
     return cardImageUrl(o.card_id, 'small', showBack ? 'back' : 'front');
   }
 
-  function objCard(o, imageCache, cardActions) {
+  // Unavailable options are informational only: never manufacture legal actions
+  // or action payloads from Oracle text. Keep costs and ability text visible.
+  function unavailableCardActionsHtml(o) {
+    const labels = [];
+    if (o.zone === 'hand' || o.zone === 'command' || o.adventure_castable || o.prepared_copy) {
+      labels.push(o.is_land ? t('bd.cast.playLand', { face: '' })
+        : `${t('bd.cast.castPlain', { mode: '', hint: '', face: '' })} ${o.mana_cost || '{0}'}`);
+    }
+    if (!o.face_down) {
+      for (const line of (o.oracle_text || '').split('\n')) {
+        // A printed activated ability has a cost before the colon. Exclude
+        // colons inside reminder text rather than displaying those as actions.
+        const text = line.replace(/\([^)]*\)/g, '').trim();
+        if (text.includes(':')) labels.push(text);
+      }
+      if (o.zone === 'battlefield' && o.is_land && !labels.length) {
+        const basicMana = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
+        for (const [subtype, symbol] of Object.entries(basicMana)) {
+          if ((o.type_line || '').split(/\s+/).includes(subtype)) labels.push(`{T}: {${symbol}}`);
+        }
+      }
+    }
+    if (!labels.length) labels.push(t('bd.menu.noActions'));
+    return `<div class="gf-card-actions">${labels.map(label => `<button type="button" class="gf-card-action" disabled title="${escapeAttr(t('bd.menu.unavailable'))}">${renderOracleText(label)}</button>`).join('')}</div>`;
+  }
+
+  function objCard(o, imageCache, cardActions, reorderable = false) {
     const imageUrl = resolveImageUrl(o, imageCache);
     const inner = imageUrl
       ? `<img src="${imageUrl}" alt="${escapeHtml(o.name)}" loading="lazy" />`
@@ -3463,7 +3917,7 @@ export function createGameBoardView(opts = {}) {
     // printed rotated 180° on the one shared image).
     if (o.flipped) classes.push('flipped');
     if (isSummoningSick) classes.push('summoning-sick');
-    if (o.attacking) classes.push('attacking');
+    if (o.attacking || attackDraft.has(o.instance_id)) classes.push('attacking');
     if (compactView) classes.push('compact-card');
     // RULE 115/601.2c: this object is the chosen target of something
     // currently on the stack — `updateTargetOverlays` (called once per
@@ -3475,26 +3929,30 @@ export function createGameBoardView(opts = {}) {
     // at a glance.
     if (mutualTargetPairIds.has(o.instance_id)) classes.push('gf-mutual-target');
     if (abilitySourceInstanceIds.has(o.instance_id)) classes.push('gf-ability-source');
-    // "Mana-Potenzial": server-computed (`services/game_session.py`'s
-    // `_annotate_castable`) — whether this hand card could be paid for by
-    // tapping/exiling untapped mana sources, purely a mana-affordability
-    // signal (it does *not* imply the play is otherwise legal right now —
-    // timing/targets can still block it). A real "✨ Zaubern"/"⚡
-    // Aktivieren" button, when `legal_actions` offers one, now silently
-    // auto-taps exactly what's missing on click (`GameEngine.cast_spell`/
-    // `activate_ability`'s own `_auto_tap_for_*_if_needed` hook) — so this
-    // highlight is a preview of that, not a separate action to trigger.
-    if (o.castable) classes.push('castable-highlight');
-    const pt = o.power != null && o.toughness != null ? ` (${o.power}/${o.toughness})` : '';
+    // RULE 117.1a / 307.1: the server's legal actions include timing and
+    // priority checks; mana potential alone must never light up a card.
+    const playableNow = (cardActions || []).some(a =>
+      (a.type === 'cast_spell' || a.type === 'play_land') && !selectedKickerAction(a).locked);
+    if (playableNow) {
+      classes.push('castable-highlight');
+    }
+    const remainingToughness = o.toughness - (o.damage_marked || 0);
+    const pt = o.power != null && o.toughness != null ? ` (${o.power}/${remainingToughness})` : '';
     const hasBasePt = o.base_power != null && o.base_toughness != null;
     const ptChanged = o.power != null && o.toughness != null && hasBasePt
-      && (o.power !== o.base_power || o.toughness !== o.base_toughness);
-    const compactPt = compactView && o.zone === 'battlefield' && o.is_creature
+      && (o.power !== o.base_power || remainingToughness !== o.base_toughness);
+    const compactPt = o.zone === 'battlefield' && o.is_creature
       && o.power != null && o.toughness != null
-      ? `<span class="gf-compact-pt${ptChanged ? ' is-changed' : ''}" title="${escapeAttr(`${o.power}/${o.toughness}`)}">${o.power}/${o.toughness}</span>`
+      ? `<span class="gf-compact-pt${ptChanged ? ' is-changed' : ''}" title="${escapeAttr(`${o.power}/${remainingToughness}`)}">${o.power}/${remainingToughness}</span>`
       : '';
-    const buttons = cardActionButtons(cardActions);
-    const attackBadge = o.attacking
+    const attackActions = (cardActions || []).filter(a => a.type === 'attack');
+    const menuActions = cardActions || [];
+    const menuId = `gf-card-menu-${o.instance_id}-${++cardMenuSerial}`;
+    const buttons = cardActionButtons(attackActions);
+    const menu = `<div id="${menuId}" popover="manual" class="gf-card-menu" aria-label="${escapeAttr(o.name)}">${menuActions.map(a => `<div class="gf-menu-option">${cardActionButtons([a])}${a.type === 'cast_spell' ? `<span class="gf-menu-cost">${renderOracleText(a.effective_cost || a.cost_label || a.base_cost || o.mana_cost || '{0}')}</span>` : ''}</div>`).join('') || unavailableCardActionsHtml(o)}</div>`;
+    const attackBadge = attackDraft.has(o.instance_id)
+      ? `<span class="gf-attacking-badge">⚔️ ${escapeHtml(t('bd.attack.selected'))}${attackDraft.get(o.instance_id).defender_label ? ` → ${escapeHtml(attackDraft.get(o.instance_id).defender_label)}` : ''}</span>`
+      : o.attacking
       ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
       : '';
     // RULE 302.6: only an actually restricted creature gets a badge. Inset in the
@@ -3583,12 +4041,12 @@ export function createGameBoardView(opts = {}) {
     const flipButton = o.has_back_face
       ? `<button type="button" class="gf-card-flip" data-flip-toggle="${o.instance_id}" title="Andere Seite ansehen" aria-label="Andere Seite ansehen">🔄</button>`
       : '';
-    const draggable = cardActions && cardActions.some(isPlayableCardAction);
+    const draggable = reorderable || (cardActions && cardActions.some(isPlayableCardAction));
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
-      <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">
+      <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}"${menu ? ` data-card-menu="${menuId}"` : ''}>
         <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${roomBadge}${effectsSummary}</div>
-        ${buttons}
+        ${buttons}${menu}
       </div>`;
   }
 
@@ -3712,10 +4170,11 @@ export function createGameBoardView(opts = {}) {
   // positioned at the badge by `wire()`'s `toggle` handler (the top layer
   // otherwise centres it).
   function effectSummaryHtml(o) {
-    const trace = o.static_trace || [];
+    const trace = [...(o.static_trace || [])];
+    if (o.is_creature && o.damage_marked) trace.push({ source: 'Schaden in diesem Zug', description: `−${o.damage_marked} Widerstandskraft (Anzeige)`, power: o.power, toughness: o.toughness - o.damage_marked, duration: 'end_of_turn' });
     if (!trace.length || o.instance_id == null) return '';
     const popId = `gf-eff-pop-${o.instance_id}`;
-    const ptResult = o.power != null && o.toughness != null ? `${o.power}/${o.toughness}` : null;
+    const ptResult = o.power != null && o.toughness != null ? `${o.power}/${o.toughness - (o.damage_marked || 0)}` : null;
     const keywords = (o.keywords || []).join(', ');
     const resultParts = [];
     if (ptResult) resultParts.push(`<strong>${escapeHtml(ptResult)}</strong>`);
@@ -3783,7 +4242,7 @@ export function createGameBoardView(opts = {}) {
     // creature cast, so it gets a short "(Bestow — <cost>)" suffix rather
     // than a redundant repeated name, the same treatment as Fuse above.
     if (a.face === 'bestow') {
-      return a.bestow_cost_label ? ` (Bestow — ${escapeHtml(a.bestow_cost_label)})` : ' (Bestow)';
+      return a.bestow_cost_label ? ` (Bestow — ${renderOracleText(a.bestow_cost_label)})` : ' (Bestow)';
     }
     // RULE 702.37a/702.168a: the morph/disguise offer casts the card FACE
     // DOWN as a nameless 2/2 for its face-down cost ({3}) — a wholly
@@ -3859,12 +4318,12 @@ export function createGameBoardView(opts = {}) {
             t('bd.cast.playLand', { face: faceHint(a) })
           )
         );
-      } else if (a.type === 'cast_spell' && a.locked) {
+      } else if (a.type === 'cast_spell' && a.locked && (!a.kicker_variant || a.kicker_variant.locked)) {
         const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
         );
-      } else if (a.type === 'cast_spell' && (a.requires_target || a.graveyard_exile_cost || a.sacrifice_count_cost)) {
+      } else if (a.type === 'cast_spell' && (a.requires_target || a.kicker_variant || a.damage_divisions?.length || a.graveyard_exile_cost || a.sacrifice_count_cost)) {
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'cast_spell' && a.discard_cost) {
         // "As an additional cost to cast this spell, discard N cards" (RULE
@@ -3877,7 +4336,7 @@ export function createGameBoardView(opts = {}) {
           gift_opponent_id: a.gift_opponent_id,
         });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${escapeHtml(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: '', face: faceHint(a) }))}</button>`
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: '', face: faceHint(a) }))}</button>`
         );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
@@ -3893,7 +4352,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${escapeHtml(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -3910,6 +4369,19 @@ export function createGameBoardView(opts = {}) {
             })
           )
         );
+      } else if (a.type === 'suspend') {
+        const label = `⏳ Suspend (${renderOracleText(a.cost_label || '')})`;
+        if (a.has_x) {
+          // Suspend announces its own X, independently of casting this card.
+          buttons.push(`
+            <div class="gf-cast-x">
+              <input type="number" min="${escapeAttr(a.min_x)}" max="${escapeAttr(a.max_x)}" value="${escapeAttr(a.max_x)}" aria-label="Suspend X" data-x-input="${escapeAttr(xKey(a.instance_id, 'suspend'))}" />
+              <button type="button" class="gf-card-action" data-suspend-x="${escapeAttr(a.instance_id)}">${label} (X)</button>
+            </div>
+          `);
+        } else {
+          buttons.push(actionButton({ type: 'suspend', instance_id: a.instance_id }, label));
+        }
       } else if (a.type === 'activate_ability' && a.locked) {
         const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(
@@ -3921,7 +4393,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
+            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)</button>
           </div>
         `);
       } else if (a.type === 'activate_ability' && (a.tap_cost || a.exile_cost)) {
@@ -3929,20 +4401,20 @@ export function createGameBoardView(opts = {}) {
         // which ones is the player's own choice, not an engine auto-pick.
         const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
         );
       } else if (a.type === 'activate_ability' && a.sacrifice_cost) {
         // Cost includes "Sacrifice a <type>" (RULE 602.1) — which permanent
         // pays it is the player's own choice, not an engine auto-pick.
         const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
         );
       } else if (a.type === 'activate_ability') {
         buttons.push(
           actionButton(
             { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, name: a.name },
-            `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}`,
+            `⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}`,
             loyaltyModifierClass(a.cost_label)
           )
         );
@@ -3958,13 +4430,13 @@ export function createGameBoardView(opts = {}) {
           if (optsList.length > 1) {
             buttons.push(manaChoiceControlHtml(
               a, optsList, 'tap_for_mana',
-              `⟳ ${escapeHtml(a.cost_label || '')} → X`,
+              `${renderOracleText(a.cost_label || '{T}')} → X`,
               { hasX: true },
             ));
           } else {
             const colorButtons = optsList.map((opt) => {
               const info = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, option_index: opt.index });
-              return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${escapeHtml(a.cost_label || '')} → X·${escapeHtml(opt.label || '⟳')}</button>`;
+              return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${renderOracleText(a.cost_label || '')} → X·${escapeHtml(opt.label || '⟳')}</button>`;
             }).join('');
             buttons.push(`
               <div class="gf-cast-x">
@@ -3978,7 +4450,7 @@ export function createGameBoardView(opts = {}) {
         }
         if (optsList.length > 1) {
           const text = extraCost
-            ? `⟳ ${escapeHtml(a.cost_label)} →`
+            ? `${renderOracleText(a.cost_label)} →`
             : '⟳ Tappen';
           buttons.push(manaChoiceControlHtml(
             a, optsList, 'tap_for_mana', text,
@@ -3988,7 +4460,7 @@ export function createGameBoardView(opts = {}) {
           for (const opt of optsList) {
             const glyph = opt.label || '⟳';
             const text = extraCost
-              ? `⟳ ${escapeHtml(a.cost_label)} → ${glyph}`
+              ? `${renderOracleText(a.cost_label)} → ${glyph}`
               : '⟳ Tappen';
             if (a.tap_cost) {
               // Which Elves pay the "tap N" part is the player's own choice
@@ -4035,12 +4507,12 @@ export function createGameBoardView(opts = {}) {
         if (optsList.length > 1) {
           buttons.push(manaChoiceControlHtml(
             a, optsList, 'activate_hand_mana',
-            `📤 ${escapeHtml(a.cost_label || 'Exilieren')} →`,
+            `📤 ${renderOracleText(a.cost_label || 'Exilieren')} →`,
           ));
         } else {
           for (const opt of optsList) {
             const glyph = opt.label || '⟳';
-            const text = `📤 ${escapeHtml(a.cost_label || 'Exilieren')} → ${glyph}`;
+            const text = `📤 ${renderOracleText(a.cost_label || 'Exilieren')} → ${glyph}`;
             buttons.push(
               actionButton(
                 { type: 'activate_hand_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
@@ -4072,7 +4544,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           actionButton(
             { type: 'turn_face_up', instance_id: a.instance_id, option_index: a.option_index },
-            `🔎 Aufdecken (${escapeHtml(a.cost_label || '')})`
+            `🔎 Aufdecken (${renderOracleText(a.cost_label || '')})`
           )
         );
       } else if (a.type === 'unlock_door') {
@@ -4081,7 +4553,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           actionButton(
             { type: 'unlock_door', instance_id: a.instance_id, door: a.door },
-            `🚪 ${escapeHtml(t('bd.action.unlockDoor', { door: a.door_name || a.door, cost: a.cost_label || '' }))}`
+            `🚪 ${renderOracleText(t('bd.action.unlockDoor', { door: a.door_name || a.door, cost: a.cost_label || '' }))}`
           )
         );
       } else if (a.type === 'attack') {
@@ -4161,14 +4633,38 @@ export function createGameBoardView(opts = {}) {
       bargained: a.bargained, gift_opponent_id: a.gift_opponent_id,
     });
     const label = a.type === 'activate_ability'
-      ? t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') })
-      : `${t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) })}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
+      ? renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))
+      : `${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
-    return `<div class="gf-cast-targets">${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+    const lockedHint = a.locked ? `<span class="hint">Ohne Kicker: ${escapeHtml(a.lock_reason || t('bd.cast.noValidTarget'))}</span>` : '';
+    return `<div class="gf-cast-targets">${lockedHint}${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+  }
+
+  function damageDivisionModalHtml() {
+    const ct = castTargeting;
+    const rows = ct.damageDivisions.map((division) => {
+      const index = division.requirement_index;
+      const requirement = ct.divisionRequirements?.[index];
+      const targets = ct.groups?.[index] || [];
+      const fields = targets.map((target, row) => {
+        const option = requirement?.options?.find((candidate) => target.player_id != null
+          ? candidate.player_id === target.player_id : candidate.instance_id === target.instance_id);
+        return `<label>${escapeHtml(option?.name || `Ziel ${row + 1}`)}
+          <input type="number" min="${escapeAttr(division.min_each)}" max="${escapeAttr(division.total)}" step="1" value="${escapeAttr(ct.damageDraft?.[index]?.[row] ?? division.min_each)}" data-damage-requirement="${escapeAttr(index)}" />
+        </label>`;
+      }).join('');
+      return `<fieldset><legend>${escapeHtml(requirement?.label || 'Schaden verteilen')} — insgesamt ${escapeHtml(division.total)}</legend>${fields}</fieldset>`;
+    }).join('');
+    return `<div class="gf-modal-overlay"><div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
+      <h4>Schaden verteilen</h4>${rows}<p data-damage-error role="alert"></p>
+      <div class="gf-modal-foot"><button type="button" data-damage-confirm>Bestätigen</button>
+        <button type="button" data-cast-target-cancel="${escapeAttr(ct.instanceId)}">✕ Abbrechen</button></div>
+    </div></div>`;
   }
 
   function castTargetModalHtml() {
     if (!castTargeting) return '';
+    if (castTargeting.reqIndex >= castTargeting.requirements.length && castTargeting.damageDivisions?.length) return damageDivisionModalHtml();
     const iid = castTargeting.instanceId;
     const total = castTargeting.requirements.length;
     const idx = castTargeting.reqIndex;
@@ -4177,8 +4673,8 @@ export function createGameBoardView(opts = {}) {
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice;
-    const modalGlyph = castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice || castTargeting.isBlightChoice;
+    const modalGlyph = castTargeting.isBlightChoice ? '🥀' : castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
@@ -4229,11 +4725,15 @@ export function createGameBoardView(opts = {}) {
   function attackControlHtml(a) {
     const defenders = a.legal_defenders || [];
     const iid = a.instance_id;
+    if (attackDraft.has(iid)) {
+      return `<button type="button" class="gf-card-action" data-attack-remove="${iid}" ${busy ? 'disabled' : ''}>✕ ${t('bd.attack.deselect')}</button>`;
+    }
     const attackAction = (defender, index) => ({
       type: 'declare_attackers', instance_ids: [iid],
       ...(defender ? { defender: defenderPayload(defender) } : {}),
       attack_tax_amount: a.attack_tax_amounts?.[index] || 0,
       name: a.name,
+      defender_label: defender?.label,
     });
     if (defenders.length === 0) {
       return actionButton(
@@ -4398,12 +4898,19 @@ export function createGameBoardView(opts = {}) {
   }
 
   function commanderDamageHtml(commanderDamage) {
-    const entries = Object.values(commanderDamage || {});
+    const entries = Object.entries(commanderDamage || {});
     if (!entries.length) return '';
     return entries
-      .map((e) => {
+      .map(([sourceId, e]) => {
+        const state = view?.state;
+        const visible = [...(state?.battlefield || []), ...(state?.players || []).flatMap(p =>
+          [...(p.command || []), ...(p.graveyard || []), ...(p.exile || []), ...(p.hand || [])])];
+        const source = visible.find(o => String(o.instance_id) === sourceId);
+        const owner = state?.players?.find(p => p.id === source?.owner_id);
+        const name = e.name || source?.name || `#${sourceId}`;
+        const identity = owner ? `${name} · ${owner.name}` : `${name} · #${sourceId}`;
         const lethal = e.amount >= 21 ? ' gf-cmd-dmg--lethal' : '';
-        return `<span class="gf-cmd-dmg${lethal}" title="${escapeAttr(t('bd.cmdDmg.title', { name: e.name }))}">👑 ${e.amount}/21</span>`;
+        return `<span class="gf-cmd-dmg${lethal}" data-commander-source="${escapeAttr(sourceId)}" data-hover-card="${escapeAttr(name)}" title="${escapeAttr(t('bd.cmdDmg.title', { name: identity }))}">👑 <span class="gf-cmd-source">${escapeHtml(identity)}</span> ${e.amount}/21</span>`;
       })
       .join('');
   }
@@ -4560,6 +5067,19 @@ export function createGameBoardView(opts = {}) {
     return t('bd.delayed.whenPlayer', { name: playerName(dt.controller_id), step: stepLabel });
   }
 
+  function staticEffectsModalHtml(s) {
+    return `<div class="gf-modal-overlay gf-statics-modal${staticsAside ? ' aside' : ''}">
+      <div class="gf-modal" role="dialog" aria-modal="${!staticsAside}" aria-label="${escapeAttr(t('bd.bf.statics'))}" tabindex="-1">
+        <div class="gf-modal-head">
+          <div><h4>${escapeHtml(t('bd.bf.statics'))}</h4></div>
+          <button type="button" class="gf-modal-aside" data-statics-aside title="${escapeAttr(t('bd.choice.asideTitle'))}">${escapeHtml(t(staticsAside ? 'bd.choice.asideShow' : 'bd.choice.asidePush'))}</button>
+          <button type="button" data-statics-close aria-label="${escapeAttr(t('bd.statics.close'))}">×</button>
+        </div>
+        ${staticEffectsPanelHtml(view, s)}
+      </div>
+    </div>`;
+  }
+
   function staticEffectsPanelHtml(view, s) {
     const actives = view.static_effects || [];
     const traced = (s.battlefield || []).filter((o) => (o.static_trace || []).length);
@@ -4650,6 +5170,10 @@ export function createGameBoardView(opts = {}) {
    * otherwise keep ticking against a game this client is no longer in.
    */
   function stop() {
+    boardGeometryCleanup();
+    audio.stop();
+    audioView = null;
+    audioSession = null;
     stopAutoPass();
     autoPassWindowKey = null;
     sessionId = null;

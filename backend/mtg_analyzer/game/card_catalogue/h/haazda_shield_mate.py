@@ -29,7 +29,7 @@ def _haazda_shield_mate() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
+            [EffectSpec("request_prevent_damage_source", {"once": True, "amount": "all"})],
             cost={"mana": "{W}"},
         ),
     ]

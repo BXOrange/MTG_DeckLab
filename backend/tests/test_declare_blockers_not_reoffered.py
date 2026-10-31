@@ -108,6 +108,7 @@ def test_marker_is_cleared_at_end_of_combat_and_does_not_leak():
     # RULE 511.3: combat ends — every per-combat marker resets, this one
     # included (mirrors `obj.attacking`/`blocked_by` cleared the same call).
     eng._step_end_combat()
+    eng._finish_end_combat()  # RULE 511.3: removal happens as the step ends (BUG-30)
     assert eng.state.declared_blockers_this_combat == set()
 
     # A fresh combat: the same attacker (tapped from the first swing) is

@@ -19,6 +19,7 @@ def _pilgrim_of_justice() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "source_filter": {"color": "R"}, "amount": "all",
             })],
             cost={"text": "{W}, Sacrifice ~"},

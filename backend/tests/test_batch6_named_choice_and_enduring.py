@@ -239,6 +239,7 @@ def test_pit_of_offerings_taps_for_the_colors_of_every_exiled_card():
     land.linked_exile_ids = [red.instance_id, blue.instance_id]
     for card in (red, blue):
         p1.add_to_zone(card, Zone.EXILE)
+        eng.state.track_exiled_with(land, card)
     menus = [
         ability for ability in mana_abilities.mana_abilities_for(land, eng.state)
         if ability.color_selector == "imprinted_card_colors"

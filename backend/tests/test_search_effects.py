@@ -193,15 +193,13 @@ def test_mana_value_qualifier_caps_the_search_criteria():
     assert spec.params == {"criteria": {"max_mana_value": 2}, "destination": "hand"}
 
 
-def test_fails_closed_on_a_bare_and_combined_search():
-    # Only the "and/or" phrasing the real ~50-card family actually uses
-    # (`_SEARCH_ZONE_PUT_RE`) is recognized; a bare "library and graveyard"
-    # combined search with the ordinary put-then-shuffle tail is a
-    # different, unattempted shape.
-    assert parse_effect_body(
+def test_bare_and_combined_search():
+    specs = parse_effect_body(
         "search your library and graveyard for a card, put it into your "
         "hand, then shuffle"
-    ) is None
+    )
+    assert specs[0].params == {'criteria': {}, 'destination': 'hand', 'zones': ['library', 'graveyard']}
+
 
 
 def test_fails_closed_on_an_interposed_extra_clause():
@@ -261,15 +259,14 @@ def test_zone_search_type_criteria():
     }
 
 
-def test_fails_closed_on_a_comma_bearing_name():
-    # Grasping Current-shaped: "a card named Jace, Ingenious Mind-Mage" — the
-    # name's own internal comma is indistinguishable from the put-clause's
-    # comma without a name dictionary, so this stays unclaimed.
-    assert parse_effect_body(
+def test_search_accepts_a_comma_bearing_name():
+    specs = parse_effect_body(
         "search your library and/or graveyard for a card named jace, "
         "ingenious mind-mage, reveal it, and put it into your hand. if you "
         "search your library this way, shuffle"
-    ) is None
+    )
+    assert specs[0].params['criteria'] == {'name': 'jace, ingenious mind-mage'}
+
 
 
 # ---------------------------------------------------------------------------

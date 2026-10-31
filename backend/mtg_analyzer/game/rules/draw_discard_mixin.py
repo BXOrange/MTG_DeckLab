@@ -97,15 +97,15 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "creature":
         return obj.is_creature
     if what == "artifact":
-        return obj.card.is_artifact
+        return obj.is_artifact
     if what == "enchantment":
-        return obj.card.is_enchantment
+        return obj.is_enchantment
     if what == "land":
         return obj.is_land
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
-        return obj.is_creature or obj.card.is_planeswalker
+        return obj.is_creature or obj.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -551,6 +551,7 @@ class DrawDiscardMixin:
             from ...parser.oracle.spec import EffectSpec
             from ..effects.core import TriggeredAbility
 
+            self.state.reveal_card(obj, player.id)
             obj.miracle_revealed_incarnation = obj.zone_incarnation
             effect = EffectSpec("miracle_cast", {"cost": choice["cost"], "incarnation": choice["incarnation"],
                                                  "granted": choice["granted"]})
@@ -605,6 +606,7 @@ class DrawDiscardMixin:
                     # tell an instant/sorcery discard apart from the rest.
                     object_types=_main_type_words(obj.card),
                     cause_controller_id=cause_controller_id,
+                    **self._lki_characteristics(obj),  # RULE 608.2h
                 )
             )
         if discarded:
@@ -647,6 +649,7 @@ class DrawDiscardMixin:
                     zone_incarnation=obj.zone_incarnation,
                     object_types=_main_type_words(obj.card),
                     cause_controller_id=cause_controller_id,
+                    **self._lki_characteristics(obj),  # RULE 608.2h
                 )
             )
         if discarded:
@@ -711,6 +714,7 @@ class DrawDiscardMixin:
 
     def look_at_hand(
         self, player: Player, owner: Player, source: Optional[GameObject] = None,
+        extra: Optional[dict[str, Any]] = None,
     ) -> None:
         """"Look at target player's hand." (Clairvoyance, Peek, Glasses of Urza.) Nothing moves: the
         looking player is shown ``owner``'s hand — every card as an option, any click or "done"
@@ -731,11 +735,26 @@ class DrawDiscardMixin:
             "prompt": f"Hand von {owner.name}",
             "source_name": source.name if source is not None else None,
             "options": options,
+            **(extra or {}),
         })
 
     @continuations.choice("look_hand", answer=continuations.ANSWER_STR, rule="400.2")
     def _resume_look_hand(self, choice: dict[str, Any], answer: Optional[str]) -> None:
-        """Looking changes nothing; the answer only closes the window."""
+        """Close a look window before its impossible-selection follow-up."""
+        if choice.get("enter_look"):
+            # MEC-134 (RULE 601.2b): an "as ~ enters, look at an opponent's hand" step -- hand the pre-entry queue on to
+            # whatever follows (the card-name pick), exactly as `_resume_choose_creature_type` does.
+            _, _, continuation = self._take_enter_choice()
+            if continuation is not None:
+                continuation()
+            return
+        if choice.get("hand_else_specs"):
+            outer = self.context.resolving_controller_id
+            self.context.resolving_controller_id = choice.get("effect_controller_id")
+            try:
+                self._apply_effect_specs(choice["hand_else_specs"], self._object_by_instance_id(choice.get("source_id")))
+            finally:
+                self.context.resolving_controller_id = outer
 
     def exile_hand_choice(
         self,
@@ -780,20 +799,11 @@ class DrawDiscardMixin:
         )
 
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:
-        """Put up to ``count`` cards from ``player``'s hand on top of their
-        library, "in any order" (RULE 701 — Brainstorm's "then put two cards
-        from your hand on top of your library"). Auto-picks off the back of
-        hand — no chooser in this MVP, the same idiom `discard` above uses;
-        the actual *order* among the returned cards isn't anything this
-        engine's library model exposes a distinction for, so the missing
-        choice is inert either way.
-        """
-        for _ in range(count):
-            if not player.hand:
-                break
-            obj = player.hand.pop()
-            obj.zone = Zone.LIBRARY
-            player.library.append(obj)  # top of deck is the list end
+        """Choose hand cards and their library order (RULE 401.4)."""
+        self._request_choose_objects(
+            player, list(player.hand), "hand_to_library_top", count=count,
+            prompt="Lege Handkarten auf die Bibliothek (die zuletzt gewählte Karte liegt ganz oben)",
+        )
     def put_hand_card_on_bottom_then_draw(self, player: Player) -> None:
         """"You may put a card from your hand on the bottom of your library.
         If you do, draw a card." (Volcanic Spite) — a pure card exchange
@@ -844,6 +854,7 @@ class DrawDiscardMixin:
                 zone_incarnation=obj.zone_incarnation,
                 object_types=_main_type_words(obj.card),  # see `discard`'s own comment
                 cause_controller_id=cause_controller_id,
+                **self._lki_characteristics(obj),  # RULE 608.2h
             )
         )
         self.state.fire_event(

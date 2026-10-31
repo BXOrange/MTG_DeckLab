@@ -301,6 +301,10 @@ def _pre_exile_control_branch(body):
 
 def linked_pool_return_specs(body):
     """A shared source-linked pool, filtered by printed card types."""
+    hands = re.fullmatch(
+        r"(?:return|put) (?:all|each) cards? exiled with (?:~|it) (?:to|into) their owners?'?s? hands?\.?", body)
+    if hands is not None:
+        return [EffectSpec('return_all_exiled_with', {'destination': 'hand'})]
     matched = re.fullmatch(
         r'return (?:all|each) (?:(?P<types>(?:(?:artifact|battle|creature|enchantment|land|planeswalker) )+))?'
         r'cards? exiled with (?:~|it) to the battlefield(?P<tapped> tapped)? '

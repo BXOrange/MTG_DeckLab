@@ -131,6 +131,7 @@ def test_protection_from_the_sources_colour_gained_in_response_is_illegal():
     flyer = _put(eng, _creature("Flyer", "Flying"), controller="p2")
     src = _fire(eng, "Destroy target creature with flying.", flyer)
     src.card.color_identity = ["R"]
+    src.card.printed_colors_override = frozenset(["R"])  # RULE 202.2 fixture colour
     assert "R" in src.colors, "fixture: the source must be red for protection from red to apply"
     flyer.temp_protections = {"R"}
     eng.resolve_until_stable()

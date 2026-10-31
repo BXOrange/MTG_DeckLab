@@ -83,6 +83,8 @@ class ArchetypeScore:
     matched_core: list[str]
     matched_support: list[str]
     pattern_match_count: int
+    philosophy: str = ""
+    philosophy_label: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -93,6 +95,8 @@ class ArchetypeScore:
             "matchedCore": self.matched_core,
             "matchedSupport": self.matched_support,
             "patternMatchCount": self.pattern_match_count,
+            "philosophy": self.philosophy,
+            "philosophyLabel": self.philosophy_label,
         }
 
 
@@ -147,6 +151,8 @@ def score_archetypes(cards: list[Card]) -> list[ArchetypeScore]:
                 matched_core=matched_core,
                 matched_support=matched_support,
                 pattern_match_count=pattern_hits,
+                philosophy=entry.get("philosophy", ""),
+                philosophy_label=entry.get("philosophy_label", ""),
             )
         )
 

@@ -26,12 +26,16 @@ Task → entry point. Load when you do not know where a behaviour lives.
 | Combining effects: branching, "you may", "for each", "…equal to" | `backend/mtg_analyzer/game/effects/composition.py` (`seq`/`if_else`/`optional`/`for_each`/`bind`), `game/effect_amounts.py` (what `bind` measures) |
 | An "if `<predicate>`, `<effect>`" gate on a resolving effect (RULE 603.4/702.33b) | `backend/mtg_analyzer/game/effect_conditions.py` (referents + the `GameContext` predicates + the flat-key translator), `game/static_conditions.py` (every state predicate, shared with statics/triggers/replacements), `parser/oracle/segmenter.py`'s `_CONDITION_PREFIXES` |
 | A player choice: opening one, answering one, adding a new kind | `backend/mtg_analyzer/game/continuations.py` (the handler registry), `RulesEngine.open_choice`/`resolve_choice` |
+| Payments, votes, object selections, variants and miscellaneous rules operations | `game/rules/misc_mixin.py` composes focused topic mixins; [engine mechanic notes](ENGINE_MECHANICS_NOTES.md#rules-subsystem-navigation) maps responsibilities to modules |
 | What an effect type/engine method *is* (instruction/fusion/alias/…) | `backend/mtg_analyzer/game/isa.py`, `scripts/isa_report.py --registry` |
 | Which operations the corpus actually uses, and their argument frames | `scripts/isa_report.py --corpus` (re-derives `13_` §5.6b from the ledger) |
 | What a `TargetSpec.kind` decomposes into (types × scope × filters) | `game/targeting.py`'s `TARGET_FRAMES` |
 | Mana abilities with “Activate only if …” (Mox Opal / Metalcraft) | `game/mana_abilities.py` parses the shared activation condition and gates production options; `engine/activation_mixin.py` rechecks it during cost validation, including mana abilities and auto-tap |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
+| UI styles | `frontend/src/styles/main.css` (ordered imports); area styles in the same directory, including `game-layout.css`, `battlefield.css`, `game-choices.css`, `replay.css`, `multiplayer.css` |
+| UI translations | `frontend/src/js/locales/en.js` / `de.js` (catalog entry points); matching area catalogs under `locales/en/` and `locales/de/` |
+| Engine integration tests | `backend/tests/game/engine/test_engine_*.py` (casting, attachments, commander, combat, ward, costs, state/effects, turns/mana); shared factories and setup in `engine_test_helpers.py` |
 | Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |
 | Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js`, `bannerColors.js` (seat banner colours) |
 | Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (registry/driver, compatible class exports; individual policies in `services/bot_policies/`, deck planning in `services/bot_strategy.py`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |

@@ -28,13 +28,24 @@ PROBE=../.claude/skills/extend-parser/scripts/parser_probe.py
 python $PROBE rank --top 40                  # live processing list
 python $PROBE rank --grep 'monstrous'        # ranked, filtered to a family
 python $PROBE rank --by line                 # group by whole unclaimed line (default: --by span)
+python $PROBE rank --joint --top 40          # conjunctive repair packages, unique-card gains
 ```
 
-`rank` groups by the **minimal blocking sentence** (`gate.unclaimed_spans`, computed on demand, PAR-175 M5): the
-sentence or ", then" part whose removal lets the rest of the line parse, so a long line with one gap
-ranks under that gap, not as a one-off template. It is report data only -- `unclaimed` and the verdict
-still hold the whole line (the card stays UNMODELED), and the sentence still needs its own consumer row.
-`blocked` and `composition` keep working on whole lines.
+`rank --by span` builds a full-pool occurrence graph, retaining card, face,
+block and parsing context. Known modal headers and successful sibling modes
+remain in unresolved-line accounting but do not become repair capabilities;
+unrecognized wrappers and unexplained failures remain explicit blockers.
+Opaque blockers are never offered as hypothetical repairs. `--by line` keeps
+the whole authoritative gate-unclaimed line instead.
+
+`--joint` ranks shared capabilities against **all** each card's requirements,
+retaining zero-SOLO groups. Requirements are conjunctive prerequisites of a
+card; a trigger head and its body do not imply a global dependency on one
+another. Complete card packages are retained regardless of size; connected
+unions are explored up to `--max-package` (default 4), with explicit reporting
+if the candidate budget truncates exploration. Counts are unique card names,
+not occurrence sums. These are hypothetical grammar repair estimates, never
+proof of modeled gameplay. The graph does not alter gate verdicts or the ledger.
 
 Then — **always, before writing any regex** — find out how many of those cards
 a handler would genuinely finish:

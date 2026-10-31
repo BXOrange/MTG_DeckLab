@@ -45,6 +45,17 @@ def counted(selector: "str | dict[str, Any]", **modifiers: Any) -> dict[str, Any
     return {"kind": "count_selector", "selector": selector, **modifiers}
 
 
+def pump_counted(selector: Any, params: Params) -> dict[str, Any]:
+    """Lower legacy source-stat pumps through exact-visit characteristic amounts."""
+    if selector in ("source_power", "source_toughness"):
+        amount = {"kind": "characteristic", "of": "source",
+                  "characteristic": selector.removeprefix("source_"), "minimum": 0}
+        # RULE 107.1b: clamp the calculated X before applying a printed -X.
+        return ({"kind": "fixed", "amount": 0, "minus": amount}
+                if params.get("amount_from_count_selector_negative") else amount)
+    return counted(selector, **({"multiply": -1} if params.get("amount_from_count_selector_negative") else {}))
+
+
 #: One rewrite: ``(legacy key, magnitude param it feeds, builder(value, params) → operand)``.
 Rewrite = tuple[str, str, Callable[[Any, Params], Optional[dict[str, Any]]]]
 
@@ -189,7 +200,7 @@ rule(
     "pump",
     ("amount_from_trigger_event", "dynamic_amount", lambda v, p: event_field(v)),
     ("amount_from_count_selector", "dynamic_amount",
-     lambda v, p: counted(v, **({"multiply": -1} if p.get("amount_from_count_selector_negative") else {}))),
+     pump_counted),
 )
 
 rule(

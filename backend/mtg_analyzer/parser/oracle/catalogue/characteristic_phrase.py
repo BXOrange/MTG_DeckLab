@@ -27,6 +27,7 @@ import re
 from typing import Any, Optional
 
 from .subtype_vocabulary import SUBTYPES
+from .name_atoms import name_reference
 from .trigger_context import CONTROLLER_TAILS
 
 #: Main card types a phrase may name (RULE 300.1).
@@ -70,6 +71,12 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "blocking": {"blocking": True},
     # RULE 701.15b / 708.2: a designation and a status (PAR-119).
     "goaded": {"goaded": True},
+    # PAR-207: attachment-derived adjectives -- RULE 700.9 "modified" (a counter, an Equipment or an Aura its
+    # controller controls) and RULE 301.5 / 303.4 "equipped" / "enchanted" (an Equipment / Aura is attached).
+    # `combat.matches_object_filter` reads all three keys off the live board.
+    "modified": {"modified": True},
+    "equipped": {"equipped": True},
+    "enchanted": {"enchanted": True},
     "suspected": {"is_suspected": True},
     "face-down": {"face_down": True},
     # RULE 903.3: a commander is a designation, not a type or subtype.
@@ -110,6 +117,9 @@ _WITH_STAT = re.compile(r"^(?P<stat>power|toughness) (?P<n>\d+) or (?P<dir>great
 _WITH_COUNTER = re.compile(
     r"^(?:an? )?(?:(?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) )?counters? on (?:it|them)$"
 )
+#: PAR-216: "creatures with no +1/+1 counters on them" (Hindervines) -- the plural spelling of the "without a +1/+1 counter"
+#: negation the tail grammar already reads (RULE 122.1: a counter kind is a name, `without_counter_kind`).
+_WITH_NO_COUNTER_KIND = re.compile(r"^no (?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) counters on (?:it|them)$")
 _NON_SUBTYPE = re.compile(r"^non-?(?P<sub>[a-z]+)$")
 
 
@@ -233,24 +243,26 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             if base is not None and "nontoken" not in base:
                 return {**base, "nontoken": True}
         # A trailing card-type noun is shared by every subtype before it
-        # ("ninja or rogue creatures", Prosperous Thief) — narrow to subtypes
-        # alone, since a shared noun after other adjectives is ambiguous.
+        # ("ninja or rogue creatures", Prosperous Thief) or colour before it ("a green or white creature",
+        # Abomination; RULE 105.2) — narrow to those alone, since a shared noun after other adjectives is
+        # ambiguous.
         last = parts[-1].split()
         if len(last) == 2 and all(len(p.split()) == 1 for p in parts[:-1]):
             noun = _word_fragment(last[1], plural=plural)
             subs = _alternation([*parts[:-1], last[0]], plural=plural)
-            if noun and set(noun) == {"card_type"} and subs and set(subs) == {"subtype_any"}:
+            if noun and set(noun) == {"card_type"} and subs and set(subs) in ({"subtype_any"}, {"color_any"}):
                 return {**subs, **noun}
         return None
     fragments = [_word_fragment(p, plural=plural) for p in parts]
     if any(f is None or not f for f in fragments):
         return None
+    # "X or X" names one alternative once (RULE 105.2: colours are a set), so repeats collapse.
     if all(set(f) == {"card_type"} for f in fragments):
-        return {"card_type_any": [f["card_type"] for f in fragments]}
+        return {"card_type_any": list(dict.fromkeys(f["card_type"] for f in fragments))}
     if all(set(f) == {"color"} for f in fragments):
-        return {"color_any": [f["color"] for f in fragments]}
+        return {"color_any": list(dict.fromkeys(f["color"] for f in fragments))}
     if all(set(f) == {"subtype"} for f in fragments):
-        return {"subtype_any": [f["subtype"] for f in fragments]}
+        return {"subtype_any": list(dict.fromkeys(f["subtype"] for f in fragments))}
     if all(all(k.startswith("without_") for k in f) for f in fragments):
         merged: dict[str, Any] = {}
         for f in fragments:
@@ -305,15 +317,30 @@ def parse_absent_quality(text: str) -> Optional[dict[str, Any]]:
     return {"without_keyword": keyword} if keyword else None
 
 
+def parse_stat_relation(text: str) -> Optional[str]:
+    """RULE 208: compare two derived characteristics of the same object."""
+    m = re.fullmatch(r"(power|toughness) (?:is )?(greater|less) than (?:its|their) (power|toughness)", text)
+    return m[1] + ('>' if m[2] == 'greater' else '<') + m[3] if m else None
+
+
 def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     """The text after "with " → filter keys, or ``None``."""
     qualifier = qualifier.strip().lower()
+    if qualifier.startswith("the same name as "):
+        reference = name_reference(qualifier.removeprefix("the same name as "))
+        return {"name_reference": reference} if reference else None
+    relation = parse_stat_relation(qualifier)
+    if relation:
+        return {"stat_relation": relation}
     m = _WITH_MANA_VALUE.match(qualifier)
     if m:
         return _bound("mana_value", int(m.group("n")), m.group("dir"))
     m = _WITH_STAT.match(qualifier)
     if m:
         return _bound(m.group("stat"), int(m.group("n")), m.group("dir"))
+    no_kind = _WITH_NO_COUNTER_KIND.match(qualifier)
+    if no_kind is not None:
+        return {"without_counter_kind": no_kind.group("kind")}
     m = _WITH_COUNTER.match(qualifier)
     if m:
         # The kindless "a counter on it" is any counter (RULE 122.1); "no counters on them"
@@ -323,6 +350,9 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
         return {"has_counter_kind": m.group("kind")} if m.group("kind") else {"has_counter": True}
     if qualifier in KEYWORD_WORDS:
         return {"keyword": KEYWORD_WORDS[qualifier]}
+    if qualifier == "the chosen name":
+        # RULE 201.2 (MEC-134): the name a permanent stamped as it entered -- `combat.matches_object_filter`'s ``name_from_source``.
+        return {"name_from_source": True}
     return None
 
 
@@ -344,7 +374,7 @@ def parse_characteristic_phrase(text: str) -> Optional[dict[str, Any]]:
 #: "with <qualifier>", or an "of the chosen <color|type>".
 _TAIL_MARKER = re.compile(
     r"\s(?=(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|with|without|of the chosen|that entered)\b)"
+    + r"|with|without|of the chosen|that entered|that crewed)\b)"
 )
 #: "creatures **without flying**" (Deluge, PAR-128) — the negated sibling of the
 #: "with `<keyword>`" tail: ``combat.matches_object_filter``'s ``without_keyword``.
@@ -357,6 +387,8 @@ _TAIL_QUALIFIER = re.compile(
     + r"|of the chosen|that entered)\b|$)"
 )
 _CHOSEN_TAILS = {
+    "that crewed it this turn": {"crewed_reference_this_turn": True},
+    "that crewed ~ this turn": {"crewed_reference_this_turn": True},
     "of the chosen color": {"color_from_source": True},
     "of the chosen type": {"subtype_from_source": True},
     # "creatures you control **that entered this turn**" (Goro-Goro and Satoru, PAR-119)

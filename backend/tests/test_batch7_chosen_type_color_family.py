@@ -235,8 +235,10 @@ def test_chosen_color_anthem_boosts_only_matching_creatures():
     )
     red = _bf(state, _creature("Red Guy", type_line="Creature — Bear", oracle_text=""))
     red.card.color_identity = {"R"}
+    red.card.printed_colors_override = frozenset({"R"})  # RULE 202.2 fixture colour
     blue = _bf(state, _creature("Blue Guy", type_line="Creature — Bear"))
     blue.card.color_identity = {"U"}
+    blue.card.printed_colors_override = frozenset({"U"})  # RULE 202.2 fixture colour
 
     lord.chosen_color = "R"
     continuous.recompute(state)

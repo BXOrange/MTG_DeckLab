@@ -154,12 +154,58 @@ def test_abilities_still_on_the_stack_do_not_count():
     assert len(p1.hand) == 1
 
 
+def _activate_and_resolve_for(engine, state, source, player_id):
+    engine.activate_ability(state.player_by_id(player_id), source, 0)
+    engine.resolve_until_stable()
+
+
 def test_the_count_starts_over_each_turn():
     engine, state = _engine()
     source = _permanent(state, "Second Timer", _SECOND_TIME_DRAWS)
     hand = state.player_by_id("p1").hand
     _activate_and_resolve(engine, state, source)
-    state.turn_nr += 1  # a stale turn stamp reads as zero resolutions
+    # p2's turn, then p1's again: a real turn transition (RULE 500.1).
+    engine.begin_turn()
+    engine.begin_turn()
+    assert state.active_player.id == "p1"
+    _activate_and_resolve(engine, state, source)
+    assert len(hand) == 0
+    _activate_and_resolve(engine, state, source)
+    assert len(hand) == 1
+
+
+def test_resolving_once_on_each_players_turn_is_not_the_second_time():
+    # RULE 500.1: p1's turn and p2's turn are two turns, even though the
+    # display-only round counter has not moved.
+    engine, state = _engine()
+    source = _permanent(state, "Second Timer", _SECOND_TIME_DRAWS)
+    hand = state.player_by_id("p1").hand
+    _activate_and_resolve(engine, state, source)
+    engine.begin_turn()
+    assert state.active_player.id == "p2"
+    _activate_and_resolve_for(engine, state, source, "p1")
+    assert len(hand) == 0
+
+
+def test_twice_in_the_same_turn_is_the_second_time():
+    engine, state = _engine()
+    source = _permanent(state, "Second Timer", _SECOND_TIME_DRAWS)
+    hand = state.player_by_id("p1").hand
+    _activate_and_resolve(engine, state, source)
+    assert len(hand) == 0
+    _activate_and_resolve(engine, state, source)
+    assert len(hand) == 1
+
+
+def test_an_extra_turn_starts_a_fresh_count():
+    # RULE 500.7: an extra turn is a new turn for "this turn" counts.
+    engine, state = _engine()
+    source = _permanent(state, "Second Timer", _SECOND_TIME_DRAWS)
+    hand = state.player_by_id("p1").hand
+    _activate_and_resolve(engine, state, source)
+    state.extra_turns.append("p1")
+    engine.begin_turn()
+    assert state.active_player.id == "p1"
     _activate_and_resolve(engine, state, source)
     assert len(hand) == 0
     _activate_and_resolve(engine, state, source)

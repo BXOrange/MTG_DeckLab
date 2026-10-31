@@ -71,9 +71,8 @@ def test_exile_two_color_permanent_parses():
     ]
 
 
-def test_same_colour_twice_fails_closed():
-    assert match_clause("destroy target red or red creature") is None
-    assert match_clause("exile target blue or blue permanent") is None
+def test_same_colour_twice_collapses_to_one_alternative():
+    assert "'color_any': ['R']" in str([e.params for e in match_clause("destroy target red or red creature")])
 
 
 def test_real_cards_modeled():

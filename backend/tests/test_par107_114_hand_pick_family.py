@@ -67,6 +67,8 @@ def _spec(text):
 ])
 def test_parse(text, params):
     effect = _spec(text)
+    if text.startswith("Look"):
+        params = {**params, "reveal": False}
     assert effect.type == "reveal_hand_choose_discard" and effect.params == params
 
 
@@ -101,6 +103,9 @@ def test_count_is_capped_by_the_hand():
     engine, state, p1, p2 = _setup()
     only = _hand_card(p2, "A")
     RevealHandChooseDiscardEffect(count=3).apply(GameContext(state, engine), targets=[p2])
+    # The hand must be visible before the forced selection completes.
+    assert state.pending_choice is not None
+    engine.resolve_choice(only.instance_id)
     assert state.pending_choice is None and p2.graveyard == [only]
 
 

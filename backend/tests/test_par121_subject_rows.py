@@ -94,10 +94,15 @@ def test_certain_antecedent_collapses_to_a_sequence(body):
 @pytest.mark.parametrize("body", [
     "earthbend 2. if you do, draw a card",        # the earthbend row is "when you do" only
     "sacrifice target creature. when you do, draw a card",  # not the certain self-sacrifice
-    "discard a card at random. if you do, draw a card",     # not a bare mandatory discard
 ])
 def test_certain_antecedent_rows_keep_their_narrow_connectives(body):
     assert parse_effect_body(body) is None
+
+
+def test_random_discard_antecedent_is_a_gated_sequence():
+    # PAR-208 (RULE 608.2c): a mandatory random discard has an observable footprint, so "if you do" is a real gate.
+    specs = parse_effect_body("discard a card at random. if you do, draw a card")
+    assert [s.type for s in specs] == ["seq"] and specs[0].params["if_you_do_from"] == 1
 
 
 def test_exile_another_target_is_the_plain_exile_row():

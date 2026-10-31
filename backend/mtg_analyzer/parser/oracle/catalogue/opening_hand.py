@@ -29,6 +29,10 @@ to claim *that* line specifically, and what makes the two "shaped extra
 clause" cases below correctly read as un-claimed by it).
 
 Pure — **no `game/` imports** (front-end security boundary, docs/09).
+
+RULE 103.6b reveals use the same permission entry point. Their supported
+payoff is retained as shared effect IR, with exact first-upkeep/main-phase
+or each-opponent-first-spell timing; setup arms existing delayed triggers.
 """
 
 from __future__ import annotations
@@ -38,6 +42,9 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ..normalize import normalize
+from ..spec import EffectSpec
+from .clause_hooks import parse_effect_body
+from .clause_reading import ClauseReading
 
 #: "if this card is in your opening hand, you may begin the game with it
 #: on the battlefield." / "...with him/her/them on the battlefield." (a
@@ -131,7 +138,8 @@ class PregameSetupPermission:
     """One card's RULE 103.6 pregame setup permission, read off its printed
     text by `pregame_setup_permission` below.
 
-    ``destination`` is ``"battlefield"`` or ``"graveyard"``. ``condition``
+    ``destination`` is ``"battlefield"``, ``"graveyard"`` or ``"reveal"``.
+    Revealing stores its shared effect IR and first-step/event timing. ``condition``
     is ``None`` (unconditional — the plain Leyline shape) or
     ``"not_starting_player"`` (Gemstone Caverns — `services/game_session.py`
     checks this against `GameState.starting_player_id` before ever queuing
@@ -154,11 +162,62 @@ class PregameSetupPermission:
     counter_count: int = 0
     cost_kind: Optional[str] = None
     cost_amount: int = 0
+    # RULE 103.6b / 603.7: revealing creates a delayed payoff, independent
+    # of the card remaining in hand. Descriptors stay inside the parser IR.
+    reveal_step: Optional[str] = None
+    reveal_scope: str = "any"
+    reveal_event: Optional[str] = None
+    reveal_effects: tuple[EffectSpec, ...] = ()
+
+
+_REVEAL_PREFIX_RE = re.compile(
+    r"you may reveal (?:this card|~) from your opening hand\. if you do, (?P<tail>.+)",
+    re.IGNORECASE,
+)
+_FIRST_STEP_RE = re.compile(
+    r"at the beginning of (?P<scope>the|your) first (?P<step>upkeep|main phase)(?: of the game)?, (?P<body>.+)",
+    re.IGNORECASE,
+)
+_FIRST_STEP_TAIL_RE = re.compile(
+    r"(?P<body>.+) at the beginning of (?P<scope>the|your) first (?P<step>upkeep|main phase)(?: of the game)?\.?",
+    re.IGNORECASE,
+)
+_FIRST_OPPONENT_SPELL_RE = re.compile(
+    r"when each opponent casts their first spell of the game, (?P<body>.+)", re.IGNORECASE,
+)
+
+
+def opening_hand_reveal_permission_line(line: str) -> Optional[PregameSetupPermission]:
+    """Read a RULE 103.6b permission only when its entire delayed body is supported."""
+    prefix = _REVEAL_PREFIX_RE.fullmatch(line.strip())
+    if prefix is None:
+        return None
+    tail = prefix.group("tail")
+    timing = _FIRST_STEP_RE.fullmatch(tail) or _FIRST_STEP_TAIL_RE.fullmatch(tail)
+    event = _FIRST_OPPONENT_SPELL_RE.fullmatch(tail)
+    if timing is None and event is None:
+        return None
+    body = (timing or event).group("body")
+    # These pregame delayed bodies have no target announcement or pinned
+    # source-referent machinery. Decline such new shapes rather than acting
+    # on an unannounced target or a later source visit (RULE 400.7).
+    if re.search(r"\btarget\b|~|\b(?:this card|it|its)\b", body):
+        return None
+    effects = parse_effect_body(body, reading=ClauseReading())
+    if not effects:
+        return None
+    return PregameSetupPermission(
+        destination="reveal",
+        reveal_step=("main" if timing.group("step") == "main phase" else "upkeep") if timing else None,
+        reveal_scope="controller" if timing and timing.group("scope") == "your" else "any",
+        reveal_event="SPELL_CAST" if event else None,
+        reveal_effects=tuple(effects),
+    )
 
 
 def pregame_setup_permission(card: Any) -> Optional[PregameSetupPermission]:
-    """``card``'s RULE 103.6 pregame setup permission, covering all three
-    recognised shapes (plain/conditional-battlefield/graveyard) — or
+    """``card``'s RULE 103.6 pregame setup permission, covering all four
+    recognised shapes (plain/conditional-battlefield/graveyard/reveal) — or
     ``None`` if it has none. Single source of truth for `game/
     card_registry.pregame_setup_permission`, the same split every
     other clause-shape module in this package uses.
@@ -169,6 +228,9 @@ def pregame_setup_permission(card: Any) -> Optional[PregameSetupPermission]:
         line = line.strip()
         if not line:
             continue
+        reveal = opening_hand_reveal_permission_line(line)
+        if reveal is not None:
+            return reveal
         if opening_hand_battlefield_permission_line(line):
             return PregameSetupPermission(destination="battlefield")
         match = _BATTLEFIELD_CONDITIONAL_RE.match(line)

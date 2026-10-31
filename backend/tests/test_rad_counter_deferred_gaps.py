@@ -41,6 +41,10 @@ end-to-end via `bind_from_catalogue`.
 
 from __future__ import annotations
 
+from tests.proliferate_helpers import choose_all_proliferate
+
+from tests.proliferate_helpers import choose_all_proliferate
+
 from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.effects.core import AddPlayerCountersEffect, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
@@ -927,4 +931,6 @@ def test_vexing_radgull_proliferates_instead_once_the_player_already_has_rad_cou
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()
 
+    choose_all_proliferate(eng)
+    choose_all_proliferate(eng)
     assert p2.counters.get("rad", 0) == 3  # proliferated (+1), not reset to 2

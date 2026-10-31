@@ -8,18 +8,15 @@ def _gamble() -> list[AbilitySpec]:
     """Search your library for a card, put that card into your hand,
     discard a card at random, then shuffle.
 
-    — Imodane deck batch. **Documented simplification**: "at random"
-    becomes an ordinary discard choice — the same simplification
-    Indoraptor, the Perfect Hybrid's own "choose an opponent at random"
-    already established in this catalogue (a real choice instead of
-    randomness has no rules-relevant difference an MVP needs to model).
+    RULE 701.8d: the discard is random (`DiscardEffect(random=True)`), no
+    chooser; the tutored card is already in hand, so it can be the one lost.
     """
     return [
         AbilitySpec(
             "spell_effect",
             [
                 EffectSpec("search", {"criteria": "", "destination": "hand"}),
-                EffectSpec("discard", {"count": 1}),
+                EffectSpec("discard", {"count": 1, "random": True}),
             ],
         ),
     ]

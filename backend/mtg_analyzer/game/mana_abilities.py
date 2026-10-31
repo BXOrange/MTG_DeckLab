@@ -82,6 +82,7 @@ from typing import Any, Callable, Iterable, Optional
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
 from ..parser.oracle.normalize import strip_reminder_text
 from . import continuous, static_conditions
+from ..models.cards.card_colors import effective_colors
 from .costs import ActivationCost, parse_activation_cost
 
 #: Colours the five basic lands produce, by their basic land *type*.
@@ -825,7 +826,7 @@ def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool)
         # `additional_damage` colour filter), and that colour is the chosen
         # one. ``color`` is ``None`` only if the land's ETB choice hasn't
         # happened — then nothing qualifies (fail-closed).
-        colors = set(getattr(card, "color_identity", None) or ())
+        colors = set(effective_colors(card))
         return len(colors) == 1 and restriction.get("color") in colors
     return False  # unrecognised restriction kind — fail closed, never usable
 
@@ -1649,16 +1650,10 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         # not a colour to choose from).
         if state is None:
             return []
-        imprinted_ids = list(getattr(obj, "linked_exile_ids", None) or [])
-        if getattr(obj, "linked_exile_id", None) is not None:
-            imprinted_ids.append(obj.linked_exile_id)
+        from .linked_exile import remembered_cards
         colors: set[str] = set()
-        for imprinted_id in set(imprinted_ids):
-            imprinted = state.find_object(imprinted_id)
-            if imprinted is None:
-                continue
-            card = getattr(imprinted, "card", imprinted)
-            colors |= set(getattr(card, "color_identity", None) or set()) & set(_ALL_COLORS)
+        for imprinted in remembered_cards(state, obj):
+            colors |= set(effective_colors(imprinted)) & set(_ALL_COLORS)
         return [{color: 1} for color in sorted(colors)]
     if ability.color_selector in (
         "colors_of_legendary_permanents_you_control",

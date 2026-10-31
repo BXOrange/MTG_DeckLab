@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from ..control import end_control_effects
+
 import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -37,7 +39,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects.core import ActivatedAbility, GrantSkipExtraTurnsEffect
+from ..effects.core import ActivatedAbility, GrantSkipExtraTurnsEffect, StaticEffect
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -46,7 +48,7 @@ from ..mana_abilities import (
     restriction_predicate_for_cast,
     validate_color_split,
 )
-from ..phases import GamePhase, GameStep, default_turn_sequence
+from ..phases import FIRST_STRIKE_DAMAGE_STEP, GamePhase, GameStep, default_turn_sequence
 from ..rules.opponent_target_mixin import OPPONENT_CHOICE_KINDS
 from ..rules_engine import RulesEngine
 from ..targeting import (
@@ -176,6 +178,11 @@ class TurnLoopMixin:
             state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
+        # RULE 103.6b: a manually begun first turn also closes setup reveals.
+        self.state.opening_hand_revealed.clear()
+        # RULE 511.3: an end of combat step left without `advance_step` still owes its cleanup, settled while
+        # the outgoing player is still active (its "last combat" record belongs to them, not the next player).
+        self._finish_end_combat()
         self.state.end_steps_this_turn = 0
         self.state.pending_extra_end_steps = 0
         # RULE 606.3: loyalty usage expires every turn, including an
@@ -209,35 +216,41 @@ class TurnLoopMixin:
             # turn falls through to the next queued extra turn (or,
             # failing that, normal rotation) rather than handing the
             # skipped player anything.
-            while self.state.extra_turns and any(
-                isinstance(e, GrantSkipExtraTurnsEffect) and permanent.controller_id != self.state.extra_turns[0]
-                for permanent in self.state.battlefield
-                for e in getattr(permanent, "static_effects", None) or []
-            ):
-                self.state.extra_turns.pop(0)
-            if self.state.extra_turns:
-                taker_id = self.state.extra_turns.pop(0)
-                self.state.active_player_index = next(
-                    (i for i, p in enumerate(self.state.players) if p.id == taker_id),
-                    self.state.next_active_index(),
-                )
-            else:
-                # Rotate to the next player, skipping the passive goldfish dummy
-                # (UC3) so a solo game keeps handing turns back to the human.
-                self.state.active_player_index = self.state.next_active_index()
+            resume_id = self.state.extra_turn_resume_player_id
+            normal_index = next(
+                (i for i, p in enumerate(self.state.players) if p.id == resume_id),
+                self.state.next_active_index(),
+            )
+            if self.state.players[normal_index].has_lost:
+                self.state.active_player_index = normal_index
+                normal_index = self.state.next_active_index()
+            while True:
+                is_extra = bool(self.state.extra_turns)
+                if is_extra:
+                    taker_id = self.state.extra_turns.pop(0)
+                    self.state.active_player_index = next(
+                        (i for i, p in enumerate(self.state.players) if p.id == taker_id), normal_index,
+                    )
+                else:
+                    self.state.active_player_index = normal_index
+                candidate = self.state.active_player
+                if is_extra and any(
+                    isinstance(e, GrantSkipExtraTurnsEffect) and permanent.controller_id != candidate.id
+                    for permanent in self.state.battlefield
+                    for e in getattr(permanent, "static_effects", None) or []
+                ):
+                    continue
+                # RULE 614.10a: one replacement skips one whole turn; the
+                # other replacements wait for the next occurrence.
+                skip = next((e for e in candidate.player_effects if isinstance(e, StaticEffect) and e.skips_step("turn")), None)
+                if skip is None:
+                    self.state.extra_turn_resume_player_id = self.state.players[normal_index].id if is_extra else None
+                    break
+                if skip.duration == "once":
+                    candidate.player_effects.remove(skip)
+                if not is_extra:
+                    normal_index = self.state.next_active_index()
             self._advance_turn_nr()
-        # RULE 800.4a, deferred: a player who conceded during someone else's
-        # turn keeps their board standing until the next turn begins, so the
-        # position the other players were reading doesn't vanish mid-turn
-        # (see `RulesEngine.concede`). Swept here, before the new active
-        # player is settled on, so their permanents are already gone for
-        # every turn-based action of the turn about to start.
-        for player_id in self.state.pending_leave_ids:
-            try:
-                self.rules.remove_player_from_game(self.state.player_by_id(player_id))
-            except KeyError:
-                pass
-        self.state.pending_leave_ids.clear()
         active = self.state.active_player
         active.turns_taken += 1  # RULE 500.1: this begins one more of the player's own turns
         self.state.internal_turn.player_id = active.id
@@ -388,6 +401,7 @@ class TurnLoopMixin:
         """
         if self.state.game_over or self.state.pending_choice:
             return None
+        self._finish_end_combat()  # RULE 511.3: leaving the end of combat step removes creatures from combat
         # RULE 500.4-adjacent: drain any "additional combat phase" request an
         # effect queued since the last advance (`ExtraCombatPhaseEffect`) —
         # done here, not where it's queued, since only `GameEngine` (not the
@@ -443,11 +457,34 @@ class TurnLoopMixin:
                 GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)
             )
             self._begin_turn_steps()
+        self._schedule_first_strike_step()
         phase, step = self._turn_steps[self._cursor]
         self._cursor += 1
         self._run_step(phase, step)
         return (phase.name, step.name)
+
+    def _schedule_first_strike_step(self) -> None:
+        """RULE 510.4: if at least one attacking or blocking creature has first
+        strike or double strike as the combat damage step begins, the phase gets
+        a second combat damage step. Splice a distinct ``first_strike_damage``
+        step (its own SBA / trigger / priority window, RULE 510.3 + 117.3) in
+        front of the regular ``combat_damage`` step. The list is the per-turn
+        mutable one snapshots retain, so undo/clone keep the inserted step; the
+        step just before the cursor tells a resumed walk it already ran."""
+        if self._cursor >= len(self._turn_steps):
+            return
+        phase, step = self._turn_steps[self._cursor]
+        if step.name != "combat_damage" or phase.skipped:
+            return
+        if self._cursor and self._turn_steps[self._cursor - 1][1].name == FIRST_STRIKE_DAMAGE_STEP:
+            return
+        if not self._combat_has_first_strikers():
+            return
+        self._turn_steps.insert(self._cursor, (phase, GameStep(FIRST_STRIKE_DAMAGE_STEP, rule="510")))
     def _run_step(self, phase: GamePhase, step: GameStep) -> None:
+        # RULE 103.6b: session builders prepare turn one before mulligans;
+        # its first actual step ends the public opening-hand reveal window.
+        self.state.opening_hand_revealed.clear()
         self.state.current_phase = phase.name
         self.state.current_step = step.name
         if step.name == "draw":
@@ -480,7 +517,7 @@ class TurnLoopMixin:
             self.state.first_draw_done_this_step[self.state.active_player.id] = False
         # RULE 611.2: durations end as the step begins, before checking
         # beginning-of-step triggers against the resulting characteristics.
-        if step.name == "end" and durations.sweep(self.state, "end_step"):
+        if step.name in ("end", "upkeep") and durations.sweep(self.state, "end_step" if step.name == "end" else "upkeep"):
             self.recompute_continuous_effects()
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
         if phase.steps and step is phase.steps[0] and getattr(phase, "untap_controller_id", None):
@@ -706,18 +743,61 @@ class TurnLoopMixin:
 
     def _step_untap(self) -> None:
         active = self.state.active_player
-        # RULE 702.26a: "at the beginning of the untap step, before
-        # performing any other turn-based actions", every phased-out
-        # permanent this player controls phases back in. (No card in this
-        # engine yet auto-phases an already-phased-in permanent *out* at
-        # this point, so that half of 702.26a is deliberately not modeled —
-        # every phase-out here comes from an explicit activated ability,
-        # e.g. Robe of Stars' Astral Projection.) Reads `state.battlefield`
-        # directly, not `permanents_controlled_by`, since that filters
-        # phased-out objects out — exactly the ones this loop needs to find.
-        for obj in self.state.battlefield:
-            if obj.controller_id == active.id and obj.phased_out:
-                obj.phased_out = False
+        # RULE 502.1 / 702.26a: the untap step's first action is phasing,
+        # simultaneously: every phased-in permanent with phasing the active
+        # player controls phases out, and every permanent that phased out
+        # under that player's control phases in. Both sets are computed
+        # before either is applied, so a permanent phasing in this step is
+        # not also phased out (it was phased out when the sets were taken).
+        # Reads `state.battlefield` directly, not `permanents_controlled_by`,
+        # since that filters phased-out objects out.
+        battlefield = list(self.state.battlefield)
+        phase_in = [
+            obj for obj in battlefield
+            if obj.phased_out and obj.phased_out_with is None
+            and obj.controller_id == active.id
+        ]
+        phase_out = [
+            obj for obj in battlefield
+            if not obj.phased_out and obj.controller_id == active.id
+            and combat.has(obj, "phasing")
+        ]
+        # RULE 702.26g/h: attachments phase with their host (indirectly),
+        # whoever controls them; the attachment link is kept (unlike an
+        # explicit phase-out effect) so the pair returns together.
+        phase_in_ids = {obj.instance_id for obj in phase_in}
+        phase_out_ids = {obj.instance_id for obj in phase_out}
+        indirect_in = [
+            obj for obj in battlefield
+            if obj.phased_out and obj.phased_out_with in phase_in_ids
+        ]
+        indirect_out = [
+            obj for obj in battlefield
+            if not obj.phased_out and obj.attached_to in phase_out_ids
+            and obj.instance_id not in phase_out_ids
+        ]
+        # RULE 702.26a / 603.10: "whenever ~ phases out" looks back to the permanent as it leaves play's sight, so the
+        # event goes out before the flag flips (a phased-out permanent has no triggered abilities to find).
+        for obj in phase_out + indirect_out:
+            self.state.fire_event(GameEvent(
+                EventType.PHASED_OUT, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                object_types=sorted(getattr(obj, "type_words", None) or []),
+            ))
+        for obj in phase_in + indirect_in:
+            obj.phased_out = False
+            obj.phased_out_with = None
+        for obj in phase_out:
+            obj.phased_out = True
+        for obj in indirect_out:
+            obj.phased_out = True
+            obj.phased_out_with = obj.attached_to
+        # RULE 702.26a: "whenever ~ phases in" -- only once everything has finished phasing, so a trigger sees
+        # the board as the step left it (the sets above were taken before either direction was applied).
+        for obj in phase_in + indirect_in:
+            self.state.fire_event(GameEvent(
+                EventType.PHASED_IN, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                object_types=sorted(getattr(obj, "type_words", None) or []),
+            ))
         # RULE 502.3-adjacent (Winter Orb/Static Orb/Winter Moon): "players
         # can't untap more than N `<type>` during their untap steps" — a
         # flat, unscoped cap that applies to every player's untap step
@@ -815,6 +895,8 @@ class TurnLoopMixin:
             # yet.
             obj.crewed_by_ids = []
             obj.crewed_by_incarnations = {}
+            obj.crewed_by_visits = set()
+            obj.crewed_by_subtypes = set()
             obj.crewed_turn = None
         # PAR-28 / RULE 702.142a (Boast): "attacked this turn" resets for
         # every permanent, not just the active player's — attacks only ever
@@ -908,21 +990,47 @@ class TurnLoopMixin:
         Damage in a step is gathered first, then applied together so it is
         simultaneous (marked, then one SBA pass — RULE 704.5g).
         """
-        if self._combat_has_first_strikers():
-            self._deal_combat_damage_step(first_strike_step=True)
-            self.rules.check_state_based_actions()
+        if self.state.first_strike_step_combatants is None and self._combat_has_first_strikers():
+            # Step-less callers (a direct `_step_combat_damage()` with no
+            # scheduled first-strike step) still get both damage steps.
+            self._step_first_strike_damage()
         self._deal_combat_damage_step(first_strike_step=False)
         self.rules.check_state_based_actions()
+
+    def _step_first_strike_damage(self) -> None:
+        """RULE 510.4: the first combat damage step, in which only creatures
+        with first strike or double strike deal combat damage. SBAs follow
+        (RULE 510.3a); the step window then places triggers and gives APNAP
+        priority before the regular step runs."""
+        # Recorded before anything is dealt, as exact (instance, zone visit)
+        # pairs, so the follow-up (RULE 510.4: a creature that gains first
+        # strike afterwards must not deal damage again) can tell who took part.
+        self.state.first_strike_step_combatants = [
+            (c.instance_id, c.zone_incarnation)
+            for c in self._combat_creatures()
+            if self._deals_in_step(c, first_strike_step=True)
+        ]
+        self._deal_combat_damage_step(first_strike_step=True)
+        self.rules.check_state_based_actions()
     def _step_end_combat(self) -> None:
+        # RULE 511.1: "at end of combat" triggers fire as the step begins and RULE 511.2 gives players priority
+        # with combat intact: attacking/blocking status and "until end of combat" effects still apply. Removal
+        # from combat (RULE 511.3) waits for the transition out of the step (`_finish_end_combat`). The flag
+        # lives on `GameState` so a clone/undo snapshot taken inside the window still owes the cleanup.
+        self.state.end_combat_cleanup_pending = True
+
+    def _finish_end_combat(self) -> None:
+        """RULE 511.3: as the end of combat step ends, every creature is removed from combat and RULE 611's
+        combat-scoped continuous effects ("gains flying until end of combat") end with it — strictly earlier
+        than the cleanup step every ``temp_*`` grant waits for (`game/durations.py`)."""
+        if not self.state.end_combat_cleanup_pending:
+            return
+        self.state.end_combat_cleanup_pending = False
         self._record_last_combat()  # before the assignments go: "didn't attack during your last combat"
-        # RULE 511.3: creatures are removed from combat as it ends.
         self._clear_combat()
-        # …and RULE 611's combat-scoped continuous effects end with it
-        # ("target creature gains flying until end of combat"), which is
-        # strictly earlier than the cleanup step every ``temp_*`` grant waits
-        # for (`game/durations.py`).
         if durations.sweep(self.state, "end_of_combat"):
             self.recompute_continuous_effects()
+
     def _step_cleanup(self) -> None:
         active = self.state.active_player
         # RULE 514.1: discard down to maximum hand size — unless a standing
@@ -933,7 +1041,12 @@ class TurnLoopMixin:
         # sibling of that boolean exemption, applied to the flat
         # `MAX_HAND_SIZE` before the excess comparison.
         if not continuous.has_no_maximum_hand_size(self.state, active):
-            effective_max = max(0, MAX_HAND_SIZE + continuous.hand_size_modifier_for(self.state, active))
+            # MEC-129: a winning "your maximum hand size is N" replaces the
+            # seven; relative modifiers then apply on top of it.
+            base_max = continuous.set_maximum_hand_size(self.state, active)
+            if base_max is None:
+                base_max = MAX_HAND_SIZE
+            effective_max = max(0, base_max + continuous.hand_size_modifier_for(self.state, active))
             excess = len(active.hand) - effective_max
             if excess > 0:
                 self.rules.discard_choice(active, excess)
@@ -949,6 +1062,9 @@ class TurnLoopMixin:
         ended_effects = False
         for obj in self.state.permanents():
             obj.damage_marked = 0
+            for replacement in obj.replacement_effects:
+                if getattr(replacement, "suppressed", False):  # MEC-130 "loses <ability> until end of turn"
+                    replacement.suppressed = False
             if (obj.temp_power or obj.temp_toughness or obj.temp_keywords
                     or obj.temp_removed_keywords
                     or obj.temp_parametric_keywords):
@@ -995,20 +1111,29 @@ class TurnLoopMixin:
             # OfTurnEffect`) — hand control back to the original controller
             # at the next cleanup, regardless of whose turn it is (matching
             # "until end of turn", not "until your next turn").
-            if obj.control_change_until_eot is not None:
-                obj.controller_id = obj.control_change_until_eot
-                obj.control_change_until_eot = None
+            original_eot = obj.control_change_until_eot
+            ended_control = end_control_effects(obj, lambda record: record["duration"] == "end_of_turn"
+                or (record["duration"] == "end_of_your_next_turn" and durations.owners_next_turn_has_ended(
+                    self.state, record["window"]["player_id"], record["window"]["turn"])))
+            if not ended_control:
+                # Compatibility for manually constructed duration windows.
+                if original_eot is not None:
+                    obj.controller_id = original_eot
+                    obj.control_change_until_eot = None
+                    ended_control = True
+                window = obj.control_change_until_owner_turn
+                if window is not None and durations.owners_next_turn_has_ended(
+                    self.state, window["player_id"], window["turn"],
+                ):
+                    obj.controller_id = window["revert_to"]
+                    obj.control_change_until_owner_turn = None
+                    ended_control = True
+            if ended_control:
                 ended_effects = True
-            # RULE 611.2 "gain control of … until the end of your next turn":
-            # handed back at the cleanup of the *thief's* next turn
-            # (`durations.owners_next_turn_has_ended`), not this turn's.
-            window = obj.control_change_until_owner_turn
-            if window is not None and durations.owners_next_turn_has_ended(
-                self.state, window["player_id"], window["turn"],
-            ):
-                obj.controller_id = window["revert_to"]
-                obj.control_change_until_owner_turn = None
-                ended_effects = True
+                if self.state.player_by_id(obj.controller_id).has_lost:
+                    self.rules.exile(obj)  # RULE 800.4c
+            # RULE 514.2: turn-scoped assignment restrictions expire in cleanup.
+            obj.temp_assign_no_combat_damage = False
             if getattr(obj, "temp_prevent_combat_damage_dealt", False):
                 obj.temp_prevent_combat_damage_dealt = False
             # RULE 701.16a: an unused regeneration shield lasts only "that
@@ -1362,7 +1487,27 @@ class TurnLoopMixin:
             return
         if cleanup_discard and not self.state.pending_choice:
             self._step_cleanup()
+        if self.interactive_priority and self.state.priority_player is not None:
+            return self._finish_resolution_interactive()
         self.resolve_until_stable()
+
+    def _finish_resolution_interactive(self) -> None:
+        """Finish the object whose resolution just paused on a choice, nothing more.
+
+        RULE 117.3b: once it has resolved, the active player receives priority
+        and every pass so far is void. Objects still on the stack wait for the
+        table to pass again (RULE 608.1), and a pass recorded before the choice
+        must not let the step end without the active player ever acting.
+        """
+        while not self.state.pending_choice and self.rules.resume_deferred_effects():
+            pass
+        self.rules.check_state_based_actions()
+        if self.state.game_over or self.state.pending_choice or self.state.player_loss_batch:
+            return
+        self.rules.put_triggers_on_stack()
+        if self.state.pending_choice or self.state.game_over:
+            return
+        self.give_priority(self.state.active_player)
     def _finish_miracle_reveal_instructions(self) -> None:
         """Finish the drawing instruction, retaining Miracle's response window."""
         while not self.state.pending_choice and self.rules.resume_deferred_effects():

@@ -11,6 +11,7 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import peel_optional
@@ -129,7 +130,14 @@ def test_loot_with_an_empty_library_draws_nothing_so_discards_nothing():
     keep = GameObject(_card("Kept", "", "Creature — Bear"), owner_id="p1", zone=Zone.HAND)
     p1.hand.append(keep)
     _, p1 = _run_trigger_body(eng, card, "yes", library=0)
-    assert keep in p1.hand and not p1.graveyard
+    # No card was drawn, so the conditional discard must never happen.
+    # The subsequent empty-library loss removes all of that player's objects.
+    assert not any(e.type == EventType.DISCARD_CARD and e.get("player_id") == p1.id
+                   for e in eng.state.event_log)
+    assert not any(e.type == EventType.DRAW and e.get("player_id") == p1.id
+                   for e in eng.state.event_log)
+    assert p1.has_lost and p1.loss_reason == "draw_from_empty"
+    assert keep not in p1.hand and not p1.graveyard
 
 
 def test_exile_two_from_graveyard_is_not_offered_with_only_one_card():
@@ -343,14 +351,12 @@ def _cast_parsed(eng, card, targets=()):
     return mana_abilities_for
 
 
-def test_a_quoted_ability_given_to_a_created_token_is_a_created_only_grant():
+def test_a_quoted_native_ability_is_printed_on_the_created_token():
     from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
     specs = parse_effect_body(f"create a 1/1 colorless eldrazi scion creature token. {SCION_ABILITY}")
-    assert [s.type for s in specs] == ["create_token", "grant_until"]
-    grant = specs[1].params
-    assert grant["referent"] == "created" and grant["static"]["type"] == "grant_mana_ability"
-    assert grant["static"]["params"]["granted_mana_cost"] == "sacrifice ~"
+    assert [s.type for s in specs] == ["create_token"]
+    assert specs[0].params["oracle_text"] == "sacrifice ~: Add {C}."
     # No creating clause before it: the pronoun has no antecedent, so nothing is claimed.
     assert parse_effect_body(f"draw a card. {SCION_ABILITY}") is None
     assert parse_effect_body(SCION_ABILITY) is None
@@ -792,15 +798,40 @@ def test_tribune_of_rot_shape_makes_a_token_per_creature_card_milled_and_none_fo
     assert len([o for o in eng.state.battlefield if o.is_token and "Saproling" in o.name]) == 2
 
 
+EXILE_GRAVEYARD_ORACLE = "Exile target player's graveyard. You gain 3 life for each creature card exiled this way."
+
+
 def test_exile_a_graveyard_then_counters_for_the_creature_cards_exiled_reads_the_exile_pool():
     def setup(eng, p1, p2):
         for name, tl in (("Dead Bear", "Creature — Bear"), ("Dead Spell", "Sorcery")):
             card = _card(name, "", tl) if "Creature" in tl else Card(id=name, name=name, type_line=tl, is_sorcery=True)
             p2.add_to_zone(GameObject(card, owner_id="p2", zone=Zone.GRAVEYARD), Zone.GRAVEYARD)
 
-    eng, p1, p2 = _bound_count_cast("Exile target player's graveyard. You gain 3 life for each creature card exiled this way.", setup, targets=["p2"])
+    eng, p1, p2 = _bound_count_cast(EXILE_GRAVEYARD_ORACLE, setup, targets=["p2"])
     # one creature card in the graveyard: 3 life, not 6 (the sorcery was exiled too but is not a creature card)
-    assert p1.life == 43 and not p2.graveyard
+    assert p1.life == 43 and p2.life == 40 and not p2.graveyard
+    # RULE 406.3: both named cards are in exile (not merely gone from the graveyard, e.g. to hand or library)
+    assert sorted(o.name for o in p2.exile) == ["Dead Bear", "Dead Spell"]
+    assert not any(o.name.startswith("Dead") for o in (*p2.hand, *p2.library, *p1.exile, *eng.state.battlefield))
+
+
+def test_exile_a_graveyard_with_an_illegal_player_target_does_nothing():
+    def setup(eng, p1, p2):
+        p2.add_to_zone(GameObject(_card("Dead Bear", "", "Creature — Bear"), owner_id="p2", zone=Zone.GRAVEYARD), Zone.GRAVEYARD)
+
+    eng = _engine()
+    p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
+    setup(eng, p1, p2)
+    card = _sorcery("Test This Way", EXILE_GRAVEYARD_ORACLE)
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    p1.hand.append(obj)
+    eng.rules.cast_spell(p1, obj, targets=[p2])
+    # RULE 608.2b: the only target stops being legal (the player left the game) before resolution,
+    # so the spell does not resolve: no exile, no life
+    p2.has_lost = True
+    eng.resolve_until_stable()
+    assert p1.life == 40 and not p2.exile and [o.name for o in p2.graveyard] == ["Dead Bear"]
 
 
 def test_a_conditioned_follow_up_runs_only_when_the_pool_has_a_matching_object():

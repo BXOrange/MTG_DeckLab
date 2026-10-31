@@ -28,6 +28,8 @@ class EventType:
     TURN_END = "TURN_END"
     # RULE 603.8: internal opportunity to notice a state-trigger condition.
     STATE_CHECK = "STATE_CHECK"
+    # RULE 731.1a: only actual day/night transitions, never the initial designation.
+    DAY_NIGHT_CHANGED = "DAY_NIGHT_CHANGED"
     UNTAP = "UNTAP"
     #: A permanent transitions untapped → tapped (RULE 701.21b) — fired once
     #: per genuine transition (not a no-op re-tap), and *not* for a permanent
@@ -38,6 +40,7 @@ class EventType:
     #: ruling for e.g. Kambal-style triggers, and Dionus, Elvish Archdruid's
     #: "whenever this creature becomes tapped").
     TAPPED = "TAPPED"
+    ATTACHED_TO_CREATURE = "ATTACHED_TO_CREATURE"  # RULE 701.3 / 603.2
     #: The mirror image of `TAPPED`: a permanent transitions tapped →
     #: untapped (RULE 701.22), fired once per genuine transition by
     #: `RulesEngine.set_tapped` — every real untap route (the untap step's
@@ -82,6 +85,12 @@ class EventType:
 
     # RULE 610.3: notification after actual removal, distinct from look-back LTB triggers.
     BATTLEFIELD_DEPARTED = "BATTLEFIELD_DEPARTED"
+    #: RULE 702.26a (PAR-207): a permanent phased in -- fired once per object by the untap step's phasing action
+    #: (directly and indirectly, RULE 702.26g), after it is back. Carries ``instance_id`` / ``controller_id``.
+    PHASED_IN = "PHASED_IN"
+    #: The mirror of `PHASED_IN`: fired just *before* the permanent leaves play's sight, so a "whenever ~ phases out"
+    #: ability still finds its source (RULE 702.26a, 603.10 look-back). Same payload.
+    PHASED_OUT = "PHASED_OUT"
     # RULE 603.2: per-card sibling of CARDS_LEFT_GRAVEYARD (one-or-more).
     CARD_LEFT_GRAVEYARD = "CARD_LEFT_GRAVEYARD"
 
@@ -175,6 +184,8 @@ class EventType:
     #: the exiled card; no permanent exists to see it, so the trigger is
     #: collected off that id (`_collect_last_time_counter_triggers`).
     LAST_TIME_COUNTER_REMOVED = "LAST_TIME_COUNTER_REMOVED"
+    #: One actual counter removed; kind, zone and zone_incarnation are snapshots.
+    COUNTER_REMOVED = "COUNTER_REMOVED"
     #: A single card was put into a graveyard by milling, including lands.
     #: This is deliberately separate from the older nonland-only
     #: ``MILL_CARD`` compatibility event and from aggregate ``CARDS_MILLED``.

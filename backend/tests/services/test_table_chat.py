@@ -185,3 +185,21 @@ def test_free_cast_during_resolution_is_announced_even_when_request_is_a_pass():
     assert len(messages) == 1
     assert messages[0]['action'] == 'cast_spell'
     assert messages[0]['card_name'] == 'Free Bear'
+
+
+@pytest.mark.parametrize('text', ['🎉', '🦄', '👩🏽‍💻', '👨‍👩‍👧‍👦', '🇩🇪', '1️⃣', '❤️', '🎉🔥'])
+def test_custom_emoji_is_shared_without_gameplay_changes(text):
+    session = make_game()
+    before = session.engine.state.to_dict()
+    session.apply_action({'type': 'emote', 'emote': text}, actor_id='bob')
+    assert session.engine.state.to_dict() == before
+    assert session.view(perspective='ann')['table_messages'][-1]['text'] == text
+    assert session.observer_view()['table_messages'][-1]['author'] == 'Bob'
+
+
+@pytest.mark.parametrize('text', ['🎉' * 65, '<script>🎉</script>', 'hello🎉', '\u200d', '123'])
+def test_invalid_custom_emoji_is_rejected(text):
+    session = make_game()
+    with pytest.raises(GameActionError):
+        session.apply_action({'type': 'emote', 'emote': text}, actor_id='bob')
+    assert session.table_feed.view() == []

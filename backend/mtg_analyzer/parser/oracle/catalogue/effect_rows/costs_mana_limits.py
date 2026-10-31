@@ -10,6 +10,7 @@ from ..clause_hooks import parse_effect_body
 from ..clause_reading import ClauseReading
 from ..clause_primitives import (
     ACTION_ONCE_PER_TURN_MARKER,
+    ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
     announces_creature_target,
     ONCE_PER_TURN_MARKER,
@@ -17,10 +18,12 @@ from ..clause_primitives import (
     ONLY_DURING_YOUR_TURN_MARKER,
     SORCERY_SPEED_MARKER,
     TRIGGER_ONCE_PER_TURN_MARKER,
+    X_CAP_MARKER,
     X_SPEND_COLOR_MARKER,
 )
+from ..count_phrase import parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
-from ..static_handlers import static_condition
+from ..static_handlers import activation_attached_condition, static_condition
 from ..subgrammars import (
     count_of,
     NUMBER,
@@ -28,6 +31,7 @@ from ..subgrammars import (
     resolve_target_kind,
     TARGET,
     target_is_optional,
+    target_quality_filter,
     target_kind_allowed,
 )
 from ...normalize import SELF
@@ -93,9 +97,23 @@ def _choose_target_single(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    return [EffectSpec("choose_targets", {
-        "kinds": [kind], "optional": target_is_optional(m),
-    })]
+    params: dict = {"kinds": [kind], "optional": target_is_optional(m)}
+    # "choose target blocking creature" / "…attacking creature whose controller controls an Island" (Dwarven Sea
+    # Clan, MEC-131): `resolve_target_kind` collapses the combat-state adjective onto the bare kind, so without the
+    # filter the announcement would accept any creature.
+    creature_filter = dict(resolve_target_creature_state_filter(m.group("target")) or {})
+    if kind == "attacking_or_blocking_creature":
+        # The announcement keeps the plain creature kind and carries the combat-state pair as a filter key, which the
+        # announcement-time and resolution-time legality checks both read (RULE 608.2b).
+        params["kinds"] = ["creature"]
+        creature_filter["attacking_or_blocking"] = True
+    land = m.groupdict().get("controls_land")
+    if land:
+        # RULE 305.6: an Island is a land with the Island subtype.
+        creature_filter["controller_controls_land_subtype"] = land.lower()
+    if creature_filter:
+        params["creature_filter"] = creature_filter
+    return [EffectSpec("choose_targets", params)]
 
 
 # RULE 701.10 "exchange control of `<X>` and `<Y>`" (PAR-29) — three
@@ -169,6 +187,8 @@ def _exchange_control_two_explicit(m: re.Match[str]) -> Optional[list[EffectSpec
     return [EffectSpec("exchange_control", {
         "first_target_kind": first, "target_kind": second,
         **_exchange_xtarget_params(m),
+        **({"second_creature_filter": target_quality_filter(m.group("target_b"))}
+           if target_quality_filter(m.group("target_b")) else {}),
     })]
 
 
@@ -221,7 +241,9 @@ _CHOOSE_TARGETS_GROUP_RE = compile_clause(
     rf"choose {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT})"
     rf"{MULTI_TARGET_DISTINCT_CONTROLLERS}"
 )
-_CHOOSE_TARGET_SINGLE_RE = compile_clause(rf"choose {TARGET}")
+_CHOOSE_TARGET_SINGLE_RE = compile_clause(
+    rf"choose {TARGET}(?: whose controller controls an? (?P<controls_land>island|forest|mountain|plains|swamp))?"
+)
 
 
 # --- The one-sided fight ("deals damage equal to its power") ----------------
@@ -247,7 +269,24 @@ _DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
         "creature_or_planeswalker",
     }
 )
-_DEALS_POWER = r"deals? damage equal to its power to"
+_DEALS_POWER = r"deals? damage equal to its (?P<stat>power|toughness) to"
+
+
+def _stat_param(m: re.Match[str]) -> dict:
+    """RULE 208/209: "equal to its toughness" sizes the damage by toughness (Creature Bond-style); power is the default."""
+    return {"characteristic": "toughness"} if m.group("stat") == "toughness" else {}
+
+#: Role phrases naming the single recipient of a one-sided power hit without announcing a target (RULE 115.1).
+#: "its controller" / "that creature's controller" read the dealer's controller (Backlash, Traitor's Roar);
+#: "you" is the ability's controller; "~" is the ability's own source (Gargantuan Gorilla, Cyclops Gladiator).
+_IMPLICIT_RECIPIENTS: dict[str, str] = {
+    "its controller": "dealer_controller",
+    "that creature's controller": "dealer_controller",
+    "the creature's controller": "dealer_controller",
+    "you": "ability_controller",
+    SELF: "source",
+}
+_IMPLICIT_RECIPIENT_ALT = "|".join(re.escape(k) for k in _IMPLICIT_RECIPIENTS)
 
 
 def _power_recipient(phrase: str) -> Optional[str]:
@@ -260,7 +299,7 @@ def _damage_equal_to_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     recipient = _power_recipient(m.group("target_b"))
     if dealer is None or recipient is None:
         return None
-    params: dict = {"dealer_kind": dealer, "target_kind": recipient}
+    params: dict = {"dealer_kind": dealer, "target_kind": recipient, **_stat_param(m)}
     if target_is_optional(m):
         params["dealer_optional"] = True
     if target_is_optional(m, "_b"):
@@ -275,9 +314,34 @@ def _damage_equal_to_power_implicit(dealer_kind: Optional[str]):
         recipient = _power_recipient(m.group("target"))
         if recipient is None:
             return None
-        params: dict = {"target_kind": recipient, **optional_param(m)}
+        params: dict = {"target_kind": recipient, **optional_param(m), **_stat_param(m)}
         if dealer_kind is not None:
             params["dealer_kind"] = dealer_kind
+        return [EffectSpec("damage_equal_to_power", params)]
+
+    return build
+
+
+def _damage_equal_to_power_role(dealer_kind: Optional[str], allowed: frozenset[str]):
+    """"<dealer> deals damage equal to its power to its controller / you / ~ / each other creature" — the
+    recipient is a role (RULE 115.1, nothing announced for it), not a target. ``allowed`` names the
+    recipient roles that make sense for this dealer ("its controller" needs a dealer other than the
+    ability's own source; "~" needs one that is not the source)."""
+
+    def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+        params: dict = {"target_kind": None, **_stat_param(m)}
+        if dealer_kind is not None:
+            params["dealer_kind"] = dealer_kind
+        selector = (m.groupdict().get("selector") or "").lower()
+        if selector:
+            if selector != "each other creature" or "selector" not in allowed:
+                return None
+            params["selector"] = "each_other_creature"
+        else:
+            role = _IMPLICIT_RECIPIENTS.get(m.group("recip").lower())
+            if role is None or role not in allowed:
+                return None
+            params["recipient"] = role
         return [EffectSpec("damage_equal_to_power", params)]
 
     return build
@@ -291,7 +355,7 @@ def _damage_equal_to_power_selector(dealer_kind: Optional[str]):
         selector = SELECTOR_WORD_MAP.get(m.group("selector").lower())
         if selector is None:
             return None
-        params: dict = {"selector": selector, "target_kind": None}
+        params: dict = {"selector": selector, "target_kind": None, **_stat_param(m)}
         if dealer_kind is not None:
             params["dealer_kind"] = dealer_kind
         return [EffectSpec("damage_equal_to_power", params)]
@@ -342,6 +406,91 @@ _POWER_DAMAGE_SELF_SELECTOR_RE = compile_clause(
 _POWER_DAMAGE_PRONOUN_SELECTOR_RE = compile_clause(
     rf"it {_DEALS_POWER} (?P<selector>{_DAMAGE_SELECTOR_ALT})"
 )
+#: PAR-215: the role-named recipients (see `_IMPLICIT_RECIPIENTS`) and the dealer-relative "each other creature"
+#: group — one alternation, each row narrowing which roles its dealer can take.
+_POWER_ROLE_RECIPIENT = rf"(?:(?P<recip>{_IMPLICIT_RECIPIENT_ALT})|(?P<selector>each other creature))"
+_POWER_DAMAGE_TARGET_ROLE_RE = compile_clause(rf"{TARGET} {_DEALS_POWER} {_POWER_ROLE_RECIPIENT}")
+#: Dong Zhou, the Tyrant: "target creature an opponent controls deals damage equal to its power to that player"
+#: — "that player" is the chosen creature's controller only for an opposing dealer.
+_POWER_DAMAGE_OPPONENT_CONTROLLER_RE = compile_clause(rf"{TARGET} {_DEALS_POWER} (?P<recip>that player)")
+_POWER_DAMAGE_PREVIOUS_ROLE_RE = compile_clause(rf"{THEN}{PREVIOUS_SUBJECT} {_DEALS_POWER} {_POWER_ROLE_RECIPIENT}")
+_POWER_DAMAGE_PRONOUN_ROLE_RE = compile_clause(rf"it {_DEALS_POWER} {_POWER_ROLE_RECIPIENT}")
+_POWER_DAMAGE_SELF_ROLE_RE = compile_clause(rf"{re.escape(SELF)} {_DEALS_POWER} (?P<recip>you)")
+_POWER_ROLES_ALL = frozenset({"dealer_controller", "ability_controller", "source", "selector"})
+#: PAR-215: "<N target X> each deal damage equal to their power to <recipient>" (Band Together, Common Goal) — several
+#: announced dealers, one recipient — and its pronoun form "they each deal damage equal to their power to <recipient>"
+#: over the preceding clause's targets (Coordinated Clobbering, Terrific Team-Up).
+_EACH_DEALS_POWER = r"each deal damage equal to their (?P<stat>power|toughness) to"
+_POWER_DAMAGE_MULTI_DEALER_RE = compile_clause(
+    rf"{MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT}) {_EACH_DEALS_POWER} {TARGET_B}"
+)
+_POWER_DAMAGE_GROUP_DEALER_RE = compile_clause(rf"they {_EACH_DEALS_POWER} {TARGET}")
+
+
+def _multi_dealer_recipient(m: re.Match[str], suffix: str) -> Optional[tuple[str, bool]]:
+    """The recipient kind of a multi-dealer clause and whether it must differ from the dealers ("another").
+    A declinable ("up to one") recipient is refused: the recipient is read as the last announced pick."""
+    phrase = m.group(f"target{suffix}")
+    kind = _power_recipient(phrase)
+    if kind is None or target_is_optional(m, suffix):
+        return None
+    return kind, phrase.lower().startswith("another ")
+
+
+def _damage_equal_to_power_multi_dealer(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dealers = multi_target_params(m)
+    recipient = _multi_dealer_recipient(m, "_b")
+    if dealers is None or recipient is None or dealers["target_kind"] not in _MULTI_DEALER_KINDS:
+        return None
+    params: dict = {
+        "dealer_kind": dealers["target_kind"], "dealer_count": dealers["count"], "target_kind": recipient[0],
+        **_stat_param(m),
+    }
+    if "count_max" in dealers:
+        params["dealer_count_max"] = dealers["count_max"]
+    if dealers.get("optional"):
+        params["dealer_optional"] = True
+    if recipient[1]:
+        params["distinct"] = True
+    return [EffectSpec("damage_equal_to_power", params)]
+
+
+def _damage_equal_to_power_group_dealer(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    recipient = _multi_dealer_recipient(m, "")
+    if recipient is None:
+        return None
+    return [EffectSpec("damage_equal_to_power", {
+        "dealer_group": "previous_targets", "target_kind": recipient[0], **_stat_param(m),
+    })]
+
+
+#: Dealer pools a plural "each deal damage" clause may name (creatures only: damage is dealt by their power).
+_MULTI_DEALER_KINDS = frozenset({"creature", "creature_you_control", "creature_you_dont_control"})
+
+
+def _damage_equal_to_power_target_role(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dealer = fight_kind(m.group("target"))
+    if dealer is None:
+        return None
+    built = _damage_equal_to_power_role(dealer, _POWER_ROLES_ALL)(m)
+    if built is None:
+        return None
+    if target_is_optional(m):
+        built[0].params["dealer_optional"] = True
+    return built
+
+
+def _damage_equal_to_power_opponent_controller(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    # RULE 109.4: "that player" is the opponent the chosen creature belongs to — only a
+    # creature-you-don't-control dealer makes that unambiguous.
+    dealer = fight_kind(m.group("target"))
+    if dealer != "creature_you_dont_control":
+        return None
+    return [EffectSpec("damage_equal_to_power", {
+        "dealer_kind": dealer, "target_kind": None, "recipient": "dealer_controller", **_stat_param(m),
+    })]
+
+
 #: PAR-30: "<subject> deals damage equal to its power to each opponent." as
 #: a *triggered-ability body* where the damage source and its amount are the
 #: same object — the trigger's own subject (Champion of the Path's
@@ -418,6 +567,34 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
         _damage_equal_to_power_implicit("previous_target"), {"requires": ClauseReading(previous_subject=True)},
+    ),
+    # PAR-215: role-named recipients ("its controller", "you", "~", "each other creature").
+    ("damage_equal_to_power_target_role", _POWER_DAMAGE_TARGET_ROLE_RE, _damage_equal_to_power_target_role, {}),
+    (
+        "damage_equal_to_power_opponent_controller", _POWER_DAMAGE_OPPONENT_CONTROLLER_RE,
+        _damage_equal_to_power_opponent_controller, {},
+    ),
+    (
+        "damage_equal_to_power_previous_role", _POWER_DAMAGE_PREVIOUS_ROLE_RE,
+        _damage_equal_to_power_role("previous_target", _POWER_ROLES_ALL), {"requires": ClauseReading(previous_subject=True)},
+    ),
+    (
+        "damage_equal_to_power_pronoun_role", _POWER_DAMAGE_PRONOUN_ROLE_RE,
+        _damage_equal_to_power_role(None, frozenset({"ability_controller", "selector"})),
+        {"requires": ClauseReading(self_subject=True)},
+    ),
+    (
+        "damage_equal_to_power_group_pronoun_role", _POWER_DAMAGE_PRONOUN_ROLE_RE,
+        _damage_equal_to_power_role("trigger_subject", _POWER_ROLES_ALL), {"requires": ClauseReading(group_subject=True)},
+    ),
+    (
+        "damage_equal_to_power_self_role", _POWER_DAMAGE_SELF_ROLE_RE,
+        _damage_equal_to_power_role(None, frozenset({"ability_controller"})), {},
+    ),
+    ("damage_equal_to_power_multi_dealer", _POWER_DAMAGE_MULTI_DEALER_RE, _damage_equal_to_power_multi_dealer, {}),
+    (
+        "damage_equal_to_power_group_dealer", _POWER_DAMAGE_GROUP_DEALER_RE, _damage_equal_to_power_group_dealer,
+        {"requires": ClauseReading(previous_subject=True)},
     ),
     # "… deals damage to itself equal to its power." — dealer == recipient.
     (
@@ -578,24 +755,29 @@ def _add_mana_per_counter_removed(m: re.Match[str]) -> list[EffectSpec]:
 #: "you may pay {E}{E}. If/When you do, <effect>." (RULE 122, Aether Chaser/
 #: Herder/Inspector/Swooper) — a resolve-time optional energy payment gating
 #: a follow-up. The follow-up is recursively parsed; a follow-up the parser
-#: can't model (e.g. a *targeted* one — Guide of Souls) leaves the whole
-#: clause unclaimed (fail-closed).
+#: can't model leaves the whole clause unclaimed. "If you do" targets are
+#: announced by the enclosing ability; targeted "when you do" needs a
+#: separate RULE 603.12 reflexive trigger and remains fail-closed here.
 _PAY_ENERGY_THEN_RE = compile_clause(
-    r"you may pay (?P<pips>(?:\{e\})+)\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
+    r"you may pay (?P<pips>(?:\{e\})+)\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
 )
 
 
-def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _pay_energy_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
 
     amount = m.group("pips").count("{e}")
-    sub = parse_effect_body(m.group("effect").strip())
+    if len(re.findall(r"\btarget\b", m.group("effect"))) > 1:
+        # Independent target groups need separate continuation groups;
+        # this wrapper currently forwards one announced group only.
+        return None
+    sub = parse_effect_body(m.group("effect").strip(), reading=reading)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
-    if any(s.params.get("target_kind") for s in sub):
-        # A *targeted* follow-up (Guide of Souls' "put counters on target
-        # attacking creature") isn't resolvable through `PayEnergyThen
-        # Effect`'s no-target resolution — fail-closed rather than model it
-        # half-way (the resolve handler runs each sub-effect untargeted).
+    if m.group("link") == "when" and re.search(r"\btarget\b", m.group("effect")):
+        # RULE 603.12: a reflexive target is chosen after payment, unlike
+        # an "if you do" target announced with the enclosing ability.
+        # PAR-207: `pay_cost_then` (`_pay_cost_then_general`) carries that as its ``then_trigger``, and charges
+        # `{E}` through `_pay_player_cost`; this narrower row declines so that one reads it.
         return None
     return [EffectSpec("pay_energy_then", {"amount": amount, "effects": [s.to_dict() for s in sub]})]
 
@@ -643,9 +825,19 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: and worth being interactive about for a *typed* sacrifice/discard/life
 #: payment. Self-sacrifice is handled by that separate antecedent path.
 MAY_COST_THEN_CLAUSE = (
-    r"pay (?:\{[wubrgcx0-9/]+\})+"
+    # PAR-204 (RULE 118.8, a cost made of several parts): "you may pay {1} and 1 life / {1} and sacrifice an artifact /
+    # {2}{R} and sacrifice a nonland permanent / {1}{R} and discard a card" (Miara, Sokenzan Smelter, Dreamshaper
+    # Shaman) — mana plus ONE further part from the vocabulary `ActivationCost` charges whole (`_can_pay_player_cost`
+    # / `_pay_player_cost`), so the payer is only asked when every part is affordable.
+    r"pay (?:\{[wubrgcx0-9/]+\})+(?: and (?:sacrifice an? (?:nonland permanent|\w+)|discard a card|\d+ life))?"
+    # PAR-207 (RULE 107.14, 118.3): "you may pay {E}{E}. When you do, <targeted effect>" -- energy is charged by
+    # `_pay_player_cost` (`ActivationCost.pay_energy`); `_pay_energy_then` keeps the untargeted / "if you do" forms.
+    r"|pay (?:\{e\})+"
+    # PAR-207: a typed discard -- `costs.parse_activation_cost` reads the card type into ``discard_filter`` (Dokuchi
+    # Silencer's "you may discard a creature card"). Only the type words that function reads, so "nonland" stays out.
+    r"|discard an? (?:creature|land|artifact|enchantment|instant|sorcery|planeswalker) card"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
-    r"|sacrifice an? \w+(?: or (?:an? )?\w+)?"
+    r"|sacrifice an? (?:nonland permanent|\w+(?: or (?:an? )?\w+)?)"
     r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
     # PAR-152 (Strefan): "sacrifice two Blood tokens" — `costs.ActivationCost.sacrifice_count`.
     r"|sacrifice \d+ \w+(?: tokens)?"
@@ -667,6 +859,12 @@ MAY_COST_THEN_CLAUSE = (
     # `_pay_cost_then_general` refuses it under a group trigger.
     r"|remove (?:a|an|\d+) (?:[+\-]\d/[+\-]\d |[a-z]+(?: strike)? )?counters? from (?:~|it|this [a-z]+)"
 )
+def _cost_text(cost: str) -> str:
+    """The matched cost phrase as `costs.parse_activation_cost` reads it: a compound cost's bare "and 1 life" part is
+    only recognised as "and pay 1 life" (otherwise it is left unrecognised and the life would never be charged)."""
+    return re.sub(r" and (\d+ life)$", r" and pay \1", cost)
+
+
 _PAY_COST_THEN_GENERAL_RE = compile_clause(
     r"you may (?P<cost>" + MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
 )
@@ -730,11 +928,65 @@ def _remembered_group_referent(specs: "list[EffectSpec]") -> Optional[list[Effec
     return [EffectSpec(d["type"], d.get("params") or {}, condition=d.get("condition")) for d in rewritten]
 
 
+#: Composition nodes whose body is announced with the node (RULE 601.2c): a target inside one is the node's own.
+_BODY_ANNOUNCING_NODES = frozenset({"seq", "bind"})
+
+
+def _body_has_target(effects: Any) -> bool:
+    """Whether any effect of a serialized ``seq`` / ``bind`` body announces a RULE 115 target (recursing through nested
+    bodies) -- PAR-203's "choose a card name, then target player reveals …" wraps its tail in one."""
+    for effect in effects or []:
+        params = effect.get("params") or {}
+        if params.get("target_kind"):
+            return True
+        if effect.get("type") in _BODY_ANNOUNCING_NODES and _body_has_target(params.get("effects")):
+            return True
+    return False
+
+
+#: PAR-204 (RULE 107.3a): "…you may pay {X}. If you do, draw X cards. X can't be greater than the amount of life you
+#: gained this turn." (Shanna, Purifying Blade / Mortarion) — the announced X is capped by a turn-total the engine
+#: already tracks; the quantity is a `continuous.count_selector` name.
+_X_CAP_QUANTITIES: dict[str, str] = {
+    "the amount of life you gained this turn": "life_gained_this_turn",
+    "the amount of life you lost this turn": "life_lost_this_turn",
+}
+_X_CAP_RIDER_RE = re.compile(
+    r"\.\s*x can'?t be greater than (?P<quantity>" + "|".join(map(re.escape, _X_CAP_QUANTITIES)) + r")\.?$",
+    re.IGNORECASE,
+)
+
+
+#: PAR-208 (RULE 608.2h): after "sacrifice a creature", a payoff that measures "that creature's power" / "its toughness"
+#: means the sacrificed object's last-known value. `RulesEngine.note_sacrificed` stamps those on the ability's source,
+#: and `count_phrase.parse_amount_term` already reads the spelled-out "the sacrificed creature's power".
+_SACRIFICE_ANTECEDENT_RE = re.compile(r"^(?:sacrifice (?:another|an?|\d+) (?!it\b)|sacrifice a nontoken )", re.IGNORECASE)
+_SACRIFICED_PRONOUN_RE = re.compile(
+    r"\b(?:that (?:creature|permanent|artifact|land)'s|its) (?P<what>power|toughness|mana value)\b", re.IGNORECASE
+)
+
+
+def sacrificed_referent_payoff(antecedent: str, payoff: str) -> str:
+    """``payoff`` with "that creature's power" spelled "the sacrificed creature's power" when ``antecedent`` is the
+    ability's own sacrifice of a chosen permanent; otherwise unchanged."""
+    if _SACRIFICE_ANTECEDENT_RE.match(antecedent.strip()) is None:
+        return payoff
+    return _SACRIFICED_PRONOUN_RE.sub(lambda m: f"the sacrificed creature's {m.group('what').lower()}", payoff)
+
+
 def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if m.group("link") == "if" and re.fullmatch(r"pay (?:\{e\})+", m.group("cost")):
+        return None  # PAR-207: an energy payment's "if you do" stays `_pay_energy_then`'s (it keeps the caller's reading)
     group = reading.group_clause
     if group and re.match(r"remove .* from it$", m.group("cost")):
         return None  # under a group trigger "it" is the firing object, not the source that pays
-    parts = re.split(r"\.\s*otherwise,?\s+", m.group("effect").strip(), maxsplit=1)
+    effect_text = sacrificed_referent_payoff(m.group("cost"), m.group("effect").strip())
+    x_cap = _X_CAP_RIDER_RE.search(effect_text)
+    if x_cap is not None:
+        if "{x}" not in m.group("cost"):
+            return None  # a cap on an X nobody announces
+        effect_text = effect_text[:x_cap.start()].rstrip(". ") + "."
+    parts = re.split(r"\.\s*otherwise,?\s+|\.\s*if you don'?t,\s*", effect_text, maxsplit=1)  # PAR-208: "if you don't," too
     if group:
         # The branch runs once the payment is made, after the trigger's event window has closed, so
         # a pronoun in it names the object `remember_trigger_subject` stamped on the source: read as
@@ -750,18 +1002,22 @@ def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
     if m.group("link") == "when" and any(
-        s.params.get("target_kind") or (s.type == "fight" and s.params.get("other_kind") not in (None, "previous_target", "previous_target_2", "trigger_subject", "attached_permanent")) for s in sub
+        s.params.get("target_kind")
+        or (s.type in _BODY_ANNOUNCING_NODES and _body_has_target(s.params.get("effects")))
+        or (s.type == "fight" and s.params.get("other_kind") not in (None, "previous_target", "previous_target_2", "trigger_subject", "attached_permanent")) for s in sub
     ):
         # RULE 603.12: only "When you do" creates a reflexive trigger.
         # "If you do" uses the enclosing spell/ability's announced targets.
         if len(parts) > 1:
             return None  # an otherwise rider on a reflexive trigger is ambiguous
         return [EffectSpec("pay_cost_then", {
-            "cost": m.group("cost"),
+            "cost": _cost_text(m.group("cost")),
             "then_trigger": [s.to_dict() for s in sub],
             **({"remember_trigger_subject": True} if group else {}),
         })]
-    params: dict = {"cost": m.group("cost"), "effects": [s.to_dict() for s in sub]}
+    params: dict = {"cost": _cost_text(m.group("cost")), "effects": [s.to_dict() for s in sub]}
+    if x_cap is not None:
+        params["x_cap_selector"] = _X_CAP_QUANTITIES[x_cap.group("quantity").lower()]
     if len(parts) > 1:
         otherwise = parse_effect_body(
             parts[1], reading=ClauseReading(self_subject=True, previous_subject=announces_creature_target(sub)),
@@ -847,7 +1103,7 @@ def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if any(s.params.get("target_kind") not in (None, "source") for s in sub):
         return None  # a targeted else-branch can't resolve off-stack either ("source" is not a pick)
     return [EffectSpec("pay_cost_then", {
-        "cost": m.group("cost"),
+        "cost": _cost_text(m.group("cost")),
         "effects": [],
         "else_effects": [s.to_dict() for s in sub],
     })]
@@ -1044,7 +1300,7 @@ def _may_have_it_deal_damage_equal_to_power(m: re.Match[str]) -> Optional[list[E
                 "dealer_kind": "trigger_subject", "target_kind": recipient,
                 **optional_param(m),
             }).to_dict(),
-            EffectSpec("prevent_combat_damage_dealt", {"subject": "trigger_subject"}).to_dict(),
+            EffectSpec("assign_no_combat_damage", {"subject": "trigger_subject"}).to_dict(),
         ],
     })]
 
@@ -1068,17 +1324,38 @@ def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     first = parse_effect_body(m.group("effect1").strip(), reading=inner_reading)
     if not first:
         return None
-    # A *targeted* (RULE 115) antecedent needs its own announced-target
-    # step this off-stack wrapper has no way to give it (same reasoning
-    # `_pay_cost_then_general`/`_pay_cost_then_or_else` already apply to a
-    # targeted follow-up) — fail closed rather than silently drop the target.
-    if any(s.params.get("target_kind") for s in first):
+    # PAR-208: "you may exile a creature card from your graveyard. If you do, ..." -- the resolving player's own
+    # pick (RULE 608.2d), not a RULE 115 target, when the antecedent never says "target".
+    if len(first) == 1 and re.search(r"\btarget\b", m.group("effect1")) is None:
+        first = [_untargeted_own_choice(first[0])]
+    # PAR-204 (Cyclone Sire/Noyan Dar/Wall of Resurgence): "you may put 3 +1/+1 counters on target land you control.
+    # If you do, that land becomes a 0/0 Elemental creature …". A single targeted antecedent keeps its RULE 115
+    # target: it is announced when the ability goes on the stack (RULE 601.2c, `OptionalEffect.target_specs`), only
+    # *whether* it happens is decided at resolution, and the follow-up's "that land" is the same pick.
+    targeted_antecedent = (
+        len(first) == 1 and bool(first[0].params.get("target_kind"))
+        and re.search(r"\btarget\b", m.group("effect1")) is not None and announces_creature_target(first)
+    )
+    if targeted_antecedent:
+        inner_reading = ClauseReading(previous_subject=True, attached_subject=reading.attached_subject)
+    # Any other targeted antecedent needs its own announced-target step this off-stack wrapper has no way to give
+    # it (same reasoning `_pay_cost_then_general`/`_pay_cost_then_or_else` already apply to a targeted follow-up)
+    # — fail closed rather than silently drop the target.
+    elif any(s.params.get("target_kind") for s in first):
         return None
-    second = parse_effect_body(m.group("effect2").strip(), reading=inner_reading)
+    # PAR-208 (RULE 608.2c): "... If you do, Y. Otherwise / If you don't, Z." -- Z runs when the player declined,
+    # could not perform X, or X changed nothing (`OptionalEffect.else_specs`, `IfYouDoEffect`).
+    payoff_text, *rest = _OTHERWISE_SPLIT_RE.split(m.group("effect2").strip(), maxsplit=1)
+    second = parse_effect_body(sacrificed_referent_payoff(m.group("effect1"), payoff_text), reading=inner_reading)
     if not second:
         return None
     if any(s.params.get("target_kind") for s in second):
         return None
+    otherwise: list[EffectSpec] = []
+    if rest:
+        otherwise = parse_effect_body(rest[0].strip(), reading=ClauseReading(self_subject=True)) or []
+        if not otherwise or any(s.params.get("target_kind") for s in otherwise):
+            return None
     # RULE 608.2c: "if you do" -- the second part waits for the first to have been performed (`IfYouDoEffect`), which
     # the engine can only see for antecedents with an observable footprint; any other stays unclaimed.
     if not if_you_do_antecedent_ok([s.to_dict() for s in first]):
@@ -1086,7 +1363,181 @@ def _may_effect_then(m: re.Match[str], reading: ClauseReading) -> Optional[list[
     return [EffectSpec("optional", {
         "effects": [s.to_dict() for s in first] + [s.to_dict() for s in second],
         "if_you_do_from": len(first),
+        **({"else_effects": [s.to_dict() for s in otherwise]} if otherwise else {}),
     })]
+
+
+#: PAR-207 (RULE 603.12): "<action>. **When you do**, <effect>." -- a reflexive trigger fired by an action the
+#: ability's own earlier sentence performed (Kroxa and Kunoros, Kishla Trawlers, Wick's Patrol, The Fire Nation
+#: Drill ...). The payoff is a fresh triggered ability, so its targets are chosen only after the action happened;
+#: the action is a mandatory instruction here because a leading "you may" is either the whole ability's
+#: (`peel_optional` keeps the pair together once this row reads it) or a cost (`pay_cost_then_general`, tried first).
+#: The antecedent must leave an observable footprint (`spec.if_you_do_antecedent_ok`: the engine checks that it
+#: actually changed the game, RULE 608.2c) and must not announce a target of its own. A payoff naming the
+#: antecedent's object ("it", "that creature", "the exiled card") fails closed: nothing here can say which object
+#: that is.
+_ACTION_WHEN_YOU_DO_RE = compile_clause(r"(?P<action>(?!you may\b).+?)\.\s*when you do,\s*(?P<payoff>.+)")
+_PAYOFF_PRONOUN_RE = re.compile(
+    r"\b(?:it|its|they|them|their|those|that (?:creature|permanent|card|player|land|token|artifact)"
+    r"|the (?:exiled|sacrificed|discarded|milled|returned|tapped|chosen|revealed|amassed) \w+)\b",
+    re.IGNORECASE,
+)
+#: PAR-207: the leading intervening "if" of a payoff ("When you do, if you control a Dragon, ...", RULE 603.4).
+_PAYOFF_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,160}),\s+(?P<rest>.+)$", re.IGNORECASE | re.DOTALL)
+
+
+#: "return a land you control to its owner's hand": the table reads the article phrase as a ``<type>_you_control``
+#: target kind, but the sentence never says "target" -- it is the resolving player's own pick (RULE 608.2d), the same
+#: ``choose_objects`` the "return another creature you control" antecedent uses.
+_OWN_PICK_KIND_RE = re.compile(r"^(?P<type>[a-z]+)_you_control$")
+
+
+#: "exile a creature card from your graveyard": likewise the resolving player's own pick, from their graveyard.
+_OWN_GRAVEYARD_KIND_RE = re.compile(r"^graveyard_(?P<type>creature|artifact|enchantment|land|instant|sorcery|planeswalker)$")
+
+
+def _untargeted_own_choice(spec: EffectSpec) -> EffectSpec:
+    graveyard = _OWN_GRAVEYARD_KIND_RE.match(str(spec.params.get("target_kind") or ""))
+    if spec.type == "exile" and graveyard is not None and set(spec.params) == {"target_kind"}:
+        return EffectSpec("exile_own_graveyard_cards", {"count": 1, "card_type": graveyard.group("type")})
+    kind = _OWN_PICK_KIND_RE.match(str(spec.params.get("target_kind") or ""))
+    if spec.type == "return_to_hand" and kind is not None and set(spec.params) == {"target_kind"}:
+        return EffectSpec("choose_objects", {
+            "action": "return_to_hand", "what": kind.group("type"), "count": 1,
+        })
+    return spec
+
+
+def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None  # "it" / the firing object would be a different referent than the source's own
+    action_text = m.group("action").strip()
+    action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
+    if action and len(action) == 1 and "target" not in action_text:
+        action = [_untargeted_own_choice(action[0])]
+    if not action or len(action) != 1 or any(s.params.get("target_kind") for s in action):
+        # "When you do" answers the *last* instruction; a longer antecedent would fire on its first half (Blood
+        # Spatter Analysis: "mill a card and put a counter ... then sacrifice it if ... When you do").
+        return None  # a targeted antecedent needs its own announcement; "return a land you control" is no target
+    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+        return None
+    payoff_text = m.group("payoff").strip()
+    condition = None
+    gate = _PAYOFF_IF_RE.match(payoff_text)
+    if gate is not None:
+        condition = static_condition(gate.group("cond"))
+        if condition is None:
+            return None
+        payoff_text = gate.group("rest")
+    # Only the payoff's *first* sentence is read against the antecedent: a later "it gains trample" follows the
+    # target that first sentence chose, which the ordinary sentence chain (`parse_effect_body`) resolves.
+    if _PAYOFF_PRONOUN_RE.search(re.split(r"\.\s+", payoff_text, maxsplit=1)[0]):
+        return None
+    payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
+    if not payoff:
+        return None
+    trigger: dict[str, Any] = {"then_trigger": [s.to_dict() for s in payoff]}
+    if condition is not None:
+        trigger["then_trigger_condition"] = condition
+    return [EffectSpec("seq", {
+        "effects": [s.to_dict() for s in action] + [EffectSpec("reflexive_trigger", trigger).to_dict()],
+        "if_you_do_from": len(action),
+    })]
+
+
+#: PAR-208: the sentence boundary that opens an outcome rider's "else" half ("Otherwise," / "If you don't,").
+_OTHERWISE_SPLIT_RE = re.compile(r"\.\s*(?:otherwise|if you don'?t),\s*", re.IGNORECASE)
+
+
+#: PAR-208 (RULE 608.2c): "<action>. **If you do**, <effect>[. Otherwise, <effect>]." with a mandatory action (no "you
+#: may": Dreadfeast Demon, Booby Trap, Dark Depths, Charnel Troll). The same `seq` + ``if_you_do_from`` node
+#: `_action_when_you_do` composes, but the payoff is *not* a new trigger: it is the same resolution's next
+#: instruction, so its own targets are announced with the ability (RULE 601.2c) and a pronoun in it may name the
+#: action's object. "Otherwise" / "If you don't" is the ``else_effects`` branch, run when the action could not be
+#: performed or changed nothing. Only a single observable action counts (`if_you_do_antecedent_ok`).
+_ACTION_IF_YOU_DO_RE = compile_clause(
+    r"(?P<action>(?!you may\b)[^.]+?)\.\s*if you do,\s*(?P<payoff>.+)"
+)
+
+
+def _action_if_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None  # "it" would be the firing object / host, not the source the action names
+    action_text = m.group("action").strip()
+    if re.search(r"\b(?:may|if|unless|instead|when|whenever)\b", action_text):
+        return None  # a conditional or replacement antecedent is another construct
+    action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
+    targeted = bool(action) and re.search(r"\btarget\b", action_text) is not None
+    if action and len(action) == 1 and not targeted:
+        action = [_untargeted_own_choice(action[0])]
+    if not action or len(action) != 1:
+        return None  # "if you do" answers the *last* instruction; a longer antecedent is ambiguous
+    if action[0].params.get("target_kind") and not (targeted and announces_creature_target(action)):
+        return None
+    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+        return None
+    payoff_text, *rest = _OTHERWISE_SPLIT_RE.split(m.group("payoff").strip(), maxsplit=1)
+    inner = ClauseReading(self_subject=True, previous_subject=targeted)
+    payoff = parse_effect_body(sacrificed_referent_payoff(action_text, payoff_text), reading=inner)
+    if not payoff:
+        return None
+    if targeted and any(s.params.get("target_kind") for s in payoff):
+        return None  # two announced targets whose pronouns cannot be told apart: stay unclaimed
+    params: dict[str, Any] = {
+        "effects": [s.to_dict() for s in action] + [s.to_dict() for s in payoff],
+        "if_you_do_from": 1,
+    }
+    if rest:
+        other = parse_effect_body(rest[0].strip(), reading=ClauseReading(self_subject=True))
+        if not other:
+            return None
+        params["else_effects"] = [s.to_dict() for s in other]
+    return [EffectSpec("seq", params)]
+
+
+#: PAR-208 (RULE 701.5a): "counter ~" -- the payoff of a "When you cast this spell, any player may ... If a player
+#: does, counter ~." trigger (Brain Gorgers, Dash Hopes): the spell the ability came from. Only a SPELL_CAST head has
+#: such a referent, so `gate._resolve_event_player_tree` keeps the clause unclaimed anywhere else.
+_COUNTER_SELF_RE = compile_clause(r"counter ~")
+CAST_EVENT = "SPELL_CAST"
+
+
+def _counter_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("counter", {"counter_source": True, EVENT_PLAYER_EVENTS_KEY: [CAST_EVENT]})]
+
+
+#: PAR-208 (RULE 118.12 / 608.2c): "Any player/opponent may <cost>. If a player does, <effect>." and "... If no 1
+#: does, <effect>." (Brain Gorgers, Argothian Wurm, Prowling Pangolin, Clackbridge Troll, Desecration Demon, Innocent
+#: Traveler): every player in turn order is asked (`RulesEngine._request_all_players_decline_or`); the first to pay ends
+#: the sweep and runs the "if a player does" payoff once for the controller. The cost is a closed vocabulary that
+#: `costs.parse_activation_cost` reads and `RulesEngine._pay_player_cost` pays.
+_ANY_PLAYER_COST = (
+    r"(?:sacrifice (?:an?|\d+|two|three) (?:creature|land|artifact|enchantment|permanent)s?(?: of their choice)?"
+    r"|discard (?:an?|\d+|two|three) cards?"
+    r"|pay \d+ life"
+    r"|pay half their life, rounded up)"
+)
+_ANY_PLAYER_MAY_RE = compile_clause(
+    rf"any (?P<scope>player|opponent) may (?P<cost>{_ANY_PLAYER_COST})\.\s*"
+    r"(?:if (?P<paid>a player does)|if (?P<none>no (?:1|one) does)),\s*(?P<payoff>[^.]+)"
+)
+_NUMBER_WORD_COST = {"two": "2", "three": "3"}
+#: A ``target_kind`` that names the ability's own source ("tap ~"), not a RULE 115 target.
+SOURCE_REFERENT_KIND = "source"
+
+
+def _any_player_may(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None  # "~" would be the firing object / host, not the source
+    cost = m.group("cost").replace(" of their choice", "").replace("their life", "your life")
+    cost = re.sub(r"\b(two|three)\b", lambda w: _NUMBER_WORD_COST[w.group(1)], cost)
+    payoff = parse_effect_body(m.group("payoff").strip(), reading=ClauseReading(self_subject=True))
+    if not payoff or any(spec.params.get("target_kind") not in (None, SOURCE_REFERENT_KIND) for spec in payoff):
+        return None  # the payoff runs once the sweep ends, with no target announced for it
+    params: dict[str, Any] = {"cost": cost, "paid_effects" if m.group("paid") else "effects": [s.to_dict() for s in payoff]}
+    if m.group("scope") == "opponent":
+        params["opponents_only"] = True
+    return [EffectSpec("all_players_decline_or", params)]
 
 
 #: MEC-19's "counter it/that spell[or ability] unless that player/its
@@ -1182,35 +1633,22 @@ def _transform(m: re.Match[str]) -> list[EffectSpec]:
 #: The engine returns the exiled incarnation immediately after departure;
 #: old two-ability wording retains an ordinary separate return trigger.
 _EXILE_UNTIL_LEAVES_RE = compile_clause(
-    rf"exile {TARGET}(?P<opp_ctrl> an opponent controls| defending player controls)? "
+    r"(?P<head>exile (?:target .+?|up to .+?|another target .+?|other target .+?|that creature|it)) "
     r"until ~ leaves the battlefield"
 )
-_EXILE_UNTIL_LEAVES_OPP_KINDS: dict[str, str] = {
-    "creature": "creature_you_dont_control",
-    "permanent": "permanent_you_dont_control",
-    "artifact": "artifact_you_dont_control",
-    "nonland_permanent": "nonland_permanent_you_dont_control",
-    "artifact_creature_or_enchantment": "artifact_creature_or_enchantment_you_dont_control",
-}
 
 
-def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind is None:
+def _exile_until_leaves(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # RULE 610.3: duration is independent of the target's type, qualities,
+    # mana-value bound and controller. Let the existing exile grammar read
+    # those axes rather than duplicating its target vocabulary here.
+    effects = parse_effect_body(m.group("head"), reading=reading)
+    if effects is None or len(effects) != 1 or effects[0].type != "exile":
         return None
-    if (m.group("opp_ctrl") or "").strip() == "an opponent controls":
-        kind = _EXILE_UNTIL_LEAVES_OPP_KINDS.get(kind, kind)
-    params: dict = {
-        "target_kind": kind,
-        "until_source_leaves": True,
-        **optional_param(m),
-    }
-    # See `_destroy`'s own comment: "exile target tapped creature an
-    # opponent controls until ~ leaves" (Seal Away-shaped) needs it too.
-    state_filter = resolve_target_creature_state_filter(m.group("target"))
-    if state_filter:
-        params["creature_filter"] = state_filter
-    return [EffectSpec("exile", params)]
+    effect = effects[0]
+    if effect.params.get("target_kind") is None:
+        return None
+    return [EffectSpec("exile", {**effect.params, "until_source_leaves": True}, condition=effect.condition)]
 
 
 #: "return it/~ to the battlefield transformed under its owner's control"
@@ -1247,7 +1685,10 @@ _RETURN_SELF_FROM_GRAVEYARD_RE = compile_clause(
     r"(?:the battlefield(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # "…with 2 +1/+1 counters on it" (Retrofitted Transmogrant, Phoenix Chick) — the enters-with rider
     # the targeted row already reads, same counter vocabulary.
-    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|finality|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+    # "…attached to that creature" (Dragon Breath cycle, Smoke Shroud, PAR-193): the host is the
+    # creature whose entering fired the trigger.
+    r"(?P<attached> attached to that creature)?"
     r"|(?P<hand>your hand))"
 )
 
@@ -1258,6 +1699,10 @@ def _return_self_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("atk") and not m.group("tapped"):
         return None
     params: dict = {"tapped": bool(m.group("tapped"))}
+    if m.group("attached"):
+        if m.group("tapped") or m.group("atk") or m.group("ewc_kind"):
+            return None
+        params["attach_to_trigger_subject"] = True
     if m.group("atk"):
         params["attacking"] = True
     if m.group("ewc_kind"):
@@ -1339,11 +1784,11 @@ def _win_if_empty_library(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("win_game", {"if_empty_library": True})]
 
 
-_ONCE_PER_TURN_RE = compile_clause(r"activate (?:this ability )?only once each turn")
+_ONCE_PER_TURN_RE = compile_clause(r"activate (?:this ability )?(?:only once|no more than (?P<twice>twice)) each turn")
 
 
 def _once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec(ONCE_PER_TURN_MARKER, {})]
+    return [EffectSpec(ONCE_PER_TURN_MARKER, {"count": 2} if m.group("twice") else {})]
 
 
 _TRIGGER_ONCE_PER_TURN_RE = compile_clause(r"this ability triggers only once each turn")
@@ -1371,6 +1816,18 @@ def _sorcery_speed(m: re.Match[str]) -> list[EffectSpec]:
 
 
 _X_SPEND_COLOR_RE = compile_clause(r"spend only (?P<color>white|blue|black|red|green) mana on x")
+
+
+#: MEC-131 / RULE 107.3: "X can't be greater than the number of snow lands you control." (Winter's Chill) — a bound on the
+#: announced X, kept as a structured count selector (`count_phrase`), never as text the engine would interpret.
+_X_CAP_RE = compile_clause(r"x can't be greater than the number of (?P<what>[a-z' ]+)")
+
+
+def _x_cap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = parse_count_phrase(m.group("what"))
+    if selector is None or selector.get("zone") != "battlefield":
+        return None
+    return [EffectSpec(X_CAP_MARKER, {"selector": selector})]
 
 
 def _x_spend_color(m: re.Match[str]) -> list[EffectSpec]:
@@ -1478,7 +1935,7 @@ def activation_condition_dict(text: str) -> Optional[dict[str, Any]]:
     # shipped card — and only a phrase genuinely new to *both* tables reaches
     # the shared vocabulary for the first time.
 
-    return static_condition(stripped)
+    return static_condition(stripped) or activation_attached_condition(stripped)
 
 
 _SORCERY_SPEED_AND_CONDITION_RE = compile_clause(
@@ -1516,6 +1973,75 @@ def _activate_only_if(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if condition is None:
         return None
     return [EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": condition})]
+
+
+#: PAR-176 (RULE 602.5): "Activate only <restriction>[ and only <restriction>]..." -- one grammar for the whole
+#: printed restriction sentence instead of a row per pairing.  Each atom is either a timing window (RULE 602.5d, 500.1),
+#: a per-turn / per-game cap (RULE 602.5b), or an "if <condition>" gate over the shared `static_conditions` vocabulary.
+#: Every atom must be enforceable by `can_activate`; one unknown atom refuses the whole sentence (fail closed).
+_ACTIVATE_ONLY_ANY_RE = compile_clause(r"activate (?:this ability )?only (?P<rest>.+)")
+_RESTRICTION_SPLIT_RE = re.compile(r"(?:,\s*(?:and\s+)?|\s+and\s+)only\s+")
+
+#: Oracle step words -> the engine's `current_step` names (RULE 500.1, `phases.default_turn_sequence`).
+_RESTRICTION_STEP_WORDS: dict[str, str] = {
+    "upkeep": "upkeep",
+    "draw": "draw",
+    "beginning of combat": "begin_combat",
+    "declare attackers": "declare_attackers",
+    "declare blockers": "declare_blockers",
+    "combat damage": "combat_damage",
+    "end of combat": "end_combat",
+    "end": "end",
+}
+_RESTRICTION_STEP_ALT = "|".join(sorted((re.escape(w) for w in _RESTRICTION_STEP_WORDS), key=len, reverse=True))
+
+_RESTRICTION_ATOM_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], tuple[list[EffectSpec], list[dict]]]]] = [
+    # RULE 602.5d: sorcery timing; "as an instant" is the default timing, so it restricts nothing.
+    (re.compile(r"as a sorcery|any time you could cast a sorcery", re.I),
+     lambda m: ([EffectSpec(SORCERY_SPEED_MARKER, {})], [])),
+    (re.compile(r"as an instant|any time you could cast an instant", re.I), lambda m: ([], [])),
+    # RULE 602.5b: the per-turn / per-game caps ("once each turn" must be tried before "once").
+    (re.compile(r"once each turn", re.I), lambda m: ([EffectSpec(ONCE_PER_TURN_MARKER, {})], [])),
+    (re.compile(r"once", re.I), lambda m: ([EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {})], [])),
+    (re.compile(r"during your turn", re.I), lambda m: ([EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {})], [])),
+    (re.compile(r"during your upkeep", re.I), lambda m: ([], [{"kind": "your_upkeep"}])),
+    (re.compile(r"during (?:any|each) upkeep(?: step)?", re.I), lambda m: ([], [{"kind": "during_step", "step": "upkeep"}])),
+    (re.compile(r"during combat", re.I), lambda m: ([], [{"kind": "during_phase", "phase": "combat"}])),
+    (re.compile(rf"during the (?P<step>{_RESTRICTION_STEP_ALT}) step", re.I),
+     lambda m: ([], [{"kind": "during_step", "step": _RESTRICTION_STEP_WORDS[m.group("step").lower()]}])),
+    (re.compile(rf"before the (?P<step>{_RESTRICTION_STEP_ALT}) step", re.I),
+     lambda m: ([], [{"kind": "before_step", "step": _RESTRICTION_STEP_WORDS[m.group("step").lower()]}])),
+    (re.compile(r"before attackers are declared", re.I), lambda m: ([], [{"kind": "before_step", "step": "declare_attackers"}])),
+]
+
+
+def _activate_only_compound(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    specs: list[EffectSpec] = []
+    conditions: list[dict] = []
+    for atom in _RESTRICTION_SPLIT_RE.split(m.group("rest").strip().rstrip(".")):
+        atom = atom.strip()
+        gate = re.fullmatch(r"if (?P<cond>.+)", atom, re.I)
+        if gate is not None:
+            condition = activation_condition_dict(gate.group("cond"))
+            if condition is None:
+                return None
+            conditions.append(condition)
+            continue
+        for pattern, build in _RESTRICTION_ATOM_RES:
+            hit = pattern.fullmatch(atom)
+            if hit is not None:
+                atom_specs, atom_conditions = build(hit)
+                specs.extend(atom_specs)
+                conditions.extend(atom_conditions)
+                break
+        else:
+            return None
+    if conditions:
+        merged = conditions[0] if len(conditions) == 1 else {"kind": "all", "conditions": conditions}
+        specs.append(EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": merged}))
+    # "Activate only as an instant" restricts nothing (RULE 602.5d's default); an empty conjunction records that
+    # the sentence was understood without inventing a marker the binder would have to learn.
+    return specs or [EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": {"kind": "all", "conditions": []}})]
 
 
 ROWS: list[EffectHandler] = [
@@ -1583,6 +2109,7 @@ ROWS: list[EffectHandler] = [
         "pay_energy_then",
         _PAY_ENERGY_THEN_RE,
         _pay_energy_then,
+        reading_aware=True,
     ),
     # MEC-18: "you may <sacrifice/discard/pay-mana/pay-life>. when/if you
     # do, <effect>." — the general RULE 603.5 optional-antecedent family.
@@ -1667,6 +2194,15 @@ ROWS: list[EffectHandler] = [
         _may_effect_then,
         fallback_for=("pay_cost_then_general",), reading_aware=True,
     ),
+    # PAR-208 (RULE 608.2c): "<action>. If you do, <effect>[. Otherwise, <effect>]." -- the mandatory-action outcome chain.
+    EffectHandler("action_if_you_do", _ACTION_IF_YOU_DO_RE, _action_if_you_do, reading_aware=True),
+    # PAR-207 (RULE 603.12): "<action>. When you do, <effect>." -- the certain-antecedent reflexive trigger.
+    EffectHandler(
+        "action_when_you_do",
+        _ACTION_WHEN_YOU_DO_RE,
+        _action_when_you_do,
+        reading_aware=True,
+    ),
     # MEC-19: "counter it unless that player pays <cost>" — the
     # un-keyworded-Ward-shaped `BECOMES_TARGET` trigger's own resolution.
     EffectHandler(
@@ -1675,6 +2211,8 @@ ROWS: list[EffectHandler] = [
         _counter_unless_pay,
     ),
     EffectHandler("counter_that_spell_or_ability", _COUNTER_THAT_SPELL_OR_ABILITY_RE, _counter_that_spell_or_ability),
+    EffectHandler("counter_self", _COUNTER_SELF_RE, _counter_self),  # PAR-208
+    EffectHandler("any_player_may", _ANY_PLAYER_MAY_RE, _any_player_may, reading_aware=True),  # PAR-208
     EffectHandler("spell_controller_sacrifices", _SPELL_CONTROLLER_SACRIFICES_RE, _spell_controller_sacrifices),
     EffectHandler(
         "counter_target_spell_unless_discard_hand",
@@ -1732,17 +2270,15 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "transform",
         # RULE 701.28a: to convert a permanent is to turn it over exactly as transforming does ("convert ~", Ultra Magnus).
-        compile_clause(rf"(?:transform|convert) (?:{re.escape(SELF)}|it|this permanent|this creature)"),
+        compile_clause(rf"(?:transform|convert) (?:{re.escape(SELF)}|it|her|him|this permanent|this creature)"),
         _transform,
     ),
-    # "exile <TARGET> [an opponent controls] until ~ leaves the
-    # battlefield." (O-Ring / Banisher Priest / Fiend Hunter) — the
-    # companion LEAVES_BATTLEFIELD return ability is synthesized by the
-    # segmenter off the ``until_source_leaves`` param.
+    # RULE 610.3: modern duration-bound exile returns immediately when the
+    # source leaves; old two-ability O-Ring wording keeps its own trigger.
     EffectHandler(
         "exile_until_leaves",
         _EXILE_UNTIL_LEAVES_RE,
-        _exile_until_leaves,
+        _exile_until_leaves, reading_aware=True,
     ),
     # "return it/~ to the battlefield transformed under its owner's
     # control" (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — a dies
@@ -1828,6 +2364,7 @@ ROWS: list[EffectHandler] = [
         _sorcery_speed,
     ),
     EffectHandler("x_spend_color", _X_SPEND_COLOR_RE, _x_spend_color),
+    EffectHandler("x_cap", _X_CAP_RE, _x_cap),
     # "Activate only during your turn." — RULE 602.5d's wider sibling
     # (Wishclaw Talisman); see `ONLY_DURING_YOUR_TURN_MARKER`'s docstring.
     EffectHandler(
@@ -1862,6 +2399,11 @@ ROWS: list[EffectHandler] = [
         _ACTIVATE_ONLY_IF_RE,
         _activate_only_if,
     ),
+    # PAR-176: every remaining "Activate only ..." sentence -- tried last so the exact rows above keep their specs.
+    # "during your turn and only if <cond>" is also the exact row above, which spells the own-turn gate as a
+    # `your_turn` condition instead of the flag: same legality, declared as the older row's fallback.
+    EffectHandler("activate_only_compound", _ACTIVATE_ONLY_ANY_RE, _activate_only_compound,
+                  fallback_for=("activate_during_your_turn_and_if",)),
     # "you win the game." (RULE 104.2 — Felidar Sovereign, Test of Endurance: the upkeep trigger's body after its
     # intervening "if you have 40 or more life"). The conditional library-empty form is the row below.
     EffectHandler("win_game", compile_clause(r"you win the game"), lambda m: [EffectSpec("win_game", {})]),

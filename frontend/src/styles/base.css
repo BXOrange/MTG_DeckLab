@@ -1,0 +1,462 @@
+:root {
+  --bg: #071510;
+  --panel: #0d2119;
+  --panel-alt: #143027;
+  --felt: #12442d;
+  --border: #295442;
+  --text: #edf8f1;
+  --text-dim: #a4c2b0;
+  --accent: #08bd59;
+  --accent-text: #06140d;
+  --error: #e96b61;
+  --warn: #dfb44d;
+  --ok: #42cc7b;
+  --info: #52b995;
+}
+
+:root[data-theme='white'] {
+  --bg: #1d1a12;
+  --panel: #2b261a;
+  --panel-alt: #3a3322;
+  --felt: #504327;
+  --border: #766540;
+  --text: #fffbed;
+  --text-dim: #d5cba9;
+  --accent: #f1dfa3;
+  --accent-text: #201b0d;
+  --ok: #9dd889;
+  --info: #9ecae1;
+}
+
+:root[data-theme='blue'] {
+  --bg: #071923;
+  --panel: #0c2837;
+  --panel-alt: #12384d;
+  --felt: #124e68;
+  --border: #28657d;
+  --text: #ebf9ff;
+  --text-dim: #a7cedd;
+  --accent: #45b7e8;
+  --accent-text: #061820;
+  --ok: #58cfb4;
+  --info: #77caff;
+}
+
+:root[data-theme='black'] {
+  --bg: #151718;
+  --panel: #202426;
+  --panel-alt: #2d3336;
+  --felt: #394144;
+  --border: #596367;
+  --text: #f1f5f5;
+  --text-dim: #bec9ca;
+  --accent: #b4c0c1;
+  --accent-text: #121617;
+  --ok: #78c89b;
+  --info: #9bb5b8;
+}
+
+:root[data-theme='red'] {
+  --bg: #24110f;
+  --panel: #351714;
+  --panel-alt: #4a211c;
+  --felt: #662b23;
+  --border: #874238;
+  --text: #fff3ef;
+  --text-dim: #e2b7ac;
+  --accent: #ef705c;
+  --accent-text: #26100d;
+  --ok: #89ca78;
+  --info: #e09a71;
+}
+
+:root[data-theme='white'] .app-brand-logo {
+  filter: grayscale(1) brightness(2.25) contrast(0.75) sepia(0.3);
+}
+
+:root[data-theme='blue'] .app-brand-logo {
+  filter: sepia(1) saturate(5) hue-rotate(155deg) brightness(0.62) contrast(1.65);
+}
+
+:root[data-theme='black'] .app-brand-logo {
+  filter: sepia(0.75) saturate(2.5) hue-rotate(225deg) brightness(0.62) contrast(1.65);
+}
+
+:root[data-theme='red'] .app-brand-logo {
+  filter: sepia(1) saturate(6) hue-rotate(305deg) brightness(0.62) contrast(1.65);
+}
+
+:root[data-theme='green'] .app-brand-logo {
+  filter: brightness(0.62) contrast(1.65);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  /* Vertical padding only — a 1/3 shorter title bar (user request), paired
+     with the same 1/3-smaller .icon-button/.sidebar-toggle below so the
+     controls stay proportional instead of looking cramped against a
+     shrunken bar. */
+  padding: calc(1rem * 2 / 3) 1.5rem;
+  background: linear-gradient(105deg, var(--panel), color-mix(in srgb, var(--panel) 74%, #000));
+  border-bottom: 1px solid var(--border);
+}
+
+.app-brand {
+  margin: 0;
+  min-width: 0;
+  line-height: 0;
+}
+
+.app-brand-logo {
+  display: block;
+  width: auto;
+  height: 44px;
+  max-width: min(70vw, 320px);
+}
+
+.app-brand-button {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.app-brand-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.app-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 220px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition: width 0.15s ease;
+}
+
+.sidebar.collapsed {
+  width: 0;
+  border-right: none;
+}
+
+.sidebar-toggle {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  /* 1/3 smaller, matching the shorter .app-header (user request). */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.burger-bar {
+  display: block;
+  width: 14px;
+  height: 2px;
+  margin: 0 auto;
+  background: var(--text);
+  border-radius: 1px;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 0.75rem;
+  overflow: hidden;
+}
+
+.sidebar.collapsed .sidebar-nav {
+  display: none;
+}
+
+/* Pinned to the bottom of the sidebar (`margin-top: auto`) regardless of
+   how many nav groups are expanded above it — currently just the
+   whole-board zoom control (`boardScale.js`, wired in app.js). App chrome,
+   not per-game-mode, so it lives here rather than in gameBoardView.js's
+   own rail. */
+.sidebar-footer {
+  margin-top: auto;
+  padding: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar.collapsed .sidebar-footer {
+  display: none;
+}
+
+.gf-scale-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.gf-scale-btn {
+  flex: 0 0 auto;
+  width: 1.8rem;
+  padding: 0.15rem 0;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.gf-scale-reset {
+  flex: 1 1 auto;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.sidebar .tab-button {
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.nav-group-toggle {
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  padding: 0.5rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.nav-group-toggle::before {
+  content: '\25B8';
+  display: inline-block;
+  margin-right: 0.4rem;
+  transition: transform 0.15s ease;
+}
+
+.nav-group.expanded > .nav-group-toggle::before {
+  transform: rotate(90deg);
+}
+
+.nav-group-toggle:hover {
+  color: var(--text);
+}
+
+.nav-group-toggle.has-active {
+  color: var(--accent);
+}
+
+.nav-group-items {
+  display: none;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-left: 0.75rem;
+}
+
+.nav-group.expanded > .nav-group-items {
+  display: flex;
+}
+
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 0 0 auto;
+}
+
+#header-connection-status {
+  flex: 0 0 auto;
+}
+
+/* Error/warning text (headerMessage.js), left of the connection indicator. */
+.header-message {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--warn);
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 1/3 smaller, matching the shorter .app-header (user request) — the
+     only place .icon-button is used. */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 1.6;
+}
+
+.settings-button svg {
+  fill: var(--text-dim);
+  stroke: none;
+}
+
+.settings-button.active {
+  border-color: var(--accent);
+}
+
+.settings-button.active svg {
+  fill: var(--accent);
+}
+
+.profile-button svg {
+  fill: var(--text-dim);
+  stroke: none;
+}
+
+.profile-button.active {
+  border-color: var(--accent);
+}
+
+.profile-button.active svg {
+  fill: var(--accent);
+}
+
+.profile-button:hover,
+.settings-button:hover {
+  border-color: var(--text-dim);
+}
+
+.connection-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.connection-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.connection-indicator.connected { color: var(--ok); }
+.connection-indicator.connected .connection-dot { background: var(--ok); }
+.connection-indicator.disconnected { color: var(--error); }
+.connection-indicator.disconnected .connection-dot { background: var(--error); }
+.connection-indicator.checking .connection-dot { background: var(--warn); }
+
+.tab-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.tab-button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.app-brand-button.tab-button {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+}
+
+.app-brand-button.tab-button.active {
+  background: transparent;
+  border-color: transparent;
+  color: inherit;
+  font-weight: inherit;
+}
+
+.tab-button.icon-button {
+  padding: 0;
+  border-radius: 50%;
+}
+
+.tab-button.icon-button.active {
+  background: transparent;
+}
+
+main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}

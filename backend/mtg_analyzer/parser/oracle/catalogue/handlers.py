@@ -26,10 +26,12 @@ from typing import Any, Optional
 from .dying_hosts import dying_host_return_specs
 from .fight_sequences import fight_sequence_specs, source_counter_fight_specs
 from ..spec import EffectSpec
-from .clause_reading import STANDALONE, ClauseReading
+from .clause_reading import STANDALONE, ClauseReading, CREATED, PLAYER
+from .object_phrase import ambiguous_object_reference, object_phrase_specs
 from .effect_rows.shared import EffectHandler, match_clause_reading
 from .clause_hooks import register_clause_matcher
 from .effect_rows import damage_copy
+from .effect_rows import damage_prevention
 from .effect_rows import draw_discard_cast
 from .effect_rows import life_loss
 from .effect_rows import destroy_exile_counter
@@ -39,9 +41,15 @@ from .effect_rows import costs_mana_limits
 from .effect_rows import counters_blocking
 from .effect_rows import pump_stats
 from .effect_rows import pump_keywords
+from .effect_rows import ability_loss
+from .effect_rows import becomes
 from .effect_rows import keyword_actions
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
+from .effect_rows import end_of_combat
+from .effect_rows import delayed_steps
+from .effect_rows import duration_bodies
+from .duration_composition import duration_specs
 
 
 def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
@@ -67,10 +75,34 @@ def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optiona
     `GameContext.previous_targets`. Rows written for the group subject itself win first, so
     nothing they claim changes reading.
     """
-    return match_clause_reading(clause, reading=reading.entered())
+    reading = reading.entered()
+    effects = match_clause_reading(clause, reading=reading)
+    if effects is None and reading.group_clause:
+        effects = object_phrase_specs(clause, reading, _match_registered_clause)
+    if effects is None:
+        effects = duration_specs(clause, reading)
+    return effects
 
 
 def _match_clause_once(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
+    if ambiguous_object_reference(clause, reading, _match_registered_clause):
+        return None
+    registered = _match_registered_clause(clause, reading=reading)
+    if reading.group_clause:
+        # Preserve the established group-trigger rereading/seed in match_clause_reading.
+        return registered
+    # These nodes already consume CREATED through the sequence's created-pronoun pass.
+    if (any(ref.kind == CREATED for ref in reading.referents) and registered
+            and all(spec.type in ("pump", "grant_until") for spec in registered)):
+        return registered
+    if any(ref.kind in (CREATED, PLAYER) for ref in reading.referents):
+        bound = object_phrase_specs(clause, reading, _match_registered_clause, references_only=True)
+        if bound is not None:
+            return bound
+    return registered or object_phrase_specs(clause, reading, _match_registered_clause)
+
+
+def _match_registered_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     fight_sequence = fight_sequence_specs(clause) or source_counter_fight_specs(clause)
     if fight_sequence is not None:
         return fight_sequence
@@ -158,9 +190,17 @@ HANDLERS: list[EffectHandler] = [
     *counters_blocking.ROWS,
     *pump_stats.ROWS,
     *pump_keywords.ROWS,
+    *ability_loss.ROWS,
     *keyword_actions.ROWS,
     *tokens_animate_misc.ROWS,
     *party.ROWS,
+    *end_of_combat.ROWS,
+    *delayed_steps.ROWS,
+    *duration_bodies.ROWS,
+    # PAR-216: last, so it only ever claims clauses no older row reads (the older en-Kor redirect row keeps its IR).
+    *damage_prevention.ROWS,
+    # PAR-217: last, so it only claims the "becomes" clauses the older animation rows decline (their IR is unchanged).
+    *becomes.ROWS,
 ]
 
 

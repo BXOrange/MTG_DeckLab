@@ -36,6 +36,7 @@ active.
 
 from __future__ import annotations
 
+from ..game.phases import FIRST_STRIKE_DAMAGE_STEP
 from ..game.physical_properties import choice_decider as _physical_choice_decider
 
 import json
@@ -310,6 +311,7 @@ _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
     "names": [],
     "mana_value": None,
     "mana_cost": "",
+    "oracle_text": "",
     "type_line": "",
     "has_back_face": False,
     "is_creature": False,
@@ -356,12 +358,40 @@ def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[st
                     obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
 
 
+def _resolution_visible_hand_ids(state, perspective: Optional[str]) -> set[int]:
+    """RULE 701.20 / 400.7: reveal only the original hand's exact visits."""
+    choice = state.pending_choice or {}
+    if not choice.get("hand_visibility"):
+        return set()
+    if choice["hand_visibility"] != "public" and perspective != _physical_choice_decider(state, choice):
+        return set()
+    visits = choice.get("visible_hand_visits") or {}
+    return {obj.instance_id for player in state.players for obj in player.hand
+            if visits.get(str(obj.instance_id)) == obj.zone_incarnation}
+
+
+def _resolution_visible_library_ids(state, perspective: Optional[str]) -> set[int]:
+    """RULE 701.20e: only the looker, or everyone for a reveal, sees this pool."""
+    pending = state.pending_choice or {}
+    frame = pending.get("inspection") or {}
+    if not frame:
+        return set()
+    visible = (frame.get("previous_selector", {}).get("zone_visits", [])
+               if frame.get("reveal") or perspective == _physical_choice_decider(state, pending)
+               else frame.get("public_visits", []))
+    visits = dict(visible)
+    return {obj.instance_id for player in state.players for obj in player.library
+            if visits.get(obj.instance_id) == obj.zone_incarnation}
+
+
 def _redact_hidden_zones(
     state_dict: dict[str, Any],
     perspective: Optional[str],
     top_library_visible: Optional[dict[str, bool]] = None,
     also_visible_hand_ids: Optional[set[str]] = None,
     choice_decider_id: Optional[str] = None,
+    resolution_visible_hand_ids: Optional[set[int]] = None,
+    resolution_visible_library_ids: Optional[set[int]] = None,
 ) -> None:
     """Strip every player's hidden zones from a serialized state, in place.
 
@@ -386,6 +416,8 @@ def _redact_hidden_zones(
     # decisions). Modelled as an extra hand-reveal here; the finer
     # 720.3-720.7 hidden-info edges are an accepted simplification.
     reveal_hands = set(also_visible_hand_ids or ())
+    known_ids = {card['instance_id'] for card in state_dict.get('known_cards', [])}
+
     for player in state_dict.get("players", []):
         # RULE 723.4: turn control reveals in-game information only.
         if perspective != player.get("id"):
@@ -394,11 +426,18 @@ def _redact_hidden_zones(
             player.get("id") == perspective or player.get("id") in reveal_hands
         )
         if not own and player.get("id") not in reveal_hands:
-            player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")]
+            opening_revealed = {obj["instance_id"] for obj in state_dict.get("opening_hand_revealed", [])}
+            player["hand"] = [obj for obj in player["hand"] if obj.get("miracle_revealed")
+                              or obj.get("instance_id") in opening_revealed
+                              or obj.get("instance_id") in known_ids
+                              or obj.get("instance_id") in (resolution_visible_hand_ids or set())]
         # A library is hidden even from its owner (they don't know their own
-        # draw order); only a card an effect actually reveals is kept.
+        # draw order); retain only explicit public knowledge or a scoped look permission.
         top_visible = own and (top_library_visible or {}).get(player.get("id"))
-        player["library"] = player["library"][-1:] if top_visible and player["library"] else []
+        visible_top = player["library"][-1:] if top_visible and player["library"] else []
+        player["library"] = [obj for obj in player["library"] if obj in visible_top
+                             or obj.get("instance_id") in known_ids
+                             or obj.get("instance_id") in (resolution_visible_library_ids or set())]
 
     _redact_face_down_exile(state_dict, perspective)
 
@@ -586,12 +625,6 @@ class GameSession:
         #: answered: the scries are queued rather than opened at once because
         #: `GameState` holds exactly one `pending_choice` at a time.
         self._pending_scries: list[str] = []
-        #: RULE 103.6: every ``(player_id, instance_id)`` opening-hand card
-        #: still owed its "begin the game somewhere else?" choice
-        #: (`game/card_registry.pregame_setup_permission`), in turn
-        #: order — same queued-one-at-a-time shape as `_pending_scries`,
-        #: and resolved *before* it (RULE 103.6 precedes Vancouver's scry).
-        self._pending_opening_hand: list[tuple[str, int]] = []
         #: Whether the first RULE 117 priority window is still owed because a
         #: setup-time choice (a Vancouver scry) was open when setup finished.
         self._priority_window_pending = False
@@ -643,22 +676,28 @@ class GameSession:
         self.engine = GameEngine(state.clone())
         self.engine.interactive_priority = self.interactive_priority
         self.engine.resume_at(cursor)
-        # The Vancouver scry queue and the deferred first priority window
-        # are *session* state the restored `GameState` knows nothing about,
-        # and both exist only across the setup handoff. Dropping them is the
-        # honest reconciliation: the scry that was owed belonged to the
-        # position being undone. (Undoing a `keep_hand` at all is already a
-        # half-supported corner — `_setup_pending` isn't restored either —
-        # so this keeps `vancouver` exactly as good as `london` there, no
-        # worse.)
+        # Opening-hand actions and revealed visits follow the restored
+        # GameState. The older Vancouver scry queue is still session state;
+        # drop its deferred flags as before (undoing keep_hand itself also
+        # predates complete setup-state restoration).
         self._pending_scries.clear()
-        self._pending_opening_hand.clear()
         self._priority_window_pending = False
         self._yields.clear()
+        # Plans and repeat guards belong to the restored timeline.
+        self._smart2_memory = {}
 
     @property
     def can_rewind(self) -> bool:
         return bool(self._history)
+
+    @property
+    def _pending_opening_hand(self) -> list[tuple[str, int, int]]:
+        """RULE 103.6: the setup queue follows the cloned game position."""
+        return self.engine.state.opening_hand_queue
+
+    @_pending_opening_hand.setter
+    def _pending_opening_hand(self, value: list[tuple[str, int, int]]) -> None:
+        self.engine.state.opening_hand_queue = value
 
     @property
     def _setup_complete(self) -> bool:
@@ -1055,19 +1094,31 @@ class GameSession:
             outside_id = None
         outside = (kind == "cast_spell" and actor is not None and actor.id != active.id
                    and any(obj.instance_id == outside_id for obj in active.sideboard))
+        # RULE 701.68: the player's pick for a "Blight N" cost lives on the state only while this action pays it.
+        blight_choice = action.get("blight_choice") if kind in ("cast_spell", "activate_ability") else None
+        self.engine.state.blight_cost_choice = int(blight_choice) if blight_choice is not None else None
         try:
             handler(self, action, active)
         except (ValueError, KeyError, TypeError, GameActionError) as exc:
             if outside:
                 raise _BlindSideboardCastError("Sideboard casting announcement is not legal") from None
             raise
+        finally:
+            self.engine.state.blight_cost_choice = None
 
     def _dispatch_choose(self, action: dict[str, Any], active: Player) -> None:
         # A choice is answered by an option id ("cast"/"hand"/"decline" or
         # a card's instance id). `decline` is shorthand for the decline
         # option; a legacy `instance_id`-only payload still works.
-        if action["type"] == "decline":
-            answer: Any = "decline"
+        if "option_ids" in action:
+            pending = self.engine.state.pending_choice or {}
+            if (pending.get("kind") != "proliferate"
+                    or action.get("selection_id") != pending.get("selection_id")
+                    or not isinstance(action["option_ids"], list)):
+                raise ValueError("invalid or stale proliferate selection")
+            answer: Any = action["option_ids"]
+        elif action["type"] == "decline":
+            answer = "decline"
         else:
             answer = action.get("option_id")
             if answer is None:
@@ -1225,6 +1276,7 @@ class GameSession:
                 else self.engine.cast_spell)
         cast(
             active, self._object(action), targets, x, face=face, mode=mode,
+            damage_divisions=action.get("damage_divisions"),
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
             sacrifice_choice=sacrifice_choice,
             sacrifice_choices=(None if action.get("sacrifice_choices") is None else [int(i) for i in action["sacrifice_choices"]]),
@@ -1276,7 +1328,7 @@ class GameSession:
 
     def _dispatch_suspend(self, action: dict[str, Any], active: Player) -> None:
         """RULE 702.62a's hand-zone special action; it does not use the stack."""
-        self.engine.suspend(active, self._object(action))
+        self.engine.suspend(active, self._object(action), x=int(action.get("x", 0)))
 
     def _dispatch_unlock_door(self, action: dict[str, Any], active: Player) -> None:
         """RULE 709.5e: pay a Room half's mana cost to unlock it; a special action, so no stack."""
@@ -1317,12 +1369,26 @@ class GameSession:
         )
 
     def _dispatch_declare_attackers(self, action: dict[str, Any], active: Player) -> None:
+        if "declarations" in action:
+            picks = action["declarations"]
+            if not isinstance(picks, list) or any(not isinstance(p, dict) for p in picks):
+                raise ValueError("invalid attacker declarations")
+            ids = [int(p["instance_id"]) for p in picks]
+            if len(set(ids)) != len(ids):
+                raise ValueError("duplicate attacker")
+            self.engine.declare_attackers(active, [
+                {"attacker": self._object_by_id(iid),
+                 "defender": self._resolve_defender(pick.get("defender")),
+                 "pay_attack_tax": bool(pick.get("pay_attack_tax", True))}
+                for iid, pick in zip(ids, picks)
+            ])
+            return
         ids = action.get("instance_ids")
         if ids is None and "instance_id" in action:
             ids = [action["instance_id"]]
         # A single declared defender applies to every attacker in this
-        # call (the UI declares one creature per click, each picking its
-        # own defender). None → the engine auto-assigns / bare swing.
+        # legacy call. The board can submit a complete per-defender batch
+        # above. None → the engine auto-assigns / bare swing.
         defender = self._resolve_defender(action.get("defender"))
         declarations = [
             {
@@ -1362,8 +1428,9 @@ class GameSession:
         self.engine.declare_blockers(blocker_player, pairs, pay_block_tax=bool(action.get("pay_block_tax", True)))
 
     def _dispatch_ninjutsu(self, action: dict[str, Any], active: Player) -> None:
-        # RULE 702.49a Ninjutsu (PAR-26): swap an unblocked attacker for a
-        # Ninjutsu card from hand during the declare-blockers step.
+        # RULE 702.49a Ninjutsu: an activated ability from hand. Costs are
+        # paid now and the ability waits on the stack like any other
+        # (RULE 602.2, 117); the Ninja enters on resolution.
         ninja = self._object(action)
         returned = self._object_by_id(action["returned_attacker_id"])
         self.engine.ninjutsu(active, ninja, returned)
@@ -1768,9 +1835,10 @@ class GameSession:
         starting_id = state.starting_player_id
         if starting_id is None and state.players:
             starting_id = state.players[state.active_player_index].id
+        starting_index = next((i for i, player in enumerate(state.players) if player.id == starting_id), state.active_player_index)
         self._pending_opening_hand = [
-            (p.id, obj.instance_id)
-            for p in state.players
+            (p.id, obj.instance_id, obj.zone_incarnation)
+            for p in (state.players[starting_index:] + state.players[:starting_index])
             if not p.is_dummy
             for obj in list(p.hand)
             if (permission := card_registry.pregame_setup_permission(obj.card)) is not None
@@ -1782,12 +1850,19 @@ class GameSession:
         """Open the next queued opening-hand-battlefield choice, if any."""
         state = self.engine.state
         while self._pending_opening_hand and not state.pending_choice:
-            player_id, instance_id = self._pending_opening_hand.pop(0)
+            player_id, instance_id, incarnation = self._pending_opening_hand[0]
             player = state.player_by_id(player_id)
-            obj = next((o for o in player.hand if o.instance_id == instance_id), None)
+            obj = next((o for o in player.hand if o.instance_id == instance_id and o.zone_incarnation == incarnation), None)
             if obj is None:
+                self._pending_opening_hand.pop(0)
                 continue  # left the hand some other way already
-            self.engine.rules.offer_opening_hand_battlefield_choice(player, obj)
+            # RULE 103.6: each player may take their actions in any order.
+            # Keep the legacy two-option surface when only one card remains.
+            cards = [candidate for pid, iid, visit in self._pending_opening_hand if pid == player_id
+                     for candidate in player.hand if candidate.instance_id == iid and candidate.zone_incarnation == visit]
+            self.engine.rules.offer_opening_hand_battlefield_choice(player, obj, alternatives=cards)
+            if not state.pending_choice:
+                self._pending_opening_hand.pop(0)
 
     def _start_vancouver_scries(self) -> None:
         """Queue the ``vancouver`` scry-1 for every seat that mulliganed.
@@ -1832,6 +1907,11 @@ class GameSession:
             return
         if self._priority_window_pending:
             self._priority_window_pending = False
+            self._advance_to_priority_window()
+        elif (self.interactive_priority and self._setup_complete
+              and (self.engine.state.internal_turn.number == 0 or not self.engine.state.current_step)):
+            # A restored pregame choice has no session-local deferred flag;
+            # the remaining queue and pending choice are restored in state.
             self._advance_to_priority_window()
 
     # -- Interactive priority (RULE 117, multiplayer only) --------------
@@ -1912,7 +1992,9 @@ class GameSession:
         stops = self._stops.get(player.id)
         if stops is None:
             return False
-        return state.current_step not in stops["own" if is_own_turn else "opponent"]
+        # RULE 510.4: the first-strike damage step is a combat damage step, so it shares that stop.
+        step = "combat_damage" if state.current_step == FIRST_STRIKE_DAMAGE_STEP else state.current_step
+        return step not in stops["own" if is_own_turn else "opponent"]
 
     def _set_stops(self, player: Player, action: dict[str, Any]) -> None:
         """VIS-12: replace ``player``'s standing stops. Unknown step names are
@@ -2068,7 +2150,7 @@ class GameSession:
     def _resolve_defender(self, defender: Any) -> Optional[dict[str, Any]]:
         """Validate a declared combat defender spec from the wire (RULE 508.1a).
 
-        Accepts the ``{"kind": "player"|"planeswalker", ...}`` shape the UI
+        Accepts the ``{"kind": "player"|"planeswalker"|"battle", ...}`` shape the UI
         sends (mirroring `GameEngine.legal_defenders_for`), or None for a
         bare swing. The engine re-validates it against the legal set; this
         only sanity-checks the payload shape and confirms the referenced
@@ -2082,9 +2164,9 @@ class GameSession:
         if kind == "player":
             player = self.engine.state.player_by_id(str(defender["id"]))
             return {"kind": "player", "id": player.id, "label": player.name}
-        if kind == "planeswalker":
+        if kind in ("planeswalker", "battle"):  # RULE 508.1a / 310.5: both are attacked as permanents
             obj = self._object_by_id(defender["instance_id"])
-            return {"kind": "planeswalker", "instance_id": obj.instance_id, "label": obj.name}
+            return {"kind": kind, "instance_id": obj.instance_id, "label": obj.name}
         raise GameActionError(f"unknown defender kind: {kind!r}")
 
     @staticmethod
@@ -2403,6 +2485,8 @@ class GameSession:
                 state_dict, perspective, top_visible,
                 also_visible_hand_ids=reveal_hands,
                 choice_decider_id=choice_decider,
+                resolution_visible_hand_ids=_resolution_visible_hand_ids(self.engine.state, perspective),
+                resolution_visible_library_ids=_resolution_visible_library_ids(self.engine.state, perspective),
             )
         actions = self.legal_actions(perspective)
         pc = state_dict.get("pending_choice")
@@ -2413,6 +2497,13 @@ class GameSession:
                  "instance_id": action.get("instance_id"), "action": action}
                 for index, action in enumerate(actions)
             ]}
+        if pc and pc.get("kind") == "proliferate":
+            from copy import deepcopy
+            from .smart_bot2.counters import recommended_recipients
+            pc = deepcopy(pc)
+            state_dict["pending_choice"] = pc
+            pc["recommended_ids"] = recommended_recipients(
+                {"state": state_dict, "pending_choice": pc}, pc["player_id"])
         return {
             "session_id": self.id,
             "bot_status": {k: dict(v) for k, v in getattr(self, "_bot_status", {}).items()},
@@ -2421,7 +2512,16 @@ class GameSession:
             "acting_as": acting_as,
             "state": state_dict,
             "legal_actions": actions,
+            # Public actions/life changes only; no drawn-card identities.
+            "turn_facts": {
+                "spells_cast": dict(self.engine.state.spells_cast_this_turn),
+                "life_gained": dict(self.engine.state.life_gained_this_turn),
+                "life_lost": dict(self.engine.state.life_lost_this_turn),
+                "lands_entered": dict(self.engine.state.lands_entered_this_turn),
+            },
             "pending_choice": state_dict.get("pending_choice"),
+            # Policy diagnostics contain own private choices: only this seat.
+            "bot_decision": getattr(self, "_smart2_memory", {}).get(perspective, {}).get("trace") if perspective else None,
             # PLR-6: the caller's own in-progress, not-yet-submitted UI
             # selection (`set_ui_draft`) — never anyone else's, though
             # there's no RULE 400.2 secrecy concern either way, since a
@@ -2547,7 +2647,9 @@ class GameSession:
         view = self.view()
         from ..game.emblem_permissions import publicly_revealed_hand_ids
         _redact_hidden_zones(view["state"], perspective=None,
-                             also_visible_hand_ids=publicly_revealed_hand_ids(self.engine.state))
+                             also_visible_hand_ids=publicly_revealed_hand_ids(self.engine.state),
+                             resolution_visible_hand_ids=_resolution_visible_hand_ids(self.engine.state, None),
+                             resolution_visible_library_ids=_resolution_visible_library_ids(self.engine.state, None))
         view["perspective"] = None
         view["observer"] = True
         view["legal_actions"] = []
@@ -2637,7 +2739,8 @@ class GameSessionManager:
         # read from live libraries. Bots never receive draw order or opponents' decks.
         session._bot_decklists = {
             str(seat['player_id']): {'cards': sorted(seat['library'], key=lambda card: card.id),
-                                    'commanders': sorted(seat.get('commanders') or [], key=lambda card: card.id)}
+                                    'commanders': sorted(seat.get('commanders') or [], key=lambda card: card.id),
+                                    'archetypes': tuple(seat.get('archetypes') or ())}
             for seat in seats
         }
         self._sessions[session.id] = session

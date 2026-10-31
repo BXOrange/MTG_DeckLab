@@ -24,6 +24,11 @@ USER_DOCS_DIR = Path(__file__).resolve().parent.parent / "user-docs"
 
 
 class NoCacheHandler(SimpleHTTPRequestHandler):
+    def log_request(self, code="-", size="-") -> None:
+        # Keep the launcher console available for commands. HTTP errors
+        # still go through SimpleHTTPRequestHandler.log_error().
+        pass
+
     def translate_path(self, path: str) -> str:
         """Expose the player guide without copying it into the frontend tree.
 
@@ -55,7 +60,13 @@ def main() -> None:
     # This is a local dev server; it only needs to answer 127.0.0.1 anyway,
     # same as the backend's uvicorn (host-less --port also defaults to
     # loopback), which is why the backend never hit this.
-    ThreadingHTTPServer(("127.0.0.1", port), NoCacheHandler).serve_forever()
+    try:
+        with ThreadingHTTPServer(("127.0.0.1", port), NoCacheHandler) as server:
+            server.serve_forever()
+    except KeyboardInterrupt:
+        # Ctrl+C reaches the launcher and its children together.
+        # Treat it as a normal stop and let the context close the socket.
+        pass
 
 
 if __name__ == "__main__":

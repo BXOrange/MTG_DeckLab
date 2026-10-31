@@ -272,8 +272,8 @@ def test_mana_of_any_type_rider_and_standing_window_after_a_targeted_exile():
     # "a spell" from a window could not be limited to one cast
     "exile the top 3 cards of your library. until end of turn, you may cast a spell from among them.",
     "exile the top 3 cards of your library. until end of turn, you may cast spells from among them and then die.",
-    # the pronoun must follow an exile, not a mill
-    "mill 3 cards. until end of turn, you may cast spells from among them.",
+    # singular pronoun must name exactly one milled card
+    "mill 3 cards. until end of turn, you may cast that card.",
     "exile the top 3 cards of your library face down. you may cast spells from among them this turn.",
 ])
 def test_cast_window_refuses_what_it_cannot_express(text):
@@ -828,7 +828,7 @@ def test_permanent_casting_filter_includes_battle_spells(zone):
     eng = _engine()
     player = eng.state.player_by_id("p1")
     battle = Card(id="Battle", name="Battle", type_line="Battle", mana_cost_string="{2}",
-                  converted_mana_cost=2, oracle_text="")
+                  converted_mana_cost=2, oracle_text="", defense=3)
     if zone == "hand":
         obj = _hand(eng, battle)
         _run(eng, "you may cast a permanent spell from your hand without paying its mana cost.")

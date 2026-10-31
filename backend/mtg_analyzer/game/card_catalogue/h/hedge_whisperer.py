@@ -28,10 +28,6 @@ def _hedge_whisperer() -> list[AbilitySpec]:
                 "duration": "end_of_turn",  # overridden to for_as_long_as by `condition`
                 "target_kind": "land_you_control",
                 "condition": {"kind": "source_tapped"},
-                # Documented simplification: "green" isn't modeled —
-                # `type_change`'s layer-4 params have no colour field (same
-                # call as Restless Cottage). The animated land keeps
-                # whatever colour identity it already had.
                 "static": {
                     "type": "type_change",
                     "params": {
@@ -42,6 +38,8 @@ def _hedge_whisperer() -> list[AbilitySpec]:
                 },
                 "extra_statics": [
                     {"type": "grant_keyword", "params": {"keywords": ["haste"]}},
+                    # RULE 613.4b: "a 5/5 green Plant Boar creature" (layer 5).
+                    {"type": "color_change", "params": {"colors": ["G"], "set": True}},
                 ],
             })],
             cost={"text": "{3}{G}, {T}, Collect evidence 4", "sorcery_speed_only": True},

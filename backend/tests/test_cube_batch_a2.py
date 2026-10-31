@@ -337,9 +337,24 @@ def test_manglehorn_family_modeled_or_pinned_unclaimed():
     assert manglehorn.modeled, manglehorn.unclaimed
 
     dismantler = parse_oracle(_card("Dauntless Dismantler"))
-    assert not dismantler.modeled
-    assert not any("enter tapped" in u for u in dismantler.unclaimed)
-    assert len(dismantler.unclaimed) == 1  # only its own {X}{X}{W} sac ability
+    assert dismantler.modeled, dismantler.unclaimed  # its {X}{X}{W} ability is the shared exact-mana-value group
+
+
+def test_dauntless_dismantler_destroys_only_artifacts_with_mana_value_x():
+    from tests.test_par210_object_phrases import board, game
+    eng = game()
+    p1 = eng.state.player_by_id("p1")
+
+    def artifact(name, mv):
+        return Card(id=name, name=name, type_line="Artifact", mana_cost_string="{%d}" % mv, converted_mana_cost=mv)
+
+    one, two = board(eng, artifact("One", 1), "p2"), board(eng, artifact("Two", 2), "p2")
+    dismantler = board(eng, _card("Dauntless Dismantler"), "p1")
+    dismantler.summoning_sick = False
+    p1.mana_pool.add_many({"W": 1, "C": 2})
+    eng.activate_ability(p1, dismantler, x=1)
+    eng.resolve_until_stable()
+    assert one.zone == Zone.GRAVEYARD and two.zone == Zone.BATTLEFIELD
 
 
 def test_manglehorn_makes_an_opponents_artifact_enter_tapped():

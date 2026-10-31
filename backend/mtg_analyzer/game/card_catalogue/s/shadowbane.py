@@ -20,6 +20,7 @@ def _shadowbane() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("request_prevent_damage_source", {
+                "once": True,
                 "recipient": "you_and_creatures_you_control", "amount": "all",
                 "rider": {"kind": "gain_life", "recipient": "you", "if_source_color": "B"},
             })],

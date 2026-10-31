@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ..duration_phrase import FIXED_DURATIONS
 from ..clause_reading import ClauseReading
 from typing import Any, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
@@ -16,6 +17,7 @@ from ..subgrammars import (
     resolve_target_kind,
     TARGET,
     target_kind_allowed,
+    target_is_optional,
 )
 from ...normalize import SELF
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
@@ -502,8 +504,10 @@ def _pump_target_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: effect's pump applies, Drain Life's proven `bind` pattern) and the most
 #: recent `RollDieEffect` total.
 _PUMP_X_REFERENT_AMOUNTS: dict[str, dict] = {
-    "its power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
-    "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
+    # RULE 107.1b: a negative calculated pump magnitude is zero; this is
+    # distinct from setting base P/T, which preserves signed values.
+    "its power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
+    "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
     "the result": {"kind": "die_result"},
 }
 _PUMP_TARGET_X_AMOUNT_RE = compile_clause(
@@ -913,13 +917,30 @@ def _pump_group_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: are (cleared at RULE 514.2 cleanup), and routing it here too would give one
 #: phrasing two implementations. These are the ones ``temp_*`` *cannot*
 #: express, because it has nowhere to record any other ending.
-_GRANT_DURATIONS: dict[str, str] = {
-    "until your next turn": "your_next_turn",
-    "until the end of your next turn": "end_of_your_next_turn",  # PAR-163, RULE 611.2
-    "until end of combat": "end_of_combat",
-    "until the end of combat": "end_of_combat",
-    "until the beginning of the next end step": "next_end_step",
-}
+
+_GRANT_DURATIONS = {text: clock for text, clock in FIXED_DURATIONS.items() if clock != "end_of_turn"}
+
+
+def _target_quoted_until_source_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """RULE 611.2a: a quoted grant and the independently bounded self-cast permission."""
+    target = resolve_target_kind(m['target'])
+    if not target_kind_allowed(target, ('creature', 'land', 'artifact', 'enchantment', 'permanent', 'planeswalker')):
+        return None
+    grants = quoted_ability_grant_effects_list(m['inner'])
+    if not grants:
+        return None
+    payloads = [{'type': grant.type, 'params': dict(grant.params)} for grant in grants]
+    effects = [EffectSpec('grant_until', {
+        'target_kind': target,
+        'optional': target_is_optional(m),
+        'creature_filter': resolve_target_creature_state_filter(m['target']),
+        'duration': 'until_source_cast_from_exile',
+        'static': payloads[0],
+        **({'extra_statics': payloads[1:]} if len(payloads) > 1 else {}),
+    })]
+    if m['permission']:
+        effects.append(EffectSpec('grant_conditional_cast_from_exile', {'source_exiled_as_cost': True}))
+    return effects
 
 
 def _source_quoted_ability(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1139,7 +1160,7 @@ def _grant_until_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: matched against `game/static_conditions.py`'s vocabulary.
 _LOCKDOWN_CONDITIONS: list[tuple[re.Pattern[str], dict]] = [
     (re.compile(r"~ remains tapped", re.I), {"kind": "source_tapped"}),
-    (re.compile(r"you control ~", re.I), {"kind": "source_on_battlefield"}),
+    (re.compile(r"you control ~", re.I), {"kind": "source_controlled_by_you"}),
     (re.compile(r"~ remains on the battlefield", re.I), {"kind": "source_on_battlefield"}),
 ]
 
@@ -1197,6 +1218,9 @@ def _multi_target_pump_params(m: re.Match[str]) -> Optional[dict]:
     params = multi_target_params(m)
     if params is None:
         return None
+    if m.groupdict().get("any_number"):
+        params["any_number"] = True
+        params["count"] = 1
     if params.get("count_selector"):
         selector = _multi_target_x_selector(m)
         if selector is None:
@@ -1494,6 +1518,10 @@ ROWS: list[EffectHandler] = [
     # The same grant with any *other* duration (RULE 611) — "…until your next
     # turn", "…until end of combat". Ordered after the end-of-turn row above,
     # which it can't collide with (that duration isn't in `_GRANT_DURATIONS`).
+    EffectHandler('target_quoted_until_source_cast', compile_clause(
+        rf'{TARGET} gains? "(?P<inner>.+)" until (?:this card|~) is cast from exile'
+        r'(?P<permission>\. you may cast (?:this card|~) for as long as it remains exiled)?'
+    ), _target_quoted_until_source_cast),
     EffectHandler('source_quoted_ability', compile_clause(
         r"(?:~|this saga) gains? (?P<quote>[\"'])(?P<inner>.+)(?P=quote)"
         r"(?: (?P<dur>until end of turn|until your next turn|until the end of your next turn|"

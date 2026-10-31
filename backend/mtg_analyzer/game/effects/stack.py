@@ -46,9 +46,22 @@ class CounterSpellEffect(GameEffect):
         count: int = 1,
         optional: bool = False,
         destination: Optional[str] = None,
+        name_from_source: bool = False,
+        counter_source: bool = False,
+        resolve_if_color: Optional[str] = None,
+        max_mana_value: Optional[int] = None,
+        min_mana_value: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Counter target spell **if it's blue**." (Pyroblast, Hydroblast, Burnout) -- RULE 601.2c / 608.2b: the colour
+        #: is not a targeting restriction (any spell, here narrowed only by ``card_types``, is a legal target); it is
+        #: checked as the effect resolves, and a miss counters nothing while the spell stays on the stack. The inline
+        #: "counter target blue spell" adjective stays the offer-time ``color`` filter below.
+        self.resolve_if_color = resolve_if_color
+        #: PAR-208 (RULE 701.5a): "When you cast this spell, any player may ... If a player does, counter ~." (Brain
+        #: Gorgers, Dash Hopes) -- the spell the ability came from, not a RULE 115 target.
+        self.counter_source = bool(counter_source)
         #: PAR-175 M4: "If that spell is countered this way, exile it / put it on top of its owner's library / put it
         #: into its owner's hand instead of putting it into its owner's graveyard." (Dissipate, Memory Lapse, Remand) --
         #: one of `COUNTER_DESTINATIONS`; anything else is refused (an unknown redirect must not silently be a plain
@@ -116,12 +129,23 @@ class CounterSpellEffect(GameEffect):
             spell_filter["subtype_any"] = list(subtype_any)
         if mana_value is not None:
             spell_filter["mana_value"] = mana_value
+        # PAR-215: "counter target spell with mana value 2 or less / 4 or greater" (RULE 202.3) -- a ceiling / floor
+        # on the target spell, enforced at offer time like the exact value above.
+        if max_mana_value is not None:
+            # An int ceiling, or a per-candidate bound dict (`targeting._candidate_mana_value_bound`).
+            spell_filter["max_mana_value"] = max_mana_value if isinstance(max_mana_value, dict) else int(max_mana_value)
+        if min_mana_value is not None:
+            spell_filter["min_mana_value"] = int(min_mana_value)
         if color:
             spell_filter["color"] = color
-        if target_from_trigger_event is None:
+        # "counter target spell **with the chosen name**" (Declaration of Naught, MEC-134): the name the source stamped as it
+        # entered, read when the targets are offered (`targeting._legal_targets_for`).
+        if name_from_source:
+            spell_filter["name_from_source"] = True
+        if target_from_trigger_event is None and not self.counter_source:
             # "counter target spell **you don't control**" (Counterflux, PAR-128): the
             # controller-scoped ``spell_you_dont_control`` pool.
-            kind = target_kind if target_kind in ("spell", "spell_you_dont_control", "spell_or_ability") else "spell"
+            kind = target_kind if target_kind in ("spell", "spell_you_control", "spell_you_dont_control", "spell_or_ability") else "spell"
             self.target_spec = TargetSpec(
                 kind=kind, spell_filter=spell_filter or None, count=self.count, optional=bool(optional),
             )
@@ -144,6 +168,10 @@ class CounterSpellEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         on_pay = self.on_pay_effect_specs or None
         unless_pays = self._unless_pays_cost(context)
+        if self.counter_source:
+            if self.source is not None:
+                self._counter_one(context, self.source, unless_pays, on_pay)
+            return
         if self.target_from_trigger_event == "stack_id":
             # RULE 701.5 / 115.9: "counter that spell or ability" under a becomes-the-target head names the stack
             # item that targeted -- a spell or an ability, found by the event's ``stack_id`` (an ability has no
@@ -171,6 +199,21 @@ class CounterSpellEffect(GameEffect):
             self._counter_one(context, target, unless_pays, on_pay)
 
     def _counter_one(self, context: GameContext, target: Any, unless_pays: Optional[str], on_pay: Optional[list]) -> None:
+        if self.resolve_if_color:
+            # RULE 608.2b: the spell's colour at resolution (the shared `is_color` matcher, `continuous._has_color`).
+            from .. import continuous  # function-scoped: avoid an import cycle
+
+            stack_obj = getattr(context.engine._stack_item_for(target), "obj", None)
+            if stack_obj is None or not continuous._has_color(stack_obj, [self.resolve_if_color]):
+                return
+        if self.target_spec is not None and self.target_spec.kind == "spell_you_control":
+            # RULE 608.2b: the newly admitted own-spell scope must still
+            # hold when control of the original changes in response.
+            item = context.engine._stack_item_for(target)
+            controller = _controller_of(self.source, context)
+            if (item is None or item.kind != "spell" or controller is None
+                    or item.controller_id != controller.id):
+                return
         if target is not None and getattr(target, "kind", None) == "ability":
             # "counter target spell, activated ability, or triggered ability" (Disallow): the picked
             # stack item is an ability, which has no card to put anywhere (RULE 701.5b).
@@ -196,28 +239,33 @@ class CounterSpellEffect(GameEffect):
 
 
 class CounterAbilityEffect(GameEffect):
-    """Counter target activated or triggered ability (RULE 701.5b — Stifle/
+    """Counter target activated or triggered ability (RULE 701.6a — Stifle/
     Trickbind, ENG-26).
 
     The stack-item-identity sibling of `CounterSpellEffect`: an ability
     `StackItem` has no `GameObject` of its own (`.obj` is `None`), so
     ``target_spec`` uses `targeting.py`'s ``"ability"`` kind
     (`StackItem.stack_id`-keyed) rather than ``"spell"``
-    (`GameObject.instance_id`-keyed). No ``unless_pays``/type-filter
-    params — no printed card needing either has reached this yet; add
-    them the same way `CounterSpellEffect` carries its own if one does.
+    (`GameObject.instance_id`-keyed). PAR-191's ``activated_ability`` kind
+    narrows the same operation to RULE 602.1 abilities (Bind/Squelch).
     """
 
-    def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, target: Any = None, source: Optional["GameObject"] = None,
+                 target_kind: str = "ability") -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind="ability")
+        self.target_spec = TargetSpec(kind=target_kind)
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
+        if self.target_spec.kind == "activated_ability":
+            # RULE 608.2b / 602.1: narrow the resolving stack item as well as its offer.
+            item = context.engine._stack_item_for(target)
+            if item is None or item.kind != "ability" or item.category != "activated_ability":
+                return
         if target is not None:
             context.counter_ability(target)
 
@@ -226,17 +274,20 @@ class CopyTargetAbilityEffect(GameEffect):
     """"Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry) —
     RULE 707.10, the *targeted* sibling of `CopyAbilityEffect` above (which copies "that ability", the one
     that fired a trigger). The target is an ability item on the stack (``TargetSpec(kind="ability_you_control")``,
-    named by `StackItem.stack_id`); only one the effect's controller controls is copyable. ``X`` is the
+    named by `StackItem.stack_id`); controller scope is carried by the target kind. ``count`` is fixed
+    for Adric and defaults to Gogo's historical ``"x"``. ``X`` is the
     spell/ability's own announced {X} (the resolving stack item), independent of later activations.
     Gogo's minimum X is enforced by its activation cost.
 
     Target changes are optional and complete before any copy enters the stack.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False,
+                 count: Any = "x", target_kind: str = "ability_you_control") -> None:
         super().__init__(source)
         self.choose_new_targets = choose_new_targets
-        self.target_spec = TargetSpec(kind="ability_you_control")
+        self.count = count
+        self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not targets:
@@ -245,11 +296,13 @@ class CopyTargetAbilityEffect(GameEffect):
         stack_id = target.get("stack_id") if isinstance(target, dict) else getattr(target, "stack_id", None)
         item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
         controller_id = getattr(_controller_of(self.source, context), "id", None)
-        if item is None or item.kind != "ability" or controller_id is None or item.controller_id != controller_id:
+        if (item is None or item.kind != "ability" or controller_id is None
+                or self.target_spec.kind == "ability_you_control" and item.controller_id != controller_id):
             return  # RULE 608.2b: the ability left the stack, or isn't one you control
         resolving = context.resolving_stack_item
         announced_x = resolving.x if resolving is not None else getattr(self.source, "x_paid", 0)
-        for _ in range(max(0, int(announced_x or 0))):
+        count = announced_x if self.count == "x" else self.count
+        for _ in range(max(0, int(count or 0))):
             context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets, defer_choice=True)
         context.engine._advance_copy_targets()
 
@@ -267,6 +320,8 @@ class CopySpellEffect(GameEffect):
     targets for the copy" is a legal-but-optional refinement (RULE 707.10c);
     the controller chooses through state-owned target rounds before any
     copy is put on the stack, retaining any unchanged targets.
+    ``spell_filter`` composes the shared type, colour and exact mana-value
+    restrictions; its ``"x"`` mana value is this resolving item's X.
     """
 
     def __init__(
@@ -283,6 +338,7 @@ class CopySpellEffect(GameEffect):
         count_from_trigger_event: Optional[str] = None,
         max_mana_value: Optional[int] = None,
         choose_new_targets: bool = False,
+        spell_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.choose_new_targets = bool(choose_new_targets)
@@ -298,7 +354,7 @@ class CopySpellEffect(GameEffect):
         self.count_from_trigger_event = count_from_trigger_event
         self.spell_from_trigger_event = spell_from_trigger_event
         self.controller_from_trigger_event = controller_from_trigger_event
-        spell_filter: dict[str, Any] = {}
+        spell_filter = dict(spell_filter or {})
         if card_types:
             spell_filter["card_types"] = list(card_types)
         if max_mana_value is not None:
@@ -358,8 +414,28 @@ class CopySpellEffect(GameEffect):
         n = self._copies(context, controller_id)
         if n <= 0:
             return
+        # RULE 608.2b/107.3c: a stack original must still satisfy its kind,
+        # controller and mana-value requirements. X belongs to this stack
+        # item, independent of later activations of the source permanent.
+        from dataclasses import replace
+        from ..targeting import legal_targets
+
+        spec = self.target_spec
+        if spec.spell_filter and spec.spell_filter.get("mana_value") == "x":
+            resolving = context.resolving_stack_item
+            announced_x = resolving.x if resolving is not None else getattr(self.source, "x_paid", 0)
+            spec = replace(spec, spell_filter={**spec.spell_filter, "mana_value": int(announced_x or 0)})
+        legal_ids = {
+            ("spell", option["instance_id"]) if "instance_id" in option
+            else ("ability", option.get("stack_id"))
+            for option in legal_targets(context.state, controller_id, spec, source=self.source)
+        }
         for target in targets:
             item = context.engine._stack_item_for(target)
+            identity = (("spell", item.obj.instance_id) if item is not None and item.obj is not None
+                        else ("ability", getattr(item, "stack_id", None)))
+            if item is None or identity not in legal_ids:
+                continue
             if self.target_spec.kind == "spell_or_ability" and item is not None and item.kind == "ability":
                 for _ in range(n):
                     context.copy_ability(item, controller_id, choose_new_targets=self.choose_new_targets, defer_choice=True)
@@ -832,9 +908,15 @@ class CounterUnlessPayEffect(GameEffect):
         if event is not None:
             stack_id = event.get("stack_id")
             item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
+            if item is None and getattr(event, "type", None) == EventType.SPELL_CAST:
+                # RULE 603.1/400.7: a cast trigger names the physical spell
+                # and its stack visit, rather than a BECOMES_TARGET stack id.
+                item = next((i for i in context.state.stack if i.obj is not None
+                             and i.obj.instance_id == event.get("instance_id")
+                             and i.obj.zone_incarnation == event.get("zone_incarnation")), None)
             if item is None:
                 return  # the targeting spell/ability already left the stack
-            caster_id = event.get("controller_id")
+            caster_id = event.get("controller_id") or event.get("player_id")
             if caster_id is None:
                 return
         else:
@@ -842,7 +924,7 @@ class CounterUnlessPayEffect(GameEffect):
             if item is None or getattr(item, "obj", None) is None:
                 return
             caster_id = item.obj.controller_id
-        ability_controller_id = self.source.controller_id if self.source is not None else None
+        ability_controller_id = context.resolving_controller_id or (self.source.controller_id if self.source is not None else None)
         context.engine.resolve_ward_effect(
             item,
             caster_id,

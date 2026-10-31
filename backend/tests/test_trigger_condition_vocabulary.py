@@ -80,14 +80,11 @@ def test_new_verbs_compose_in_the_compound_shape():
 
 
 def test_a_verb_with_no_engine_event_stays_unclaimed():
-    """Fail-closed: "phases out" names no engine event at all (RULE 702.26
-    phasing has no per-permanent trigger event built), so it can't earn a
-    `_TRIGGER_VERBS` row and the whole clause stays unrecognized. (Both
-    "becomes untapped" and "specializes" used to be this test's example —
-    MEC-43 round 4E gave the first a real `EventType.UNTAPPED` and MEC-48
-    gave the second `EventType.SPECIALIZED`, so each moved up to
-    `test_new_self_subject_verbs_bind_to_their_event` instead.)"""
-    result = parse_oracle(creature(text="Whenever this creature phases out, draw a card."))
+    """Fail-closed: "levels up" names no engine event at all, so it can't earn a
+    `_TRIGGER_VERBS` row and the whole clause stays unrecognized. ("becomes untapped", "specializes" and, with
+    PAR-207's `PHASED_OUT`, "phases out" used to be this test's example -- each got a real `EventType` and moved up
+    to `test_new_self_subject_verbs_bind_to_their_event` instead.)"""
+    result = parse_oracle(creature(text="Whenever this creature levels up, draw a card."))
     assert result.coverage == "UNMODELED"
 
 

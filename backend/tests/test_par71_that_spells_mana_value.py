@@ -221,7 +221,9 @@ def test_impish_mischief_shaped_card_stays_unmodeled():
     assert not result.modeled, result.unclaimed
 
 
-def test_draining_whelk_shaped_card_stays_unmodeled():
+def test_draining_whelk_shaped_card_binds_the_countered_spell():
+    # PAR-215 built the `previous_subject` reading the module docstring says Draining Whelk was waiting for: "that
+    # spell" is the spell the counter clause countered (executed in `test_par215_referenced_amounts`).
     card = Card(
         id="Draining Whelk", name="Draining Whelk", type_line="Creature — Serpent",
         is_creature=True, power=4, toughness=6,
@@ -231,7 +233,7 @@ def test_draining_whelk_shaped_card_stays_unmodeled():
         ),
     )
     result = parse_oracle(card)
-    assert not result.modeled, result.unclaimed
+    assert result.modeled, result.unclaimed
 
 
 # ---------------------------------------------------------------------------

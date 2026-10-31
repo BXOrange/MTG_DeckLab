@@ -514,7 +514,7 @@ def test_animate_self_gains_color_words():
     assert parse_effect_body(
         "~ becomes a 2/2 blue and black horror artifact creature until end of turn."
     ) == [EffectSpec("grant_until", {
-        "duration": "end_of_turn", "target_kind": None,
+        "duration": "end_of_turn", "target_kind": None, "self_subject": True,
         "static": {
             "type": "type_change",
             "params": {
@@ -532,7 +532,7 @@ def test_animate_self_color_and_unblockable_tail_combine():
         "of turn and can't be blocked this turn."
     ) == [
         EffectSpec("grant_until", {
-            "duration": "end_of_turn", "target_kind": None,
+            "duration": "end_of_turn", "target_kind": None, "self_subject": True,
             "static": {
                 "type": "type_change",
                 "params": {

@@ -26,6 +26,8 @@ from typing import Any, Optional, Union
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
 from ..models.game.player import Player
+from ..models.cards import card_query
+from ..models.cards.card_query import is_nonland_permanent_card, is_permanent_card
 from ..parser.oracle.spec import TARGET_CHOOSER_OPPONENT
 from . import combat
 
@@ -61,33 +63,32 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     ),
     "land": lambda o: o.is_land,
     # "target basic land card in your graveyard" (Groundskeeper).
-    "basic_land": lambda o: bool(o.card.is_land) and "basic" in o.card.type_line.lower(),
-    "artifact": lambda o: bool(o.card.is_artifact),
-    "enchantment": lambda o: bool(o.card.is_enchantment),
+    "basic_land": lambda o: bool(o.is_land) and o.has_supertype("basic"),
+    "artifact": lambda o: bool(o.is_artifact),
+    "enchantment": lambda o: bool(o.is_enchantment),
     # "exile up to one target non-Aura enchantment card from your graveyard"
     # (Anikthea, Hand of Erebos — PAR-30 reanimator-token residue): an
     # enchantment whose printed type line carries no "Aura" subtype.
-    "non_aura_enchantment": lambda o: bool(o.card.is_enchantment)
-    and "aura" not in o.card.type_line.lower(),
+    "non_aura_enchantment": lambda o: bool(o.is_enchantment)
+    and not o.has_subtype("aura"),
     "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
     # "target instant card from your graveyard" (Torrential Gearhulk).
     "instant": lambda o: bool(o.card.is_instant),
     # "target instant, sorcery, or artifact card from your graveyard" (Scholar of the Lost Trove).
-    "instant_sorcery_or_artifact": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.card.is_artifact),
+    "instant_sorcery_or_artifact": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.is_artifact),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
     "sorcery": lambda o: bool(o.card.is_sorcery),
-    "permanent": lambda o: o.is_creature or o.is_land or o.is_planeswalker
-    or bool(o.card.is_artifact or o.card.is_enchantment),
-    "nonland_permanent": lambda o: o.is_creature or o.is_planeswalker
-    or bool(o.card.is_artifact or o.card.is_enchantment),
+    # RULE 110.4: a permanent card has any permanent type -- battle included (`card_query.is_permanent_card`).
+    "permanent": lambda o: is_permanent_card(o.card),
+    "nonland_permanent": lambda o: is_nonland_permanent_card(o.card),
     # "Put target artifact or creature card from a graveyard onto the
     # battlefield…" (MEC-43 round 2, Beacon of Unrest) — the artifact
     # sibling of `creature_or_planeswalker` below.
-    "artifact_or_creature": lambda o: o.is_creature or bool(o.card.is_artifact),
+    "artifact_or_creature": lambda o: o.is_creature or bool(o.is_artifact),
     # "return all artifact and enchantment cards from your graveyard to the battlefield" (Brilliant
     # Restoration, Redress Fate) — the artifact/enchantment union, same idiom as above.
-    "artifact_or_enchantment": lambda o: bool(o.card.is_artifact or o.card.is_enchantment),
+    "artifact_or_enchantment": lambda o: bool(o.is_artifact or o.is_enchantment),
     # "return a creature or planeswalker card from your graveyard to your
     # hand" (Takenuma, Abandoned Mire's Channel ability) — the union of the
     # two single-type filters, same idiom as `instant_or_sorcery` above.
@@ -97,11 +98,11 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # are exclusively creature subtypes in paper Magic, so a type-line
     # substring check alone already narrows correctly (mirrors PAR-70's
     # identical reasoning for the search-criteria sibling of this filter).
-    "rebel_permanent": lambda o: "rebel" in o.card.type_line.lower(),
-    "mercenary_permanent": lambda o: "mercenary" in o.card.type_line.lower(),
+    "rebel_permanent": lambda o: o.has_subtype("rebel"),
+    "mercenary_permanent": lambda o: o.has_subtype("mercenary"),
     # "exile target equipment, instant, or sorcery card from your graveyard" (Thor, God of Thunder).
     "equipment_instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery)
-    or "equipment" in o.card.type_line.lower(),
+    or o.has_subtype("equipment"),
     # "exile target noncreature, nonland card from your graveyard" (Practiced Scrollsmith).
     "noncreature_nonland": lambda o: not o.is_creature and not o.is_land,
     # "exile target card with a cycling ability from your graveyard" (Rooting Moloch) -- RULE 702.29: cycling, and
@@ -109,19 +110,19 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "card_with_cycling": lambda o: "cycling" in (o.card.oracle_text or "").lower()
     or any("cycling" in str(k).lower() for k in o.card.keywords),
     # "target Zombie card from your graveyard" (Unholy Grotto, Rot Hulk) — a creature subtype on the printed type line.
-    "zombie_card": lambda o: "zombie" in o.card.type_line.lower(),
+    "zombie_card": lambda o: o.has_subtype("zombie"),
     # "put target creature or battle card from your graveyard on top of your library" (Flitting Guerrilla, PAR-162).
-    "creature_or_battle": lambda o: o.is_creature or bool(o.card.is_battle),
+    "creature_or_battle": lambda o: o.is_creature or bool(o.is_battle),
     # "put an instant, sorcery, or battle card from your graveyard on top of your library" (Halo-Charged Skaab).
-    "instant_sorcery_or_battle": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.card.is_battle),
+    "instant_sorcery_or_battle": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.is_battle),
     # "return a creature or land card from your graveyard to your hand" (Grapple with the Past).
     "creature_or_land": lambda o: o.is_creature or o.is_land,
     # "return a nonland card of an opponent's choice from your graveyard to your hand" (Tasigur, the Golden Fang).
     "nonland_card": lambda o: not o.is_land,
     # "return X target nonlegendary cards from your graveyard to your hand" (Shigeki, Jukai Visionary).
-    "nonlegendary_card": lambda o: "legendary" not in o.card.type_line.lower(),
+    "nonlegendary_card": lambda o: not o.is_legendary,
     # "put target non-Dragon creature card from a graveyard onto the battlefield" (Junji, the Midnight Sky).
-    "non_dragon_creature": lambda o: o.is_creature and "dragon" not in o.card.type_line.lower(),
+    "non_dragon_creature": lambda o: o.is_creature and not o.has_subtype("dragon"),
     # "return target Aura or Equipment card from your graveyard to your hand" (Red XIII, Proud Warrior).
     "aura_or_equipment": lambda o: any(w in o.card.type_line.lower() for w in ("aura", "equipment")),
     # "return target Equipment or Vehicle card from your graveyard to your hand" (Cid, Freeflier Pilot).
@@ -129,8 +130,8 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # "return target non-Assassin historic card from your graveyard to your hand" (Elena, Turk Recruit) — historic is artifact,
     # legendary or Saga (RULE 700.6).
     "non_assassin_historic": lambda o: (
-        (bool(o.card.is_artifact) or "legendary" in o.card.type_line.lower() or "saga" in o.card.type_line.lower())
-        and "assassin" not in o.card.type_line.lower()
+        (bool(o.is_artifact) or o.is_legendary or o.has_subtype("saga"))
+        and not o.has_subtype("assassin")
     ),
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
@@ -165,11 +166,11 @@ _GRAVEYARD_TARGET_KINDS: frozenset[str] = frozenset(
 #: branch already uses for "equipment"/"aura".
 _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
     "creature": lambda o: o.is_creature,
-    "artifact": lambda o: bool(o.card.is_artifact),
-    "enchantment": lambda o: bool(o.card.is_enchantment),
+    "artifact": lambda o: bool(o.is_artifact),
+    "enchantment": lambda o: bool(o.is_enchantment),
     "land": lambda o: o.is_land,
     "planeswalker": lambda o: o.is_planeswalker,
-    "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
+    "vehicle": lambda o: o.has_subtype("vehicle"),
 }
 
 
@@ -190,10 +191,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Trickbind-shaped, ENG-26) — the stack-item-identity sibling of
         # ``"spell"``: an ability `StackItem` has no `.obj` a target
         # descriptor could key off (see `StackItem.stack_id`'s own
-        # docstring), so this kind is keyed by that instead. Not narrowed to
-        # just triggered or just activated — no printed card needs that
-        # split yet, and every real template says "activated or triggered".
-        "ability", "ability_you_control",
+        # docstring), so these kinds are keyed by that instead. RULE 602.1
+        # activated-only counters narrow the stack item's category.
+        "ability", "ability_you_control", "activated_ability",
         # "target spell or ability" (Deflecting Swat's real printed
         # wording) — the union of ``"spell"`` and ``"ability"`` above, both
         # option shapes side by side in one list.
@@ -333,7 +333,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target spell or creature" (Unsubstantiate, MEC-43).
         "spell_or_creature",
         # PAR-161: "target spell or nonland permanent" (Sudden Setback) / "target creature or spacecraft" (Guidance Failure).
-        "spell_or_nonland_permanent", "creature_or_spacecraft",
+        "spell_or_nonland_permanent", "spell_or_permanent", "creature_or_spacecraft",
         # "target spell you don't control" (Hullbreaker Horror) — the
         # controller-scoped mirror of the plain ``"spell"`` kind.
         "spell_you_control", "spell_you_dont_control",
@@ -371,6 +371,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target player or planeswalker" (ENG-52, RULE 115.1) — `opponent_or_planeswalker` with the
         # controller's own seat a legal player too, as printed (Hungry Flames, Punish the Enemy).
         "player_or_planeswalker",
+        # "target creature, planeswalker, or player" (PAR-216, Captain's Maneuver): "any target" without battles
+        # (RULE 115.4), as printed before battles existed.
+        "creature_planeswalker_or_player",
         # "target Aura or Equipment attached to a creature you control"
         # (Halvar, God of Battle) — `attached_equipment_you_control` widened
         # to Auras, and narrowed to hosts you control.
@@ -680,6 +683,8 @@ class TargetSpec:
     #: offer, and where the "stop early" boundary sits).
     count_max: Optional[int] = None
     any_number: bool = False
+    #: RULE 601.2c: all cards chosen for this occurrence share one graveyard.
+    same_graveyard: bool = False
     total_power_max: Optional[int] = None
     total_mana_value_max: Optional[int] = None
     #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
@@ -762,6 +767,7 @@ class TargetSpec:
                 "Spieler, dem diese Karte in diesem Zug Kampfschaden zugefügt hat",
             "spell": "Zauberspruch",
             "ability": "aktivierte oder ausgelöste Fähigkeit",
+            "activated_ability": "aktivierte Fähigkeit",
             "ability_you_control": "aktivierte oder ausgelöste Fähigkeit, die du kontrollierst",
             "spell_or_ability": "Zauberspruch oder Fähigkeit",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
@@ -804,6 +810,7 @@ class TargetSpec:
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
             "spell_or_creature": "Zauberspruch oder Kreatur",
+            "spell_or_permanent": "Zauberspruch oder bleibende Karte",
             "spell_or_nonland_permanent": "Zauberspruch oder nichtländliche bleibende Karte",
             "creature_or_spacecraft": "Kreatur oder Raumschiff",
             "commander_entered_this_turn": "Commander, der in diesem Zug ins Spiel kam",
@@ -817,6 +824,7 @@ class TargetSpec:
             "opponent": "Gegner",
             "opponent_or_planeswalker": "Gegner oder Planeswalker",
             "player_or_planeswalker": "Spieler oder Planeswalker",
+            "creature_planeswalker_or_player": "Kreatur, Planeswalker oder Spieler",
             "artifact_creature_planeswalker_or_opponent":
                 "Artefakt, Kreatur, Planeswalker oder Gegner",
             "artifact_creature_enchantment_or_planeswalker":
@@ -1081,7 +1089,9 @@ def _creature_matches_filter(
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
 
 
-def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:
+def _spell_matches_filter(
+    obj: GameObject, spell_filter: dict[str, Any], state: Optional[GameState] = None,
+) -> bool:
     """Whether a stack spell's underlying ``obj`` satisfies a "spell" target's
     ``spell_filter`` (RULE 601.2c/115) — see `TargetSpec.spell_filter`.
 
@@ -1102,11 +1112,11 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
             "creature": obj.is_creature,
             "instant": bool(obj.card.is_instant),
             "sorcery": bool(obj.card.is_sorcery),
-            "artifact": bool(obj.card.is_artifact),
-            "enchantment": bool(obj.card.is_enchantment),
+            "artifact": bool(obj.is_artifact),
+            "enchantment": bool(obj.is_enchantment),
             "planeswalker": obj.is_planeswalker,
             # "counter target creature or battle spell" (Assimilate Essence)
-            "battle": bool(obj.card.is_battle),
+            "battle": bool(obj.is_battle),
         }
         if not any(type_checks.get(t, False) for t in card_types):
             return False
@@ -1123,11 +1133,42 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
     mana_value = spell_filter.get("mana_value")
     if mana_value is not None and obj.mana_value != mana_value:
         return False
+    # "…spell with the chosen name" (MEC-134): RULE 201.2, the name of the spell on the stack.
+    if "name" in spell_filter and not card_query.name_matches(obj.name, spell_filter["name"]):
+        return False
     # "…spell with mana value 4 or less" (Expansion // Explosion).
     max_mana_value = spell_filter.get("max_mana_value")
+    if isinstance(max_mana_value, dict):
+        max_mana_value = _candidate_mana_value_bound(state, max_mana_value, obj)
     if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
+    # "…spell with mana value 4 or greater" (PAR-215): the floor sibling of the ceiling above.
+    min_mana_value = spell_filter.get("min_mana_value")
+    if min_mana_value is not None and obj.mana_value < min_mana_value:
+        return False
     return True
+
+
+def _candidate_mana_value_bound(state: Optional[GameState], bound: dict[str, Any], candidate: GameObject) -> int:
+    """PAR-215: a mana-value ceiling measured *per candidate*, as the candidate's own controller -- "target spell with
+    mana value less than or equal to the number of cards in **its controller's** graveyard" (Drown in the Loch). It
+    cannot be fixed once for the whole offer (RULE 601.2c): every candidate answers to a different player. Without a
+    state or a recognised bound nothing qualifies (-1), the fail-closed answer."""
+    selector = bound.get("candidate_controller_count")
+    if state is None or selector is None:
+        return -1
+    from .continuous import count_selector  # function-scoped: continuous imports this module
+
+    return count_selector(state, candidate.controller_id, selector, None)
+
+
+def _within_mana_value_ceiling(state: Optional[GameState], ceiling: Any, obj: GameObject) -> bool:
+    """RULE 202.3: ``obj``'s mana value is within ``ceiling`` -- no ceiling, an int, or a per-candidate bound dict."""
+    if ceiling is None:
+        return True
+    if isinstance(ceiling, dict):
+        ceiling = _candidate_mana_value_bound(state, ceiling, obj)
+    return obj.mana_value <= ceiling
 
 
 # --- ENG-34 S0b: the battlefield target frame ------------------------------
@@ -1254,7 +1295,7 @@ class TargetFrame:
 
 
 def _fp_nonbasic(o: "GameObject") -> bool:
-    return bool(o.is_land) and "basic" not in o.card.type_line.lower()
+    return bool(o.is_land) and not o.has_supertype("basic")
 
 
 def _fp_subtype(o: "GameObject", word: str) -> bool:
@@ -1272,68 +1313,68 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     ),
     "werewolf_creature": lambda o: o.is_creature and _fp_subtype(o, "werewolf"),
     "land": lambda o: o.is_land,
-    "artifact": lambda o: bool(o.card.is_artifact),
-    "enchantment": lambda o: bool(o.card.is_enchantment),
+    "artifact": lambda o: bool(o.is_artifact),
+    "enchantment": lambda o: bool(o.is_enchantment),
     "planeswalker": lambda o: o.is_planeswalker,
     "battle": lambda o: o.is_battle,
-    "noncreature_artifact": lambda o: bool(o.card.is_artifact) and not o.is_creature,
-    "nontoken_artifact": lambda o: bool(o.card.is_artifact) and not getattr(o, "is_token", False),
+    "noncreature_artifact": lambda o: bool(o.is_artifact) and not o.is_creature,
+    "nontoken_artifact": lambda o: bool(o.is_artifact) and not getattr(o, "is_token", False),
     "nonbasic_land": _fp_nonbasic,
-    "basic_land": lambda o: bool(o.is_land) and "basic" in o.card.type_line.lower(),
-    "mountain": lambda o: bool(o.is_land) and "mountain" in str(o.card.type_line).lower(),
-    "forest": lambda o: bool(o.is_land) and "forest" in str(o.card.type_line).lower(),
+    "basic_land": lambda o: bool(o.is_land) and o.has_supertype("basic"),
+    "mountain": lambda o: bool(o.is_land) and o.has_subtype("mountain"),
+    "forest": lambda o: bool(o.is_land) and o.has_subtype("forest"),
     "forest": lambda o: bool(o.is_land) and _fp_subtype(o, "forest"),
     "room": lambda o: _fp_subtype(o, "room"),
     "legendary_permanent": lambda o: bool(o.card.is_legendary),
     "historic_permanent": lambda o: (
-        bool(o.card.is_artifact) or bool(o.card.is_legendary)
-        or "saga" in o.card.type_line.lower()
+        bool(o.is_artifact) or bool(o.card.is_legendary)
+        or o.has_subtype("saga")
     ),
     # RULE 105.3: exactly one colour — a colourless permanent is not
     # monocolored.
     "monocolored_permanent": lambda o: len(o.colors or ()) == 1,
     "nonland_permanent": lambda o: (
         o.is_creature or o.is_planeswalker
-        or bool(o.card.is_artifact) or bool(o.card.is_enchantment)
+        or bool(o.is_artifact) or bool(o.is_enchantment)
     ),
     "noncreature_nonland_permanent": lambda o: (
-        (o.is_planeswalker or bool(o.card.is_artifact) or bool(o.card.is_enchantment))
+        (o.is_planeswalker or bool(o.is_artifact) or bool(o.is_enchantment))
         and not o.is_creature
     ),
     "noncreature_permanent": lambda o: not o.is_creature,
-    "creature_or_enchantment": lambda o: o.is_creature or bool(o.card.is_enchantment),
+    "creature_or_enchantment": lambda o: o.is_creature or bool(o.is_enchantment),
     # "target creature or land you control" (PAR-124, Vengeant Earth) — the
     # land sibling of `creature_or_enchantment` just above.
     "creature_or_land": lambda o: o.is_creature or o.is_land,
     # "target artifact, enchantment, or tapped creature an opponent controls" (Summon: Yojimbo).
     "artifact_enchantment_or_tapped_creature": lambda o: (
-        bool(o.card.is_artifact) or bool(o.card.is_enchantment) or (o.is_creature and bool(o.tapped))
+        bool(o.is_artifact) or bool(o.is_enchantment) or (o.is_creature and bool(o.tapped))
     ),
-    "creature_or_vehicle": lambda o: o.is_creature or "vehicle" in o.card.type_line.lower(),
-    "creature_or_spacecraft": lambda o: o.is_creature or "spacecraft" in o.card.type_line.lower(),
-    "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
-    "human_or_artifact": lambda o: bool(o.card.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
-    "artifact_creature_or_land": lambda o: o.is_creature or o.is_land or o.card.is_artifact,
+    "creature_or_vehicle": lambda o: o.is_creature or o.has_subtype("vehicle"),
+    "creature_or_spacecraft": lambda o: o.is_creature or o.has_subtype("spacecraft"),
+    "vehicle": lambda o: o.has_subtype("vehicle"),
+    "human_or_artifact": lambda o: bool(o.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
+    "artifact_creature_or_land": lambda o: o.is_creature or o.is_land or o.is_artifact,
     "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
     "creature_planeswalker_or_battle": lambda o: (
         o.is_creature or o.is_planeswalker or o.is_battle
     ),
-    "artifact_or_creature": lambda o: bool(o.card.is_artifact) or o.is_creature,
+    "artifact_or_creature": lambda o: bool(o.is_artifact) or o.is_creature,
     "artifact_or_enchantment": lambda o: (
-        bool(o.card.is_artifact) or bool(o.card.is_enchantment)
+        bool(o.is_artifact) or bool(o.is_enchantment)
     ),
     "artifact_creature_or_enchantment": lambda o: (
-        bool(o.card.is_artifact) or o.is_creature or bool(o.card.is_enchantment)
+        bool(o.is_artifact) or o.is_creature or bool(o.is_enchantment)
     ),
     "artifact_creature_or_planeswalker": lambda o: (
-        bool(o.card.is_artifact) or o.is_creature or o.is_planeswalker
+        bool(o.is_artifact) or o.is_creature or o.is_planeswalker
     ),
     "artifact_creature_enchantment_or_planeswalker": lambda o: (
-        bool(o.card.is_artifact) or o.is_creature
-        or bool(o.card.is_enchantment) or o.is_planeswalker
+        bool(o.is_artifact) or o.is_creature
+        or bool(o.is_enchantment) or o.is_planeswalker
     ),
     "artifact_enchantment_or_nonbasic_land": lambda o: (
-        bool(o.card.is_artifact) or bool(o.card.is_enchantment) or _fp_nonbasic(o)
+        bool(o.is_artifact) or bool(o.is_enchantment) or _fp_nonbasic(o)
     ),
     "equipment": lambda o: _fp_subtype(o, "equipment"),
     "aura_or_equipment": lambda o: (
@@ -1480,8 +1521,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "creature_or_planeswalker", SCOPE_YOU, exclude_source=False),
     "artifact_creature_or_land_you_control": TargetFrame(
         "artifact_creature_or_land", SCOPE_YOU, exclude_source=False),
-    "artifact_or_enchantment": TargetFrame("artifact_or_enchantment"),
-    "artifact_or_creature": TargetFrame("artifact_or_creature"),
+    "artifact_or_enchantment": TargetFrame("artifact_or_enchantment", apply_max_mana_value=True),
+    "artifact_or_creature": TargetFrame("artifact_or_creature", apply_max_mana_value=True),
     "artifact_or_creature_you_control": TargetFrame(
         "artifact_or_creature", SCOPE_YOU),
     "artifact_creature_or_enchantment": TargetFrame(
@@ -1561,6 +1602,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "planeswalker", with_opponents=True, players_first=True),
     "player_or_planeswalker": TargetFrame(
         "planeswalker", with_all_players=True, players_first=True),
+    "creature_planeswalker_or_player": TargetFrame("creature_or_planeswalker", with_all_players=True),
     "battle_or_opponent": TargetFrame("battle", with_opponents=True),
     "artifact_creature_planeswalker_or_opponent": TargetFrame(
         "artifact_creature_or_planeswalker", with_opponents=True),
@@ -1616,6 +1658,8 @@ def trigger_player_antecedent(state: "GameState", event: Any) -> Optional[str]:
         return event.get("defending_player_id")
     if event_type == "BECOMES_TARGET":
         return event.get("controller_id")
+    if event_type == "SPELL_CAST":
+        return event.get("player_id")
     if event_type == "STEP_BEGIN":
         active = getattr(state, "active_player", None)
         return getattr(active, "id", None)
@@ -1691,7 +1735,11 @@ def _legal_from_frame(
             continue
         if frame.apply_color and not _color_ok(spec, obj.colors):
             continue
-        if frame.apply_max_mana_value and spec.max_mana_value is not None and (
+        if frame.apply_max_mana_value and isinstance(spec.max_mana_value, dict) \
+                and "candidate_controller_count" in spec.max_mana_value \
+                and obj.mana_value > _candidate_mana_value_bound(state, spec.max_mana_value, obj):
+            continue
+        if frame.apply_max_mana_value and isinstance(spec.max_mana_value, (int, float)) and (
             obj.mana_value > spec.max_mana_value
         ):
             continue
@@ -1825,6 +1873,8 @@ def target_meets_restrictions(
     if _announce_relative(spec):
         return True
     offered = legal_targets(state, controller_id, spec, source, trigger_event)
+    if getattr(target, "stack_id", None) is not None:
+        return any(option.get("stack_id") == target.stack_id for option in offered)
     if isinstance(target, Player):
         return any(option.get("player_id") == target.id for option in offered)
     return any(option.get("instance_id") == target.instance_id for option in offered)
@@ -1905,6 +1955,14 @@ def _legal_targets_for(
             spec = replace(spec, max_mana_value=int(_event.get("power") or 0))
         else:
             spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+    # PAR-215: "…with mana value less than or equal to the number of Plains you control" (Lay Down Arms) -- a
+    # `continuous.count_selector` measured for the ability's controller while the target is offered (RULE 601.2c).
+    for bound_attr in ("max_mana_value", "exact_mana_value"):
+        bound = getattr(spec, bound_attr)
+        if isinstance(bound, dict) and "count_selector" in bound:
+            from .continuous import count_selector as _bound_count
+
+            spec = replace(spec, **{bound_attr: _bound_count(state, controller_id, bound["count_selector"], source)})
     if spec.max_mana_value == "counters_on_permanents_you_control":
         from .continuous import count_selector
         spec = replace(spec, max_mana_value=count_selector(state, controller_id, spec.max_mana_value))
@@ -2087,14 +2145,14 @@ def _legal_targets_for(
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.card.is_artifact and o is not source
+                    if o.is_artifact and o is not source
                     and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "enchantment":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.card.is_enchantment and o is not source
+                    if o.is_enchantment and o is not source
                     and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "land":
@@ -2178,7 +2236,7 @@ def _legal_targets_for(
             and (allow_self or o is not source)
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.mana_value <= spec.max_mana_value)
+            and _within_mana_value_ceiling(state, spec.max_mana_value, o)
             and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
             and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
             and (
@@ -2213,9 +2271,9 @@ def _legal_targets_for(
             if o.is_creature and o.blocking == source.instance_id
             and _targetable_by(o, source)
         ]
-    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent"):
+    if kind in ("spell_or_nonland_permanent_you_dont_control", "spell_or_nonland_permanent", "spell_or_permanent"):
         # PAR-161 (Sudden Setback): ``spell_or_nonland_permanent`` is the same union with no controller restriction.
-        unscoped = kind == "spell_or_nonland_permanent"
+        unscoped = kind in ("spell_or_nonland_permanent", "spell_or_permanent")
         # "Return target spell or nonland permanent an opponent controls to
         # its owner's hand." (Sink into Stupor) — the union of the plain
         # ``"spell"`` branch's own options (any spell on the stack; nothing
@@ -2232,9 +2290,9 @@ def _legal_targets_for(
         permanents = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if (not o.is_land if unscoped else (
-                (o.is_creature or o.is_planeswalker or o.card.is_artifact or o.card.is_enchantment)
-                and o.controller_id not in (None, controller_id)))
+            # RULE 110.4: every nonland permanent qualifies, battles included -- not a re-enumeration of types.
+            if (kind == "spell_or_permanent" or not o.is_land)
+            and (unscoped or o.controller_id not in (None, controller_id))
             and o is not source
             and _targetable_by(o, source)
         ]
@@ -2331,7 +2389,7 @@ def _legal_targets_for(
             if type_filter(o)
             and (not spec.subtype or spec.subtype.lower() in o.card.type_line.lower())
             and not (spec.exclude_legendary and o.card.is_legendary)
-            and (spec.max_mana_value is None or o.mana_value <= spec.max_mana_value)
+            and _within_mana_value_ceiling(state, spec.max_mana_value, o)
             and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
             # "…creature card with mana value X from your graveyard" (Isareth the Awakener, PAR-139).
             and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
@@ -2366,15 +2424,18 @@ def _legal_targets_for(
             if card_filter.get("mana_value") == "x":
                 # "counter target spell with mana value X" — the announced {X}, as for `exact_mana_value`.
                 card_filter["mana_value"] = int(getattr(source, "x_paid", 0) or 0)
+            if card_filter.pop("name_from_source", False):
+                # "target spell with the chosen name" (Declaration of Naught): nothing chosen offers nothing.
+                card_filter["name"] = getattr(source, "chosen_card_name", None) or ""
             if card_filter.pop("single_target", False):
                 items = [item for item in items if len(item.targets) == 1]
             if card_filter:
-                items = [item for item in items if _spell_matches_filter(item.obj, card_filter)]
+                items = [item for item in items if _spell_matches_filter(item.obj, card_filter, state)]
         return [
             {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
             for item in items
         ]
-    if kind in ("ability", "ability_you_control", "spell_or_ability"):
+    if kind in ("ability", "ability_you_control", "activated_ability", "spell_or_ability"):
         # `.obj` is `None` for an ability item, so this is keyed by
         # `StackItem.stack_id` instead — see that field's own docstring
         # (ENG-26). ``item.source is None`` is the rare hand-built ability
@@ -2386,6 +2447,7 @@ def _legal_targets_for(
             for item in state.stack
             if item.kind == "ability" and item.source is not None
             and (kind != "ability_you_control" or item.controller_id == controller_id)
+            and (kind != "activated_ability" or item.category == "activated_ability")
         ]
         if kind == "spell_or_ability":
             # "target spell or ability" (Deflecting Swat) — the plain
@@ -2398,7 +2460,7 @@ def _legal_targets_for(
                 {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
                 for item in state.stack
                 if item.kind == "spell" and item.obj is not None and item.obj is not source
-                and (not spec.spell_filter or _spell_matches_filter(item.obj, dict(spec.spell_filter)))
+                and (not spec.spell_filter or _spell_matches_filter(item.obj, dict(spec.spell_filter), state))
             ] + options
         return options
     return []
@@ -2465,6 +2527,11 @@ def resolved_count(
 
 def add_target_budget_metadata(state, spec, entry):
     """The same target-count and aggregate axes for spell and ability UIs."""
+    if spec.same_graveyard:
+        entry['same_graveyard'] = True
+        for option in entry['options']:
+            target = state.find_object(option.get('instance_id'))
+            option['graveyard_owner_id'] = target.owner_id if target else None
     if spec.any_number:
         entry.update(any_number=True, count=0, count_max=len(entry['options']))
     for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
@@ -2478,6 +2545,11 @@ def add_target_budget_metadata(state, spec, entry):
 
 def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
     """RULE 601.2c: all picks for one occurrence of target share its limit."""
+    # RULE 601.2c: a single graveyard is a relation among this group's targets.
+    if spec.same_graveyard and len({
+        getattr(getattr(target, 'obj', target), 'owner_id', None) for target in targets
+    }) > 1:
+        return False
     for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
         if limit is not None and sum(
             getattr(getattr(target, 'obj', target), field, 0) or 0 for target in targets
@@ -2488,7 +2560,7 @@ def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
 
 def budgeted_target_options(state, spec, options, picked=()):
     """Keep choices that fit the remaining aggregate budget of this group."""
-    if spec.total_power_max is None and spec.total_mana_value_max is None:
+    if not spec.same_graveyard and spec.total_power_max is None and spec.total_mana_value_max is None:
         return options
     return [option for option in options if target_group_within_budget(spec,
         [*picked, state.find_object(option.get('instance_id'))])]

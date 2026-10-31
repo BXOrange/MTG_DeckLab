@@ -346,10 +346,14 @@ def test_goaded_creature_must_attack_someone_other_than_its_goader():
     # RULE 701.15b's second half, with a real alternative available.
     eng = _engine([("p1", "Alice", []), ("p2", "Bob", []), ("p3", "Carol", [])])
     state = eng.state
+    # The active player draws on turn one in a three-player game.
+    state.player_by_id("p1").add_to_zone(
+        GameObject(_creature("Draw filler"), owner_id="p1", zone=Zone.LIBRARY), Zone.LIBRARY)
     obj = _put(state, _creature("Goaded Bear"))
     eng.rules.goad(obj, "p2")
     eng.start()
     _to_declare_attackers(eng)
+    assert not state.active_player.has_lost
 
     eng.declare_attackers(
         state.active_player,
@@ -381,10 +385,14 @@ def test_goaded_creature_may_attack_its_goader_when_nobody_else_is_attackable():
 def test_goaded_creature_attacking_a_third_player_is_fine():
     eng = _engine([("p1", "Alice", []), ("p2", "Bob", []), ("p3", "Carol", [])])
     state = eng.state
+    # The active player draws on turn one in a three-player game.
+    state.player_by_id("p1").add_to_zone(
+        GameObject(_creature("Draw filler"), owner_id="p1", zone=Zone.LIBRARY), Zone.LIBRARY)
     obj = _put(state, _creature("Goaded Bear"))
     eng.rules.goad(obj, "p2")
     eng.start()
     _to_declare_attackers(eng)
+    assert not state.active_player.has_lost
 
     eng.declare_attackers(
         state.active_player,

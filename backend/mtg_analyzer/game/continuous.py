@@ -47,17 +47,19 @@ less"), which aren't part of 613 but are the other everyday static effect and
 are computed here for the same recompute.
 
 RULE 613.8's *dependency* system (an effect whose order depends on another
-applying first) is modeled **only within layer 2** (`_order_control_effects`)
-— confirmed by tracing every selector this engine has that a same-sublayer
-effect could depend on: a `pt_cda`'s count-selectors (`_count_selector`) can
-only *count* objects (creatures/lands/permanents/artifacts you control, cards
-in a graveyard), never read another object's power/toughness, so no 7a
-dependency is constructible at all; every other sublayer (pt_set/pt_mod/
-pt_switch/type/color/ability) can't construct one either. Layer 2 is the one
-real case: a controller-scoped `affects` ("creatures you control") can see a
-different object set depending on whether another control-change ran first —
-the textbook CR 613.8 example. Elsewhere, ordering is by timestamp only
-(RULE 613.7, `_in_layer`).
+applying first) is modeled in three places. Layer 2 uses `_order_control_effects`
+(a controller-scoped `affects` sees a different object set depending on whether
+another control change ran first). Layers 4 (type), 5 (colour) and 7b/7d/7e
+(P/T, whose power-filtered selectors read the working values via
+`_publish_working_pt`) use the generic `_apply_in_dependency_order`: it
+tentatively applies one effect to scratch state and checks whether another's
+existence (source lost all abilities -- Blood Moon vs. Urborg) or affected set
+changed, re-evaluating after every application (613.8c) and falling back to
+timestamp order for loops (613.8b). Layer 6 uses the cheaper
+`_layer_6_dependency_order`: a static whose source is in a "loses all
+abilities" effect's affected set follows that effect (Humility vs. a creature
+lord's grant). Layer 3's word substitution can't create one (no selector reads
+oracle text) and a `pt_cda`'s count-selectors only count objects, so 7a has none.
 
 `recompute(state)` resets every battlefield object's derived characteristics
 and re-derives them from scratch, stamping the result — and a per-object,
@@ -77,6 +79,9 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from .creature_types import CREATURE_SUBTYPES
+from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
+from ..models.cards.card_colors import effective_colors
+from ..models.cards.card_query import name_matches
 from .rooms import unlocked_door_names
 from .effects.core import (
     ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
@@ -96,6 +101,13 @@ _PT_COUNTER_KIND_RE = re.compile(r"([+-]\d+)/([+-]\d+)")
 def _signed(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
 
+
+#: RULE 205.3i: every land type, lowercased (the five basic ones above plus the nonbasic ones) -- what "lose all land types"
+#: (Alpine Moon) removes from a land's subtypes.
+_LAND_TYPES: frozenset[str] = frozenset(
+    {"cave", "desert", "forest", "gate", "island", "lair", "locus", "mine", "mountain", "plains", "planet", "power-plant",
+     "sphere", "swamp", "tower", "town", "urza’s", "urza's"}
+)
 
 #: RULE 305.6's five basic land types, lowercased — the trigger for RULE
 #: 305.7's "setting a land's subtype removes its rules text and abilities"
@@ -221,20 +233,21 @@ _CARD_TYPE_ATTRS: dict[str, str] = {
 
 
 def _has_card_type(obj: "GameObject", card_type: str) -> bool:
-    """Whether ``obj``'s *printed* card is of ``card_type`` — reads the
-    `Card` flags directly (not layer-4 `_added_types`), since every static
-    family that uses this filters on the entering/affected object's own
-    printed identity (an artifact staying an artifact regardless of any
-    other layer effect in play). ``"permanent"`` (RULE 110.1) always
-    matches — everything on the battlefield is one."""
+    """Whether ``obj`` currently has ``card_type`` — RULE 613.1d: on the battlefield the layer-4 derived
+    types (a creature made an artifact is one; a permanent that lost a type is not), else the card's own
+    characteristics (`characteristic_card`, RULE 113.6c). ``"permanent"`` (RULE 110.1) always matches."""
     from ..models.game.game_object import Zone
 
     if card_type == "permanent":
         return True
     attr = _CARD_TYPE_ATTRS.get(card_type)
-    if attr and getattr(obj, "zone", None) != Zone.BATTLEFIELD and hasattr(obj, "characteristic_card"):
+    if not attr:
+        return False
+    if getattr(obj, "zone", None) == Zone.BATTLEFIELD and isinstance(getattr(type(obj), attr, None), property):
+        return bool(getattr(obj, attr))
+    if getattr(obj, "zone", None) != Zone.BATTLEFIELD and hasattr(obj, "characteristic_card"):
         return bool(getattr(obj.characteristic_card(), attr, False))
-    return bool(attr and getattr(obj.card, attr, False))
+    return bool(getattr(obj.card, attr, False))
 
 
 def has_card_type(obj: "GameObject", card_type: str) -> bool:
@@ -304,14 +317,14 @@ def matches_permanent_word(obj: "GameObject", word: str) -> bool:
 def _is_nonbasic(obj: "GameObject") -> bool:
     """RULE 205.4a: a land with no "Basic" supertype (the same substring
     check `game/targeting.py`'s "nonbasic land" filter already uses)."""
-    return "basic" not in obj.card.type_line.lower()
+    return not obj.has_supertype("basic")
 
 
 def _has_color(obj: "GameObject", colors: list) -> bool:
     """Whether ``obj`` is any of ``colors`` (RULE 105 / colour-scoped anthems).
 
     Reads the object's effective ``colors`` (a layer-5 colour-changing effect
-    if one applies, else the printed ``color_identity`` — the same field the
+    if one applies, else the printed colours, RULE 202.2 — the same derivation the
     tutor's `card_query` matches on). ``"C"`` means colourless — no WUBRG.
     """
     identity = obj.colors
@@ -371,9 +384,16 @@ def group_selector_objects(
         # others.
         wanted = set(params.get("object_ids") or [])
         incarnations = params.get("object_incarnations") or {}
-        result = [o for o in battlefield if o.instance_id in wanted
-                  and (not incarnations or o.zone_incarnation == incarnations.get(
-                      o.instance_id, incarnations.get(str(o.instance_id))))]
+        objects = list(battlefield)
+        if params.get("include_stack"):
+            objects += [item.obj for item in state.stack if item.kind == "spell" and item.obj is not None]
+        def same_visit(obj):
+            stamp = incarnations.get(obj.instance_id, incarnations.get(str(obj.instance_id)))
+            # RULE 400.7a: a characteristic change to a permanent spell continues on the permanent it becomes.
+            return (not incarnations or obj.zone_incarnation == stamp or
+                    (params.get("include_stack") and obj in battlefield and stamp is not None
+                     and obj.zone_incarnation == stamp + 1))
+        result = [o for o in objects if o.instance_id in wanted and same_visit(o)]
     elif affects == "self":
         result = [src] if src is not None and src in battlefield else []
     elif affects == "all_creatures":
@@ -536,7 +556,7 @@ def group_selector_objects(
         result = [
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id
-            and "legendary" in o.card.type_line.lower()
+            and o.is_legendary
         ]
     elif affects == "legendary_permanents_you_control":
         # "Each legendary permanent you control has ward {2}." (Gold-Forged
@@ -544,13 +564,13 @@ def group_selector_objects(
         # non-creature sibling of ``legendary_creatures_you_control`` above.
         result = [
             o for o in battlefield
-            if o.controller_id == controller_id and "legendary" in o.card.type_line.lower()
+            if o.controller_id == controller_id and o.is_legendary
         ]
     elif affects == "nonlegendary_creatures_you_control":
         result = [
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id
-            and "legendary" not in o.card.type_line.lower()
+            and not o.is_legendary
         ]
     elif affects == "permanents_you_control":
         result = [o for o in battlefield if o.controller_id == controller_id]
@@ -592,7 +612,7 @@ def group_selector_objects(
         result = [
             o for o in battlefield
             if o.is_land and o.controller_id == controller_id
-            and land_subtype in o.card.type_line.lower()
+            and o.has_subtype(land_subtype)
         ]
     elif affects == "commander_creatures_you_own":
         # "Commander creatures you own have '<ability>'." (Acolyte of
@@ -606,7 +626,7 @@ def group_selector_objects(
             if o.is_creature and o.is_commander and o.owner_id == controller_id
         ]
     elif affects == "artifacts_you_control":
-        result = [o for o in battlefield if o.card.is_artifact and o.controller_id == controller_id]
+        result = [o for o in battlefield if o.is_artifact and o.controller_id == controller_id]
     elif affects == "enchanted_or_equipped_creatures_you_control":
         # Halvar, God of Battle's "creatures you control that are enchanted
         # or equipped" — a creature you control with *anything* (Aura or
@@ -677,7 +697,7 @@ def group_selector_objects(
         chosen_name = getattr(src, "chosen_card_name", None)
         if not chosen_name:
             return []
-        result = [o for o in result if getattr(o.card, "name", None) == chosen_name]
+        result = [o for o in result if name_matches(getattr(o.card, "name", ""), chosen_name)]
     if params.get("tokens"):  # "creature tokens you control …" (RULE 111)
         result = [o for o in result if getattr(o, "is_token", False)]
     if params.get("exclude_self"):  # a global "Other creatures …" anthem
@@ -916,6 +936,39 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
     return abilities
 
 
+#: RULE 613.1: layer 6 is the ability-adding/removing layer; every layer-number
+#: above it (the 7 sublayers, then the post-layer rules effects) comes later.
+ABILITY_LAYER_NUMBER: int = 6
+
+
+def _drop_statics_removed_in_layer_6(state: "GameState", abilities: list) -> list:
+    """RULE 613.6: a static ability whose source lost all abilities in layer 6
+    never starts to apply in a later layer (Humility on a lord: its layer-7
+    anthem is gone, so the other creature is 1/1, not 2/2).
+
+    Runs once, right after layer 6, so ``loses_all_abilities`` is this pass's
+    answer, not the previous recompute's. A static whose effect already began
+    applying in an earlier layer is unaffected: a single ``StaticAbility`` that
+    spans layers (a layer-4 animation that also sets P/T) applies those layers
+    itself, before layer 6, and so is not in the list this filters. Exempt:
+    floating effects from a resolved spell/ability (RULE 611.2b — independent
+    of their source) and statics granted to an object by layer 6 (their source
+    is the receiver, and the grant is itself a layer-6 effect). O(n).
+    """
+    granted = {
+        id(ab) for obj in state.battlefield
+        for ab in getattr(obj, "_granted_static_abilities", ())
+    }
+    kept = []
+    for ab in abilities:
+        if (ab.layer_number > ABILITY_LAYER_NUMBER
+                and ab.duration is None and id(ab) not in granted
+                and getattr(ab.source, "loses_all_abilities", False)):
+            continue
+        kept.append(ab)
+    return kept
+
+
 def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]:
     """Abilities in one (sub)layer, ordered by timestamp (RULE 613.7b).
 
@@ -939,6 +992,108 @@ def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]
         key=lambda a: a.timestamp if getattr(a, "timestamp", None) is not None
         else getattr(a.source, "timestamp", 0),
     )
+
+
+#: RULE 613.8: the most same-layer effects the dependency pass will probe. Each
+#: ordering step probes every pending pair against a scratch copy of the board's
+#: derived state (O(n^3) probes over a whole layer), so a pathological pile of
+#: effects in one layer falls back to plain timestamp order (RULE 613.7) rather
+#: than stalling a recompute. Real boards carry a handful per layer.
+DEPENDENCY_POOL_LIMIT: int = 16
+
+#: The per-object derived fields a layer-4/5 effect can write; the dependency
+#: probe saves and restores exactly these around a tentative application.
+_DEPENDENCY_SCRATCH_FIELDS: tuple[str, ...] = (
+    "_added_types", "_removed_types", "_added_subtypes", "_derived_subtypes",
+    "_derived_colors", "_derived_name", "_loses_all_abilities", "_granted_legendary", "static_trace",
+    "_derived_power", "_derived_toughness",
+)
+
+
+def _static_ability_ceased(ability: StaticAbility) -> bool:
+    """RULE 613.8a(b): an ability whose source has lost all abilities within this
+    layer no longer exists, so it applies nothing. Floating effects (RULE 611.2b,
+    independent of their source) and statics granted by layer 6 are exempt,
+    exactly as in `_drop_statics_removed_in_layer_6`."""
+    if ability.duration is not None or getattr(ability, "object_ids", None):
+        return False
+    source = ability.source
+    if source is None or not getattr(source, "_loses_all_abilities", False):
+        return False
+    return not any(ability is g for g in getattr(source, "_granted_static_abilities", ()))
+
+
+def _dependency_signature(
+    state: "GameState", ability: StaticAbility, refresh: Any = None,
+) -> tuple:
+    """What RULE 613.8a(b) says another effect can change about ``ability``: that
+    it exists, and what it applies to. ``refresh`` re-publishes working state a
+    selector reads (layer 7's in-progress P/T) before the selector runs."""
+    if refresh is not None:
+        refresh()
+    if _static_ability_ceased(ability):
+        return (False, ())
+    return (True, tuple(sorted(o.instance_id for o in affected_objects(state, ability))))
+
+
+def _depends_on(
+    state: "GameState", dependent: StaticAbility, other: StaticAbility,
+    apply_one: Any, scratch: tuple = (), refresh: Any = None,
+) -> bool:
+    """RULE 613.8a: does ``dependent`` depend on ``other``? Both are in the same
+    layer (the caller guarantees it) and neither is a CDA, so condition (a)/(c)
+    hold; condition (b) is tested by applying ``other`` alone to a scratch copy of
+    the derived state and comparing ``dependent``'s existence / affected set.
+    ``scratch`` lists the extra containers (dicts/sets) ``apply_one`` writes to
+    besides the per-object fields, so the probe leaves no residue in them."""
+    before = _dependency_signature(state, dependent, refresh)
+    objects = list(state.battlefield)
+    saved = [
+        {f: copy.copy(getattr(o, f)) for f in _DEPENDENCY_SCRATCH_FIELDS} for o in objects
+    ]
+    saved_containers = [copy.deepcopy(c) for c in scratch]
+    try:
+        apply_one(other)
+        changed = _dependency_signature(state, dependent, refresh) != before
+    finally:
+        for o, fields in zip(objects, saved):
+            for f, v in fields.items():
+                setattr(o, f, v)
+        for container, snapshot in zip(scratch, saved_containers):
+            container.clear()
+            container.update(snapshot)
+    return changed
+
+
+def _apply_in_dependency_order(
+    state: "GameState", abilities: list[StaticAbility], layer: str, apply_one: Any,
+    scratch: tuple = (), refresh: Any = None,
+) -> None:
+    """Apply one (sub)layer's effects in RULE 613.8 order, calling ``apply_one``.
+
+    Timestamp order (RULE 613.7) is the base. Repeatedly pick the earliest
+    pending effect that depends on no other pending effect (613.8a) and apply
+    it; the order is re-evaluated after every application (613.8c) because
+    applying one can create or remove a dependency. If every pending effect
+    depends on another -- a loop (613.8b) -- the earliest by timestamp goes.
+    """
+    pending = _in_layer(abilities, layer)
+    if len(pending) < 2 or len(pending) > DEPENDENCY_POOL_LIMIT:
+        for ability in pending:
+            apply_one(ability)
+        return
+    while pending:
+        chosen = pending[0]
+        if len(pending) > 1:
+            for cand in pending:
+                if not any(
+                    _depends_on(state, cand, other, apply_one, scratch, refresh)
+                    for other in pending if other is not cand
+                ):
+                    chosen = cand
+                    break
+        pending.remove(chosen)
+        apply_one(chosen)
 
 
 #: Colour word → WUBRG letter, for the ``devotion_to_<colour>`` selectors
@@ -1062,6 +1217,11 @@ def _structured_selector_objects(
         players = [p for p in state.players if p.id == defending_id]
     zone = spec.get("zone", "battlefield")
     filt = spec.get("filter") or None
+    if spec.get('linked_exile'):
+        from .linked_exile import linked_cards
+        return [obj for obj in linked_cards(state, source, spec.get('linked_source_incarnation'))
+                if (scope != 'you' or obj.owner_id == controller_id)
+                and matches_object_filter(obj, filt, reference=source, state=state)]
     matched: list[Any] = []
     for player in players:
         if zone == "battlefield":
@@ -1195,6 +1355,12 @@ def count_selector(
     callers without a source in hand can keep omitting it.
     """
     if isinstance(selector, dict):
+        if selector == {'zone': 'battlefield', 'of': 'any',
+                        'filter': {'card_type': 'creature', 'crewed_reference_this_turn': True}}:
+            # RULE 702.122b / 400.7: count the creature visits that paid crew,
+            # even after departure (Luxurious Locomotive, OTJ release notes).
+            return (len(source.crewed_by_visits)
+                    if source is not None and source.crewed_turn == state.internal_turn.number else 0)
         if "terms" in selector:
             return _count_expression(state, controller_id, selector, source)
         if selector.get("counters_on") == "source":
@@ -1566,7 +1732,7 @@ def count_selector(
         in_scope = {
             "permanents": lambda o: True,
             "creatures": lambda o: o.is_creature,
-            "artifacts": lambda o: bool(o.card.is_artifact),
+            "artifacts": lambda o: bool(o.is_artifact),
         }.get(scope_name)
         if metric is None or in_scope is None:
             return 0
@@ -1618,7 +1784,7 @@ def count_selector(
         return sum(
             1 for o in graveyard
             if o.card.is_instant or o.card.is_sorcery
-            or "adventure" in (o.card.type_line or "").lower()
+            or o.has_subtype("adventure")
         )
     if selector == "instant_or_sorcery_cards_in_your_graveyard":
         # "This spell costs {1} less to cast for each instant and sorcery
@@ -1672,11 +1838,11 @@ def count_selector(
             if part == "creatures":
                 return o.is_creature
             if part == "artifacts":
-                return o.card.is_artifact
+                return o.is_artifact
             if part == "lands":
                 return o.is_land
             if part == "enchantments":
-                return o.card.is_enchantment
+                return o.is_enchantment
             if part == "planeswalkers":
                 return o.is_planeswalker
             if part == "permanents":
@@ -1820,12 +1986,12 @@ def count_selector(
         return sum(
             1 for o in bf
             if o.is_creature and o.controller_id == controller_id
-            and "legendary" in o.card.type_line.lower()
+            and o.is_legendary
         )
     if selector == "legendary_creatures_and_planeswalkers_you_control":
         return sum(
             1 for o in bf
-            if o.controller_id == controller_id and "legendary" in o.card.type_line.lower()
+            if o.controller_id == controller_id and o.is_legendary
             and (o.is_creature or o.is_planeswalker)
         )
     if selector.startswith("other_permanents_you_control_of_subtype_"):
@@ -1881,9 +2047,9 @@ def count_selector(
             and is_modified(state, creature)
         )
     if selector == "artifacts_you_control":
-        return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)
+        return sum(1 for o in bf if o.is_artifact and o.controller_id == controller_id)
     if selector == "enchantments_you_control":
-        return sum(1 for o in bf if o.card.is_enchantment and o.controller_id == controller_id)
+        return sum(1 for o in bf if o.is_enchantment and o.controller_id == controller_id)
     if selector == "commander_casts_this_game":
         # "…for each time you've cast your commander from the command zone
         # this game." (Vanguard of the Restless, Commander's Insight,
@@ -1947,12 +2113,12 @@ def count_selector(
         # these singleton decks never reach).
         return sum(
             1 for o in bf
-            if "aura" in (o.card.type_line or "").lower() and o.controller_id == controller_id
+            if o.has_subtype("aura") and o.controller_id == controller_id
         )
     if selector == "artifacts_and_or_enchantments_you_control":
         return sum(
             1 for o in bf
-            if (o.card.is_artifact or o.card.is_enchantment) and o.controller_id == controller_id
+            if (o.is_artifact or o.is_enchantment) and o.controller_id == controller_id
         )
     if selector == "creatures_opponents_control":
         # "for each creature your opponents control" (Riot Control) — the
@@ -1977,7 +2143,7 @@ def count_selector(
         # ``"opponents_permanents"`` uses.
         return sum(
             1 for o in bf
-            if (o.card.is_artifact or o.card.is_enchantment)
+            if (o.is_artifact or o.is_enchantment)
             and o.controller_id not in (None, controller_id)
         )
     if selector == "equipment_you_control":
@@ -1994,7 +2160,7 @@ def count_selector(
         # battlefield." (Ancestral Mask, PAR-43) — every enchantment on the
         # battlefield minus the Aura bearing this ability itself.
         source_id = getattr(source, "instance_id", None)
-        return sum(1 for o in bf if o.card.is_enchantment and o.instance_id != source_id)
+        return sum(1 for o in bf if o.is_enchantment and o.instance_id != source_id)
     if selector == "other_creatures_you_control":
         # "~ gets +1/+0 for each other creature you control." (Leonardo, Big
         # Brother, PAR-43) — `creatures_you_control` minus the source itself
@@ -2011,7 +2177,7 @@ def count_selector(
         source_id = getattr(source, "instance_id", None)
         return sum(
             1 for o in bf
-            if o.card.is_artifact and o.controller_id == controller_id and o.instance_id != source_id
+            if o.is_artifact and o.controller_id == controller_id and o.instance_id != source_id
         )
     if selector == "transformed_permanents_you_control":
         # "~ gets +1/+0 for each transformed permanent you control."
@@ -2204,7 +2370,7 @@ def _attached_subtype_count(state: "GameState", obj: "GameObject", subtype: str)
     every object a static ability affects)."""
     return sum(
         1 for o in state.battlefield
-        if o.attached_to == obj.instance_id and subtype in (o.card.type_line or "").lower()
+        if o.attached_to == obj.instance_id and o.has_subtype(subtype)
     )
 
 
@@ -2354,13 +2520,19 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
         chosen_type = getattr(ability.source, "chosen_type", None)
         if chosen_type:
             quals.add(str(chosen_type).lower())
+    if ability.params.get("protection_from_chosen_name"):
+        # RULE 702.16a: "protection from the chosen card name" (Runed Halo) -- one ``name:<name>`` quality that
+        # `combat._quality_matches_type` matches against the source's name; nothing chosen is no protection.
+        chosen_name = getattr(ability.source, "chosen_card_name", None)
+        if chosen_name:
+            quals.add(f"name:{str(chosen_name).strip().lower()}")
     if ability.params.get("protection_from_mana_values_among_artifacts"):
         # RULE 702.16a: "protection from each mana value among artifacts you control" is one protection per distinct
         # mana value; `combat._quality_matches_type` matches a ``mv:N`` quality against the source's mana value.
         controller_id = getattr(ability.source, "controller_id", None)
         quals |= {
             f"mv:{int(getattr(o, "mana_value", 0) or 0)}"
-            for o in state.battlefield if o.controller_id == controller_id and o.card.is_artifact
+            for o in state.battlefield if o.controller_id == controller_id and o.is_artifact
         }
     if ability.params.get("protection_from_colors_not_in_commanders_identity"):
         controller_id = getattr(ability.source, "controller_id", None)
@@ -2716,11 +2888,18 @@ def _apply_layer_2_control(state: "GameState", abilities: list) -> None:
         new_controller = ability.params.get("controller") or getattr(
             ability.source, "controller_id", None
         )
-        if new_controller is None:
-            continue
+        if new_controller is None or state.player_by_id(new_controller).has_lost:
+            continue  # RULE 800.4b: departed recipients cannot regain control.
+        timestamp = (ability.timestamp if ability.timestamp is not None
+                     else getattr(ability.source, "timestamp", 0))
         for obj in affected_objects(state, ability):
+            # RULE 613.7: a later resolved grant overrides an older Aura.
+            records = obj.control_effects
+            if records and records[-1]["timestamp"] > timestamp:
+                continue
             if obj.controller_id != new_controller:
-                obj._control_base = obj.controller_id
+                if obj._control_base is None:
+                    obj._control_base = obj.controller_id
                 obj.controller_id = new_controller
                 _trace(obj, 2, _source_name(ability), f"controlled by {new_controller}")
 
@@ -2731,14 +2910,43 @@ def _apply_layer_3_text(state: "GameState", abilities: list) -> None:
     # timestamp order if 2+ apply to the same object.
     for ability in _in_layer(abilities, "text"):
         replace = {str(k): str(v) for k, v in (ability.params.get("replace") or {}).items()}
-        if not replace:
-            continue
         for obj in affected_objects(state, ability):
+            if ability.params.get("name"):
+                obj._derived_name = ability.params["name"]  # RULE 612.8
             text = obj._derived_oracle_text if obj._derived_oracle_text is not None else obj.effective_oracle_text
             for old, new in replace.items():
                 text = re.sub(rf"\b{re.escape(old)}\b", new, text, flags=re.IGNORECASE)
             obj._derived_oracle_text = text
             _trace(obj, 3, _source_name(ability), f"text: {replace}")
+
+
+#: The `type_change` / `pt_set` ``pt_selector`` value that reads each affected object's own mana value.
+PT_SELECTOR_MANA_VALUE = "mana_value"
+
+
+def _current_subtypes(obj: "GameObject") -> set[str]:
+    """The subtypes ``obj`` has so far in the layer-4 pass: an earlier overwrite, else the printed line plus additions."""
+    if obj._derived_subtypes is not None:
+        return set(obj._derived_subtypes)
+    return set(obj.card.type_line.partition("\u2014")[2].split()) | set(obj._added_subtypes)
+
+
+def _replace_land_types(obj: "GameObject", new_types, *, basic_strips_abilities: bool = True) -> None:
+    """RULE 205.3i / 613.1d: replace ``obj``'s land subtypes with ``new_types``, keeping every other subtype.
+
+    RULE 305.7: setting a land's subtype to a basic land type also strips its rules text and abilities; the new
+    type's intrinsic mana ability comes back from `mana_abilities_for` (RULE 305.6)."""
+    kept = {t for t in _current_subtypes(obj) if t.lower() not in _LAND_TYPES}
+    obj._derived_subtypes = kept | {str(t) for t in new_types}
+    if basic_strips_abilities and obj.is_land and any(str(t).lower() in _BASIC_LAND_TYPES for t in new_types):
+        obj._loses_all_abilities = True
+
+
+def _replace_creature_types(obj: "GameObject", new_types) -> None:
+    """RULE 205.1a / 205.3m: "becomes a Dragon" replaces the creature types and keeps every other subtype (an
+    animated land stays a Forest, an Equipment stays an Equipment)."""
+    kept = {t for t in _current_subtypes(obj) if t.lower() not in CREATURE_SUBTYPES}
+    obj._derived_subtypes = kept | {str(t) for t in new_types}
 
 
 def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[int, int]]:
@@ -2754,7 +2962,11 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
         if obj.attached_to is not None and "reconfigure" in (obj.parametric_keywords or {}):
             obj._removed_types.add("creature")
 
-    for ability in _in_layer(abilities, "type"):
+    def _apply_type_ability(ability: StaticAbility) -> None:
+        # RULE 613.8a / 613.8c: an ability whose source has already lost all
+        # abilities (Blood Moon applied first to Urborg) no longer exists.
+        if _static_ability_ceased(ability):
+            return
         added = ability.params.get("add_types", [])
         # "…and loses all other card types…" (Vraska, Betrayal's Sting's
         # -2 — "target creature becomes a Treasure artifact … and loses
@@ -2783,22 +2995,30 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                 add_subtypes.append(chosen)
         power, toughness = ability.params.get("power"), ability.params.get("toughness")
         pt_selector = ability.params.get("pt_selector")
+        # RULE 205.1a: "becomes a 4/4 Horror creature" sets the card types, so the
+        # object stops being any card type the effect does not name (Lurking Evil is no longer an enchantment).
+        set_types = ability.params.get("set_types")
+        # RULE 205.1a + 305.7: "becomes an Island" / "the basic land type of your choice" replaces the *land* types only
+        # (an animated land keeps its creature types) and, for a basic type, the land's own rules text goes.
+        set_land_types = ability.params.get("set_land_types")
+        set_creature_types = ability.params.get("set_creature_types")
         if ability.params.get("from_linked_exile"):
             # "As long as a card exiled with this creature is a creature card, this creature has the power,
             # toughness, and creature types of the last creature card exiled with it." (Duplicant) — read off
             # the source's own Imprint link (`linked_exile_id`) fresh every pass; no creature card there, no effect.
-            linked = state.find_object(getattr(ability.source, "linked_exile_id", None))
+            from .linked_exile import remembered_card
+            linked = remembered_card(state, ability.source)
             if (
                 linked is None or getattr(getattr(linked, "zone", None), "value", None) != "exile"
                 or not linked.card.is_creature
             ):
-                continue
+                return
             power, toughness = linked.card.power, linked.card.toughness
             if not (isinstance(power, int) and isinstance(toughness, int)):
                 power = toughness = None
             add_subtypes += linked.card.type_line.partition("—")[2].split()
         for obj in affected_objects(state, ability):
-            if pt_selector == "mana_value":
+            if pt_selector == PT_SELECTOR_MANA_VALUE:
                 obj_power = obj_toughness = getattr(obj, "mana_value", 0) or 0
             elif pt_selector == "vehicle":
                 # "Target Vehicle becomes an artifact creature until end of turn." (Mech Hangar, Peacewalker Colossus)
@@ -2819,6 +3039,21 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             # word from the opposite set is what makes a later add/remove
             # actually override an earlier one instead of the two
             # silently coexisting forever.
+            if set_types is not None:
+                for type_name in card_types_of(obj) - set(set_types) - {"instant", "sorcery"}:
+                    obj._removed_types.add(type_name)
+                    obj._added_types.discard(type_name)
+                # RULE 205.1a/205.3c: a subtype survives only if one of its owning card types survives.
+                allowed_types = set(set_types) | (card_types_of(obj) & {"instant", "sorcery"})
+                allowed_subtypes = set().union(*(SUBTYPES_BY_CARD_TYPE.get(t, ()) for t in allowed_types))
+                obj._derived_subtypes = {t for t in _current_subtypes(obj) if t.lower() in allowed_subtypes}
+                for type_name in set_types:
+                    obj._added_types.add(type_name)
+                    obj._removed_types.discard(type_name)
+            if set_land_types is not None:
+                _replace_land_types(obj, set_land_types)
+            if set_creature_types is not None:
+                _replace_creature_types(obj, set_creature_types)
             for type_name in added:
                 obj._added_types.add(type_name)
                 obj._removed_types.discard(type_name)
@@ -2858,6 +3093,11 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                     str(t).lower() in _BASIC_LAND_TYPES for t in set_subtypes
                 ):
                     obj._loses_all_abilities = True
+            if ability.params.get("remove_land_types"):
+                # RULE 205.3i / 613.1d: "lose all land types" (Alpine Moon) strips only the land subtypes; any other
+                # subtype (an animated land's creature types) stays; RULE 305.6's intrinsic mana abilities follow
+                # from the remaining set, so the five basic types stop producing mana.
+                _replace_land_types(obj, (), basic_strips_abilities=False)
             if obj_power is not None and obj_toughness is not None:
                 animation_pt[obj.instance_id] = (obj_power, obj_toughness)
             if ability.params.get("legendary"):
@@ -2868,6 +3108,10 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                 obj._granted_legendary = True
             label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
             _trace(obj, 4, _source_name(ability), f"becomes {label}")
+
+    _apply_in_dependency_order(
+        state, abilities, "type", _apply_type_ability, scratch=(animation_pt,)
+    )
 
     # Still layer 4, but off the battlefield (Arcane Adaptation/Ashes of the
     # Fallen) — see `_apply_off_battlefield_types`.
@@ -2888,7 +3132,9 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
 
 def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
     # -- Layer 5: colour-changing effects (RULE 613.4b).
-    for ability in _in_layer(abilities, "color"):
+    def _apply_color_ability(ability: StaticAbility) -> None:
+        if _static_ability_ceased(ability):
+            return
         colors = [str(c).upper() for c in ability.params.get("colors", [])]
         replace = bool(ability.params.get("set", True))
         for obj in affected_objects(state, ability):
@@ -2896,6 +3142,8 @@ def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
                 obj._derived_colors = set() if replace else obj.colors
             obj._derived_colors.update(colors)
             _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
+
+    _apply_in_dependency_order(state, abilities, "color", _apply_color_ability)
 
 
 #: A ``grant_effects`` param value naming the *granting* permanent ("…you may have it fight Grothama") —
@@ -2976,8 +3224,49 @@ def _grant_flag_keyword_triggers(state: "GameState", obj: "GameObject", keywords
             from .binding.core import _KEYWORD_TRIGGERED_BUILDERS  # local: avoid an import cycle
 
             built = _KEYWORD_TRIGGERED_BUILDERS[keyword](obj, AbilitySpec("keyword", keyword={"name": keyword}), None)
+            for triggered in built:
+                triggered.granted_keyword = keyword
             state._granted_ability_cache[key] = built
         obj._granted_triggered_abilities.extend(built)
+
+
+def _layer_6_dependency_order(state: "GameState", abilities: list):
+    """RULE 613.8a/613.8c: layer-6 order. A printed static depends on a
+    "loses all abilities" effect whose affected set contains the static's source
+    (applying it ends the static's existence), so the removal goes first; all
+    else stays in timestamp order (613.7, BUG-17). Re-evaluated after each
+    application (a generator: the caller applies each yielded effect before the
+    next is chosen). A loop of mutual removals falls back to timestamp (613.8b)."""
+    pending = _in_layer(abilities, "ability")
+    known = {id(ability) for ability in pending}
+    while pending:
+        chosen = pending[0]
+        live = [r for r in pending if r.params.get("lose_all_abilities")]
+        for cand in pending:
+            if cand.duration is not None or getattr(cand, "object_ids", None):
+                blockers = False  # RULE 611.2b: independent of its source
+            else:
+                blockers = any(
+                    r is not cand and cand.source in affected_objects(state, r)
+                    for r in live
+                )
+            if not blockers:
+                chosen = cand
+                break
+        pending.remove(chosen)
+        yield chosen
+        # RULE 613.8c: an applied grant can create another effect in this
+        # layer. Insert it into the same timestamp/dependency worklist,
+        # rather than applying every nested grant after ability removal.
+        newly_granted = [
+            ability for obj in state.battlefield
+            for ability in getattr(obj, "_granted_static_abilities", ())
+            if isinstance(ability, StaticAbility) and ability.layer == "ability"
+            and id(ability) not in known
+        ]
+        known.update(id(ability) for ability in newly_granted)
+        if newly_granted:
+            pending = _in_layer([*pending, *newly_granted], "ability")
 
 
 def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
@@ -2986,7 +3275,10 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     # every other layer effect here, so it disappears on its own the moment
     # its source stops applying — no separate removal code (RULE 613.6).
     live_grant_keys: set[tuple[int, int]] = set()
-    for ability in _in_layer(abilities, "ability"):
+    for ability in _layer_6_dependency_order(state, abilities):
+        # RULE 613.8a: its source lost all abilities to an earlier layer-6 effect.
+        if _static_ability_ceased(ability):
+            continue
         keywords = ability.params.get("keywords", [])
         #: ENG-31: parametric keyword *grants* — ``[{"name": "firebending",
         #: "n": 2}, ...]``. A number-carrying keyword can't ride the flat
@@ -3033,6 +3325,25 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # keywords go via `_obj_keywords`, triggered/activated abilities
                 # are gated at fire/activate time on this flag.
                 obj._loses_all_abilities = True
+                # RULE 613.7: layer-6 effects apply in timestamp order, so this
+                # removal only takes away what an *earlier* effect granted
+                # (`abilities` is timestamp-sorted). Drop the keywords/removals
+                # accumulated so far; a grant with a later timestamp is added
+                # below and survives (Humility, then a newer "has flying").
+                # Restriction flags (can't attack/block) are rules effects, not
+                # abilities, so they stay (see `combat._obj_keywords`).
+                from .combat import _EFFECT_RESTRICTION_FLAGS  # function-scoped: combat imports continuous
+
+                obj._granted_keywords.intersection_update(_EFFECT_RESTRICTION_FLAGS)
+                obj._granted_keyword_instances = {
+                    kw: n for kw, n in obj._granted_keyword_instances.items()
+                    if kw in _EFFECT_RESTRICTION_FLAGS
+                }
+                obj._removed_keywords.clear()
+                obj._granted_parametric_keywords.clear()
+                # RULE 613.7: this removes static abilities granted earlier
+                # in the layer; a later grant may create them again.
+                obj._granted_static_abilities.clear()
                 _trace(obj, 6, _source_name(ability), "loses all abilities")
             if keywords:
                 obj._granted_keywords.update(keywords)
@@ -3058,6 +3369,16 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     state._granted_ability_cache[key] = built
                 obj._granted_triggered_abilities.extend(built)
             if remove_keywords:
+                # RULE 613.7: remove earlier grants now, while retaining
+                # suppression of printed instances. A later grant can add
+                # that keyword back without restoring the printed instance.
+                obj._granted_keywords.difference_update(remove_keywords)
+                for keyword in remove_keywords:
+                    obj._granted_keyword_instances.pop(keyword, None)
+                obj._granted_triggered_abilities[:] = [
+                    triggered for triggered in obj._granted_triggered_abilities
+                    if getattr(triggered, "granted_keyword", None) not in remove_keywords
+                ]
                 obj._removed_keywords.update(remove_keywords)
                 _trace(obj, 6, _source_name(ability), "loses " + ", ".join(remove_keywords))
             if protections:
@@ -3225,6 +3546,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                         source=obj,
                         description=ability.description or "granted activated ability",
                         once_per_turn=bool(ability.params.get("once_per_turn", False)),
+                        per_turn_limit=int(ability.params.get("per_turn_limit", 0)),
                     )
                     state._granted_ability_cache[key] = granted_activated
                 obj._granted_activated_abilities.append(granted_activated)
@@ -3260,6 +3582,13 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                             )
                         granted_static.source = obj
                         state._granted_ability_cache[key] = granted_static
+                    if isinstance(granted_static, StaticAbility):
+                        # RULE 613.7a/e: a granted static's effect receives
+                        # the later of its host's and granting effect's
+                        # timestamps, including after either is reattached.
+                        grant_timestamp = (ability.timestamp if ability.timestamp is not None
+                                           else getattr(ability.source, "timestamp", 0))
+                        granted_static.timestamp = max(obj.timestamp, grant_timestamp)
                     if isinstance(granted_static, ReplacementEffect):
                         obj._granted_replacement_effects.append(granted_static)
                     else:
@@ -3350,6 +3679,10 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         counted = sorted(
             kind for kind in KEYWORD_COUNTER_SLUGS if int(counters.get(kind, 0) or 0) > 0
         )
+        if obj._loses_all_abilities:
+            # Counters carry no layer-6 timestamp here, so keep the pre-BUG-17
+            # answer: ability loss also strips counter-granted keywords.
+            counted = []
         if counted:
             obj._granted_keywords.update(KEYWORD_COUNTER_SLUGS[kind] for kind in counted)
             _trace(obj, 6, "Keyword counter", "gains " + ", ".join(counted), duration="permanent")
@@ -3465,7 +3798,16 @@ def _apply_layer_7_pt(
     # ``None`` leaves that half at its layer-7a value — "Exchange target
     # opponent's life total with ~'s toughness." (Tree of Perdition) sets
     # only the toughness.
-    for ability in _in_layer(abilities, "pt_set"):
+    def _publish_working_pt() -> None:
+        # RULE 613.8a: a power/toughness-filtered selector ("creatures with power
+        # 2 or less get +1/+1") reads the P/T *as of this point in layer 7*, not
+        # the printed value `GameObject.power` falls back to before the pass ends.
+        for o in state.battlefield:
+            if o.instance_id in base:
+                o._derived_power, o._derived_toughness = base[o.instance_id]
+
+    def _apply_pt_set(ability: StaticAbility) -> None:
+        _publish_working_pt()
         power = ability.params.get("power", 0)
         toughness = ability.params.get("toughness", 0)
         # "…have base power and toughness X/X, where X is the number of cards in your hand" (Jolrael): a
@@ -3476,10 +3818,18 @@ def _apply_layer_7_pt(
             toughness = _count_selector(state, ability, ability.params["toughness_count"])
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
-                new_p = base[obj.instance_id][0] if power is None else power
-                new_t = base[obj.instance_id][1] if toughness is None else toughness
+                obj_power, obj_toughness = power, toughness
+                if ability.params.get("pt_selector") == PT_SELECTOR_MANA_VALUE:
+                    # RULE 613.4b: "power and toughness each equal to its mana value" -- the affected object's own.
+                    obj_power = obj_toughness = getattr(obj, "mana_value", 0) or 0
+                new_p = base[obj.instance_id][0] if obj_power is None else obj_power
+                new_t = base[obj.instance_id][1] if obj_toughness is None else obj_toughness
                 base[obj.instance_id] = [new_p, new_t]
                 _trace(obj, 7, _source_name(ability), f"set to {new_p}/{new_t}", new_p, new_t)
+
+    _apply_in_dependency_order(
+        state, abilities, "pt_set", _apply_pt_set, scratch=(base,), refresh=_publish_working_pt
+    )
 
     # Base P/T includes layer 7a/7b, before counters and modifiers (RULE 613.4).
     for obj in state.battlefield:
@@ -3515,7 +3865,8 @@ def _apply_layer_7_pt(
     # Battlehammer) — `power`/`toughness` become the *per-unit* amount when
     # `power_count`/`toughness_count` is set, multiplied by that count
     # instead of added as a flat delta.
-    for ability in _in_layer(abilities, "pt_mod"):
+    def _apply_pt_mod(ability: StaticAbility) -> None:
+        _publish_working_pt()
         d_power = ability.params.get("power", 0)
         d_toughness = ability.params.get("toughness", 0)
         p_sel = ability.params.get("power_count")
@@ -3530,6 +3881,10 @@ def _apply_layer_7_pt(
                 base[obj.instance_id][1] += toughness
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, _source_name(ability), f"{_signed(power)}/{_signed(toughness)}", p, t)
+
+    _apply_in_dependency_order(
+        state, abilities, "pt_mod", _apply_pt_mod, scratch=(base,), refresh=_publish_working_pt
+    )
 
     # 7d (cont.): temporary "until end of turn" P/T bonuses from a resolved
     # pump effect (Giant Growth) — same sublayer as anthems (RULE 613.4d);
@@ -3562,12 +3917,17 @@ def _apply_layer_7_pt(
 
     # 7e: switch power and toughness (RULE 613.7e / 701.28). Applied last, so it
     # swaps the fully-computed values.
-    for ability in _in_layer(abilities, "pt_switch"):
+    def _apply_pt_switch(ability: StaticAbility) -> None:
+        _publish_working_pt()
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
                 base[obj.instance_id].reverse()
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, _source_name(ability), f"switched to {p}/{t}", p, t)
+
+    _apply_in_dependency_order(
+        state, abilities, "pt_switch", _apply_pt_switch, scratch=(base,), refresh=_publish_working_pt
+    )
 
     # A *resolving* one-shot switch (Twisted Image-shaped — PAR-81), as
     # opposed to a granted/printed static ability above: applied after
@@ -3691,14 +4051,9 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
         source_mode = ability.params.get("source_mode", "exiled_with")
         donors: list["GameObject"] = []
         if source_mode == "exiled_with":
-            exiled_ids = getattr(source, "exiled_with_ids", None) or []
-            for iid in exiled_ids:
-                card_obj = state.find_object(iid)
-                if card_obj is None or getattr(card_obj, "zone", None) != "exile":
-                    continue
-                if creature_only and not getattr(card_obj.card, "is_creature", False):
-                    continue
-                donors.append(card_obj)
+            from .linked_exile import linked_cards
+            donors = [card for card in linked_cards(state, source)
+                      if not creature_only or card.card.is_creature]
         elif source_mode == "group":
             controller_id = getattr(source, "controller_id", None)
             donors = group_selector_objects(
@@ -3780,6 +4135,7 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
                             source=obj,
                             description=base.description,
                             once_per_turn=base.once_per_turn,
+                            per_turn_limit=base.per_turn_limit,
                         )
                         state._borrowed_ability_cache[key] = granted
                     obj._granted_activated_abilities.append(granted)
@@ -3807,6 +4163,10 @@ def recompute(state: "GameState") -> None:
             obj._control_base = None
         obj.reset_derived()
 
+    for item in state.stack:
+        if item.kind == "spell" and item.obj is not None:
+            item.obj._derived_colors = None
+
     # -- Layer 1: copy effects (RULE 707) — must run before `abilities` is
     # gathered below, so a permanent that just became a copy has its freshly
     # rebound abilities picked up by every other layer in this same pass.
@@ -3821,23 +4181,13 @@ def recompute(state: "GameState") -> None:
     _apply_borrowed_activated_abilities(state, abilities)
     # MEC-55: layer 6 may have populated `_granted_static_abilities` on
     # affected objects ("X have '<anthem/lord>'" — Inspiring Leader). Re-
-    # gather so those nested statics reach layers 7+ in this same pass; an
-    # ability-*layer* granted static (a granted keyword/lord) still settles
-    # on the next recompute (always ≤1 SBA-loop lag).
+    # gather so those nested statics reach layers 7+ in this same pass.
+    # Layer-6 nested statics already joined its dynamic dependency worklist.
     if any(getattr(o, "_granted_static_abilities", None) for o in state.battlefield):
         abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
-        # A nested static can itself live in layer 6 (for example Giant's
-        # Amulet grants its host the self-scoped static "has hexproof while
-        # untapped"). Apply that newly materialized level once in the same
-        # recompute, without replaying the outer grants and duplicating their
-        # triggered/activated ability objects.
-        nested_ability_statics = [
-            ab for obj in state.battlefield
-            for ab in getattr(obj, "_granted_static_abilities", ())
-            if isinstance(ab, StaticAbility) and ab.layer == "ability"
-        ]
-        if nested_ability_statics:
-            _apply_layer_6_ability(state, nested_ability_statics)
+    # RULE 613.6: statics whose source lost its abilities in layer 6 never
+    # begin applying in layers 7+.
+    abilities = _drop_statics_removed_in_layer_6(state, abilities)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
     # RULE 702.75a / 406.3: controlling the Hideaway source permits looking;
@@ -3882,6 +4232,18 @@ def _spell_type_matches(obj: "GameObject", spell_type: Union[str, list]) -> bool
     if spell_type == "noncreature":
         return not obj.is_creature
     return _has_card_type(obj, spell_type)
+
+
+def _spell_mana_value_in_bounds(params: dict[str, Any], obj: Optional["GameObject"]) -> bool:
+    """Whether ``obj``'s mana value satisfies a cost static's ``spell_min_mana_value`` / ``spell_max_mana_value``
+    (RULE 202.3). With no bound it always holds; with a bound and no spell (offer-time probe) it does not."""
+    low, high = params.get("spell_min_mana_value"), params.get("spell_max_mana_value")
+    if low is None and high is None:
+        return True
+    if obj is None:
+        return False
+    value = obj.mana_value
+    return (low is None or value >= int(low)) and (high is None or value <= int(high))
 
 
 def turn_cost_reduction_applies(entry: dict[str, Any], obj: Optional["GameObject"]) -> bool:
@@ -3954,6 +4316,10 @@ def cost_reduction_for(
         # permanent's own controller.
         if ability.affects == "opponents_spells" and getattr(ability.source, "controller_id", None) == player.id:
             continue
+        # "Spells with the chosen name enchanted player casts cost {2} more to cast." (Curse of Silence) -- the curse is
+        # attached to a *player* (`GameObject.attached_to` holds the player id), and only that player's spells are taxed.
+        if ability.affects == "enchanted_player_spells" and getattr(ability.source, "attached_to", None) != player.id:
+            continue
         # "…that target ~ cost {N} more to cast." (Icefall Regent) — the
         # spell being cast must target this static's own source. Targets are
         # chosen before the cost is locked in (RULE 601.2c precedes
@@ -3981,7 +4347,7 @@ def cost_reduction_for(
                 continue
         if ability.params.get("card_name_from_source"):
             chosen = getattr(ability.source, "chosen_card_name", None)
-            if not chosen or obj is None or obj.card.name != chosen:
+            if not chosen or obj is None or not name_matches(obj.card.name, chosen):
                 continue
         spell_type = ability.params.get("spell_type")
         if ability.params.get("spell_type_from_source_mode"):
@@ -3998,6 +4364,11 @@ def cost_reduction_for(
             printed = getattr(getattr(obj, "card", None), "power", None)
             if not isinstance(printed, int) or printed < int(spell_min_power):
                 continue
+        # "Spells you cast with mana value 5 or greater cost {1} less to cast." (Spectacle Mage, PAR-215) -- RULE 202.3:
+        # the spell's own mana value (X counted only on the stack, RULE 202.3e); an offer-time probe without a spell
+        # leaves the discount off so affordability is not overstated.
+        if not _spell_mana_value_in_bounds(ability.params, obj):
+            continue
         # "Spells you cast from anywhere other than your hand cost {N} less."
         # (Advanced Reconstruction level 3, PAR-60) — the spell's own
         # cast-origin flags; ``obj is None`` (offer-time probe) leaves the
@@ -4047,7 +4418,9 @@ def cost_reduction_for(
         if spell_color:
             if obj is None:
                 continue
-            if str(spell_color).lower() == "colorless":
+            # RULE 105.2c: the parser spells "colorless" as the symbol ``C`` (Herald of Kozilek, It That Heralds the
+            # End); a colorless spell has no colours, so ``C`` can never be a member of ``obj.colors``.
+            if str(spell_color).lower() in ("colorless", "c"):
                 if obj.colors:
                     continue
             elif spell_color.upper() not in (obj.colors or set()):
@@ -4538,16 +4911,55 @@ def life_gain_prohibited_for(state: "GameState", player: "Player") -> bool:
     return False
 
 
-def damage_prevention_globally_disabled(state: "GameState") -> bool:
+def damage_prevention_globally_disabled(
+    state: "GameState", source: Optional["GameObject"] = None, combat: bool = False,
+) -> bool:
     """"Damage can't be prevented." (Everlasting Torment) — a standing
     battlefield static making RULE 615 prevention shields inert while it is
     on the battlefield, the board-permanent sibling of the turn-scoped
     `GameState.damage_prevention_disabled`. Consulted by
     `RulesEngine._run_replacement_loop`. Same "live battlefield read, no
     separate lifecycle" shape as `life_gain_prohibited_for`.
+
+    PAR-216: a scoped static narrows it by ``params`` -- ``combat_only`` ("combat damage can't be prevented", Frenzied
+    Baloth) and ``source`` (``"self"``: "damage that would be dealt by ~", Excruciator; ``"your_creatures"``: "that would
+    be dealt by creatures you control", Questing Beast). A scoped static answers only for the damage ``source``/``combat``
+    describe, so a caller with no damage in hand (``source=None``) gets the unscoped statics alone.
     """
     for ability in _battlefield_static_abilities(state):
-        if ability.layer == "damage_prevention_prohibition":
+        if ability.layer != "damage_prevention_prohibition":
+            continue
+        params = ability.params or {}
+        if params.get("combat_only") and not combat:
+            continue
+        scope = params.get("source")
+        if scope == "self" and (source is None or source is not ability.source):
+            continue
+        if scope == "your_creatures" and (
+            source is None or not source.is_creature
+            or source.controller_id != getattr(ability.source, "controller_id", None)
+        ):
+            continue
+        return True
+    return False
+
+
+def damage_prevented_by_static(state: "GameState", target: Any, source: Optional["GameObject"]) -> bool:
+    """RULE 615.1: a standing "Prevent all damage that would be dealt to you and permanents you control by sources with the
+    chosen name." (Gideon's Intervention, MEC-134) -- consulted by `RulesEngine.deal_damage` for each recipient.
+
+    The recipient is the static's controller or a permanent they control (``target`` is a `Player` or a `GameObject`); the
+    source answers to the name the permanent stamped as it entered (`GameObject.chosen_card_name`, RULE 201.2). Nothing
+    chosen prevents nothing; a damage source with no known object (``None``) is never matched."""
+    if source is None:
+        return False
+    recipient_controller = getattr(target, "controller_id", None) if hasattr(target, "instance_id") else getattr(target, "id", None)
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "damage_source_prevention":
+            continue
+        if recipient_controller is None or recipient_controller != getattr(ability.source, "controller_id", None):
+            continue
+        if name_matches(getattr(source, "name", ""), getattr(ability.source, "chosen_card_name", None)):
             return True
     return False
 
@@ -4621,9 +5033,9 @@ def _obj_matches_target_criteria(
     if crit.pop("permanent", False) and obj not in state.battlefield:
         return False
     card_type = crit.pop("card_type", None)
-    if card_type and card_type.lower() not in obj.card.type_line.lower():
+    if card_type and card_type.lower() not in obj.type_words and not obj.has_subtype(card_type):
         return False
-    if crit.pop("legendary", False) and "legendary" not in obj.card.type_line.lower():
+    if crit.pop("legendary", False) and not obj.is_legendary:
         return False
     if crit.pop("is_token", False) and not getattr(obj, "is_token", False):
         return False
@@ -4840,6 +5252,13 @@ def activation_cost_reduction_for(
         if is_mana_ability and ability.params.get("except_mana_abilities"):
             continue
         source_controller = getattr(ability.source, "controller_id", None)
+        if ability.params.get("card_name_from_source"):
+            # MEC-134 (Skyseer's Chariot, Anointed Peacekeeper): "Activated abilities of sources with the chosen name cost
+            # {2} more to activate" -- any source (RULE 602.1), whoever controls it; nothing chosen taxes nothing.
+            if not name_matches(getattr(source.card, "name", ""), getattr(ability.source, "chosen_card_name", None)):
+                continue
+            net += _cost_static_amount(ability, state, source_controller)
+            continue
         if ability.params.get("first_targeting_own_creature"):
             # "The first activated ability you activate during your turn that targets a creature you control costs {2} less to activate."
             # (Professor Hojo): this ability must target a creature you control, and no earlier activation of yours this turn did.
@@ -4976,6 +5395,13 @@ def activation_prohibited(
         player_id = ability.params.get("player_id")
         if player_id is not None:
             if source.controller_id == player_id:
+                return True
+            continue
+        if ability.params.get("card_name_from_source") and ability.affects == "all_permanents":
+            # MEC-134 (Pithing Needle, Voidstone Gargoyle): "Activated abilities of **sources** with the chosen name" -- a
+            # source is any object, so a card in hand or a graveyard (cycling, channel, ...) is silenced too, which the
+            # battlefield-only `affected_objects` selector could not see (RULE 602.1: the ability's source is the object).
+            if name_matches(getattr(source.card, "name", ""), getattr(ability.source, "chosen_card_name", None)):
                 return True
             continue
         if source in affected_objects(state, ability):
@@ -5215,14 +5641,24 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
         scope = ability.params.get("scope", "opponents")
         if scope == "opponents" and player.id in (None, controller_id):
             continue
+        if ability.params.get("name_reference"):
+            from .name_reference import matches_name_reference
+            if not matches_name_reference(card, ability.params["name_reference"], state, ability.source):
+                continue
         if ability.params.get("noncreature") and getattr(card, "is_creature", False):
             continue
         if ability.params.get("nonartifact") and getattr(card, "is_artifact", False):
             continue
+        if ability.params.get("card_name_from_source") and not name_matches(
+            getattr(card, "name", ""), getattr(ability.source, "chosen_card_name", None)
+        ):
+            # MEC-134 (Meddling Mage, Nevermore): "Spells with the chosen name can't be cast." (RULE 101.2) -- the name is
+            # the one stamped as the source entered; nothing chosen yet prohibits nothing.
+            continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
             continue
         color = ability.params.get("color")
-        if color and color not in (getattr(card, "color_identity", None) or set()):
+        if color and color not in effective_colors(card):
             # "Your opponents can't cast blue creature spells." (Llawan,
             # Cephalid Empress, MEC-43) — combines with ``creature_only``
             # above rather than duplicating it, the same additive-knob
@@ -5373,7 +5809,7 @@ def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[s
         # the same shape `_off_battlefield_objects` above already uses.
         if owner is None or obj not in owner.graveyard:
             continue
-        if ability.params.get("nonland_only") and obj.card.is_land:
+        if ability.params.get("nonland_only") and obj.is_land:
             continue
         granted_type = str(ability.params.get("card_type") or "").lower()
         if granted_type and not getattr(obj.card, f"is_{granted_type}", False):
@@ -5407,7 +5843,7 @@ def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[
         owner = next((p for p in state.players if p.id == controller_id), None)
         if owner is None or obj not in owner.graveyard:
             continue
-        if ability.params.get("nonland_only") and obj.card.is_land:
+        if ability.params.get("nonland_only") and obj.is_land:
             continue
         card_types = ability.params.get("card_types")
         if card_types and not any(_has_card_type(obj, str(t)) for t in card_types):
@@ -5650,27 +6086,58 @@ def extra_land_plays_for(state: "GameState", player: "Player") -> int:
     return total
 
 
+def _hand_size_setting(state: "GameState", player: "Player") -> tuple[bool, Optional[int]]:
+    """The newest effect that fixes ``player``'s maximum hand size outright.
+
+    Returns ``(found, value)``; ``value`` is ``None`` for "no maximum hand
+    size" and the integer for "your maximum hand size is N" (MEC-129). The
+    two compete on RULE 613.7 timestamp order, newest wins: the later
+    "no maximum" beats an earlier "is two" and vice versa. Relative
+    adjustments (`hand_size_modifier_for`) are not settings and apply on top
+    of whichever one wins.
+    """
+    candidates: list[tuple[int, Optional[int]]] = []
+    # Spirit Water Revival — a resolve-time "…for the rest of the game"
+    # grant, keyed by player id on `GameState` rather than a battlefield
+    # static (RULE 400.7-safe, no duration to track).
+    if player.id in getattr(state, "no_max_hand_size_player_ids", set()):
+        stamps = getattr(state, "no_max_hand_size_stamps", {})
+        candidates.append((stamps.get(player.id, 0), None))
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer not in ("no_max_hand_size", "hand_size_set"):
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            stamp = ability.timestamp if getattr(ability, "timestamp", None) is not None \
+                else getattr(ability.source, "timestamp", 0)
+            value = int(ability.params["amount"]) if ability.layer == "hand_size_set" else None
+            candidates.append((stamp or 0, value))
+    if not candidates:
+        return False, None
+    # ``max`` keeps the first of equal stamps' maxima deterministic enough:
+    # equal stamps only arise for unsourced fixtures, where either is valid.
+    return True, max(candidates, key=lambda c: c[0])[1]
+
+
 def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     """Whether ``player`` is exempt from RULE 402.2's cleanup-step maximum
     hand size right now ("You have no maximum hand size." — A-Wizard Class/
     Body of Knowledge-shaped, or the unscoped "Players have no maximum hand
     size." — Anvil of Bogardan-shaped, ``affects="each_player"``) — consulted
     by `GameEngine._step_cleanup` in place of the flat `MAX_HAND_SIZE`
-    comparison. A resolve-time-granted, durational version of this exemption
-    ("…for the rest of the game") is a different, unmodeled shape (Card-pool
-    Batch 8's writeup).
+    comparison. A newer "your maximum hand size is N" (`hand_size_set`)
+    overrides an older exemption (`_hand_size_setting`).
     """
-    # Spirit Water Revival — a resolve-time "…for the rest of the game"
-    # grant, keyed by player id on `GameState` rather than a battlefield
-    # static (RULE 400.7-safe, no duration to track).
-    if player.id in getattr(state, "no_max_hand_size_player_ids", set()):
-        return True
-    for ability in _battlefield_static_abilities(state):
-        if ability.layer != "no_max_hand_size":
-            continue
-        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
-            return True
-    return False
+    found, value = _hand_size_setting(state, player)
+    return found and value is None
+
+
+def set_maximum_hand_size(state: "GameState", player: "Player") -> Optional[int]:
+    """The N of the winning "your maximum hand size is N" effect (MEC-129,
+    Cecily / Null Profusion), or ``None`` when no such effect wins and the
+    normal seven (`MAX_HAND_SIZE`) applies. RULE 402.2.
+    """
+    found, value = _hand_size_setting(state, player)
+    return value if found else None
 
 
 def hand_size_modifier_for(state: "GameState", player: "Player") -> int:
@@ -5808,7 +6275,7 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
             continue
         # "You may cast **green** creature spells as though they had flash." (Yeva, Nature's Herald)
         color = ability.params.get("color")
-        if color and str(color).upper() not in (getattr(card, "color_identity", None) or set()):
+        if color and str(color).upper() not in effective_colors(card):
             continue
         type_filter = ability.params.get("type_filter")
         if type_filter:
@@ -5854,6 +6321,11 @@ def _active_free_cast_permission(
     third param just to turn its own controller check off for everyone
     else's benefit too.
     """
+    if obj is not None:
+        from .linked_exile import play_grant
+        grant = play_grant(state, player, obj, card=card, feature="free")
+        if grant is not None and grant.params.get('free'):
+            return grant
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "free_cast_permission":
             continue
@@ -6377,9 +6849,9 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: UI's layer-trace panel rather than a bare "99", same treatment "cost"
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
-    {"loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition",
+    {"linked_exile_permission", "loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition", "damage_source_prevention",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
+     "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",
@@ -6590,6 +7062,9 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "no_max_hand_size":
         who = "each player" if ability.affects == "each_player" else "its controller"
         return f"{who} has no maximum hand size"
+    if ability.layer == "hand_size_set":
+        who = "each player's" if ability.affects == "each_player" else "its controller's"
+        return f"{who} maximum hand size is {int(p.get('amount', 0))}"
     if ability.layer == "hand_size_modifier":
         who = {"each_player": "each player's", "opponents": "each opponent's"}.get(
             ability.affects, "its controller's"
@@ -6628,7 +7103,8 @@ def _doubler_kind(obj: Any) -> str:
 
     if isinstance(obj, Emblem):
         return "emblem"
-    return "spell" if getattr(obj, "zone", None) == Zone.STACK else "permanent"
+    zone = getattr(obj, "zone", None)
+    return "spell" if zone == Zone.STACK else "permanent" if zone == Zone.BATTLEFIELD else "card"
 
 
 def _doubler_side_matches(
@@ -6640,6 +7116,8 @@ def _doubler_side_matches(
     kind = _doubler_kind(obj)
     if kind == "emblem":
         return bool(side.get("emblem")) and obj.owner_id == doubler.controller_id
+    if kind == "card":
+        return False
     if side.get("emblem") or bool(side.get("spell")) != (kind == "spell"):
         return False
     if side.get("self"):

@@ -1,0 +1,437 @@
+/* --- Goldfisch-Modus --- */
+
+.goldfish-start {
+  max-width: 640px;
+}
+
+/* End-of-match review shown after "Beenden". */
+.goldfish-summary > h3 {
+  margin: 0 0 0.6rem;
+}
+
+.goldfish-summary .gf-controls {
+  margin-top: 0.75rem;
+}
+
+/* The board is a two-column layout: a narrow, sticky left rail (turn/phase,
+   the stack, the countdown, and every board control) and the play area
+   ("stage") beside it. The rail replaced the old sticky topbar + the
+   overlaid stack popup, so player interactions on the stage are never
+   covered any more. */
+.goldfish {
+  /* Header: 44px logo + 4/3rem padding + 1px border; main: 3rem padding.
+     Divide by board zoom so the rail still fills the visible height. */
+  --gf-rail-height: calc((100dvh - 45px - 13rem / 3) / var(--gf-scale, 1));
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
+  /* Whole-board zoom (boardScale.js, control in the sidebar footer below —
+     see .sidebar-footer). `zoom` (not `transform: scale`) so layout,
+     including the rail's `position: sticky`, is computed at the scaled
+     size rather than visually stretched afterwards. */
+  zoom: var(--gf-scale, 1);
+}
+
+.gf-rail {
+  flex: 0 0 216px;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: var(--gf-rail-height);
+  max-height: var(--gf-rail-height);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.55rem;
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 20;
+}
+
+.gf-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.gf-rail > * { flex-shrink: 0; }
+.gf-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 6rem; min-width: 0; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+.gf-chat h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.gf-chat-messages { flex: 1 1 auto; min-height: 0; list-style: none; margin: 0; padding: 0; overflow-y: auto; font-size: 0.78rem; }
+.gf-chat-message { padding: 0.35rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; white-space: pre-wrap; }
+.gf-chat-author { font-weight: 700; margin-right: 0.3rem; }
+.gf-chat-message.is-announcement { opacity: 0.8; }
+.gf-chat-reveal { display: block; width: 6rem; max-width: 100%; height: auto; border-radius: 0.35rem; margin-top: 0.35rem; }
+.gf-chat-emotes { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
+.gf-chat-emotes button { flex: 1; padding: 0.3rem; font-size: 0.8rem; }
+.gf-chat-error { font-size: 0.75rem; color: var(--danger, #f99); }
+@media (max-width: 1199px) { .gf-chat { flex: 1 1 100%; } }
+
+.gf-rail-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.gf-turn {
+  font-weight: 700;
+}
+
+.gf-step {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+/* The rail's control block: buttons stack instead of sitting in a row. */
+.gf-rail-controls {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin-bottom: 0;
+}
+
+.gf-rail-controls button,
+.gf-rail-controls .gf-autopass,
+.gf-rail-controls select {
+  width: 100%;
+}
+
+/* Below this the two columns are too tight — the rail becomes a plain
+   horizontal strip above the stage (see gameBoardView.js POD_GRID_MIN_WIDTH,
+   deliberately the only place this breakpoint lives besides here). */
+@media (max-width: 1199px) {
+  .goldfish {
+    flex-direction: column;
+  }
+  .gf-rail {
+    flex: 1 1 auto;
+    width: 100%;
+    position: static;
+    height: auto;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .gf-rail-turn,
+  .gf-rail-timer,
+  .gf-rail-stack {
+    flex: 1 1 12rem;
+  }
+  .gf-chat-messages { flex: none; height: 15rem; }
+  .gf-rail-controls {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .gf-rail-controls button,
+  .gf-rail-controls .gf-autopass,
+  .gf-rail-controls select {
+    width: auto;
+  }
+}
+
+/* iPad (and similarly wide-but-short) landscape viewports fall inside the
+   max-width:1199px band above, which would otherwise fold the "Turn &
+   Stack" rail into a horizontal strip that scrolls away with the board —
+   on a tablet there's ample width to keep it pinned on the left instead.
+   Deliberately width-only, no `orientation` media feature: every current
+   iPad's *landscape* width is 1133px+ (the smallest, iPad mini) and every
+   current iPad's *portrait* width tops out at 1024px (the 13" models), so
+   the 1030px floor already separates the two without it — which matters
+   because `orientation` is a plausible culprit for a reported bug (portrait
+   iPad + Edge not using the full screen width): third-party iOS browsers
+   are WKWebView wrappers around the same engine, not Safari itself, and
+   WKWebView's initial frame size is set by the host app's own layout pass,
+   so a media feature evaluated before that pass settles could momentarily
+   read the wrong orientation. Not confirmed against a real device — this
+   removes the dependency rather than chasing the exact mechanism. A
+   phone's landscape width (~930px or less) still falls through to the
+   stacked layout above. Comes after that block so it wins for the
+   overlapping range. */
+@media (max-width: 1199px) and (min-width: 1030px) {
+  .goldfish {
+    flex-direction: row;
+  }
+  .gf-rail {
+    flex: 0 0 190px;
+    width: auto;
+    position: sticky;
+    top: 0;
+    height: var(--gf-rail-height);
+    max-height: var(--gf-rail-height);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+  .gf-chat { flex: 1 1 auto; }
+  .gf-chat-messages { flex: 1 1 auto; height: auto; }
+  .gf-rail-turn,
+  .gf-rail-timer,
+  .gf-rail-stack {
+    flex: none;
+  }
+  .gf-rail-controls {
+    flex: none;
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+  .gf-rail-controls button,
+  .gf-rail-controls .gf-autopass,
+  .gf-rail-controls select {
+    width: 100%;
+  }
+}
+
+/* --- Rail: the per-priority countdown, as a shrinking progress bar ------- */
+.gf-rail-timer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel-alt);
+}
+
+.gf-rail-timer.gf-timer-off {
+  border-color: var(--border);
+  opacity: 0.6;
+}
+
+.gf-rail-timer-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.gf-rail-timer-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.gf-rail-timer-fill {
+  height: 100%;
+  width: calc(var(--gf-timer-frac, 1) * 100%);
+  background: var(--accent);
+  transition: width 1s linear;
+}
+
+.gf-rail-timer.gf-timer-off .gf-rail-timer-fill {
+  background: var(--text-dim);
+  transition: none;
+}
+
+.gf-rail-timer-stop {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.4rem;
+}
+
+/* --- Rail: the stack, compact and always present ------------------------ */
+.gf-rail-stack h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.82rem;
+}
+
+.gf-rail-stack-empty {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Compact action cards, stacked vertically in the narrow rail. */
+.gf-rail-stack-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.gf-rail-stack-cards .gf-stack-item {
+  width: 100%;
+}
+
+/* Stack cards are 20% larger than the default 100px thumbnail so the stack is
+   readable at a glance; the rail's 216px width still fits them. */
+.gf-rail-stack-cards .card.has-image.gf-stack-art {
+  width: 120px;
+}
+
+.gf-rail-stack-cards .gf-stack-ability-overlay {
+  font-size: 0.74rem;
+}
+
+.gf-rail-stack-cards .gf-stack-source-name {
+  font-size: 0.86rem;
+}
+
+.gf-rail-stack-cards .gf-stack-action-text {
+  font-size: 0.94rem;
+}
+
+.gf-rail-stack-cards .gf-stack-badge {
+  max-width: 100%;
+}
+
+/* An entry that has just resolved (or been countered) lingers greyed out
+   for a moment (`resolvedGhosts`) so it stays briefly visible what went on
+   the stack — including in the solo modes, where the engine auto-drains it. */
+.gf-rail-stack-ghost {
+  opacity: 0.5;
+  filter: grayscale(1);
+  transition: opacity 0.4s ease;
+}
+
+.gf-manapool {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.gf-mana {
+  white-space: nowrap;
+}
+
+/* RULE 605.3a: mana tagged "spend only on X" — visually set apart from the
+   ordinary WUBRGC counts it's never merged with server-side. */
+.gf-mana-restricted {
+  padding: 0 0.25rem;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+/* "Mana-Potenzial": what's still open vs. already produced this turn —
+   a compact two-row readout next to the live mana pool. */
+.gf-mana-potential {
+  display: block;
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.gf-mana-potential summary {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.gf-mana-potential summary::-webkit-details-marker {
+  display: none;
+}
+
+.gf-mana-potential summary::after {
+  content: '▾';
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+
+.gf-mana-potential[open] summary::after {
+  content: '▴';
+}
+
+.gf-mana-potential-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.2rem;
+}
+
+.gf-mana-potential-heading {
+  margin-top: 0.15rem;
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
+
+.gf-mana-potential-details ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gf-mana-potential-variation {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.gf-mana-potential-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.gf-mana-potential-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.gf-mana-potential-open .gf-mana-potential-label {
+  color: var(--ok);
+}
+
+.gf-mana-potential-used .gf-mana-potential-label {
+  color: var(--text-dim);
+}
+
+.gf-life {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+}
+
+.gf-life-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+/* (The old `.gf-turnorder*` seating strip is gone — who is active and who
+   holds priority is shown on each player's own banner now.) */
+
+.gf-daynight {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.gf-daynight-day {
+  background: #fff4c2;
+  color: #6b5300;
+}
+
+.gf-daynight-night {
+  background: #2a2f52;
+  color: #d7dcff;
+}
+
+.gf-emoji-picker { margin-top: .4rem; padding: .4rem; min-width: 0; border: 1px solid var(--border); border-radius: .4rem; background: var(--panel); }
+.gf-emoji-categories { display: flex; gap: .1rem; flex-wrap: wrap; }
+.gf-emoji-categories button { flex: 1; padding: .2rem; min-width: 1.5rem; }
+.gf-emoji-categories button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-alt); }
+.gf-emoji-picker h5 { margin: .4rem 0; }
+.gf-emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(1.8rem, 1fr)); gap: .15rem; max-height: 12rem; overflow-y: auto; }
+.gf-emoji-grid button { padding: .25rem .1rem; font-size: 1.2rem; line-height: 1.4; }
