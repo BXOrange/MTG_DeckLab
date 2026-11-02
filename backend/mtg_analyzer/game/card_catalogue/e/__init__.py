@@ -86,3 +86,4 @@ from . import emeria_s_call_emeria_shattered_skyclave  # noqa: F401
 from . import empty_the_laboratory  # noqa: F401
 from . import eris_roar_of_the_storm  # noqa: F401
 from . import ezuri_claw_of_progress  # noqa: F401
+from . import ezzaroot_channeler  # noqa: F401

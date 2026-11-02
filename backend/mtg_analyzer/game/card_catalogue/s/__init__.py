@@ -214,3 +214,4 @@ from . import scampering_surveyor  # noqa: F401
 from . import slash_the_ranks  # noqa: F401
 from . import soulherder  # noqa: F401
 from . import synchronized_charge  # noqa: F401
+from . import sarevok_s_tome  # noqa: F401

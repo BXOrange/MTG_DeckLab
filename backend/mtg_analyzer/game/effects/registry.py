@@ -66,6 +66,7 @@ EffectRegistry.register(
     "damage",
     lambda p: DealDamageEffect(
         amount=p.get("amount", 0),
+        amount_per_recipient=p.get("amount_per_recipient"),
         target=p.get("target"),
         target_kind=p.get("target_kind", "any"),
         selector=p.get("selector"),

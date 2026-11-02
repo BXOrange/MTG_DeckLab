@@ -64,3 +64,4 @@ from . import hidden_hideout  # noqa: F401
 from . import hurkyl_master_wizard  # noqa: F401
 from . import hagra_mauling_hagra_broodpit  # noqa: F401
 from . import highcliff_felidar  # noqa: F401
+from . import heartless_hidetsugu  # noqa: F401

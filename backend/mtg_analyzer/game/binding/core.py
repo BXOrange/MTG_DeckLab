@@ -1969,6 +1969,12 @@ def _trigger_condition(
     # creature" (PAR-119) — the creature(s) on the other side of the block, named by the
     # event's ``related_ids``, must satisfy an object filter (any one of them, for a
     # multi-blocked attacker).
+    if trigger.get("related_to_source"):
+        # RULE 509.5: a per-blocker event names the creature it blocks in related_ids.
+        predicates.append(lambda event, context, src=source: (
+            src is not None and src.instance_id in (event.get("related_ids") or [])
+        ))
+
     related_filter = trigger.get("related_filter")
     if related_filter:
         def _related_filter_ok(event: Any, context: Any, filt=related_filter, src=source) -> bool:

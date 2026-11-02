@@ -103,6 +103,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-28: RULE 702.178a Max Speed — "As long as your speed is 4, …".
         # Reads the *controller*'s speed (RULE 702.179), no ``of`` subject.
         "your_speed_is_max",
+        "completed_dungeon",
         # PAR-28: RULE 702.57b Forecast — "Activate only during the upkeep
         # step of the card's owner." Used as an ``activation_condition`` only.
         "your_upkeep",
@@ -1200,6 +1201,9 @@ def condition_holds(
     player = _controller(state, controller_id)
     if player is None:
         return False
+    if kind == "completed_dungeon":
+        # RULE 309.7: completing a dungeon is a designation of that player.
+        return bool(player.completed_dungeons)
     if kind == "life_at_least":
         return int(getattr(player, "life", 0)) >= int(condition.get("amount", 0))
     if kind == "life_over_starting_at_least":

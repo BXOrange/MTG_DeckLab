@@ -140,6 +140,7 @@ class DealDamageEffect(GameEffect):
         excess_to_controller: bool = False,
         unpreventable_if: Optional[dict[str, Any]] = None,
         count_selector: Optional[str] = None,
+        amount_per_recipient: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         #: "If X is 5 or more, ... the damage can't be prevented." (Banefire, Demonfire, Urza's Rage, Lightning Surge;
@@ -156,6 +157,7 @@ class DealDamageEffect(GameEffect):
         #: "attached_permanent"``): the host's own ``attached_to`` is empty, so the recipient lookup reads it from here.
         self._attached_host: Optional[Any] = None
         self._base_amount = amount
+        self.amount_per_recipient = amount_per_recipient
         #: "The damage can't be prevented." (Combust, RULE 615.6) — this one
         #: instance ignores prevention shields. Implemented by flipping the
         #: same turn-scoped `GameState.damage_prevention_disabled` flag
@@ -710,6 +712,16 @@ class DealDamageEffect(GameEffect):
                 context.deal_damage(target, amount, self.source)
 
     def _apply_selector(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.amount_per_recipient is not None and self.selector in ("each_player", "each_opponent"):
+            controller = _controller_of(self.source, context)
+            recipients = [player for player in context.state.living_players_apnap()
+                          if self.selector == "each_player" or player is not controller]
+            # RULE 608.2h / 120.3: measure every recipient before this one simultaneous damage instruction.
+            amounts = [(player, self._measured(self.amount_per_recipient, context, [player]))
+                       for player in recipients]
+            for player, amount in amounts:
+                context.deal_damage(player, amount, self.source)
+            return
         # "Imodane deals that much damage to each opponent." — the mass-
         # selector sibling of `_amount_for`'s single-target read: `self.
         # amount` (the property below) takes no `context`, so the
