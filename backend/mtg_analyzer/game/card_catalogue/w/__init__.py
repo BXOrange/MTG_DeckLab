@@ -54,3 +54,4 @@ from . import winter_cynical_opportunist  # noqa: F401
 from . import wrenn_and_seven  # noqa: F401
 from . import well_of_lost_dreams  # noqa: F401
 from . import white_sun_s_twilight  # noqa: F401
+from . import writ_of_passage  # noqa: F401

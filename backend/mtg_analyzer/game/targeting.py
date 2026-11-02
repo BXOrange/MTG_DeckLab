@@ -685,6 +685,9 @@ class TargetSpec:
     any_number: bool = False
     #: RULE 601.2c: all cards chosen for this occurrence share one graveyard.
     same_graveyard: bool = False
+    #: RULE 205.3m / 601.2c: "N target creatures that share a creature type" (Secret Tunnel) — a cross-target
+    #: relation, see `shared_type_targets.targets_share_creature_type`.
+    shared_creature_type: bool = False
     total_power_max: Optional[int] = None
     total_mana_value_max: Optional[int] = None
     #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
@@ -2550,6 +2553,10 @@ def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
         getattr(getattr(target, 'obj', target), 'owner_id', None) for target in targets
     }) > 1:
         return False
+    if spec.shared_creature_type:
+        from .shared_type_targets import targets_share_creature_type
+        if not targets_share_creature_type(targets):
+            return False
     for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
         if limit is not None and sum(
             getattr(getattr(target, 'obj', target), field, 0) or 0 for target in targets
@@ -2560,7 +2567,8 @@ def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
 
 def budgeted_target_options(state, spec, options, picked=()):
     """Keep choices that fit the remaining aggregate budget of this group."""
-    if not spec.same_graveyard and spec.total_power_max is None and spec.total_mana_value_max is None:
+    if (not spec.same_graveyard and not spec.shared_creature_type
+            and spec.total_power_max is None and spec.total_mana_value_max is None):
         return options
     return [option for option in options if target_group_within_budget(spec,
         [*picked, state.find_object(option.get('instance_id'))])]
