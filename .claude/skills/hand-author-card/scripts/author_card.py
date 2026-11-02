@@ -53,7 +53,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import difflib
+import io
 import inspect
 import os
 import re
@@ -282,6 +284,10 @@ def cmd_reuse(args) -> None:
             print(f"#   - {line}")
 
 
+#: Catalogue entries `scaffold` suggests per unclaimed clause (enough to find a template, few enough to skim).
+SCAFFOLD_HINTS_PER_CLAUSE = 2
+
+
 def cmd_scaffold(args) -> None:
     db = CardDatabase(args.card_db)
     card = load_card(db, args.name)
@@ -305,12 +311,70 @@ def cmd_scaffold(args) -> None:
         body_lines.append("        # TODO: no clauses at all reached here — check `text` output.")
 
     target = _card_target_path(card.name)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _print_scaffold(card, result, fname, body_lines, target)
+    out = buf.getvalue()
+    if not getattr(args, "write", False):
+        print(out, end="")
+        return
+    # --write: save the module and its __init__ import; show only the test skeleton.
+    module, _, tests = out.partition("# --- test skeleton")
+    target.write_text(module.rstrip("\n") + "\n", encoding="utf-8")
+    init = target.parent / "__init__.py"
+    with init.open("a", encoding="utf-8") as fh:
+        fh.write(f"from . import {target.stem}  # noqa: F401\n")
+    test_path = _write_test_file(card, result, target)
+    print(f"wrote {target}\nappended import to {init}\nwrote {test_path}")
+    print("The standalone test file replaces the paste-in skeleton; fill in test_end_to_end.")
+
+
+def _write_test_file(card, result, target: Path) -> Path:
+    """Standalone test module on inline fixtures (no card cache, no edits to the shared catalogue test file)."""
+    kinds = [s.ability_kind for s in result.effect_specs]
+    attrs = sorted({_KIND_TO_ATTR[k] for k in kinds if k in _KIND_TO_ATTR})
+    path = Path(catalogue.__file__).parents[3] / "tests" / "game" / "catalogue" / "cards" / f"test_{target.stem}.py"
+    bind = "\n".join(f"    assert obj.{a}" for a in attrs) or "    # TODO: assert what was bound"
+    path.write_text(f'''"""{card.name} (hand-authored)."""
+
+import pytest
+
+from mtg_analyzer.game.card_registry import specs_for
+from mtg_analyzer.models.game.game_object import Zone
+from tests.game.catalogue.cards.test_riveteer_rampage_deck import _card, _game
+
+NAME = {card.name!r}
+
+
+def test_registered_and_fresh_each_call():
+    obj = _card(_game(), NAME, zone=Zone.HAND)
+    first, second = specs_for(obj.card), specs_for(obj.card)
+    assert first and first is not second and first[0] is not second[0]
+    assert [s.ability_kind for s in first] == {kinds!r}
+
+
+def test_binds_onto_the_object():
+    obj = _card(_game(), NAME, zone=Zone.BATTLEFIELD)
+{bind}
+
+
+def test_end_to_end():
+    # Drive the real engine and assert the board changed (see tests/support/catalogue.py helpers).
+    pytest.fail("TODO: end-to-end test")
+''', encoding="utf-8")
+    return path
+
+
+def _print_scaffold(card, result, fname, body_lines, target) -> None:
     body_text = "\n".join(body_lines)
     needs_event_type = "EventType." in body_text
 
     print(f"# save as: {target}")
     print( "# (one file per card, in the folder named after its lowercased first letter —")
     print( "#  see game/card_catalogue/__init__.py and docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)")
+    # Without this import the module never loads, so the card silently stays unregistered.
+    print(f"# ALSO add to {target.parent / '__init__.py'}:")
+    print(f"#     from . import {target.stem}  # noqa: F401")
     print()
     print("from __future__ import annotations")
     print()
@@ -334,7 +398,12 @@ def cmd_scaffold(args) -> None:
     print("#     match its existing _card()/_object() fixture helpers) ---")
     kinds = [s.ability_kind for s in result.effect_specs]
     print(_test_skeleton(card.name, fname, kinds))
+    for line in result.unclaimed:
+        print(f"# closest existing entries for {line[:70]!r}:")
+        for row in _similar_lines(line, SCAFFOLD_HINTS_PER_CLAUSE):
+            print("#" + row[1:])
     if result.unclaimed:
+        print("# existing effect types for a clause: engine_bench.py primitives '<shape>' (cost check, SKILL.md step 0)")
         print(
             f"# {len(result.unclaimed)} clause(s) still need EffectSpecs written by hand — "
             "see docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md §5-§9 for the whitelist."
@@ -378,6 +447,12 @@ def test_{var}_end_to_end():
     # TODO: build a real GameEngine (see engine_bench.py's `play`/`inspect` for
     # a quick look first), resolve the ability, assert the board actually
     # changed — not just "an object of the right class was constructed".
+    # Inline Card(...) objects need no card cache. Timing gotchas:
+    #  - "whenever you attack" fires from _fire_player_attacked_events;
+    #    ATTACKERS_DECLARED only when the declare-attackers step ends (advance_step()).
+    #  - trigger_event is gone after a mid-resolution choice; use a referent that survives.
+    #  - library top is library[-1]; spell abilities have kind "spell_effect".
+    #  - a new choice kind needs a `_resume_*` handler and a real RULE citation.
     ...
 '''.strip("\n")
 
@@ -412,6 +487,15 @@ def cmd_similar(args) -> None:
         query_text = card.oracle_text
         print(f"# matching against {card.name}'s real oracle text")
 
+    print(f"closest existing catalogue entries to: {query_text[:90]!r}")
+    for line in _similar_lines(query_text, args.top):
+        print(line)
+    print()
+    print("run `check \"<one of the names above>\"` to see the full source and adapt it.")
+
+
+def _similar_lines(query_text: str, top: int) -> list[str]:
+    """Rendered ``similar`` rows (two lines per entry) for the ``top`` closest catalogue entries."""
     # Card factories live in `game/card_catalogue/<letter>/<slug>.py` — one
     # file per card, plus `_shared/` for the handful of genuinely-reused
     # helpers (e.g. the Licid cycle) — not in `card_registry` itself any
@@ -453,15 +537,44 @@ def cmd_similar(args) -> None:
         scored.append((ratio, fn, preview))
     scored.sort(key=lambda t: t[0], reverse=True)
 
-    print(f"closest existing catalogue entries to: {query_text[:90]!r}")
-    for ratio, fn, preview in scored[: args.top]:
+    lines: list[str] = []
+    for ratio, fn, preview in scored[:top]:
         names = names_by_fn.get(fn, [])
         label = ", ".join(names) if names else "(unregistered helper)"
         snippet = " ".join(preview.split())[:100]
-        print(f"  {ratio:.2f}  {fn}  [{label}]  {file_by_fn.get(fn, '?')}")
-        print(f"        {snippet}")
+        lines.append(f"  {ratio:.2f}  {fn}  [{label}]  {file_by_fn.get(fn, '?')}")
+        lines.append(f"        {snippet}")
+    return lines
+
+
+#: Two unclaimed clauses at least this textually close are treated as one probable shared
+#: primitive by `batch` (empirical: below this, clauses share a verb but not a mechanic).
+BATCH_SIMILARITY_THRESHOLD = 0.5
+
+
+def cmd_batch(args) -> None:
+    """Triage several cards at once: list each one's unclaimed clauses and flag look-alike pairs."""
+    db = CardDatabase(args.card_db)
+    clauses: list[tuple[str, str]] = []
+    for name in args.names:
+        card = load_card(db, name)
+        unclaimed = parse_oracle(card).unclaimed
+        print(f"{card.name}: {len(unclaimed)} unclaimed clause(s)")
+        for line in unclaimed:
+            print(f"    {line!r}")
+            clauses.append((card.name, line))
+    pairs = [
+        (difflib.SequenceMatcher(None, a[1].lower(), b[1].lower()).ratio(), a, b)
+        for i, a in enumerate(clauses) for b in clauses[i + 1:] if a[0] != b[0]
+    ]
+    pairs = sorted((p for p in pairs if p[0] >= BATCH_SIMILARITY_THRESHOLD), key=lambda t: -t[0])
     print()
-    print("run `check \"<one of the names above>\"` to see the full source and adapt it.")
+    if not pairs:
+        print("no look-alike clauses across these cards: author them independently.")
+        return
+    print("look-alike clauses (build the primitive once, then author both):")
+    for ratio, a, b in pairs:
+        print(f"  {ratio:.2f}  {a[0]} <-> {b[0]}")
 
 
 # --- CLI -------------------------------------------------------
@@ -479,7 +592,13 @@ def main() -> None:
 
     add_name_cmd("text", "real oracle text + parse verdict + unclaimed clauses")
     add_name_cmd("reuse", "parser-claimed specs as paste-ready AbilitySpec source")
-    add_name_cmd("scaffold", "full factory + register() + test skeleton")
+    p_scaffold = add_name_cmd("scaffold", "full factory + register() + test skeleton")
+    p_scaffold.add_argument("--write", action="store_true",
+                            help="save the module and append its __init__ import; print only the test skeleton")
+
+    p_batch = sub.add_parser("batch", help="unclaimed clauses of several cards + look-alike pairs (shared-primitive triage)")
+    p_batch.add_argument("names", nargs="+")
+    p_batch.add_argument("--card-db", type=Path, default=DEFAULT_DB_PATH)
 
     p_check = sub.add_parser("check", help="is this card already registered? show its source")
     p_check.add_argument("name")
@@ -496,6 +615,7 @@ def main() -> None:
         "scaffold": cmd_scaffold,
         "check": cmd_check,
         "similar": cmd_similar,
+        "batch": cmd_batch,
     }[args.command](args)
 
 

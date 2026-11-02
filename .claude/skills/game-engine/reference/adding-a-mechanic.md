@@ -145,3 +145,22 @@ general and is cheaper to reuse than to re-derive:
   face-down (708) share it; the layer engine and combat need no special case
 - **command-zone data that isn't a permanent** — `Player.dungeon` (309),
   `models/game/emblem.py` (114), the RULE 9 variant pools
+
+## Gotchas when hooking in a new choice or trigger
+
+- A new `open_choice` kind needs a handler named `_resume_<kind>` and a real
+  `rule=` citation; `tests/test_continuations.py` enforces both. It must also
+  be added to the concede-cleanup and "only the asked player may answer" lists
+  (`rules/sba_mixin.py`, `services/game_session.py`) if another player answers.
+- `trigger_event` does not survive a mid-resolution choice; store what you need
+  (e.g. a `defending_player` referent) before opening it.
+- "Whenever you attack" fires from `_fire_player_attacked_events`; ATTACKERS_DECLARED
+  fires only when the declare-attackers step ends, so tests call `advance_step()`.
+- Library top is `library[-1]`; spell abilities use kind `spell_effect`.
+- New condition/param field names must be whitelisted in `parser/oracle/spec.py`,
+  which trips the parser-version lock test (`update_parser_version_lock.py`).
+- Put the effects/conditions for one primitive batch in a new module of its own
+  (e.g. `game/effects/guessing.py`), and keep edits to shared files
+  (`registry.py`, `composition.py`, ...) to one-line registrations: parallel
+  sessions share this tree and large edits there conflict.
+

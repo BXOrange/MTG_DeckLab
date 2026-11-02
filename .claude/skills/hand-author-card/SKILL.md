@@ -48,6 +48,19 @@ whether it's already registered, the parser's coverage verdict, and — the
 useful part — exactly which clauses the parser can't claim. If `unclaimed`
 is empty, stop: the card is already `MODELED`, no entry needed.
 
+**Cost check before authoring:** run `python $BENCH primitives '<shape>'`
+(step 4) for each unclaimed clause first. If every effect type already exists,
+the card is cheap: `reuse` + `similar` + `scaffold --write`, nothing else. If a
+clause needs a new effect/condition/choice kind, that is `game-engine` work and
+the expensive part (most of the tokens go to finding engine hooks, see
+`game-engine/reference/adding-a-mechanic.md` gotchas); check the singleton
+queue/backlog for sibling cards and build the primitive once for all of them.
+
+**Several cards at once:** `python $AUTHOR batch "A" "B" "C"` prints every
+card's unclaimed clauses and flags look-alike pairs. Look-alikes share one
+primitive: build it once, then author each card. Hand the same-shape cards to
+one worker/session; unrelated cards are authored independently.
+
 ## 1. Don't re-derive what the parser already got right
 
 ```bash
@@ -81,8 +94,14 @@ it's close enough to copy.
 ## 3. Assemble the scaffold
 
 ```bash
-python $AUTHOR scaffold "Card Name"
+python $AUTHOR scaffold "Card Name"           # prints the module + test skeleton
+python $AUTHOR scaffold "Card Name" --write   # also saves the file + appends the __init__ import
 ```
+
+`--write` saves the module, appends the `__init__` import and writes a standalone
+`tests/game/catalogue/cards/test_<slug>.py` (inline fixtures, no card cache; its
+`test_end_to_end` fails on purpose until you fill it in), so you only edit the TODOs.
+`scaffold` also lists the 2 closest catalogue entries under each unclaimed clause.
 
 One paste-ready, standalone module: the `save as: .../card_catalogue/<letter>/
 <slug>.py` path to create, its imports (`AbilitySpec`/`EffectSpec`, `register`
@@ -97,6 +116,10 @@ catalogue.py`) — the `ability_kind` assertion and the `obj.<list>`
 bind-check are filled in from the kinds actually detected, not left as a
 guess. Refuses to run (and prints the existing entry instead) if the card is
 already registered.
+
+**Save is not enough:** also add `from . import <slug>  # noqa: F401` to
+`card_catalogue/<letter>/__init__.py` (the scaffold prints the line) — without
+it the module never loads and the card silently stays unregistered.
 
 Fill in the TODOs using the guide's §5 (`EffectSpec` whitelist), §6 (static/
 layers), §7 (replacement), §8 (triggers, incl. the conditional-predicate
