@@ -5911,3 +5911,5 @@ EffectRegistry.register("name_change", lambda p: StaticAbility(
 ))
 
 from . import duration_copy  # registers the shared clock-bound copy effect
+from . import room_tokens  # noqa: F401 - registers the random Room-half token effect (Blu, Mansion Prince)
+from . import type_picks  # noqa: F401 - registers the per-card-type reveal pick effect (Hurkyl, Master Wizard)

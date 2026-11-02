@@ -209,3 +209,4 @@ from . import shredder_shadow_master  # noqa: F401
 from . import shellshock  # noqa: F401
 from . import special_move  # noqa: F401
 from . import secret_tunnel  # noqa: F401
+from . import shrouded_serpent  # noqa: F401

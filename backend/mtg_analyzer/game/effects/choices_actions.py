@@ -1224,6 +1224,10 @@ class PayCostThenEffect(GameEffect):
             player = _event_player(context)
         elif self.payer == "event_player":
             player = _event_player(context, key="player_id")
+        elif self.payer == "defending_player":
+            # "Whenever ~ attacks, defending player may pay {4}. If that player doesn't, …" (Shrouded Serpent)
+            # — RULE 506.3d/508.1: the player the source is attacking, read off its combat_defender stamp.
+            player = _defending_player_of(self.source, context)
         elif self.payer == "trigger_subject_controller":
             # "Whenever a creature deals combat damage to one of your opponents, **its controller** may pay
             # 1 life." (Gix, Yawgmoth Praetor) — whoever controls the creature that satisfied this group

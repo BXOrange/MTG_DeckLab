@@ -61,3 +61,4 @@ from . import honor_the_fallen  # noqa: F401
 from . import hope_estheim  # noqa: F401
 from . import here_comes_a_new_hero  # noqa: F401
 from . import hidden_hideout  # noqa: F401
+from . import hurkyl_master_wizard  # noqa: F401

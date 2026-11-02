@@ -52,6 +52,50 @@ class RoomsRulesMixin:
             ],
         })
 
+    def _request_room_half_choice(self, player: Player, room_card: Any) -> None:
+        """Ask ``player`` which half of the randomly chosen Room card their token copies (Blu, Mansion Prince)."""
+        from ..effects.room_tokens import room_half_options
+
+        self.open_choice({
+            "kind": "room_half_choice",
+            "player_id": player.id,
+            "prompt": f"{room_card.name}: welche Hälfte kopieren?",
+            "room_name": room_card.name,
+            "options": room_half_options(room_card),
+        })
+
+    @continuations.choice("room_half_choice", answer=continuations.ANSWER_STR, rule="707.2")
+    def _resume_room_half_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Create the token copy of the chosen half, then unlock it (RULE 709.5f).
+
+        Documented simplification: a token copy of one half has a single door, which is not modelled as a locked/unlocked
+        designation (``rooms.has_doors`` is false for it); its abilities are bound at creation and the unlock is the
+        ``DOOR_UNLOCKED`` event (RULE 709.5h), so "when you unlock this door" abilities of that half still trigger."""
+        from ...services.card_lookup import card_by_name
+        from ...models.game.events import EventType, GameEvent
+
+        card = card_by_name(choice["room_name"])
+        ids = [str(option["id"]) for option in choice["options"]]
+        door = answer if answer in ids else ids[0]
+        half = rooms.door_card(card, door) if card is not None else None
+        if half is None:
+            return
+
+        def unlock_token(tokens: list[GameObject]) -> None:
+            from ..binding.core import attach_to_object  # function-scoped: the binder imports the registry
+
+            for token in tokens:
+                # `bind_from_catalogue` binds a Room only through its designations, which the one-door token has
+                # none of: give it the half's abilities (door-scoped, as `rooms.bind_door` does) before the unlock.
+                attach_to_object(token, rooms.door_specs(card, door))
+                self.state.fire_event(GameEvent(
+                    EventType.DOOR_UNLOCKED, instance_id=token.instance_id, controller_id=token.controller_id,
+                    player_id=token.controller_id, object=token.name, object_types=sorted(token.type_words),
+                    door=door, door_name=half.name,
+                ))
+
+        self.create_token(choice["player_id"], half, 1, on_created=unlock_token)
+
     @continuations.choice("door_choice", answer=continuations.ANSWER_STR, rule="709.5f")
     def _resume_door_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `door_choice` — mandatory, so a missing/invalid answer takes the first option."""
