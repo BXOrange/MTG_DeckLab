@@ -67,6 +67,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "additional_cost_paid": [True, False],
     "source_was_cast": [True, False],
     "source_was_cast_from_hand": [True, False],
+    "source_was_cast_from_graveyard": [True, False],
     "source_was_foretold": [True],
     "cast_via_escape": [True],
     "cast_outside_sorcery_speed": [True],
@@ -250,6 +251,7 @@ class TestTheCollapseIsReal:
         assert flags == {
             "bargained", "additional_cost_paid", "source_was_cast",
             "source_was_cast_from_hand",  # PAR-120
+            "source_was_cast_from_graveyard",  # RULE 601.2a
             "source_was_foretold", "cast_via_escape",
             "cast_outside_sorcery_speed", "source_is_renowned",
             "cast_during_your_main_phase",  # PAR-120, Addendum

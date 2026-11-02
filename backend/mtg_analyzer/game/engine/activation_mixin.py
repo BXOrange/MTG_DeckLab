@@ -1620,6 +1620,9 @@ class ActivationMixin:
                     player, count, discard_choices, exclude=source,
                     filter_word=cost.discard_filter, name=source.name,
                 )
+                # "If the discarded card was a creature card" (Moria Scavenger): remember what the cost threw away
+                # before it moves, read back by `discarded_cost_card_is` (same stamp the spell-cost path makes).
+                source.discarded_cost_card_types = sorted({t for card in chosen or [] for t in continuous.card_types_of(card)})
                 with self.state.simultaneous():  # RULE 603.2c: one cost, one event
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=source)

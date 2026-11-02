@@ -16,7 +16,12 @@ class DesignationsMixin:
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
+        if self.state.monarch_id == player.id:
+            return
         self.state.monarch_id = player.id
+        self.state.fire_event(GameEvent(
+            EventType.BECAME_MONARCH, player_id=player.id, controller_id=player.id,
+        ))
         # "…until an opponent becomes the monarch" (Palace Jailer): the exiler's creature comes back under its owner's
         # control once a *different* player takes the crown.
         for holder in self.state.players:

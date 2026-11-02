@@ -113,6 +113,7 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "opponent_cast_color_this_turn", "no_creatures_on_battlefield",
         "source_is_renowned", "source_is_suspected", "attached_is_suspected", "sacrificed_cost_was_suspected", "shares_type_with_linked_exile", "source_was_cast",
         "source_was_cast_from_hand",  # PAR-120
+        "source_was_cast_from_graveyard",  # RULE 601.2a (Increasing Devotion)
         "source_entered_untapped", "cast_outside_sorcery_speed", "cast_via_escape",
         "cast_during_your_main_phase",  # PAR-120, Addendum
         "cards_in_graveyard_at_least", "entering_object_unique_name",

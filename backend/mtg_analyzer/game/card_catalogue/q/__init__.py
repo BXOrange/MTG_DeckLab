@@ -5,3 +5,4 @@ from . import quickening_licid  # noqa: F401
 from . import quicksilver_elemental  # noqa: F401
 from . import quintorius_history_chaser  # noqa: F401
 from . import quintorius_loremaster  # noqa: F401
+from . import queen_allenal_of_ruadach  # noqa: F401

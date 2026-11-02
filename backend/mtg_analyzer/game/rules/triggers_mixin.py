@@ -79,6 +79,7 @@ from ..effects.core import (
 )
 from ..targeting import budgeted_target_options, TargetSpec, chooser_requirement_satisfiable, stamped_specs, collapse_groups, expand_counts, legal_targets
 from .. import continuations
+from ..effects.paradigm import collect_paradigm_triggers
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -336,6 +337,7 @@ class TriggerCollectionMixin:
         self._collect_discarded_triggers(event)
         self._collect_suspend_triggers(event)
         self._collect_last_time_counter_triggers(event)
+        collect_paradigm_triggers(self, event)  # RULE 702.192a: Paradigm cards in exile
     def _resolve_mana_trigger(self, ability: "TriggeredAbility", event: GameEvent) -> None:
         """Apply a triggered mana ability immediately (RULE 605.4).
 

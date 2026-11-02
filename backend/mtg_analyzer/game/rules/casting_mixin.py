@@ -928,6 +928,7 @@ class CastingResolutionMixin:
         if getattr(obj, "has_rebound", False) and obj.zone == Zone.HAND:
             obj.rebound_pending = True
         obj.was_cast_from_hand = obj.zone == Zone.HAND
+        obj.was_cast_from_graveyard = obj.zone == Zone.GRAVEYARD  # RULE 601.2a (Ignite the Future's free-cast rider)
         # RULE 702.88b's own free-cast window (`ReboundFreeCastWindowEffect`)
         # — consumed the instant it's used, same "check, then discard" shape
         # `mana_wildcard_permission`'s per-card grant already uses.

@@ -30,6 +30,7 @@ from ..models.cards import card_query
 from ..models.cards.card_query import is_nonland_permanent_card, is_permanent_card
 from ..parser.oracle.spec import TARGET_CHOOSER_OPPONENT
 from . import combat
+from .hexproof_from_quality import blocked_by_scoped_hexproof
 
 #: A graveyard-card target's *scope* — whose graveyard(s) are searched — by
 #: its `graveyard_*`/`any_graveyard_*`/`opponent_graveyard_*` kind prefix.
@@ -1027,6 +1028,8 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
         and obj.controller_id != source.controller_id
         and (set(getattr(source, "colors", None) or set()) & set(getattr(obj, "colors", None) or set()))
     ):
+        return False
+    if blocked_by_scoped_hexproof(obj, source):  # RULE 702.11d: "hexproof from instants" (Elenda)
         return False
     # RULE 702.18b: shroud can't be targeted by *any* spell or ability,
     # its own controller's included — no opponent-scoping, unlike hexproof

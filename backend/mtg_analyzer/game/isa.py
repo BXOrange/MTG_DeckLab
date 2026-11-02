@@ -490,6 +490,9 @@ _INSTRUCTION_TYPES: dict[str, str] = {
 #: of turn" grant is one operation with a different keyword operand.
 _ALIAS_TYPES: dict[str, str] = {
     "destroy_same_name": "destroy",
+    "exile_until_total_mana_value": "exile",  # Improvisation Capstone: exile until a running mana-value total
+    "destroy_greatest_power_per_opponent": "destroy",  # Highcliff Felidar: each opponent's greatest-power creature
+    "counters_per_other_entered_this_turn": "put_counter",  # Geralf, the Fleshwright: "for each other Zombie…"
     "exile_same_name_tokens": "exile",
     "mill_each_player_may_cast_milled": "mill",
     # Multiverse Reforged (PLAY-ALL): one-card-family aliases over the instruction their body is built on.
@@ -565,6 +568,12 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_imprinted_card": "copy_object",
     "copy_permanent": "copy_object",
     "copy_sacrificed": "copy_object",
+    "devour_token": "create",
+    "target_player_tokens_then_shrink": "create",
+    "target_player_copies_creature": "copy_object",
+    "paradigm_exile": "exile",
+    "paradigm_cast_copy": "copy_object",
+    "sacrificed_counters_damage": "deal_damage",
     "mill_recover_card_else": "mill",
     "exile_graveyard_card_then_modal": "exile",
     "graveyard_exile_modal_payoff": "create_delayed_trigger",
@@ -787,6 +796,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "sacrifice_permanents_per_counter": "sacrifice",
     "sacrifice_self": "sacrifice",
     "sacrifice_specific": "sacrifice",
+    "damage_source_pays_or_loses_life": "lose_life",  # Elesh Norn: the damaging source's controller pays {1} or loses 2
+    "add_counters_to_captured": "put_counter",  # Foe-Razer Regent: delayed counters on the captured fighter
     # Killing Wave's own per-creature "unless" iteration item — already
     # selected by the surrounding untargeted loop, no fresh target/choice.
     "sacrifice_target": "sacrifice",
@@ -1042,6 +1053,8 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
     "exile_self_and_grantor_until_attack": "Meandered Towershell's captured creature/Aura pair",
+    "exile_pool_from_created": "Bridge: an impulsive draw's exiled pool becomes the PAR-167 casting-window pool (Ignite the Future)",
+    "glimpse_arm_cleanup": "Glimpse the Impossible's RULE 603.7 next-end-step leftover cleanup",
     "exile_opponent_graveyards_copy_creature": "Espers to Magicite",
     "living_death": "Living Death's three simultaneous zone-change batches",
     "copy_exiled_creature_as_artifact": "Espers to Magicite's reflexive exile-batch copy",

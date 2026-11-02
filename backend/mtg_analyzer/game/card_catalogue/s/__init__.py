@@ -212,3 +212,5 @@ from . import secret_tunnel  # noqa: F401
 from . import shrouded_serpent  # noqa: F401
 from . import scampering_surveyor  # noqa: F401
 from . import slash_the_ranks  # noqa: F401
+from . import soulherder  # noqa: F401
+from . import synchronized_charge  # noqa: F401

@@ -2921,7 +2921,7 @@ class EndureEffect(GameEffect):
         optional: bool = False,
     ) -> None:
         super().__init__(source)
-        self.amount = amount if not isinstance(amount, int) else max(1, amount)
+        self.amount = amount if not isinstance(amount, int) else max(0, amount)
         self.previous_subject = bool(previous_subject)
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional)

@@ -1008,6 +1008,9 @@ class DamageDeathMixin:
         _from_zone = getattr(getattr(obj, "zone", None), "value", None) or (
             "battlefield" if was_on_battlefield else None
         )
+        # RULE 603.10a: retain characteristics from the battlefield visit.
+        departed_types = sorted(obj.type_words)
+        departed_controller_id = obj.controller_id
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
             # RULE 603.6a "look back in time" — fire before removal, see
@@ -1061,6 +1064,7 @@ class DamageDeathMixin:
             GameEvent(
                 EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
                 instance_id=obj.instance_id, from_zone=_from_zone, warped=warped,
+                object_types=departed_types, controller_id=departed_controller_id,
             )
         )
     def return_to_hand(self, obj: GameObject) -> None:

@@ -153,9 +153,13 @@ class TapEffect(GameEffect):
         selector_player: Optional[str] = None,
         remove_from_combat: bool = False,
         untap_if_yours: bool = False,
+        per_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "for each opponent, tap up to one target creature that player controls" (Juvenile Mist Dragon):
+        #: a `TargetSpec.per_player` round per opponent, the same requirement shape Shellshock's damage uses.
+        self.per_player = per_player
         #: "Untap the chosen permanents you control. Tap the chosen permanents you don't control." (Teferi, Who Slows
         #: the Sunset) — the plain-target branch untaps a permanent its controller is the ability's controller, taps
         #: any other.
@@ -231,7 +235,7 @@ class TapEffect(GameEffect):
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 creature_filter=creature_filter, colors=self.colors,
-                count_selector=count_selector,
+                count_selector=count_selector, per_player=per_player,
             )
             if target_kind is not None and not self._attached_mode
             and not self._trigger_subject_mode and not self._source_mode

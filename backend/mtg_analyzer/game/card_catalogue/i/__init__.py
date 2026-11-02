@@ -44,3 +44,8 @@ from . import irma_part_time_mutant  # noqa: F401
 from . import identity_thief  # noqa: F401
 from . import indoctrination_attendant  # noqa: F401
 from . import increasing_devotion  # noqa: F401
+from . import invasion_of_azgol  # noqa: F401
+from . import invasion_of_theros  # noqa: F401
+from . import ignite_the_future  # noqa: F401
+from . import improvisation_capstone  # noqa: F401
+from . import ironsoul_enforcer  # noqa: F401

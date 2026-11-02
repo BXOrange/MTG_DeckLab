@@ -93,3 +93,4 @@ from . import paladin_class  # noqa: F401
 from . import palace_jailer  # noqa: F401
 from . import phoenix_down  # noqa: F401
 from . import purgatory  # noqa: F401
+from . import peel_from_reality  # noqa: F401

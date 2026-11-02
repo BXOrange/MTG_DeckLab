@@ -139,6 +139,7 @@ class DealDamageEffect(GameEffect):
         per_player: Optional[str] = None,
         excess_to_controller: bool = False,
         unpreventable_if: Optional[dict[str, Any]] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         #: "If X is 5 or more, ... the damage can't be prevented." (Banefire, Demonfire, Urza's Rage, Lightning Surge;
@@ -345,6 +346,8 @@ class DealDamageEffect(GameEffect):
             # applies to *every* chosen target, not divided among them.
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, per_player=per_player,
+                # "deals 4 damage to each of X targets" (Meteor Blast): the announced X, read at announce time.
+                count_selector=count_selector,
                 colors=tuple(colors) if colors else None,
                 # RULE 115/601.2c power/toughness/keyword quality filter —
                 # "target creature with flying"/"…with power 4 or greater"
@@ -872,7 +875,9 @@ class DealDamageEffect(GameEffect):
             # player." (Spellshock) — the caster named by the SPELL_CAST
             # event that fired this trigger, read via the same
             # `_event_player` helper `PayCostThenEffect` uses.
-            player = _event_player(context, key="player_id")
+            # `PLAYER_ATTACKED` (Emberwilde Captain: "whenever an opponent attacks you ... deals damage to that
+            # player") names the attacker ``attacking_player_id`` instead.
+            player = _event_player(context, key="player_id") or _event_player(context, key="attacking_player_id")
             if player is not None:
                 context.deal_damage(player, amount, self.source)
             return

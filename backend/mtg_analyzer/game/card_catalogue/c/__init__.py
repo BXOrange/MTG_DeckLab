@@ -117,6 +117,7 @@ from . import currency_converter  # noqa: F401
 from . import curse_of_opulence  # noqa: F401
 from . import curse_of_the_swine  # noqa: F401
 from . import cursed_mirror  # noqa: F401
+from . import custodi_lich  # noqa: F401
 from . import cut_a_deal  # noqa: F401
 from . import cyberdrive_awakener  # noqa: F401
 from . import cyclonic_rift  # noqa: F401
@@ -148,3 +149,4 @@ from . import charitable_levy  # noqa: F401
 from . import celes_rune_knight  # noqa: F401
 from . import coin_of_fate  # noqa: F401
 from . import continue_card  # noqa: F401
+from . import custodi_lich  # noqa: F401

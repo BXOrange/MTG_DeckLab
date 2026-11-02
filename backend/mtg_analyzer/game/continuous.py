@@ -1598,6 +1598,10 @@ def count_selector(
             if own_source or wanted in {word.lower() for word in event.get("source_subtypes", [])}:
                 hit.add(event.get("target_id"))
         return len(hit & opponents)
+    if selector == "distinct_instant_sorcery_mana_values_in_graveyard":
+        from .distinct_mana_values import distinct_instant_sorcery_mana_values_in_graveyard as _distinct_mv  # Eris
+
+        return _distinct_mv(state, controller_id)
     if selector == "noncombat_damage_to_opponents_this_turn":
         # "This spell costs {X} less to cast, where X is the total amount
         # of noncombat damage dealt to your opponents this turn." (Chandra's

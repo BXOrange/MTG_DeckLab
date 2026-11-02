@@ -11,6 +11,7 @@ from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubje
 from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
 from . import singleton_batch2_registry  # noqa: F401  (registers the Batch 2 singleton effect types)
+from . import singleton_batch2_h_registry  # noqa: F401  (registers the Batch 2 worker-H singleton effect types)
 from ._runtime import install, register
 
 install(globals())
@@ -115,6 +116,7 @@ EffectRegistry.register(
         dealer_subject=p.get("dealer_subject"),
         per_player=p.get("per_player"),
         excess_to_controller=bool(p.get("excess_to_controller", False)),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -2955,6 +2957,7 @@ EffectRegistry.register(
         selector_player=p.get("selector_player"),
         remove_from_combat=bool(p.get("remove_from_combat", False)),
         untap_if_yours=bool(p.get("untap_if_yours", False)),
+        per_player=p.get("per_player"),
     ),
 )
 EffectRegistry.register(
@@ -3367,7 +3370,7 @@ EffectRegistry.register(
         player=p.get("player"),
     ),
 )
-EffectRegistry.register("manifest_dread", lambda p: ManifestDreadEffect())
+EffectRegistry.register("manifest_dread", lambda p: ManifestDreadEffect(player=p.get("player")))
 # RULE 702.110a: the exploit keyword's own ETB "you may sacrifice a creature".
 EffectRegistry.register("exploit", lambda p: ExploitEffect())
 EffectRegistry.register(

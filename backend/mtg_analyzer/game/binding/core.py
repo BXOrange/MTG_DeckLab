@@ -41,6 +41,7 @@ from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, Effec
 from ..costs import ActivationCost, parse_activation_cost
 from ..static_conditions import condition_holds
 from .entry_origin import entry_origin_predicates
+from . import count_predicates
 from ..targeting import PER_PLAYER_SCOPES
 from ..effects.core import (
     ActivatedAbility,
@@ -299,6 +300,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # `RulesEngine.gain_life` fires `LIFE_GAINED` per-player, same
     # convention as every other player-subject event above.
     "LIFE_GAINED": "player_id",
+    "BECAME_MONARCH": "player_id",  # "Whenever you become the monarch, …" (RULE 725.2, Custodi Lich)
     # "Whenever you lose life, …" (RULE 118/119, Vilis Broker of Blood-
     # shaped, MEC-43) — `RulesEngine.lose_life` fires `LIFE_LOST` per-player
     # (the single choke point for every cause of life loss, including
@@ -885,6 +887,9 @@ def _build_group_ok(
     # (after the printed em dash), so it needs its own live board check
     # rather than either existing filter above.
     want_nonbasic = bool(condition.get("nonbasic"))
+    # RULE 903.3: "whenever this creature or a commander you control attacks alone" (Ironsoul Enforcer) — the acting
+    # object is a commander, read off the live board like `nonbasic` (the attacker is still on the battlefield).
+    want_commander = bool(condition.get("commander"))
     # "Whenever a **nonland** creature/permanent you control dies, …"
     # (Beifong's Bounty Hunters) — a negated main type on the acting object.
     # Checked against the DIES event's snapshotted ``object_types`` (the
@@ -979,6 +984,7 @@ def _build_group_ok(
         stypes=subtypes,
         excl_stypes=excluded_subtypes,
         want_nontoken=nontoken,
+        want_commander=want_commander,
         want_token=want_token,
         you=wants_you,
         not_you=wants_not_you,
@@ -1107,6 +1113,11 @@ def _build_group_ok(
                 return False  # can't confirm the negation — fail closed
             lowered = {str(s).lower() for s in event_subtypes}
             if any(e in lowered for e in excl_stypes):
+                return False
+        if want_commander:
+            state = getattr(context, "state", None)
+            obj = state.find_object(event_instance) if state is not None and event_instance is not None else None
+            if obj is None or not getattr(obj, "is_commander", False):
                 return False
         if want_nonbasic:
             if event_instance is None:
@@ -2145,6 +2156,9 @@ def _trigger_condition(
             return total == n
 
         predicates.append(_nth_spell_ok)
+
+    # Geralf's "other than your first spell" / Glimmer Lens's "at least one other creature attacks" (count_predicates.py).
+    predicates.extend(count_predicates.count_trigger_predicates(trigger))
 
     # "Whenever you cast your **first noncreature spell each turn**, …" (Plan for All Outcomes) — the noncreature sibling of
     # ``is_nth_spell_cast_this_turn``, over the event-derived `GameState.noncreature_spells_cast_this_turn` tally.

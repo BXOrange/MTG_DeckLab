@@ -30,6 +30,8 @@ class EventType:
     STATE_CHECK = "STATE_CHECK"
     # RULE 731.1a: only actual day/night transitions, never the initial designation.
     DAY_NIGHT_CHANGED = "DAY_NIGHT_CHANGED"
+    # RULE 725.3: a new player receives the monarch designation.
+    BECAME_MONARCH = "BECAME_MONARCH"
     UNTAP = "UNTAP"
     #: A permanent transitions untapped → tapped (RULE 701.21b) — fired once
     #: per genuine transition (not a no-op re-tap), and *not* for a permanent
@@ -440,6 +442,9 @@ class EventType:
     #: replaceable pre-event).
     LIFE_GAIN = "LIFE_GAIN"
     LIFE_GAINED = "LIFE_GAINED"
+    #: A player becomes the monarch (RULE 725.2) — fired by `become_monarch` only when the crown changes hands;
+    #: carries ``player_id`` (the new monarch), the same per-player convention as LIFE_GAINED.
+    BECAME_MONARCH = "BECAME_MONARCH"
     LIFE_LOST = "LIFE_LOST"
     ATTACKS = "ATTACKS"
     BLOCKS = "BLOCKS"

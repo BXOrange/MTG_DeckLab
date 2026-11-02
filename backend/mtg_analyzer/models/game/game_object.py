@@ -419,6 +419,9 @@ class GameObject:
         #: cast, like `cast_via_flashback`.
         self.cast_via_escape: bool = False
         self.was_cast_from_hand: bool = False
+        #: RULE 601.2a: "if this spell was cast from a graveyard" (Increasing Devotion) — stamped with the
+        #: same origin read as `was_cast_from_hand`, reassigned every cast.
+        self.was_cast_from_graveyard: bool = False
         #: RULE 702.74a (MEC-42): whether this permanent spell was cast for
         #: its Evoke cost — if so, `RulesEngine._resolve_permanent_spell`
         #: sacrifices it right after it enters the battlefield (a

@@ -88,3 +88,8 @@ from . import gideon_of_the_trials  # noqa: F401
 from . import gogo_mysterious_mime  # noqa: F401
 from . import ginger_queen_of_sweets  # noqa: F401
 from . import game_over  # noqa: F401
+from . import geralf_visionary_stitcher  # noqa: F401
+from . import gisa_the_hellraiser  # noqa: F401
+from . import geralf_the_fleshwright  # noqa: F401
+from . import glimmer_lens  # noqa: F401
+from . import glimpse_the_impossible  # noqa: F401

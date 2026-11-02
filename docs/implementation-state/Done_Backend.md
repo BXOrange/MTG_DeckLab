@@ -3806,11 +3806,10 @@ of their reminder text or catalogue entry.
 
 - **Files:** `game/variants.py`
 
-### Dungeon room bindings, all 30 rooms (PAR-13 and authored room)
+### Dungeon room bindings, 29/30 rooms (PAR-13)
 
 - **What:** The RULE 309 dungeon engine and room graphs were already complete; a room with no matching effect handler simply fails closed rather than breaking the graph.
 - **Files:** `game/dungeons.py`, `parser/oracle/catalogue/handlers.py`
-- **Authored final room:** Throne of the Dead Three reveals the top ten cards, requires a creature pick when available, puts it onto the battlefield with three +1/+1 counters and hexproof until its controller’s next turn, then shuffles. The existing `inspect_top_choose` path now carries public reveal and pre-ETB entry instructions through forced picks and serializable choices. Targeted dungeon tests exercise the real venture/room-trigger path, including no creature and a short library.
 
 ### Legendary named token creation (PAR-13)
 

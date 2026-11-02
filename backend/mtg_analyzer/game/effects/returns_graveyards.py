@@ -1452,7 +1452,9 @@ class RevealUntilMatchingEffect(GameEffect):
         revealers = [player]
         if self.scope == "each_opponent":
             revealers = [p for p in context.state.players if p.id != player.id and not p.has_lost]
-        count = self.count if isinstance(self.count, int) else 0
+        # An `effect_amounts` operand ({"kind": "sacrificed_this_way"} -- Empty the Laboratory) is measured now (RULE 608.2h).
+        count = self._measured(self.count, context, targets)
+        count = count if isinstance(count, int) else 0
         for revealer in revealers:
             hits = context.engine.reveal_until_matching(
                 revealer, self.criteria, count=count,

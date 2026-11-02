@@ -717,6 +717,10 @@ class CombatMixin:
             player.mana_pool.pay(tax_cost)
 
 
+        # RULE 508.1: all attackers are declared at once, so every one is "attacking" before any ATTACKS event fires;
+        # an "at least one other creature attacks" intervening-if (Glimmer Lens) must see the whole declaration.
+        for obj, _defender, _exert in resolved:
+            obj.attacking = True
         for obj, defender, exert in resolved:
             # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
             if not combat.has_vigilance(obj):

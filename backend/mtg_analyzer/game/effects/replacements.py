@@ -1153,14 +1153,16 @@ def _additional_creature_tokens_replacement(params: dict[str, Any]) -> Replaceme
     #: **1/1** Thopter … are created instead." (Stridehangar Automaton): only artifact-token creations match, and
     #: the extra token is one per creation (``fixed_amount``) rather than one per token created.
     only_artifact = bool(params.get("only_artifact", False))
+    only_creature = bool(params.get("only_creature", False))
     fixed_amount = params.get("fixed_amount")
-    definition = {k: v for k, v in params.items() if k not in ("only_artifact", "fixed_amount")}
+    definition = {k: v for k, v in params.items() if k not in ("only_artifact", "only_creature", "fixed_amount")}
 
     def applies(event, context):
         return (effect.source is not None
                 and event.get("controller_id") == effect.source.controller_id
                 and event.get("amount", 0) > 0
-                and (not only_artifact or bool(event.get("is_artifact"))))
+                and (not only_artifact or bool(event.get("is_artifact")))
+                and (not only_creature or bool(event.get("is_creature"))))
 
     def replace(event, context):
         batches = list(event.get("additional_tokens", []))

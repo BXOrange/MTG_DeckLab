@@ -3291,11 +3291,18 @@ class ManifestDreadEffect(GameEffect):
     manifesting — and which is worth *binning*, for a graveyard deck — is
     the whole decision the mechanic exists for."""
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, player: Optional[str] = None) -> None:
         super().__init__(source)
+        #: ``"previous_target_controller"``: "counter target spell. **Its controller** manifests dread" (Fear of
+        #: Impostors) -- the same referent `ManifestEffect.player` reads.
+        self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
+        if self.player == "previous_target_controller" and context.previous_targets:
+            controller_id = getattr(context.previous_targets[0], "controller_id", None)
+            if controller_id is not None:
+                player = context.state.player_by_id(controller_id)
         if player is not None:
             # "…manifest dread, then attach ~ to that creature": a library of one card manifests at once.
             context.created_objects.extend(context._request_manifest_dread(player))

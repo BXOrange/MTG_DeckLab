@@ -319,4 +319,6 @@ class TestBacklogSizes:
         # discard/draw/damage batch (`snort`) are examined one-card specials: 63 -> 65.
         # PAR-152: Meandered Towershell captures a creature/Aura exile pair and
         # returns the Aura attached to that exact creature in a later combat: 65 -> 66.
-        assert n <= 66, f"one-card specials grew to {n}"
+        # Singleton batch 2 (worker i): Ignite the Future's pool bridge (`exile_pool_from_created`) and Glimpse the
+        # Impossible's next-end-step leftover cleanup (`glimpse_arm_cleanup`) are examined one-card specials.
+        assert n <= 67, f"one-card specials grew to {n}"

@@ -12,7 +12,7 @@ def test_registered_and_fresh_each_call():
     first, second = specs_for(obj.card), specs_for(obj.card)
     assert first and first is not second and first[0] is not second[0]
     # Prefix compare: the engine auto-adds keyword abilities (Equip, Forecast, ...) after the hand-written ones.
-    assert [s.ability_kind for s in first][:1] == ['triggered']
+    assert [s.ability_kind for s in first] == ['triggered', 'activated']
 
 
 def test_binds_onto_the_object():

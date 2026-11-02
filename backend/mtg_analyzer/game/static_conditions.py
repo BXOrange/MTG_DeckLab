@@ -474,6 +474,7 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         # an unrelated counter-amount gate; this is its first boolean-
         # condition route.
         "was_cast_from_hand",
+        "was_cast_from_graveyard",  # RULE 601.2a — "if this spell was cast from a graveyard" (Ignite the Future)
         "tribute_paid",  # RULE 702.104b — "if tribute wasn't paid"
     }
 )

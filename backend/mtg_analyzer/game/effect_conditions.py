@@ -279,7 +279,8 @@ def subject_of(
     if of == "event_player":
         # The player the firing event itself names (whoever cast the spell / drew the card).
         event = getattr(context, "trigger_event", None) or {}
-        return _player_by_id(context, event.get("player_id"))
+        # `PLAYER_ATTACKED` names the attacker as ``attacking_player_id`` (RULE 508.1: "whenever an opponent attacks you").
+        return _player_by_id(context, event.get("player_id") or event.get("attacking_player_id"))
     if of == "previous_subject":
         # `previous_target`, but whatever the earlier clause targeted *as it was* — a spell on
         # the stack included (RULE 608.2h last-known information: "that spell's mana value").
@@ -837,6 +838,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "source_was_cast": _flag("was_cast"),
     "tribute_paid": _flag("tribute_paid"),  # RULE 702.104b (PAR-190)
     "source_was_cast_from_hand": _flag("was_cast_from_hand"),  # RULE 601.2/400.1 (PAR-120)
+    "source_was_cast_from_graveyard": _flag("was_cast_from_graveyard"),  # RULE 601.2a (Increasing Devotion)
     "source_was_foretold": _flag("foretold"),
     "cast_via_escape": _flag("cast_via_escape"),
     "cast_outside_sorcery_speed": _flag("cast_outside_sorcery_speed"),

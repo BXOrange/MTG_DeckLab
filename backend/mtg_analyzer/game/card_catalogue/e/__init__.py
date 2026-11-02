@@ -3,8 +3,10 @@ from . import earth_s_mightiest_heroes  # noqa: F401
 from . import earthcraft  # noqa: F401
 from . import earthshape  # noqa: F401
 from . import eccentric_pestfinder  # noqa: F401
+from . import echocasting_symposium  # noqa: F401
 from . import echoing_assault  # noqa: F401
 from . import eclipsed_flamekin  # noqa: F401
+from . import edgar_s_awakening  # noqa: F401
 from . import eidolon_of_countless_battles  # noqa: F401
 from . import eiganjo_dynastorian  # noqa: F401
 from . import eiganjo_seat_of_the_empire  # noqa: F401
@@ -14,6 +16,7 @@ from . import eldritch_evolution  # noqa: F401
 from . import electrodominance  # noqa: F401
 from . import elementalist_s_palette  # noqa: F401
 from . import elena_turk_recruit  # noqa: F401
+from . import elenda_saint_of_dusk  # noqa: F401
 from . import elesh_norn_grand_cenobite  # noqa: F401
 from . import elesh_norn_mother_of_machines  # noqa: F401
 from . import eliminate_the_competition  # noqa: F401
@@ -76,5 +79,10 @@ from . import enchanter_s_bane  # noqa: F401
 from . import eldrazi_confluence  # noqa: F401
 from . import edgar_master_machinist  # noqa: F401
 from . import espers_to_magicite  # noqa: F401
-from . import elenda_saint_of_dusk  # noqa: F401
 from . import essence_pulse  # noqa: F401
+from . import elesh_norn_the_argent_etchings  # noqa: F401
+from . import emberwilde_captain  # noqa: F401
+from . import emeria_s_call_emeria_shattered_skyclave  # noqa: F401
+from . import empty_the_laboratory  # noqa: F401
+from . import eris_roar_of_the_storm  # noqa: F401
+from . import ezuri_claw_of_progress  # noqa: F401

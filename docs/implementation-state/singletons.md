@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after validated implementations on 2026-11-02: 145 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after validated implementations on 2026-11-02: 107 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -48,51 +48,18 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Custodi Lich | `whenever you become the monarch, target player sacrifices a creature of their choice.` |  |
-| Daretti, Rocketeer Engineer | `whenever <name> enters or attacks, choose target artifact card in your graveyard. you may sacrifice an artifact. if you do, return the chosen card to the battlefield.` |  |
-| Dark Salvation | `target player creates x <n>/<n> black zombie creature tokens, then up to <n> target creature gets -<n>/-<n> until end of turn for each zombie that player controls.` |  |
-| Don & Leo, Problem Solvers | `at the beginning of your end step, exile up to <n> target artifact you control and up to <n> target creature you control. then return them to the battlefield under their owners' control.` |  |
-| Dragon Broodmother | `at the beginning of each upkeep, create a <n>/<n> red and green dragon creature token with flying and devour <n>.` |  |
-| Dragonspark Reactor | `<cost>, sacrifice <name>: it deals damage equal to the number of charge counters on it to target player and that much damage to up to <n> target creature.` |  |
 | Dusk Mangler | Compound gap — `as an additional cost to cast this spell, sacrifice a creature, discard a card, or pay <n> life.`; `when <name> enters, each opponent sacrifices a creature of their choice, discards a card, and loses <n> life.` |  |
-| Echocasting Symposium | `target player creates a token that's a copy of target creature you control.` |  |
-| Edgar's Awakening | `when you discard this card, you may pay <cost>. when you do, return target creature card from your graveyard to your hand.` |  |
-| Elesh Norn // The Argent Etchings | `whenever a source an opponent controls deals damage to you or a permanent you control, that source's controller loses <n> life unless they pay <cost>.` |  |
-| Emberwilde Captain | `whenever an opponent attacks you while you're the monarch, <name> deals damage to that player equal to the number of cards in their hand.` |  |
-| Emeria's Call // Emeria, Shattered Skyclave | `create <n> <n>/<n> white angel warrior creature tokens with flying. non-angel creatures you control gain indestructible until your next turn.` |  |
-| Empty the Laboratory | `sacrifice x zombies, then reveal cards from the top of your library until you reveal a number of zombie creature cards equal to the number of zombies sacrificed this way. put those cards onto the battlefield and the rest on the bottom of your library in a random order.` |  |
-| Eris, Roar of the Storm | `this spell costs <cost> less to cast for each different mana value among instant and sorcery cards in your graveyard.` |  |
-| Ezuri, Claw of Progress | Compound gap — `at the beginning of combat on your turn, put x +<n>/+<n> counters on another target creature you control, where x is the number of experience counters you have.`; `whenever a creature you control with power <n> or less enters, you get an experience counter.` |  |
-| Fear of Impostors | `when <name> enters, counter target spell. its controller manifests dread.` |  |
-| Foe-Razer Regent | `whenever a creature you control fights, put <n> +<n>/+<n> counters on it at the beginning of the next end step.` |  |
-| Geralf, Visionary Stitcher | `<cost>, <cost>, sacrifice another nontoken creature: create an x/x blue zombie creature token, where x is the sacrificed creature's toughness.` |  |
-| Geralf, the Fleshwright | Compound gap — `whenever a zombie you control enters, put a +<n>/+<n> counter on it for each other zombie that entered the battlefield under your control this turn.`; `whenever you cast a spell during your turn other than your first spell that turn, create a <n>/<n> blue and black zombie rogue creature token.` |  |
-| Gisa, the Hellraiser | Compound gap — `skeletons and zombies you control get +<n>/+<n> and have menace.`; `whenever you commit a crime, create <n> tapped <n>/<n> blue and black zombie rogue creature tokens. this ability triggers only once each turn.` |  |
-| Glimmer Lens | `whenever equipped creature and at least <n> other creature attack, draw a card.` |  |
-| Glimpse the Impossible | `exile the top <n> cards of your library. you may play those cards this turn. at the beginning of the next end step, if any of those cards remain exiled, put them into your graveyard, then create a <n>/<n> colorless eldrazi spawn creature token for each card put into your graveyard this way. those tokens have <name>` |  |
-| Hagra Mauling // Hagra Broodpit | `this spell costs <cost> less to cast if an opponent controls no basic lands.` |  |
 | Havengul Lich | `<cost>: you may cast target creature card in a graveyard this turn. when you cast it this turn, <name> gains all activated abilities of that card until end of turn.` |  |
-| Highcliff Felidar | `when <name> enters, for each opponent, choose a creature with the greatest power among creatures that player controls. destroy those creatures.` |  |
 | Highway Robbery | `you may discard a card or sacrifice a land. if you do, draw <n> cards.` |  |
-| Ignite the Future | `exile the top <n> cards of your library. until the end of your next turn, you may play those cards. if this spell was cast from a graveyard, you may play cards this way without paying their mana costs.` |  |
-| Improvisation Capstone | `exile cards from the top of your library until you exile cards with total mana value <n> or greater. you may cast any number of spells from among them without paying their mana costs.` |  |
-| Ironsoul Enforcer | `whenever <name> or a commander you control attacks alone, return target artifact card from your graveyard to the battlefield.` |  |
 | Jinnie Fay, Jetmir's Second | `if you would create <n> or more tokens, you may instead create that many <n>/<n> green cat creature tokens with haste or that many <n>/<n> green dog creature tokens with vigilance.` |  |
-| Juvenile Mist Dragon | `when <name> enters, for each opponent, tap up to <n> target creature that player controls. each of those creatures doesn't untap during its controller's next untap step.` |  |
 | Kitesail Larcenist | `when <name> enters, for each player, choose up to <n> other target artifact or creature that player controls. for as long as <name> remains on the battlefield, the chosen permanents become treasure artifacts with <name> and lose all other abilities.` |  |
 | Mana Sculpt | `counter target spell. if you control a wizard, add an amount of <cost> equal to the amount of mana spent to cast that spell at the beginning of your next main phase.` |  |
-| Meteor Blast | `<name> deals <n> damage to each of x targets.` |  |
 | Moonveil Regent | Compound gap — `when <name> dies, it deals x damage to any target, where x is the number of colors among permanents you control.`; `whenever you cast a spell, you may discard your hand. if you do, draw a card for each of that spell's colors.` |  |
-| Moria Scavenger | `<cost>, discard a card: draw a card. if the discarded card was a creature card, amass orcs <n>.` |  |
-| Nahiri's Resolve | `at the beginning of your end step, exile any number of nontoken artifacts and/or creatures you control. return those cards to the battlefield under their owner's control at the beginning of your next upkeep.` |  |
 | Old Rutstein | `when <name> enters and at the beginning of your upkeep, mill a card. if a land card is milled this way, create a treasure token. if a creature card is milled this way, create a <n>/<n> green insect creature token. if a noncreature, nonland card is milled this way, create a blood token.` |  |
 | Osgir, the Reconstructor | `<cost>, <cost>, exile an artifact card with mana value x from your graveyard: create <n> tokens that are copies of the exiled card. activate only as a sorcery.` |  |
 | Party Thrasher | `noncreature spells you cast from exile have convoke.` |  |
-| Peel from Reality | `return target creature you control and target creature you don't control to their owners' hands.` |  |
 | Prosper, Tome-Bound | Compound gap — `mystic arcanum — at the beginning of your end step, exile the top card of your library. until the end of your next turn, you may play that card.`; `pact boon — whenever you play a card from exile, create a treasure token.` |  |
-| Queen Allenal of Ruadach | `if <n> or more creature tokens would be created under your control, those tokens plus a <n>/<n> white soldier creature token are created instead.` |  |
 | Ravenous Gigantotherium | `when <name> enters, it deals x damage divided as you choose among up to x target creatures, where x is its power. each of those creatures deals damage equal to its power to <name>.` |  |
-| Reconstruct History | `return up to <n> target artifact card, up to <n> target enchantment card, up to <n> target instant card, up to <n> target sorcery card, and up to <n> target planeswalker card from your graveyard to your hand.` |  |
 | Rise of the Witch-king | `each player sacrifices a creature of their choice. if you sacrificed a creature this way, you may return another permanent card from your graveyard to the battlefield.` |  |
 | Sarevok's Tome | `<cost>, <cost>: exile cards from the top of your library until you exile a nonland card. you may cast that card without paying its mana cost. activate only if you've completed a dungeon.` |  |
 | Scavenged Brawler | `<cost>, exile this card from your graveyard: choose target creature. put <n> +<n>/+<n> counters, a flying counter, a vigilance counter, a trample counter, and a lifelink counter on that creature. activate only as a sorcery.` |  |
@@ -104,10 +71,8 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Slimefoot and Squee | `<cost>, sacrifice a saproling: return this card and up to <n> other target creature card from your graveyard to the battlefield. activate only as a sorcery.` |  |
 | Smoldering Egg // Ashmouth Dragon | `whenever you cast an instant or sorcery spell, put a number of ember counters on <name> equal to the amount of mana spent to cast that spell. then if <name> has <n> or more ember counters on it, remove them and transform <name>.` |  |
 | Smuggler's Surprise | Compound gap — `+ <cost> — creatures you control with power <n> or greater gain hexproof and indestructible until end of turn.`; `+ <cost> — mill <n> cards. you may put up to <n> creature and/or land cards from among the milled cards into your hand.`; `+ <cost> — you may put up to <n> creature cards from your hand onto the battlefield.` |  |
-| Soulherder | `whenever a creature is exiled from the battlefield, put a +<n>/+<n> counter on <name>.` |  |
 | Spear of Heliod | `<cost>, <cost>: destroy target creature that dealt damage to you this turn.` |  |
 | Spinerock Tyrant | `whenever you cast an instant or sorcery spell with a single target, you may copy it. if you do, those spells gain wither. you may choose new targets for the copy.` |  |
-| Synchronized Charge | `distribute <n> +<n>/+<n> counters among <n> or <n> target creatures you control. creatures you control with counters on them gain vigilance and trample until end of turn.` |  |
 | The Eternal Wanderer | Compound gap — `+<n>: exile up to <n> target artifact or creature. return that card to the battlefield under its owner's control at the beginning of that player's next end step.`; `no more than <n> creature can attack <name> each combat.`; `−<n>: for each player, choose a creature that player controls. each player sacrifices all creatures they control not chosen this way.` |  |
 | The Raven Man | `at the beginning of each end step, if a player discarded a card this turn, create a <n>/<n> black bird creature token with flying and <name>` |  |
 | Thousand Moons Smithy // Barracks of the Thousand | `at the beginning of your first main phase, you may tap <n> untapped artifacts and/or creatures you control. if you do, transform <name>.` |  |
@@ -119,7 +84,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Ugin, the Spirit Dragon | Compound gap — `−<n>: you gain <n> life, draw <n> cards, then put up to <n> permanent cards from your hand onto the battlefield.`; `−x: exile each permanent with mana value x or less that's <n> or more colors.` |  |
 | Unexplained Absence | `for each player, exile up to <n> target nonland permanent that player controls. for each permanent exiled this way, its controller cloaks the top card of their library.` |  |
 | Virtue of Strength // Garenbrig Growth | `if you tap a basic land for mana, it produces <n> times as much of that mana instead.` |  |
-| Warden of the Grove | `whenever another nontoken creature you control enters, it endures x, where x is the number of counters on <name>.` |  |
 | White Plume Adventurer | `at the beginning of each opponent's upkeep, untap a creature you control. if you've completed a dungeon, untap all creatures you control instead.` |  |
 | Wildfire Devils | `when <name> enters and at the beginning of your upkeep, choose a player at random. that player exiles an instant or sorcery card from their graveyard. copy that card. you may cast the copy without paying its mana cost.` |  |
 | Windswift Slice | `target creature you control deals damage equal to its power to target creature you don't control. create a number of <n>/<n> green elf warrior creature tokens equal to the amount of excess damage dealt this way.` |  |
@@ -244,7 +208,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Akki Lavarunner // Tok-Tok, Volcano Born | `if a red source would deal damage to a player, it deals that much damage plus 1 to that player instead.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Budoka Gardener // Dokai, Weaver of Life | `{4}{g}{g}, {t}: create an x/x green elemental creature token, where x is the number of lands you control.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Curse of the Fire Penguin // Curse of the Fire Penguin Creature | `~ consumes and confuses enchanted creature.`; `when ~ dies, return curse of the fire penguin to the battlefield.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Erayo, Soratami Ascendant // Erayo's Essence | `whenever the fourth spell of a turn is cast, flip ~.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Homura, Human Ascendant // Homura's Essence | `when ~ dies, return it to the battlefield flipped.`; `creatures you control get +2/+2 and have flying and "{r}: ~ gets +1/+0 until end of turn."` | Current unclaimed clauses; singleton/cluster check pending. |
@@ -260,13 +223,11 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | --- | --- | --- |
 | Invasion of Alara // Awaken the Maelstrom | `when ~ enters, exile cards from the top of your library until you exile 2 nonland cards with mana value 4 or less. you may cast 1 of those 2 cards without paying its mana cost. put 1 of them into your hand. then put the other cards exiled this way on the bottom of your library in a random order.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Arcavios // Invocation of the Founders | `when ~ enters, search your library, graveyard, and/or outside the game for an instant or sorcery card you own, reveal it, and put it into your hand. if you search your library this way, shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Invasion of Azgol // Ashen Reaper | `when ~ enters, target player sacrifices a creature or planeswalker of their choice and loses 1 life.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Gobakhan // Lightshield Array | `when ~ enters, look at target opponent's hand. you may exile a nonland card from it. for as long as that card remains exiled, its owner may play it. a spell cast this way costs {2} more to cast.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Lorwyn // Winnowing Forces | `when ~ enters, destroy target non-elf creature an opponent controls with power x or less, where x is the number of lands you control.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Pyrulea // Gargantuan Slabhorn | `when ~ enters, scry 3, then reveal the top card of your library. if it's a land or double-faced card, draw a card.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Ravnica // Guildpact Paragon | `when ~ enters, exile target nonland permanent an opponent controls that isn't exactly 2 colors.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Tarkir // Defiant Thundermaw | `when ~ enters, reveal any number of dragon cards from your hand. when you do, ~ deals x plus 2 damage to any other target, where x is the number of cards revealed this way.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Invasion of Theros // Ephara, Ever-Sheltering | `when ~ enters, search your library for an aura, god, or demigod card, reveal it, put it into your hand, then shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Tolvada // The Broken Sky | `when ~ enters, return target nonbattle permanent card from your graveyard to the battlefield.` | Current unclaimed clauses; singleton/cluster check pending. |
 | The Battle of Dragon Brothers // Fate Reforged | `when ~ enters, choose bolas or ugin.`; `• bolas — destroy all creatures.`; `• ugin — manifest the top 3 cards of your library.` | Current unclaimed clauses; singleton/cluster check pending. |
 
