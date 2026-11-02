@@ -40,6 +40,7 @@ from . import bloodghast  # noqa: F401
 from . import bloodroot_apothecary  # noqa: F401
 from . import blossoming_bogbeast  # noqa: F401
 from . import blowfly_infestation  # noqa: F401
+from . import blufferfish  # noqa: F401
 from . import bone_devourer  # noqa: F401
 from . import bone_mask  # noqa: F401
 from . import bone_shaman  # noqa: F401

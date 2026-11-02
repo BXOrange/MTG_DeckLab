@@ -1043,7 +1043,7 @@ class GameSession:
                 # priority, must not be able to answer it by posting the choice themselves.
                 if (state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS
                         or state.pending_choice.get("kind") in {"physical_property_measurement", "physical_environment_measurement",
-                                                                     "physical_card_story", "landfill_land_type", "landfill_covered_report"}) and actor.id != decider:
+                                                                     "physical_card_story", "landfill_land_type", "landfill_covered_report", "ask_player"}) and actor.id != decider:
                     raise GameActionError(f"{actor.name} is not the player making this choice")
                 if decider != pc_owner and actor.id != decider:
                     raise ValueError(

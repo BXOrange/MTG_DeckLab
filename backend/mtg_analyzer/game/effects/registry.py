@@ -619,6 +619,11 @@ EffectRegistry.register(
     lambda p: PreventCombatDamageToAndByEffect(),
 )
 EffectRegistry.register(
+    # Sewers of Estark -- "prevent all combat damage that would be dealt this combat by it and each creature it's blocking".
+    "prevent_combat_damage_by_blocker_and_blocked",
+    lambda p: PreventCombatDamageByBlockerAndBlockedEffect(),
+)
+EffectRegistry.register(
     "prevent_all_combat_damage",
     # RULE 615's unscoped Fog-shaped shield — distinct from
     # "prevent_damage_shield" above, which always shields one recipient.
@@ -2622,6 +2627,7 @@ EffectRegistry.register(
         count_amount=p.get("count_amount"),
         target_kind=p.get("target_kind"),
         saddlers_only=bool(p.get("saddlers_only", False)),
+        reference=p.get("reference"),
     ),
 )
 EffectRegistry.register(
@@ -5892,6 +5898,10 @@ for _kind, _factory in _FLICKER_ATTACHMENT_FACTORIES.items():
 
 from .physical_flicker import EFFECT_FACTORIES as _PHYSICAL_FLICKER_FACTORIES
 for _kind, _factory in _PHYSICAL_FLICKER_FACTORIES.items():
+    EffectRegistry.register(_kind, _factory)
+
+from .guessing import EFFECT_FACTORIES as _GUESSING_FACTORIES
+for _kind, _factory in _GUESSING_FACTORIES.items():
     EffectRegistry.register(_kind, _factory)
 
 # RULE 612.8 / 613.1c: a name change is a reversible layer-3 text effect.

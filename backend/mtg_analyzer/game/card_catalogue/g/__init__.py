@@ -48,6 +48,7 @@ from . import goddric_cloaked_reveler  # noqa: F401
 from . import gogo_master_of_mimicry  # noqa: F401
 from . import goldspan_dragon  # noqa: F401
 from . import gollum_obsessed_stalker  # noqa: F401
+from . import gollum_scheming_guide  # noqa: F401
 from . import goreclaw_terror_of_qal_sisma  # noqa: F401
 from . import gorma_the_gullet  # noqa: F401
 from . import graaz_unstoppable_juggernaut  # noqa: F401

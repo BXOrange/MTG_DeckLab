@@ -362,6 +362,10 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     # PAR-203: "choose a creature type / color / card name" mid-resolution (RULE 608.2d) stamps the answer on the source
     # and suspends only through the ordinary `seq` body that follows it (no answer protocol of its own to count).
     "choose_for_source": "choose",
+    # RULE 608.2d: ask one player a closed question mid-resolution and keep the answer for a later `if_else`
+    # (Blufferfish / Gollum, Scheming Guide's guessing games); the note is a `choose` the source remembers.
+    "ask_player": "choose",
+    "reveal_hand": "reveal",  # RULE 701.20: a whole hand becomes public (Smart Ass)
     "exile_named_from_zones": "search",
     "same_name_search": "search",  # a reference operand over the existing search continuation
 
@@ -700,6 +704,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # Fog effect — "prevent all combat damage this effect's source would deal".
     "prevent_combat_damage_dealt": "prevent_damage",
     "prevent_combat_damage_to_and_by": "prevent_damage",
+    "prevent_combat_damage_by_blocker_and_blocked": "prevent_damage",  # Sewers of Estark
     "prevent_attacking_player_this_turn": "create_continuous_effect",
     "prevent_damage_from_target": "prevent_damage",
     "prevent_damage_shield": "prevent_damage",
