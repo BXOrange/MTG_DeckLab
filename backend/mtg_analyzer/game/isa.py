@@ -452,6 +452,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "redirect_damage_shield": "redirect_damage",  # PAR-216: the general one-shot redirect (RULE 616.1)
     "regenerate": "regenerate",
     "remove_counters": "remove_counter",
+    "remove_exact_counters": "remove_counter",
     "roll_die": "roll_die",
     "sacrifice": "sacrifice",
     "scry": "scry",
@@ -553,6 +554,10 @@ _ALIAS_TYPES: dict[str, str] = {
     "counter_ability": "counter",
     "copy_imprinted_card": "copy_object",
     "copy_permanent": "copy_object",
+    "copy_sacrificed": "copy_object",
+    "mill_recover_card_else": "mill",
+    "exile_graveyard_card_then_modal": "exile",
+    "graveyard_exile_modal_payoff": "create_delayed_trigger",
     "copy_spell": "copy_object",
     "demonstrate_copy": "copy_object",  # RULE 702.144a Demonstrate body
     "copy_self_spell": "copy_object",

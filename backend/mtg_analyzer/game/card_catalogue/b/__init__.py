@@ -30,8 +30,11 @@ from . import bilbo_birthday_celebrant  # noqa: F401
 from . import birgi_god_of_storytelling  # noqa: F401
 from . import birthing_pod  # noqa: F401
 from . import black_market_connections  # noqa: F401
+from . import black_sun_s_twilight  # noqa: F401
 from . import blackblade_reforged  # noqa: F401
+from . import blanchwood_prowler  # noqa: F401
 from . import blasphemous_act  # noqa: F401
+from . import blast_furnace_hellkite  # noqa: F401
 from . import blitzball_stadium  # noqa: F401
 from . import bloatfly_swarm  # noqa: F401
 from . import bloodchief_ascension  # noqa: F401

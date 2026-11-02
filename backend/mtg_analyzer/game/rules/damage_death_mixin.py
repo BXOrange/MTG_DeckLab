@@ -901,6 +901,9 @@ class DamageDeathMixin:
         source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
         source.sacrificed_cost_power = victim.power
         source.sacrificed_cost_toughness = victim.toughness
+        # RULE 707.2 / 608.2h: a copy of "the sacrificed creature" (Cleaver Skaab) takes its copiable values, which
+        # must outlive a token victim that ceases to exist (RULE 704.5d) -- keep the Card itself, not a zone lookup.
+        source.sacrificed_cost_copiable_card = getattr(victim, "_front_card", victim.card)
 
     def sacrifice(
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
