@@ -3369,7 +3369,7 @@ class DamageEqualToPowerEffect(GameEffect):
         #: to ~" (Polukranos, World Eater; PAR-128): every object the preceding clause targeted
         #: is a dealer of its own power, and the recipient is the ability's source. No target of
         #: this clause's own.
-        self.dealer_group = dealer_group if dealer_group == "previous_targets" else None
+        self.dealer_group = dealer_group if dealer_group == "previous_targets" or isinstance(dealer_group, dict) else None
         self.dealer_kind = dealer_kind
         # "… deals damage to itself equal to its power" (Wave of Reckoning /
         # Solar Blaze / Justice Strike) — the dealer *is* the recipient, so
@@ -3483,10 +3483,16 @@ class DamageEqualToPowerEffect(GameEffect):
             return
         if hasattr(recipient, "instance_id") and recipient not in context.state.permanents():
             return  # RULE 608.2b: a permanent that left the battlefield takes no damage
+        if isinstance(self.dealer_group, dict):
+            from ..continuous import group_selector_objects
+            context.recompute()
+            dealers = group_selector_objects(context.state, self.source.controller_id, self.dealer_group, src=self.source)
+        else:
+            dealers = list(context.previous_targets)
+        # RULE 120.1: measure every dealer before applying the simultaneous damage.
+        packets = [(dealer, getattr(dealer, self.characteristic, None) or 0) for dealer in dealers]
         with context.engine.damage_batch():
-            for dealer in list(context.previous_targets):
-                # Players have no power; a creature's power is read as it last existed (RULE 608.2h).
-                amount = getattr(dealer, self.characteristic, None) or 0
+            for dealer, amount in packets:
                 if hasattr(dealer, "instance_id") and amount > 0 and dealer is not recipient:
                     context.deal_damage(recipient, amount, dealer)
 

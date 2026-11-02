@@ -57,3 +57,4 @@ from . import white_sun_s_twilight  # noqa: F401
 from . import writ_of_passage  # noqa: F401
 from . import warden_of_the_grove  # noqa: F401
 from . import white_plume_adventurer  # noqa: F401
+from . import windswift_slice  # noqa: F401

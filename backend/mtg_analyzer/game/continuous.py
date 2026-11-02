@@ -7281,6 +7281,9 @@ def granted_help_pay_keyword(state: "GameState", obj: Any) -> Optional[str]:
             continue
         if getattr(ability.source, "controller_id", None) != getattr(obj, "controller_id", None):
             continue
+        included = ability.params.get("include_card_type")
+        if included and not _has_card_type(obj, str(included)):
+            continue
         excluded = ability.params.get("exclude_card_type")
         if excluded and _has_card_type(obj, str(excluded)):
             continue

@@ -215,3 +215,8 @@ from . import slash_the_ranks  # noqa: F401
 from . import soulherder  # noqa: F401
 from . import synchronized_charge  # noqa: F401
 from . import sarevok_s_tome  # noqa: F401
+from . import skyblade_s_boon  # noqa: F401
+from . import signature_slam  # noqa: F401
+from . import singularity_rupture  # noqa: F401
+from . import scavenged_brawler  # noqa: F401
+from . import slimefoot_and_squee  # noqa: F401

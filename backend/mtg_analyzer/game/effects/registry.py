@@ -1804,6 +1804,7 @@ EffectRegistry.register(
     # your hand" (RULE 701.3, Regrowth/Reanimate-shaped)
     "return_from_graveyard",
     lambda p: ReturnFromGraveyardEffect(
+        include_source=bool(p.get("include_source", False)),
         target=p.get("target"),
         target_kind=p.get("target_kind", "graveyard_creature"),
         per_player=p.get("per_player"),
@@ -3824,6 +3825,7 @@ EffectRegistry.register(
     "grant_help_pay_to_spells",
     lambda p: StaticAbility("spell_help_pay_grant", affects="self", params={
         "keyword": str(p.get("keyword", "improvise")),
+        **({"include_card_type": str(p["include_card_type"])} if p.get("include_card_type") else {}),
         **({"exclude_card_type": str(p["exclude_card_type"])} if p.get("exclude_card_type") else {}),
     }),
 )

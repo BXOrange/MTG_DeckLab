@@ -2151,14 +2151,14 @@ class CastingMixin:
             obj.spell_effects = previous
     # -- RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise (PAR-23) ----
     #
-    # Three keywords that let a spell's *generic* cost be paid with a
+    # Three keywords that let a spell's mana cost be paid with a
     # non-mana resource — a tapped creature you control (Convoke), a card
     # exiled from your graveyard (Delve), a tapped artifact you control
     # (Improvise). Modeled as a single opt-in ``help_pay`` cast flag (the
     # same "second offered action" shape `evoke` uses), not one flag each,
-    # since no cached card carries two of them. Generic-only (Convoke's RULE
-    # 702.51b "or one mana of that creature's colour" is a documented
-    # simplification), and auto-*minimal* at the real cast (tap/exile only
+    # since no cached card carries two of them. Convoke pays generic or
+    # matching colored pips; delve/improvise pay only generic. Auto-minimal
+    # at the real cast (tap/exile only
     # what the pool still can't cover) — a per-resource "which creatures"
     # picker is a future UI refinement, not a rules gap.
 
@@ -2206,6 +2206,12 @@ class CastingMixin:
         702.126) needed for ``player``'s pool to be able to pay ``cost``,
         returning the reduced cost. Called from the real cast path only —
         `can_cast`/previews use `_cast_help_capacity` for the best case."""
+        if self._help_pay_keyword(obj) == "convoke":
+            remaining, helpers = self._convoke_payment_plan(player, obj, cost)
+            for creature in helpers:
+                self.rules.set_tapped(creature, True)
+                obj.convoked_by_ids.append(creature.instance_id)
+            return remaining
         pool = iter(self._cast_help_pool(player, obj))
         while self._generic_of(cost) > 0 and not player.mana_pool.can_pay(cost):
             res = next(pool, None)
@@ -2227,7 +2233,26 @@ class CastingMixin:
         """``cost`` with its generic lowered by the *most* the available help
         resources could pay (the offer-time upper bound — `can_cast` and
         `_cast_action`'s displayed cost use this)."""
+        if self._help_pay_keyword(obj) == "convoke":
+            return self._convoke_payment_plan(player, obj, cost)[0]
         return cost.reduce_generic(min(self._generic_of(cost), len(self._cast_help_pool(player, obj))))
+
+    def _convoke_payment_plan(self, player: Player, obj: GameObject, cost: "ManaCost"):
+        from ..convoke_payment import plan_convoke
+
+        # The remaining mana uses the same permissions as ordinary casting.
+        wildcard = (self.state.mana_wildcard_permission.get(obj.instance_id)
+                    or linked_exile.mana_wildcard(self.state, player, obj)
+                    or continuous.standing_mana_wildcard(self.state, player))
+        def can_pay(remaining):
+            return player.mana_pool.can_pay(
+                remaining, life_available=player.life - getattr(obj, "_cast_pip_life_cost", 0),
+                allows_restriction=restriction_predicate_for_cast(obj, has_x=cost.has_variable),
+                wildcard=wildcard,
+                require_source_kind=getattr(obj, "mana_source_kind_restriction", None),
+                extra_life_color=continuous.life_for_mana_pip_color(self.state, player),
+            )
+        return plan_convoke(cost, self._cast_help_pool(player, obj), can_pay)
 
     def _auto_tap_for_cast_if_needed(
         self,

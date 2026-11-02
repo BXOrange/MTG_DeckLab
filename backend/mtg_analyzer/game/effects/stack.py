@@ -1241,7 +1241,10 @@ class MillEffect(GameEffect):
                     if player is None:
                         continue
                     before = len(player.graveyard)
-                    context.mill(player, self._measured(self.count, context, [player]))
+                    count = self._measured(self.count, context, [player])
+                    if self.half is not None:
+                        count = (len(player.library) + int(self.half == "up")) // 2
+                    context.mill(player, count)
                     milled.extend(player.graveyard[before:])
                     visits.extend(context.latest_milled_visits)
             context.latest_milled_visits = visits

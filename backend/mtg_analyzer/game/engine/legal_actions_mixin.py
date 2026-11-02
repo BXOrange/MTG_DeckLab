@@ -1640,6 +1640,7 @@ class LegalActionsMixin:
             for index, ability in enumerate(combined):
                 if (
                     ability.cost.discard_self or ability.cost.hand_zone or ability.cost.exile_self_from_hand
+                    or "hand" in ability.cost.activation_zones
                 ) and self.can_activate(player, source, ability):
                     actions.extend(self._activate_actions_for(player, source, index, ability))
 
@@ -1650,7 +1651,7 @@ class LegalActionsMixin:
         for source in list(player.graveyard):
             combined = source.activated_abilities + source.granted_activated_abilities
             for index, ability in enumerate(combined):
-                if ability.cost.graveyard_zone and self.can_activate(player, source, ability):
+                if (ability.cost.graveyard_zone or "graveyard" in ability.cost.activation_zones) and self.can_activate(player, source, ability):
                     actions.extend(self._activate_actions_for(player, source, index, ability))
 
         # RULE 116.2a (MEC-35, Leonin Arbiter's own "any player may pay

@@ -224,6 +224,9 @@ class ActivationCost:
     #: inference idiom (`effect_binder.bind_ability`, keyed on
     #: `PutSelfOntoBattlefieldFromHandEffect` instead).
     hand_zone: bool = False
+    #: RULE 113.6: explicit zones where the same activated ability functions.
+    #: Empty preserves the inferred hand/graveyard or default battlefield path.
+    activation_zones: tuple[str, ...] = ()
     remove_counters: Optional[tuple[str, int]] = None
     #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
     #: payer's own graveyard — "Exile four other cards from your graveyard".
@@ -894,6 +897,14 @@ def parse_activation_cost(
     # dict: parse any free text, then let explicit structured fields override.
     text = str(cost.get("text") or cost.get("cost_text") or "")
     parsed = _parse_text(text) if text else ActivationCost()
+    if "activation_zones" in cost:
+        zones = cost["activation_zones"]
+        if not isinstance(zones, (list, tuple)) or not zones or any(
+            not isinstance(zone, str) or zone not in {"battlefield", "graveyard", "hand"}
+            for zone in zones
+        ):
+            raise ValueError("Unknown activation zone")
+        parsed.activation_zones = tuple(dict.fromkeys(zones))
     if cost.get("mana"):
         parsed.mana = ManaCost.parse(str(cost["mana"]))
     if "taps_self" in cost:

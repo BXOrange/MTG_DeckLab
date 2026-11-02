@@ -688,10 +688,12 @@ class ReturnFromGraveyardEffect(GameEffect):
         distinct_mana_values: bool = False,
         per_player: Optional[str] = None,
         expected_incarnation: Optional[int] = None,
+        include_source: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.expected_incarnation = expected_incarnation
+        self.include_source = bool(include_source)
         #: Who chooses from whose graveyard, one opponent at a time in turn order (RULE 101.4):
         #: ``"controller_from_each_opponent"`` — "for each opponent, you may put up to one target creature card from
         #: that player's graveyard onto the battlefield under your control" (Sepulchral Primordial); and
@@ -1143,6 +1145,15 @@ class ReturnFromGraveyardEffect(GameEffect):
             self.destination = original
 
     def _apply_resolved(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.include_source:
+            chosen = list(targets or [])
+            expected = context.resolving_source_incarnation
+            if (self.source is not None and self.source.zone == Zone.GRAVEYARD
+                    and (expected is None or self.source.zone_incarnation == expected)):
+                chosen.append(self.source)
+            # RULE 608.2c/400.7: return this graveyard visit and the chosen card together.
+            self._return_battlefield_batch(context, list(dict.fromkeys(chosen)))
+            return
         if self.controller_target_spec is not None:
             controller = _controller_of(self.source, context)
             player_ids = {o["player_id"] for o in legal_targets(

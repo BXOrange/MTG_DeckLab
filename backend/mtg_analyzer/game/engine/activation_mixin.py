@@ -164,7 +164,18 @@ class ActivationMixin:
         # split_second_active`'s own docstring), so no exemption is needed.
         if continuous.split_second_active(self.state):
             return False
-        if ability.cost.discard_self or ability.cost.exile_self_from_hand:
+        if ability.cost.activation_zones:
+            # RULE 113.6/602.2a: a printed multi-zone permission is one ability.
+            # Battlefield control and off-battlefield ownership remain distinct.
+            zone = getattr(source.zone, "value", source.zone)
+            if zone not in ability.cost.activation_zones:
+                return False
+            if zone == "battlefield":
+                if source not in self.state.permanents() or source.controller_id != player.id:
+                    return False
+            elif source.owner_id != player.id or source not in getattr(player, zone):
+                return False
+        elif ability.cost.discard_self or ability.cost.exile_self_from_hand:
             if source not in player.hand or source.owner_id != player.id:
                 return False
         elif ability.cost.hand_zone:
