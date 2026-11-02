@@ -107,24 +107,8 @@ claimed cards.
 ## BUG — Bugs
 
 Security audit 2026-10-30 (BUG-38…45). A1/A2 reproduced against the running app via the API.
-Order: BUG-40/41/42 (one shared middleware) → BUG-43…45.
+Order: BUG-43…45.
 
-- **BUG-40 · No Origin check on WebSockets (CSWSH).** CORS does not apply to WS; any website
-  the user opens can open `ws://localhost:8000/ws/lobby` and join the lobby as a new player
-  (or by name, see PLR-9). Tasks: check `Origin` in the handshake against `_LOCAL_DEV_ORIGIN_REGEX` plus the
-  server's own host (and the `--host` address), otherwise close 1008; test with a foreign Origin.
-- **BUG-41 · No Host-header check (DNS rebinding).** `Host: attacker.example` is accepted, so
-  a website can reach the whole API on 127.0.0.1 through rebinding (read/delete decks, LLM
-  settings, uploads, start jobs). Tasks: `TrustedHostMiddleware` in `api/app.py` with
-  `localhost`/`127.0.0.1` plus the `--host` address/LAN IP from `setup/start.py` (pass it
-  through `config`); test with a foreign Host → 400; update OPERATIONS.md.
-- **BUG-42 · CSRF through simple requests.** JSON bodies are protected (FastAPI rejects
-  `text/plain`), but without a preflight cross-origin requests get through: multipart uploads
-  (`/api/players/{name}/token-images`, `/sleeves`) and POSTs without a body
-  (`/api/cards/update` starts the Scryfall download, `/api/combos/update`, `/api/llm/test`
-  costs an LLM call, `/api/game/{id}/restart`). Tasks: middleware that rejects unsafe methods
-  with a foreign/missing `Origin` (or a required custom header that forces a preflight; send it
-  in `api.js`); shares the allowlist with BUG-40/41; tests per route class.
 - **BUG-43 · No resource limits (DoS).** `GameSessionManager` has no cap or expiry (every
   goldfish/solo/replay start stays in RAM along with its undo history); unlimited lobby
   players/tables; unlimited uploads per name (5 MB each, read completely before the size check);

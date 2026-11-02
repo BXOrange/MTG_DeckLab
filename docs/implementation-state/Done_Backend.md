@@ -64,6 +64,13 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **What:** Picked and set up FastAPI + uvicorn (`mtg_analyzer/api/app.py`) with CORS open to any localhost port for the static frontend dev server.
 - **Files:** `mtg_analyzer/api/app.py`
 
+### Request guard: Host allowlist, WebSocket Origin, CSRF (BUG-40/41/42)
+
+- **What:** One pure-ASGI `RequestGuardMiddleware` (`api/request_guard.py`, outermost, covers `http` and `websocket` scopes) vets every request against a single allowlist: `localhost`/`127.0.0.1`/`::1`, the concrete `--host` address (`setup/start.py` → `MTG_BIND_HOST` → `config.BIND_HOST`) and `MTG_ALLOWED_HOSTS`. A foreign `Host` gets 400 (DNS rebinding); under a wildcard bind (`0.0.0.0`/`::`) any IP-literal Host is also accepted, since an IP cannot be rebound. A WebSocket handshake with a foreign Origin or Host is closed with 1008 (CSWSH). An unsafe method with a foreign or `null` Origin gets 403; without Origin it is refused only when `Sec-Fetch-Site` is present and not `same-origin`/`none` (CSRF via multipart uploads and body-less POSTs such as `/api/cards/update`, `/api/llm/test`). An Origin is ours only if it is a local dev origin, equals the request's Host, or names an exact allowed host — never via the wildcard IP-literal rule, which would admit a page served from any IP.
+- **Why:** The app has no auth, so the browser's cross-origin read barrier was the only protection, and rebinding, WebSockets (no CORS) and simple requests (no preflight) all bypass it. Requests with neither Origin nor `Sec-Fetch-Site` are non-browser clients (MCP stdio client, scripts, `TestClient`) and not a CSRF vector, so they pass; a hard missing-Origin reject would break them. No custom header was added: Origin plus fetch metadata already cover browsers. Tests admit `testserver` through `MTG_ALLOWED_HOSTS` set in `backend/conftest.py`, production never sets it. Details: [OPERATIONS.md](../Reference/OPERATIONS.md).
+- **Files:** `api/request_guard.py` (new), `api/app.py`, `config.py` (`BIND_HOST`, `EXTRA_ALLOWED_HOSTS`), `setup/start.py`, `backend/conftest.py`
+- **Tests:** `tests/api/test_request_guard.py` (foreign/allowed Host incl. `[::1]`, `--host` LAN IP, wildcard bind; WS foreign Origin/Host → 1008, allowed and absent Origin connect, foreign IP Origin under wildcard bind refused, same-origin LAN allowed; multipart upload, body-less POST, JSON POST, DELETE refused with foreign Origin, `cross-site` fetch metadata or `null` Origin; non-browser and same-origin pass; GET unaffected).
+
 ### Decklist validation endpoint (POST /api/decks)
 
 - **What:** Server-side decklist parse + structural validation mirroring the frontend's own parser request/response shape, with real Commander legality (color identity, ban…

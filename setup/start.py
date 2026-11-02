@@ -199,6 +199,10 @@ def start_backend(
         # LazyCardLoader from the default cache-primary loading policy to
         # always refetching a stale cached card from Scryfall.
         env["MTG_SCRYFALL_PRIMARY"] = "1"
+    if host is not None:
+        # Host-header / Origin allowlist (api/request_guard.py): a LAN client
+        # reaching the server by this address must keep working.
+        env["MTG_BIND_HOST"] = host
     if frontend_origin is not None:
         # Tells the backend's catch-all proxy (api/frontend_proxy.py) where
         # the frontend static server actually landed, in case --port picked

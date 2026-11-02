@@ -36,10 +36,8 @@ from mtg_analyzer.api.saved_decks import router as saved_decks_router
 from mtg_analyzer.api.solo import router as solo_router
 from mtg_analyzer.api.stats import router as stats_router
 
-#: The frontend is a plain static server (setup/start.py, default port
-#: 8765, overridable via --port) with no backend origin baked in, so any
-#: local port is allowed rather than hardcoding one.
-_LOCAL_DEV_ORIGIN_REGEX = r"http://(localhost|127\.0\.0\.1):\d+"
+from mtg_analyzer.api.request_guard import LOCAL_DEV_ORIGIN_REGEX as _LOCAL_DEV_ORIGIN_REGEX
+from mtg_analyzer.api.request_guard import RequestGuardMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +128,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added after CORS so it is outermost: Host/Origin are vetted first (BUG-40/41/42).
+    app.add_middleware(RequestGuardMiddleware)
     from mtg_analyzer.api.console_status import router as console_status_router
     app.include_router(console_status_router)
     app.include_router(decks_router)

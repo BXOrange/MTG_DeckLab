@@ -16,6 +16,21 @@ or the test setup.
   and uploads and join any game. Never make it the default.
   `settings.js` `DEFAULT_SERVER_URL` is `window.location.origin` so LAN browsers
   call the same host.
+- **Request guard** (`api/request_guard.py`, one pure-ASGI middleware, one
+  allowlist; BUG-40/41/42). Host: only `localhost`/`127.0.0.1`/`::1`, the
+  `--host` address (`start.py` exports it as `MTG_BIND_HOST`, `config.BIND_HOST`)
+  and `MTG_ALLOWED_HOSTS` (tests set `testserver` in `backend/conftest.py`);
+  anything else gets 400 (DNS rebinding). With a wildcard bind (`--host 0.0.0.0`)
+  any IP-literal Host is accepted, since an IP cannot be rebound; names stay
+  restricted. WebSocket handshakes with a foreign `Origin` close with 1008
+  (CSWSH). Unsafe methods (anything but GET/HEAD/OPTIONS/TRACE) with a foreign
+  or `null` `Origin` get 403; with no `Origin`, a `Sec-Fetch-Site` other than
+  `same-origin`/`none` gets 403. Requests with neither header (MCP stdio client,
+  scripts, `TestClient`) pass: they are not a CSRF vector, and a missing-Origin
+  hard reject would break them. Allowed origins: `localhost`/`127.0.0.1` on any
+  port (the `--frontend-only` two-origin case), or an origin equal to the
+  validated Host (same origin) / an exact allowed host name (never the
+  wildcard IP-literal rule, which is Host-only).
 - Backend startup allows up to 300 seconds for the card catalogue to load on a
   cold or slow disk. After 15 seconds it reports that startup is still in
   progress; if the process exits, the launcher fails immediately with its exit

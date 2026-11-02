@@ -53,6 +53,10 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
   MTG_DYNAMIC_ANALYSIS_WORKERS — how many dynamic-analysis *jobs* run at once
   MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS — how many worker *processes* one job
     fans its independent match simulations across (0 = one per CPU core)
+  MTG_BIND_HOST — the `--host` address setup/start.py gave uvicorn (empty =
+    loopback only); admitted in the Host/Origin allowlist (api/request_guard.py)
+  MTG_ALLOWED_HOSTS — extra comma-separated Host names to accept (tests use
+    `testserver`; empty by default)
   MTG_FRONTEND_ORIGIN — internal address the backend reverse-proxies
     non-/api//ws requests to (see FRONTEND_ORIGIN below); default
     http://127.0.0.1:8765, setup/start.py's static frontend server
@@ -362,6 +366,14 @@ DYNAMIC_ANALYSIS_MATCH_WORKERS = _cfg_int(
 #: later point at a load balancer in front of several such processes —
 #: that's a config change here, not a code change.
 FRONTEND_ORIGIN = _cfg_str("MTG_FRONTEND_ORIGIN", "frontend", "origin", "http://127.0.0.1:8765")
+
+#: `--host` as passed by setup/start.py; "" means uvicorn's loopback default.
+BIND_HOST = _cfg_str("MTG_BIND_HOST", "server", "bind_host", "").strip()
+
+#: Extra Host header names accepted besides loopback and BIND_HOST.
+EXTRA_ALLOWED_HOSTS = tuple(
+    h.strip() for h in _cfg_str("MTG_ALLOWED_HOSTS", "server", "allowed_hosts", "").split(",") if h.strip()
+)
 
 # Persistent local bug reports, outside versioned documentation.
 BUG_REPORT_DIR = _cfg_path(

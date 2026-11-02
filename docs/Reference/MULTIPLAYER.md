@@ -18,7 +18,9 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
   (`apply_action(action, actor_id=...)`); `view(perspective=...)` redacts hidden
   zones server-side (RULE 400.2; `observer_view()` hides everyone's); `/ws/lobby`
   is presence and push channel and sends each participant their own view; and
-  priority is played out for real.
+  priority is played out for real. The `/ws/lobby` handshake is vetted by the
+  request guard (foreign `Origin` or `Host` closes 1008; absent `Origin` =
+  non-browser, accepted; see OPERATIONS.md).
 - External MCP-controlled bot seats use a host-issued seat token, redacted views
   and the same action/priority checks as other seats. A silent client falls back
   to Smart Bot and can reclaim the seat by reconnecting. Setup, token API and
