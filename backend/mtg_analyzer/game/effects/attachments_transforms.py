@@ -498,6 +498,7 @@ class UnblockableEffect(GameEffect):
         optional: bool = False,
         previous_subject: bool = False,
         opponents_only: bool = False,
+        shared_creature_type: bool = False,
     ) -> None:
         super().__init__(source)
         self.opponents_only = opponents_only
@@ -521,6 +522,7 @@ class UnblockableEffect(GameEffect):
                 TargetSpec(
                     kind=target_kind, creature_filter=creature_filter,
                     count=count, count_max=count_max, count_selector=count_selector, optional=optional,
+                    shared_creature_type=shared_creature_type,
                 )
                 if target_kind is not None else None
             )

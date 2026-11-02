@@ -102,3 +102,4 @@ from . import archfiend_of_despair  # noqa: F401
 from . import archon_of_cruelty  # noqa: F401
 from . import avacyn_angel_of_horror  # noqa: F401
 from . import another_round  # noqa: F401
+from . import atomic_microsizer  # noqa: F401

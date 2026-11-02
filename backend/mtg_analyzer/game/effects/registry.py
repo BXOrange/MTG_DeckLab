@@ -2976,6 +2976,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         opponents_only=bool(p.get("opponents_only", False)),
+        shared_creature_type=bool(p.get("shared_creature_type", False)),
     ),
 )
 EffectRegistry.register(
