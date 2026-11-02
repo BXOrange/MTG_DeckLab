@@ -12,6 +12,12 @@ its label, actor, step cursor, pre-action replay and diagnostic state. Reports
 outside a game have `game: null`. Files contain hidden game zones and are local
 user data; do not commit them or delete them without an explicit request.
 
+A report naming the `session_id` of a lobby table (MULTIPLAYER mode, not Solo)
+is accepted only with `player_id` plus that player's `X-Player-Secret` (BUG-39),
+and only from a seated player (not an observer); otherwise 403. Goldfish, Replay
+and Solo-vs-bots reports need no identity. `bugReport.js` sends the tab's lobby
+identity whenever it has one.
+
 Report v2 stores card descriptors once (content-keyed variants preserve tokens,
 transforms and copies) and one chronological base position plus lossless deltas
 for subsequent pre-action positions and the current position. These are storage

@@ -1,5 +1,6 @@
 import { getServerUrl } from './settings.js';
 import { t } from './i18n.js';
+import { getPlayerIdentity } from './playerIdentity.js';
 
 // Match the backend default and retained session history limit.
 const DEFAULT_ACTION_COUNT = 12;
@@ -46,9 +47,13 @@ export function initBugReport() {
     save.disabled = true;
     result.textContent = t('common.loading');
     try {
+      // BUG-45: a multiplayer table only accepts a report from a seated player.
+      const { playerId, secret } = getPlayerIdentity();
+      const headers = { 'Content-Type': 'application/json' };
+      if (secret) headers['X-Player-Secret'] = secret;
       const response = await fetch(`${getServerUrl()}/api/bug-reports`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...context, description: description.value, action_count: Number(count.value) }),
+        method: 'POST', headers,
+        body: JSON.stringify({ ...context, player_id: playerId, description: description.value, action_count: Number(count.value) }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const report = await response.json();

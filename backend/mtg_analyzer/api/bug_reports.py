@@ -5,13 +5,17 @@ import json
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from mtg_analyzer import config
-from mtg_analyzer.api.dependencies import get_game_session_manager
+from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby
+from mtg_analyzer.api.multiplayer import PLAYER_SECRET_HEADER
 from mtg_analyzer.services.bug_report_codec import encode_report
-from mtg_analyzer.services.game_session import GameSessionManager, MAX_HISTORY
+from mtg_analyzer.services.game_session import MULTIPLAYER, GameSession, GameSessionManager, MAX_HISTORY
+from mtg_analyzer.services.lobby import Lobby
 
 # Twelve moves usually cover the triggering interaction without a large report.
 DEFAULT_ACTION_COUNT = 12
@@ -24,6 +28,9 @@ router = APIRouter(prefix="/api/bug-reports", tags=["bug-reports"])
 class BugReportRequest(BaseModel):
     description: str = Field(min_length=1, max_length=MAX_DESCRIPTION_LENGTH)
     session_id: str | None = None
+    #: BUG-45: the reporter's lobby id; with the X-Player-Secret header it
+    #: proves a seat at the table when the session is a multiplayer table.
+    player_id: str | None = None
     action_count: int = Field(default=DEFAULT_ACTION_COUNT, ge=1, le=MAX_ACTION_COUNT)
     view: str = Field(default="", max_length=100)
 
@@ -48,10 +55,31 @@ def _reports_dir_full() -> bool:
     return len(sizes) >= config.BUG_REPORT_MAX_COUNT or sum(sizes) >= config.BUG_REPORT_MAX_TOTAL_BYTES
 
 
+def _require_seat_at_table(
+    session: GameSession, session_id: str, player_id: Optional[str], secret: Optional[str], lobby: Lobby
+) -> None:
+    """BUG-45: a report stores every hidden zone, so for a lobby table only
+    a seated player (proved by the lobby secret, BUG-39) may file it.
+
+    Goldfish, replay and Solo-vs-bots sessions hold no other human's hidden
+    information and stay open. Observers are refused: they never see hands.
+    A table session whose lobby game is gone cannot be verified, so it is
+    refused too. The 403 is identical for every failure.
+    """
+    if session.mode != MULTIPLAYER or session.solo:
+        return
+    game = next((g for g in lobby.games() if g.session_id == session_id), None)
+    seated = game is not None and player_id is not None and game.seat_for(player_id) is not None
+    if not (seated and lobby.authenticate(player_id, secret)):
+        raise HTTPException(403, "bug reports for a multiplayer table need a seated player's secret")
+
+
 @router.post("", status_code=201)
 def create_bug_report(
     request: BugReportRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
+    lobby: Lobby = Depends(get_lobby),
+    x_player_secret: Optional[str] = Header(default=None, alias=PLAYER_SECRET_HEADER),
 ) -> dict:
     if _reports_dir_full():
         raise HTTPException(
@@ -63,6 +91,7 @@ def create_bug_report(
             session = sessions.get(request.session_id)
         except KeyError:
             raise HTTPException(404, "Game session no longer exists") from None
+        _require_seat_at_table(session, request.session_id, request.player_id, x_player_secret, lobby)
         context = session.bug_report_context(request.action_count)
     now = datetime.now(timezone.utc)
     report_id = f"{now:%Y%m%dT%H%M%S}-{uuid4().hex}"

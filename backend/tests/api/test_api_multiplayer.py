@@ -1812,3 +1812,61 @@ def env_manager_connected(player_id):
     from mtg_analyzer.api.multiplayer_ws import manager
 
     return manager.is_connected(player_id)
+
+
+class TestBugReportTableAccess:
+    """BUG-45: a bug report stores every hidden zone, so a lobby table's
+    session only yields one to a seated player holding their lobby secret."""
+
+    @pytest.fixture
+    def report_env(self, env, tmp_path, monkeypatch):
+        from mtg_analyzer import config
+        monkeypatch.setattr(config, "BUG_REPORT_DIR", tmp_path / "reports")
+        gid, ann, bob = _seated_game(env)
+        started = env["client"].post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann}).json()
+        watcher = _connect(env["client"], "Watcher")
+        env["client"].post(f"/api/multiplayer/games/{gid}/observe", json={"playerId": watcher})
+        env["session_id"] = started["game"]["session_id"]
+        env.update(ann=ann, bob=bob, watcher=watcher, reports=tmp_path / "reports")
+        return env
+
+    def _post(self, env, player_id=None, secret=None):
+        body = {"description": "bug", "session_id": env["session_id"]}
+        if player_id:
+            body["player_id"] = player_id
+        # A plain client: the injecting one would add the secret itself.
+        headers = {"X-Player-Secret": secret} if secret else {}
+        return TestClient(app).post("/api/bug-reports", json=body, headers=headers)
+
+    def _secret(self, env, player_id):
+        return env["lobby"].find(player_id).secret
+
+    def test_no_identity_is_refused(self, report_env):
+        assert self._post(report_env).status_code == 403
+        assert not report_env["reports"].exists()
+
+    def test_wrong_secret_is_refused(self, report_env):
+        assert self._post(report_env, report_env["ann"], "wrong").status_code == 403
+
+    def test_other_players_secret_is_refused(self, report_env):
+        stolen = self._secret(report_env, report_env["bob"])
+        assert self._post(report_env, report_env["ann"], stolen).status_code == 403
+
+    def test_observer_with_valid_secret_is_refused(self, report_env):
+        watcher = report_env["watcher"]
+        assert self._post(report_env, watcher, self._secret(report_env, watcher)).status_code == 403
+
+    def test_seated_player_with_secret_is_stored(self, report_env):
+        ann = report_env["ann"]
+        response = self._post(report_env, ann, self._secret(report_env, ann))
+        assert response.status_code == 201, response.text
+        assert (report_env["reports"] / response.json()["filename"]).exists()
+
+    def test_goldfish_session_needs_no_identity(self, report_env):
+        goldfish = report_env["sessions"].create_replay  # same non-table path as replay
+        from mtg_analyzer.services.replay import blank_replay
+        session = goldfish(blank_replay(), loader=None)
+        response = TestClient(app).post(
+            "/api/bug-reports", json={"description": "bug", "session_id": session.id}
+        )
+        assert response.status_code == 201

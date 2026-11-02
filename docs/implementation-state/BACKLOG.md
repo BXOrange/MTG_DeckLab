@@ -106,13 +106,7 @@ claimed cards.
 
 ## BUG — Bugs
 
-Security audit 2026-10-30 (BUG-38…45). A1/A2 reproduced against the running app via the API.
-Order: BUG-45.
+Remaining item from the 2026-10-30 security audit:
 
-- **BUG-45 · Minor audit findings.** (a) LLM `base_url` is freely settable → blind SSRF against
-  internal hosts (`/api/llm/models`, `/test`): allow private/link-local addresses only for
-  `provider=compatible` and only after an explicit opt-in, or resolve and check the IP;
-  (b) `requirements.txt` has no pins/lockfile → pin with hashes (keep it consistent with the
-  offline wheels in `setup/wheels/`); (c) a bug report with the `session_id` of a multiplayer
-  table stores every hidden zone; acceptable locally, but only accept it (with the lobby secret) from a seat
-  of that table.
+- **BUG-45 · Pin backend dependencies with hashes.** `requirements.txt` has only `>=` bounds; add a
+  hash-pinned lock that installs on every supported platform and the offline wheelhouse (`setup/wheels/`).

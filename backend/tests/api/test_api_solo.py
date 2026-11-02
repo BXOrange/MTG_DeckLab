@@ -433,3 +433,15 @@ def test_solo_session_refused_on_every_goldfish_route_but_has_its_own_draft_and_
     other = env["sessions"].create_replay(blank_replay(2), loader=None).id
     assert client.post(f"/api/solo/{other}/ui-draft", json={"draft": None}).status_code == 404
     assert client.get(f"/api/solo/{other}/replay-export").status_code == 404
+
+
+def test_solo_session_bug_report_needs_no_lobby_identity(env, tmp_path, monkeypatch):
+    """BUG-45: only lobby tables gate bug reports; Solo has no other human."""
+    from mtg_analyzer import config
+    monkeypatch.setattr(config, "BUG_REPORT_DIR", tmp_path / "reports")
+    deck = _legal_deck(env["decks"])
+    session_id = _start(env["client"], deck.id).json()["session_id"]
+    response = env["client"].post(
+        "/api/bug-reports", json={"description": "bug", "session_id": session_id}
+    )
+    assert response.status_code == 201, response.text

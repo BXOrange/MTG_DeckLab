@@ -85,6 +85,13 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **Files:** `security_headers.py` (new), `api/app.py`, `api/player_assets.py`, `api/frontend_proxy.py`, `setup/no_cache_server.py`, `frontend/sound-lab.html`, `frontend/sound-lab.js` (new)
 - **Tests:** `tests/api/test_security_headers.py` (magic bytes per type, headers on API, guard refusal, frontend proxy and asset responses, pinned CSP, hostile Host kept out of the CSP). Playwright in proxied and `--frontend-only` mode across all tabs (Goldfisch and Solo with card images, lobby WS, Profil sleeve upload): zero CSP violations, zero console errors.
 
+### Bug reports from a multiplayer table need a seat (BUG-45c)
+
+- **What:** `POST /api/bug-reports` with the `session_id` of a lobby table (MULTIPLAYER mode, not Solo) is only stored when the body's `player_id` is seated at that table and the `X-Player-Secret` header is that player's lobby secret (`_require_seat_at_table` in `api/bug_reports.py`); every failure (no identity, wrong or foreign secret, observer, table gone) is the same 403. Goldfish, Replay and Solo reports are unchanged. `bugReport.js` sends the tab's identity from `playerIdentity.js`.
+- **Why:** A report stores every hidden zone of its session, so before this anyone who knew a table's public `session_id` could snapshot all hands and libraries into `bug-reports/`. A refused report gets no stateless fallback, so a stranger's request leaves nothing behind. The audit's LLM `base_url` SSRF item (BUG-45a) became obsolete when the LLM integration was removed (cb09a584).
+- **Files:** `api/bug_reports.py`, `frontend/src/js/bugReport.js`, [BUG_REPORTS.md](../Reference/BUG_REPORTS.md)
+- **Tests:** `tests/api/test_api_multiplayer.py::TestBugReportTableAccess` (no identity, wrong secret, foreign seat's secret, observer → 403; seated player stored; non-table session needs no identity), `tests/api/test_api_solo.py` (Solo report without identity).
+
 ### Decklist validation endpoint (POST /api/decks)
 
 - **What:** Server-side decklist parse + structural validation mirroring the frontend's own parser request/response shape, with real Commander legality (color identity, ban…
