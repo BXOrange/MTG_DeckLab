@@ -23,6 +23,11 @@ DEFAULT_PORT = 8000
 USER_DOCS_DIR = Path(__file__).resolve().parent.parent / "user-docs"
 
 
+# Same header policy as the backend (BUG-44); the module is dependency-free.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+from mtg_analyzer.security_headers import STATIC_SECURITY_HEADERS, csp_for  # noqa: E402
+
+
 class NoCacheHandler(SimpleHTTPRequestHandler):
     def log_request(self, code="-", size="-") -> None:
         # Keep the launcher console available for commands. HTTP errors
@@ -46,6 +51,11 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store")
+        for name, value in STATIC_SECURITY_HEADERS:
+            self.send_header(name, value)
+        # --frontend-only: the API lives on another loopback port, so connect-src
+        # must allow loopback http/ws. Behind the backend proxy this header is dropped.
+        self.send_header("Content-Security-Policy", csp_for(None, frontend_dev=True))
         super().end_headers()
 
 

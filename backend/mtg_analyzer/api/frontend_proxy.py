@@ -33,6 +33,10 @@ router = APIRouter(tags=["frontend-proxy"])
 #: legitimately have a Date/Server header of their own.
 _HOP_BY_HOP_HEADERS = {"connection", "content-length", "transfer-encoding", "date", "server"}
 
+#: The static server's own CSP allows loopback connects for `--frontend-only`;
+#: behind this proxy the backend's `SecurityHeadersMiddleware` sets the policy.
+_HOP_BY_HOP_HEADERS |= {"content-security-policy"}
+
 
 def _is_reserved_path(path: str) -> bool:
     return path == "api" or path.startswith("api/") or path == "ws" or path.startswith("ws/")

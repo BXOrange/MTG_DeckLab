@@ -107,13 +107,8 @@ claimed cards.
 ## BUG — Bugs
 
 Security audit 2026-10-30 (BUG-38…45). A1/A2 reproduced against the running app via the API.
-Order: BUG-44 → BUG-45.
+Order: BUG-45.
 
-- **BUG-44 · Upload and HTTP hardening.** The uploaded content type comes from the client and
-  is served back unchecked; there are no security headers at all. Tasks: check magic bytes
-  against the declared type (PNG/JPEG/WebP/GIF) in `api/player_assets.py`; middleware with
-  `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options`/`frame-ancestors`
-  and a CSP that fits the buildless frontend (check inline styles/scripts first); tests.
 - **BUG-45 · Minor audit findings.** (a) LLM `base_url` is freely settable → blind SSRF against
   internal hosts (`/api/llm/models`, `/test`): allow private/link-local addresses only for
   `provider=compatible` and only after an explicit opt-in, or resolve and check the IP;

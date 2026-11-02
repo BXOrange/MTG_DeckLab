@@ -38,6 +38,7 @@ from mtg_analyzer.api.stats import router as stats_router
 
 from mtg_analyzer.api.request_guard import LOCAL_DEV_ORIGIN_REGEX as _LOCAL_DEV_ORIGIN_REGEX
 from mtg_analyzer.api.request_guard import RequestGuardMiddleware
+from mtg_analyzer.security_headers import SecurityHeadersMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,8 @@ def create_app() -> FastAPI:
     )
     # Added after CORS so it is outermost: Host/Origin are vetted first (BUG-40/41/42).
     app.add_middleware(RequestGuardMiddleware)
+    # Outermost of all, so even the guard's own 400/403 refusals carry the headers (BUG-44).
+    app.add_middleware(SecurityHeadersMiddleware)
     from mtg_analyzer.api.console_status import router as console_status_router
     app.include_router(console_status_router)
     app.include_router(decks_router)

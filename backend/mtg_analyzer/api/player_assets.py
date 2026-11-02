@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mtg_analyzer.api.dependencies import get_player_asset_store
 from mtg_analyzer import config
+from mtg_analyzer.security_headers import ASSET_CSP
 from mtg_analyzer.services.player_assets import AssetQuotaError, PlayerAssetStore
 
 
@@ -67,6 +68,31 @@ router = APIRouter(prefix="/api/players", tags=["player-assets"], route_class=_B
 _ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 _MAX_UPLOAD_BYTES = config.PLAYER_UPLOAD_MAX_BYTES
 
+#: BUG-44: file signatures per allowed content type, so a client cannot label
+#: arbitrary bytes (HTML, SVG, script) as an image. WebP is `RIFF<size>WEBP`.
+_WEBP_RIFF, _WEBP_FORM, _WEBP_FORM_OFFSET = b"RIFF", b"WEBP", 8
+_MAGIC_PREFIXES = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+}
+
+
+def _matches_magic(content_type: str, data: bytes) -> bool:
+    if content_type == "image/webp":
+        return (data.startswith(_WEBP_RIFF)
+                and data[_WEBP_FORM_OFFSET:_WEBP_FORM_OFFSET + len(_WEBP_FORM)] == _WEBP_FORM)
+    return data.startswith(_MAGIC_PREFIXES[content_type])
+
+
+def _image_response(content_type: str, data: bytes) -> Response:
+    """Serve stored bytes inert: declared type only (nosniff comes from the
+    middleware), and a CSP that forbids loading or running anything."""
+    return Response(content=data, media_type=content_type, headers={
+        "Content-Security-Policy": ASSET_CSP,
+        "X-Content-Type-Options": "nosniff",
+    })
+
 
 async def _read_validated_image(file: UploadFile) -> tuple[str, bytes]:
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
@@ -84,7 +110,10 @@ async def _read_validated_image(file: UploadFile) -> tuple[str, bytes]:
         chunks.append(chunk)
     if not size:
         raise HTTPException(400, "Empty upload")
-    return file.content_type, b"".join(chunks)
+    data = b"".join(chunks)
+    if not _matches_magic(file.content_type, data):
+        raise HTTPException(400, f'File content is not a valid "{file.content_type}" image')
+    return file.content_type, data
 
 
 def _save_or_413(save, *args) -> None:
@@ -128,7 +157,7 @@ def get_token_image(
     if entry is None:
         raise HTTPException(404, f'No token image "{token_name}" for player "{player_name}"')
     content_type, data = entry
-    return Response(content=data, media_type=content_type)
+    return _image_response(content_type, data)
 
 
 @router.delete("/{player_name}/token-images")
@@ -174,7 +203,7 @@ def get_sleeve_image(
     if entry is None:
         raise HTTPException(404, f'No sleeve "{sleeve_id}" for player "{player_name}"')
     content_type, data = entry
-    return Response(content=data, media_type=content_type)
+    return _image_response(content_type, data)
 
 
 @router.delete("/{player_name}/sleeves/{sleeve_id}")

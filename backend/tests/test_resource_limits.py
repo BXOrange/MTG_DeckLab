@@ -176,6 +176,13 @@ def asset_client():
         store.close()
 
 
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"  # BUG-44: uploads must carry the declared type's signature
+
+
+def _png(size):
+    return PNG_MAGIC + b"x" * (size - len(PNG_MAGIC))
+
+
 def _upload(client, data, label="x"):
     return client.post(
         "/api/players/Ann/sleeves",
@@ -187,8 +194,8 @@ def _upload(client, data, label="x"):
 def test_oversized_upload_is_413(asset_client, monkeypatch):
     client, _ = asset_client
     monkeypatch.setattr(player_assets_api, "_MAX_UPLOAD_BYTES", 1024)
-    assert _upload(client, b"x" * 1024).status_code == 200
-    assert _upload(client, b"x" * 1025).status_code == 413
+    assert _upload(client, _png(1024)).status_code == 200
+    assert _upload(client, _png(1025)).status_code == 413
 
 
 def test_upload_read_aborts_without_consuming_whole_body(monkeypatch):
@@ -214,12 +221,12 @@ def test_upload_read_aborts_without_consuming_whole_body(monkeypatch):
 def test_per_name_count_quota(asset_client, monkeypatch):
     client, store = asset_client
     monkeypatch.setattr(assets_module, "PLAYER_ASSET_MAX_COUNT", 2)
-    assert _upload(client, b"a", "1").status_code == 200
-    assert _upload(client, b"b", "2").status_code == 200
-    assert _upload(client, b"c", "3").status_code == 413
+    assert _upload(client, _png(16), "1").status_code == 200
+    assert _upload(client, _png(16), "2").status_code == 200
+    assert _upload(client, _png(16), "3").status_code == 413
     # Another name is unaffected, and replacing an existing token image still works.
     other = client.post(
-        "/api/players/Bob/sleeves", data={"label": "1"}, files={"file": ("a.png", b"a", "image/png")}
+        "/api/players/Bob/sleeves", data={"label": "1"}, files={"file": ("a.png", _png(16), "image/png")}
     )
     assert other.status_code == 200
     store.save_token_image("Bob", "t", "image/png", b"1")
