@@ -59,3 +59,4 @@ from . import luxior_giada_s_gift  # noqa: F401
 from . import lae_zels_acrobatics  # noqa: F401
 from . import landfill  # noqa: F401
 from . import livio_oathsworn_sentinel  # noqa: F401
+from . import lazav_wearer_of_faces  # noqa: F401

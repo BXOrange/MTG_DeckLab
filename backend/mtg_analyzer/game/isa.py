@@ -533,6 +533,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "become_saddled": "set_status",
     "become_solved": "set_status",
     "unlock_door": "set_status",  # RULE 709.5f/709.5g — Rooms' designations (MEC-111)
+    "reveal_top_type_picks": "reveal",  # RULE 701.20 — Hurkyl: reveal N, one optional pick per card type
+    "random_room_half_token": "create",  # RULE 111.5/707.2 — Blu: token copy of a random Room's chosen half
     "remember_card_name": "set_status",
     "pump_attacker_per_other_attacker": "create_continuous_effect",
     "prevent_source_damage_until_next_turn": "create_continuous_effect",

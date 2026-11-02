@@ -84,6 +84,7 @@ from .rules.rooms_mixin import RoomsRulesMixin
 from .rules.sba_mixin import StateBasedActionsMixin
 from .rules.search_mixin import SearchMixin
 from .rules.triggers_mixin import TriggerCollectionMixin
+from .rules.type_picks_mixin import TypePicksRulesMixin
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -180,6 +181,7 @@ class RulesEngine(
     MiscSystemsMixin,
     OpponentTargetMixin,
     RoomsRulesMixin,
+    TypePicksRulesMixin,
 ):
     """Applies MTG rules to a `GameState`.
 

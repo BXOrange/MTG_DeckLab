@@ -76,3 +76,4 @@ from . import beacon_of_immortality  # noqa: F401
 from . import bilbos_gambit  # noqa: F401
 from . import banon_the_returners_leader  # noqa: F401
 from . import brainsurge  # noqa: F401
+from . import blu_mansion_prince  # noqa: F401
