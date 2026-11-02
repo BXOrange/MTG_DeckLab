@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Re-audited 2026-11-02 (PARSER_VERSION 819): 175 rows (about 206 distinct cards) remain; every card that resolves in the cache is UNMODELED, and 5 names could not be resolved (Nick Fury, Lonis, Surrak, Neheb, Undercity — Throne of the Dead Three).** This pass removed 52 rows that had become MODELED, AUTHORED or permanently unsupported, and trimmed 4 multi-card rows. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
+**Re-audited 2026-11-02 (PARSER_VERSION 819): 155 rows (about 186 distinct cards) remain; every card that resolves in the cache is UNMODELED, and 5 names could not be resolved (Nick Fury, Lonis, Surrak, Neheb, Undercity — Throne of the Dead Three).** This pass removed 52 rows that had become MODELED, AUTHORED or permanently unsupported, and trimmed 4 multi-card rows. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -44,30 +44,10 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 
 **Re-evaluated 2026-09-29 at PARSER_VERSION 501, again 2026-09-30 at PARSER_VERSION 552** (whole file, all batches): 59 newly covered rows deleted, 17 gap cells updated to the card's current unclaimed clauses, deck counts recomputed. The exact-template test (below) still finds no shared clause, but a phrase-level sweep did: **~55 rows shared an *axis* with 4–31 other uncovered cards** and were promoted out into `BACKLOG.md` (PAR-136 blink at next end step, PAR-137 impulse draw, PAR-138 "N or more counters are put on", PAR-139 batch, MEC-106 Gift, MEC-107 expend) — their cards are named in those tickets. Re-run that sweep, not only the exact-template check, at the next re-evaluation: the exact-template check cannot see a shared *phrase* under different surrounding text.
 
-### Commander Cube (103 cards)
+### Commander Cube (83 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Aerial Extortionist | Compound gap — `whenever <name> enters or deals combat damage to a player, exile up to <n> target nonland permanent. for as long as that card remains exiled, its owner may cast it.`; `whenever another player casts a spell from anywhere other than their hand, draw a card.` |  |
-| Agadeem's Awakening // Agadeem, the Undercrypt | `return from your graveyard to the battlefield any number of target creature cards that each have a different mana value x or less.` |  |
-| Archfiend of Spite | `whenever a source an opponent controls deals damage to <name>, that source's controller loses that much life unless they sacrifice that many permanents of their choice.` |  |
-| Aven Interrupter | Compound gap — `spells your opponents cast from graveyards or from exile cost <cost> more to cast.`; `when <name> enters, exile target spell. it becomes plotted.` |  |
-| Azra Oddsmaker | `at the beginning of combat on your turn, you may discard a card. if you do, choose a creature. whenever that creature deals combat damage to a player this turn, you draw <n> cards.` |  |
-| Azure Fleet Admiral | `<name> can't be blocked by creatures the monarch controls.` |  |
-| Barad-dûr | `<cost>, <cost>: amass orcs x. activate only if a creature died this turn.` |  |
-| Barrin, Tolarian Archmage | `at the beginning of your end step, if a permanent was put into your hand from the battlefield this turn, draw a card.` |  |
-| Battle for Bretagard | `iii — choose any number of artifact tokens and/or creature tokens you control with different names. for each of them, create a token that's a copy of it.` |  |
-| Benevolent Offering | Compound gap — `choose an opponent. you and that player each create <n> <n>/<n> white spirit creature tokens with flying.`; `choose an opponent. you gain <n> life for each creature you control and that player gains <n> life for each creature they control.` |  |
-| Black Sun's Twilight | `up to <n> target creature gets -x/-x until end of turn. if x is <n> or more, return a creature card with mana value x or less from your graveyard to the battlefield tapped.` |  |
-| Blanchwood Prowler | `when <name> enters, mill <n> cards. you may put a land card from among the cards milled this way into your hand. if you don't, put a +<n>/+<n> counter on <name>.` |  |
-| Blast-Furnace Hellkite | `creatures attacking your opponents have double strike.` |  |
-| Cat Collector | `whenever you gain life for the first time during each of your turns, create a <n>/<n> white cat creature token.` |  |
-| Cemetery Desecrator | Compound gap — `when <name> enters or dies, exile another card from a graveyard. when you do, choose <n> —`; `• remove x counters from target permanent, where x is the mana value of the exiled card.`; `• target creature an opponent controls gets -x/-x until end of turn, where x is the mana value of the exiled card.` |  |
-| Chainer, Nightmare Adept | Compound gap — `discard a card: you may cast a creature spell from your graveyard this turn. activate only once each turn.`; `whenever a nontoken creature you control enters, if you didn't cast it from your hand, it gains haste until your next turn.` |  |
-| Champion of Lambholt | `creatures with power less than <name>'s power can't block creatures you control.` |  |
-| Cleaver Skaab | `<cost>, <cost>, sacrifice another zombie: create <n> tokens that are copies of the sacrificed creature.` |  |
-| Cool but Rude | Compound gap — `when this class becomes level <n>, search your library for a card, put it into your hand, shuffle, then discard a card at random.`; `whenever you discard a card, this class deals <n> damage to each opponent.` |  |
-| Crown of Gondor | `when a legendary creature you control enters, if there is no monarch, you become the monarch.` |  |
 | Custodi Lich | `whenever you become the monarch, target player sacrifices a creature of their choice.` |  |
 | Daretti, Rocketeer Engineer | `whenever <name> enters or attacks, choose target artifact card in your graveyard. you may sacrifice an artifact. if you do, return the chosen card to the battlefield.` |  |
 | Dark Salvation | `target player creates x <n>/<n> black zombie creature tokens, then up to <n> target creature gets -<n>/-<n> until end of turn for each zombie that player controls.` |  |
