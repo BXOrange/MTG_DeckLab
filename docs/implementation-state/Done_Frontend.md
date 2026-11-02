@@ -431,6 +431,7 @@ repointed there.
 
 ### Modal spell mode selection (bug fix)
 
+- **BUG-49:** Dragging a modal spell now opens its existing action menu instead of announcing the first compatible mode. Both server-provided modes remain available, including modes requiring targets. `frontend/tests/test_modal_drag.py` exercises Opera Love Song's two modes through Chromium and a real session, verifying the selected targets and resolved effects.
 - **What:** Every RULE 700.2 modal spell (choose one/N/N-or-more, Entwine) silently cast only its first listed mode — the board never round-tripped `mode`/`mode_description` through button labels, submitted actions, or `findTargetableAction`'s target-path matching, so clicking any mode button produced the same cast.
 - **Files:** `gameBoardView.js`
 - **Bug fixed:** Fixed by threading `mode`/`entwine` through every cast-button variant and widening action matching to disambiguate on `mode` (compared via `JSON.stringify` since a "choose N" mode is an array). Found via a user report initially misattributed to the unrelated triggered-ability "you may" choice path before being narrowed to modal spell casting specifically.
@@ -506,6 +507,7 @@ repointed there.
 
 ### Table emotes and action announcements (VIS-4)
 
+- **BUG-51:** Optional cost outcomes now reach the shared feed through `OPTIONAL_COST_DECIDED`, including bot answers and automatic nonpayment when a player cannot pay. Entries name the payer, source and cost, with German/English translations; deferred sacrifice/discard costs announce payment only after their choice completes. Session/Bot and engine regressions cover Rhystic Study payment, decline, unaffordable payment and feed undo trimming.
 - **What:** The shared board shows a table feed below the stack/trigger feed in the left rail. Players send only preset emotes (👍, 👏, GG, 🤔, ⏳), without a free-text input or a priority requirement. Public land plays, spell casts and ability activations are announced with player names; priority passes are omitted. Observers can read the feed. New messages follow the scroll position only when the reader is already near the bottom.
 - **Files:** `gameBoardView.js`, `soloView.js`, `locales/en.js`, `locales/de.js`, `main.css`.
 - **Public reveals (VIS-17, RULE 701.20):** Feed entries carry a face snapshot

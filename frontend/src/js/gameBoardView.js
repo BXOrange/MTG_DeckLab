@@ -829,6 +829,14 @@ export function createGameBoardView(opts = {}) {
     const actions = dragActionsForInstance(dragSource.instanceId);
     if (!actions.length) return;
 
+    // RULE 700.2: a drop must not silently announce the first mode. Show
+    // all server-provided modes, including ones that need targets elsewhere.
+    if (actions.some(a => a.type === 'cast_spell' && a.mode != null)) {
+      const slot = root?.querySelector(`[data-card-menu][data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
+      slot?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      return;
+    }
+
     if (target.type === 'battlefield') {
       const action = actions.find((a) => a.type === 'play_land'
         || ((a.type === 'cast_spell' || a.type === 'activate_ability') && !a.requires_target));
@@ -958,7 +966,7 @@ export function createGameBoardView(opts = {}) {
     const messages = (view.table_messages || []).map((message) => {
       const card = message.card_name || t('bd.chat.faceDownSpell');
       const text = message.kind === 'emote' ? message.text
-        : t(`bd.chat.${message.action}`, { card }) + (message.ability_text ? ` ${message.ability_text}` : '');
+        : t(`bd.chat.${message.action}`, { card, cost: message.cost_label || '' }) + (message.ability_text ? ` ${message.ability_text}` : '');
       const reveal = message.action === 'reveal' && message.card_id
         ? `<img class="gf-chat-reveal" src="${escapeAttr(cardImageUrl(message.card_id))}" alt="${escapeAttr(card)}" data-hover-card="${escapeAttr(card)}" loading="lazy">`
         : '';

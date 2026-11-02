@@ -208,6 +208,7 @@ class PaymentChoicesMixin:
         if x_max is not None and x_cap is not None:
             x_max = min(x_max, max(x_cap, 0))  # "X is less than or equal to the amount of life you gained"
         if not self._can_pay_player_cost(player, cost, source):
+            self._announce_optional_payment(player, cost, source, False)
             saved = self.context.previous_targets
             if captured_previous is not None:
                 self.context.previous_targets = list(captured_previous)
@@ -261,6 +262,17 @@ class PaymentChoicesMixin:
             "options": [*pay_options, {"id": "decline", "label": "Nein" if not cost_label else "Nicht bezahlen"}],
         })
 
+    def _announce_optional_payment(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject], paid: bool,
+    ) -> None:
+        if not cost.is_free:
+            self.state.fire_event(GameEvent(
+                EventType.OPTIONAL_COST_DECIDED, player_id=player.id,
+                instance_id=source.instance_id if source is not None else None,
+                source_name=source.name if source is not None else None,
+                cost_label=cost.label(), paid=paid,
+            ))
+
     def _max_payable_x(
         self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None,
         x_color: Optional[str] = None,
@@ -313,11 +325,13 @@ class PaymentChoicesMixin:
             paying = answer == "pay"
         if not paying or not self._can_pay_player_cost(player, cost, pending["source"]):
             # Re-checked: the board can have changed since the offer was made.
+            self._announce_optional_payment(player, cost, pending["source"], False)
             self._apply_pay_cost_branch(
                 pending, _substitute_x_specs(pending["else_effect_specs"], None if x_max is None else 0),
             )
         else:
             self._pay_player_cost(player, cost, pending["source"])
+            pending = {**pending, "cost": cost}
             if x is not None:
                 pending = {
                     **pending,
@@ -369,6 +383,12 @@ class PaymentChoicesMixin:
 
     def _finish_paid_cost_then(self, pending: dict[str, Any]) -> None:
         """The paid half of a `pay_cost_then`: the "if you do" effects, then the reflexive trigger."""
+        # The all-decline sweep also reuses this payoff helper, without a
+        # single-player payment frame. Only that frame identifies a payer.
+        if (payer_id := pending.get("player_id")) is not None:
+            self._announce_optional_payment(
+                self.state.player_by_id(payer_id), pending["cost"], pending["source"], True,
+            )
         self._apply_pay_cost_branch(pending, pending["effect_specs"])
         self._enqueue_pay_cost_then_trigger(pending)
 

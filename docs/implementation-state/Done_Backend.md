@@ -4317,6 +4317,7 @@ undo. Skipped phases do not fire their beginning triggers.
 
 ### Gemstone Caverns / Buried Ogre pregame-setup shapes (PLR-11 follow-up)
 
+- **BUG-50:** Verified the Solo report: the Caverns holder was the starting player, so its printed condition correctly suppresses the pregame offer. Added a Solo regression for this case; existing nonstarting-player tests cover entry with a luck counter and the required hand-card exile. No rules behavior change was needed.
 - **What:** Generalized the plain Leyline permission into `PregameSetupPermission` (`destination`, `condition`, `counter_type`/`counter_count`, `cost_kind`/`cost_amount`) c…
 - **Files:** `parser/oracle/catalogue/opening_hand.py`, `services/game_session.py`, `game/rules/misc_mixin.py`
 
@@ -4438,6 +4439,7 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 
 ### Ral, Monsoon Mage: `CoinFlipEffect` (RULE 705.1) (Game Engine / Turn Loop & Actions)
 
+- **BUG-48:** Restored the catalogue entry's missing instant/sorcery {1} generic cost reduction. The shared cost primitive prices previews and actual casts, including Flashback, while preserving colored costs and leaving opponents' spells and other card types unchanged. Regression coverage: `tests/test_bug48_51_regressions.py`.
 - **What:** `CoinFlipEffect` branches into `win_effects`/`lose_effects` off `RulesEngine.coin_flip` — a reproducible RNG primitive that existed but had no consumer anywhere…
 - **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 

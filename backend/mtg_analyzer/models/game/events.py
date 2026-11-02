@@ -390,6 +390,8 @@ class EventType:
     # effect can need it after the spell has left the stack.
     SPELL_CAST = "SPELL_CAST"
     CAST_COST_PAID = "CAST_COST_PAID"
+    # Public outcome of a non-free optional payment during resolution.
+    OPTIONAL_COST_DECIDED = "OPTIONAL_COST_DECIDED"
     #: RULE 700.14 (MEC-107): a player *expended N* — paying a spell's cost took
     #: the mana they had spent on spells this turn from below N to at least N.
     #: One event per N crossed (``amount``), fired right after that spell's

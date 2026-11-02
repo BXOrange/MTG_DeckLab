@@ -61,6 +61,12 @@ class TableFeed:
         # land plays completed by a resolving choice, without announcing a
         # spell copy or a permanent merely put onto the battlefield.
         for event in events:
+            if event.type == EventType.OPTIONAL_COST_DECIDED:
+                actor = state.player_by_id(event.get("player_id"))
+                self.append(kind="action", action="pay_cost" if event.get("paid") else "decline_cost",
+                            actor_id=actor.id, author=actor.name, card_name=event.get("source_name"),
+                            cost_label=event.get("cost_label"), turn=state.turn_nr, move_index=move_index)
+                continue
             frame = ANNOUNCED_EVENTS.get(event.type)
             if frame is None:
                 continue

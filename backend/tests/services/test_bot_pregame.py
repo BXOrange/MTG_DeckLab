@@ -63,3 +63,15 @@ def test_human_pregame_choice_is_exposed_and_not_answered_by_bot():
     session.apply_action({"type": "choose", "option_id": "battlefield"}, actor_id="solo:you")
     assert any(o.name == leyline.name for o in session.engine.state.battlefield)
     assert _solo_view(session)["bot_action_pending"]
+
+
+def test_solo_starting_human_is_not_offered_gemstone_caverns():
+    # BUG-50: the report's human was the starting player; the condition
+    # printed on Caverns makes skipping this prompt mandatory.
+    from tests.services.test_game_session import gemstone_caverns_card
+    session = pregame_session("smart", human_cards=[gemstone_caverns_card()])
+    human = session.engine.state.player_by_id("solo:you")
+    assert any(o.name == "Test Gemstone Caverns" for o in human.hand)
+    choice = session.engine.state.pending_choice
+    assert choice is None or choice["player_id"] != human.id
+    assert not any(o.name == "Test Gemstone Caverns" for o in session.engine.state.battlefield)

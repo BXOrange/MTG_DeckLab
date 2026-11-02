@@ -23,6 +23,13 @@ def _ral_monsoon_mage() -> list[AbilitySpec]:
     same accepted simplification `CoinFlipEffect` itself already documents.
     """
     return [
+        # RULE 601.2f: reduce generic mana after choosing the casting cost.
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {
+                "generic": 1, "increase": False, "spell_type": ["instant", "sorcery"],
+            })],
+        ),
         AbilitySpec(
             "triggered",
             [EffectSpec("coin_flip", {

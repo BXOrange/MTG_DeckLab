@@ -309,6 +309,8 @@ export default {
   'bd.chat.play_land': "plays {card}.",
   'bd.chat.cast_spell': "casts {card}.",
   'bd.chat.activate_ability': "activates an ability of {card}.",
+  'bd.chat.pay_cost': "pays {cost} for {card}.",
+  'bd.chat.decline_cost': "does not pay {cost} for {card}.",
   'bd.chat.tap_for_mana': "activates a mana ability of {card}.",
   'bd.chat.activate_hand_mana': "activates a mana ability of {card}.",
   'bd.chat.reveal': "reveals {card}.",
