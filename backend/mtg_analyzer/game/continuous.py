@@ -4379,6 +4379,12 @@ def cost_reduction_for(
             obj is None or getattr(getattr(obj, "zone", None), "value", None) != "graveyard"
         ):
             continue
+        # "Spells your opponents cast from graveyards or from exile cost {2} more to cast." (Aven Interrupter): the card is
+        # still in its origin zone while its cost is computed (RULE 601.2f), so the zone itself is the test.
+        if ability.params.get("from_graveyard_or_exile") and (
+            obj is None or getattr(getattr(obj, "zone", None), "value", None) not in ("graveyard", "exile")
+        ):
+            continue
         if ability.params.get("not_from_hand") and obj is not None and not (
             getattr(obj, "cast_from_exile", False)
             or getattr(obj, "cast_via_flashback", False)

@@ -685,6 +685,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         else_destination: Optional[str] = None,
         pick_mode: Optional[str] = None,
         attach_to_previous: bool = False,
+        distinct_mana_values: bool = False,
         per_player: Optional[str] = None,
         expected_incarnation: Optional[int] = None,
     ) -> None:
@@ -701,6 +702,9 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: (Unfinished Business) — each returned card enters attached to the creature an earlier clause chose
         #: (`GameContext.previous_targets`); one that can't legally be attached there stays in the graveyard.
         self.attach_to_previous = bool(attach_to_previous)
+        #: "…any number of target creature cards that each have a different mana value X or less" (Agadeem's Awakening) --
+        #: the group constraint lives on `TargetSpec.distinct_mana_values` (validated with the other RULE 601.2c group limits).
+        self.distinct_mana_values = bool(distinct_mana_values)
         #: "return two creature cards **at random** from your graveyard to the battlefield" (Moldgraf Monstrosity) /
         #: "choose a card at random in your graveyard" (Deadbridge Chant) — RULE 706's untargeted random pick: this
         #: many cards (fewer if the graveyard has fewer) matching ``target_kind`` in the controller's graveyard are
@@ -842,7 +846,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number, total_power_max=total_power_max,
-                total_mana_value_max=total_mana_value_max,
+                total_mana_value_max=total_mana_value_max, distinct_mana_values=distinct_mana_values,
                 per_player=per_player,
                 subtype=subtype, max_mana_value=max_mana_value,
                 # "…creature card with mana value X…" (Isareth the Awakener, PAR-139): an exact match,

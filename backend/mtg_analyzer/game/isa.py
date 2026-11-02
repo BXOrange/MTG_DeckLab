@@ -497,6 +497,10 @@ _ALIAS_TYPES: dict[str, str] = {
     "replace_target_with_revealed": "exile",
     "reveal_opponent_library_steal": "reveal",
     "tokens_per_discarded_card_type": "create",
+    # Batch 2 hand-authored singletons: one-card families over the instruction their body is built on.
+    "damage_source_sacrifice_or_lose_life": "lose_life",
+    "exile_target_spell_and_plot": "exile",
+    "choose_distinctly_named_tokens_to_copy": "choose",
     # Counter Blitz (PLAY-ALL).
     "add_counter_matching_type": "put_counter",
     "damage_opponents_by_discarded_mana_value": "deal_damage",

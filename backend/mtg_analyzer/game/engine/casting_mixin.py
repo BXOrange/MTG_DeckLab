@@ -384,6 +384,14 @@ class CastingMixin:
         raw = (obj.parametric_keywords or {}).get("warp", {}).get("cost")
         return ManaCost.parse(raw) if raw else None
 
+    def _has_plot_permission(self, player, obj):
+        # RULE 702.170d: the owner may cast a plotted card from exile without paying its mana cost, as a sorcery,
+        # on a later turn than the one it became plotted on (and only the visit that was plotted, RULE 400.7).
+        return (obj.zone == Zone.EXILE and obj.owner_id == player.id
+                and obj.plotted_card
+                and obj.plot_exiled_incarnation == obj.zone_incarnation
+                and self.state.internal_turn.number > obj.plot_exiled_turn)
+
     def _has_warp_permission(self, player, obj):
         # RULE 702.185a/b: owner only, after this turn, same exiled object.
         return (obj.zone == Zone.EXILE and obj.owner_id == player.id
@@ -858,6 +866,7 @@ class CastingMixin:
             or temporary_graveyard_pool_grant(player, self.state, obj) is not None
             or obj in player.command
             or self._has_warp_permission(player, obj)
+            or self._has_plot_permission(player, obj)
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj.zone in (Zone.EXILE, Zone.GRAVEYARD, Zone.LIBRARY)
                 and self._has_temp_play_permission(obj, player, face=face))
@@ -1048,6 +1057,8 @@ class CastingMixin:
             or has_aluren_free_cast_flash
             or has_free_cast_timing_override
         )
+        if self._has_plot_permission(player, obj):
+            sorcery_speed = True  # RULE 702.170d: a plotted card is cast "any time you could cast a sorcery".
         if continuous.forced_sorcery_speed_only(self.state, player):
             # Teferi, Time Raveler (MEC-42): "each opponent can cast spells
             # only any time they could cast a sorcery" — overrides every
@@ -1589,6 +1600,8 @@ class CastingMixin:
             # RULE 118.9d: replace only the mana cost; additional costs
             # and taxes below still apply to a cast during resolution.
             cost = ManaCost()
+        elif self._has_plot_permission(player, obj):
+            cost = ManaCost()  # RULE 702.170d: cast without paying its mana cost (additional costs still apply).
         elif self._can_cast_foretold(player, obj):
             cost = self._foretell_cost(obj) or self.rules.mana_cost_of(card)
         elif override is not None and getattr(obj, "zone", None) == Zone.EXILE:

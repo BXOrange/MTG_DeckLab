@@ -3494,6 +3494,7 @@ class CreateTokenEffect(GameEffect):
         {
             "you", "each_player", "each_opponent", "previous_target_controller", "target",
             "trigger_subject_controller", "trigger_attacking_player", "iteration_item_controller",
+            "chosen_player",
         }
     )
 
@@ -3769,6 +3770,14 @@ class CreateTokenEffect(GameEffect):
             # attacking player the firing `PLAYER_ATTACKED` event names.
             attacker_id = (context.trigger_event or {}).get("attacking_player_id")
             creator_ids = [attacker_id] if attacker_id is not None else []
+        elif self.creators == "chosen_player":
+            # "Choose an opponent. You and **that player** each create …" (Benevolent Offering) -- the pick
+            # `_request_choose_player` stamped (RULE 608.2d: chosen on resolution, not targeted).
+            from .. import effect_conditions  # function-scoped: effects↔conditions cycle
+
+            chosen = effect_conditions.subject_of("chosen_player", context, self.source, targets)
+            pid = getattr(chosen, "id", None)
+            creator_ids = [pid] if pid is not None else []
         elif self.creators == "target":
             # "Target player creates a Treasure token." (Prismari Command) —
             # the chosen player, from this effect's own RULE 115 target.

@@ -429,6 +429,10 @@ class GameObject:
         self.warped_card: bool = False
         self.warp_exiled_incarnation: int = -1
         self.warp_exiled_turn: int = -1
+        # RULE 702.170: the plotted designation -- the exile visit and turn it happened on (Aven Interrupter).
+        self.plotted_card: bool = False
+        self.plot_exiled_incarnation: int = -1
+        self.plot_exiled_turn: int = -1
         self.cast_via_evoke: bool = False
         #: RULE 702.109c/d (PAR-26): whether this creature spell was cast
         #: for its Dash cost — if so, `RulesEngine`'s permanent-spell
@@ -1772,6 +1776,7 @@ class GameObject:
             self.cast_graveyard_exile_replacement = False
             # RULE 400.7 / 702.185b: Warp designation belongs to this exile visit.
             self.warped_card = False
+            self.plotted_card = False  # RULE 702.170: the designation belongs to this exile visit too.
             if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
                 self.cast_via_warp = False
             # RULE 400.7c: a granted spell ability follows it onto the battlefield,

@@ -11,9 +11,11 @@ from . import ad_nauseam  # noqa: F401
 from . import adaptive_training_post  # noqa: F401
 from . import adeline_resplendent_cathar  # noqa: F401
 from . import advanced_reconstruction  # noqa: F401
+from . import aerial_extortionist  # noqa: F401
 from . import aetherflux_reservoir  # noqa: F401
 from . import aetherize  # noqa: F401
 from . import afterlife_from_the_loam  # noqa: F401
+from . import agadeem_s_awakening_agadeem_the_undercrypt  # noqa: F401
 from . import agatha_s_soul_cauldron  # noqa: F401
 from . import agent_maria_hill  # noqa: F401
 from . import agent_of_treachery  # noqa: F401
@@ -53,6 +55,7 @@ from . import archaeomancer_s_map  # noqa: F401
 from . import archangel_of_tithes  # noqa: F401
 from . import archdruid_s_charm  # noqa: F401
 from . import archfiend_of_ifnir  # noqa: F401
+from . import archfiend_of_spite  # noqa: F401
 from . import archivist_of_oghma  # noqa: F401
 from . import archon_of_valor_s_reach  # noqa: F401
 from . import ardenn_intrepid_archaeologist  # noqa: F401
@@ -75,6 +78,7 @@ from . import autumn_s_veil  # noqa: F401
 from . import avacyn_guardian_angel  # noqa: F401
 from . import avalanche_of_sector_7  # noqa: F401
 from . import avatar_aang  # noqa: F401
+from . import aven_interrupter  # noqa: F401
 from . import aven_mindcensor  # noqa: F401
 from . import avenger_of_zendikar  # noqa: F401
 from . import awakening_zone  # noqa: F401
@@ -103,3 +107,5 @@ from . import archon_of_cruelty  # noqa: F401
 from . import avacyn_angel_of_horror  # noqa: F401
 from . import another_round  # noqa: F401
 from . import atomic_microsizer  # noqa: F401
+from . import azra_oddsmaker  # noqa: F401
+from . import azure_fleet_admiral  # noqa: F401
