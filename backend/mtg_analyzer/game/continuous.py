@@ -83,6 +83,7 @@ from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
 from ..models.cards.card_colors import effective_colors
 from ..models.cards.card_query import name_matches
 from .rooms import unlocked_door_names
+from .source_relative_filter import resolve_source_relative_entry
 from .effects.core import (
     ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
     ReplacementRegistry, StaticAbility, TriggeredAbility,
@@ -3971,6 +3972,7 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
             for k in ("kind", "filter", "count", "condition", "defender_kind")
             if ability.params.get(k) is not None
         }
+        entry = resolve_source_relative_entry(entry, ability.source)  # Champion of Lambholt: "power less than ~'s"
         if entry.get("kind") == "attacks_other_player_if_able":
             entry["avoid_player_id"] = (ability.duration_data or {}).get("player_id") or getattr(ability.source, "controller_id", None)
         for obj in affected_objects(state, ability):

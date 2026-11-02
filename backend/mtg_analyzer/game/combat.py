@@ -32,6 +32,7 @@ import re
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..models.cards.card_query import name_matches
+from .attack_scope import attacks_opponent_of
 from ..parser.oracle.catalogue.levels import leveler_base_text
 from ..parser.oracle.catalogue.station import station_base_text
 
@@ -597,7 +598,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "…that's blocking" / "…that's attacking or blocking" (Surge of
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
-        "blocking", "attacking_or_blocking",
+        "blocking", "attacking_or_blocking", "attacking_reference_opponent",
         # "target blocked creature" / "target unblocked creature" (Benalish Missionary, Gossamer Chains) -- RULE 506.4
         # and 509.1h: an attacking creature that has / has no creature blocking it.
         "blocked", "unblocked",
@@ -895,6 +896,8 @@ def matches_object_filter(
         and (obj.combat_defender or {}).get("id") == reference.controller_id
     ):
         return False
+    if filt.get("attacking_reference_opponent") and not attacks_opponent_of(obj, reference, state):
+        return False  # "creatures attacking your opponents" (Blast-Furnace Hellkite), RULE 506.2
     if filt.get("attacking_or_blocking") and not (
         getattr(obj, "attacking", False) or _is_blocking
     ):

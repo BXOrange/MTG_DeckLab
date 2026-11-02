@@ -1393,6 +1393,7 @@ class ActivationMixin:
         source.sacrificed_cost_was_suspected = False
         source.sacrificed_cost_power = None
         source.sacrificed_cost_toughness = None
+        source.sacrificed_cost_copiable_card = None
         source.sacrificed_cost_counters = {}
         source.sacrificed_cost_attached_ids = []
         source.station_tapped_power = None
@@ -1550,6 +1551,9 @@ class ActivationMixin:
                 # layer engine before it left the battlefield.
                 source.sacrificed_cost_power = victim.power
                 source.sacrificed_cost_toughness = victim.toughness
+                # RULE 707.2 / 608.2h: Cleaver Skaab copies "the sacrificed creature" -- keep its copiable card
+                # (a token victim ceases to exist, RULE 704.5d).
+                source.sacrificed_cost_copiable_card = getattr(victim, "_front_card", victim.card)
         if cost.exile_creature:
             exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
             if exiled is not None:

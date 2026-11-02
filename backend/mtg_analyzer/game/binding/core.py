@@ -40,6 +40,7 @@ from ...parser.oracle.catalogue.clause_primitives import (
 from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, fold_action_limit
 from ..costs import ActivationCost, parse_activation_cost
 from ..static_conditions import condition_holds
+from .entry_origin import entry_origin_predicates
 from ..targeting import PER_PLAYER_SCOPES
 from ..effects.core import (
     ActivatedAbility,
@@ -1615,6 +1616,8 @@ def _trigger_condition(
             return event.get("from_zone") == zone or event.get("cast_from_zone") == zone
 
         predicates.append(_from_or_cast_from_ok)
+
+    predicates.extend(entry_origin_predicates(trigger))  # "if you didn't cast it from your hand" (Chainer)
 
     # "…is put into exile from the battlefield" (Psychomancer) — LEAVES_BATTLEFIELD's
     # ``to_zone`` is exactly this zone.

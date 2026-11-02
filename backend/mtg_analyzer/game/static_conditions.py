@@ -290,6 +290,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # makes.
         "captured_player_is_monarch",
         "is_monarch",  # "as long as you're the monarch"
+        "no_monarch",  # "if there is no monarch" (RULE 725.1: the designation can be unheld)
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
         "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
@@ -996,6 +997,9 @@ def condition_holds(
         return condition.get("player_id") is not None and state.monarch_id == condition["player_id"]
     if kind == "is_monarch":
         return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
+    if kind == "no_monarch":
+        # RULE 725.1: there is no monarch until some effect makes a player the monarch.
+        return getattr(state, "monarch_id", None) is None
     if kind == "has_initiative":
         return controller_id is not None and getattr(state, "initiative_id", None) == controller_id
     if kind == "has_city_blessing":
