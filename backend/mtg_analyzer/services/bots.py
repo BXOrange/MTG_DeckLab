@@ -51,10 +51,6 @@ Five bots are built on that base, each in its own `bot_policies` module:
   penalty, *control* rewards instant-speed plays).  All other behaviour is
   inherited unchanged.
 
-* `AIBot` — asks the configured LLM to choose offered actions using the
-  same deck profile. Background requests preserve priority; failures use
-  Smart Bot. See docs/Reference/LLM_INTEGRATION.md.
-
 The three diagnostic policies remain simple and predictable. Smart Bot uses
 `bot_strategy.py` for unordered deck knowledge and a local Spellbook snapshot
 when available; gameplay still reads only its redacted client view.
@@ -75,7 +71,6 @@ from mtg_analyzer.services.bot_policies.goldfish import GoldfishBot
 from mtg_analyzer.services.bot_policies.greedy import GreedyBot
 from mtg_analyzer.services.bot_policies.smart import SmartBot
 from mtg_analyzer.services.bot_policies.smart2 import SmartBot2
-from mtg_analyzer.services.bot_policies.ai import AIBot
 from mtg_analyzer.services.bot_policies.mana_maximizer import ManaMaximizerBot
 from mtg_analyzer.services.bot_policies.mcp import McpBot
 from mtg_analyzer.services.game_session import GameActionError, GameSession
@@ -106,7 +101,6 @@ BOT_TYPES: dict[str, type[Bot]] = {
     SmartBot2.kind: SmartBot2,
     GoldfishBot.kind: GoldfishBot,
     GreedyBot.kind: GreedyBot,
-    AIBot.kind: AIBot,
     ManaMaximizerBot.kind: ManaMaximizerBot,
     McpBot.kind: McpBot,
 }

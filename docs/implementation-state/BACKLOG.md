@@ -25,7 +25,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 | `PLR` | Player management — seats, multiplayer, bots, accounts, sessions |
 | `VIS` | Visuals — frontend UI/UX |
 | `DB` | Database — card cache, saved decks, persistence, data freshness |
-| `ANA` | Deck analysis — UC2 (LLM + presentation) |
+| `ANA` | Deck analysis — UC2 |
 | `BUG` | Bugs — a shipped behaviour that is wrong (a wrong-but-`MODELED` claim, a silently dropped clause); not missing coverage |
 
 ---
@@ -82,12 +82,7 @@ claimed cards.
 
 ## ANA — Deck analysis
 
-- **ANA-2 · Narrative analysis UI** — win conditions, archetype, synergies,
-  cohesion score, issues. Sits alongside the existing static/Bracket
-  sub-tabs, not replacing them. ANA-1 backend contract is available (see
-  [LLM integration](../Reference/LLM_INTEGRATION.md)).
-- **ANA-3 · Cache indicator** ("Analysis from X ago") for that LLM result.
-  The backend provides `created_at` and `cached`.
+-No Tickets-
 
 ## BUG — Bugs
 

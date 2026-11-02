@@ -718,7 +718,6 @@ class GameSession:
                 future.cancel()
         self._ai_bot_context = {}
         self._bot_failure_context = {}
-        self._bot_status = {}
         self._smart_ability_uses = {}
         self._smart_ability_positions = {}
         self._setup_pending = (
@@ -2506,7 +2505,6 @@ class GameSession:
                 {"state": state_dict, "pending_choice": pc}, pc["player_id"])
         return {
             "session_id": self.id,
-            "bot_status": {k: dict(v) for k, v in getattr(self, "_bot_status", {}).items()},
             "mode": self.mode,
             "perspective": perspective,
             "acting_as": acting_as,

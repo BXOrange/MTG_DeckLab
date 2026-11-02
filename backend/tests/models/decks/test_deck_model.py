@@ -41,15 +41,6 @@ class TestTimestamps:
         assert deck.created_at == "2024-01-01T00:00:00+00:00"
 
 
-class TestAnalysisHook:
-    def test_analysis_id_defaults_to_none(self):
-        assert Deck().analysis_id is None
-
-    def test_analysis_id_can_be_set(self):
-        deck = Deck(analysis_id="analysis-123")
-        assert deck.analysis_id == "analysis-123"
-
-
 class TestAuthor:
     def test_author_defaults_to_none(self):
         assert Deck().author is None
@@ -88,7 +79,6 @@ class TestSerialization:
             commander_text="1 Krenko, Mob Boss\n",
             mainboard_text="1 Sol Ring\n",
             sideboard_text="1 Negate\n",
-            analysis_id="analysis-1",
         )
         restored = Deck.from_dict(deck.to_dict())
         assert restored == deck
@@ -102,7 +92,6 @@ class TestSerialization:
             "mainboardText",
             "sideboardText",
             "createdAt",
-            "analysisId",
             "sleeveId",
             "author",
             "colorIdentity",
@@ -119,7 +108,6 @@ class TestSerialization:
         deck = Deck.from_dict({})
         assert deck.name == ""
         assert deck.commander_text == ""
-        assert deck.analysis_id is None
         assert uuid.UUID(deck.id)
 
 

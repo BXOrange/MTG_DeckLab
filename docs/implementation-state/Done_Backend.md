@@ -4633,10 +4633,10 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 - **Validation:** Full backend plus full-cache run: 15,682 passed, one skipped; final Smart2 suite: 67 passed, including real combat/three-player wins, both library lines, resource untap, source/name/reprint invariance, private-state invariance, memory restoration and read-only snapshot use. Grouped paired fixtures and all resolvable saved lists were measured with explicit censoring/error accounting; [validation report](../Reference/SMART_BOT_2_VALIDATION.md) records sample size, timing and limits rather than claiming a universal win rate.
 - **Files:** `services/smart_bot2/`, `services/bot_policies/smart2.py`, `scripts/benchmark_smart_bot2.py`, `tests/services/test_smart_bot2.py`; [policy reference](../Reference/SMART_BOT.md).
 
-### Individual bot policies and AI Bot
+### Individual bot policies
 
-- **What:** Each bot class now lives in its own `services/bot_policies` module; `services/bots.py` retains registry/driver and compatible exports. The new `ai` policy shares Smart Bot's detected deck/commander/combo profile, asks a configured LLM to select offered actions, validates parameters, then uses the ordinary engine action path. Bounded background workers preserve priority while waiting; stale results are discarded. Unconfigured/failed/over-budget requests fall back to Smart. Solo polls pending jobs; lobby rebuilds preserve session context; restart clears it.
-- **Files:** `services/bot_policies/`, `services/bots.py`, `api/solo.py`, `services/game_session.py`; configuration/transport in `services/llm_settings.py`, `services/llm_client.py`, `api/llm.py`. See [LLM integration](../Reference/LLM_INTEGRATION.md).
+- **What:** Each bot class now lives in its own `services/bot_policies` module; `services/bots.py` retains registry/driver and compatible exports.
+- **Files:** `services/bot_policies/`, `services/bots.py`, `api/solo.py`, `services/game_session.py`.
 
 ### Bot seats in the lobby
 
@@ -6482,12 +6482,6 @@ Reusable support includes additional token batches under replacement effects (Ch
 - **Files:** `services/coverage_db.py`, `scripts/coverage_report.py`.
 
 ## Deck Analysis
-
-### Narrative saved-deck analysis (ANA-1)
-
-- **What:** `POST /api/decks/{id}/analyze` resolves the saved deck, requests a structured Claude/compatible-provider narrative and validates summary, archetype, WinCons, synergies, cohesion, issues and recommendations. Persistent `analyses.db` caches by deck/Oracle context, language, prompt version and provider/model; concurrent repeated requests reuse results, `force` refreshes. `Deck.analysis_id` and `GET /api/decks/{id}/analysis` expose the current result. Section/archetype edits invalidate the link; provider failures cannot persist malformed output. Settings are server-wide, keys redacted, with environment overrides and an explicit connection test. ANA-2/ANA-3 remain UI work.
-- **Files:** `api/narrative_analysis.py`, `services/narrative_analysis.py`, `models/analysis/narrative.py`, `api/saved_decks.py`; [configuration and API contract](../Reference/LLM_INTEGRATION.md).
-
 
 ### Dynamic (simulated) deck analysis (ANA-4)
 

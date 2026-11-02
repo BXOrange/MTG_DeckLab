@@ -901,24 +901,3 @@ async function deleteRequest(path) {
 export async function getMcpSettings() { return gameRequest('GET', '/api/mcp-settings'); }
 export async function getMcpSetup() { return gameRequest('POST', '/api/mcp-settings/setup', {}); }
 export async function rotateMcpToken() { return gameRequest('POST', '/api/mcp-settings/rotate', {}); }
-
-// Server-side LLM credentials are write-only; they never enter cookies.
-export async function getLLMSettings() {
-  return gameRequest('GET', '/api/llm/settings');
-}
-export async function saveLLMSettings(payload) {
-  return gameRequest('PUT', '/api/llm/settings', payload);
-}
-export async function testLLMConnection() {
-  return gameRequest('POST', '/api/llm/test', {});
-}
-export async function analyzeNarrativeDeck(deckId, payload = {}) {
-  return gameRequest('POST', `/api/decks/${encodeURIComponent(deckId)}/analyze`, payload);
-}
-export async function getNarrativeDeckAnalysis(deckId) {
-  return gameRequest('GET', `/api/decks/${encodeURIComponent(deckId)}/analysis`);
-}
-
-export async function fetchLLMModels(payload = {}) {
-  return gameRequest('POST', '/api/llm/models', payload);
-}

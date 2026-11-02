@@ -23,19 +23,6 @@ def test_damage_allocation_refuses_more_targets_than_positive_shares():
     assert not Bot.fill_damage_divisions(offer, {'targets': [{'instance_id': 1}, {'instance_id': 2}]})
 
 
-def test_ai_damage_allocation_follows_its_selected_targets():
-    from mtg_analyzer.services.bot_policies.ai import BotDecision
-    from tests.services.test_ai_bot import bot
-
-    offer = {'type': 'cast_spell', 'instance_id': 1, 'requires_target': True,
-             'targets': [{'count': 3, 'optional': True,
-                          'options': [{'player_id': 'bob'}, {'instance_id': 2}, {'instance_id': 3}]}],
-             'damage_divisions': [{'requirement_index': 0, 'total': 10, 'min_each': 1}]}
-    chosen = bot().complete_decision(view(), [offer], BotDecision(offer_index=0, target_indices=[[2, 0]]))
-    assert chosen['targets'] == [{'instance_id': 3}, {'player_id': 'bob'}]
-    assert chosen['damage_divisions'] == {'0': [5, 5]}
-
-
 @pytest.mark.parametrize('policy', [GreedyBot, SmartBot2])
 def test_kicked_cast_uses_variant_targets_and_announces_damage(policy):
     from mtg_analyzer.game.binding.core import bind_from_catalogue

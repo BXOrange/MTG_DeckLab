@@ -3,7 +3,7 @@
 Two header icon buttons split the old single settings screen in two:
 
 - **Einstellungen** (settings) — server connection, local data and
-  optional LLM configuration.
+  MCP setup.
 - **Profil** (profile) — everything about *you*: your player name, your
   multiplayer preferences, and any custom art you've uploaded.
 
@@ -28,25 +28,6 @@ Scryfall card pool and the Commander Spellbook combo database. Otherwise
 the combo database is downloaded only when the first static deck
 analysis needs it. Both data sets are stored server-side in SQLite; the
 combo update reports how many variants were added, changed, or removed.
-
-## Settings: LLM and AI Bot
-
-Under **LLM**, enable Claude/Anthropic or a compatible server. Enter the API
-base URL (including `/v1`) and an API key when required. The model dropdown
-automatically loads available models, including after provider, URL or key
-changes. **Reload models** refreshes it. If your server has no model-list
-endpoint, select manual model-ID entry. Save before testing the connection. A blank key field
-keeps the existing key for the same endpoint; changing provider/URL removes
-it unless a new key is entered; the clear option removes it. Keys are stored on the
-server and never sent back to the browser.
-
-These settings apply to everyone using this server. Select **AI Bot** in
-Solo or Multiplayer. It receives its own deck, offered legal actions and
-visible game state; opponents' hands and library orders stay hidden. That
-context is sent to your provider; testing the connection also issues an LLM
-request. Providers may charge for usage. Timeout and per-turn request budget
-bound its work. Missing configuration or errors fall back to Smart Bot.
-Solo shows when the LLM is thinking.
 
 ## Profil: player name
 

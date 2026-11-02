@@ -21,10 +21,6 @@ class Deck:
     re-parsed on demand rather than persisting derived data that could
     drift from the parser's actual current behavior.
 
-    `analysis_id` links the current ANA-1 narrative result in analyses.db.
-    Section/archetype edits invalidate the link; cosmetic edits preserve it.
-    See docs/Reference/LLM_INTEGRATION.md for the API and cache contract.
-
     `sleeve_id` optionally references one of this deck owner's uploaded
     card-back designs (`services/player_assets.py`, `api/player_assets.py`
     `/api/players/{name}/sleeves`) — set via the saved-decks list, read by
@@ -103,7 +99,6 @@ class Deck:
         mainboard_text: str = "",
         sideboard_text: str = "",
         created_at: Optional[str] = None,
-        analysis_id: Optional[str] = None,
         sleeve_id: Optional[str] = None,
         author: Optional[str] = None,
         color_identity: Optional[list[str]] = None,
@@ -121,7 +116,6 @@ class Deck:
         self.mainboard_text = mainboard_text
         self.sideboard_text = sideboard_text
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
-        self.analysis_id = analysis_id
         self.sleeve_id = sleeve_id
         self.author = author
         self.color_identity = color_identity
@@ -142,7 +136,6 @@ class Deck:
             "mainboardText": self.mainboard_text,
             "sideboardText": self.sideboard_text,
             "createdAt": self.created_at,
-            "analysisId": self.analysis_id,
             "sleeveId": self.sleeve_id,
             "author": self.author,
             "colorIdentity": self.color_identity,
@@ -165,7 +158,6 @@ class Deck:
             mainboard_text=data.get("mainboardText", ""),
             sideboard_text=data.get("sideboardText", ""),
             created_at=data.get("createdAt"),
-            analysis_id=data.get("analysisId"),
             sleeve_id=data.get("sleeveId"),
             author=data.get("author"),
             color_identity=data.get("colorIdentity"),

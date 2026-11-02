@@ -58,7 +58,7 @@ Die Seitenleiste links ist in Gruppen unterteilt:
   - **Puzzle/Replay** — einen beliebigen Spielzustand bauen und spielen
 - **Multiplayer** — Lobby-Setup, echtes Shared-Table-Spiel, Bots,
   Zuschauer-Modus und Wiederanbindung
-- **Einstellungen** — Verbindungsstatus, lokale Daten und LLM-Konfiguration
+- **Einstellungen** — Verbindungsstatus, lokale Daten und MCP-Einrichtung
 - **Profil** — Spielername, Mehrspieler-Vorgaben, eigene Token-Bilder,
   Karten-Sleeves und Lieblingsdecks
 - **Information**

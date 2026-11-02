@@ -59,7 +59,7 @@ All under `docs/implementation-state/` unless noted; [docs/README.md](docs/READM
 
 ## Where to look first
 
-Full task → file table: [CODE_MAP.md](docs/Reference/CODE_MAP.md). Subsystem notes: [MULTIPLAYER.md](docs/Reference/MULTIPLAYER.md), [BOTS.md](docs/Reference/BOTS.md), [ENGINE_MECHANICS_NOTES.md](docs/Reference/ENGINE_MECHANICS_NOTES.md), [PLAYER_PROFILE.md](docs/Reference/PLAYER_PROFILE.md), [MANA_ADVICE.md](docs/Reference/MANA_ADVICE.md), [COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md), [SMART_BOT.md](docs/Reference/SMART_BOT.md), [LLM_INTEGRATION.md](docs/Reference/LLM_INTEGRATION.md).
+Full task → file table: [CODE_MAP.md](docs/Reference/CODE_MAP.md). Subsystem notes: [MULTIPLAYER.md](docs/Reference/MULTIPLAYER.md), [BOTS.md](docs/Reference/BOTS.md), [ENGINE_MECHANICS_NOTES.md](docs/Reference/ENGINE_MECHANICS_NOTES.md), [PLAYER_PROFILE.md](docs/Reference/PLAYER_PROFILE.md), [MANA_ADVICE.md](docs/Reference/MANA_ADVICE.md), [COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md), [SMART_BOT.md](docs/Reference/SMART_BOT.md).
 
 | Task | Start in |
 | --- | --- |

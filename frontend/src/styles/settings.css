@@ -13,18 +13,6 @@
   min-width: 0;
 }
 
-.llm-settings-panel > label {
-  display: block;
-  margin: 0.85rem 0 0.3rem;
-  color: var(--text-dim);
-  font-size: 0.8rem;
-}
-
-.llm-settings-panel > button,
-.llm-settings-panel > .import-actions {
-  margin-top: 0.85rem;
-}
-
 .connection-settings-panel {
   max-width: 480px;
   background: var(--panel);

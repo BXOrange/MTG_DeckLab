@@ -156,12 +156,6 @@ export function createSoloView() {
           onClick: concede,
         });
       }
-      const botStatuses = Object.values(view?.bot_status || {});
-      if (botStatuses.some((s) => s.status === 'thinking')) {
-        controls.push({ id: 'ai-status', label: t('settings.llm.botThinking'), disabled: true });
-      } else if (botStatuses.some((s) => s.status === 'fallback')) {
-        controls.push({ id: 'ai-status', label: t('settings.llm.botFallback'), disabled: true });
-      }
       return controls;
     },
     // No lobby → connection state comes from the game state itself (the

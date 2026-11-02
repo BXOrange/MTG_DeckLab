@@ -2,9 +2,8 @@
 
 Reference: docs/implementation-state/BACKLOG.md's archetype-analysis
 request, `services/archetype_database.py` (the catalogue this scores
-against). There is no LLM integration in this codebase — this is a plain
-heuristic over the deck's own cards, not a model call, so every scoring
-number here is a project-defined constant (see the "no magic numbers"
+against). This is a plain heuristic over the deck's own cards, not a
+model call, so every scoring number here is a project-defined constant (see the "no magic numbers"
 convention in CLAUDE.md) rather than a tuned/learned weight.
 
 Two independent signals are combined per archetype:

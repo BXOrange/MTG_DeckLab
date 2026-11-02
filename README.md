@@ -14,14 +14,14 @@ against the Comprehensive Rules.
   through the turn, play lands, tap mana, cast spells with the stack, attack.
 * **Solo gegen Bots** — a real multiplayer game (turns, priority, hidden
   hands) against 1–3 bots, no lobby needed. Bot policies range from simple to
-  a deck-aware Smart Bot and an optional LLM-driven bot.
+  a deck-aware Smart Bot.
 * **Multiplayer** — two to four players at one table (lobby, seats, shared
   board, reconnects, spell timers, take-backs, emotes), with bots able to fill
   seats.
 * **Replay / Puzzle** — build an arbitrary board, play from there, and
   export/import the position as JSON.
 * **Engine-Status, card cache, Einstellungen, Profil** — engine coverage
-  documentation, the local card cache, server/LLM settings, and per-player
+  documentation, the local card cache, server/MCP settings, and per-player
   preferences (name, token art, card sleeves).
 
 The interface is available in English (default) and German, switchable in

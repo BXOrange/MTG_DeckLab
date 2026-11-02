@@ -172,11 +172,6 @@ repointed there.
 - **What:** Backend requests use the page origin, with explicit development/deployment defaults in `settings.js`. The server-address field and cookie override are removed; stale `mtg_server_url` cookies are ignored. Connection status and "Verbindung testen" remain. Player preferences still persist device-locally in cookies.
 - **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
 
-### LLM settings and AI Bot status
-
-- **What:** Settings configures a server-wide Claude/Anthropic or compatible endpoint, an automatically populated model dropdown (provider model-list API, manual fallback, reload and stale-response protection), enable flag, key, timeout and per-turn bot call budget, plus save/connection-test controls. Keys are never loaded into the browser; empty preserves and explicit clear removes the stored key. German/English copy explains that deck/game context goes to the provider. AI Bot is selectable through the existing bot catalogue. Solo shows thinking/fallback status and polls pending decisions without overwriting a newer action/restart view.
-- **Files:** `connectionSettingsView.js`, `api.js`, `soloView.js`, `locales/{de,en}.js`; [LLM integration](../Reference/LLM_INTEGRATION.md).
-
 ### Local card-pool and combo-data updates
 
 - **What:** Settings exposes separate controls to refresh the full Scryfall card pool and the Commander Spellbook SQLite snapshot. The latter's current source version/time and added/changed/removed variant counts are surfaced inline; the combo snapshot still remains lazy-loaded during analysis unless explicitly updated here.
@@ -185,7 +180,7 @@ repointed there.
 ### Einstellungen ↔ Profil split (everything player-facing → Profil)
 
 - **What:** The **Einstellungen** header tab provides backend connection tests,
-  data updates and optional LLM configuration. Everything about the player moved to
+  data updates and MCP setup. Everything about the player moved to
   the **Profil** tab: player name (already there), multiplayer default
   settings + favorite decks (already there), and — newly relocated —
   the **Mehrspieler: Auto-Pass** / **Mehrspieler: Spielfeld** comfort

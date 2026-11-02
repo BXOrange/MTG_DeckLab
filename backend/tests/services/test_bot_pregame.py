@@ -31,12 +31,8 @@ def pregame_session(kind, *, human_cards=()):
 
 # The MCP seat is played by an external client, never by `run_bots` itself.
 @pytest.mark.parametrize("kind", [k for k in BOT_TYPES if k != "mcp"])
-def test_bots_use_all_opening_cards_and_complete_caverns_exile(kind, monkeypatch):
+def test_bots_use_all_opening_cards_and_complete_caverns_exile(kind):
     session = pregame_session(kind)
-    if kind == "ai":
-        def unexpected_llm_settings():
-            pytest.fail("Pregame actions must not request an LLM decision")
-        monkeypatch.setattr(session._solo_bots["bot:1"].settings_store, "get", unexpected_llm_settings)
     for _ in range(4):
         assert _solo_view(session)["bot_action_pending"]
         _advance_solo_bots(session)
