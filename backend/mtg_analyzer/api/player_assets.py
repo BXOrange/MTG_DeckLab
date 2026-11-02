@@ -27,17 +27,45 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from typing import Callable
+
+from fastapi import APIRouter, Request, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
 from mtg_analyzer.api.dependencies import get_player_asset_store
-from mtg_analyzer.services.player_assets import PlayerAssetStore
+from mtg_analyzer import config
+from mtg_analyzer.services.player_assets import AssetQuotaError, PlayerAssetStore
 
-router = APIRouter(prefix="/api/players", tags=["player-assets"])
+
+
+class _BoundedBodyRoute(APIRoute):
+    """BUG-43: refuse an oversized POST by Content-Length *before* the form is parsed.
+
+    FastAPI parses the multipart body (spooling every file) before dependencies
+    run, so only the route handler wrapper sees the request early enough. The
+    chunked read in `_read_validated_image` stays as the second line for bodies
+    without a trustworthy Content-Length.
+    """
+
+    def get_route_handler(self) -> Callable:
+        original = super().get_route_handler()
+
+        async def handler(request: Request) -> Response:
+            declared = request.headers.get("content-length", "")
+            limit = _MAX_UPLOAD_BYTES + config.UPLOAD_MULTIPART_OVERHEAD_BYTES
+            if request.method == "POST" and declared.isdigit() and int(declared) > limit:
+                raise HTTPException(413, f"Upload exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+            return await original(request)
+
+        return handler
+
+
+router = APIRouter(prefix="/api/players", tags=["player-assets"], route_class=_BoundedBodyRoute)
 
 _ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
-_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+_MAX_UPLOAD_BYTES = config.PLAYER_UPLOAD_MAX_BYTES
 
 
 async def _read_validated_image(file: UploadFile) -> tuple[str, bytes]:
@@ -45,12 +73,26 @@ async def _read_validated_image(file: UploadFile) -> tuple[str, bytes]:
         raise HTTPException(
             400, f'Unsupported image type "{file.content_type}" (allowed: {sorted(_ALLOWED_CONTENT_TYPES)})'
         )
-    data = await file.read()
-    if not data:
+    # BUG-43: read in chunks and stop as soon as the limit is crossed, so an
+    # oversized body is never held in memory whole.
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await file.read(config.UPLOAD_READ_CHUNK_BYTES):
+        size += len(chunk)
+        if size > _MAX_UPLOAD_BYTES:
+            raise HTTPException(413, f"Image exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+        chunks.append(chunk)
+    if not size:
         raise HTTPException(400, "Empty upload")
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(400, f"Image exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
-    return file.content_type, data
+    return file.content_type, b"".join(chunks)
+
+
+def _save_or_413(save, *args) -> None:
+    """Run a store save, turning a quota refusal into HTTP 413."""
+    try:
+        save(*args)
+    except AssetQuotaError as exc:
+        raise HTTPException(413, str(exc)) from exc
 
 
 # -- Token images ------------------------------------------------------------
@@ -74,7 +116,7 @@ async def upload_token_image(
     if not token_name:
         raise HTTPException(400, "token_name must not be empty")
     content_type, data = await _read_validated_image(file)
-    store.save_token_image(player_name, token_name, content_type, data)
+    _save_or_413(store.save_token_image, player_name, token_name, content_type, data)
     return {"token_name": token_name}
 
 
@@ -120,7 +162,7 @@ async def upload_sleeve(
         raise HTTPException(400, "label must not be empty")
     content_type, data = await _read_validated_image(file)
     sleeve_id = str(uuid.uuid4())
-    store.save_sleeve(player_name, sleeve_id, label, content_type, data)
+    _save_or_413(store.save_sleeve, player_name, sleeve_id, label, content_type, data)
     return {"sleeve_id": sleeve_id, "label": label}
 
 

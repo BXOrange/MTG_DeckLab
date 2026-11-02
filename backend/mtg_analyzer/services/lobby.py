@@ -65,6 +65,8 @@ from typing import Any, Optional
 
 from mtg_analyzer.config import (
     CLIENT_TOKEN_VALIDITY_SECONDS,
+    LOBBY_MAX_GAMES,
+    LOBBY_MAX_PLAYERS,
     MCP_SEAT_STALE_SECONDS,
     MULTIPLAYER_DISCONNECT_GRACE_SECONDS,
     MULTIPLAYER_IDLE_TIMEOUT_SECONDS,
@@ -522,6 +524,9 @@ class Lobby:
             existing.last_action_at = time.monotonic()
             return existing
 
+        # BUG-43: bots are seats, not registrations, so only humans count.
+        if sum(1 for p in self._players.values() if not p.is_bot) >= LOBBY_MAX_PLAYERS:
+            raise LobbyError("Die Lobby ist voll - bitte später erneut versuchen")
         # A requested id is only honoured while it is free; it never
         # overwrites (or aliases) somebody else's entry.
         new_id = player_id if player_id and player_id not in self._players else str(uuid.uuid4())
@@ -751,6 +756,8 @@ class Lobby:
         player = self.player(player_id)
         if player.game_id:
             raise LobbyError("you are already in a game — leave it first")
+        if len(self._games) >= LOBBY_MAX_GAMES:  # BUG-43
+            raise LobbyError("Es sind bereits zu viele Tische offen - bitte später erneut versuchen")
         seats = max(MIN_SEATS, min(int(num_players or MIN_SEATS), MAX_SEATS))
         game = LobbyGame(
             id=str(uuid.uuid4()),

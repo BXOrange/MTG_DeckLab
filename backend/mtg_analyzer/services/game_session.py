@@ -40,6 +40,7 @@ from ..game.phases import FIRST_STRIKE_DAMAGE_STEP
 from ..game.physical_properties import choice_decider as _physical_choice_decider
 
 import json
+import time
 import uuid
 from typing import Any, Callable, Optional
 
@@ -2666,10 +2667,62 @@ class GameSession:
 
 
 class GameSessionManager:
-    """In-memory registry of active game sessions (single process)."""
+    """In-memory registry of active game sessions (single process).
 
-    def __init__(self) -> None:
+    BUG-43: bounded. ``get`` counts as access; `sweep` drops sessions idle
+    past ``ttl_seconds`` and creating one past ``max_sessions`` evicts the
+    least recently used. Sessions in ``protected`` (a lobby table's, see
+    `set_protected_provider`) are never evicted: they leave with their table.
+    """
+
+    def __init__(
+        self,
+        *,
+        ttl_seconds: Optional[float] = None,
+        max_sessions: Optional[int] = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._sessions: dict[str, GameSession] = {}
+        self._last_access: dict[str, float] = {}
+        self._ttl = config.GAME_SESSION_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+        self._max = config.GAME_SESSION_MAX if max_sessions is None else max_sessions
+        self._clock = clock
+        self._protected: Callable[[], set[str]] = set
+
+    def set_protected_provider(self, provider: Callable[[], set[str]]) -> None:
+        """Register the callable naming session ids that must not be evicted."""
+        self._protected = provider
+
+    def _register(self, session: GameSession) -> None:
+        self._sessions[session.id] = session
+        self._last_access[session.id] = self._clock()
+        self._enforce_cap(keep=session.id)
+
+    def _enforce_cap(self, keep: str) -> None:
+        """Evict least-recently-used unprotected sessions until under the cap."""
+        if len(self._sessions) <= self._max:
+            return
+        protected = self._protected() | {keep}
+        by_age = sorted(self._last_access, key=self._last_access.__getitem__)
+        for session_id in by_age:
+            if len(self._sessions) <= self._max:
+                break
+            if session_id not in protected:
+                self.remove(session_id)
+
+    def sweep(self) -> int:
+        """Drop unprotected sessions idle past the TTL; returns how many."""
+        cutoff = self._clock() - self._ttl
+        protected = self._protected()
+        stale = [
+            sid for sid, seen in self._last_access.items() if seen <= cutoff and sid not in protected
+        ]
+        for sid in stale:
+            self.remove(sid)
+        return len(stale)
+
+    def __len__(self) -> int:
+        return len(self._sessions)
 
     def create_goldfish(
         self,
@@ -2693,7 +2746,7 @@ class GameSessionManager:
             require_setup=True,
             mulligan_style=mulligan_style,
         )
-        self._sessions[session.id] = session
+        self._register(session)
         return session
 
     def create_replay(self, descriptor: dict[str, Any], loader: Any) -> GameSession:
@@ -2706,7 +2759,7 @@ class GameSessionManager:
         engine = replay.build_replay_engine(descriptor, loader)
         session = GameSession(engine, mode=REPLAY, require_setup=False)
         session._loader = loader
-        self._sessions[session.id] = session
+        self._register(session)
         return session
 
     def create_multiplayer(
@@ -2748,14 +2801,16 @@ class GameSessionManager:
                                     'archetypes': tuple(seat.get('archetypes') or ())}
             for seat in seats
         }
-        self._sessions[session.id] = session
+        self._register(session)
         return session
 
     def get(self, session_id: str) -> GameSession:
         session = self._sessions.get(session_id)
         if session is None:
             raise KeyError(session_id)
+        self._last_access[session_id] = self._clock()
         return session
 
     def remove(self, session_id: str) -> bool:
+        self._last_access.pop(session_id, None)
         return self._sessions.pop(session_id, None) is not None

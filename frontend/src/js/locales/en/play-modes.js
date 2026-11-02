@@ -155,6 +155,7 @@ export default {
   'mp.presence.online': "Online",
   'mp.presence.available': "Available",
   'mp.presence.playing': "In game",
+  'mp.drop.lobby_full': "The lobby is full – please try again later.",
   'mp.drop.idle': "Disconnected for inactivity – your seat stays reserved briefly.",
   'mp.drop.replaced': "Taken over in another tab/window with the same name.",
   'mp.drop.timeout': "Timed out – the seat was released.",

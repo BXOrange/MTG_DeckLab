@@ -35,11 +35,28 @@ class BugReportRequest(BaseModel):
         return value.strip()
 
 
+def _reports_dir_full() -> bool:
+    """BUG-43: whether the report directory already holds its maximum.
+
+    Reports are the user's own evidence and are never rotated or deleted by
+    the app, so a full directory refuses new reports instead.
+    """
+    try:
+        sizes = [p.stat().st_size for p in config.BUG_REPORT_DIR.glob("*.json.gz")]
+    except OSError:
+        return False
+    return len(sizes) >= config.BUG_REPORT_MAX_COUNT or sum(sizes) >= config.BUG_REPORT_MAX_TOTAL_BYTES
+
+
 @router.post("", status_code=201)
 def create_bug_report(
     request: BugReportRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict:
+    if _reports_dir_full():
+        raise HTTPException(
+            507, "Bug-report storage is full; please archive or delete old reports in the bug-reports folder"
+        )
     context = None
     if request.session_id:
         try:

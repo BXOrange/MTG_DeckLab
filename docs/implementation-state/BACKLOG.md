@@ -107,15 +107,8 @@ claimed cards.
 ## BUG — Bugs
 
 Security audit 2026-10-30 (BUG-38…45). A1/A2 reproduced against the running app via the API.
-Order: BUG-43…45.
+Order: BUG-44 → BUG-45.
 
-- **BUG-43 · No resource limits (DoS).** `GameSessionManager` has no cap or expiry (every
-  goldfish/solo/replay start stays in RAM along with its undo history); unlimited lobby
-  players/tables; unlimited uploads per name (5 MB each, read completely before the size check);
-  unlimited bug-report files. Tasks: session TTL + LRU cap (named config constants) and sweeping
-  in the existing `sweeper`; caps on players/tables in `Lobby`; per-name quota in
-  `PlayerAssetStore`; read uploads in chunks and abort at the limit; cap/rotate
-  `BUG_REPORT_DIR`; tests.
 - **BUG-44 · Upload and HTTP hardening.** The uploaded content type comes from the client and
   is served back unchecked; there are no security headers at all. Tasks: check magic bytes
   against the declared type (PNG/JPEG/WebP/GIF) in `api/player_assets.py`; middleware with

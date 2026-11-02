@@ -122,12 +122,12 @@ async def connect(
     Normally the `/ws/lobby` socket does this on connect; this route is the
     fallback for a client without a socket (and what the tests use).
     """
-    player = lobby.connect(
+    player = _guard(lambda: lobby.connect(
         name=request.name,
         player_id=request.player_id,
         client_token=request.client_token,
         secret=request.secret,
-    )
+    ))
     await lobby_connections.broadcast_lobby(lobby)
     # BUG-39: the one place (besides the WS welcome) the secret is delivered,
     # to the caller only; never part of `to_dict()` or a broadcast.

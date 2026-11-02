@@ -40,7 +40,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
 
-from mtg_analyzer.config import DATA_DIR, PLAYER_ASSETS_DB_PATH
+from mtg_analyzer.config import (
+    DATA_DIR,
+    PLAYER_ASSET_MAX_COUNT,
+    PLAYER_ASSET_MAX_TOTAL_BYTES,
+    PLAYER_ASSET_STORE_MAX_BYTES,
+    PLAYER_ASSETS_DB_PATH,
+)
 
 #: Real user data with no upstream source — lives beside decks.db, not
 #: the disposable Scryfall cache (see services/deck_database.py DATA_ROOT).
@@ -76,8 +82,47 @@ CREATE TABLE IF NOT EXISTS favorite_decks (
 """
 
 
+class AssetQuotaError(Exception):
+    """BUG-43: a name's token-image + sleeve uploads would exceed its quota."""
+
+
 class PlayerAssetStore:
     """Per-player token-image and sleeve uploads."""
+
+    def _check_quota(
+        self, player_name: str, table: str, key_col: str, key: str, new_bytes: int
+    ) -> None:
+        """Raise `AssetQuotaError` if saving ``new_bytes`` under ``key`` busts the quota.
+
+        Called with ``self._lock`` held. Replacing an existing row only counts
+        the size difference, so re-uploading never fails a name at its limit.
+        """
+        count = total = 0
+        replaced = 0
+        for tbl in ("token_images", "sleeves"):
+            row = self._connection.execute(
+                f"SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM {tbl} WHERE player_name = ?",
+                (player_name,),
+            ).fetchone()
+            count += row[0]
+            total += row[1]
+        existing = self._connection.execute(
+            f"SELECT LENGTH(data) FROM {table} WHERE player_name = ? AND {key_col} = ?",
+            (player_name, key),
+        ).fetchone()
+        if existing is not None:
+            replaced = existing[0]
+            count -= 1
+        store_total = sum(
+            self._connection.execute(
+                f"SELECT COALESCE(SUM(LENGTH(data)), 0) FROM {tbl}"
+            ).fetchone()[0]
+            for tbl in ("token_images", "sleeves")
+        )
+        if store_total - replaced + new_bytes > PLAYER_ASSET_STORE_MAX_BYTES:
+            raise AssetQuotaError("Der Upload-Speicher ist voll - bitte zuerst Dateien löschen")
+        if count + 1 > PLAYER_ASSET_MAX_COUNT or total - replaced + new_bytes > PLAYER_ASSET_MAX_TOTAL_BYTES:
+            raise AssetQuotaError("Upload-Kontingent für diesen Namen erreicht - bitte zuerst Dateien löschen")
 
     def __init__(self, db_path: Union[str, Path] = DEFAULT_PLAYER_ASSETS_DB_PATH) -> None:
         if db_path != ":memory:":
@@ -123,6 +168,7 @@ class PlayerAssetStore:
         self, player_name: str, token_name: str, content_type: str, data: bytes
     ) -> None:
         with self._lock:
+            self._check_quota(player_name, "token_images", "token_name", token_name, len(data))
             self._connection.execute(
                 "INSERT INTO token_images (player_name, token_name, content_type, data, updated_at) "
                 "VALUES (?, ?, ?, ?, ?) "
@@ -164,6 +210,7 @@ class PlayerAssetStore:
         self, player_name: str, sleeve_id: str, label: str, content_type: str, data: bytes
     ) -> None:
         with self._lock:
+            self._check_quota(player_name, "sleeves", "sleeve_id", sleeve_id, len(data))
             self._connection.execute(
                 "INSERT INTO sleeves (player_name, sleeve_id, label, content_type, data, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?) "

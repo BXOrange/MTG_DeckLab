@@ -155,6 +155,7 @@ export default {
   'mp.presence.online': "Online",
   'mp.presence.available': "Verfügbar",
   'mp.presence.playing': "Im Spiel",
+  'mp.drop.lobby_full': "Die Lobby ist voll – bitte später erneut versuchen.",
   'mp.drop.idle': "Wegen Inaktivität getrennt – dein Platz bleibt noch kurz reserviert.",
   'mp.drop.replaced': "In einem anderen Tab/Fenster mit demselben Namen übernommen.",
   'mp.drop.timeout': "Zeit abgelaufen – der Platz wurde freigegeben.",

@@ -63,7 +63,12 @@ def _commander_spellbook_database() -> CommanderSpellbookDatabase:
 def _game_session_manager() -> GameSessionManager:
     # In-memory, process-wide: game sessions vanish on restart (like the
     # WebSocket connection manager). Fine for local single-process play.
-    return GameSessionManager()
+    manager = GameSessionManager()
+    # BUG-43: a session a lobby table points at lives and dies with its table.
+    manager.set_protected_provider(
+        lambda: {g.session_id for g in _lobby().games() if g.session_id}
+    )
+    return manager
 
 
 @lru_cache(maxsize=1)

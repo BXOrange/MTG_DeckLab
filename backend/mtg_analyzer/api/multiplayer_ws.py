@@ -51,6 +51,9 @@ router = APIRouter(tags=["multiplayer-ws"])
 #: the loop itself being a meaningful cost when nothing is happening.
 SWEEP_INTERVAL_SECONDS = 1.0
 
+#: RFC 6455 close code 1008: the lobby refused this client (BUG-43 cap).
+WS_POLICY_VIOLATION = 1008
+
 #: Safety cap on `pass_for_absent_players`' loop — it advances the game a
 #: step per full round of passes, and an empty table must not spin forever.
 _MAX_AUTO_PASSES = 40
@@ -184,9 +187,16 @@ async def lobby_websocket(
     if player_id and not lobby.authenticate(player_id, secret):
         player_id = None
     reclaimed = manager.is_connected(player_id) if player_id else False
-    player = lobby.connect(
-        name=name, player_id=player_id, client_token=client_token, secret=secret
-    )
+    try:
+        player = lobby.connect(
+            name=name, player_id=player_id, client_token=client_token, secret=secret
+        )
+    except LobbyError as exc:  # BUG-43: lobby full
+        # The client's existing "disconnected" path shows the reason (German
+        # note in the Multiplayer view) before its backoff reconnect.
+        await websocket.send_json({"type": "disconnected", "reason": "lobby_full", "message": str(exc)})
+        await websocket.close(code=WS_POLICY_VIOLATION)
+        return
     if manager.is_connected(player.id):
         reclaimed = True
         await manager.close(player.id, "replaced")
@@ -365,7 +375,7 @@ async def sweep_once(
 ) -> None:
     """One pass of the watchdog. Idempotent; safe to call from a test.
 
-    Four jobs, in order, because each can create work for the next:
+    Five jobs (0 is the BUG-43 session TTL sweep), in order, because each can create work for the next:
 
     1. **Idle disconnects.** A player who holds priority and hasn't acted
        within `config.MULTIPLAYER_IDLE_TIMEOUT_SECONDS` has their socket
@@ -391,6 +401,11 @@ async def sweep_once(
        so the players who *are* there can keep going, and a table of
        nothing but bots plays itself out.
     """
+    # BUG-43: idle goldfish/solo/replay sessions (and orphaned table sessions)
+    # expire; tables' own sessions are protected inside the manager. Cheap:
+    # one pass over a dict. Runs first so a dead session isn't looked up below.
+    sessions.sweep()
+
     for game in list(lobby.games()):
         session = _session_or_none(sessions, game.session_id)
         if session is None or session.engine.state.game_over:

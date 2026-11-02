@@ -79,6 +79,15 @@ or the test setup.
   `./start.sh --scryfall-primary`), default `False` = **cache-primary**: a cached
   card is served even if `stale` (`lazy_card_loader._is_fresh`), never silently
   refetched. `True` refetches stale rows. A never-cached name is always fetched once.
+- Resource limits (BUG-43, `config.py` "Resource limits"; env `MTG_SESSION_TTL`,
+  `MTG_SESSION_MAX`, `MTG_LOBBY_MAX_PLAYERS`, `MTG_LOBBY_MAX_GAMES`,
+  `MTG_UPLOAD_MAX_BYTES`, `MTG_PLAYER_ASSET_MAX_COUNT`, `MTG_PLAYER_ASSET_MAX_BYTES`, `MTG_PLAYER_ASSET_STORE_MAX_BYTES` (whole store, 1 GB),
+  `MTG_BUG_REPORT_MAX_COUNT`, `MTG_BUG_REPORT_MAX_BYTES`; config.json section
+  `limits`). Idle non-table game sessions are swept (TTL from last access) and the
+  least recently used one is evicted past the cap; a session a lobby table points
+  at is never evicted. Uploads are refused with 413 by Content-Length before the form is parsed, and again by a chunked read. **Bug reports
+  are never rotated or deleted**: past the cap a new report is refused (507) until
+  you clear old ones by hand.
 - Alternate printing names: `CardDatabase.get_card` matches canonical names, front
   faces, `flavor_name` and verified `card_aliases`; aliases point to a canonical
   name and survive payload schema resets and offline reseeding, but not deleting

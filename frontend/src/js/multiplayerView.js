@@ -91,6 +91,7 @@ const PRESENCE_LABELS = {
 //: reason so the UI can say what happened instead of just flickering.
 const DROP_REASONS = {
   idle: t('mp.drop.idle'),
+  lobby_full: t('mp.drop.lobby_full'),
   replaced: t('mp.drop.replaced'),
   timeout: t('mp.drop.timeout'),
   closed: t('mp.drop.closed'),

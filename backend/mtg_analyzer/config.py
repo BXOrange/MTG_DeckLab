@@ -53,6 +53,14 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
   MTG_DYNAMIC_ANALYSIS_WORKERS — how many dynamic-analysis *jobs* run at once
   MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS — how many worker *processes* one job
     fans its independent match simulations across (0 = one per CPU core)
+  MTG_SESSION_TTL / MTG_SESSION_MAX — idle seconds before a non-table game
+    session is swept / max live sessions (BUG-43)
+  MTG_LOBBY_MAX_PLAYERS / MTG_LOBBY_MAX_GAMES — lobby registration caps
+  MTG_UPLOAD_MAX_BYTES — per-file sleeve/token upload limit (413 above)
+  MTG_PLAYER_ASSET_MAX_COUNT / MTG_PLAYER_ASSET_MAX_BYTES — per-name upload quota
+  MTG_PLAYER_ASSET_STORE_MAX_BYTES — whole asset-store byte cap (413 above)
+  MTG_BUG_REPORT_MAX_COUNT / MTG_BUG_REPORT_MAX_BYTES — new bug reports are
+    refused (never rotated) past these
   MTG_BIND_HOST — the `--host` address setup/start.py gave uvicorn (empty =
     loopback only); admitted in the Host/Origin allowlist (api/request_guard.py)
   MTG_ALLOWED_HOSTS — extra comma-separated Host names to accept (tests use
@@ -373,6 +381,65 @@ BIND_HOST = _cfg_str("MTG_BIND_HOST", "server", "bind_host", "").strip()
 #: Extra Host header names accepted besides loopback and BIND_HOST.
 EXTRA_ALLOWED_HOSTS = tuple(
     h.strip() for h in _cfg_str("MTG_ALLOWED_HOSTS", "server", "allowed_hosts", "").split(",") if h.strip()
+)
+
+# -- Resource limits (BUG-43) --------------------------------------
+# The app has no auth, so on a shared LAN every unbounded in-memory or
+# on-disk collection is a denial-of-service lever. Defaults are far above
+# what a normal table or user reaches; they only stop runaway clients.
+
+#: How long a goldfish/solo/replay session may go untouched (no get/action)
+#: before the sweeper drops it. A session also holds its undo history, so an
+#: abandoned one is megabytes of RAM. Sessions a lobby table points at are
+#: never expired on their own. The client sees the normal 404 afterwards.
+GAME_SESSION_TTL_SECONDS = _cfg_float(
+    "MTG_SESSION_TTL", "limits", "session_ttl_seconds", 6 * 60 * 60, minimum=1.0
+)
+
+#: Hard cap on live sessions. Creating one past the cap evicts the least
+#: recently used session no lobby table needs; if every session is a table's,
+#: the cap yields rather than killing a running game.
+GAME_SESSION_MAX = _cfg_int("MTG_SESSION_MAX", "limits", "session_max", 200)
+
+#: Most distinct (non-bot) players the lobby registers at once.
+LOBBY_MAX_PLAYERS = _cfg_int("MTG_LOBBY_MAX_PLAYERS", "limits", "lobby_max_players", 64)
+
+#: Most tables (forming or running) the lobby holds at once.
+LOBBY_MAX_GAMES = _cfg_int("MTG_LOBBY_MAX_GAMES", "limits", "lobby_max_games", 32)
+
+#: Per-file upload ceiling for sleeves/token art; the body is read in chunks
+#: and aborted as soon as this is exceeded (HTTP 413).
+PLAYER_UPLOAD_MAX_BYTES = _cfg_int(
+    "MTG_UPLOAD_MAX_BYTES", "limits", "upload_max_bytes", 5 * 1024 * 1024
+)
+
+#: Chunk size when reading an upload, so an oversized body is never held whole.
+UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+
+#: Per-player-name quota across token images + sleeves (count and bytes).
+PLAYER_ASSET_MAX_COUNT = _cfg_int("MTG_PLAYER_ASSET_MAX_COUNT", "limits", "player_asset_max_count", 100)
+PLAYER_ASSET_MAX_TOTAL_BYTES = _cfg_int(
+    "MTG_PLAYER_ASSET_MAX_BYTES", "limits", "player_asset_max_bytes", 100 * 1024 * 1024
+)
+
+#: Slack on top of PLAYER_UPLOAD_MAX_BYTES for the multipart envelope (boundary,
+#: part headers, the label/token_name form field) when judging Content-Length.
+UPLOAD_MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+#: Whole-store cap on uploaded asset bytes. The per-name quota is bypassed by
+#: rotating names (the app has no auth), so the store as a whole is bounded too.
+#: Refused with 413 like the per-name quota (bug reports use 507 as a stored
+#: directory, here the refusal is of the incoming upload).
+PLAYER_ASSET_STORE_MAX_BYTES = _cfg_int(
+    "MTG_PLAYER_ASSET_STORE_MAX_BYTES", "limits", "player_asset_store_max_bytes", 1024 * 1024 * 1024
+)
+
+#: Bug reports are the user's own evidence and are never auto-deleted, so the
+#: cap is a refusal: once the directory holds this many reports (or bytes), a
+#: new report is rejected (HTTP 507) until the user clears some by hand.
+BUG_REPORT_MAX_COUNT = _cfg_int("MTG_BUG_REPORT_MAX_COUNT", "limits", "bug_report_max_count", 1000)
+BUG_REPORT_MAX_TOTAL_BYTES = _cfg_int(
+    "MTG_BUG_REPORT_MAX_BYTES", "limits", "bug_report_max_bytes", 500 * 1024 * 1024
 )
 
 # Persistent local bug reports, outside versioned documentation.
