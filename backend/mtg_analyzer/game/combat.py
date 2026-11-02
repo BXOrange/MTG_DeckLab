@@ -613,6 +613,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "blocked_source_this_turn",
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
+        # RULE 725.1: "creatures the monarch controls" (Azure Fleet Admiral) -- the blocker's controller holds the monarch.
+        "controlled_by_monarch",
         # "each creature dealt damage this turn" (Inflame) — RULE 514.2: marked damage persists to cleanup.
         "damaged_this_turn", "died_this_turn", "attacking_you",
         "even_mana_value",
@@ -927,6 +929,10 @@ def matches_object_filter(
     # cost-less-if-it-targets cycle) — RULE 601.2f cost reduction gated on
     # the chosen target's tap state, a boolean flag like `attacking` above.
     if filt.get("tapped") is not None and bool(getattr(obj, "tapped", False)) != bool(filt["tapped"]):
+        return False
+    if filt.get("controlled_by_monarch") and (
+        state is None or state.monarch_id is None or obj.controller_id != state.monarch_id
+    ):
         return False
     if filt.get("died_this_turn") is not None:
         died = state is not None and any(

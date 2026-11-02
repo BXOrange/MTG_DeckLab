@@ -5,11 +5,14 @@ from . import baldin_century_herdmaster  # noqa: F401
 from . import balthier_and_fran  # noqa: F401
 from . import bane_of_progress  # noqa: F401
 from . import banquet_guests  # noqa: F401
+from . import barad_d_r  # noqa: F401
 from . import baral_and_kari_zev  # noqa: F401
 from . import baral_chief_of_compliance  # noqa: F401
 from . import barret_avalanche_leader  # noqa: F401
 from . import barret_wallace  # noqa: F401
+from . import barrin_tolarian_archmage  # noqa: F401
 from . import bathe_in_light  # noqa: F401
+from . import battle_for_bretagard  # noqa: F401
 from . import battlefield_thaumaturge  # noqa: F401
 from . import battletide_alchemist  # noqa: F401
 from . import beacon_of_unrest  # noqa: F401
@@ -21,6 +24,7 @@ from . import beledros_witherbloom  # noqa: F401
 from . import bello_bard_of_the_brambles  # noqa: F401
 from . import bellowing_aegisaur  # noqa: F401
 from . import benevolent_hydra  # noqa: F401
+from . import benevolent_offering  # noqa: F401
 from . import beseech_the_mirror  # noqa: F401
 from . import betor_ancestor_s_voice  # noqa: F401
 from . import bident_of_thassa  # noqa: F401

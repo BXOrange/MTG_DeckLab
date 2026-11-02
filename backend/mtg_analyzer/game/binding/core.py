@@ -1659,6 +1659,9 @@ def _trigger_condition(
         # ``source_controller_id``). Popped out so it isn't fed to the
         # exact-match loop below.
         by_you = bool(filt.get("by_you"))
+        # ``by_opponent`` (Archfiend of Spite -- "whenever a source **an opponent controls** deals damage to ~"): the
+        # causer-scoped mirror of ``by_you`` (RULE 120.1: a source's controller is who "controls" the damage dealer).
+        by_opponent = bool(filt.get("by_opponent"))
         player_or_planeswalker = bool(filt.get("player_or_planeswalker"))
         # ``recipient_not_you`` (Generous Patron — "counters on a creature **you don't control**"): the counters'
         # recipient is controlled by someone other than this ability's controller.
@@ -1668,14 +1671,14 @@ def _trigger_condition(
         target_creature_you_control = bool(filt.get("target_creature_you_control"))
         exact = {
             k: v for k, v in dict(filt).items()
-            if k not in ("by_you", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control", "event_minimums",
+            if k not in ("by_you", "by_opponent", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control", "event_minimums",
                          "event_maximums")
         }
         event_minimums = dict(filt.get("event_minimums") or {})
         event_maximums = dict(filt.get("event_maximums") or {})  # PAR-147: "a 1 or 2" is min 1 + max 2
 
         def _filter_ok(
-            event: Any, context: Any, f=exact, want_by_you=by_you,
+            event: Any, context: Any, f=exact, want_by_you=by_you, want_by_opponent=by_opponent,
             want_player_or_planeswalker=player_or_planeswalker, want_not_you=recipient_not_you,
             want_own_creature_target=target_creature_you_control,
             minimums=event_minimums, maximums=event_maximums,
@@ -1702,6 +1705,8 @@ def _trigger_condition(
                 if target is None or not getattr(target, "is_planeswalker", False):
                     return False
             if want_by_you and event.get("source_controller_id") != getattr(source, "controller_id", None):
+                return False
+            if want_by_opponent and event.get("source_controller_id") in (None, getattr(source, "controller_id", None)):
                 return False
             return True
 

@@ -1221,6 +1221,7 @@ class LegalActionsMixin:
             # these; found end-to-end testing Ephemerate's Rebound.
             castable = (
                 self._has_warp_permission(player, obj)
+                or self._has_plot_permission(player, obj)
                 or self._castable_from_exile(obj)
                 or self._has_temp_play_permission(obj, player)
                 or self._has_conditional_exile_permission(obj, player)

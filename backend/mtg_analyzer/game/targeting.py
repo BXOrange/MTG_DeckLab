@@ -687,6 +687,9 @@ class TargetSpec:
     same_graveyard: bool = False
     total_power_max: Optional[int] = None
     total_mana_value_max: Optional[int] = None
+    #: RULE 601.2c: "target creature cards that each have a different mana value" (Agadeem's Awakening) -- no two picks
+    #: for this occurrence share a mana value.
+    distinct_mana_values: bool = False
     #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
     #: (see `_cast_time_flag` just below) that, when true for this
     #: requirement's own spell/ability ``source``, drops every narrowing
@@ -2534,6 +2537,11 @@ def add_target_budget_metadata(state, spec, entry):
             option['graveyard_owner_id'] = target.owner_id if target else None
     if spec.any_number:
         entry.update(any_number=True, count=0, count_max=len(entry['options']))
+    if spec.distinct_mana_values:
+        entry['distinct_mana_values'] = True
+        for option in entry['options']:
+            target = state.find_object(option.get('instance_id'))
+            option['mana_value'] = getattr(target, 'mana_value', 0) or 0
     for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
         if limit is None:
             continue
@@ -2550,6 +2558,10 @@ def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
         getattr(getattr(target, 'obj', target), 'owner_id', None) for target in targets
     }) > 1:
         return False
+    if spec.distinct_mana_values:
+        values = [getattr(getattr(target, 'obj', target), 'mana_value', 0) or 0 for target in targets]
+        if len(set(values)) != len(values):
+            return False
     for field, limit in [('power', spec.total_power_max), ('mana_value', spec.total_mana_value_max)]:
         if limit is not None and sum(
             getattr(getattr(target, 'obj', target), field, 0) or 0 for target in targets
@@ -2560,7 +2572,8 @@ def target_group_within_budget(spec: TargetSpec, targets: list[Any]) -> bool:
 
 def budgeted_target_options(state, spec, options, picked=()):
     """Keep choices that fit the remaining aggregate budget of this group."""
-    if not spec.same_graveyard and spec.total_power_max is None and spec.total_mana_value_max is None:
+    if (not spec.same_graveyard and spec.total_power_max is None and spec.total_mana_value_max is None
+            and not spec.distinct_mana_values):
         return options
     return [option for option in options if target_group_within_budget(spec,
         [*picked, state.find_object(option.get('instance_id'))])]

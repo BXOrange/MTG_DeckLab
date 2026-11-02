@@ -10,6 +10,7 @@ from .conditional_flicker import EFFECT_FACTORIES as _CONDITIONAL_FLICKER_FACTOR
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
+from . import singleton_batch2_registry  # noqa: F401  (registers the Batch 2 singleton effect types)
 from ._runtime import install, register
 
 install(globals())
@@ -1836,6 +1837,7 @@ EffectRegistry.register(
         else_destination=p.get("else_destination"),
         pick_mode=p.get("pick_mode"),
         attach_to_previous=bool(p.get("attach_to_previous", False)),
+        distinct_mana_values=bool(p.get("distinct_mana_values", False)),
     ),
 )
 EffectRegistry.register(
@@ -4963,6 +4965,8 @@ EffectRegistry.register(
             **({"spell_type": p["spell_type"]} if p.get("spell_type") else {}),
             # Emet-Selch: only a spell cast from the caster's graveyard.
             **({"from_graveyard": True} if p.get("from_graveyard") else {}),
+            # Aven Interrupter: a spell cast from a graveyard or from exile.
+            **({"from_graveyard_or_exile": True} if p.get("from_graveyard_or_exile") else {}),
             # The Ur-Sphinx's Eminence: functions from the command zone too (`continuous._battlefield_static_abilities`),
             # and "other" spells excludes the source itself.
             **({"from_command_zone": True} if p.get("from_command_zone") else {}),
