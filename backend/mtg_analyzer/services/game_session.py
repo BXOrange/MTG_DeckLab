@@ -30,8 +30,8 @@ a hand is a hidden zone; the client never receives what it may not see),
 and `legal_actions` is computed for that seat rather than for whoever is
 active.
 
-`GameSessionManager` holds sessions in memory keyed by id (like
-`game_ws.py`'s connection manager — single process, not persisted).
+`GameSessionManager` holds sessions in memory keyed by id (single
+process, not persisted).
 """
 
 from __future__ import annotations
@@ -586,6 +586,13 @@ class GameSession:
         #: `view()`/`observer_view()` rather than living on `Player` itself,
         #: keeping the engine model cosmetic-free.
         self._banner_colors: dict[str, str] = {}
+
+        #: True for a Solo-vs-bots session (`api/solo.py`): MULTIPLAYER-mode
+        #: engine, but no lobby table and so no seat check. Together with
+        #: `mode` this decides which REST surface may address the session
+        #: (BUG-38): lobby tables only through `api/multiplayer.py`, solo
+        #: only through `api/solo.py`.
+        self.solo: bool = False
 
         #: Whether a mulligan/keep-hand setup phase gates play (only real
         #: goldfish sessions from `GameSessionManager.create_goldfish` set

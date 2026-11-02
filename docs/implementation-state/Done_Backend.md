@@ -86,11 +86,12 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **What:** `POST /api/decks/save`, `GET /api/decks`, `GET /api/decks/{id}`, `DELETE /api/decks/{id}` persist a decklist distinct from the parse-only `POST /api/decks`; `GE…
 - **Files:** `mtg_analyzer/api/saved_decks.py`, `services/deck_database.py`, `services/deck_validation.py`
 
-### WebSocket game session channel
+### Session isolation per API surface (BUG-38, RULE 400.2)
 
-- **What:** `WebSocket /ws/game/{game_id}` groups connections by game id and runs each client's `player_action` through the same `GameSession`/`GameSessionManager` the REST…
-- **Files:** `mtg_analyzer/api/game_ws.py`, `api/dependencies.py`
-- **Why:** Built as the future channel for pushing an opponent's moves in interactive multiplayer; solo goldfish play still uses REST directly and the channel wasn't wired…
+- **What:** Each session is reachable only through the surface that owns it. `api/game.py` `_session()` serves goldfish and replay sessions and answers 404 for every MULTIPLAYER-mode session (lobby tables and Solo); `api/solo.py` `_session()` serves only sessions flagged `GameSession.solo` (set by `/api/solo/start`, since Solo is a MULTIPLAYER-mode engine with no lobby table). A wrong-surface id gets the same 404 as an unknown one, and DELETE checks before removing. The former `WebSocket /ws/game/{id}` relay (unseated, unredacted broadcast) and the unimported `gameSocket.js` were removed; multiplayer pushes go through `/ws/lobby`. Replacement routes: `POST /api/multiplayer/games/{id}/ui-draft` (seat-checked), `GET /api/multiplayer/games/{id}/replay-export?player_id=` (seat-checked, 409 until the game is over), `POST /api/solo/{id}/ui-draft` (always the human seat) and `GET /api/solo/{id}/replay-export` (any time).
+- **Why:** The table's `session_id` is public in the lobby snapshot, and `GameSessionManager.get` ignores the mode, so any client could read every hand, export library order, act as the active player, rewind past the takeback limit, restart or delete a table. `session_id` stays in `LobbyGame.to_dict` because the board and `mcp_seat.py` use it and it opens nothing once the mode check exists. A multiplayer replay descriptor serializes every hidden zone, so it is only handed out after game over. `player_id` itself is still trusted (BUG-39).
+- **Files:** `api/game.py`, `api/solo.py`, `api/multiplayer.py`, `api/schemas.py` (`MultiplayerUiDraftRequest`), `services/game_session.py` (`solo`), `api/app.py`, `api/console_status.py`
+- **Tests:** `tests/api/test_api_multiplayer.py::TestSessionIsolationBug38` (lobby-table id on every `/api/game` and `/api/solo` route → 404, no `hand` leak, session survives; `/ws/game` gone; export 409/403/200; draft seat check), `tests/api/test_api_solo.py` (solo id → 404 on all `/api/game` routes; solo draft/export routes; non-solo id → 404 there).
 
 ### Archidekt deck import proxy (Import — follow-up from the frontend)
 

@@ -695,6 +695,31 @@ export async function sendMultiplayerAction(gameId, playerId, action) {
   return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/action`, { playerId, action });
 }
 
+/**
+ * BUG-38: replay descriptor of a finished multiplayer game; the server
+ * serves it only to a seated player and only once the game is over.
+ */
+export async function exportMultiplayerReplay(gameId, playerId) {
+  return gameRequest(
+    'GET',
+    `/api/multiplayer/games/${encodeURIComponent(gameId)}/replay-export?player_id=${encodeURIComponent(playerId)}`,
+  );
+}
+
+/** Solo-vs-bots replay export and draft persistence (BUG-38: own routes). */
+export async function exportSoloReplay(sessionId) {
+  return gameRequest('GET', `/api/solo/${encodeURIComponent(sessionId)}/replay-export`);
+}
+
+export async function saveSoloUiDraft(sessionId, draft) {
+  return gameRequest('POST', `/api/solo/${encodeURIComponent(sessionId)}/ui-draft`, { draft });
+}
+
+/** PLR-6 draft persistence, seat-checked (BUG-38). */
+export async function saveMultiplayerUiDraft(gameId, playerId, draft) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/ui-draft`, { playerId, draft });
+}
+
 /** RULE 104.3a: leave the game. */
 export async function concedeMultiplayerGame(gameId, playerId) {
   return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/concede`, { playerId });

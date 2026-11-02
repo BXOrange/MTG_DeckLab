@@ -25,9 +25,7 @@ def test_status_counts_only_connected_players(monkeypatch):
     )
     monkeypatch.setattr(status, "get_lobby", lambda: lobby)
     monkeypatch.setattr(status.lobby_connections, "is_connected", lambda pid: pid == "a")
-    monkeypatch.setattr(status.game_connections, "_connections", {"solo": {object()}})
     result = asyncio.run(status.console_status("secret"))
     assert result["players"] == ["Alice"]
     assert result["games"] == [{"id": "g", "name": "Table", "status": "running"}]
-    assert result["game_connections"] == 1
     assert result["threads"]

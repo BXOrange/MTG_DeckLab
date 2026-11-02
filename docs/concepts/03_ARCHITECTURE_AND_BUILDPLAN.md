@@ -63,7 +63,7 @@ flags/env vars).
 ┌────────────────────────────▼──────────────────────────────────────┐
 │ API LAYER (backend/mtg_analyzer/api/, FastAPI routers)             │
 │ ├─ decks, saved_decks, archetypes, cards, images                 │
-│ ├─ game (goldfish/replay sessions) + game_ws                      │
+│ ├─ game (goldfish/replay sessions)                                │
 │ ├─ multiplayer (lobby bridge) + multiplayer_ws                    │
 │ ├─ solo (Multiplayer engine, no lobby)                            │
 │ ├─ dynamic_analysis, import_external, player_assets                │

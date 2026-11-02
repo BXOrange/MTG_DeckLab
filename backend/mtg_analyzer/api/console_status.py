@@ -7,7 +7,6 @@ from fastapi import APIRouter, Header, HTTPException
 
 from mtg_analyzer.api.dependencies import get_lobby
 from mtg_analyzer.api.multiplayer_ws import manager as lobby_connections
-from mtg_analyzer.api.game_ws import manager as game_connections
 
 router = APIRouter()
 
@@ -22,6 +21,5 @@ async def console_status(x_console_token: str = Header(default="")) -> dict:
     return {
         "players": [p.name for p in lobby.players() if lobby_connections.is_connected(p.id)],
         "games": [{"id": g.id, "name": g.name, "status": g.status} for g in lobby.games()],
-        "game_connections": sum(len(sockets) for sockets in game_connections._connections.values()),
         "threads": [t.name for t in threading.enumerate()],
     }

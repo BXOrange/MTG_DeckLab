@@ -75,6 +75,7 @@ from mtg_analyzer.api.schemas import (
     MultiplayerOptionsRequest,
     MultiplayerPlayerRequest,
     MultiplayerReadyRequest,
+    MultiplayerUiDraftRequest,
 )
 from mtg_analyzer.models.decks.formats import FORMATS
 from mtg_analyzer.services.bots import BOT_TYPES, bot_catalogue, bots_for_game, run_bots
@@ -82,6 +83,7 @@ from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 from mtg_analyzer.services.lobby import Lobby, LobbyError, LobbyGame
+from mtg_analyzer.services.replay import serialize_replay
 
 router = APIRouter(prefix="/api/multiplayer", tags=["multiplayer"])
 
@@ -489,6 +491,51 @@ async def take_back(
     except GameActionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await _after_move(lobby, game, session, request.player_id)
+
+
+@router.post("/games/{game_id}/ui-draft")
+def save_ui_draft(
+    game_id: str,
+    request: MultiplayerUiDraftRequest,
+    lobby: Lobby = Depends(get_lobby),
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+) -> dict[str, Any]:
+    """PLR-6: store (or clear) a seated player's in-progress UI selection.
+
+    Quiet, like the goldfish route: never broadcasts. Seat-checked so a
+    spectator or stranger can't write another seat's draft (BUG-38).
+    """
+    game = _guard(lambda: lobby.game(game_id))
+    session = _require_session(game, sessions)
+    if game.seat_for(request.player_id) is None:
+        raise HTTPException(403, "you have no seat in this game")
+    try:
+        session.set_ui_draft(request.player_id, request.draft)
+    except GameActionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
+
+
+@router.get("/games/{game_id}/replay-export")
+def export_replay(
+    game_id: str,
+    player_id: str,
+    lobby: Lobby = Depends(get_lobby),
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+) -> dict[str, Any]:
+    """Replay descriptor of a finished game, for a player who sat at it.
+
+    The descriptor serializes every zone, libraries in order, so mid-game it
+    would hand a seat its opponents' hidden information (RULE 400.2); it is
+    therefore refused until the game is over (BUG-38).
+    """
+    game = _guard(lambda: lobby.game(game_id))
+    session = _require_session(game, sessions)
+    if game.seat_for(player_id) is None:
+        raise HTTPException(403, "you have no seat in this game")
+    if not session.engine.state.game_over:
+        raise HTTPException(409, "the replay can be exported once the game is over")
+    return serialize_replay(session.engine.state)
 
 
 # -- Shared helpers ------------------------------------------------------

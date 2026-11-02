@@ -22,7 +22,7 @@ import {
   addMultiplayerBot,
   concedeMultiplayerGame,
   createMultiplayerGame,
-  exportReplay,
+  exportMultiplayerReplay,
   fetchBotKinds,
   fetchDeckTokens,
   fetchGameFormats,
@@ -35,6 +35,7 @@ import {
   removeMultiplayerBot,
   getMultiplayerSeatToken,
   sendMultiplayerAction,
+  saveMultiplayerUiDraft,
   setMultiplayerBannerColor,
   setMultiplayerDeck,
   setMultiplayerOptions,
@@ -182,6 +183,10 @@ export function createMultiplayerView(hooks = {}) {
       // what the button calls. Repaint comes from the socket push, like
       // every other action.
       takeBack: () => takeBack(),
+      // BUG-38: drafts go through the seat-checked route, not /api/game.
+      saveUiDraft: (draft) => (game && playerId
+        ? saveMultiplayerUiDraft(game.id, playerId, draft)
+        : Promise.resolve({ ok: false, status: 0, data: null })),
     },
     // Undo and step-skipping are solo-practice affordances: one player can't
     // rewind a shared game, and fast-forwarding would skip the opponent's
@@ -260,14 +265,15 @@ export function createMultiplayerView(hooks = {}) {
         disabled: busy,
         onClick: concede,
       },
-      exportControl(),
+      // BUG-38: the replay file holds every library, so the server only
+      // exports a finished game; the button lives in the game-over list above.
     ];
   }
 
   // Same download-as-file pattern as goldfishView.js's `exportReplayFile`.
   async function exportReplayFile() {
-    if (!game?.session_id) return;
-    const res = await exportReplay(game.session_id);
+    if (!game?.id || !playerId) return;
+    const res = await exportMultiplayerReplay(game.id, playerId);
     if (!res.ok || !res.data) {
       setStatus(t('mp.exportFailed', { status: res.status }), 'warning');
       renderBoard();

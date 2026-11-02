@@ -38,7 +38,7 @@ from mtg_analyzer.api.dependencies import (
     get_lazy_card_loader,
 )
 from mtg_analyzer.api.game import resolve_seat_deck
-from mtg_analyzer.api.schemas import GameActionRequest, SoloStartRequest
+from mtg_analyzer.api.schemas import GameActionRequest, SaveUiDraftRequest, SoloStartRequest
 from mtg_analyzer.models.decks.formats import FORMATS
 from mtg_analyzer.services.bots import BOT_ID_PREFIX, BOT_TYPES, create_bot, run_bots
 from mtg_analyzer.services.lobby import MCP_BOT_KIND
@@ -46,6 +46,7 @@ from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 from mtg_analyzer.services.lobby import normalize_banner_color
+from mtg_analyzer.services.replay import serialize_replay
 
 router = APIRouter(prefix="/api/solo", tags=["solo"])
 
@@ -125,6 +126,7 @@ def start(
         game_format=request.game_format,
     )
     session._banner_colors = banner_colors
+    session.solo = True
     session._solo_bots = {
         player_id: create_bot(kind, player_id, name)
         for player_id, _deck, kind, name in plan
@@ -189,10 +191,35 @@ def restart(
     return _solo_view(session)
 
 
+@router.post("/{session_id}/ui-draft")
+def save_ui_draft(
+    session_id: str,
+    request: SaveUiDraftRequest,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+) -> dict[str, Any]:
+    """PLR-6: store (or clear) the human's in-progress UI selection."""
+    session = _session(sessions, session_id)
+    try:
+        # The one real player is the human seat, whatever the body names.
+        session.set_ui_draft(SOLO_HUMAN_ID, request.draft)
+    except GameActionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
+
+
+@router.get("/{session_id}/replay-export")
+def export_replay(
+    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+) -> dict[str, Any]:
+    """Replay descriptor of the human's own game against bots (any time)."""
+    return serialize_replay(_session(sessions, session_id).engine.state)
+
+
 @router.delete("/{session_id}")
 def delete_session(
     session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
 ) -> dict[str, Any]:
+    _session(sessions, session_id)  # BUG-38: only a Solo session may be deleted here
     if not sessions.remove(session_id):
         raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"')
     return {"deleted": True}
@@ -222,6 +249,11 @@ def _advance_solo_bots(session: GameSession) -> dict[str, Any]:
 
 def _session(sessions: GameSessionManager, session_id: str) -> GameSession:
     try:
-        return sessions.get(session_id)
+        session = sessions.get(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"') from exc
+    # BUG-38: a goldfish, replay or lobby-table session is not a solo session;
+    # 404 exactly like an unknown id so its existence is not revealed.
+    if not session.solo:
+        raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"')
+    return session

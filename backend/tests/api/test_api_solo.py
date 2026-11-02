@@ -407,3 +407,29 @@ def test_smart_bot_is_selectable_and_retains_own_strategy_on_restart(env):
     restarted = env['client'].post(f"/api/solo/{v['session_id']}/restart")
     assert restarted.status_code == 200
     assert session._bot_strategies[bot_id] is strategy
+
+
+def test_solo_session_refused_on_every_goldfish_route_but_has_its_own_draft_and_export(env):
+    """BUG-38: `/api/game` answers 404 for a Solo session on every route;
+    `/api/solo` serves the draft and export helpers (and only for Solo ids)."""
+    client = env["client"]
+    deck = _legal_deck(env["decks"])
+    sid = _start(client, deck.id).json()["session_id"]
+    for res in (
+        client.get(f"/api/game/{sid}"),
+        client.get(f"/api/game/{sid}/replay-export"),
+        client.post(f"/api/game/{sid}/ui-draft", json={"playerId": SOLO_HUMAN_ID, "draft": None}),
+        client.post(f"/api/game/{sid}/action", json={"type": "pass_priority"}),
+        client.post(f"/api/game/{sid}/rewind", json={"steps": 1}),
+        client.post(f"/api/game/{sid}/restart", json={}),
+        client.delete(f"/api/game/{sid}"),
+    ):
+        assert res.status_code == 404
+    assert client.post(f"/api/solo/{sid}/ui-draft", json={"draft": {"k": 1}}).status_code == 200
+    assert env["sessions"].get(sid)._ui_drafts[SOLO_HUMAN_ID] == {"k": 1}
+    assert client.get(f"/api/solo/{sid}/replay-export").status_code == 200
+    # A non-Solo session is invisible to the Solo helpers.
+    from mtg_analyzer.services.replay import blank_replay
+    other = env["sessions"].create_replay(blank_replay(2), loader=None).id
+    assert client.post(f"/api/solo/{other}/ui-draft", json={"draft": None}).status_code == 404
+    assert client.get(f"/api/solo/{other}/replay-export").status_code == 404

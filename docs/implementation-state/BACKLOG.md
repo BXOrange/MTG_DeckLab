@@ -105,21 +105,8 @@ claimed cards.
 ## BUG — Bugs
 
 Security audit 2026-10-30 (BUG-38…45). A1/A2 reproduced against the running app via the API.
-Order: BUG-38 → BUG-39 → BUG-40/41/42 (one shared middleware) → BUG-43…45.
+Order: BUG-39 → BUG-40/41/42 (one shared middleware) → BUG-43…45.
 
-- **BUG-38 · Multiplayer sessions reachable through the solo/goldfish APIs (critical).** The
-  table's `session_id` is public in the lobby snapshot (`LobbyGame.to_dict`) and
-  `GameSessionManager.get` ignores the mode, so anyone can read every hand
-  (`GET /api/game/{sid}`, `view()` without `perspective`), the full state including library
-  order (`/replay-export`), act as the active player (`/action`, `actor_id=None`), and
-  `/rewind` (bypassing the takeback limit), `/restart` or `DELETE` the table; `/ws/game/{sid}`
-  does the same and broadcasts the unredacted view.
-  Tasks: mode check in `api/game.py`/`api/solo.py` `_session()` (MULTIPLAYER only through
-  `api/multiplayer.py`; solo only through `api/solo.py`); remove `/ws/game` (`api/game_ws.py`
-  together with the unimported `frontend/src/js/gameSocket.js`; also update `console_status.py`'s
-  `game_connections`) or bind it to a seat and perspective;
-  check whether `session_id` must appear in `LobbyGame.to_dict` at all; regression tests per
-  route (MP session → 404/403, no `hand` leak).
 - **BUG-39 · Impersonation through the public `player_id` (critical).** Every lobby/seat ID
   (`LobbyPlayer.to_dict`, `Seat.to_dict`, `host_id`) reaches every client, and every REST/WS
   route trusts the `player_id` from the request: read a foreign hand
@@ -133,8 +120,8 @@ Order: BUG-38 → BUG-39 → BUG-40/41/42 (one shared middleware) → BUG-43…4
   (`lobbySocket.js`, `multiplayerView.js`, `api.js`); tests: foreign ID without the secret →
   403, hijack via `connect` no longer possible. Prerequisite for PLR-9.
 - **BUG-40 · No Origin check on WebSockets (CSWSH).** CORS does not apply to WS; any website
-  the user opens can open `ws://localhost:8000/ws/lobby` (and `/ws/game`) and act together with
-  BUG-38/39. Tasks: check `Origin` in the handshake against `_LOCAL_DEV_ORIGIN_REGEX` plus the
+  the user opens can open `ws://localhost:8000/ws/lobby` and act together with
+  BUG-39. Tasks: check `Origin` in the handshake against `_LOCAL_DEV_ORIGIN_REGEX` plus the
   server's own host (and the `--host` address), otherwise close 1008; test with a foreign Origin.
 - **BUG-41 · No Host-header check (DNS rebinding).** `Host: attacker.example` is accepted, so
   a website can reach the whole API on 127.0.0.1 through rebinding (read/delete decks, LLM

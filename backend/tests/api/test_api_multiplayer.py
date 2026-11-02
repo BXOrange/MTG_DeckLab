@@ -1550,3 +1550,83 @@ def test_mcp_server_credential_rotation_and_seat_are_both_required(env):
     assert client.get('/api/mcp-seat/view', headers={**headers, 'X-MCP-Server-Token': rotated}).status_code == 200
     assert seat_token not in str(client.get('/api/mcp-settings').json())
     assert rotated not in str(client.get('/api/mcp-settings').json())
+
+
+class TestSessionIsolationBug38:
+    """BUG-38: a lobby table's `session_id` is public, so the goldfish/solo
+    REST surfaces must not address it; only the seat-checked routes may."""
+
+    def _running(self, env):
+        client = env["client"]
+        gid, ann, bob = _seated_game(env)
+        body = client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann}).json()
+        return gid, ann, bob, body["game"]["session_id"]
+
+    def test_goldfish_routes_404_for_a_lobby_table_and_leak_nothing(self, env):
+        client = env["client"]
+        _gid, ann, _bob, sid = self._running(env)
+        responses = [
+            client.get(f"/api/game/{sid}"),
+            client.get(f"/api/game/{sid}/replay-export"),
+            client.post(f"/api/game/{sid}/ui-draft", json={"playerId": ann, "draft": None}),
+            client.post(f"/api/game/{sid}/action", json={"type": "pass_priority"}),
+            client.post(f"/api/game/{sid}/rewind", json={"steps": 1}),
+            client.post(f"/api/game/{sid}/restart", json={}),
+            client.delete(f"/api/game/{sid}"),
+        ]
+        for res in responses:
+            assert res.status_code == 404
+            assert "hand" not in res.text
+        assert env["sessions"].get(sid)  # still alive, DELETE did not remove it
+
+    def test_solo_routes_404_for_a_lobby_table(self, env):
+        client = env["client"]
+        _gid, _ann, _bob, sid = self._running(env)
+        for res in (
+            client.get(f"/api/solo/{sid}"),
+            client.post(f"/api/solo/{sid}/action", json={"type": "pass_priority"}),
+            client.post(f"/api/solo/{sid}/concede", json={}),
+            client.post(f"/api/solo/{sid}/restart", json={}),
+            client.delete(f"/api/solo/{sid}"),
+            client.post(f"/api/solo/{sid}/ui-draft", json={"draft": None}),
+            client.get(f"/api/solo/{sid}/replay-export"),
+        ):
+            assert res.status_code == 404
+            assert "hand" not in res.text
+        assert env["sessions"].get(sid)
+
+    def test_solo_routes_404_for_a_goldfish_session(self, env):
+        sid = env["sessions"].create_replay(
+            __import__("mtg_analyzer.services.replay", fromlist=["x"]).blank_replay(2), loader=None
+        ).id
+        assert env["client"].get(f"/api/solo/{sid}").status_code == 404
+        assert env["client"].delete(f"/api/solo/{sid}").status_code == 404
+        assert env["sessions"].get(sid)
+
+    def test_no_game_websocket_remains(self, env):
+        from starlette.websockets import WebSocketDisconnect
+
+        with pytest.raises(WebSocketDisconnect):
+            with env["client"].websocket_connect("/ws/game/anything"):
+                pass
+
+    def test_replay_export_needs_a_seat_and_a_finished_game(self, env):
+        client = env["client"]
+        gid, ann, bob, sid = self._running(env)
+        url = f"/api/multiplayer/games/{gid}/replay-export"
+        assert client.get(url, params={"player_id": ann}).status_code == 409  # mid-game
+        stranger = _connect(client, "Cy")
+        assert client.get(url, params={"player_id": stranger}).status_code == 403
+        env["sessions"].get(sid).engine.state.game_over = True
+        res = client.get(url, params={"player_id": ann})
+        assert res.status_code == 200
+        assert client.get(url, params={"player_id": stranger}).status_code == 403
+
+    def test_ui_draft_is_seat_checked(self, env):
+        client = env["client"]
+        gid, ann, _bob, sid = self._running(env)
+        url = f"/api/multiplayer/games/{gid}/ui-draft"
+        stranger = _connect(client, "Cy")
+        assert client.post(url, json={"playerId": stranger, "draft": {"k": 1}}).status_code == 403
+        assert client.post(url, json={"playerId": ann, "draft": {"k": 1}}).status_code == 200
+        assert env["sessions"].get(sid)._ui_drafts[ann] == {"k": 1}

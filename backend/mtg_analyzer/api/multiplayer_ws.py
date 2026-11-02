@@ -23,7 +23,7 @@ visited and held for as long as the app is open. It carries three things:
   server-side redaction (`services/game_session.py`) is the only thing
   that ever decides who sees a hand.
 
-Like `game_ws.py` this is in-memory and single-process: restarting the
+This is in-memory and single-process: restarting the
 server drops every connection and empties the lobby with it.
 """
 

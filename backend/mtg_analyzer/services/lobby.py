@@ -49,7 +49,7 @@ from the caller (`api/multiplayer.py`, which owns deck resolution), so
 the lobby never imports the engine or the card loader.
 
 Everything is in-memory and single-process, like `GameSessionManager` and
-`game_ws.py`'s connection registry — restarting the server empties the
+`multiplayer_ws.py`'s connection registry — restarting the server empties the
 lobby.
 """
 

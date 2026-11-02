@@ -351,6 +351,15 @@ class MultiplayerActionRequest(MultiplayerPlayerRequest):
     action: dict
 
 
+class MultiplayerUiDraftRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/ui-draft (PLR-6).
+
+    ``draft`` is opaque, caller-defined JSON; ``None`` clears the stored one.
+    """
+
+    draft: Optional[dict] = None
+
+
 # -- Solo vs. bots (api/solo.py) -----------------------------------------
 # The Multiplayer engine (real turns, RULE 117 priority, redacted views)
 # minus the lobby: one human, 1-3 bot opponents, plain REST like goldfish.

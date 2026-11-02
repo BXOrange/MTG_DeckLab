@@ -88,7 +88,6 @@ table — there isn't one.
 | `cards.py` | Card-cache lookups (`POST /api/cards/resolve` batch name→`Card`, search) — the `CardDatabase`/`LazyCardLoader` front door. |
 | `images.py` | Serves cached card art (`ImageCache`) so the browser never calls Scryfall directly. |
 | `game.py` | Goldfish and Replay/Puzzle sessions: start, act, rewind, restart, delete, export a replay descriptor — see Part 3. |
-| `game_ws.py` | `/ws/game/{game_id}` — a relay that exists but is not wired into any current frontend view; see Part 4. |
 | `multiplayer.py` | The lobby-to-session bridge: create/join/configure a table, seat bots, start, act, concede, take back — see Part 4. |
 | `multiplayer_ws.py` | `/ws/lobby` — presence plus the live push channel multiplayer actually uses; also owns `sweeper`/`sweep_once`. |
 | `solo.py` | Solo-vs-Bots (PLR-14): the same multiplayer engine minus the lobby, one human seat plus 1–3 bot seats, plain REST. |
@@ -301,23 +300,14 @@ lets an all-bot table play itself out).
 
 ---
 
-# PART 5: `/ws/game/{game_id}` — the relay that exists but isn't used
+# PART 5: no `/ws/game` relay (removed, BUG-38)
 
-`api/game_ws.py` defines a second WebSocket, `/ws/game/{game_id}`,
-structurally similar to `/ws/lobby`: a client sends a `player_action`
-message, the server runs it through the `GameSession` already registered
-under that `game_id` in the same `GameSessionManager` the REST API uses,
-and broadcasts the resulting (unredacted — it has no `perspective`
-argument) `view` to every connection on that `game_id`. `frontend/src/js/
-gameSocket.js` implements a matching client (`connectGameSocket`), but by
-its own doc comment "isn't wired into any view yet" — Goldfisch and Replay
-both drive their sessions purely over REST (`goldfishView.js`/
-`replayView.js` calling straight into `api.js`-style `fetch` wrappers
-against `api/game.py`), and Multiplayer/Solo use the `/ws/lobby` +
-`api/multiplayer.py`/`api/solo.py` REST surface described in Part 4
-instead. Treat `/ws/game/{game_id}` as present-but-dormant infrastructure,
-not a channel anything currently depends on, when reasoning about the live
-system.
+An unused `/ws/game/{game_id}` relay once existed; it applied actions to any
+session by id and broadcast the unredacted view, so it was deleted. Live
+pushes go only through `/ws/lobby` (redacted per seat). `api/game.py`
+likewise answers 404 for a lobby table's session id (and `api/solo.py` for
+anything that is not a Solo session); a table is reachable solely through
+the seat-checked `api/multiplayer.py` routes.
 
 The underlying reason goldfish/replay don't need a socket at all: they're
 single-player-perspective by construction (a goldfish dummy opponent never

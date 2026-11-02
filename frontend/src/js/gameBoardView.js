@@ -126,7 +126,7 @@ const TARGET_CHOICE_KINDS = new Set(['trigger_target', 'trigger_target_multi', '
  *   Entscheidung/Priorität/Zurücknehmen/Neu starten/Zonen-Seite) — e.g.
  *   goldfishView's "Als Replay speichern"/"Beenden", replayView's "Zurück
  *   zum Editor".
- * @param {{sendAction?: Function, rewind?: Function}} [opts.transport] How
+ * @param {{sendAction?: Function, rewind?: Function, saveUiDraft?: Function}} [opts.transport] How
  *   actions reach the server. Defaults to the REST session API (`api.js`'s
  *   `sendGameAction`/`rewindGame`), which is right for every solo mode;
  *   multiplayer swaps in its own so each action is attributed to a seat
@@ -1217,12 +1217,18 @@ export function createGameBoardView(opts = {}) {
   function persistBlockDraft() {
     if (!sessionId) return;
     const assignments = Array.from(blockDraft, ([blocker, attacker]) => ({ blocker, attacker }));
-    saveUiDraft(sessionId, view?.perspective ?? null, assignments.length ? { kind: 'block', assignments } : null);
+    postUiDraft(assignments.length ? { kind: 'block', assignments } : null);
   }
 
   function persistCastTargetingDraft() {
     if (!sessionId) return;
-    saveUiDraft(sessionId, view?.perspective ?? null, castTargeting ? { kind: 'cast', castTargeting } : null);
+    postUiDraft(castTargeting ? { kind: 'cast', castTargeting } : null);
+  }
+
+  // BUG-38: multiplayer supplies its own seat-checked draft route.
+  function postUiDraft(draft) {
+    if (transport.saveUiDraft) return transport.saveUiDraft(draft);
+    return saveUiDraft(sessionId, view?.perspective ?? null, draft);
   }
 
   // Best-effort rehydration on `start()`: only accepts the saved draft if

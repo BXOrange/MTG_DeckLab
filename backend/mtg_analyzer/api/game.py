@@ -17,9 +17,11 @@ server-held session (mtg_analyzer/services/game_session.py):
 * ``POST /api/game/multiplayer``    — stub (501): interactive multiplayer
                                       isn't implemented yet (UC4).
 
-This is the REST control surface; the existing ``/ws/game/{id}`` WebSocket
-(api/game_ws.py) is still a transport-only relay and not yet fed by these
-sessions (see ToDo "Not yet wired").
+BUG-38: these routes address goldfish and replay sessions only. A lobby
+table (MULTIPLAYER mode) is reachable solely through the seat-checked
+``api/multiplayer.py``, and a Solo session through ``api/solo.py``; a
+session of the wrong kind answers 404 like an unknown id (a Solo session
+has its own ``ui-draft`` and ``replay-export`` there).
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_tokens import producible_tokens
 from mtg_analyzer.services.deck_validation import apply_legality
 from mtg_analyzer.services.game_session import (
+    MULTIPLAYER,
     GameActionError,
     GameSessionManager,
     MultiplayerNotImplementedError,
@@ -387,13 +390,19 @@ def restart(
 def delete_session(
     session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
 ) -> dict[str, object]:
-    if not sessions.remove(session_id):
-        raise HTTPException(status_code=404, detail=f'No game session "{session_id}"')
+    _session(sessions, session_id)  # BUG-38: wrong-mode ids 404 before anything is removed
+    sessions.remove(session_id)
     return {"deleted": True}
 
 
 def _session(sessions: GameSessionManager, session_id: str):
     try:
-        return sessions.get(session_id)
+        session = sessions.get(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f'No game session "{session_id}"') from exc
+    # BUG-38: a MULTIPLAYER-mode session (lobby table or Solo) holds other
+    # seats' hidden zones and has no seat check here (RULE 400.2); it is
+    # reachable only via api/multiplayer.py or api/solo.py. 404 like unknown.
+    if session.mode == MULTIPLAYER:
+        raise HTTPException(status_code=404, detail=f'No game session "{session_id}"')
+    return session

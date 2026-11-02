@@ -633,8 +633,8 @@ repointed there.
 
 ### "Save as Replay" from Multiplayer (PLR-10)
 
-- **What:** Ports goldfish's existing "Als Replay speichern" button (already mode-agnostic server-side) onto the Multiplayer board's seat controls, for both in-progress and finished games.
-- **Files:** `multiplayerView.js`
+- **What:** Ports goldfish's "Als Replay speichern" button onto the Multiplayer board's seat controls. Since BUG-38 it calls the seat-checked `GET /api/multiplayer/games/{id}/replay-export` and appears only in the game-over controls, because the descriptor holds every library. UI drafts reach the server through a `transport.saveUiDraft` hook on `gameBoardView.js` (Multiplayer: `/api/multiplayer/games/{id}/ui-draft`, Solo: `/api/solo/{id}/ui-draft`, goldfish/replay fall back to `/api/game`); Solo's export uses `/api/solo/{id}/replay-export`. Verified with Playwright (Solo export and draft 200, multiplayer board without export button mid-game).
+- **Files:** `multiplayerView.js`, `soloView.js`, `gameBoardView.js`, `api.js` (`exportMultiplayerReplay`, `saveMultiplayerUiDraft`, `exportSoloReplay`, `saveSoloUiDraft`)
 
 ## Solo vs. Bots
 

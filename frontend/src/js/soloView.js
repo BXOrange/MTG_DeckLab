@@ -17,7 +17,8 @@ import {
   concedeSolo,
   restartSolo,
   endSolo,
-  exportReplay,
+  exportSoloReplay,
+  saveSoloUiDraft,
   listSavedDecks,
   getDeckValidation,
   listFavoriteDecks,
@@ -105,6 +106,8 @@ export function createSoloView() {
   const board = createGameBoardView({
     // Paint the human action first, then each bot action in a separate poll.
     transport: {
+      // BUG-38: drafts go through the Solo route, not /api/game.
+      saveUiDraft: (draft) => (sessionId ? saveSoloUiDraft(sessionId, draft) : Promise.resolve({ ok: false })),
       sendAction: async (action) => {
         if (!sessionId) return { ok: false, status: 0, data: null };
         soloActionPending = true;
@@ -482,7 +485,7 @@ export function createSoloView() {
 
   async function exportReplayFile() {
     if (!sessionId || busy) return;
-    const res = await exportReplay(sessionId);
+    const res = await exportSoloReplay(sessionId);
     if (!res.ok || !res.data) {
       setStatus(`Export fehlgeschlagen (${res.status}).`, 'warning');
       render();
