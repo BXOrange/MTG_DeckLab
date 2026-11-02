@@ -47,7 +47,9 @@ def test_multiplayer_loads_each_saved_sideboard_but_only_owner_identity():
     from mtg_analyzer.services.lobby import Lobby
     _,db=_setup({'Forest':_forest(),'Test Commander':_commander(),'Outside':Card(id='Outside',name='Outside',type_line='Artifact')})
     app.dependency_overrides[get_lobby]=lambda:lobby
-    lobby=Lobby();client=TestClient(app)
+    lobby=Lobby()
+    from mp_secret_client import SecretInjectingClient
+    client=SecretInjectingClient(app,lobby=lobby)
     try:
         deck=Deck(name='Sideboard seats',commander_text='1 Test Commander',mainboard_text='99 Forest',sideboard_text='1 Outside');db.save_deck(deck)
         ids=[client.post('/api/multiplayer/connect',json={'name':name}).json()['player']['id'] for name in ['Ann','Bob']]

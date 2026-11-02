@@ -94,6 +94,17 @@ not.
   token first, so two browsers with one display name stay distinct. Not auth (PLR-9).
   Tokens unused for `MTG_CLIENT_TOKEN_VALIDITY` are forgotten along with that
   name's `player_assets.py` uploads unless another player shares the name.
+- **Player secret (BUG-39).** Lobby/seat ids are public, so every `LobbyPlayer`
+  has a server-minted `secret` (`secrets.token_urlsafe`), delivered only in the
+  `/ws/lobby` `welcome` / `POST /connect` reply and never in a snapshot or
+  broadcast. Every multiplayer REST route (incl. `game_view`, `ui-draft`,
+  `replay-export`) needs it as `X-Player-Secret` (403 otherwise,
+  `api/multiplayer._authenticate`, `compare_digest`); a `player_id` reclaim (REST
+  `secret` field, WS first frame `{"type":"auth","secret":…}`) only works with it,
+  otherwise the id is ignored. Independent of `client_token`: the token still
+  reclaims by itself and gets the secret back in `welcome`. The frontend keeps
+  id + secret in `sessionStorage` (`playerIdentity.js`) so a refresh reclaims the
+  seat. MCP seats keep their own seat token. Bots act server-side, no secret.
 - A lost socket does not forfeit: a grace period
   (`MTG_MULTIPLAYER_DISCONNECT_GRACE`, 90s) with `pass_for_absent_players`, then
   concede. A priority holder silent past `MTG_MULTIPLAYER_IDLE_TIMEOUT` (120s) has

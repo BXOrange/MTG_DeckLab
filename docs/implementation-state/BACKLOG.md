@@ -59,8 +59,10 @@ claimed cards.
   copy/clear/forge it and nothing notices — and a client that has never
   opened Profil still resolves purely by name, the original "two people
   sharing a name share a seat" collision. Fine for a LAN table, not for
-  anything public. Builds on the per-player secret from BUG-39 (session cookie
-  `HttpOnly`, `SameSite=Strict`). The 2026-10-30 audit also requires scoping
+  anything public. Builds on the per-player lobby secret (`LobbyPlayer.secret`, `X-Player-Secret`
+  header, WS `auth` frame); the legacy name fallback still hands a token-less player's
+  seat and secret to anyone connecting with the same name, and closing that is part of
+  this ticket. The 2026-10-30 audit also requires scoping
   saved decks per account (today `DELETE /api/saved-decks/{id}` deletes anyone's
   deck) and dropping the legacy name fallback in `Lobby.connect` (taking over a seat
   by name alone).
@@ -70,7 +72,7 @@ claimed cards.
   also deletes a name's uploads when a foreign token expires (`delete_all_for_player(name)`
   in `api/multiplayer_ws.sweep_once`), which lets an attacker who uses the victim's name with
   their own token wipe the victim's art. Tasks: until PLR-9 lands, accept writes/deletes only
-  with the BUG-39 secret of the owning player; purge only uploads the expired token created
+  with the lobby secret (`LobbyPlayer.secret`) of the owning player; purge only uploads the expired token created
   itself (store the token/owner per row); after PLR-9, migrate to `account_id`.
 - **PLR-17 · Protect admin/server routes.** Anyone who can reach the port can change or clear
   the LLM settings (`PUT /api/llm/settings`), burn LLM quota (`/api/llm/test`, narrative
@@ -105,23 +107,11 @@ claimed cards.
 ## BUG — Bugs
 
 Security audit 2026-10-30 (BUG-38…45). A1/A2 reproduced against the running app via the API.
-Order: BUG-39 → BUG-40/41/42 (one shared middleware) → BUG-43…45.
+Order: BUG-40/41/42 (one shared middleware) → BUG-43…45.
 
-- **BUG-39 · Impersonation through the public `player_id` (critical).** Every lobby/seat ID
-  (`LobbyPlayer.to_dict`, `Seat.to_dict`, `host_id`) reaches every client, and every REST/WS
-  route trusts the `player_id` from the request: read a foreign hand
-  (`GET /api/multiplayer/games/{gid}?player_id=`), act/concede/take back/use host options in
-  someone else's name; `connect` with a foreign `playerId` plus your own `clientToken` binds that
-  token to the victim, renames them and kicks their socket (`replaced`).
-  Tasks: generate a secret server-side per `LobbyPlayer` (`secrets.token_urlsafe`), deliver it
-  only in `welcome`/`connect`, never in snapshots; check it in every mutating multiplayer route,
-  in `game_view`, `ui-draft` and the WS (`api/multiplayer_ws.py`), with `compare_digest`;
-  reclaim through `player_id` only together with the secret; adapt the frontend
-  (`lobbySocket.js`, `multiplayerView.js`, `api.js`); tests: foreign ID without the secret →
-  403, hijack via `connect` no longer possible. Prerequisite for PLR-9.
 - **BUG-40 · No Origin check on WebSockets (CSWSH).** CORS does not apply to WS; any website
-  the user opens can open `ws://localhost:8000/ws/lobby` and act together with
-  BUG-39. Tasks: check `Origin` in the handshake against `_LOCAL_DEV_ORIGIN_REGEX` plus the
+  the user opens can open `ws://localhost:8000/ws/lobby` and join the lobby as a new player
+  (or by name, see PLR-9). Tasks: check `Origin` in the handshake against `_LOCAL_DEV_ORIGIN_REGEX` plus the
   server's own host (and the `--host` address), otherwise close 1008; test with a foreign Origin.
 - **BUG-41 · No Host-header check (DNS rebinding).** `Host: attacker.example` is accepted, so
   a website can reach the whole API on 127.0.0.1 through rebinding (read/delete decks, LLM
@@ -152,5 +142,5 @@ Order: BUG-39 → BUG-40/41/42 (one shared middleware) → BUG-43…45.
   `provider=compatible` and only after an explicit opt-in, or resolve and check the IP;
   (b) `requirements.txt` has no pins/lockfile → pin with hashes (keep it consistent with the
   offline wheels in `setup/wheels/`); (c) a bug report with the `session_id` of a multiplayer
-  table stores every hidden zone; acceptable locally, but after BUG-39 only accept it from a seat
+  table stores every hidden zone; acceptable locally, but only accept it (with the lobby secret) from a seat
   of that table.

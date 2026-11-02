@@ -16,13 +16,15 @@
 //   disconnected         — *this* client is being dropped by the server, with
 //                          a reason ("idle", "replaced", "timeout").
 //
-// Reconnects with backoff. The reclaim is by **player name** (the Profil
+// Reconnects with backoff. The reclaim is by the stored playerId + secret
+// (BUG-39), then client token, then **player name** (the Profil
 // tab): the server holds a disconnected player's seat for a grace period and
 // hands it back to whoever comes back under that name, so a page reload
 // doesn't cost you a game. Uses the same user-configurable backend address
 // as api.js (settings.js), translated to a ws(s):// URL.
 
 import { getServerUrl } from './settings.js';
+import { getPlayerIdentity, setPlayerIdentity } from './playerIdentity.js';
 
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
 
@@ -57,7 +59,9 @@ function lobbySocketUrl(name, playerId, clientToken) {
  * }} handlers
  */
 export function connectLobbySocket(handlers = {}) {
-  let playerId = handlers.playerId || null;
+  // BUG-39: a refreshed tab keeps its id + secret (sessionStorage) so the
+  // server hands the same player back; the secret never goes in the URL.
+  let playerId = handlers.playerId || getPlayerIdentity().playerId || null;
   const clientToken = handlers.clientToken || null;
   let socket = null;
   let attempt = 0;
@@ -76,6 +80,9 @@ export function connectLobbySocket(handlers = {}) {
 
     socket.addEventListener('open', () => {
       attempt = 0;
+      // First frame: the secret for the playerId named in the URL (the
+      // server waits briefly for it and otherwise ignores that id).
+      if (playerId) send({ type: 'auth', secret: getPlayerIdentity().secret || '' });
       handlers.onStatus?.(true, droppedReason);
       droppedReason = null;
       send({ type: 'presence', state: presence });
@@ -106,6 +113,7 @@ export function connectLobbySocket(handlers = {}) {
       }
       if (message.type === 'welcome') {
         playerId = message.player_id;
+        setPlayerIdentity(message.player_id, message.secret);
         handlers.onWelcome?.(message.player_id, message.lobby, message.reclaimed);
       } else if (message.type === 'lobby_update') {
         handlers.onLobby?.(message.lobby);

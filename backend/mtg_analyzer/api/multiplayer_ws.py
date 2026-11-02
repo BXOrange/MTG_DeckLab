@@ -56,6 +56,16 @@ SWEEP_INTERVAL_SECONDS = 1.0
 _MAX_AUTO_PASSES = 40
 
 
+#: How long a client that names a ``player_id`` has to send its ``auth``
+#: frame (BUG-39). The secret travels in a message, not the URL, so it stays
+#: out of access logs; the wait is bounded so a silent client cannot hold a
+#: half-open socket forever.
+AUTH_FRAME_TIMEOUT_SECONDS = 5.0
+
+#: The first-frame message type that carries the secret for a ``player_id``.
+AUTH_MESSAGE_TYPE = "auth"
+
+
 class LobbyConnectionManager:
     """Every open `/ws/lobby` socket, keyed by the lobby player it belongs to."""
 
@@ -63,7 +73,7 @@ class LobbyConnectionManager:
         self._sockets: dict[str, WebSocket] = {}
 
     async def connect(self, player_id: str, websocket: WebSocket) -> None:
-        await websocket.accept()
+        """Register an already-accepted socket for ``player_id``."""
         self._sockets[player_id] = websocket
 
     def disconnect(self, player_id: str) -> None:
@@ -164,8 +174,19 @@ async def lobby_websocket(
     cause is a dead socket the server hasn't noticed yet, and refusing
     would lock a player out of their own game.
     """
+    # BUG-39: ids are public, so naming one reclaims nothing by itself. The
+    # socket is accepted first so the client can send an ``auth`` frame with
+    # the secret; a missing/wrong secret just drops the id (the connect then
+    # resolves by token/name or mints a fresh player) -- it never rebinds,
+    # renames or kicks the player the id belongs to.
+    await websocket.accept()
+    secret = await _read_auth_secret(websocket) if player_id else None
+    if player_id and not lobby.authenticate(player_id, secret):
+        player_id = None
     reclaimed = manager.is_connected(player_id) if player_id else False
-    player = lobby.connect(name=name, player_id=player_id, client_token=client_token)
+    player = lobby.connect(
+        name=name, player_id=player_id, client_token=client_token, secret=secret
+    )
     if manager.is_connected(player.id):
         reclaimed = True
         await manager.close(player.id, "replaced")
@@ -174,6 +195,9 @@ async def lobby_websocket(
         {
             "type": "welcome",
             "player_id": player.id,
+            # BUG-39: the only delivery channel (besides POST /connect) and
+            # only to this socket; snapshots and broadcasts never carry it.
+            "secret": player.secret,
             "name": player.name,
             "reclaimed": reclaimed,
             "lobby": lobby.snapshot(),
@@ -199,6 +223,22 @@ async def lobby_websocket(
             await _handle(message, player.id, lobby, sessions, websocket)
     except WebSocketDisconnect:
         await handle_disconnect(player.id, lobby, sessions, reason="closed")
+
+
+async def _read_auth_secret(websocket: WebSocket) -> Optional[str]:
+    """Read the client's first frame (``{"type": "auth", "secret": ...}``).
+
+    Anything else, a timeout or a malformed frame yields ``None`` (= not
+    authenticated); the connection itself carries on.
+    """
+    try:
+        message = await asyncio.wait_for(websocket.receive_json(), AUTH_FRAME_TIMEOUT_SECONDS)
+    except (asyncio.TimeoutError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(message, dict) or message.get("type") != AUTH_MESSAGE_TYPE:
+        return None
+    secret = message.get("secret")
+    return secret if isinstance(secret, str) else None
 
 
 async def handle_disconnect(

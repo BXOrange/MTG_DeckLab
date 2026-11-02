@@ -465,6 +465,12 @@ repointed there.
 
 ## Multiplayer Lobby
 
+### Player secret in the client (BUG-39)
+
+- **What:** `playerIdentity.js` keeps the lobby id and server-issued secret in `sessionStorage` (in-memory fallback); `api.js` sends `X-Player-Secret` on every `/api/multiplayer/*` call and stores the identity from `connectToLobby`; `lobbySocket.js` restores it, sends the `auth` frame on open and saves the secret from `welcome`.
+- **Why:** The secret is a credential, not a pref, so not a cookie (it would ride on every request and live for days); a refresh keeps the seat, a new tab falls back to the token/name path. Verified with Playwright: create table, bot, ready, start, keep, refresh reclaims the seat, no multiplayer request without the header.
+- **Files:** `playerIdentity.js` (new), `api.js`, `lobbySocket.js`
+
 ### Setup/Board split + lobby presence
 
 - **What:** "Setup" (lobby: players' presence, tables, seats, ready toggles, host controls) and "Board" (the shared game, disabled until seated) are two tabs under one persistent controller, matching the Goldfisch/Replay pattern.

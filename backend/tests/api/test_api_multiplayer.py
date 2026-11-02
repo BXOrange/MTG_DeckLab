@@ -11,6 +11,7 @@ WebSocket client, since presence is defined by holding that socket.
 import pytest
 from fastapi.testclient import TestClient
 
+from mp_secret_client import SecretInjectingClient
 from mtg_analyzer.api.app import app
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
@@ -74,7 +75,9 @@ def env(tmp_path, monkeypatch):
     app.dependency_overrides[get_deck_database] = lambda: decks
     app.dependency_overrides[get_lazy_card_loader] = lambda: loader
     yield {
-        "client": TestClient(app, headers={"X-MCP-Server-Token": server_token}),
+        "client": SecretInjectingClient(
+            app, lobby=lobby, headers={"X-MCP-Server-Token": server_token}
+        ),
         "mcp_server_token": server_token,
         "lobby": lobby,
         "sessions": sessions,
@@ -1385,6 +1388,7 @@ class TestWatchdog:
 
         time.sleep(0.01)
         with client.websocket_connect(f"/ws/lobby?name=Ann&player_id={ann}") as socket:
+            socket.send_json({"type": "auth", "secret": env["lobby"].player(ann).secret})
             socket.receive_json()  # welcome
             socket.send_json({"type": "ping"})
             pong = _drain_until(socket, "pong")
@@ -1630,3 +1634,181 @@ class TestSessionIsolationBug38:
         assert client.post(url, json={"playerId": stranger, "draft": {"k": 1}}).status_code == 403
         assert client.post(url, json={"playerId": ann, "draft": {"k": 1}}).status_code == 200
         assert env["sessions"].get(sid)._ui_drafts[ann] == {"k": 1}
+
+
+class TestPlayerSecretBug39:
+    """BUG-39: lobby/seat ids are public; every request must prove ownership."""
+
+    def _running(self, env):
+        client = env["client"]
+        gid, ann, bob = _seated_game(env)
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        return gid, ann, bob
+
+    def _calls(self, gid, ann):
+        """Every secret-guarded route, as (method, url, body-or-params)."""
+        base = f"/api/multiplayer/games/{gid}"
+        body = {"playerId": ann}
+        return [
+            ("post", "/api/multiplayer/games", body),
+            ("post", f"{base}/join", body),
+            ("post", f"{base}/observe", body),
+            ("post", f"{base}/leave", body),
+            ("post", f"{base}/deck", {**body, "deckId": "x"}),
+            ("post", f"{base}/banner", {**body, "color": "R"}),
+            ("post", f"{base}/bots", {**body, "kind": "goldfish"}),
+            ("post", f"{base}/bots/token", {**body, "botId": "b"}),
+            ("post", f"{base}/bots/remove", {**body, "botId": "b"}),
+            ("post", f"{base}/options", body),
+            ("post", f"{base}/ready", {**body, "ready": True}),
+            ("post", f"{base}/start", body),
+            ("get", base, {"player_id": ann}),
+            ("post", f"{base}/action", {**body, "action": {"type": "pass_priority"}}),
+            ("post", f"{base}/concede", body),
+            ("post", f"{base}/takeback", body),
+            ("post", f"{base}/ui-draft", {**body, "draft": None}),
+            ("get", f"{base}/replay-export", {"player_id": ann}),
+        ]
+
+    def _send(self, client, method, url, payload, headers):
+        if method == "get":
+            return client.get(url, params=payload, headers=headers)
+        return client.post(url, json=payload, headers=headers)
+
+    def test_every_route_rejects_a_foreign_id_without_or_with_a_wrong_secret(self, env):
+        client = env["client"]
+        gid, ann, bob = self._running(env)
+        bob_secret = env["lobby"].player(bob).secret
+        for method, url, payload in self._calls(gid, ann):
+            for headers in ({"X-Player-Secret": ""}, {"X-Player-Secret": bob_secret}):
+                res = self._send(client, method, url, payload, headers)
+                assert res.status_code == 403, (url, headers, res.text)
+
+    def test_own_secret_is_accepted(self, env):
+        client = env["client"]
+        gid, ann, bob = self._running(env)
+        secret = env["lobby"].player(ann).secret
+        headers = {"X-Player-Secret": secret}
+        res = client.get(f"/api/multiplayer/games/{gid}", params={"player_id": ann}, headers=headers)
+        assert res.status_code == 200
+        assert res.json()["view"]["state"]
+        res = client.post(
+            f"/api/multiplayer/games/{gid}/ui-draft",
+            json={"playerId": ann, "draft": {"k": 1}},
+            headers=headers,
+        )
+        assert res.status_code == 200
+        res = client.get(
+            f"/api/multiplayer/games/{gid}/replay-export", params={"player_id": ann}, headers=headers
+        )
+        assert res.status_code == 409  # authenticated, merely not finished
+
+    def test_foreign_hand_cannot_be_read_or_acted_for(self, env):
+        client = env["client"]
+        gid, ann, bob = self._running(env)
+        url = f"/api/multiplayer/games/{gid}"
+        # Bob presents Ann's id with his own secret.
+        headers = {"X-Player-Secret": env["lobby"].player(bob).secret}
+        assert client.get(url, params={"player_id": ann}, headers=headers).status_code == 403
+        res = client.post(
+            f"{url}/action",
+            json={"playerId": ann, "action": {"type": "pass_priority"}},
+            headers=headers,
+        )
+        assert res.status_code == 403
+
+    def test_connect_returns_the_secret_but_no_snapshot_does(self, env):
+        client = env["client"]
+        body = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()
+        secret = body["secret"]
+        assert secret
+        assert secret not in str(body["lobby"])
+        assert secret not in str(body["player"])
+        gid, ann, bob = self._running(env)
+        for other in (ann, bob):
+            assert env["lobby"].player(other).secret not in client.get("/api/multiplayer/lobby").text
+        lobby_text = str(env["lobby"].snapshot())
+        for player in env["lobby"].players():
+            assert player.secret not in lobby_text
+        game_text = client.get(
+            f"/api/multiplayer/games/{gid}",
+            params={"player_id": ann},
+            headers={"X-Player-Secret": env["lobby"].player(ann).secret},
+        ).text
+        assert env["lobby"].player(bob).secret not in game_text
+        assert env["lobby"].player(ann).secret not in game_text
+
+    def test_connect_with_a_foreign_id_and_own_token_does_not_hijack(self, env):
+        client = env["client"]
+        victim = client.post(
+            "/api/multiplayer/connect", json={"name": "Vic", "clientToken": "tok-v"}
+        ).json()
+        mallory = client.post(
+            "/api/multiplayer/connect",
+            json={
+                "name": "Eve",
+                "playerId": victim["player"]["id"],
+                "clientToken": "tok-eve",
+            },
+        ).json()
+        assert mallory["player"]["id"] != victim["player"]["id"]
+        assert mallory["secret"] != victim["secret"]
+        assert env["lobby"].player(victim["player"]["id"]).name == "Vic"
+        assert env["lobby"].player(victim["player"]["id"]).client_token == "tok-v"
+        assert env["lobby"].player(mallory["player"]["id"]).client_token == "tok-eve"
+
+    def test_reclaim_by_id_needs_the_secret(self, env):
+        client = env["client"]
+        first = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()
+        pid = first["player"]["id"]
+        again = client.post(
+            "/api/multiplayer/connect",
+            json={"name": "Ann2", "playerId": pid, "secret": first["secret"]},
+        ).json()
+        assert again["player"]["id"] == pid
+        assert again["secret"] == first["secret"]
+        stolen = client.post(
+            "/api/multiplayer/connect", json={"name": "Zed", "playerId": pid, "secret": "nope"}
+        ).json()
+        assert stolen["player"]["id"] != pid
+        assert env["lobby"].player(pid).name == "Ann2"
+
+    def test_ws_foreign_id_with_own_token_neither_rebinds_renames_nor_kicks(self, env):
+        client, lobby = env["client"], env["lobby"]
+        with client.websocket_connect("/ws/lobby?name=Vic&client_token=tok-v") as victim:
+            welcome = victim.receive_json()
+            vid = welcome["player_id"]
+            assert welcome["secret"] == lobby.player(vid).secret
+            with client.websocket_connect(
+                f"/ws/lobby?name=Eve&player_id={vid}&client_token=tok-eve"
+            ) as eve:
+                eve.send_json({"type": "auth", "secret": "wrong"})
+                eve_welcome = eve.receive_json()
+                assert eve_welcome["player_id"] != vid
+                assert eve_welcome["secret"] != welcome["secret"]
+                assert eve_welcome["reclaimed"] is False
+                assert lobby.player(vid).name == "Vic"
+                assert lobby.player(vid).client_token == "tok-v"
+                assert lobby.player(vid).connected
+                assert env_manager_connected(vid)
+
+    def test_ws_reclaim_by_id_with_the_secret(self, env):
+        client, lobby = env["client"], env["lobby"]
+        ann = _connect(client, "Ann")
+        with client.websocket_connect(f"/ws/lobby?name=Ann&player_id={ann}") as socket:
+            socket.send_json({"type": "auth", "secret": lobby.player(ann).secret})
+            assert socket.receive_json()["player_id"] == ann
+
+    def test_ws_welcome_secret_is_not_in_broadcasts(self, env):
+        client = env["client"]
+        with client.websocket_connect("/ws/lobby?name=Ann") as ann_socket:
+            ann_welcome = ann_socket.receive_json()
+            with client.websocket_connect("/ws/lobby?name=Bob"):
+                update = _drain_until(ann_socket, "lobby_update")
+                assert ann_welcome["secret"] not in str(update)
+
+
+def env_manager_connected(player_id):
+    from mtg_analyzer.api.multiplayer_ws import manager
+
+    return manager.is_connected(player_id)

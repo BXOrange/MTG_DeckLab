@@ -10,6 +10,7 @@
 
 import { getServerUrl } from './settings.js';
 import { t } from './i18n.js';
+import { getPlayerIdentity, setPlayerIdentity } from './playerIdentity.js';
 
 /**
  * Whether the configured backend address is reachable (GET /api/health).
@@ -414,10 +415,16 @@ export async function deleteSavedDeck(deckId) {
 
 async function gameRequest(method, path, body) {
   let response;
+  const headers = body === undefined ? {} : { 'Content-Type': 'application/json' };
+  // BUG-39: multiplayer routes trust the secret, not the (public) playerId.
+  if (path.startsWith('/api/multiplayer/')) {
+    const { secret } = getPlayerIdentity();
+    if (secret) headers['X-Player-Secret'] = secret;
+  }
   try {
     response = await fetch(`${getServerUrl()}${path}`, {
       method,
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -595,7 +602,13 @@ export async function analyzeArchetypes(payload) {
 
 /** Register with the lobby without a WebSocket (fallback / first contact). */
 export async function connectToLobby(name, playerId = null, clientToken = null) {
-  return gameRequest('POST', '/api/multiplayer/connect', { name, playerId, clientToken });
+  // BUG-39: the stored secret is what lets `playerId` reclaim that player;
+  // the reply carries the (possibly new) secret, which we keep.
+  const identity = getPlayerIdentity();
+  const secret = playerId && playerId === identity.playerId ? identity.secret : null;
+  const res = await gameRequest('POST', '/api/multiplayer/connect', { name, playerId, clientToken, secret });
+  if (res.ok && res.data?.player?.id) setPlayerIdentity(res.data.player.id, res.data.secret);
+  return res;
 }
 
 /** Everyone connected and every table (players + games). */

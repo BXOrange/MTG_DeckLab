@@ -54,7 +54,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
@@ -88,6 +88,28 @@ from mtg_analyzer.services.replay import serialize_replay
 router = APIRouter(prefix="/api/multiplayer", tags=["multiplayer"])
 
 
+#: BUG-39: request header carrying the per-player secret (kept out of URLs
+#: and access logs, unlike a query parameter).
+PLAYER_SECRET_HEADER = "X-Player-Secret"
+
+
+def player_secret(
+    x_player_secret: Optional[str] = Header(default=None, alias=PLAYER_SECRET_HEADER),
+) -> Optional[str]:
+    """The caller's player secret, if they sent one."""
+    return x_player_secret
+
+
+def _authenticate(lobby: Lobby, player_id: Optional[str], secret: Optional[str]) -> None:
+    """BUG-39: lobby/seat ids are public, so naming one proves nothing.
+
+    403 for a missing or wrong secret and for an unknown id alike, so the
+    reply reveals nothing beyond what the lobby snapshot already shows.
+    """
+    if not lobby.authenticate(player_id, secret):
+        raise HTTPException(403, "missing or invalid player secret")
+
+
 # -- Lobby ---------------------------------------------------------------
 
 
@@ -101,10 +123,15 @@ async def connect(
     fallback for a client without a socket (and what the tests use).
     """
     player = lobby.connect(
-        name=request.name, player_id=request.player_id, client_token=request.client_token
+        name=request.name,
+        player_id=request.player_id,
+        client_token=request.client_token,
+        secret=request.secret,
     )
     await lobby_connections.broadcast_lobby(lobby)
-    return {"player": player.to_dict(), "lobby": lobby.snapshot()}
+    # BUG-39: the one place (besides the WS welcome) the secret is delivered,
+    # to the caller only; never part of `to_dict()` or a broadcast.
+    return {"player": player.to_dict(), "secret": player.secret, "lobby": lobby.snapshot()}
 
 
 @router.get("/lobby")
@@ -118,16 +145,20 @@ def lobby_snapshot(lobby: Lobby = Depends(get_lobby)) -> dict[str, Any]:
 
 @router.post("/games")
 async def create_game(
-    request: MultiplayerGameRequest, lobby: Lobby = Depends(get_lobby)
+    request: MultiplayerGameRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.create(request.player_id, request.name, request.num_players))
     return await _game_response(lobby, game)
 
 
 @router.post("/games/{game_id}/join")
 async def join_game(
-    game_id: str, request: MultiplayerPlayerRequest, lobby: Lobby = Depends(get_lobby)
+    game_id: str, request: MultiplayerPlayerRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.join(game_id, request.player_id))
     return await _game_response(lobby, game)
 
@@ -137,17 +168,21 @@ async def observe_game(
     game_id: str,
     request: MultiplayerPlayerRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, Any]:
     """Watch a game: the public board, nobody's hand, no actions."""
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.observe(game_id, request.player_id))
     return await _game_response(lobby, game, sessions, request.player_id)
 
 
 @router.post("/games/{game_id}/leave")
 async def leave_game(
-    game_id: str, request: MultiplayerPlayerRequest, lobby: Lobby = Depends(get_lobby)
+    game_id: str, request: MultiplayerPlayerRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.leave(game_id, request.player_id))
     await lobby_connections.broadcast_lobby(lobby)
     if game is not None:
@@ -160,6 +195,7 @@ async def set_deck(
     game_id: str,
     request: MultiplayerDeckRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     decks: DeckDatabase = Depends(get_deck_database),
 ) -> dict[str, Any]:
     """Pick this seat's deck from the decks saved on the server.
@@ -169,6 +205,7 @@ async def set_deck(
     while they can still change it rather than when the table tries to
     start.
     """
+    _authenticate(lobby, request.player_id, secret)
     deck = decks.get_deck(request.deck_id)
     if deck is None:
         raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
@@ -216,6 +253,7 @@ async def set_banner_color(
     game_id: str,
     request: MultiplayerBannerColorRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
 ) -> dict[str, Any]:
     """Pick the colours this seat's board banner flies (UC4 Setup).
 
@@ -223,6 +261,7 @@ async def set_banner_color(
     (`services/lobby.normalize_banner_color`) and nobody's acceptance is
     cleared by it.
     """
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(
         lambda: lobby.set_banner_color(
             game_id, request.player_id, request.color, seat_id=request.seat_id
@@ -242,9 +281,11 @@ def list_bots() -> dict[str, Any]:
 
 @router.post("/games/{game_id}/bots")
 async def add_bot(
-    game_id: str, request: MultiplayerBotRequest, lobby: Lobby = Depends(get_lobby)
+    game_id: str, request: MultiplayerBotRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
     """Seat a bot. The kind is validated here — the lobby keeps it opaque."""
+    _authenticate(lobby, request.player_id, secret)
     if request.kind not in BOT_TYPES:
         raise HTTPException(400, f'Unknown bot kind "{request.kind}"')
     name = request.name or BOT_TYPES[request.kind].label
@@ -269,28 +310,33 @@ def _mcp_launch_hint() -> dict[str, str]:
 
 @router.post("/games/{game_id}/bots/token")
 def mcp_seat_token(
-    game_id: str, request: MultiplayerBotRemoveRequest, lobby: Lobby = Depends(get_lobby)
+    game_id: str, request: MultiplayerBotRemoveRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
     """An MCP seat's token, for the host to copy into the client (host only).
 
     Deliberately not part of any lobby snapshot or broadcast: the token is
     the seat's only credential.
     """
+    _authenticate(lobby, request.player_id, secret)
     token = _guard(lambda: lobby.mcp_seat_token(game_id, request.player_id, request.bot_id))
     return {"seat_token": token, **_mcp_launch_hint()}
 
 
 @router.post("/games/{game_id}/bots/remove")
 async def remove_bot(
-    game_id: str, request: MultiplayerBotRemoveRequest, lobby: Lobby = Depends(get_lobby)
+    game_id: str, request: MultiplayerBotRemoveRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.remove_bot(game_id, request.player_id, request.bot_id))
     return await _game_response(lobby, game)
 
 
 @router.post("/games/{game_id}/options")
 async def set_options(
-    game_id: str, request: MultiplayerOptionsRequest, lobby: Lobby = Depends(get_lobby)
+    game_id: str, request: MultiplayerOptionsRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
     """Host-only table settings (PLR-13 adds ``gameFormat``/``archenemyId``).
 
@@ -300,6 +346,7 @@ async def set_options(
     to Commander, since a rejected *setting* is something the host can fix
     before the table ever starts, unlike a stale saved game.
     """
+    _authenticate(lobby, request.player_id, secret)
     if request.game_format is not None and request.game_format not in FORMATS:
         raise HTTPException(400, f'Unknown format "{request.game_format}"')
     game = _guard(
@@ -321,8 +368,10 @@ async def set_options(
 
 @router.post("/games/{game_id}/ready")
 async def set_ready(
-    game_id: str, request: MultiplayerReadyRequest, lobby: Lobby = Depends(get_lobby)
+    game_id: str, request: MultiplayerReadyRequest, lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret)
 ) -> dict[str, Any]:
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.set_ready(game_id, request.player_id, request.ready))
     return await _game_response(lobby, game)
 
@@ -332,6 +381,7 @@ async def start_game(
     game_id: str,
     request: MultiplayerPlayerRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
     decks: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
@@ -346,6 +396,7 @@ async def start_game(
     right here. Whatever it returns *is* the turn order the players then
     see in the board's turn-order strip.
     """
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.game(game_id))
     if game.session_id:
         raise HTTPException(409, "this game has already started")
@@ -408,9 +459,11 @@ def game_view(
     game_id: str,
     player_id: str,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, Any]:
     """This player's own view of the game (a seat's, or an observer's)."""
+    _authenticate(lobby, player_id, secret)
     game = _guard(lambda: lobby.game(game_id))
     return {"game": game.to_dict(), "view": _view_for(game, sessions, player_id)}
 
@@ -420,6 +473,7 @@ async def apply_action(
     game_id: str,
     request: MultiplayerActionRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, Any]:
     """Apply one action *as* ``player_id``.
@@ -430,6 +484,7 @@ async def apply_action(
     rest), which is what stops the non-active player from, say, playing a
     land on someone else's turn.
     """
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
@@ -453,9 +508,11 @@ async def concede(
     game_id: str,
     request: MultiplayerPlayerRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, Any]:
     """RULE 104.3a: leave the game. Legal at any time, from any seat."""
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
@@ -473,6 +530,7 @@ async def take_back(
     game_id: str,
     request: MultiplayerPlayerRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, Any]:
     """Undo back through ``player_id``'s own last move (UC4 Setup).
@@ -482,6 +540,7 @@ async def take_back(
     the same way conceding is, since a misclick doesn't wait for a
     convenient moment.
     """
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
@@ -498,6 +557,7 @@ def save_ui_draft(
     game_id: str,
     request: MultiplayerUiDraftRequest,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, Any]:
     """PLR-6: store (or clear) a seated player's in-progress UI selection.
@@ -505,6 +565,7 @@ def save_ui_draft(
     Quiet, like the goldfish route: never broadcasts. Seat-checked so a
     spectator or stranger can't write another seat's draft (BUG-38).
     """
+    _authenticate(lobby, request.player_id, secret)
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
@@ -521,6 +582,7 @@ def export_replay(
     game_id: str,
     player_id: str,
     lobby: Lobby = Depends(get_lobby),
+    secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, Any]:
     """Replay descriptor of a finished game, for a player who sat at it.
@@ -529,6 +591,7 @@ def export_replay(
     would hand a seat its opponents' hidden information (RULE 400.2); it is
     therefore refused until the game is over (BUG-38).
     """
+    _authenticate(lobby, player_id, secret)
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(player_id) is None:

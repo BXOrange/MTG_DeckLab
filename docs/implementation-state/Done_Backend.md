@@ -4587,6 +4587,13 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 - **Files:** `frontend/src/js/settings.js`, `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer_ws.py`, `api/schemas.py`.
 - **Why:** `Lobby.connect`'s reclaim order becomes `player_id` -> `client_token` (if present) -> `name` (legacy, only when no token) — once a token is presented, name is n…
 
+### Per-player lobby secret (BUG-39)
+
+- **What:** Every `LobbyPlayer` gets a server-generated `secret` (`secrets.token_urlsafe(PLAYER_SECRET_BYTES)`), delivered only in the WS `welcome` and the `POST /connect` reply, never in `to_dict()`, snapshots or broadcasts. `Lobby.authenticate` compares it with `hmac.compare_digest`; all 18 player routes of `api/multiplayer.py` (incl. `game_view`, `ui-draft`, `replay-export`, bot/host options) require it in the `X-Player-Secret` header and answer 403 for a missing or wrong secret and an unknown id alike. A WS that names a `player_id` must send `{"type":"auth","secret":…}` as its first frame (`AUTH_FRAME_TIMEOUT_SECONDS`), otherwise the id is ignored. `Lobby.connect` honours a `player_id` only together with its secret, so a foreign id can no longer rebind a token, rename or kick a player.
+- **Why:** Lobby and seat ids are public, so naming one proved nothing: anyone could read a foreign hand, act, concede or use host options in another player's name, or hijack a seat via `connect` with the victim's id and their own token. The secret is independent of `client_token` (a token still reclaims and re-delivers the secret). Header for REST and a first WS frame keep it out of URLs and access logs (browser WebSockets cannot set headers). Residue for PLR-9: the legacy name-only fallback still lets a token-less client take over a token-less player.
+- **Files:** `services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `api/schemas.py`; [MULTIPLAYER.md](../Reference/MULTIPLAYER.md)
+- **Tests:** `tests/api/test_api_multiplayer.py::TestPlayerSecretBug39` (403 per route for no/foreign secret, own secret accepted, no foreign hand read, secret absent from snapshots, `/connect` and WS hijack create a new player and leave the victim untouched, reclaim by id needs the secret); `tests/mp_secret_client.py` adds the header for existing multiplayer tests.
+
 ### Client-Token Expiry & Asset Purge (PLR-4)
 
 - **What:** `Lobby.expired_token_players()`, swept once a second, forgets a client token unused for 90 days (`MTG_CLIENT_TOKEN_VALIDITY`) — never while connected or mid-gam…

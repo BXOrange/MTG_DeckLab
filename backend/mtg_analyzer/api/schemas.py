@@ -248,6 +248,9 @@ class LobbyConnectRequest(BaseModel):
     name: str = "Spieler"
     player_id: Optional[str] = Field(default=None, alias="playerId")
     client_token: Optional[str] = Field(default=None, alias="clientToken")
+    #: BUG-39: the secret handed out by an earlier connect; with it
+    #: ``playerId`` reclaims that player, without it ``playerId`` is ignored.
+    secret: Optional[str] = None
 
 
 class MultiplayerPlayerRequest(BaseModel):

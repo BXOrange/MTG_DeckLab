@@ -80,6 +80,11 @@ MCP_BOT_KIND = "mcp"
 #: guessable.
 MCP_SEAT_TOKEN_BYTES = 32
 
+#: Entropy of a player's secret (BUG-39). Lobby/seat ids are public (every
+#: snapshot lists them), so this secret is the only proof that a request
+#: really comes from the player it names; 32 bytes is far beyond guessable.
+PLAYER_SECRET_BYTES = 32
+
 #: Longest display name an MCP client may give its seat; the name is shown on
 #: every browser's lobby and board, so an unbounded one could flood them.
 MCP_SEAT_NAME_MAX_LENGTH = 40
@@ -229,6 +234,13 @@ class LobbyPlayer:
     #: treated as abandoned by `Lobby.expired_token_players`; ``None`` when
     #: there's no token to expire.
     token_expires_at: Optional[float] = None
+    #: BUG-39: server-minted credential for this player id. ``id`` is public
+    #: (it appears in every lobby snapshot), so every request and a
+    #: ``player_id`` reclaim must present this secret. Handed out only in the
+    #: ``welcome`` / ``POST /connect`` reply to whoever just (re)connected
+    #: (``client_token`` possession counts as proof there), and never
+    #: serialized in `to_dict()` or any broadcast.
+    secret: str = field(default_factory=lambda: secrets.token_urlsafe(PLAYER_SECRET_BYTES))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -446,15 +458,35 @@ class Lobby:
 
     # -- Presence ------------------------------------------------------
 
+    def authenticate(self, player_id: Optional[str], secret: Optional[str]) -> bool:
+        """BUG-39: whether ``secret`` is the secret of lobby player ``player_id``.
+
+        Constant-time compare; an unknown id and a wrong secret are
+        indistinguishable to the caller.
+        """
+        player = self._players.get(player_id) if player_id else None
+        # Compare against an empty value for an unknown id so the work done
+        # does not reveal whether the id exists.
+        expected = player.secret if player is not None else ""
+        given = secret or ""
+        matches = hmac.compare_digest(expected.encode(), given.encode())
+        return player is not None and bool(given) and matches
+
     def connect(
-        self, name: str, player_id: Optional[str] = None, client_token: Optional[str] = None
+        self,
+        name: str,
+        player_id: Optional[str] = None,
+        client_token: Optional[str] = None,
+        secret: Optional[str] = None,
     ) -> LobbyPlayer:
         """Register a client, **reclaiming their seat if they're recognized**.
 
         Identity is resolved in three steps, most specific first:
 
         1. ``player_id`` — a same-tab handle the caller still holds (saves a
-           lookup, survives a rename).
+           lookup, survives a rename). BUG-39: ids are public, so this only
+           reclaims when ``secret`` is that player's secret; otherwise the id
+           is ignored (a foreign id must neither rebind, rename nor kick).
         2. ``client_token`` (PLR-4) — this browser's own token, if it's ever
            saved one. Once a client presents a token it is *authoritative*
            for that client: found, it reclaims that exact player (renaming
@@ -474,7 +506,7 @@ class Lobby:
         the previous socket when this happens.
         """
         existing = None
-        if player_id:
+        if player_id and self.authenticate(player_id, secret):
             existing = self._players.get(player_id)
         if existing is None and client_token:
             existing = self._by_token.get(client_token)
@@ -490,7 +522,10 @@ class Lobby:
             existing.last_action_at = time.monotonic()
             return existing
 
-        player = LobbyPlayer(id=player_id or str(uuid.uuid4()), name=" ".join(name.split()) or "Spieler")
+        # A requested id is only honoured while it is free; it never
+        # overwrites (or aliases) somebody else's entry.
+        new_id = player_id if player_id and player_id not in self._players else str(uuid.uuid4())
+        player = LobbyPlayer(id=new_id, name=" ".join(name.split()) or "Spieler")
         self._players[player.id] = player
         self._by_name[normalize_name(player.name)] = player
         if client_token:
