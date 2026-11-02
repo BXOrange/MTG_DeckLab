@@ -48,8 +48,11 @@ whether it's already registered, the parser's coverage verdict, and — the
 useful part — exactly which clauses the parser can't claim. If `unclaimed`
 is empty, stop: the card is already `MODELED`, no entry needed.
 
-**Cost check before authoring:** run `python $BENCH primitives '<shape>'`
-(step 4) for each unclaimed clause first. If every effect type already exists,
+**Cost check before authoring:** run `python $BENCH primitives '<one keyword>'`
+(step 4; it takes a single word, and a broad one dumps huge parameter lists)
+for each unclaimed clause first. Trigger-level gates (`active_if`, e.g. `of: attached`)
+and referents (`previous_subject`, `create_turn_trigger`) already exist: count them
+before calling a clause "needs a new primitive". If every effect type already exists,
 the card is cheap: `reuse` + `similar` + `scaffold --write`, nothing else. If a
 clause needs a new effect/condition/choice kind, that is `game-engine` work and
 the expensive part (most of the tokens go to finding engine hooks, see
@@ -99,7 +102,7 @@ python $AUTHOR scaffold "Card Name" --write   # also saves the file + appends th
 ```
 
 `--write` saves the module, appends the `__init__` import and writes a standalone
-`tests/game/catalogue/cards/test_<slug>.py` (inline fixtures, no card cache; its
+`tests/game/catalogue/cards/test_<slug>.py` (shared fixtures, so the card DB must exist; its
 `test_end_to_end` fails on purpose until you fill it in), so you only edit the TODOs.
 `scaffold` also lists the 2 closest catalogue entries under each unclaimed clause.
 

@@ -163,4 +163,11 @@ general and is cheaper to reuse than to re-derive:
   (e.g. `game/effects/guessing.py`), and keep edits to shared files
   (`registry.py`, `composition.py`, ...) to one-line registrations: parallel
   sessions share this tree and large edits there conflict.
+- Every new effect type needs a row in `game/isa.py` (`test_isa_inventory` fails
+  otherwise); the continuation backlog is capped, so use the alias table.
+- Test timing: triggers reach `pending_choice` only after `resolve_until_stable()`;
+  advance to `main1` before firing events or the turn stamp is wrong. The pay
+  choice option id is `"pay"`, and an unaffordable pay offer is skipped silently.
+- Scaffolded tests compare `ability_kind` by prefix: Equip/Forecast-style
+  abilities are appended automatically.
 

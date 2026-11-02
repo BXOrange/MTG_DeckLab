@@ -320,6 +320,11 @@ def cmd_scaffold(args) -> None:
         return
     # --write: save the module and its __init__ import; show only the test skeleton.
     module, _, tests = out.partition("# --- test skeleton")
+    # The "save as"/"ALSO add" header is guidance for the paste workflow; the file is already saved.
+    module = "\n".join(
+        ln for ln in module.split("\n")
+        if not ln.startswith(("# save as:", "# (one file", "#  see game/", "# ALSO add", "#     from . import"))
+    )
     target.write_text(module.rstrip("\n") + "\n", encoding="utf-8")
     init = target.parent / "__init__.py"
     with init.open("a", encoding="utf-8") as fh:
@@ -330,7 +335,7 @@ def cmd_scaffold(args) -> None:
 
 
 def _write_test_file(card, result, target: Path) -> Path:
-    """Standalone test module on inline fixtures (no card cache, no edits to the shared catalogue test file)."""
+    """Standalone test module (needs the card DB via the shared fixtures; no edits to the shared catalogue test file)."""
     kinds = [s.ability_kind for s in result.effect_specs]
     attrs = sorted({_KIND_TO_ATTR[k] for k in kinds if k in _KIND_TO_ATTR})
     path = Path(catalogue.__file__).parents[3] / "tests" / "game" / "catalogue" / "cards" / f"test_{target.stem}.py"
@@ -350,7 +355,8 @@ def test_registered_and_fresh_each_call():
     obj = _card(_game(), NAME, zone=Zone.HAND)
     first, second = specs_for(obj.card), specs_for(obj.card)
     assert first and first is not second and first[0] is not second[0]
-    assert [s.ability_kind for s in first] == {kinds!r}
+    # Prefix compare: the engine auto-adds keyword abilities (Equip, Forecast, ...) after the hand-written ones.
+    assert [s.ability_kind for s in first][:{len(kinds)}] == {kinds!r}
 
 
 def test_binds_onto_the_object():
@@ -557,7 +563,11 @@ def cmd_batch(args) -> None:
     db = CardDatabase(args.card_db)
     clauses: list[tuple[str, str]] = []
     for name in args.names:
-        card = load_card(db, name)
+        try:
+            card = load_card(db, name)
+        except SystemExit:
+            print(f"{name}: NOT FOUND in the cache (see suggestions above); skipped")
+            continue
         unclaimed = parse_oracle(card).unclaimed
         print(f"{card.name}: {len(unclaimed)} unclaimed clause(s)")
         for line in unclaimed:
@@ -570,7 +580,7 @@ def cmd_batch(args) -> None:
     pairs = sorted((p for p in pairs if p[0] >= BATCH_SIMILARITY_THRESHOLD), key=lambda t: -t[0])
     print()
     if not pairs:
-        print("no look-alike clauses across these cards: author them independently.")
+        print("no textually look-alike clauses (also scan for a shared keyword family, e.g. all \"can't be blocked\"): author independently unless one is found.")
         return
     print("look-alike clauses (build the primitive once, then author both):")
     for ratio, a, b in pairs:
