@@ -120,5 +120,18 @@ def room_effect_specs(room: DungeonRoom) -> list[dict[str, Any]]:
     survives `GameState.clone()` untouched, exactly like the emblem
     ability specs `RulesEngine.create_emblem` binds from.
     """
+    if room.name == "Throne of the Dead Three":
+        # RULE 309.4c: this authored room uses the ordinary bounded library choice.
+        # Its counters and hexproof are present before the ETB event (RULE 122.6).
+        return [{"type": "inspect_top_choose", "params": {
+            "count": 10, "reveal": True, "criteria": {"type": "creature"},
+            "action": "library_to_battlefield", "optional": False,
+            "entry_counters": {"+1/+1": 3},
+            "entry_specs": [{"type": "grant_until", "params": {
+                "target_kind": None, "self_subject": True, "duration": "your_next_turn",
+                "static": {"type": "grant_keyword", "params": {"keywords": ["hexproof"]}},
+            }}],
+            "rest_destination": "library_shuffled",
+        }}]
     specs = parse_effect_body(normalize(room.effect_text))
     return [spec.to_dict() for spec in (specs or [])]

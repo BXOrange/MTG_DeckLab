@@ -427,7 +427,14 @@ def has_hexproof(obj: "GameObject") -> bool:
     docks a flag keyword onto + `granted_keywords`) every other keyword
     predicate in this module already does, instead of a second recognition
     path. `targeting.py` is the sole consumer (`_targetable_by`)."""
-    return "hexproof" in _obj_keywords(obj)
+    if "hexproof" in _obj_keywords(obj):
+        return True
+    # RULE 702.11d/e: a quality-specific instance is hexproof too; unlike
+    # bare keywords, its binder stores the parameter without a flag keyword.
+    if getattr(obj, "loses_all_abilities", False):
+        return False
+    removed = set(getattr(obj, "removed_keywords", ())) | set(getattr(obj, "temp_removed_keywords", ())) | set(getattr(obj, "suppressed_keywords", ()))
+    return "hexproof" not in removed and "hexproof" in getattr(obj, "parametric_keywords", {})
 
 
 def has_shroud(obj: "GameObject") -> bool:

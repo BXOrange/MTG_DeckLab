@@ -31,6 +31,8 @@ class ChosenObjectActionsMixin:
         connive: bool = False,
         control_recipient_id: Optional[str] = None,
         source_incarnation: Optional[int] = None,
+        entry_counters: Optional[dict[str, int]] = None,
+        entry_specs: Optional[list[dict]] = None,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "select_only":
@@ -273,11 +275,14 @@ class ChosenObjectActionsMixin:
                 int(obj.mana_value or 0) <= CHEAP_CREATURE_MAX_MANA_VALUE
             ):
                 obj.entry_bonus_counters["+1/+1"] = CHEAP_CREATURE_BONUS_COUNTERS  # "enters with" — see `_apply_entry_counters`
-            entry_specs = None
+            # RULE 122.6: counters are present as it enters, including for ETB checks.
+            for kind, amount in (entry_counters or {}).items():
+                obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + max(0, int(amount))
+            entry_specs = list(entry_specs or [])
             if action == "library_to_battlefield_spell_attacking":
                 # The Sprinkler of Stardust explicitly makes spell cards into permanents;
                 # RULE 613.4b/613.4f gives it 2/2 and its combat-damage ability.
-                entry_specs = [{"type": "grant_until", "params": {
+                entry_specs += [{"type": "grant_until", "params": {
                     "duration": "rest_of_game", "self_subject": True, "target_kind": None,
                     "static": {"type": "type_change", "params": {
                         "add_types": ["creature"], "remove_types": ["instant", "sorcery"],

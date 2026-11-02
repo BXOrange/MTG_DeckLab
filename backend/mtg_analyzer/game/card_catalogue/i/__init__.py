@@ -43,3 +43,4 @@ from . import intruder_alarm  # noqa: F401
 from . import irma_part_time_mutant  # noqa: F401
 from . import identity_thief  # noqa: F401
 from . import indoctrination_attendant  # noqa: F401
+from . import increasing_devotion  # noqa: F401

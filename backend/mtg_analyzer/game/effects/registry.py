@@ -344,6 +344,8 @@ EffectRegistry.register(
         else_effects=p.get("else_effects"),
         distinct_card_types=bool(p.get("distinct_card_types", False)),
         placed_effects=p.get("placed_effects"),
+        reveal=bool(p.get("reveal", False)),
+        entry_counters=p.get("entry_counters"), entry_specs=p.get("entry_specs"),
     ),
 )
 EffectRegistry.register(

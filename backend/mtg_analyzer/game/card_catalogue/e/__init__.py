@@ -76,3 +76,5 @@ from . import enchanter_s_bane  # noqa: F401
 from . import eldrazi_confluence  # noqa: F401
 from . import edgar_master_machinist  # noqa: F401
 from . import espers_to_magicite  # noqa: F401
+from . import elenda_saint_of_dusk  # noqa: F401
+from . import essence_pulse  # noqa: F401

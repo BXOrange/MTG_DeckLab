@@ -218,6 +218,8 @@ class ObjectSelectionMixin:
         total_power_budget: Optional[int] = None,
         minimum_card_types: int = 0,
         force_choice: bool = False,
+        entry_counters: Optional[dict[str, int]] = None,
+        entry_specs: Optional[list[dict]] = None,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -360,6 +362,7 @@ class ObjectSelectionMixin:
                         track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
                         redirect_shield=redirect_shield, connive=connive,
                         control_recipient_id=control_recipient_id,
+                        entry_counters=entry_counters, entry_specs=entry_specs,
                     )
             if rest_destination and rest_ids:
                 taken_ids = {o.instance_id for o in pool}
@@ -373,7 +376,7 @@ class ObjectSelectionMixin:
             return
         self.open_choice(self._choose_objects_choice(
             player, pool, action, count, optional, prompt,
-            source_id=source.instance_id if source is not None else None,
+            source_id=getattr(source, "instance_id", None),
             picked=[], then_specs=then_specs,
             then_specs_if_commander=then_specs_if_commander, remember=remember,
             track_exiled_with=track_exiled_with,
@@ -387,6 +390,7 @@ class ObjectSelectionMixin:
             distinct_card_types=distinct_card_types,
             total_power_budget=total_power_budget,
             minimum_card_types=minimum_card_types,
+            entry_counters=entry_counters, entry_specs=entry_specs,
         ))
     @staticmethod
     def _power_for_budget(obj: GameObject) -> int:
@@ -474,6 +478,8 @@ class ObjectSelectionMixin:
         distinct_card_types: bool = False,
         total_power_budget: Optional[int] = None,
         minimum_card_types: int = 0,
+        entry_counters: Optional[dict[str, int]] = None,
+        entry_specs: Optional[list[dict]] = None,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         source = self._object_by_instance_id(source_id)
@@ -556,6 +562,8 @@ class ObjectSelectionMixin:
             "distinct_card_types": bool(distinct_card_types),
             "minimum_card_types": minimum_card_types,
             "then_that_many": dict(then_that_many) if then_that_many else None,
+            "entry_counters": dict(entry_counters or {}),
+            "entry_specs": list(entry_specs or []),
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
     def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
@@ -622,6 +630,7 @@ class ObjectSelectionMixin:
                 control_recipient_id=choice.get("control_recipient_id"),
                 hideaway_incarnation=choice.get("hideaway_incarnation"),
                 source_incarnation=choice.get("source_incarnation"),
+                entry_counters=choice.get("entry_counters"), entry_specs=choice.get("entry_specs"),
             )
         remaining_pool = [
             obj
@@ -704,6 +713,7 @@ class ObjectSelectionMixin:
             distinct_card_types=bool(choice.get("distinct_card_types")),
             total_power_budget=choice.get("total_power_budget"),
             minimum_card_types=int(choice.get("minimum_card_types", 0)),
+            entry_counters=choice.get("entry_counters"), entry_specs=choice.get("entry_specs"),
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["source_incarnation"] = choice.get("source_incarnation")

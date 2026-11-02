@@ -1008,7 +1008,17 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     if combat.is_protected_from(obj, source):
         return False
     if combat.has_hexproof(obj) and obj.controller_id != source.controller_id:
-        return False
+        # RULE 702.11d: printed "hexproof from <quality>" only excludes that
+        # quality. A separate blanket grant still protects against every source.
+        quality = str((getattr(obj, "parametric_keywords", {}).get("hexproof") or {}).get("quality") or "").lower()
+        blanket_grant = "hexproof" in (set(getattr(obj, "granted_keywords", ())) | set(getattr(obj, "temp_keywords", ())))
+        if not quality or blanket_grant:
+            return False
+        qualities = {combat._COLOUR_WORDS.get(quality, quality)}
+        if (combat.protection_qualities_cover(qualities, source)
+                or quality == "multicolored" and len(source.colors) > 1
+                or quality == "monocolored" and len(source.colors) == 1):
+            return False
     # "…has hexproof from each of its colors." (Tam, Mindful First-Year) — hexproof only against an
     # opponent's source that shares a color with ``obj`` (RULE 702.11d, "hexproof from <quality>"),
     # carried as the synthetic keyword ``hexproof_from_own_colors`` the grant stamps on the object.

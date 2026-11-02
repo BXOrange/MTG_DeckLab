@@ -2452,8 +2452,14 @@ class InspectTopChooseEffect(GameEffect):
         criteria: Optional[dict[str, Any]] = None,
         else_effects: Optional[list[dict[str, Any]]] = None,
         placed_effects: Optional[list[dict[str, Any]]] = None,
+        reveal: bool = False,
+        entry_counters: Optional[dict[str, int]] = None,
+        entry_specs: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
+        self.reveal = bool(reveal)
+        self.entry_counters = dict(entry_counters or {})
+        self.entry_specs = list(entry_specs or [])
         #: PAR-152: instructions about the card(s) picked ("Until your next turn, it gains trample if you control a
         #: Dwarf…", Doors of Durin) — run once something was picked, with the pick as their "it"
         #: (`_apply_choose_objects_tail`'s `previous_targets`).
@@ -2503,6 +2509,7 @@ class InspectTopChooseEffect(GameEffect):
             else_specs=self.else_effects,
             distinct_card_types=self.distinct_card_types,
             then_specs=self.placed_effects or None,
+            reveal=self.reveal, entry_counters=self.entry_counters, entry_specs=self.entry_specs,
         )
 
     def _resolved_criteria(self, context: Optional[GameContext] = None) -> Optional[dict[str, Any]]:

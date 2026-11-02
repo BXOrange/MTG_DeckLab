@@ -438,7 +438,7 @@ export default [
               ['full', 'Vier echte Dungeons mit Raumgraph aus dem Kartentext'],
               ['full', 'Erkunden: Dungeon wählen, Raum wählen, Raumfähigkeit auslösen (701.49)'],
               ['full', 'Abschluss beim letzten Raum, danach neuer Dungeon (309.6/309.7)'],
-              ['partial', 'Raumtexte: 29 von 30 Räumen modelliert (letzte Lücke „Throne of the Dead Three" — eigene, bislang einzigartige Effekt-Grammatik)'],
+              ['full', 'Raumtexte: alle 30 Räume modelliert, einschließlich Throne of the Dead Three'],
             ],
           },
         ],

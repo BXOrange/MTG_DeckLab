@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Re-audited 2026-11-02 (PARSER_VERSION 819): 155 rows (about 186 distinct cards) remain; every card that resolves in the cache is UNMODELED, and 5 names could not be resolved (Nick Fury, Lonis, Surrak, Neheb, Undercity — Throne of the Dead Three).** This pass removed 52 rows that had become MODELED, AUTHORED or permanently unsupported, and trimmed 4 multi-card rows. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
+**Queue after validated implementations on 2026-11-02: 145 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -57,14 +57,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Dusk Mangler | Compound gap — `as an additional cost to cast this spell, sacrifice a creature, discard a card, or pay <n> life.`; `when <name> enters, each opponent sacrifices a creature of their choice, discards a card, and loses <n> life.` |  |
 | Echocasting Symposium | `target player creates a token that's a copy of target creature you control.` |  |
 | Edgar's Awakening | `when you discard this card, you may pay <cost>. when you do, return target creature card from your graveyard to your hand.` |  |
-| Elenda, Saint of Dusk | `as long as your life total is greater than your starting life total, <name> gets +<n>/+<n> and has menace. <name> gets an additional +<n>/+<n> as long as your life total is at least <n> greater than your starting life total.` |  |
 | Elesh Norn // The Argent Etchings | `whenever a source an opponent controls deals damage to you or a permanent you control, that source's controller loses <n> life unless they pay <cost>.` |  |
 | Emberwilde Captain | `whenever an opponent attacks you while you're the monarch, <name> deals damage to that player equal to the number of cards in their hand.` |  |
 | Emeria's Call // Emeria, Shattered Skyclave | `create <n> <n>/<n> white angel warrior creature tokens with flying. non-angel creatures you control gain indestructible until your next turn.` |  |
 | Empty the Laboratory | `sacrifice x zombies, then reveal cards from the top of your library until you reveal a number of zombie creature cards equal to the number of zombies sacrificed this way. put those cards onto the battlefield and the rest on the bottom of your library in a random order.` |  |
 | Eris, Roar of the Storm | `this spell costs <cost> less to cast for each different mana value among instant and sorcery cards in your graveyard.` |  |
 | Ezuri, Claw of Progress | Compound gap — `at the beginning of combat on your turn, put x +<n>/+<n> counters on another target creature you control, where x is the number of experience counters you have.`; `whenever a creature you control with power <n> or less enters, you get an experience counter.` |  |
-| Fatestitcher | `<cost>: you may tap or untap another target permanent.` |  |
 | Fear of Impostors | `when <name> enters, counter target spell. its controller manifests dread.` |  |
 | Foe-Razer Regent | `whenever a creature you control fights, put <n> +<n>/+<n> counters on it at the beginning of the next end step.` |  |
 | Geralf, Visionary Stitcher | `<cost>, <cost>, sacrifice another nontoken creature: create an x/x blue zombie creature token, where x is the sacrificed creature's toughness.` |  |
@@ -78,7 +76,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Highway Robbery | `you may discard a card or sacrifice a land. if you do, draw <n> cards.` |  |
 | Ignite the Future | `exile the top <n> cards of your library. until the end of your next turn, you may play those cards. if this spell was cast from a graveyard, you may play cards this way without paying their mana costs.` |  |
 | Improvisation Capstone | `exile cards from the top of your library until you exile cards with total mana value <n> or greater. you may cast any number of spells from among them without paying their mana costs.` |  |
-| Increasing Devotion | `create <n> <n>/<n> white human creature tokens. if this spell was cast from a graveyard, create <n> of those tokens instead.` |  |
 | Ironsoul Enforcer | `whenever <name> or a commander you control attacks alone, return target artifact card from your graveyard to the battlefield.` |  |
 | Jinnie Fay, Jetmir's Second | `if you would create <n> or more tokens, you may instead create that many <n>/<n> green cat creature tokens with haste or that many <n>/<n> green dog creature tokens with vigilance.` |  |
 | Juvenile Mist Dragon | `when <name> enters, for each opponent, tap up to <n> target creature that player controls. each of those creatures doesn't untap during its controller's next untap step.` |  |
@@ -95,19 +92,15 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Prosper, Tome-Bound | Compound gap — `mystic arcanum — at the beginning of your end step, exile the top card of your library. until the end of your next turn, you may play that card.`; `pact boon — whenever you play a card from exile, create a treasure token.` |  |
 | Queen Allenal of Ruadach | `if <n> or more creature tokens would be created under your control, those tokens plus a <n>/<n> white soldier creature token are created instead.` |  |
 | Ravenous Gigantotherium | `when <name> enters, it deals x damage divided as you choose among up to x target creatures, where x is its power. each of those creatures deals damage equal to its power to <name>.` |  |
-| Ravenous Robots | `<cost>, <cost>: creature tokens you control gain haste until end of turn.` |  |
 | Reconstruct History | `return up to <n> target artifact card, up to <n> target enchantment card, up to <n> target instant card, up to <n> target sorcery card, and up to <n> target planeswalker card from your graveyard to your hand.` |  |
-| Red Dragon | `fire breath — when <name> enters, it deals <n> damage to each opponent.` |  |
 | Rise of the Witch-king | `each player sacrifices a creature of their choice. if you sacrificed a creature this way, you may return another permanent card from your graveyard to the battlefield.` |  |
 | Sarevok's Tome | `<cost>, <cost>: exile cards from the top of your library until you exile a nonland card. you may cast that card without paying its mana cost. activate only if you've completed a dungeon.` |  |
-| Scampering Surveyor | `when <name> enters, search your library for a basic land card or cave card, put it onto the battlefield tapped, then shuffle.` |  |
 | Scavenged Brawler | `<cost>, exile this card from your graveyard: choose target creature. put <n> +<n>/+<n> counters, a flying counter, a vigilance counter, a trample counter, and a lifelink counter on that creature. activate only as a sorcery.` |  |
 | Seasoned Dungeoneer | `whenever you attack, target attacking cleric, rogue, warrior, or wizard gains protection from creatures until end of turn. it explores.` |  |
 | Shadowgrange Archfiend | `when <name> enters, each opponent sacrifices a creature with the greatest power among creatures they control. you gain life equal to the greatest power among creatures sacrificed this way.` |  |
 | Sheoldred // The True Scriptures | `when <name> enters, each opponent sacrifices a nontoken creature or planeswalker of their choice.` |  |
 | Signature Slam | `put a +<n>/+<n> counter on target creature you control, then each modified creature you control deals damage equal to its power to target creature you don't control.` |  |
 | Simic Manipulator | `<cost>, remove <n> or more +<n>/+<n> counters from <name>: gain control of target creature with power less than or equal to the number of +<n>/+<n> counters removed this way.` |  |
-| Slash the Ranks | `destroy all creatures and planeswalkers except for commanders.` |  |
 | Slimefoot and Squee | `<cost>, sacrifice a saproling: return this card and up to <n> other target creature card from your graveyard to the battlefield. activate only as a sorcery.` |  |
 | Smoldering Egg // Ashmouth Dragon | `whenever you cast an instant or sorcery spell, put a number of ember counters on <name> equal to the amount of mana spent to cast that spell. then if <name> has <n> or more ember counters on it, remove them and transform <name>.` |  |
 | Smuggler's Surprise | Compound gap — `+ <cost> — creatures you control with power <n> or greater gain hexproof and indestructible until end of turn.`; `+ <cost> — mill <n> cards. you may put up to <n> creature and/or land cards from among the milled cards into your hand.`; `+ <cost> — you may put up to <n> creature cards from your hand onto the battlefield.` |  |
@@ -209,8 +202,6 @@ Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authori
 | Catacomb Dragon, Freyalise Supplicant | half of a creature's power | Different referents (blocked creature vs. sacrificed creature). |
 | Singularity Rupture, Colorless Ultimatum | mill/exile half a library | Different recipients and zones. |
 | Heartless Hidetsugu | halved life, other bodies | |
-| Essence Pulse | "each creature gets -x/-x" | Unparsed even with a fixed number. |
-| Leyline of the Guildpact | "each nonland permanent you control is all colors" | |
 | Ghostfire | "~ is colorless" inside a spell body | |
 | Ezzaroot Channeler, Licia | per-life cost reduction | |
 
@@ -294,7 +285,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card / room | Gap | Notes |
 | --- | --- | --- |
-| Undercity — Throne of the Dead Three | `Reveal the top ten cards of your library. Put a creature card from among them onto the battlefield with three +1/+1 counters on it. It gains hexproof until your next turn. Then shuffle.` | Room effect body remains unmodeled; the dungeon engine and room graph exist. Singleton/cluster check pending. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

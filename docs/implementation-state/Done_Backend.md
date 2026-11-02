@@ -2572,6 +2572,8 @@ The same predicate can gate sacrifice-dependent resolving sequences.
 - **What:** `grant_protection_static` → `GameObject._granted_protections`, stamped every recompute and unioned by `combat.is_protected_from`, so it stops applying the insta…
 - **Files:** `game/continuous.py`, `game/combat.py`
 
+- **Quality-specific hexproof (RULE 702.11d/e):** Printed parametric instances count as hexproof and reject only matching opposing sources. A separately granted blanket instance still rejects all opposing sources; ability removal suppresses printed instances. Targeting regression tests cover opposing instants, sorceries, own instants and a blanket grant.
+
 ### Type Grants Past the Battlefield (RULE 613.4a, Layer 4)
 
 - **What:** `continuous._apply_off_battlefield_types` is a dedicated pass over a controller's hand/graveyard/library/exile plus stack spells, stamping `_added_subtypes` for…
@@ -3804,10 +3806,11 @@ of their reminder text or catalogue entry.
 
 - **Files:** `game/variants.py`
 
-### Dungeon room bindings, 29/30 rooms (PAR-13)
+### Dungeon room bindings, all 30 rooms (PAR-13 and authored room)
 
 - **What:** The RULE 309 dungeon engine and room graphs were already complete; a room with no matching effect handler simply fails closed rather than breaking the graph.
 - **Files:** `game/dungeons.py`, `parser/oracle/catalogue/handlers.py`
+- **Authored final room:** Throne of the Dead Three reveals the top ten cards, requires a creature pick when available, puts it onto the battlefield with three +1/+1 counters and hexproof until its controller’s next turn, then shuffles. The existing `inspect_top_choose` path now carries public reveal and pre-ETB entry instructions through forced picks and serializable choices. Targeted dungeon tests exercise the real venture/room-trigger path, including no creature and a short library.
 
 ### Legendary named token creation (PAR-13)
 

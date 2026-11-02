@@ -3378,6 +3378,9 @@ class SearchMixin:
         else_specs: Optional[list[dict]] = None,
         distinct_card_types: bool = False,
         then_specs: Optional[list[dict]] = None,
+        reveal: bool = False,
+        entry_counters: Optional[dict[str, int]] = None,
+        entry_specs: Optional[list[dict]] = None,
     ) -> None:
         """Inspect a bounded top-N group from ``player``'s library, offer a
         filtered choice among them, and route the rest to ``rest_destination``
@@ -3418,6 +3421,13 @@ class SearchMixin:
             return
 
         inspected = list(reversed(player.library[-n:]))
+        if reveal:
+            # RULE 701.20a/b: reveal every inspected card without moving it.
+            for obj in inspected:
+                self.state.fire_event(GameEvent(
+                    EventType.REVEAL, player_id=player.id, object=obj.name,
+                    instance_id=obj.instance_id, from_zone=Zone.LIBRARY.value,
+                ))
 
         def _matches(obj: GameObject) -> bool:
             if not filter_criteria:
@@ -3467,6 +3477,7 @@ class SearchMixin:
             else_specs=else_specs,
             distinct_card_types=distinct_card_types,
             then_specs=then_specs,
+            entry_counters=entry_counters, entry_specs=entry_specs,
         )
         if action == "exile_face_down_linked" and self.state.pending_choice:
             event = self.context.trigger_event or {}

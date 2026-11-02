@@ -172,6 +172,7 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # (``name: "source"``: a card named like the source counts too, for "isn't on the battlefield, it's an Insect").
         "milled_subtype_this_way",
         "source_cast_via_flashback",
+        "source_cast_from_zone",
         # Cemetery Gatekeeper — the played land/cast spell the firing event
         # names, against the card this source remembered exiling
         # (`GameObject.linked_exile_id`), sharing a RULE 205.2a card type.
@@ -513,6 +514,10 @@ def _context_holds(
 
     if kind == "source_cast_via_flashback":
         return None if source is None else bool(getattr(source, "cast_via_flashback", False))
+
+    if kind == "source_cast_from_zone":
+        # RULE 601.2a: the zone a spell was cast from, regardless of the permission used.
+        return None if source is None else getattr(source, "cast_from_zone", None) == condition.get("zone")
 
     if kind == "shares_type_with_linked_exile":
         event = getattr(context, "trigger_event", None) or {}

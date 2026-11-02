@@ -438,7 +438,7 @@ export default [
               ['full', 'Four real dungeons with a room graph from the card text'],
               ['full', 'Venture: choose a dungeon, choose a room, trigger the room ability (701.49)'],
               ['full', 'Completion on the last room, then a new dungeon (309.6/309.7)'],
-              ['partial', 'Room texts: 29 of 30 rooms modeled (last gap "Throne of the Dead Three" — its own, so far unique effect grammar)'],
+              ['full', 'Room texts: all 30 rooms modeled, including Throne of the Dead Three'],
             ],
           },
         ],
