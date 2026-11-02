@@ -43,6 +43,7 @@ from . import serra_avenger  # noqa: F401
 from . import serra_paragon  # noqa: F401
 from . import serra_s_emissary  # noqa: F401
 from . import sevinne_s_reclamation  # noqa: F401
+from . import sewers_of_estark  # noqa: F401
 from . import shadowbane  # noqa: F401
 from . import shadrix_silverquill  # noqa: F401
 from . import shalai_voice_of_plenty  # noqa: F401
@@ -77,6 +78,7 @@ from . import skyclave_apparition  # noqa: F401
 from . import slaughter_the_strong  # noqa: F401
 from . import slithermuse  # noqa: F401
 from . import sm_agol_helpful_guide  # noqa: F401
+from . import smart_ass  # noqa: F401
 from . import smite_the_deathless  # noqa: F401
 from . import smokestack  # noqa: F401
 from . import smoky_lounge  # noqa: F401

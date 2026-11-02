@@ -812,7 +812,7 @@ class StateBasedActionsMixin:
                     self.state.resolution_play_waiting = bool(
                         self.state.resolution_play_choice or self.state.resolution_play_followup)
             if (choice and choice.get("kind") in {"physical_property_measurement", "physical_environment_measurement",
-                                                  "physical_card_story", "landfill_land_type", "landfill_covered_report"}
+                                                  "physical_card_story", "landfill_land_type", "landfill_covered_report", "ask_player"}
                     and (choice.get("player_id") == player.id or ending_game)):
                 self.state.pending_choice = None
                 # RULE 800.4a: an eliminated player's resolving ability has

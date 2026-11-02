@@ -946,6 +946,11 @@ class GameObject:
         #: same RULE 400.7 reset-on-new-object treatment as the other
         #: ``chosen_*`` fields.
         self.chosen_card_name: Optional[str] = None
+        #: RULE 608.2d: answers a resolving ability collected from players mid-resolution ("an opponent secretly notes
+        #: whether it's true or false", "choose land or nonland"), keyed by the ability's own note name. Never part of
+        #: `to_dict`: a secret note must stay hidden from every other player's view (RULE 400.2), and `clone()`'s deep
+        #: copy keeps it across undo. ``ask_player`` writes it; the ``guess_note_is`` condition reads it.
+        self.guess_notes: dict[str, str] = {}
         #: "As this creature enters, choose a number." (Sanctum Prelate,
         #: MEC-43) — the free-text-numeric sibling of `chosen_card_name`,
         #: same "answer space isn't enumerable" shape, just an int instead
@@ -1684,6 +1689,7 @@ class GameObject:
         self.chosen_player_id = None
         self.chosen_permanent_id = None
         self.chosen_card_name = None
+        self.guess_notes = {}
         self.chosen_number = None
         self.entered_via_ability_id = None
         self.reanimate_target_id = None

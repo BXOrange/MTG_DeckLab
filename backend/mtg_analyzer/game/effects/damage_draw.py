@@ -45,6 +45,24 @@ class PreventCombatDamageToAndByEffect(GameEffect):
                 obj.prevent_combat_damage_this_combat = True
 
 
+class PreventCombatDamageByBlockerAndBlockedEffect(GameEffect):
+    """RULE 615: "Prevent all combat damage that would be dealt this combat by it and each creature it's blocking."
+    (Sewers of Estark) -- the sibling target (or the earlier clause's pick) is the blocker; the creatures it blocks are the
+    attackers named by `blocking` / `additional_blocking`. Only damage *dealt by* them is prevented, not damage dealt to
+    them, so this reuses the dealt-by flag (`temp_prevent_combat_damage_dealt`) rather than the to-and-by one."""
+
+    def apply(self, context, targets=None) -> None:
+        subject = (list(targets or []) or list(context.previous_targets))[:1]
+        for blocker in subject:
+            if not hasattr(blocker, "instance_id"):
+                continue
+            blocker.temp_prevent_combat_damage_dealt = True
+            for attacker_id in [blocker.blocking, *blocker.additional_blocking]:
+                attacker = context.state.find_object(attacker_id) if attacker_id is not None else None
+                if attacker is not None:
+                    attacker.temp_prevent_combat_damage_dealt = True
+
+
 class AssignNoCombatDamageEffect(PreventCombatDamageDealtEffect):
     """RULE 510.1: suppress assignment independently of prevention effects."""
 

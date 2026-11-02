@@ -1537,8 +1537,14 @@ class ChooseObjectsEffect(GameEffect):
         count_amount: Optional[dict[str, Any]] = None,
         target_kind: Optional[str] = None,
         saddlers_only: bool = False,
+        reference: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: The object ``permanent_filter``'s relative keys (``power_vs_reference``) compare against, as an
+        #: `effect_conditions.EFFECT_SUBJECTS` name -- Kamiz's "another attacking creature with lesser power" than the
+        #: creature the earlier clause targeted (``previous_subject``). ``None`` keeps this effect's own source. That
+        #: referent is also never a candidate ("another").
+        self.reference = reference
         #: "choose a nonlegendary creature **that saddled it this turn**" (Calamity, Galloping Inferno): the pool is
         #: the creatures tapped to pay this source's "Saddle N" during the current turn (RULE 702.171).
         self.saddlers_only = bool(saddlers_only)
@@ -1649,11 +1655,20 @@ class ChooseObjectsEffect(GameEffect):
                     if obj.zone == Zone.GRAVEYARD]
         else:
             raise ValueError(f"Unknown choice pool zone: {self.pool_zone}")
+        referent = None
+        if self.reference:
+            from .. import effect_conditions  # function-scoped: effect_conditions imports this package
+
+            referent = effect_conditions.subject_of(self.reference, context, self.source, targets)
+            if referent is None:
+                return player, []
+        reference = referent if referent is not None else self.source
         candidates = [
             obj
             for obj in pool
             if _matches_permanent_type(obj, self.what)
-            and combat.matches_object_filter(obj, self.permanent_filter, reference=self.source, state=context.state)
+            and combat.matches_object_filter(obj, self.permanent_filter, reference=reference, state=context.state)
+            and obj is not referent
             and (self.card_types_any is None or set(self.card_types_any) & obj.type_words)
             and (not self.mana_value_less_than_trigger
                  or obj.mana_value < (context.trigger_event or {}).get("mana_value", 0))

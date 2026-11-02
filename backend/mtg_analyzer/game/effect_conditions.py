@@ -69,6 +69,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from ..models.cards.card_query import name_matches as names_match
 from ..models.game.events import EventType
 from . import static_conditions
 
@@ -92,6 +93,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #:                         suspected, exile it. Otherwise, suspect it." is
 #:                         two complementary clauses where only the first
 #:                         carries the target.
+#: ``defending_player``   — the player the source attacks (RULE 506.4), from its ``combat_defender``; survives a
+#:                         mid-resolution choice, which the trigger event does not.
 #: ``entering``          — the object the firing event names by
 #:                         ``instance_id``, i.e. a group trigger's own
 #:                         subject rather than the ability's source.
@@ -117,7 +120,7 @@ EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "iteration", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
      "attacked_player", "attacking_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
-     "enchanted_player", "previous_entry_controller"}
+     "enchanted_player", "previous_entry_controller", "defending_player"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -150,6 +153,13 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
         "milled_land_this_way",
+        # RULE 608.2d: a note an earlier ``ask_player`` clause of this resolution stored on the source
+        # (`GameObject.guess_notes`) equals ``value`` -- the branch behind a guessing game's "if you guessed correctly".
+        # Unanswerable (``None``) while no answer was recorded, so neither branch fires.
+        "guess_note_is",
+        # RULE 201.3 + 400.2: the player ``of`` names has a card in hand whose name is the source's chosen card name
+        # (Smart Ass: "if defending player has no cards with the chosen name in their hand" is its negation).
+        "hand_has_chosen_name",
         # PAR-132 -- "if a creature card was exiled this way" / "if a noncreature card is exiled this way": a card
         # this resolution's `exile` / `destroy` moved (`GameContext.exiled_objects` / `destroyed_objects`) has
         # (or, with ``negate``, lacks) the card type ``card_type``; no ``card_type`` accepts any moved object.
@@ -343,6 +353,12 @@ def subject_of(
         # defending player is a distinct field on the same ATTACKS event.
         event = getattr(context, "trigger_event", None) or {}
         return _player_by_id(context, event.get("defending_player_id"))
+    if of == "defending_player":
+        # RULE 506.4: the player the source attacks, read off the attacker's own ``combat_defender`` (unlike
+        # ``attacked_player``, which needs the ATTACKS event that is gone once the body waits behind a choice -- Smart Ass).
+        from .effects.core import _defending_player_of  # function-scoped: cycle
+
+        return _defending_player_of(source, context)
     if of == "attacking_player":
         # RULE 506.4: "whenever a player attacks you with one or more creatures, **that player** gets …"
         # (Struggle for Project Purity) — the aggregate `PLAYER_ATTACKED` names the attacker as
@@ -454,6 +470,18 @@ def _context_holds(
         if str(condition.get("pool")) not in THIS_WAY_POOLS:
             return None
         return bool(this_way_matching(context, source, condition))
+
+    if kind == "guess_note_is":
+        notes = getattr(source, "guess_notes", None) or {}
+        note = notes.get(str(condition.get("note")))
+        return None if note is None else note == str(condition.get("answer"))
+
+    if kind == "hand_has_chosen_name":
+        player = subject_of(str(condition.get("of") or "source"), context, source, targets)
+        chosen = getattr(source, "chosen_card_name", None)
+        if player is None or not chosen or not hasattr(player, "hand"):
+            return None
+        return any(names_match(obj.name, chosen) for obj in player.hand)
 
     if kind == "milled_land_this_way":
         milled = getattr(context, "milled_objects", None)

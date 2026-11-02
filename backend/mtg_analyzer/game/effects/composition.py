@@ -588,6 +588,11 @@ class OptionalEffect(_CompositeEffect):
             chooser = targets[0] if targets else None
             if chooser is None or getattr(chooser, "instance_id", None) is not None:
                 return
+        elif self.player == "defending_player":
+            # RULE 506.4: "defending player may reveal ..." (Smart Ass) -- the player the source attacks.
+            from .. import effect_operands
+
+            chooser = effect_operands.player_for("defending_player", context, self.source, targets)
         elif isinstance(self.player, dict):
             # PAR-117: "its controller may …" — the referent vocabulary's
             # own player resolution (function-scoped import: effects↔

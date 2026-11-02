@@ -2,6 +2,7 @@
 from . import k_rrik_son_of_yawgmoth  # noqa: F401
 from . import kaldra_compleat  # noqa: F401
 from . import kamahl_heart_of_krosa  # noqa: F401
+from . import kamiz_obscura_oculus  # noqa: F401
 from . import kari_zev_s_expertise  # noqa: F401
 from . import karn_the_great_creator  # noqa: F401
 from . import kaya_geist_hunter  # noqa: F401
