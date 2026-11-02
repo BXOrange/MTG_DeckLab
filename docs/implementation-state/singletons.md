@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Re-audited 2026-11-02 (PARSER_VERSION 819): 185 rows (about 216 distinct cards) remain; every card that resolves in the cache is UNMODELED, and 5 names could not be resolved (Nick Fury, Lonis, Surrak, Neheb, Undercity — Throne of the Dead Three).** This pass removed 52 rows that had become MODELED, AUTHORED or permanently unsupported, and trimmed 4 multi-card rows. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
+**Re-audited 2026-11-02 (PARSER_VERSION 819): 175 rows (about 206 distinct cards) remain; every card that resolves in the cache is UNMODELED, and 5 names could not be resolved (Nick Fury, Lonis, Surrak, Neheb, Undercity — Throne of the Dead Three).** This pass removed 52 rows that had become MODELED, AUTHORED or permanently unsupported, and trimmed 4 multi-card rows. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -34,16 +34,6 @@ header before treating the two as equally verified.
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Long River Lurker | ETB-targeted creature, then a delayed exile-and-return keyed to *that* creature dealing combat damage | The delayed trigger needs to reference an ETB-time RULE 115 target, not a self/previous-object referent. |
-| Atomic Microsizer | Equip-trigger: choose a target, that creature becomes unblockable **and** animates to a fixed base P/T | The choose-then-animate compound on an equip trigger. |
-| Secret Tunnel | "2 target creatures you control that share a creature type" | A same-type-as-each-other multi-target filter (cross-target constraint, not a fixed filter). |
-| Open into Wonder | X target creatures, then a quoted-grant tail on "those creatures" | X-count multi-target combined with a group quoted-ability grant. |
-| Writ of Passage | "Whenever enchanted creature attacks, if its power is 2 or less, `<effect>`" | An intervening-if reading the *attacker's own* power — the existing `attacked_player_has_most/lowest_life`-style gates all read the defender's state, a different subject. |
-| Shrouded Serpent | "Defending player may pay `{4}`. If that player doesn't, `<effect>`" | A combat-trigger tax-or-else composition, distinct from the shipped attack-tax statics (this one gates a *different* effect on non-payment, not the attack itself). |
-| Indoctrination Attendant | "If you do, create a 1/1 … token with toxic 1 **and** '`<quoted static ability>`'" | A printed-keyword-count-plus-quoted-ability token-creation compound; no token-creation handler combines both yet. |
-| Blu, Mansion Prince | "Choose a Room card at random. Create a token that's a copy of 1 of its halves, then unlock it." | The Room/unlock subsystem plus a random-card-from-the-pool pick; no other cached card unlocks a Room this way (`parser_probe.py blocked "choose a room card at random"`: SOLO 1). |
-| Lazav, Wearer of Faces | "You may have ~ become a copy of a creature card exiled with it until end of turn." | A self-copy of a *linked-exile* card (`GameObject.exiled_with_ids`) as a layer-1 copy effect; the "you sacrifice a Clue" trigger itself parses now, only this body is open. |
-| Hurkyl, Master Wizard | "…reveal the top 5 cards of your library. For each card type among noncreature spells you've cast this turn, you may put a card of that type from among the revealed cards into your hand. Put the rest on the bottom …" | A per-card-type reveal-and-choose loop driven by the turn's cast-spell type history (`parser_probe.py blocked "for each card type among noncreature spells"`: SOLO 1). |
 
 The *clustered* residue these were sorted out of (2+ cards sharing one gap)
 went to tickets in `docs/implementation-state/BACKLOG.md`, not to this file.
