@@ -27,6 +27,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 | `DB` | Database — card cache, saved decks, persistence, data freshness |
 | `ANA` | Deck analysis — UC2 |
 | `BUG` | Bugs — a shipped behaviour that is wrong (a wrong-but-`MODELED` claim, a silently dropped clause); not missing coverage |
+| `REL` | Release & deployment — steps done when cutting a release (version pins, locks, packaging), not during development |
 
 ---
 
@@ -106,7 +107,12 @@ claimed cards.
 
 ## BUG — Bugs
 
-Remaining item from the 2026-10-30 security audit:
+-No Tickets-
 
-- **BUG-45 · Pin backend dependencies with hashes.** `requirements.txt` has only `>=` bounds; add a
-  hash-pinned lock that installs on every supported platform and the offline wheelhouse (`setup/wheels/`).
+## REL — Release & deployment
+
+- **REL-1 · Hash-pinned dependency lock (formerly BUG-45b).** `requirements.txt` has only `>=` bounds;
+  during the release/deployment process, generate a hash-pinned lock that installs on every supported
+  platform and the offline wheelhouse (`setup/wheels/`). Open: lock tool (`pip-compile --generate-hashes`
+  per platform vs. `uv pip compile --universal`) and whether `setup/install.py` installs from it. Do not
+  pin from a dev machine's `pip freeze` (platform-only packages such as `uvloop` would break Windows installs).

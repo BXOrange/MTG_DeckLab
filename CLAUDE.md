@@ -48,7 +48,7 @@ Oracle text → behaviour: `parser/oracle/` (`normalize` → `segmenter` → `ca
 
 All under `docs/implementation-state/` unless noted; [docs/README.md](docs/README.md) maps the rest, `user-docs/` is end-user help.
 
-- `BACKLOG.md`: open work only, as tickets (`ENG PAR MEC PLR VIS DB ANA BUG`). `DEFERRED.md`: parked work and permanent non-goals.
+- `BACKLOG.md`: open work only, as tickets (`ENG PAR MEC PLR VIS DB ANA BUG REL`). `DEFERRED.md`: parked work and permanent non-goals.
 - `Done_Backend.md` / `Done_Frontend.md`: what shipped and why, organized by subsystem. Closing a ticket = delete it from the backlog and extend the matching entry there.
 - `workingOn.md`: resumable state of the ticket in progress; **read it first**, update at every milestone, delete the block on close. A partly done ticket keeps only a terse backlog point; its residue lives in its block.
 - `PARSER_LONG_TAIL.md` (parser strategy), `singletons.md` (single-card gaps for hand-authoring), `10_COMPLETION_ROADMAP.md`.

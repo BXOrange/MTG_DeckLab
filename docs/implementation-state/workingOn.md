@@ -46,7 +46,7 @@ Block template (do not change this, copy below the line, fill in there):
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
 
-## BUG-45 · Pin backend dependencies with hashes (audit item b)
+## REL-1 · Pin backend dependencies with hashes (formerly BUG-45b)
 
 - **Started / last update:** 2026-11-02 / 2026-11-02
 - **Goal of this run:** (a) LLM `base_url` SSRF guard and (c) bug reports for a multiplayer session only from a seat of that table with the lobby secret. (b) is not part of this run (see Residue).
