@@ -977,6 +977,22 @@ class AbilitySpec:
                 raise SpecValidationError("'additional_cost' or_mana cost must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
             if "sacrifice" in inner and inner["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
                 raise SpecValidationError("unsupported or_mana sacrifice type")
+        elif key == "alternatives":
+            # RULE 601.2b: a mandatory three-way nonmana cost announcement.
+            if not isinstance(value, list) or len(value) < 2:
+                raise SpecValidationError("additional_cost alternatives must list at least two branches")
+            for branch in value:
+                if not isinstance(branch, dict) or len(branch) != 1:
+                    raise SpecValidationError("additional_cost alternative must be a single cost")
+                branch_key, branch_value = next(iter(branch.items()))
+                if branch_key == "sacrifice":
+                    if branch_value not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                        raise SpecValidationError("unsupported alternative sacrifice type")
+                elif branch_key in {"discard", "pay_life"}:
+                    if type(branch_value) is not int or branch_value <= 0:
+                        raise SpecValidationError("alternative cost amount must be positive")
+                else:
+                    raise SpecValidationError("unsupported additional_cost alternative")
         elif key == "either":
             # "<cost A> or <cost B>" with no mana half (RULE 601.2b) — two single-key branches from the or_mana vocabulary.
             if not isinstance(value, list) or len(value) != 2:

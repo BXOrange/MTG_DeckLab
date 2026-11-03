@@ -1205,6 +1205,13 @@ class TriggerCollectionMixin:
         method's ``queue`` drains without pausing) is what resumes the
         ordering flow for whatever's still unordered afterward.
         """
+        if (self.state.pending_choice or {}).get("kind") == "trigger_damage_division":
+            self._pending_trigger_queue = queue + self._pending_trigger_queue
+            # open_choice captured the frame before the target picker handed
+            # back its remaining queue. Keep clone/undo's copy current too.
+            if self.state.pending_trigger_frame is not None:
+                self.state.pending_trigger_frame["_pending_trigger_queue"] = self._pending_trigger_queue
+            return
         while queue:
             if self._opponent_target_pending():
                 # MEC-118: an opponent is still picking the previous trigger's target; the choice resumes this queue.
@@ -1355,6 +1362,11 @@ class TriggerCollectionMixin:
         ``effects_override``), since the ability's own fixed ``effects``
         (empty for a modal trigger) is never what should resolve.
         """
+        if any(getattr(effect, "announce_trigger_division", False)
+               and getattr(effect, "announced_total", None) is None for effect in effects):
+            continuous.recompute(self.state)
+            effects = [effect.announced_copy(self.state, event)
+                       if getattr(effect, "announce_trigger_division", False) else effect for effect in effects]
         specs = self._trigger_target_specs(effects)
         # RULE 601.2c: a requirement wanting N targets (a printed "up to two
         # target creatures", or a `count_selector` resolved against the board
@@ -1970,6 +1982,14 @@ class TriggerCollectionMixin:
         if target_groups is not None and targets is None:
             targets = [t for group in target_groups for t in group]
         controller_id = ability.controller_id or self.state.active_player.id
+        # RULE 603.3d: a power-based divided pool is fixed as this trigger
+        # goes on the stack, before any player receives priority.
+        division_effects = effects_override if effects_override is not None else ability.effects
+        if any(getattr(effect, "announce_trigger_division", False) for effect in division_effects):
+            effects_override = [effect.announced_copy(self.state, event)
+                                if (getattr(effect, "announce_trigger_division", False)
+                                    and getattr(effect, "announced_total", None) is None)
+                                else effect for effect in division_effects]
         item = StackItem(
             kind="ability",
             controller_id=controller_id,
@@ -2002,6 +2022,10 @@ class TriggerCollectionMixin:
 
             item.copy_target_roles = [slot["specs"] for slot in make_frame(self, item, False)["slots"]]
         self.state.stack.append(item)
+        if any(getattr(effect, "announce_trigger_division", False) for effect in item.effects):
+            from ..effects.divided_retaliation import begin_division
+
+            begin_division(self, item)
         self._note_crime(item)
         try:
             controller = self.state.player_by_id(controller_id)

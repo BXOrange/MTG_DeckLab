@@ -18,6 +18,7 @@ from __future__ import annotations
 from .. import linked_exile
 
 from .. import physical_properties
+from ..cast_cost_alternatives import choose_additional_cost
 
 import itertools
 import re
@@ -1811,6 +1812,7 @@ class CastingMixin:
             if mana_potential.is_castable_via_potential(self, player, cost):
                 return x
         return 0
+    @choose_additional_cost
     @physical_properties.preflight
     @_choose_cast_pip_life_payment
     def cast_spell(
@@ -1849,6 +1851,7 @@ class CastingMixin:
         gift_opponent_id: Optional[str] = None,
         pip_life_payments: Optional[dict[str, int]] = None,
         tap_choices: Optional[list[int]] = None,
+        additional_cost_index: Optional[int] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -2934,6 +2937,11 @@ class CastingMixin:
         """
         if cost is None:
             return True
+        if cost.cast_alternatives:
+            return any(self._can_pay_additional_cast_cost(
+                player, obj, branch, x=x, pay_additional=pay_additional,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            ) for branch in cost.cast_alternatives)
         if pay_additional and cost.either_alt is not None:
             cost = cost.either_alt  # RULE 601.2b: the caster took branch B of "<A> or <B>"
         if getattr(cost, "sacrifice_or_mana", False) and not pay_additional:

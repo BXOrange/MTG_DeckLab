@@ -1641,7 +1641,9 @@ def _apply_effects_partitioned(
                         "source": source,
                         "source_incarnation": context.resolving_source_incarnation,
                         "previous_targets": list(context.previous_targets),
-                        "created_objects": list(context.created_objects),
+                        # Token replacements may complete after this frame parks.
+                        # Keep its scope-local sink shared with their continuation.
+                        "created_objects": context.created_objects,
                         "latest_exiled_visits": list(context.latest_exiled_visits),
                         "latest_milled_visits": list(context.latest_milled_visits),
                         "life_lost_this_way": context.life_lost_this_way,

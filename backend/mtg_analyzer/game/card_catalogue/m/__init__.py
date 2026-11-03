@@ -114,3 +114,4 @@ from . import meandered_towershell  # noqa: F401
 from . import meteor_blast  # noqa: F401
 from . import moria_scavenger  # noqa: F401
 from . import matzalantli_the_great_door  # noqa: F401
+from . import mana_sculpt, moonveil_regent  # noqa: F401

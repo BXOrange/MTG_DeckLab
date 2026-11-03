@@ -12,6 +12,10 @@ from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
 from . import singleton_batch2_registry  # noqa: F401  (registers the Batch 2 singleton effect types)
 from . import singleton_batch2_h_registry  # noqa: F401  (registers the Batch 2 worker-H singleton effect types)
+from . import counter_delayed_mana  # noqa: F401
+from . import copy_paid_exile  # noqa: F401
+from . import divided_retaliation  # noqa: F401
+from . import devour_entry  # noqa: F401
 from ._runtime import install, register
 
 install(globals())
@@ -3830,6 +3834,7 @@ EffectRegistry.register(
         "keyword": str(p.get("keyword", "improvise")),
         **({"include_card_type": str(p["include_card_type"])} if p.get("include_card_type") else {}),
         **({"exclude_card_type": str(p["exclude_card_type"])} if p.get("exclude_card_type") else {}),
+        **({"from_zone": str(p["from_zone"])} if p.get("from_zone") else {}),
     }),
 )
 EffectRegistry.register(
@@ -5934,3 +5939,6 @@ EffectRegistry.register("name_change", lambda p: StaticAbility(
 from . import duration_copy  # registers the shared clock-bound copy effect
 from . import room_tokens  # noqa: F401 - registers the random Room-half token effect (Blu, Mansion Prince)
 from . import type_picks  # noqa: F401 - registers the per-card-type reveal pick effect (Hurkyl, Master Wizard)
+from . import alternative_payment  # noqa: F401
+from . import treasure_transformation  # noqa: F401
+from . import graveyard_cast_borrow  # noqa: F401

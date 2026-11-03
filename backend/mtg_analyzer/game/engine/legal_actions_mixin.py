@@ -207,6 +207,17 @@ class LegalActionsMixin:
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._sacrifice_count_pool(player, word, source)
             ]}
+        if ability.cost.exile_from_graveyard_mana_value_x:
+            action["graveyard_exile_cost"] = {"count": 1, "mana_value_equals_x": True, "options": [
+                {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value}
+                for card in player.graveyard
+                if self._matches_sacrifice_type(card, ability.cost.exile_from_graveyard_filter, state=self.state)
+            ]}
+            values = sorted({option["mana_value"] for option in action["graveyard_exile_cost"]["options"]
+                             if option["mana_value"] <= action.get("max_x", 0)})
+            if values:
+                action["min_x"], action["max_x"] = values[0], values[-1]
+                action["allowed_x"] = values
         if ability.cost.return_to_hand and ability.cost.return_to_hand != RETURN_SELF_TO_HAND:
             action["return_cost"] = {"count": 1, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
@@ -952,6 +963,10 @@ class LegalActionsMixin:
         sources (clicking it then silently auto-taps first, `Activation
         Mixin._auto_tap_for_activation_if_needed`)."""
         minimum_x = ability.cost.minimum_x
+        if ability.cost.exile_from_graveyard_mana_value_x:
+            possible = sorted({card.mana_value for card in player.graveyard
+                               if self._matches_sacrifice_type(card, ability.cost.exile_from_graveyard_filter, state=self.state)})
+            return any(self.can_activate(player, source, ability, x=value) for value in possible)
         if self.can_activate(player, source, ability, x=minimum_x):
             return True
         if not self.can_activate(player, source, ability, x=minimum_x, assume_mana_available=True):

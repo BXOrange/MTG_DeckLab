@@ -655,7 +655,7 @@ class ActivationMixin:
             return False
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
         if exile_count and len(
-            self._activation_graveyard_exile_candidates(player, source, exile_count, cost)
+            self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices)
         ) < exile_count:
             # ENG-49: "Exile two cards from your graveyard" (Grim Lavamancer).
             return False
@@ -1335,15 +1335,27 @@ class ActivationMixin:
         )
     def _activation_graveyard_exile_candidates(
         self, player: Player, source: GameObject, count: int, cost: "ActivationCost",
+        x: int = 0, chosen_ids: Optional[list[int]] = None,
     ) -> list[GameObject]:
         """The graveyard cards an activated ability's "exile N [`<type>`]
         cards from your graveyard" cost exiles (ENG-49) — the cast-cost
         `_graveyard_exile_cost_candidates` pool, minus the ability's own
         source (a graveyard-zone ability's "two *other* cards")."""
         pool = self._graveyard_exile_cost_candidates(
-            player, count + 1, cost.exile_from_graveyard_filter,
+            player, len(player.graveyard), cost.exile_from_graveyard_filter,
         )
-        return [c for c in pool if c is not source][:count]
+        pool = [c for c in pool if c is not source
+                and (not cost.exile_from_graveyard_mana_value_x or c.mana_value == x)]
+        if cost.exile_from_graveyard_mana_value_x and chosen_ids is not None:
+            # Reuse the existing exile_cost payer selection (hand_card_choices
+            # already carries non-hand exile payments, e.g. Primordial Mist).
+            if len(chosen_ids) != count or len(set(chosen_ids)) != count:
+                return []
+            by_id = {c.instance_id: c for c in pool}
+            if any(iid not in by_id for iid in chosen_ids):
+                return []
+            return [by_id[iid] for iid in chosen_ids]
+        return pool[:count]
     def _resolve_put_hand_card_cost(
         self, player: Player, chosen_ids: Optional[list[int]]
     ) -> Optional[list[GameObject]]:
@@ -1650,7 +1662,7 @@ class ActivationMixin:
         if exile_count:
             source.last_cost_exiled_ids = []
             source.last_cost_exiled_incarnations = {}
-            for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost):
+            for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices):
                 self.rules.exile(victim)
                 source.last_cost_exiled_ids.append(victim.instance_id)
                 source.last_cost_exiled_incarnations[victim.instance_id] = victim.zone_incarnation
@@ -1953,10 +1965,15 @@ class ActivationMixin:
             # RULE 400.7j: the resolving ability can find the new object its own cost exiled.
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_exiled_source_incarnation"] = source.zone_incarnation
-        if ability.cost.exile_others:
+        if ability.cost.exile_others or ability.cost.exile_from_graveyard:
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_exiled_ids"] = list(source.last_cost_exiled_ids)
             hideaway_event["cost_exiled_incarnations"] = dict(source.last_cost_exiled_incarnations)
+            if ability.cost.exile_from_graveyard_mana_value_x:
+                hideaway_event["cost_exiled_cards"] = [
+                    self.state.find_object(iid).card.to_dict() for iid in source.last_cost_exiled_ids
+                    if self.state.find_object(iid) is not None
+                ]
         if ability.cost.remove_counters:
             # RULE 601.2h: preserve this activation's payment independently
             # of later activations or source changes (Jar of Eyeballs).

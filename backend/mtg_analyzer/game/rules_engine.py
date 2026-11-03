@@ -657,6 +657,8 @@ class RulesEngine(
                 self._finish_player_counters(callback, event)
             elif callback["kind"] == "life_gain":
                 self._finish_life_gain(callback["player_id"], callback["amount"], event)
+            elif callback["kind"] == "token_creation":
+                self._finish_token_creation(callback, event)
             else:
                 raise ValueError("Unknown replacement continuation")
         else:

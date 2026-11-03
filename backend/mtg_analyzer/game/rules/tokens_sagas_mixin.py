@@ -128,14 +128,13 @@ class TokensSagasMixin:
         A battlefield-bound ``count`` is routed through `apply_replacements`
         first, so a "create twice that many instead" replacement (RULE
         616.1, e.g. Doubling Season/Parallel Lives) can rewrite it before any
-        token exists. No caller of `create_token`/`copy_permanent` currently
-        depends on the *synchronous* return value beyond the common
-        zero-ambiguity case (where it still resolves and returns
-        immediately, same as before) — if a RULE 616.1 choice opens instead,
-        this returns an empty list right away and the actual tokens are
-        created later, once `_resume_replacement_order` finishes the
-        chain. A token's own `enter_as_copy_effects` choice (below) can pause
-        the very same way, for the very same reason.
+        token exists. A replacement-order choice returns an initially empty
+        result list that the state-owned continuation fills after the choice.
+        Callers with token riders must use ``on_created`` rather than inspect
+        that list synchronously. ``CreateTokenEffect`` supplies a data callback
+        and shares its created-token sink with the suspended outer resolution,
+        preserving tapped/attacking instructions and later token referents
+        through clone/undo. A token's own entry choices can also suspend entry.
 
         """
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
@@ -165,51 +164,70 @@ class TokensSagasMixin:
         )
         result: list[GameObject] = []
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            nonlocal result
-            if resolved is None:
-                return
-            substitute = resolved.get("token_definition")
-            if substitute:
-                # "If you would create a Fish token, create a 3/3 Shark instead." (Fisher's Talent): the
-                # substitute is made in the original's place, and is not itself replaced again here — the
-                # replacement chain (RULE 616.1) already ran before this point.
-                from ...services.token_database import synthesize_token_card
-                result = self.create_token(
-                    controller_id,
-                    synthesize_token_card(
-                        name=substitute.get("token_name", "Creature"), power=substitute.get("power", 1),
-                        toughness=substitute.get("toughness", 1), colors=substitute.get("colors", []),
-                        subtypes=substitute.get("subtypes", []), keywords=substitute.get("keywords", []),
-                    ),
-                    resolved.get("amount", count), _creation_replacements_applied=True,
-                )
-            else:
-                result = _build(resolved.get("amount", count))
-            for batch in resolved.get("additional_tokens", []):
-                from ...services.token_database import synthesize_token_card
-                definition = batch["definition"]
-                extra_card = synthesize_token_card(
-                    name=definition.get("token_name", "Creature"), power=definition.get("power", 1),
-                    toughness=definition.get("toughness", 1), colors=definition.get("colors", []),
-                    subtypes=definition.get("subtypes", []), keywords=definition.get("keywords", []),
-                    is_artifact=bool(definition.get("is_artifact", False)),
-                )
-                result.extend(self.create_token(
-                    controller_id, extra_card, batch["amount"],
-                    _creation_replacements_applied=True,
-                ))
-            # "The first time you create one or more tokens each turn, …"
-            # (Mirrormind Crown) — same missing broadcast `add_counters`
-            # had: `apply_replacements` only used this event to compute the
-            # final amount, so nothing ever reached `_collect_triggers`.
-            self.state.fire_event(resolved)
-
-            if on_created is not None:
-                on_created(result)
-
-        self.apply_replacements(event, on_resolved=_finish)
+        self.apply_replacements(event, on_resolved={
+            "kind": "token_creation", "controller_id": controller_id,
+            "token_card": token_card, "count": count, "result": result,
+            "on_created": on_created,
+        })
         return result
+
+    def _finish_token_creation(self, pending: dict, resolved: Optional[GameEvent]) -> None:
+        """RULE 111.5/616.1: finish a state-owned token event after replacement choices."""
+        controller_id, token_card = pending["controller_id"], pending["token_card"]
+        count, result, on_created = pending["count"], pending["result"], pending.get("on_created")
+        if resolved is None:
+            return
+        substitute = resolved.get("token_definition")
+        if substitute:
+            # "If you would create a Fish token, create a 3/3 Shark instead." (Fisher's Talent): the
+            # substitute is made in the original's place, and is not itself replaced again here — the
+            # replacement chain (RULE 616.1) already ran before this point.
+            from ...services.token_database import synthesize_token_card
+            result.extend(self.create_token(
+                controller_id,
+                synthesize_token_card(
+                    name=substitute.get("token_name", "Creature"), power=substitute.get("power", 1),
+                    toughness=substitute.get("toughness", 1), colors=substitute.get("colors", []),
+                    subtypes=substitute.get("subtypes", []), keywords=substitute.get("keywords", []),
+                ),
+                resolved.get("amount", count), _creation_replacements_applied=True,
+            ))
+        else:
+            self._create_tokens_loop(token_card, controller_id, Zone.BATTLEFIELD, resolved.get("amount", count), result)
+        for batch in resolved.get("additional_tokens", []):
+            from ...services.token_database import synthesize_token_card
+            definition = batch["definition"]
+            extra_card = synthesize_token_card(
+                name=definition.get("token_name", "Creature"), power=definition.get("power", 1),
+                toughness=definition.get("toughness", 1), colors=definition.get("colors", []),
+                subtypes=definition.get("subtypes", []), keywords=definition.get("keywords", []),
+                is_artifact=bool(definition.get("is_artifact", False)),
+            )
+            result.extend(self.create_token(
+                controller_id, extra_card, batch["amount"],
+                _creation_replacements_applied=True,
+            ))
+        # "The first time you create one or more tokens each turn, …"
+        # (Mirrormind Crown) — same missing broadcast `add_counters`
+        # had: `apply_replacements` only used this event to compute the
+        # final amount, so nothing ever reached `_collect_triggers`.
+        self.state.fire_event(resolved)
+
+        if substitute:
+            for token in result:
+                token._token_definition_substituted = True
+        if isinstance(on_created, dict):
+            outer_event, outer_incarnation = self.context.trigger_event, self.context.resolving_source_incarnation
+            self.context.trigger_event = on_created.get("trigger_event")
+            self.context.resolving_source_incarnation = on_created.get("source_incarnation")
+            try:
+                on_created["effect"]._finish_creation(self.context, result, on_created)
+            finally:
+                self.context.trigger_event, self.context.resolving_source_incarnation = outer_event, outer_incarnation
+        elif on_created is not None:
+            on_created(result)
+
+
     def put_onto_battlefield_attacking(
         self, obj: GameObject, defender: Optional[dict[str, Any]] = None
     ) -> bool:

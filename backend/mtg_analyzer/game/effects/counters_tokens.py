@@ -3689,10 +3689,7 @@ class CreateTokenEffect(GameEffect):
         return max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        before = len(context.created_objects)
         self._create_tokens(context, targets)
-        if self.then_trigger_specs and len(context.created_objects) > before:
-            context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 
     def _create_tokens(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ...services.token_database import default_token_database, synthesize_token_card
@@ -3804,84 +3801,108 @@ class CreateTokenEffect(GameEffect):
             creator_ids = [pid] if pid is not None else []
         else:
             creator_ids = [controller_id]
-        for creator_id in creator_ids:
-            made = context.create_token(creator_id, card, count) or []
-            if self.tapped:
-                for token in made:
-                    token.tapped = True
-            defender_picks: list[tuple[Any, Optional[str]]] = []
-            if self.attacking and self.per_opponent:
-                # RULE 508.4a per token: token i attacks opponent i.
-                for token, opp_id in zip(made, per_opp_defenders):
-                    opp = context.state.player_by_id(opp_id)
-                    context.engine.put_onto_battlefield_attacking(
-                        token,
-                        defender={"kind": "player", "id": opp_id,
-                                  "label": getattr(opp, "name", opp_id)},
-                    )
-                    defender_picks.append((token, opp_id))
-            elif self.attacking:
-                for token in made:
-                    context.engine.put_onto_battlefield_attacking(token)
-                    defender = getattr(token, "combat_defender", None) or {}
-                    defender_picks.append((token, defender.get("id") if defender.get("kind") == "player" else None))
-            if self.extra_counters:
-                kind = str(self.extra_counters.get("kind", "+1/+1"))
-                amount = self._resolve_extra_counter_amount(context)
-                if amount:
-                    for token in made:
-                        context.add_counters(token, amount, kind, source=self.source)
-            if self.grant_self_anthem:
-                from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
-                from ...parser.oracle.spec import EffectSpec
+        self._create_for_players(context, creator_ids, card, count, per_opp_defenders, context.created_objects)
 
-                for token in made:
-                    anthem = build_effects(
-                        [EffectSpec("anthem", {**self.grant_self_anthem, "affects": "self"})],
-                        token,
-                    )
-                    token.static_effects.extend(anthem)
-            if self.token_dies_gain_life is not None:
-                # STX Pest: bind the token's own "when ~ dies, you gain N
-                # life." — a `dies` (subject self) → `gain_life` trigger,
-                # bound onto each token exactly as a printed ability would
-                # be at bind-on-load.
-                from ..binding.core import bind_ability  # effects↔binder cycle
-                from ...parser.oracle.spec import AbilitySpec, EffectSpec
+    def _create_for_players(self, context, creator_ids, card, count, defenders, created_sink):
+        if not creator_ids:
+            return
+        payload = {
+            "kind": "token_effect", "effect": self, "creator_id": creator_ids[0],
+            "remaining_creators": list(creator_ids[1:]), "token_card": card, "count": count,
+            "defenders": list(defenders), "created_sink": created_sink,
+            "extra_counter_amount": self._resolve_extra_counter_amount(context) if self.extra_counters else 0,
+            "trigger_event": getattr(context, "trigger_event", None),
+            "source_incarnation": getattr(context, "resolving_source_incarnation", None),
+        }
+        if isinstance(context, GameContext):
+            context.engine.create_token(creator_ids[0], card, count, on_created=payload)
+        else:
+            self._finish_creation(context, context.create_token(creator_ids[0], card, count) or [], payload)
 
+    def _finish_creation(self, context, made, payload):
+        creator_id, per_opp_defenders = payload["creator_id"], payload["defenders"]
+        if self.tapped:
+            for token in made:
+                token.tapped = True
+        defender_picks: list[tuple[Any, Optional[str]]] = []
+        if self.attacking and self.per_opponent:
+            # RULE 508.4a per token: token i attacks opponent i.
+            for token, opp_id in zip(made, per_opp_defenders):
+                opp = context.state.player_by_id(opp_id)
+                context.engine.put_onto_battlefield_attacking(
+                    token,
+                    defender={"kind": "player", "id": opp_id,
+                              "label": getattr(opp, "name", opp_id)},
+                )
+                defender_picks.append((token, opp_id))
+        elif self.attacking:
+            for token in made:
+                context.engine.put_onto_battlefield_attacking(token)
+                defender = getattr(token, "combat_defender", None) or {}
+                defender_picks.append((token, defender.get("id") if defender.get("kind") == "player" else None))
+        if self.extra_counters:
+            kind = str(self.extra_counters.get("kind", "+1/+1"))
+            amount = payload["extra_counter_amount"]
+            if amount:
                 for token in made:
-                    spec = AbilitySpec(
-                        "triggered",
-                        [EffectSpec("gain_life", {"amount": self.token_dies_gain_life})],
-                        trigger={"event": "DIES", "condition": {"subject": "self"}},
-                        raw_text=f"when this creature dies, you gain {self.token_dies_gain_life} life.",
-                    )
-                    bound = bind_ability(spec, token)
-                    if isinstance(bound, list):
-                        token.triggered_abilities.extend(bound)
-                    else:
-                        token.triggered_abilities.append(bound)
-            if self.parametric_keywords:
-                # ENG-31: dock each numbered keyword onto the token itself and
-                # synthesize its RULE 702-text triggered ability, the same
-                # `attach_keyword` + `_keyword_triggered_abilities` pair a
-                # printed keyword line goes through at bind-on-load.
-                from ..binding.core import parametric_keyword_triggered_abilities  # effects↔binder cycle
+                    context.add_counters(token, amount, kind, source=self.source)
+        intrinsic_tokens = [t for t in made if not getattr(t, "_token_definition_substituted", False)]
+        if self.grant_self_anthem:
+            from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+            from ...parser.oracle.spec import EffectSpec
 
-                for pk in self.parametric_keywords:
-                    name, n = str(pk.get("name") or ""), pk.get("n")
-                    if not name or n is None:
-                        continue
-                    for token in made:
-                        token.parametric_keywords[name] = {"n": int(n)}
-                        token.triggered_abilities.extend(
-                            parametric_keyword_triggered_abilities(token, name, int(n))
-                        )
-            # The referent for a following "the tokens are …" clause.
-            context.created_objects.extend(made)
-            if self.defender_planeswalker and defender_picks:
-                # Last, so the rest of the resolution parks behind the pick (RULE 608.2).
-                context.engine._offer_attack_defenders(context.state.player_by_id(creator_id), defender_picks)
+            for token in intrinsic_tokens:
+                anthem = build_effects(
+                    [EffectSpec("anthem", {**self.grant_self_anthem, "affects": "self"})],
+                    token,
+                )
+                token.static_effects.extend(anthem)
+        if self.token_dies_gain_life is not None:
+            # STX Pest: bind the token's own "when ~ dies, you gain N
+            # life." — a `dies` (subject self) → `gain_life` trigger,
+            # bound onto each token exactly as a printed ability would
+            # be at bind-on-load.
+            from ..binding.core import bind_ability  # effects↔binder cycle
+            from ...parser.oracle.spec import AbilitySpec, EffectSpec
+
+            for token in intrinsic_tokens:
+                spec = AbilitySpec(
+                    "triggered",
+                    [EffectSpec("gain_life", {"amount": self.token_dies_gain_life})],
+                    trigger={"event": "DIES", "condition": {"subject": "self"}},
+                    raw_text=f"when this creature dies, you gain {self.token_dies_gain_life} life.",
+                )
+                bound = bind_ability(spec, token)
+                if isinstance(bound, list):
+                    token.triggered_abilities.extend(bound)
+                else:
+                    token.triggered_abilities.append(bound)
+        if self.parametric_keywords:
+            # ENG-31: dock each numbered keyword onto the token itself and
+            # synthesize its RULE 702-text triggered ability, the same
+            # `attach_keyword` + `_keyword_triggered_abilities` pair a
+            # printed keyword line goes through at bind-on-load.
+            from ..binding.core import parametric_keyword_triggered_abilities  # effects↔binder cycle
+
+            for pk in self.parametric_keywords:
+                name, n = str(pk.get("name") or ""), pk.get("n")
+                if not name or n is None:
+                    continue
+                for token in intrinsic_tokens:
+                    token.parametric_keywords[name] = {"n": int(n)}
+                    token.triggered_abilities.extend(
+                        parametric_keyword_triggered_abilities(token, name, int(n))
+                    )
+        # The referent for a following "the tokens are …" clause.
+        payload["created_sink"].extend(made)
+        if self.defender_planeswalker and defender_picks:
+            # Last, so the rest of the resolution parks behind the pick (RULE 608.2).
+            context.engine._offer_attack_defenders(context.state.player_by_id(creator_id), defender_picks)
+        if payload["remaining_creators"]:
+            self._create_for_players(context, payload["remaining_creators"], payload["token_card"],
+                                     payload["count"], payload["defenders"], payload["created_sink"])
+        elif self.then_trigger_specs and payload["created_sink"]:
+            context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 
 
 class CopyPermanentEffect(GameEffect):

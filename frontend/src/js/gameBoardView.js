@@ -784,7 +784,7 @@ export function createGameBoardView(opts = {}) {
       mode: action.mode,
       ability_index: action.ability_index,
     };
-    if (action.type === 'cast_spell' && action.has_x) {
+    if (action.has_x) {
       send.x = readX(action.instance_id, action.face, action.blitz);
     }
     if (action.alt_cost) send.alt_cost = true;
@@ -862,7 +862,7 @@ export function createGameBoardView(opts = {}) {
         mode: action.mode,
         ability_index: action.ability_index,
       };
-      if (action.type === 'cast_spell' && action.has_x) {
+      if (action.has_x) {
         send.x = readX(action.instance_id, action.face, action.blitz);
       }
       if (action.warp) send.warp = true;
@@ -3051,6 +3051,12 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         const { iid, ability_index } = JSON.parse(el.dataset.activateX);
         const x = readX(iid, null);
+        const action = (view?.legal_actions || []).find(a => a.type === 'activate_ability'
+          && a.instance_id === Number(iid) && a.ability_index === ability_index);
+        if (action?.graveyard_exile_cost) {
+          prepareCastTargeting(action);
+          return;
+        }
         act({ type: 'activate_ability', instance_id: iid, ability_index, x });
       });
     });
@@ -3468,9 +3474,11 @@ export function createGameBoardView(opts = {}) {
     }
     if (!isGraveyardExileChoice && action?.graveyard_exile_cost) {
       const { count, options } = action.graveyard_exile_cost;
+      const eligible = action.graveyard_exile_cost.mana_value_equals_x
+        ? options.filter(option => option.mana_value === (payload.x || 0)) : options;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({
-          label: t('bd.exile.graveyardCostCard'), options, optional: false,
+          label: t('bd.exile.graveyardCostCard'), options: eligible, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isGraveyardExileChoice: true,
       };

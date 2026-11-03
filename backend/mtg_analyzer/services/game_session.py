@@ -1367,6 +1367,8 @@ class GameSession:
         sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
         discard_choices = self._resolve_discard_choices(action.get("discard_choices"))
         hand_card_choices = self._resolve_hand_card_choices(action.get("hand_card_choices"))
+        if action.get("graveyard_exile_choices") is not None:
+            hand_card_choices = self._resolve_hand_card_choices(action["graveyard_exile_choices"])
         self.engine.activate_ability(
             active, self._object(action), index, targets, x, tap_choices,
             target_groups=target_groups, sacrifice_choice=sacrifice_choice,

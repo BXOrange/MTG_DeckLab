@@ -1276,6 +1276,35 @@ def _substitute_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+class TokenSubstitutionOption(ReplacementEffect):
+    """RULE 614.1a/616.1: mutually exclusive choices for one optional token substitution.
+
+    Each alternative is offered by the ordinary replacement chooser. Choosing
+    one marks the event for this exact source visit, excluding its siblings;
+    unrelated token replacements still apply in the player's chosen order.
+    """
+    def __init__(self, params):
+        super().__init__(event_type=EventType.CREATE_TOKENS, replacement_fn=lambda e, c: e,
+                         description=str(params.get("description", "")))
+        self.definition = dict(params.get("to") or {})
+
+    def _choice_key(self):
+        return (self.source.instance_id, self.source.zone_incarnation)
+
+    def can_replace(self, event, context):
+        return (super().can_replace(event, context) and self.source is not None
+                and event.get("controller_id") == self.source.controller_id
+                and event.get("amount", 0) > 0
+                and self._choice_key() not in event.get("token_substitution_choices", ()))
+
+    def apply_replacement(self, event, context):
+        changes = {"token_substitution_choices": [*event.get("token_substitution_choices", ()), self._choice_key()]}
+        if self.definition:
+            changes.update(token_name=self.definition["token_name"], token_definition=dict(self.definition),
+                           is_creature=True, is_artifact=False)
+        return event.copy_with(**changes)
+
+
 def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """"If one or more tokens would be created under your control, those
     tokens plus an additional Food token are created instead." (Peregrin
@@ -1646,6 +1675,7 @@ ReplacementRegistry.register("additional_creature_tokens", _additional_creature_
 ReplacementRegistry.register("create_one_of_each_named_token", _create_one_of_each_named_token_replacement)
 ReplacementRegistry.register("additional_named_token", _additional_named_token_replacement)
 ReplacementRegistry.register("substitute_token", _substitute_token_replacement)
+ReplacementRegistry.register("token_substitution_option", TokenSubstitutionOption)
 ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)
 ReplacementRegistry.register("split_multi_draw", _split_multi_draw_replacement)
 ReplacementRegistry.register("steal_non_first_draw", _steal_non_first_draw_replacement)

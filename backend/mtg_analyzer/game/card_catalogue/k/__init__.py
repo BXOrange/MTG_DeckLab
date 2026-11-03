@@ -46,3 +46,4 @@ from . import kefka_dancing_mad  # noqa: F401
 from . import kher_keep  # noqa: F401
 from . import kitsune_bonesetter  # noqa: F401
 from . import kjeldoran_guard  # noqa: F401
+from . import kitesail_larcenist  # noqa: F401

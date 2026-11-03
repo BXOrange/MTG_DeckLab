@@ -3331,6 +3331,12 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # keywords go via `_obj_keywords`, triggered/activated abilities
                 # are gated at fire/activate time on this flag.
                 obj._loses_all_abilities = True
+                # RULE 613.7: remove earlier mana grants; a later grant keeps
+                # its real activation cost, including a Treasure sacrifice.
+                obj._granted_mana.clear()
+                obj._granted_mana_abilities.clear()
+                obj._granted_mana_upgrades.clear()
+                obj._borrowed_mana_abilities.clear()
                 # RULE 613.7: layer-6 effects apply in timestamp order, so this
                 # removal only takes away what an *earlier* effect granted
                 # (`abilities` is timestamp-sorted). Drop the keywords/removals
@@ -3351,6 +3357,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # in the layer; a later grant may create them again.
                 obj._granted_static_abilities.clear()
                 _trace(obj, 6, _source_name(ability), "loses all abilities")
+            if ability.params.get("borrowed_mana_snapshots"):
+                obj._borrowed_mana_abilities.extend(ability.params["borrowed_mana_snapshots"])
             if keywords:
                 obj._granted_keywords.update(keywords)
                 _count_keyword_instances(obj, keywords)
@@ -7320,6 +7328,11 @@ def granted_help_pay_keyword(state: "GameState", obj: Any) -> Optional[str]:
             continue
         excluded = ability.params.get("exclude_card_type")
         if excluded and _has_card_type(obj, str(excluded)):
+            continue
+        # RULE 601.2a: the spell has not moved to the stack when help-pay
+        # permissions are queried; its current zone is the casting origin.
+        origin = ability.params.get("from_zone")
+        if origin and getattr(getattr(obj, "zone", None), "value", None) != origin:
             continue
         return str(ability.params.get("keyword") or "")
     return None

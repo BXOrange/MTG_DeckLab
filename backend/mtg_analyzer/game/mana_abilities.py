@@ -1420,17 +1420,6 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         ManaAbility(cost=ActivationCost(taps_self=True), options=[opt])
         for opt in _derived_basic_mana_options(obj)
     ]
-    if getattr(obj, "loses_all_abilities", False):
-        # RULE 613.7f (Humility/Dress Down) and RULE 305.7 (a Blood-Moon'd
-        # land) both strip the object's *printed* abilities — including its
-        # mana ability, which this used to keep offering. The granted list
-        # and `derived_basic` below are deliberately unaffected: RULE 305.7's
-        # replacement basic land type brings its own intrinsic mana ability
-        # back via the RULE 305.6 derivation above.
-        return [
-            ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
-            for opt in getattr(obj, "granted_mana_options", [])
-        ] + derived_basic
     printed = [
         ManaAbility(
             cost=ability.cost,
@@ -1450,7 +1439,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             gain_life_x=ability.gain_life_x,
         )
         for ability in parse_mana_abilities(obj.card)
-        if _leveler_tier_active(obj, ability)
+        if not getattr(obj, "loses_all_abilities", False) and _leveler_tier_active(obj, ability)
     ]
     # RULE 702.177a: a spent "Exhaust — …: Add …" offers nothing again. Its
     # options are blanked rather than the entry dropped, so every later

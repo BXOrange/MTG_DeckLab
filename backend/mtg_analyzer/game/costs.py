@@ -240,6 +240,8 @@ class ActivationCost:
     #: ``None`` = any card (Escape's own cost, Abhorrent Oculus's untyped
     #: "exile 6 cards").
     exile_from_graveyard_filter: Optional[str] = None
+    #: Osgir: the exiled card must have the activation's announced mana value.
+    exile_from_graveyard_mana_value_x: bool = False
     #: RULE 701.59a (Collect Evidence, PAR-29 — Murders at Karlov Manor): the
     #: **total-mana-value threshold** — "exile any number of cards with total
     #: mana value N or greater from your graveyard". The MV-sum sibling of
@@ -619,6 +621,8 @@ class ActivationCost:
     #: discard a card"): this object is branch A, ``either_alt`` is branch B. The caster picks one when casting — A is
     #: the plain cast, B the `pay_additional` variant (the same two-variant shape `or_mana` uses).
     either_alt: Optional["ActivationCost"] = None
+    #: RULE 601.2b: a mandatory choice among three or more printed costs.
+    cast_alternatives: list["ActivationCost"] = field(default_factory=list)
     raw: str = ""
     #: ENG-49: the words of ``raw`` no cost recognizer read (``None`` when the
     #: whole text was understood). A fragment dropped here is never charged,
@@ -696,6 +700,7 @@ class ActivationCost:
             or self.saddle_power
             or self.station
             or self.sacrifice_or_discard
+            or self.cast_alternatives
             or self.exert_self
             or self.mill
             or self.exile_graveyard_top
@@ -705,6 +710,8 @@ class ActivationCost:
 
     def label(self) -> str:
         """A short "{T}, Sacrifice a creature, Pay 2 life" style summary."""
+        if self.cast_alternatives:
+            return " or ".join(branch.label() for branch in self.cast_alternatives)
         parts: list[str] = []
         # An "X or pay {N}" additional cost keeps the mana half in `mana` as the *default* branch; its label is the
         # other half (the branch `pay_additional` selects).
@@ -840,6 +847,7 @@ class ActivationCost:
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
             "exile_from_graveyard_filter": self.exile_from_graveyard_filter,
+            "exile_from_graveyard_mana_value_x": self.exile_from_graveyard_mana_value_x,
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
             "behold": self.behold,
@@ -870,6 +878,7 @@ class ActivationCost:
             "crew_power": self.crew_power,
             "station": self.station,
             "sacrifice_or_discard": self.sacrifice_or_discard,
+            "alternatives": [branch.to_dict() for branch in self.cast_alternatives],
             "label": self.label(),
         }
 
@@ -891,6 +900,9 @@ def parse_activation_cost(
         return cost
     if isinstance(cost, str):
         return _parse_text(cost)
+
+    if cost.get("alternatives"):
+        return ActivationCost(cast_alternatives=[parse_activation_cost(branch) for branch in cost["alternatives"]])
 
     if cost.get("or_mana"):
         # "<cost> or pay {N}" (RULE 601.2b): the cost's own components for the `pay_additional` branch, the mana for
@@ -973,6 +985,7 @@ def parse_activation_cost(
             parsed.exile_from_graveyard = int(raw)
     if cost.get("exile_from_graveyard_filter"):
         parsed.exile_from_graveyard_filter = str(cost["exile_from_graveyard_filter"])
+    parsed.exile_from_graveyard_mana_value_x = bool(cost.get("exile_from_graveyard_mana_value_x", False))
     if cost.get("collect_evidence"):
         parsed.collect_evidence = int(cost["collect_evidence"])
     if cost.get("forage"):

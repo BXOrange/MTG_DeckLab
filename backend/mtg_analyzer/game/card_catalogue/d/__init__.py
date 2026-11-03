@@ -107,3 +107,4 @@ from . import double_jump  # noqa: F401
 from . import drive_to_work  # noqa: F401
 from . import dazzling_theater  # noqa: F401
 from . import dollmaker_s_shop  # noqa: F401
+from . import dusk_mangler  # noqa: F401
