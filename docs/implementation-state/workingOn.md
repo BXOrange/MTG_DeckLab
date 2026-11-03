@@ -46,26 +46,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
 
-## REL-1 · Pin backend dependencies with hashes (formerly BUG-45b)
-
-- **Started / last update:** 2026-11-02 / 2026-11-02
-- **Goal of this run:** (a) LLM `base_url` SSRF guard and (c) bug reports for a multiplayer session only from a seat of that table with the lobby secret. (b) is not part of this run (see Residue).
-- **Done (built + tested):** (c) `api/bug_reports.py` `_require_seat_at_table` + `player_id` body field + `X-Player-Secret`; `bugReport.js` sends identity; tests in test_api_multiplayer.py (`TestBugReportTableAccess`) and test_api_solo.py; BUG_REPORTS.md note. Full suite 18242 passed, 489 skipped. Browser check done. (a) moot, see Decisions.
-- **In progress:** — (parked on the user decision below; (a) and (c) are closed and filed in Done_Backend.md)
-- **Next step:** user picks the lock tool and whether `setup/install.py` installs from the lock (see Residue); then generate the lock per that choice and test an install from it, including the offline wheelhouse path.
-- **Decisions:** (a) no code exists: the LLM integration (api/llm.py, llm_client.py, llm_settings.py) was removed in cb09a584, so there is no `base_url` to guard; nothing built. Stale git-ignored `backend/data/llm_settings.json` still holds an API key (user may delete). (c) non-seated/observer/unknown/lost-table -> 403 (not a stateless report); only MULTIPLAYER non-solo sessions are gated.
-- **Baselines / artefacts:** full suite at 55639117: 18235 passed, 489 skipped.
-- **Known failures (corrected; final full-cache recheck pending):** —
-- **Residue:** (b) needs a user decision, do not implement unasked: hash pins with `--require-hashes` must cover the full transitive closure for every platform/Python the project installs on (macOS `venv`, Windows `venv_win`, offline wheelhouse from `--download-wheels`). A `pip freeze` from this Mac would pin platform-only packages (e.g. `uvloop` via `uvicorn[standard]`) and break Windows installs. Open question for the user: which lock tool (pip-tools `pip-compile --generate-hashes` per platform, or `uv pip compile --universal`), and whether `setup/install.py` switches to the lock file.
-
-## PAR-228 · Hand-and-graveyard shuffle composition
-
-- **Started / last update:** 2026-11-03 / 2026-11-03 12:25
-- **Goal of this run:** parse the shared player-scoped "shuffle hand and graveyard into library" action using the existing shuffle primitive and compose subsequent draws and surrounding wrappers without changing their scope or order.
-- **Done (built + tested):** row `shuffle_hand_graveyard_into_library` (v823; each player / you + optional draw tail) and, at v826, row `may_shuffle_hand_graveyard_draw` in `effect_rows/draw_discard_cast.py`: "each player may shuffle ... library(. |, then) each player who does draws N cards" = `for_each` players + `optional` (player target, `if_you_do_from: 1`) over `shuffle_hand_and_graveyard_into_library` `scope: "target"` (new in `effects/library.py`) + `draw`; that shuffle type joined `ALWAYS_DONE_ANTECEDENTS` (an empty hand+graveyard still shuffled). PARSER_VERSION 826 + history + lock + handler_row_order; tests `test_par228_hand_graveyard_shuffle.py` (10) and `test_par228_may_shuffle_hand_graveyard.py` (10: two-player engine runs, decliner neither shuffles nor draws, clone of pending per-player choice).
-- **In progress:** nothing. Spec diff v825->v826 (version stamp normalised): +2 new (Step Between Worlds, Turtles in Time), 0 lost, 0 changed. Plain suite after last edit: 18420 passed, 489 skipped (no --full-cache by instruction; `spec.IF_YOU_DO_ANTECEDENT_TYPES` gained the shuffle type, lock regenerated).
-- **Next step:** orchestrator runs `--full-cache` once, then closes PAR-228 (backlog point deleted, Done_Backend entry extended).
-- **Decisions:** builds on committed PAR-225..227 (HEAD 544eb156, PARSER_VERSION 822); next bump is 823. `--full-cache` deferred by the user until all PAR tickets are done.
-- **Baselines / artefacts:** calibration Echo of Eons, Emergency Powers, Time Reversal, Jace, the Living Guildpact.
-- **Known failures (corrected; final full-cache recheck pending):** —
-- **Residue:** other cards of the family are blocked by non-family clauses, not this one: Diminishing Returns (`draws up to 7`, exile top 10), Time Spiral (`untap up to 6 lands`), Weftwalking (`if you cast it` ETB wrapper + free-first-spell static), Mine, Mine, Mine! (library into hand + no-lose static), Arzakon (Black Lotus token / other loyalty clauses); Temporal Cascade already modeled.

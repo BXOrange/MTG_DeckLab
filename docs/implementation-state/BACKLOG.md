@@ -37,16 +37,15 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-axis tickets below are ordered by the 2026-11-03 v819 discovery
-(8,433 open Commander cards, 12,390 fragment sentences). Counts are `touched` /
-`only`: cards containing the family / cards whose every open sentence belongs to
+Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`
+discovery: cards containing the family / cards whose every open sentence belongs to
 it; overlapping upper bounds, not guaranteed unlocks. Before implementation,
 re-scan and verify subfamilies and remaining blockers with `parser_probe blocked`;
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
+Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
-- **PAR-228 · Hand-and-graveyard shuffle composition (residue).** Per-player optional
-  "may shuffle … each player who does draws" form; residue in `workingOn.md`.
+-No Tickets-
 
 ## MEC — Game mechanic
 

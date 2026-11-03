@@ -14,12 +14,13 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-03 at PARSER_VERSION 823: **24,257 / 35,052 cards (69.2%)**,
+Measured on 2026-11-03 at PARSER_VERSION 826: **24,295 / 35,052 cards (69.3%)**,
 including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,634 / 32,068 (73.7%)**.
-PAR-225..228 (v820–823) add untargeted controlled returns, shared flash
-permissions, block-relation bodies and hand-and-graveyard shuffles: **+119
-parser-modeled names, zero lost** across the four spec diffs.
+Commander-legal coverage: **23,670 / 32,068 (73.8%)**.
+PAR-225..228 (v820–826) add untargeted and counted controlled returns, shared
+and duration-bound flash permissions, block-relation bodies and hand-and-graveyard
+shuffles: **+158 parser-modeled names, zero lost** across the seven spec diffs; the v826
+Commander scan records **8,278 open cards / 12,209 fragments**.
 PAR-223 composes source/counter/monarch/attachment-bound lifetimes and exact
 upkeep/end-step/next-turn windows across continuous grants, control, prevention,
 copies and exile play. Against v815: **36 newly parser-modeled names / 35 newly
